@@ -28,7 +28,7 @@ fn output_recording_for_tuple_of_different_types() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: __quantum__qis__mresetz__body
@@ -108,7 +108,7 @@ fn output_recording_for_nested_tuples() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: __quantum__qis__mresetz__body
@@ -196,7 +196,7 @@ fn output_recording_for_tuple_of_arrays() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: __quantum__qis__mresetz__body
@@ -288,7 +288,7 @@ fn output_recording_for_array_of_tuples() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: __quantum__qis__mresetz__body
@@ -380,7 +380,7 @@ fn output_recording_for_literal_bool() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: __quantum__rt__bool_record_output
@@ -422,7 +422,7 @@ fn output_recording_for_literal_double() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: __quantum__rt__double_record_output
@@ -464,7 +464,7 @@ fn output_recording_for_literal_int() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: __quantum__rt__int_record_output
@@ -508,7 +508,7 @@ fn output_recording_for_mix_of_literal_and_variable() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: __quantum__qis__mresetz__body

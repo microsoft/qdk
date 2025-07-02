@@ -141,7 +141,7 @@ fn bell_program() {
 
         declare void @__quantum__rt__result_record_output(%Result*, i8*)
 
-        define void @ENTRYPOINT__main() #0 {
+        define i64 @ENTRYPOINT__main() #0 {
         block_0:
           call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
@@ -150,7 +150,7 @@ fn bell_program() {
           call void @__quantum__rt__array_record_output(i64 2, i8* null)
           call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)
           call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* null)
-          ret void
+          ret i64 0
         }
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="base_profile" "required_num_qubits"="2" "required_num_results"="2" }
@@ -188,7 +188,7 @@ fn teleport_program() {
 
         declare void @__quantum__rt__result_record_output(%Result*, i8*)
 
-        define void @ENTRYPOINT__main() #0 {
+        define i64 @ENTRYPOINT__main() #0 {
         block_0:
           call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 2 to %Qubit*))
@@ -211,7 +211,7 @@ fn teleport_program() {
         block_4:
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 2 to %Result*))
           call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 2 to %Result*), i8* null)
-          ret void
+          ret i64 0
         }
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="3" "required_num_results"="3" }

@@ -183,7 +183,7 @@ pub fn new_program() -> Program {
         Callable {
             name: "main".to_string(),
             input_type: Vec::new(),
-            output_type: None,
+            output_type: Some(Ty::Integer),
             body: Some(BlockId(0)),
             call_type: CallableType::Regular,
         },
@@ -206,7 +206,7 @@ pub fn bell_program() -> Program {
         Callable {
             name: "main".to_string(),
             input_type: vec![],
-            output_type: None,
+            output_type: Some(Ty::Integer),
             body: Some(BlockId(0)),
             call_type: CallableType::Regular,
         },
@@ -295,7 +295,7 @@ pub fn teleport_program() -> Program {
         Callable {
             name: "main".to_string(),
             input_type: vec![],
-            output_type: None,
+            output_type: Some(Ty::Integer),
             body: Some(BlockId(0)),
             call_type: CallableType::Regular,
         },

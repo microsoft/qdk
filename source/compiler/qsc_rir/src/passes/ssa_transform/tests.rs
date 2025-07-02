@@ -97,7 +97,7 @@ fn ssa_transform_removes_store_in_single_block_program() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -127,7 +127,7 @@ fn ssa_transform_removes_store_in_single_block_program() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -245,7 +245,7 @@ fn ssa_transform_removes_multiple_stores_in_single_block_program() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -279,7 +279,7 @@ fn ssa_transform_removes_multiple_stores_in_single_block_program() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -404,7 +404,7 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -442,7 +442,7 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -548,7 +548,7 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks_without_i
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -584,7 +584,7 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks_without_i
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -733,7 +733,7 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -773,7 +773,7 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -901,7 +901,7 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage_in_one_branch() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -939,7 +939,7 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage_in_one_branch() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -1138,7 +1138,7 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -1188,7 +1188,7 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -1368,7 +1368,7 @@ fn ssa_transform_inserts_phi_for_multiple_stored_values() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -1410,7 +1410,7 @@ fn ssa_transform_inserts_phi_for_multiple_stored_values() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -1674,7 +1674,7 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -1730,7 +1730,7 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -1967,7 +1967,7 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -2018,7 +2018,7 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -2156,7 +2156,7 @@ fn ssa_transform_propagates_updates_from_multiple_predecessors_to_later_single_s
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -2195,7 +2195,7 @@ fn ssa_transform_propagates_updates_from_multiple_predecessors_to_later_single_s
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -2290,7 +2290,7 @@ fn ssa_transform_maps_store_instrs_that_use_values_from_other_store_instrs() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -2321,7 +2321,7 @@ fn ssa_transform_maps_store_instrs_that_use_values_from_other_store_instrs() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -2434,7 +2434,7 @@ fn ssa_transform_maps_store_with_variable_from_store_in_conditional_to_phi_node(
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -2470,7 +2470,7 @@ fn ssa_transform_maps_store_with_variable_from_store_in_conditional_to_phi_node(
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -2592,7 +2592,7 @@ fn ssa_transform_allows_point_in_time_copy_of_dynamic_variable() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -2626,7 +2626,7 @@ fn ssa_transform_allows_point_in_time_copy_of_dynamic_variable() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -2776,7 +2776,7 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -2826,7 +2826,7 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool

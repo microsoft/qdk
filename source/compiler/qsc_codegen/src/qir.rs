@@ -273,7 +273,7 @@ impl ToQir<String> for rir::Instruction {
                 format!("  br label %{}", ToQir::<String>::to_qir(block_id, program))
             }
             rir::Instruction::Phi(args, variable) => phi_to_qir(args, *variable, program),
-            rir::Instruction::Return => "  ret void".to_string(),
+            rir::Instruction::Return => "  ret i64 0".to_string(),
             rir::Instruction::Sdiv(lhs, rhs, variable) => {
                 binop_to_qir("sdiv", lhs, rhs, *variable, program)
             }

@@ -1,7 +1,7 @@
 %Result = type opaque
 %Qubit = type opaque
 
-define void @ENTRYPOINT__main() #0 {
+define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 1 to %Qubit*))
@@ -84,7 +84,7 @@ block_10:
   call void @__quantum__rt__int_record_output(i64 %var_53, i8* null)
   call void @__quantum__rt__int_record_output(i64 %var_54, i8* null)
   call void @__quantum__rt__int_record_output(i64 %var_55, i8* null)
-  ret void
+  ret i64 0
 }
 
 declare void @__quantum__qis__x__body(%Qubit*)
