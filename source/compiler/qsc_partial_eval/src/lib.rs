@@ -225,7 +225,7 @@ impl<'a> PartialEvaluator<'a> {
         let entry_point = rir::Callable {
             name: "main".into(),
             input_type: Vec::new(),
-            output_type: None,
+            output_type: Some(rir::Ty::Integer),
             body: Some(entry_block_id),
             call_type: CallableType::Regular,
         };

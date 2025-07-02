@@ -321,12 +321,12 @@ fn simulatable_intrinsic_on_def_stmt_generates_correct_qir() -> miette::Result<(
         %Result = type opaque
         %Qubit = type opaque
 
-        define void @ENTRYPOINT__main() #0 {
+        define i64 @ENTRYPOINT__main() #0 {
         block_0:
           call void @my_gate(%Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
           call void @__quantum__rt__tuple_record_output(i64 0, i8* null)
-          ret void
+          ret i64 0
         }
 
         declare void @my_gate(%Qubit*)

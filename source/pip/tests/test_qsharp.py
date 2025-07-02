@@ -330,7 +330,7 @@ def test_compile_qir_str() -> None:
     qsharp.eval("operation Program() : Result { use q = Qubit(); return MResetZ(q); }")
     operation = qsharp.compile("Program()")
     qir = str(operation)
-    assert "define void @ENTRYPOINT__main()" in qir
+    assert "define i64 @ENTRYPOINT__main()" in qir
     assert '"required_num_qubits"="1" "required_num_results"="1"' in qir
 
 
@@ -339,7 +339,7 @@ def test_compile_qir_str_from_python_callable() -> None:
     qsharp.eval("operation Program() : Result { use q = Qubit(); return MResetZ(q); }")
     operation = qsharp.compile(qsharp.code.Program)
     qir = str(operation)
-    assert "define void @ENTRYPOINT__main()" in qir
+    assert "define i64 @ENTRYPOINT__main()" in qir
     assert '"required_num_qubits"="1" "required_num_results"="1"' in qir
 
 
@@ -350,7 +350,7 @@ def test_compile_qir_str_from_python_callable_with_single_arg() -> None:
     )
     operation = qsharp.compile(qsharp.code.Program, 5)
     qir = str(operation)
-    assert "define void @ENTRYPOINT__main()" in qir
+    assert "define i64 @ENTRYPOINT__main()" in qir
     assert (
         "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 4 to %Result*), i8* null)"
         in qir
@@ -365,7 +365,7 @@ def test_compile_qir_str_from_python_callable_with_array_arg() -> None:
     )
     operation = qsharp.compile(qsharp.code.Program, [5, 3])
     qir = str(operation)
-    assert "define void @ENTRYPOINT__main()" in qir
+    assert "define i64 @ENTRYPOINT__main()" in qir
     assert (
         "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 2 to %Result*), i8* null)"
         in qir
@@ -384,7 +384,7 @@ def test_compile_qir_str_from_python_callable_with_multiple_args() -> None:
     )
     operation = qsharp.compile(qsharp.code.Program, 5, 3)
     qir = str(operation)
-    assert "define void @ENTRYPOINT__main()" in qir
+    assert "define i64 @ENTRYPOINT__main()" in qir
     assert (
         "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 2 to %Result*), i8* null)"
         in qir
@@ -406,7 +406,7 @@ def test_compile_qir_str_from_python_callable_with_multiple_args_passed_as_tuple
     args = (5, 3)
     operation = qsharp.compile(qsharp.code.Program, args)
     qir = str(operation)
-    assert "define void @ENTRYPOINT__main()" in qir
+    assert "define i64 @ENTRYPOINT__main()" in qir
     assert (
         "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 2 to %Result*), i8* null)"
         in qir
