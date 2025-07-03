@@ -74,14 +74,18 @@ fn output_recording_for_tuple_of_different_types() {
                     Call id(1), args( Qubit(0), Result(0), )
                     Variable(0, Boolean) = Call id(2), args( Result(0), )
                     Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
-                    Call id(3), args( Integer(2), Pointer, )
-                    Call id(4), args( Result(0), Pointer, )
-                    Call id(5), args( Variable(1, Boolean), Pointer, )
+                    Call id(3), args( Integer(2), EmptyTag, )
+                    Call id(4), args( Result(0), Tag(0, 5), )
+                    Call id(5), args( Variable(1, Boolean), Tag(1, 5), )
                     Return
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 1
-            num_results: 1"#]]
+            num_results: 1
+            tags:
+                [0]: 0_t0r
+                [1]: 1_t1b
+    "#]]
     .assert_eq(&program.to_string());
 }
 
@@ -156,18 +160,24 @@ fn output_recording_for_nested_tuples() {
                     Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
                     Variable(2, Boolean) = Call id(2), args( Result(0), )
                     Variable(3, Boolean) = Store Variable(2, Boolean)
-                    Call id(3), args( Integer(3), Pointer, )
-                    Call id(4), args( Result(0), Pointer, )
-                    Call id(3), args( Integer(2), Pointer, )
-                    Call id(5), args( Variable(1, Boolean), Pointer, )
-                    Call id(4), args( Result(0), Pointer, )
-                    Call id(3), args( Integer(1), Pointer, )
-                    Call id(5), args( Variable(3, Boolean), Pointer, )
+                    Call id(3), args( Integer(3), EmptyTag, )
+                    Call id(4), args( Result(0), Tag(0, 5), )
+                    Call id(3), args( Integer(2), EmptyTag, )
+                    Call id(5), args( Variable(1, Boolean), Tag(1, 7), )
+                    Call id(4), args( Result(0), Tag(2, 7), )
+                    Call id(3), args( Integer(1), EmptyTag, )
+                    Call id(5), args( Variable(3, Boolean), Tag(3, 7), )
                     Return
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 1
-            num_results: 1"#]]
+            num_results: 1
+            tags:
+                [0]: 0_t0r
+                [1]: 1_t1t0b
+                [2]: 2_t1t1r
+                [3]: 3_t2t0b
+    "#]]
     .assert_eq(&program.to_string());
 }
 
@@ -252,16 +262,21 @@ fn output_recording_for_tuple_of_arrays() {
                     Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
                     Variable(2, Boolean) = Call id(2), args( Result(0), )
                     Variable(3, Boolean) = Store Variable(2, Boolean)
-                    Call id(3), args( Integer(2), Pointer, )
-                    Call id(4), args( Result(0), Pointer, )
-                    Call id(5), args( Integer(2), Pointer, )
-                    Call id(6), args( Variable(1, Boolean), Pointer, )
-                    Call id(6), args( Variable(3, Boolean), Pointer, )
+                    Call id(3), args( Integer(2), EmptyTag, )
+                    Call id(4), args( Result(0), Tag(0, 5), )
+                    Call id(5), args( Integer(2), EmptyTag, )
+                    Call id(6), args( Variable(1, Boolean), Tag(1, 7), )
+                    Call id(6), args( Variable(3, Boolean), Tag(2, 7), )
                     Return
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 1
-            num_results: 1"#]]
+            num_results: 1
+            tags:
+                [0]: 0_t0r
+                [1]: 1_t1a0b
+                [2]: 2_t1a1b
+    "#]]
     .assert_eq(&program.to_string());
 }
 
@@ -344,18 +359,24 @@ fn output_recording_for_array_of_tuples() {
                     Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
                     Variable(2, Boolean) = Call id(2), args( Result(0), )
                     Variable(3, Boolean) = Store Variable(2, Boolean)
-                    Call id(3), args( Integer(2), Pointer, )
-                    Call id(4), args( Integer(2), Pointer, )
-                    Call id(5), args( Result(0), Pointer, )
-                    Call id(6), args( Variable(1, Boolean), Pointer, )
-                    Call id(4), args( Integer(2), Pointer, )
-                    Call id(5), args( Result(0), Pointer, )
-                    Call id(6), args( Variable(3, Boolean), Pointer, )
+                    Call id(3), args( Integer(2), EmptyTag, )
+                    Call id(4), args( Integer(2), EmptyTag, )
+                    Call id(5), args( Result(0), Tag(0, 7), )
+                    Call id(6), args( Variable(1, Boolean), Tag(1, 7), )
+                    Call id(4), args( Integer(2), EmptyTag, )
+                    Call id(5), args( Result(0), Tag(2, 7), )
+                    Call id(6), args( Variable(3, Boolean), Tag(3, 7), )
                     Return
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 1
-            num_results: 1"#]]
+            num_results: 1
+            tags:
+                [0]: 0_a0t0r
+                [1]: 1_a0t1b
+                [2]: 2_a1t0r
+                [3]: 3_a1t1b
+    "#]]
     .assert_eq(&program.to_string());
 }
 
@@ -392,12 +413,15 @@ fn output_recording_for_literal_bool() {
                     body: <NONE>
             blocks:
                 Block 0: Block:
-                    Call id(1), args( Bool(true), Pointer, )
+                    Call id(1), args( Bool(true), Tag(0, 3), )
                     Return
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+                [0]: 0_b
+    "#]]
     .assert_eq(&program.to_string());
 }
 
@@ -434,12 +458,15 @@ fn output_recording_for_literal_double() {
                     body: <NONE>
             blocks:
                 Block 0: Block:
-                    Call id(1), args( Double(42.1), Pointer, )
+                    Call id(1), args( Double(42.1), Tag(0, 3), )
                     Return
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+                [0]: 0_d
+    "#]]
     .assert_eq(&program.to_string());
 }
 
@@ -476,12 +503,15 @@ fn output_recording_for_literal_int() {
                     body: <NONE>
             blocks:
                 Block 0: Block:
-                    Call id(1), args( Integer(42), Pointer, )
+                    Call id(1), args( Integer(42), Tag(0, 3), )
                     Return
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+                [0]: 0_i
+    "#]]
     .assert_eq(&program.to_string());
 }
 
@@ -545,14 +575,18 @@ fn output_recording_for_mix_of_literal_and_variable() {
             blocks:
                 Block 0: Block:
                     Call id(1), args( Qubit(0), Result(0), )
-                    Call id(2), args( Integer(2), Pointer, )
-                    Call id(3), args( Result(0), Pointer, )
-                    Call id(4), args( Bool(true), Pointer, )
+                    Call id(2), args( Integer(2), EmptyTag, )
+                    Call id(3), args( Result(0), Tag(0, 5), )
+                    Call id(4), args( Bool(true), Tag(1, 5), )
                     Return
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 1
-            num_results: 1"#]]
+            num_results: 1
+            tags:
+                [0]: 0_t0r
+                [1]: 1_t1b
+    "#]]
     .assert_eq(&program.to_string());
 }
 

@@ -211,6 +211,7 @@ pub fn bell_program() -> Program {
             call_type: CallableType::Regular,
         },
     );
+    program.tags = vec!["0_a".to_string(), "1_a0r".to_string(), "2_a1r".to_string()];
     program.entry = CallableId(5);
     program.blocks.insert(
         BlockId(0),
@@ -248,7 +249,7 @@ pub fn bell_program() -> Program {
                 CallableId(3),
                 vec![
                     Operand::Literal(Literal::Integer(2)),
-                    Operand::Literal(Literal::Pointer),
+                    Operand::Literal(Literal::Tag(0, 3)),
                 ],
                 None,
             ),
@@ -256,7 +257,7 @@ pub fn bell_program() -> Program {
                 CallableId(4),
                 vec![
                     Operand::Literal(Literal::Result(0)),
-                    Operand::Literal(Literal::Pointer),
+                    Operand::Literal(Literal::Tag(1, 5)),
                 ],
                 None,
             ),
@@ -264,7 +265,7 @@ pub fn bell_program() -> Program {
                 CallableId(4),
                 vec![
                     Operand::Literal(Literal::Result(1)),
-                    Operand::Literal(Literal::Pointer),
+                    Operand::Literal(Literal::Tag(2, 5)),
                 ],
                 None,
             ),
@@ -300,6 +301,7 @@ pub fn teleport_program() -> Program {
             call_type: CallableType::Regular,
         },
     );
+    program.tags = vec!["0_r".to_string()];
     program.entry = CallableId(7);
     program.blocks.insert(
         BlockId(0),
@@ -427,7 +429,7 @@ pub fn teleport_program() -> Program {
                 CallableId(6),
                 vec![
                     Operand::Literal(Literal::Result(2)),
-                    Operand::Literal(Literal::Pointer),
+                    Operand::Literal(Literal::Tag(0, 3)),
                 ],
                 None,
             ),

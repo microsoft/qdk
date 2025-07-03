@@ -1,6 +1,17 @@
 %Result = type opaque
 %Qubit = type opaque
 
+@empty_tag = internal constant [1 x i8] c"\00"
+@0 = internal constant [10 x i8] c"0_t0t0a0r\00"
+@1 = internal constant [10 x i8] c"1_t0t0a1r\00"
+@2 = internal constant [10 x i8] c"2_t0t0a2r\00"
+@3 = internal constant [8 x i8] c"3_t0t1i\00"
+@4 = internal constant [10 x i8] c"4_t1t0a0r\00"
+@5 = internal constant [10 x i8] c"5_t1t0a1r\00"
+@6 = internal constant [10 x i8] c"6_t1t0a2r\00"
+@7 = internal constant [10 x i8] c"7_t1t0a3r\00"
+@8 = internal constant [8 x i8] c"8_t1t1b\00"
+
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
@@ -282,20 +293,20 @@ block_82:
   call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 6 to %Qubit*))
   call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 7 to %Qubit*), %Result* inttoptr (i64 7 to %Result*))
   %var_77 = call i1 @__quantum__qis__read_result__body(%Result* inttoptr (i64 7 to %Result*))
-  call void @__quantum__rt__tuple_record_output(i64 2, i8* null)
-  call void @__quantum__rt__tuple_record_output(i64 2, i8* null)
-  call void @__quantum__rt__array_record_output(i64 3, i8* null)
-  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)
-  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* null)
-  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 2 to %Result*), i8* null)
-  call void @__quantum__rt__int_record_output(i64 %var_93, i8* null)
-  call void @__quantum__rt__tuple_record_output(i64 2, i8* null)
-  call void @__quantum__rt__array_record_output(i64 4, i8* null)
-  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 3 to %Result*), i8* null)
-  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 4 to %Result*), i8* null)
-  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 5 to %Result*), i8* null)
-  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 6 to %Result*), i8* null)
-  call void @__quantum__rt__bool_record_output(i1 %var_77, i8* null)
+  call void @__quantum__rt__tuple_record_output(i64 2, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 2, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__array_record_output(i64 3, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([10 x i8], [10 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* getelementptr inbounds ([10 x i8], [10 x i8]* @1, i64 0, i64 0))
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 2 to %Result*), i8* getelementptr inbounds ([10 x i8], [10 x i8]* @2, i64 0, i64 0))
+  call void @__quantum__rt__int_record_output(i64 %var_93, i8* getelementptr inbounds ([8 x i8], [8 x i8]* @3, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 2, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__array_record_output(i64 4, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 3 to %Result*), i8* getelementptr inbounds ([10 x i8], [10 x i8]* @4, i64 0, i64 0))
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 4 to %Result*), i8* getelementptr inbounds ([10 x i8], [10 x i8]* @5, i64 0, i64 0))
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 5 to %Result*), i8* getelementptr inbounds ([10 x i8], [10 x i8]* @6, i64 0, i64 0))
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 6 to %Result*), i8* getelementptr inbounds ([10 x i8], [10 x i8]* @7, i64 0, i64 0))
+  call void @__quantum__rt__bool_record_output(i1 %var_77, i8* getelementptr inbounds ([8 x i8], [8 x i8]* @8, i64 0, i64 0))
   ret i64 0
 }
 

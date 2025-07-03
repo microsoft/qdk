@@ -46,7 +46,7 @@ fn qubit_ids_are_correct_for_allocate_use_release_one_qubit() {
     expect![[r#"
         Block:
             Call id(1), args( Qubit(0), )
-            Call id(2), args( Integer(0), Pointer, )
+            Call id(2), args( Integer(0), EmptyTag, )
             Return"#]]
     .assert_eq(&program.get_block(BlockId(0)).to_string());
 }
@@ -107,7 +107,7 @@ fn qubit_ids_are_correct_for_allocate_use_release_multiple_qubits() {
                 Call id(1), args( Qubit(0), )
                 Call id(1), args( Qubit(1), )
                 Call id(1), args( Qubit(2), )
-                Call id(2), args( Integer(0), Pointer, )
+                Call id(2), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
     assert_eq!(program.num_qubits, 3);
@@ -170,7 +170,7 @@ fn qubit_ids_are_correct_for_allocate_use_release_one_qubit_multiple_times() {
                 Call id(1), args( Qubit(0), )
                 Call id(1), args( Qubit(0), )
                 Call id(1), args( Qubit(0), )
-                Call id(2), args( Integer(0), Pointer, )
+                Call id(2), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
     assert_eq!(program.num_qubits, 1);
@@ -241,7 +241,7 @@ fn qubit_ids_are_correct_for_allocate_use_release_multiple_qubits_interleaved() 
                 Call id(1), args( Qubit(2), )
                 Call id(1), args( Qubit(2), )
                 Call id(1), args( Qubit(3), )
-                Call id(2), args( Integer(0), Pointer, )
+                Call id(2), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
     assert_eq!(program.num_qubits, 4);
@@ -307,7 +307,7 @@ fn qubit_array_allocation_and_access() {
                 Variable(1, Integer) = Store Integer(1)
                 Variable(1, Integer) = Store Integer(2)
                 Variable(1, Integer) = Store Integer(3)
-                Call id(2), args( Integer(0), Pointer, )
+                Call id(2), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
     assert_eq!(program.num_qubits, 3);

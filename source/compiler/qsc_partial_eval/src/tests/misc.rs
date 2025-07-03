@@ -58,7 +58,7 @@ fn unitary_call_within_an_if_with_classical_condition_within_a_for_loop() {
                 Call id(1), args( Qubit(0), )
                 Variable(0, Integer) = Store Integer(5)
                 Variable(0, Integer) = Store Integer(6)
-                Call id(2), args( Integer(0), Pointer, )
+                Call id(2), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -112,7 +112,7 @@ fn unitary_call_within_an_if_with_classical_condition_within_a_while_loop() {
                 Call id(1), args( Qubit(0), )
                 Variable(0, Integer) = Store Integer(5)
                 Variable(0, Integer) = Store Integer(6)
-                Call id(2), args( Integer(0), Pointer, )
+                Call id(2), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -173,7 +173,7 @@ fn unitary_call_within_an_if_with_classical_condition_within_a_repeat_until_loop
                 Variable(1, Boolean) = Store Bool(true)
                 Variable(0, Integer) = Store Integer(6)
                 Variable(1, Boolean) = Store Bool(false)
-                Call id(2), args( Integer(0), Pointer, )
+                Call id(2), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -207,7 +207,7 @@ fn boolean_assign_and_update_with_classical_value_within_an_if_with_dynamic_cond
                 Branch Variable(2, Boolean), 2, 1
             Block 1:Block:
                 Variable(3, Boolean) = Store Variable(0, Boolean)
-                Call id(3), args( Variable(3, Boolean), Pointer, )
+                Call id(3), args( Variable(3, Boolean), Tag(0, 3), )
                 Return
             Block 2:Block:
                 Variable(0, Boolean) = Store Bool(false)
@@ -244,7 +244,7 @@ fn integer_assign_and_update_with_classical_value_within_an_if_with_dynamic_cond
                 Branch Variable(2, Boolean), 2, 1
             Block 1:Block:
                 Variable(3, Integer) = Store Variable(0, Integer)
-                Call id(3), args( Variable(3, Integer), Pointer, )
+                Call id(3), args( Variable(3, Integer), Tag(0, 3), )
                 Return
             Block 2:Block:
                 Variable(0, Integer) = Store Integer(5)
@@ -335,7 +335,7 @@ fn integer_assign_with_hybrid_value_within_an_if_with_dynamic_condition() {
             Block 3:Block:
                 Variable(1, Integer) = Store Integer(2)
                 Variable(7, Integer) = Store Variable(0, Integer)
-                Call id(3), args( Variable(7, Integer), Pointer, )
+                Call id(3), args( Variable(7, Integer), Tag(0, 3), )
                 Return
             Block 4:Block:
                 Variable(6, Integer) = BitwiseOr Variable(0, Integer), Integer(2)
@@ -376,7 +376,7 @@ fn large_loop_with_inner_if_completes_eval_and_transform() {
             Block:
                 Variable(1, Integer) = Store Integer(100)
                 Variable(400, Integer) = Store Variable(0, Integer)
-                Call id(3), args( Variable(400, Integer), Pointer, )
+                Call id(3), args( Variable(400, Integer), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -475,7 +475,7 @@ fn if_else_expression_with_dynamic_logical_and_condition() {
                 Variable(2, Boolean) = Store Variable(4, Boolean)
                 Jump(1)
             Block 3:Block:
-                Call id(5), args( Integer(0), Pointer, )
+                Call id(5), args( Integer(0), EmptyTag, )
                 Return
             Block 4:Block:
                 Call id(3), args( Qubit(2), )
@@ -580,7 +580,7 @@ fn if_else_expression_with_dynamic_logical_or_condition() {
                 Variable(2, Boolean) = Store Variable(4, Boolean)
                 Jump(1)
             Block 3:Block:
-                Call id(5), args( Integer(0), Pointer, )
+                Call id(5), args( Integer(0), EmptyTag, )
                 Return
             Block 4:Block:
                 Call id(3), args( Qubit(2), )

@@ -439,7 +439,9 @@ fn qubit_reindexed_across_branches() {
             config: Config:
                 capabilities: Base
             num_qubits: 1
-            num_results: 3"#]]
+            num_results: 3
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 
     // After

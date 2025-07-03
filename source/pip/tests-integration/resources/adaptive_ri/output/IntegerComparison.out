@@ -4,8 +4,8 @@ METADATA	output_labeling_schema
 METADATA	qir_profiles	adaptive_profile
 METADATA	required_num_qubits	1
 METADATA	required_num_results	10
-OUTPUT	TUPLE	3
-OUTPUT	BOOL	true
-OUTPUT	BOOL	false
-OUTPUT	BOOL	true
+OUTPUT	TUPLE	3	
+OUTPUT	BOOL	true	0_t0b
+OUTPUT	BOOL	false	1_t1b
+OUTPUT	BOOL	true	2_t2b
 END	0

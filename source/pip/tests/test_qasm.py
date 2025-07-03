@@ -346,7 +346,7 @@ def test_compile_qir_str_from_python_callable_with_single_arg() -> None:
         in qir
     )
     assert (
-        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)"
+        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))"
         in qir
     )
     assert '"required_num_qubits"="1" "required_num_results"="1"' in qir
@@ -374,7 +374,7 @@ def test_compile_qir_str_from_python_callable_with_multiple_args() -> None:
         in qir
     )
     assert (
-        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)"
+        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))"
         in qir
     )
     assert '"required_num_qubits"="1" "required_num_results"="1"' in qir
@@ -405,7 +405,7 @@ def test_compile_qir_str_from_python_callable_with_multiple_args_passed_as_tuple
         in qir
     )
     assert (
-        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)"
+        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))"
         in qir
     )
     assert '"required_num_qubits"="1" "required_num_results"="1"' in qir

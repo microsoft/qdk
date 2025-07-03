@@ -53,7 +53,7 @@ fn result_ids_are_correct_for_measuring_and_resetting_one_qubit() {
         &expect![[r#"
             Block:
                 Call id(1), args( Qubit(0), Result(0), )
-                Call id(2), args( Result(0), Pointer, )
+                Call id(2), args( Result(0), Tag(0, 3), )
                 Return"#]],
     );
     assert_eq!(program.num_qubits, 1);
@@ -107,7 +107,7 @@ fn result_ids_are_correct_for_measuring_one_qubit() {
         &expect![[r#"
             Block:
                 Call id(1), args( Qubit(0), Result(0), )
-                Call id(2), args( Result(0), Pointer, )
+                Call id(2), args( Result(0), Tag(0, 3), )
                 Return"#]],
     );
     assert_eq!(program.num_qubits, 1);
@@ -179,10 +179,10 @@ fn result_ids_are_correct_for_measuring_one_qubit_multiple_times() {
                 Call id(1), args( Qubit(0), Result(0), )
                 Call id(1), args( Qubit(0), Result(1), )
                 Call id(1), args( Qubit(0), Result(2), )
-                Call id(2), args( Integer(3), Pointer, )
-                Call id(3), args( Result(0), Pointer, )
-                Call id(3), args( Result(1), Pointer, )
-                Call id(3), args( Result(2), Pointer, )
+                Call id(2), args( Integer(3), EmptyTag, )
+                Call id(3), args( Result(0), Tag(0, 5), )
+                Call id(3), args( Result(1), Tag(1, 5), )
+                Call id(3), args( Result(2), Tag(2, 5), )
                 Return"#]],
     );
 }
@@ -252,10 +252,10 @@ fn result_ids_are_correct_for_measuring_one_qubit_multiple_times_into_array() {
                 Call id(1), args( Qubit(0), Result(0), )
                 Call id(1), args( Qubit(0), Result(1), )
                 Call id(1), args( Qubit(0), Result(2), )
-                Call id(2), args( Integer(3), Pointer, )
-                Call id(3), args( Result(0), Pointer, )
-                Call id(3), args( Result(1), Pointer, )
-                Call id(3), args( Result(2), Pointer, )
+                Call id(2), args( Integer(3), EmptyTag, )
+                Call id(3), args( Result(0), Tag(0, 5), )
+                Call id(3), args( Result(1), Tag(1, 5), )
+                Call id(3), args( Result(2), Tag(2, 5), )
                 Return"#]],
     );
     assert_eq!(program.num_qubits, 1);
@@ -327,10 +327,10 @@ fn result_ids_are_correct_for_measuring_multiple_qubits() {
                 Call id(1), args( Qubit(0), Result(0), )
                 Call id(1), args( Qubit(1), Result(1), )
                 Call id(1), args( Qubit(2), Result(2), )
-                Call id(2), args( Integer(3), Pointer, )
-                Call id(3), args( Result(0), Pointer, )
-                Call id(3), args( Result(1), Pointer, )
-                Call id(3), args( Result(2), Pointer, )
+                Call id(2), args( Integer(3), EmptyTag, )
+                Call id(3), args( Result(0), Tag(0, 5), )
+                Call id(3), args( Result(1), Tag(1, 5), )
+                Call id(3), args( Result(2), Tag(2, 5), )
                 Return"#]],
     );
     assert_eq!(program.num_qubits, 3);
