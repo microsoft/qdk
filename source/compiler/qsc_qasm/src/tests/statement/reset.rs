@@ -153,7 +153,7 @@ fn reset_with_adaptive_ri_profile_generates_reset_qir() -> miette::Result<(), Ve
         !1 = !{i32 7, !"qir_minor_version", i32 0}
         !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
         !3 = !{i32 1, !"dynamic_result_management", i1 false}
-        !4 = !{i32 1, !"int_computations", !"i64"}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
     "#]]
     .assert_eq(&qir);
 

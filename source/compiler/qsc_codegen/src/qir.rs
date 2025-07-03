@@ -728,8 +728,8 @@ fn get_module_metadata(program: &rir::Program) -> String {
                     let name = "int_computations";
                     writeln!(
                         flags,
-                        "!{} = !{{i32 {}, !\"{}\", !\"i{}\"}}",
-                        index, 1, name, 64
+                        "!{} = !{{i32 {}, !\"{}\", !{{!\"i{}\"}}}}",
+                        index, 5, name, 64
                     )
                     .expect("writing to string should succeed");
                     index += 1;
@@ -738,8 +738,8 @@ fn get_module_metadata(program: &rir::Program) -> String {
                     let name = "float_computations";
                     writeln!(
                         flags,
-                        "!{} = !{{i32 {}, !\"{}\", !\"f{}\"}}",
-                        index, 1, name, 64
+                        "!{} = !{{i32 {}, !\"{}\", !{{!\"f{}\"}}}}",
+                        index, 5, name, 64
                     )
                     .expect("writing to string should succeed");
                     index += 1;
