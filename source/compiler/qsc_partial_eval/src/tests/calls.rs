@@ -50,11 +50,11 @@ fn call_to_single_qubit_unitary_with_two_calls_to_the_same_intrinsic() {
         &program,
         BlockId(0),
         &expect![[r#"
-        Block:
-            Call id(1), args( Qubit(0), )
-            Call id(1), args( Qubit(0), )
-            Call id(2), args( Integer(0), Pointer, )
-            Return"#]],
+            Block:
+                Call id(1), args( Qubit(0), )
+                Call id(1), args( Qubit(0), )
+                Call id(2), args( Integer(0), EmptyTag, )
+                Return"#]],
     );
 }
 
@@ -105,11 +105,11 @@ fn call_to_single_qubit_unitary_with_calls_to_different_intrinsics() {
         &program,
         BlockId(0),
         &expect![[r#"
-        Block:
-            Call id(1), args( Qubit(0), )
-            Call id(2), args( Qubit(0), )
-            Call id(3), args( Integer(0), Pointer, )
-            Return"#]],
+            Block:
+                Call id(1), args( Qubit(0), )
+                Call id(2), args( Qubit(0), )
+                Call id(3), args( Integer(0), EmptyTag, )
+                Return"#]],
     );
 }
 
@@ -147,11 +147,11 @@ fn call_to_two_qubit_unitary() {
         &program,
         BlockId(0),
         &expect![[r#"
-        Block:
-            Call id(1), args( Qubit(0), Qubit(1), )
-            Call id(1), args( Qubit(1), Qubit(0), )
-            Call id(2), args( Integer(0), Pointer, )
-            Return"#]],
+            Block:
+                Call id(1), args( Qubit(0), Qubit(1), )
+                Call id(1), args( Qubit(1), Qubit(0), )
+                Call id(2), args( Integer(0), EmptyTag, )
+                Return"#]],
     );
 }
 
@@ -204,11 +204,11 @@ fn call_to_unitary_that_receives_double_and_qubit() {
         &program,
         BlockId(0),
         &expect![[r#"
-        Block:
-            Call id(1), args( Double(1), Qubit(0), )
-            Call id(2), args( Qubit(0), Double(1), )
-            Call id(3), args( Integer(0), Pointer, )
-            Return"#]],
+            Block:
+                Call id(1), args( Double(1), Qubit(0), )
+                Call id(2), args( Qubit(0), Double(1), )
+                Call id(3), args( Integer(0), EmptyTag, )
+                Return"#]],
     );
 }
 
@@ -277,11 +277,11 @@ fn calls_to_unitary_that_conditionally_calls_intrinsic_with_classical_bool() {
         &program,
         BlockId(0),
         &expect![[r#"
-        Block:
-            Call id(1), args( Qubit(0), )
-            Call id(2), args( Qubit(0), )
-            Call id(3), args( Integer(0), Pointer, )
-            Return"#]],
+            Block:
+                Call id(1), args( Qubit(0), )
+                Call id(2), args( Qubit(0), )
+                Call id(3), args( Integer(0), EmptyTag, )
+                Return"#]],
     );
 }
 
@@ -383,7 +383,7 @@ fn calls_to_unitary_that_conditionally_calls_intrinsic_with_dynamic_bool() {
                 Variable(1, Boolean) = Store Variable(0, Boolean)
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
-                Call id(5), args( Integer(0), Pointer, )
+                Call id(5), args( Integer(0), EmptyTag, )
                 Return
             Block 2:Block:
                 Call id(3), args( Qubit(1), )
@@ -428,11 +428,11 @@ fn call_to_unitary_rotation_unitary_with_computation() {
         &program,
         BlockId(0),
         &expect![[r#"
-        Block:
-            Call id(1), args( Double(4), Qubit(0), )
-            Call id(1), args( Double(6), Qubit(0), )
-            Call id(2), args( Integer(0), Pointer, )
-            Return"#]],
+            Block:
+                Call id(1), args( Double(4), Qubit(0), )
+                Call id(1), args( Double(6), Qubit(0), )
+                Call id(2), args( Integer(0), EmptyTag, )
+                Return"#]],
     );
 }
 
@@ -482,10 +482,10 @@ fn call_to_operation_that_returns_measurement_result() {
         &program,
         BlockId(0),
         &expect![[r#"
-        Block:
-            Call id(1), args( Qubit(0), Result(0), )
-            Call id(2), args( Result(0), Pointer, )
-            Return"#]],
+            Block:
+                Call id(1), args( Qubit(0), Result(0), )
+                Call id(2), args( Result(0), Tag(0, 3), )
+                Return"#]],
     );
 }
 
@@ -554,7 +554,7 @@ fn call_to_operation_that_returns_dynamic_bool() {
                 Variable(0, Boolean) = Call id(2), args( Result(0), )
                 Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
                 Variable(2, Boolean) = Store Variable(1, Boolean)
-                Call id(3), args( Variable(2, Boolean), Pointer, )
+                Call id(3), args( Variable(2, Boolean), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -613,7 +613,7 @@ fn call_to_boolean_function_using_result_literal_as_argument_yields_constant() {
         &expect![[r#"
             Block:
                 Call id(1), args( Qubit(0), )
-                Call id(2), args( Integer(0), Pointer, )
+                Call id(2), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -702,7 +702,7 @@ fn call_to_boolean_function_using_dynamic_result_as_argument_generates_branches(
                 Variable(1, Boolean) = Store Variable(0, Boolean)
                 Branch Variable(1, Boolean), 2, 1
             Block 1:Block:
-                Call id(4), args( Integer(0), Pointer, )
+                Call id(4), args( Integer(0), EmptyTag, )
                 Return
             Block 2:Block:
                 Call id(3), args( Qubit(1), )
@@ -780,7 +780,7 @@ fn call_to_unitary_operation_with_one_qubit_argument_using_one_control_qubit() {
             Block:
                 Call id(1), args( Qubit(1), )
                 Call id(2), args( Qubit(0), Qubit(1), )
-                Call id(3), args( Integer(0), Pointer, )
+                Call id(3), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -856,7 +856,7 @@ fn call_to_unitary_operation_with_one_qubit_argument_using_mutiple_control_qubit
             Block:
                 Call id(1), args( Qubit(2), )
                 Call id(2), args( Qubit(0), Qubit(1), Qubit(2), )
-                Call id(3), args( Integer(0), Pointer, )
+                Call id(3), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -933,7 +933,7 @@ fn call_to_unitary_operation_with_two_qubit_arguments_using_one_control_qubit() 
             Block:
                 Call id(1), args( Qubit(1), Qubit(2), )
                 Call id(2), args( Qubit(0), Qubit(1), Qubit(2), )
-                Call id(3), args( Integer(0), Pointer, )
+                Call id(3), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -1049,7 +1049,7 @@ fn call_to_unitary_operation_using_multiple_controlled_functors() {
                 Call id(2), args( Qubit(1), Qubit(0), )
                 Call id(3), args( Qubit(1), Qubit(2), Qubit(0), )
                 Call id(4), args( Qubit(3), )
-                Call id(5), args( Integer(0), Pointer, )
+                Call id(5), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -1084,10 +1084,10 @@ fn call_to_closue_with_no_bound_locals() {
         &program,
         BlockId(0),
         &expect![[r#"
-        Block:
-            Call id(1), args( Qubit(0), )
-            Call id(2), args( Integer(0), Pointer, )
-            Return"#]],
+            Block:
+                Call id(1), args( Qubit(0), )
+                Call id(2), args( Integer(0), EmptyTag, )
+                Return"#]],
     );
 }
 
@@ -1124,7 +1124,7 @@ fn call_to_closue_with_one_bound_local() {
         &expect![[r#"
             Block:
                 Call id(1), args( Double(1), Qubit(0), )
-                Call id(2), args( Integer(0), Pointer, )
+                Call id(2), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -1162,7 +1162,7 @@ fn call_to_closue_with_two_bound_locals() {
         &expect![[r#"
             Block:
                 Call id(1), args( Double(1), Qubit(0), )
-                Call id(2), args( Integer(0), Pointer, )
+                Call id(2), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -1200,7 +1200,7 @@ fn call_to_closue_with_one_bound_local_two_unbound() {
         &expect![[r#"
             Block:
                 Call id(1), args( Double(1), Qubit(0), )
-                Call id(2), args( Integer(0), Pointer, )
+                Call id(2), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -1228,10 +1228,10 @@ fn call_to_unresolved_callee_with_classical_arg_allowed() {
         &program,
         BlockId(0),
         &expect![[r#"
-        Block:
-            Call id(1), args( Double(1), Qubit(0), )
-            Call id(2), args( Integer(0), Pointer, )
-            Return"#]],
+            Block:
+                Call id(1), args( Double(1), Qubit(0), )
+                Call id(2), args( Integer(0), EmptyTag, )
+                Return"#]],
     );
 }
 
@@ -1343,7 +1343,7 @@ fn call_to_unresolved_callee_with_static_arg_and_entry_return_value_succeeds() {
             Block:
                 Call id(1), args( Double(1), Qubit(0), )
                 Call id(2), args( Qubit(0), Result(0), )
-                Call id(3), args( Result(0), Pointer, )
+                Call id(3), args( Result(0), Tag(0, 3), )
                 Return"#]],
     );
 }

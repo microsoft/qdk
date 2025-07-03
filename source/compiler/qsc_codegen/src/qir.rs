@@ -120,6 +120,16 @@ impl ToQir<String> for rir::Literal {
             rir::Literal::Pointer => "i8* null".to_string(),
             rir::Literal::Qubit(q) => format!("%Qubit* inttoptr (i64 {q} to %Qubit*)"),
             rir::Literal::Result(r) => format!("%Result* inttoptr (i64 {r} to %Result*)"),
+            rir::Literal::Tag(idx, len) => {
+                let len = len + 1; // +1 for the null terminator
+                format!(
+                    "i8* getelementptr inbounds ([{len} x i8], [{len} x i8]* @{idx}, i64 0, i64 0)"
+                )
+            }
+            rir::Literal::EmptyTag => {
+                "i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0)"
+                    .to_string()
+            }
         }
     }
 }
@@ -571,6 +581,9 @@ fn get_value_as_str(value: &rir::Operand, program: &rir::Program) -> String {
             rir::Literal::Pointer => "null".to_string(),
             rir::Literal::Qubit(q) => format!("{q}"),
             rir::Literal::Result(r) => format!("{r}"),
+            rir::Literal::Tag(..) | rir::Literal::EmptyTag => panic!(
+                "tag literals should not be used as string values outside of output recording"
+            ),
         },
         rir::Operand::Variable(var) => ToQir::<String>::to_qir(&var.variable_id, program),
     }
@@ -584,7 +597,7 @@ fn get_value_ty(lhs: &rir::Operand) -> &str {
             rir::Literal::Double(_) => get_f64_ty(),
             rir::Literal::Qubit(_) => "%Qubit*",
             rir::Literal::Result(_) => "%Result*",
-            rir::Literal::Pointer => "i8*",
+            rir::Literal::Pointer | rir::Literal::Tag(..) | rir::Literal::EmptyTag => "i8*",
         },
         rir::Operand::Variable(var) => get_variable_ty(*var),
     }
@@ -690,9 +703,19 @@ impl ToQir<String> for rir::Program {
         } else {
             "adaptive_profile"
         };
+        let mut constants = String::default();
+        for (idx, tag) in self.tags.iter().enumerate() {
+            // We need to add the tag as a global constant.
+            writeln!(
+                constants,
+                "@{idx} = internal constant [{} x i8] c\"{tag}\\00\"",
+                tag.len() + 1
+            )
+            .expect("writing to string should succeed");
+        }
         let body = format!(
             include_str!("./qir/template.ll"),
-            callables, profile, self.num_qubits, self.num_results
+            constants, callables, profile, self.num_qubits, self.num_results
         );
         let flags = get_module_metadata(self);
         body + "\n" + &flags

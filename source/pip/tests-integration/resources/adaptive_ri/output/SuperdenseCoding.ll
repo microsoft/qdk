@@ -1,6 +1,12 @@
 %Result = type opaque
 %Qubit = type opaque
 
+@empty_tag = internal constant [1 x i8] c"\00"
+@0 = internal constant [8 x i8] c"0_t0t0b\00"
+@1 = internal constant [8 x i8] c"1_t0t1b\00"
+@2 = internal constant [8 x i8] c"2_t1t0b\00"
+@3 = internal constant [8 x i8] c"3_t1t1b\00"
+
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
@@ -35,13 +41,13 @@ block_4:
   %var_13 = call i1 @__quantum__qis__read_result__body(%Result* inttoptr (i64 3 to %Result*))
   call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 0 to %Qubit*))
   call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__rt__tuple_record_output(i64 2, i8* null)
-  call void @__quantum__rt__tuple_record_output(i64 2, i8* null)
-  call void @__quantum__rt__bool_record_output(i1 %var_0, i8* null)
-  call void @__quantum__rt__bool_record_output(i1 %var_4, i8* null)
-  call void @__quantum__rt__tuple_record_output(i64 2, i8* null)
-  call void @__quantum__rt__bool_record_output(i1 %var_9, i8* null)
-  call void @__quantum__rt__bool_record_output(i1 %var_13, i8* null)
+  call void @__quantum__rt__tuple_record_output(i64 2, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 2, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__bool_record_output(i1 %var_0, i8* getelementptr inbounds ([8 x i8], [8 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__bool_record_output(i1 %var_4, i8* getelementptr inbounds ([8 x i8], [8 x i8]* @1, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 2, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__bool_record_output(i1 %var_9, i8* getelementptr inbounds ([8 x i8], [8 x i8]* @2, i64 0, i64 0))
+  call void @__quantum__rt__bool_record_output(i1 %var_13, i8* getelementptr inbounds ([8 x i8], [8 x i8]* @3, i64 0, i64 0))
   ret i64 0
 }
 

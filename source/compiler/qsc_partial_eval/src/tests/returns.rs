@@ -44,9 +44,9 @@ fn non_classical_entry_point_with_classical_implicit_return() {
         &program,
         BlockId(0),
         &expect![[r#"
-        Block:
-            Call id(1), args( Bool(true), Pointer, )
-            Return"#]],
+            Block:
+                Call id(1), args( Bool(true), Tag(0, 3), )
+                Return"#]],
     );
 }
 
@@ -95,7 +95,7 @@ fn non_classical_entry_point_with_non_classical_implicit_return() {
         &expect![[r#"
             Block:
                 Call id(1), args( Qubit(0), Result(0), )
-                Call id(2), args( Result(0), Pointer, )
+                Call id(2), args( Result(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -129,9 +129,9 @@ fn non_classical_entry_point_with_classical_explicit_return() {
         &program,
         BlockId(0),
         &expect![[r#"
-        Block:
-            Call id(1), args( Bool(false), Pointer, )
-            Return"#]],
+            Block:
+                Call id(1), args( Bool(false), Tag(0, 3), )
+                Return"#]],
     );
 }
 
@@ -180,7 +180,7 @@ fn non_classical_entry_point_with_non_classical_explicit_return() {
         &expect![[r#"
             Block:
                 Call id(1), args( Qubit(0), Result(0), )
-                Call id(2), args( Result(0), Pointer, )
+                Call id(2), args( Result(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -231,10 +231,10 @@ fn non_classical_entry_point_with_classical_inline_early_return_halts_evaluation
         &program,
         BlockId(0),
         &expect![[r#"
-        Block:
-            Call id(1), args( Qubit(0), )
-            Call id(2), args( Integer(0), Pointer, )
-            Return"#]],
+            Block:
+                Call id(1), args( Qubit(0), )
+                Call id(2), args( Integer(0), EmptyTag, )
+                Return"#]],
     );
 }
 
@@ -284,7 +284,7 @@ fn non_classical_entry_point_with_non_classical_inline_early_return_halts_evalua
         &expect![[r#"
             Block:
                 Call id(1), args( Qubit(0), Result(0), )
-                Call id(2), args( Result(0), Pointer, )
+                Call id(2), args( Result(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -341,7 +341,7 @@ fn non_classical_entry_point_with_classical_early_return_within_classical_branch
         &expect![[r#"
             Block:
                 Call id(1), args( Qubit(0), )
-                Call id(2), args( Bool(true), Pointer, )
+                Call id(2), args( Bool(true), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -508,7 +508,7 @@ fn non_classical_entry_point_with_early_return_after_branching_halts_evaluation(
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
                 Call id(5), args( Qubit(1), )
-                Call id(6), args( Integer(0), Pointer, )
+                Call id(6), args( Integer(0), EmptyTag, )
                 Return
             Block 2:Block:
                 Call id(3), args( Qubit(1), )
@@ -620,7 +620,7 @@ fn operation_with_early_return_within_dynamic_branch_halts_evaluation_at_the_cal
                 Branch Variable(1, Boolean), 2, 1
             Block 1:Block:
                 Call id(4), args( Qubit(0), )
-                Call id(5), args( Integer(0), Pointer, )
+                Call id(5), args( Integer(0), EmptyTag, )
                 Return
             Block 2:Block:
                 Call id(3), args( Qubit(0), )
@@ -680,12 +680,12 @@ fn default_qubit_management_releases_qubits_when_they_are_out_of_scope_with_impl
         &program,
         BlockId(0),
         &expect![[r#"
-        Block:
-            Call id(1), args( Qubit(0), )
-            Call id(2), args( Qubit(1), )
-            Call id(1), args( Qubit(1), )
-            Call id(3), args( Integer(0), Pointer, )
-            Return"#]],
+            Block:
+                Call id(1), args( Qubit(0), )
+                Call id(2), args( Qubit(1), )
+                Call id(1), args( Qubit(1), )
+                Call id(3), args( Integer(0), EmptyTag, )
+                Return"#]],
     );
     assert_eq!(program.num_qubits, 2);
     assert_eq!(program.num_results, 0);
@@ -744,12 +744,12 @@ fn default_qubit_management_releases_qubits_when_they_are_out_of_scope_with_expl
         &program,
         BlockId(0),
         &expect![[r#"
-        Block:
-            Call id(1), args( Qubit(0), )
-            Call id(2), args( Qubit(1), )
-            Call id(1), args( Qubit(1), )
-            Call id(3), args( Integer(0), Pointer, )
-            Return"#]],
+            Block:
+                Call id(1), args( Qubit(0), )
+                Call id(2), args( Qubit(1), )
+                Call id(1), args( Qubit(1), )
+                Call id(3), args( Integer(0), EmptyTag, )
+                Return"#]],
     );
     assert_eq!(program.num_qubits, 2);
     assert_eq!(program.num_results, 0);
@@ -810,12 +810,12 @@ fn default_qubit_management_releases_qubits_when_they_are_out_of_scope_with_expl
         &program,
         BlockId(0),
         &expect![[r#"
-        Block:
-            Call id(1), args( Qubit(0), )
-            Call id(2), args( Qubit(1), )
-            Call id(1), args( Qubit(1), )
-            Call id(3), args( Integer(0), Pointer, )
-            Return"#]],
+            Block:
+                Call id(1), args( Qubit(0), )
+                Call id(2), args( Qubit(1), )
+                Call id(1), args( Qubit(1), )
+                Call id(3), args( Integer(0), EmptyTag, )
+                Return"#]],
     );
     assert_eq!(program.num_qubits, 2);
     assert_eq!(program.num_results, 0);

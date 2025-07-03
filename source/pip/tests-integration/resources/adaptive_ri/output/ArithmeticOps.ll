@@ -1,6 +1,12 @@
 %Result = type opaque
 %Qubit = type opaque
 
+@empty_tag = internal constant [1 x i8] c"\00"
+@0 = internal constant [6 x i8] c"0_t0i\00"
+@1 = internal constant [6 x i8] c"1_t1i\00"
+@2 = internal constant [6 x i8] c"2_t2i\00"
+@3 = internal constant [6 x i8] c"3_t3i\00"
+
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
@@ -79,11 +85,11 @@ block_10:
   call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 2 to %Qubit*))
   call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 3 to %Qubit*))
   call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 4 to %Qubit*))
-  call void @__quantum__rt__tuple_record_output(i64 4, i8* null)
-  call void @__quantum__rt__int_record_output(i64 %var_52, i8* null)
-  call void @__quantum__rt__int_record_output(i64 %var_53, i8* null)
-  call void @__quantum__rt__int_record_output(i64 %var_54, i8* null)
-  call void @__quantum__rt__int_record_output(i64 %var_55, i8* null)
+  call void @__quantum__rt__tuple_record_output(i64 4, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__int_record_output(i64 %var_52, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__int_record_output(i64 %var_53, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
+  call void @__quantum__rt__int_record_output(i64 %var_54, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @2, i64 0, i64 0))
+  call void @__quantum__rt__int_record_output(i64 %var_55, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @3, i64 0, i64 0))
   ret i64 0
 }
 

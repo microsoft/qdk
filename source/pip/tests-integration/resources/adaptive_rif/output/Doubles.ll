@@ -1,6 +1,14 @@
 %Result = type opaque
 %Qubit = type opaque
 
+@empty_tag = internal constant [1 x i8] c"\00"
+@0 = internal constant [6 x i8] c"0_t0d\00"
+@1 = internal constant [6 x i8] c"1_t1b\00"
+@2 = internal constant [6 x i8] c"2_t2b\00"
+@3 = internal constant [6 x i8] c"3_t3b\00"
+@4 = internal constant [6 x i8] c"4_t4b\00"
+@5 = internal constant [6 x i8] c"5_t5b\00"
+
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
@@ -144,13 +152,13 @@ block_20:
   %var_69 = fcmp oge double %var_81, 10.0
   %var_70 = fcmp oeq double %var_81, 10.0
   %var_71 = fcmp one double %var_81, 10.0
-  call void @__quantum__rt__tuple_record_output(i64 6, i8* null)
-  call void @__quantum__rt__double_record_output(double %var_81, i8* null)
-  call void @__quantum__rt__bool_record_output(i1 %var_67, i8* null)
-  call void @__quantum__rt__bool_record_output(i1 %var_68, i8* null)
-  call void @__quantum__rt__bool_record_output(i1 %var_69, i8* null)
-  call void @__quantum__rt__bool_record_output(i1 %var_70, i8* null)
-  call void @__quantum__rt__bool_record_output(i1 %var_71, i8* null)
+  call void @__quantum__rt__tuple_record_output(i64 6, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__double_record_output(double %var_81, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__bool_record_output(i1 %var_67, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
+  call void @__quantum__rt__bool_record_output(i1 %var_68, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @2, i64 0, i64 0))
+  call void @__quantum__rt__bool_record_output(i1 %var_69, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @3, i64 0, i64 0))
+  call void @__quantum__rt__bool_record_output(i1 %var_70, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @4, i64 0, i64 0))
+  call void @__quantum__rt__bool_record_output(i1 %var_71, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @5, i64 0, i64 0))
   ret i64 0
 }
 
