@@ -268,7 +268,7 @@ fn barrier_generates_qir() -> miette::Result<(), Vec<Report>> {
         !1 = !{i32 7, !"qir_minor_version", i32 0}
         !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
         !3 = !{i32 1, !"dynamic_result_management", i1 false}
-        !4 = !{i32 1, !"int_computations", !"i64"}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
     "#]]
     .assert_eq(&qsharp);
     Ok(())
@@ -622,7 +622,7 @@ fn simulatable_intrinsic_on_gate_stmt_generates_correct_qir() -> miette::Result<
         !1 = !{i32 7, !"qir_minor_version", i32 0}
         !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
         !3 = !{i32 1, !"dynamic_result_management", i1 false}
-        !4 = !{i32 1, !"int_computations", !"i64"}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
     "#]].assert_eq(&qsharp);
     Ok(())
 }
@@ -1154,7 +1154,7 @@ fn qasm2_barrier_generates_qir() -> miette::Result<(), Vec<Report>> {
         !1 = !{i32 7, !"qir_minor_version", i32 0}
         !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
         !3 = !{i32 1, !"dynamic_result_management", i1 false}
-        !4 = !{i32 1, !"int_computations", !"i64"}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
     "#]]
     .assert_eq(&qsharp);
     Ok(())
@@ -1411,7 +1411,7 @@ fn qasm2_simulatable_intrinsic_on_gate_stmt_generates_correct_qir()
         !1 = !{i32 7, !"qir_minor_version", i32 0}
         !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
         !3 = !{i32 1, !"dynamic_result_management", i1 false}
-        !4 = !{i32 1, !"int_computations", !"i64"}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
     "#]].assert_eq(&qsharp);
     Ok(())
 }

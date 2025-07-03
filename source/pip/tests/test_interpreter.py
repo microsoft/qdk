@@ -611,7 +611,7 @@ def test_adaptive_ri_qir_can_be_generated() -> None:
         !1 = !{i32 7, !"qir_minor_version", i32 0}
         !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
         !3 = !{i32 1, !"dynamic_result_management", i1 false}
-        !4 = !{i32 1, !"int_computations", !"i64"}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
         """
     )
 
