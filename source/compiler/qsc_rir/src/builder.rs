@@ -99,7 +99,7 @@ pub fn reset_decl() -> Callable {
 #[must_use]
 pub fn read_result_decl() -> Callable {
     Callable {
-        name: "__quantum__qis__read_result__body".to_string(),
+        name: "__quantum__rt__read_result".to_string(),
         input_type: vec![Ty::Result],
         output_type: Some(Ty::Boolean),
         body: None,

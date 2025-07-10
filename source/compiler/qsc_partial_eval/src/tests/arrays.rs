@@ -114,7 +114,7 @@ fn array_with_hybrid_content() {
         array_output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__read_result__body
+                name: __quantum__rt__read_result
                 call_type: Readout
                 input_type:
                     [0]: Result

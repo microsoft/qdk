@@ -250,13 +250,13 @@ fn if_expression_with_dynamic_condition() {
         &program,
         read_result_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     let op_a_callable_id = CallableId(3);
     assert_callable(
@@ -331,13 +331,13 @@ fn if_else_expression_with_dynamic_condition() {
         &program,
         read_result_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     let op_a_callable_id = CallableId(3);
     assert_callable(
@@ -432,13 +432,13 @@ fn if_elif_else_expression_with_dynamic_condition() {
         &program,
         read_result_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     let op_a_callable_id = CallableId(3);
     assert_callable(
@@ -551,13 +551,13 @@ fn if_expression_with_dynamic_condition_and_nested_if_expression_with_true_condi
         &program,
         read_result_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     let op_a_callable_id = CallableId(3);
     assert_callable(
@@ -631,13 +631,13 @@ fn if_expression_with_dynamic_condition_and_nested_if_expression_with_false_cond
         &program,
         read_result_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
 
     assert_blocks(
@@ -700,13 +700,13 @@ fn if_else_expression_with_dynamic_condition_and_nested_if_expression_with_true_
         &program,
         read_result_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     let op_a_callable_id = CallableId(3);
     assert_callable(
@@ -799,13 +799,13 @@ fn if_else_expression_with_dynamic_condition_and_nested_if_expression_with_false
         &program,
         read_result_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     let op_a_callable_id = CallableId(3);
     assert_callable(
@@ -882,13 +882,13 @@ fn if_expression_with_dynamic_condition_and_nested_if_expression_with_dynamic_co
         &program,
         read_result_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     let op_a_callable_id = CallableId(3);
     assert_callable(
@@ -982,13 +982,13 @@ fn doubly_nested_if_else_expressions_with_dynamic_conditions() {
         &program,
         read_result_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     let op_a_callable_id = CallableId(3);
     assert_callable(
@@ -1123,13 +1123,13 @@ fn if_expression_with_dynamic_condition_and_subsequent_call_to_operation() {
         &program,
         read_result_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     let op_a_callable_id = CallableId(3);
     assert_callable(
@@ -1220,13 +1220,13 @@ fn if_else_expression_with_dynamic_condition_and_subsequent_call_to_operation() 
         &program,
         read_result_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     let op_a_callable_id = CallableId(3);
     assert_callable(
@@ -1529,7 +1529,7 @@ fn if_expression_with_dynamic_operand_from_hybrid_results_array() {
         read_result_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__read_result__body
+                name: __quantum__rt__read_result
                 call_type: Readout
                 input_type:
                     [0]: Result
@@ -1637,7 +1637,7 @@ fn if_expression_with_classical_operand_from_hybrid_booleans_array() {
         read_result_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__read_result__body
+                name: __quantum__rt__read_result
                 call_type: Readout
                 input_type:
                     [0]: Result
@@ -1743,7 +1743,7 @@ fn if_expression_with_dynamic_operand_from_hybrid_booleans_array() {
         read_result_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__read_result__body
+                name: __quantum__rt__read_result
                 call_type: Readout
                 input_type:
                     [0]: Result
@@ -1853,7 +1853,7 @@ fn if_expression_with_classical_operand_from_hybrid_integers_array() {
         read_result_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__read_result__body
+                name: __quantum__rt__read_result
                 call_type: Readout
                 input_type:
                     [0]: Result
@@ -1975,7 +1975,7 @@ fn if_expression_with_dynamic_operand_from_hybrid_integers_array() {
         read_result_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__read_result__body
+                name: __quantum__rt__read_result
                 call_type: Readout
                 input_type:
                     [0]: Result
@@ -2102,7 +2102,7 @@ fn if_expression_with_classical_operand_from_hybrid_doubles_array() {
         read_result_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__read_result__body
+                name: __quantum__rt__read_result
                 call_type: Readout
                 input_type:
                     [0]: Result
@@ -2224,7 +2224,7 @@ fn if_expression_with_dynamic_operand_from_hybrid_doubles_array() {
         read_result_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__read_result__body
+                name: __quantum__rt__read_result
                 call_type: Readout
                 input_type:
                     [0]: Result

@@ -39,7 +39,7 @@ fn output_recording_for_tuple_of_different_types() {
                     output_type: <VOID>
                     body: <NONE>
                 Callable 2: Callable:
-                    name: __quantum__qis__read_result__body
+                    name: __quantum__rt__read_result
                     call_type: Readout
                     input_type:
                         [0]: Result
@@ -123,7 +123,7 @@ fn output_recording_for_nested_tuples() {
                     output_type: <VOID>
                     body: <NONE>
                 Callable 2: Callable:
-                    name: __quantum__qis__read_result__body
+                    name: __quantum__rt__read_result
                     call_type: Readout
                     input_type:
                         [0]: Result
@@ -217,7 +217,7 @@ fn output_recording_for_tuple_of_arrays() {
                     output_type: <VOID>
                     body: <NONE>
                 Callable 2: Callable:
-                    name: __quantum__qis__read_result__body
+                    name: __quantum__rt__read_result
                     call_type: Readout
                     input_type:
                         [0]: Result
@@ -314,7 +314,7 @@ fn output_recording_for_array_of_tuples() {
                     output_type: <VOID>
                     body: <NONE>
                 Callable 2: Callable:
-                    name: __quantum__qis__read_result__body
+                    name: __quantum__rt__read_result
                     call_type: Readout
                     input_type:
                         [0]: Result
