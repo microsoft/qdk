@@ -75,12 +75,15 @@ fn reset_with_base_profile_is_rewritten_without_resets() -> miette::Result<(), V
 
         define i64 @ENTRYPOINT__main() #0 {
         block_0:
+          call void @__quantum__rt__initialize(i8* null)
           call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 1 to %Qubit*))
           call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
           call void @__quantum__rt__array_record_output(i64 1, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
           call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @0, i64 0, i64 0))
           ret i64 0
         }
+
+        declare void @__quantum__rt__initialize(i8*)
 
         declare void @__quantum__qis__h__body(%Qubit*)
 
@@ -130,6 +133,7 @@ fn reset_with_adaptive_ri_profile_generates_reset_qir() -> miette::Result<(), Ve
 
         define i64 @ENTRYPOINT__main() #0 {
         block_0:
+          call void @__quantum__rt__initialize(i8* null)
           call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
@@ -137,6 +141,8 @@ fn reset_with_adaptive_ri_profile_generates_reset_qir() -> miette::Result<(), Ve
           call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @0, i64 0, i64 0))
           ret i64 0
         }
+
+        declare void @__quantum__rt__initialize(i8*)
 
         declare void @__quantum__qis__reset__body(%Qubit*) #1
 

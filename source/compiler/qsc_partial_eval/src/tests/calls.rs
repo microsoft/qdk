@@ -38,22 +38,23 @@ fn call_to_single_qubit_unitary_with_two_calls_to_the_same_intrinsic() {
         &program,
         op_callable_id,
         &expect![[r#"
-        Callable:
-            name: Op
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), )
-                Call id(1), args( Qubit(0), )
-                Call id(2), args( Integer(0), EmptyTag, )
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), )
+                Call id(2), args( Qubit(0), )
+                Call id(3), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -81,34 +82,35 @@ fn call_to_single_qubit_unitary_with_calls_to_different_intrinsics() {
         &program,
         op_a_callable_id,
         &expect![[r#"
-        Callable:
-            name: OpA
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_callable(
         &program,
         op_b_callable_id,
         &expect![[r#"
-        Callable:
-            name: OpB
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: OpA
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), )
+                Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), )
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Qubit(0), )
+                Call id(4), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -134,23 +136,23 @@ fn call_to_two_qubit_unitary() {
         &program,
         op_callable_id,
         &expect![[r#"
-        Callable:
-            name: Op
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-                [1]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Qubit(1), )
-                Call id(1), args( Qubit(1), Qubit(0), )
-                Call id(2), args( Integer(0), EmptyTag, )
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Qubit(1), )
+                Call id(2), args( Qubit(1), Qubit(0), )
+                Call id(3), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -178,36 +180,36 @@ fn call_to_unitary_that_receives_double_and_qubit() {
         &program,
         double_first_callable_id,
         &expect![[r#"
-        Callable:
-            name: DoubleFirst
-            call_type: Regular
-            input_type:
-                [0]: Double
-                [1]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_callable(
         &program,
         qubit_first_callable_id,
         &expect![[r#"
-        Callable:
-            name: QubitFirst
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-                [1]: Double
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: DoubleFirst
+                call_type: Regular
+                input_type:
+                    [0]: Double
+                    [1]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Double(1), Qubit(0), )
-                Call id(2), args( Qubit(0), Double(1), )
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(1), args( Pointer, )
+                Call id(2), args( Double(1), Qubit(0), )
+                Call id(3), args( Qubit(0), Double(1), )
+                Call id(4), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -238,13 +240,13 @@ fn calls_to_unitary_that_conditionally_calls_intrinsic_with_classical_bool() {
         &program,
         op_a_callable_id,
         &expect![[r#"
-        Callable:
-            name: OpA
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let op_b_callable_id = CallableId(2);
     assert_callable(
@@ -252,7 +254,7 @@ fn calls_to_unitary_that_conditionally_calls_intrinsic_with_classical_bool() {
         op_b_callable_id,
         &expect![[r#"
             Callable:
-                name: OpB
+                name: OpA
                 call_type: Regular
                 input_type:
                     [0]: Qubit
@@ -265,11 +267,10 @@ fn calls_to_unitary_that_conditionally_calls_intrinsic_with_classical_bool() {
         output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__tuple_record_output
-                call_type: OutputRecording
+                name: OpB
+                call_type: Regular
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
+                    [0]: Qubit
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -278,9 +279,10 @@ fn calls_to_unitary_that_conditionally_calls_intrinsic_with_classical_bool() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), )
+                Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), )
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Qubit(0), )
+                Call id(4), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -312,11 +314,10 @@ fn calls_to_unitary_that_conditionally_calls_intrinsic_with_dynamic_bool() {
         measure_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__m__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Regular
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -326,11 +327,12 @@ fn calls_to_unitary_that_conditionally_calls_intrinsic_with_dynamic_bool() {
         read_result_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__read_result
-                call_type: Readout
+                name: __quantum__qis__m__body
+                call_type: Measurement
                 input_type:
-                    [0]: Result
-                output_type: Boolean
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
                 body: <NONE>"#]],
     );
     let op_a_callable_id = CallableId(3);
@@ -338,13 +340,13 @@ fn calls_to_unitary_that_conditionally_calls_intrinsic_with_dynamic_bool() {
         &program,
         op_a_callable_id,
         &expect![[r#"
-        Callable:
-            name: OpA
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     let op_b_callable_id = CallableId(4);
     assert_callable(
@@ -352,7 +354,7 @@ fn calls_to_unitary_that_conditionally_calls_intrinsic_with_dynamic_bool() {
         op_b_callable_id,
         &expect![[r#"
             Callable:
-                name: OpB
+                name: OpA
                 call_type: Regular
                 input_type:
                     [0]: Qubit
@@ -365,11 +367,10 @@ fn calls_to_unitary_that_conditionally_calls_intrinsic_with_dynamic_bool() {
         output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__tuple_record_output
-                call_type: OutputRecording
+                name: OpB
+                call_type: Regular
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
+                    [0]: Qubit
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -378,18 +379,19 @@ fn calls_to_unitary_that_conditionally_calls_intrinsic_with_dynamic_bool() {
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(2), args( Result(0), )
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(0, Boolean) = Call id(3), args( Result(0), )
                 Variable(1, Boolean) = Store Variable(0, Boolean)
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
-                Call id(5), args( Integer(0), EmptyTag, )
+                Call id(6), args( Integer(0), EmptyTag, )
                 Return
             Block 2:Block:
-                Call id(3), args( Qubit(1), )
+                Call id(4), args( Qubit(1), )
                 Jump(1)
             Block 3:Block:
-                Call id(4), args( Qubit(1), )
+                Call id(5), args( Qubit(1), )
                 Jump(1)"#]],
     );
 }
@@ -415,23 +417,23 @@ fn call_to_unitary_rotation_unitary_with_computation() {
         &program,
         rotation_callable_id,
         &expect![[r#"
-        Callable:
-            name: Rotation
-            call_type: Regular
-            input_type:
-                [0]: Double
-                [1]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Double(4), Qubit(0), )
-                Call id(1), args( Double(6), Qubit(0), )
-                Call id(2), args( Integer(0), EmptyTag, )
+                Call id(1), args( Pointer, )
+                Call id(2), args( Double(4), Qubit(0), )
+                Call id(2), args( Double(6), Qubit(0), )
+                Call id(3), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -456,11 +458,10 @@ fn call_to_operation_that_returns_measurement_result() {
         measure_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__m__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Regular
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -469,22 +470,23 @@ fn call_to_operation_that_returns_measurement_result() {
         &program,
         output_recording_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__rt__result_record_output
-            call_type: OutputRecording
-            input_type:
-                [0]: Result
-                [1]: Pointer
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__m__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), )
-                Call id(2), args( Result(0), Tag(0, 3), )
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Call id(3), args( Result(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -510,11 +512,10 @@ fn call_to_operation_that_returns_dynamic_bool() {
         measure_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__m__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Regular
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -524,11 +525,12 @@ fn call_to_operation_that_returns_dynamic_bool() {
         read_result_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__read_result
-                call_type: Readout
+                name: __quantum__qis__m__body
+                call_type: Measurement
                 input_type:
-                    [0]: Result
-                output_type: Boolean
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
                 body: <NONE>"#]],
     );
     let output_recording_callable_id = CallableId(3);
@@ -537,12 +539,11 @@ fn call_to_operation_that_returns_dynamic_bool() {
         output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__bool_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Boolean
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_block_instructions(
@@ -550,11 +551,12 @@ fn call_to_operation_that_returns_dynamic_bool() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(2), args( Result(0), )
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(0, Boolean) = Call id(3), args( Result(0), )
                 Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
                 Variable(2, Boolean) = Store Variable(1, Boolean)
-                Call id(3), args( Variable(2, Boolean), Tag(0, 3), )
+                Call id(4), args( Variable(2, Boolean), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -585,13 +587,13 @@ fn call_to_boolean_function_using_result_literal_as_argument_yields_constant() {
         &program,
         op_callable_id,
         &expect![[r#"
-        Callable:
-            name: Op
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_recording_callable_id = CallableId(2);
     assert_callable(
@@ -599,11 +601,10 @@ fn call_to_boolean_function_using_result_literal_as_argument_yields_constant() {
         output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__tuple_record_output
-                call_type: OutputRecording
+                name: Op
+                call_type: Regular
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
+                    [0]: Qubit
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -612,8 +613,9 @@ fn call_to_boolean_function_using_result_literal_as_argument_yields_constant() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), )
-                Call id(2), args( Integer(0), EmptyTag, )
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), )
+                Call id(3), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -644,11 +646,10 @@ fn call_to_boolean_function_using_dynamic_result_as_argument_generates_branches(
         measure_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__m__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Regular
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -658,11 +659,12 @@ fn call_to_boolean_function_using_dynamic_result_as_argument_generates_branches(
         read_result_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__read_result
-                call_type: Readout
+                name: __quantum__qis__m__body
+                call_type: Measurement
                 input_type:
-                    [0]: Result
-                output_type: Boolean
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
                 body: <NONE>"#]],
     );
     let op_callable_id = CallableId(3);
@@ -670,13 +672,13 @@ fn call_to_boolean_function_using_dynamic_result_as_argument_generates_branches(
         &program,
         op_callable_id,
         &expect![[r#"
-        Callable:
-            name: Op
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     let output_recording_callable_id = CallableId(4);
     assert_callable(
@@ -684,11 +686,10 @@ fn call_to_boolean_function_using_dynamic_result_as_argument_generates_branches(
         output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__tuple_record_output
-                call_type: OutputRecording
+                name: Op
+                call_type: Regular
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
+                    [0]: Qubit
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -697,15 +698,16 @@ fn call_to_boolean_function_using_dynamic_result_as_argument_generates_branches(
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(2), args( Result(0), )
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(0, Boolean) = Call id(3), args( Result(0), )
                 Variable(1, Boolean) = Store Variable(0, Boolean)
                 Branch Variable(1, Boolean), 2, 1
             Block 1:Block:
-                Call id(4), args( Integer(0), EmptyTag, )
+                Call id(5), args( Integer(0), EmptyTag, )
                 Return
             Block 2:Block:
-                Call id(3), args( Qubit(1), )
+                Call id(4), args( Qubit(1), )
                 Jump(1)"#]],
     );
 }
@@ -737,27 +739,26 @@ fn call_to_unitary_operation_with_one_qubit_argument_using_one_control_qubit() {
         &program,
         intrinsic_a_callable_id,
         &expect![[r#"
-        Callable:
-            name: IntrinsicA
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let intrinsic_b_callable_id = CallableId(2);
     assert_callable(
         &program,
         intrinsic_b_callable_id,
         &expect![[r#"
-        Callable:
-            name: IntrinsicB
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-                [1]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: IntrinsicA
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_recording_callable_id = CallableId(3);
     assert_callable(
@@ -765,11 +766,11 @@ fn call_to_unitary_operation_with_one_qubit_argument_using_one_control_qubit() {
         output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__tuple_record_output
-                call_type: OutputRecording
+                name: IntrinsicB
+                call_type: Regular
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
+                    [0]: Qubit
+                    [1]: Qubit
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -778,9 +779,10 @@ fn call_to_unitary_operation_with_one_qubit_argument_using_one_control_qubit() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(1), )
-                Call id(2), args( Qubit(0), Qubit(1), )
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(1), )
+                Call id(3), args( Qubit(0), Qubit(1), )
+                Call id(4), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -812,18 +814,31 @@ fn call_to_unitary_operation_with_one_qubit_argument_using_mutiple_control_qubit
         &program,
         intrinsic_a_callable_id,
         &expect![[r#"
-        Callable:
-            name: IntrinsicA
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let intrinsic_b_callable_id = CallableId(2);
     assert_callable(
         &program,
         intrinsic_b_callable_id,
+        &expect![[r#"
+            Callable:
+                name: IntrinsicA
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    let output_recording_callable_id = CallableId(3);
+    assert_callable(
+        &program,
+        output_recording_callable_id,
         &expect![[r#"
             Callable:
                 name: IntrinsicB
@@ -835,28 +850,15 @@ fn call_to_unitary_operation_with_one_qubit_argument_using_mutiple_control_qubit
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
-    let output_recording_callable_id = CallableId(3);
-    assert_callable(
-        &program,
-        output_recording_callable_id,
-        &expect![[r#"
-            Callable:
-                name: __quantum__rt__tuple_record_output
-                call_type: OutputRecording
-                input_type:
-                    [0]: Integer
-                    [1]: Pointer
-                output_type: <VOID>
-                body: <NONE>"#]],
-    );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(2), )
-                Call id(2), args( Qubit(0), Qubit(1), Qubit(2), )
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(2), )
+                Call id(3), args( Qubit(0), Qubit(1), Qubit(2), )
+                Call id(4), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -889,6 +891,19 @@ fn call_to_unitary_operation_with_two_qubit_arguments_using_one_control_qubit() 
         intrinsic_a_callable_id,
         &expect![[r#"
             Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    let intrinsic_b_callable_id = CallableId(2);
+    assert_callable(
+        &program,
+        intrinsic_b_callable_id,
+        &expect![[r#"
+            Callable:
                 name: IntrinsicA
                 call_type: Regular
                 input_type:
@@ -897,10 +912,10 @@ fn call_to_unitary_operation_with_two_qubit_arguments_using_one_control_qubit() 
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
-    let intrinsic_b_callable_id = CallableId(2);
+    let output_recording_callable_id = CallableId(3);
     assert_callable(
         &program,
-        intrinsic_b_callable_id,
+        output_recording_callable_id,
         &expect![[r#"
             Callable:
                 name: IntrinsicB
@@ -912,28 +927,15 @@ fn call_to_unitary_operation_with_two_qubit_arguments_using_one_control_qubit() 
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
-    let output_recording_callable_id = CallableId(3);
-    assert_callable(
-        &program,
-        output_recording_callable_id,
-        &expect![[r#"
-            Callable:
-                name: __quantum__rt__tuple_record_output
-                call_type: OutputRecording
-                input_type:
-                    [0]: Integer
-                    [1]: Pointer
-                output_type: <VOID>
-                body: <NONE>"#]],
-    );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(1), Qubit(2), )
-                Call id(2), args( Qubit(0), Qubit(1), Qubit(2), )
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(1), Qubit(2), )
+                Call id(3), args( Qubit(0), Qubit(1), Qubit(2), )
+                Call id(4), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -977,10 +979,10 @@ fn call_to_unitary_operation_using_multiple_controlled_functors() {
         intrinsic_a1_callable_id,
         &expect![[r#"
             Callable:
-                name: IntrinsicA1
+                name: __quantum__rt__initialize
                 call_type: Regular
                 input_type:
-                    [0]: Qubit
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -988,6 +990,19 @@ fn call_to_unitary_operation_using_multiple_controlled_functors() {
     assert_callable(
         &program,
         intrinsic_b_callable_id,
+        &expect![[r#"
+            Callable:
+                name: IntrinsicA1
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    let intrinsic_c_callable_id = CallableId(3);
+    assert_callable(
+        &program,
+        intrinsic_c_callable_id,
         &expect![[r#"
             Callable:
                 name: IntrinsicB
@@ -998,10 +1013,10 @@ fn call_to_unitary_operation_using_multiple_controlled_functors() {
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
-    let intrinsic_c_callable_id = CallableId(3);
+    let intrinsic_a2_callable_id = CallableId(4);
     assert_callable(
         &program,
-        intrinsic_c_callable_id,
+        intrinsic_a2_callable_id,
         &expect![[r#"
             Callable:
                 name: IntrinsicC
@@ -1013,10 +1028,10 @@ fn call_to_unitary_operation_using_multiple_controlled_functors() {
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
-    let intrinsic_a2_callable_id = CallableId(4);
+    let output_recording_callable_id = CallableId(5);
     assert_callable(
         &program,
-        intrinsic_a2_callable_id,
+        output_recording_callable_id,
         &expect![[r#"
             Callable:
                 name: IntrinsicA2
@@ -1026,30 +1041,17 @@ fn call_to_unitary_operation_using_multiple_controlled_functors() {
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
-    let output_recording_callable_id = CallableId(5);
-    assert_callable(
-        &program,
-        output_recording_callable_id,
-        &expect![[r#"
-            Callable:
-                name: __quantum__rt__tuple_record_output
-                call_type: OutputRecording
-                input_type:
-                    [0]: Integer
-                    [1]: Pointer
-                output_type: <VOID>
-                body: <NONE>"#]],
-    );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), )
-                Call id(2), args( Qubit(1), Qubit(0), )
-                Call id(3), args( Qubit(1), Qubit(2), Qubit(0), )
-                Call id(4), args( Qubit(3), )
-                Call id(5), args( Integer(0), EmptyTag, )
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), )
+                Call id(3), args( Qubit(1), Qubit(0), )
+                Call id(4), args( Qubit(1), Qubit(2), Qubit(0), )
+                Call id(5), args( Qubit(3), )
+                Call id(6), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -1072,21 +1074,22 @@ fn call_to_closue_with_no_bound_locals() {
         &program,
         CallableId(1),
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__x__body
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), )
-                Call id(2), args( Integer(0), EmptyTag, )
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), )
+                Call id(3), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -1110,11 +1113,10 @@ fn call_to_closue_with_one_bound_local() {
         CallableId(1),
         &expect![[r#"
             Callable:
-                name: __quantum__qis__rx__body
+                name: __quantum__rt__initialize
                 call_type: Regular
                 input_type:
-                    [0]: Double
-                    [1]: Qubit
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -1123,8 +1125,9 @@ fn call_to_closue_with_one_bound_local() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Double(1), Qubit(0), )
-                Call id(2), args( Integer(0), EmptyTag, )
+                Call id(1), args( Pointer, )
+                Call id(2), args( Double(1), Qubit(0), )
+                Call id(3), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -1148,11 +1151,10 @@ fn call_to_closue_with_two_bound_locals() {
         CallableId(1),
         &expect![[r#"
             Callable:
-                name: __quantum__qis__rx__body
+                name: __quantum__rt__initialize
                 call_type: Regular
                 input_type:
-                    [0]: Double
-                    [1]: Qubit
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -1161,8 +1163,9 @@ fn call_to_closue_with_two_bound_locals() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Double(1), Qubit(0), )
-                Call id(2), args( Integer(0), EmptyTag, )
+                Call id(1), args( Pointer, )
+                Call id(2), args( Double(1), Qubit(0), )
+                Call id(3), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -1186,11 +1189,10 @@ fn call_to_closue_with_one_bound_local_two_unbound() {
         CallableId(1),
         &expect![[r#"
             Callable:
-                name: __quantum__qis__rx__body
+                name: __quantum__rt__initialize
                 call_type: Regular
                 input_type:
-                    [0]: Double
-                    [1]: Qubit
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -1199,8 +1201,9 @@ fn call_to_closue_with_one_bound_local_two_unbound() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Double(1), Qubit(0), )
-                Call id(2), args( Integer(0), EmptyTag, )
+                Call id(1), args( Pointer, )
+                Call id(2), args( Double(1), Qubit(0), )
+                Call id(3), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -1229,8 +1232,9 @@ fn call_to_unresolved_callee_with_classical_arg_allowed() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Double(1), Qubit(0), )
-                Call id(2), args( Integer(0), EmptyTag, )
+                Call id(1), args( Pointer, )
+                Call id(2), args( Double(1), Qubit(0), )
+                Call id(3), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -1341,9 +1345,10 @@ fn call_to_unresolved_callee_with_static_arg_and_entry_return_value_succeeds() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Double(1), Qubit(0), )
-                Call id(2), args( Qubit(0), Result(0), )
-                Call id(3), args( Result(0), Tag(0, 3), )
+                Call id(1), args( Pointer, )
+                Call id(2), args( Double(1), Qubit(0), )
+                Call id(3), args( Qubit(0), Result(0), )
+                Call id(4), args( Result(0), Tag(0, 3), )
                 Return"#]],
     );
 }

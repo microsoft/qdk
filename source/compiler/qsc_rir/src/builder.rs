@@ -108,6 +108,17 @@ pub fn read_result_decl() -> Callable {
 }
 
 #[must_use]
+pub fn initialize_decl() -> Callable {
+    Callable {
+        name: "__quantum__rt__initialize".to_string(),
+        input_type: vec![Ty::Pointer],
+        output_type: None,
+        body: None,
+        call_type: CallableType::Regular,
+    }
+}
+
+#[must_use]
 pub fn result_record_decl() -> Callable {
     Callable {
         name: "__quantum__rt__result_record_output".to_string(),

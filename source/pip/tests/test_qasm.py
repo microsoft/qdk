@@ -424,7 +424,7 @@ def test_compile_qir_str_from_callable_with_mresetzchecked() -> None:
     )
     operation = compile(code.Program)
     qir = str(operation)
-    assert "define void @ENTRYPOINT__main()" in qir
+    assert "define i64 @ENTRYPOINT__main()" in qir
     assert (
         "call i1 @__quantum__rt__read_loss(%Result* inttoptr (i64 0 to %Result*))"
         in qir

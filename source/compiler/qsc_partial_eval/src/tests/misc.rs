@@ -35,30 +35,31 @@ fn unitary_call_within_an_if_with_classical_condition_within_a_for_loop() {
         &program,
         op_callable_id,
         &expect![[r#"
-        Callable:
-            name: op
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
+                Call id(1), args( Pointer, )
                 Variable(0, Integer) = Store Integer(0)
-                Call id(1), args( Qubit(0), )
+                Call id(2), args( Qubit(0), )
                 Variable(0, Integer) = Store Integer(1)
                 Variable(0, Integer) = Store Integer(2)
-                Call id(1), args( Qubit(0), )
+                Call id(2), args( Qubit(0), )
                 Variable(0, Integer) = Store Integer(3)
                 Variable(0, Integer) = Store Integer(4)
-                Call id(1), args( Qubit(0), )
+                Call id(2), args( Qubit(0), )
                 Variable(0, Integer) = Store Integer(5)
                 Variable(0, Integer) = Store Integer(6)
-                Call id(2), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -89,30 +90,31 @@ fn unitary_call_within_an_if_with_classical_condition_within_a_while_loop() {
         &program,
         op_callable_id,
         &expect![[r#"
-        Callable:
-            name: op
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
+                Call id(1), args( Pointer, )
                 Variable(0, Integer) = Store Integer(0)
-                Call id(1), args( Qubit(0), )
+                Call id(2), args( Qubit(0), )
                 Variable(0, Integer) = Store Integer(1)
                 Variable(0, Integer) = Store Integer(2)
-                Call id(1), args( Qubit(0), )
+                Call id(2), args( Qubit(0), )
                 Variable(0, Integer) = Store Integer(3)
                 Variable(0, Integer) = Store Integer(4)
-                Call id(1), args( Qubit(0), )
+                Call id(2), args( Qubit(0), )
                 Variable(0, Integer) = Store Integer(5)
                 Variable(0, Integer) = Store Integer(6)
-                Call id(2), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -143,37 +145,38 @@ fn unitary_call_within_an_if_with_classical_condition_within_a_repeat_until_loop
         &program,
         op_callable_id,
         &expect![[r#"
-        Callable:
-            name: op
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
+                Call id(1), args( Pointer, )
                 Variable(0, Integer) = Store Integer(0)
                 Variable(1, Boolean) = Store Bool(true)
-                Call id(1), args( Qubit(0), )
+                Call id(2), args( Qubit(0), )
                 Variable(0, Integer) = Store Integer(1)
                 Variable(1, Boolean) = Store Bool(true)
                 Variable(0, Integer) = Store Integer(2)
                 Variable(1, Boolean) = Store Bool(true)
-                Call id(1), args( Qubit(0), )
+                Call id(2), args( Qubit(0), )
                 Variable(0, Integer) = Store Integer(3)
                 Variable(1, Boolean) = Store Bool(true)
                 Variable(0, Integer) = Store Integer(4)
                 Variable(1, Boolean) = Store Bool(true)
-                Call id(1), args( Qubit(0), )
+                Call id(2), args( Qubit(0), )
                 Variable(0, Integer) = Store Integer(5)
                 Variable(1, Boolean) = Store Bool(true)
                 Variable(0, Integer) = Store Integer(6)
                 Variable(1, Boolean) = Store Bool(false)
-                Call id(2), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -200,14 +203,15 @@ fn boolean_assign_and_update_with_classical_value_within_an_if_with_dynamic_cond
         &expect![[r#"
             Blocks:
             Block 0:Block:
+                Call id(1), args( Pointer, )
                 Variable(0, Boolean) = Store Bool(true)
-                Call id(1), args( Qubit(0), Result(0), )
-                Variable(1, Boolean) = Call id(2), args( Result(0), )
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(1, Boolean) = Call id(3), args( Result(0), )
                 Variable(2, Boolean) = Store Variable(1, Boolean)
                 Branch Variable(2, Boolean), 2, 1
             Block 1:Block:
                 Variable(3, Boolean) = Store Variable(0, Boolean)
-                Call id(3), args( Variable(3, Boolean), Tag(0, 3), )
+                Call id(4), args( Variable(3, Boolean), Tag(0, 3), )
                 Return
             Block 2:Block:
                 Variable(0, Boolean) = Store Bool(false)
@@ -237,14 +241,15 @@ fn integer_assign_and_update_with_classical_value_within_an_if_with_dynamic_cond
         &expect![[r#"
             Blocks:
             Block 0:Block:
+                Call id(1), args( Pointer, )
                 Variable(0, Integer) = Store Integer(1)
-                Call id(1), args( Qubit(0), Result(0), )
-                Variable(1, Boolean) = Call id(2), args( Result(0), )
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(1, Boolean) = Call id(3), args( Result(0), )
                 Variable(2, Boolean) = Store Variable(1, Boolean)
                 Branch Variable(2, Boolean), 2, 1
             Block 1:Block:
                 Variable(3, Integer) = Store Variable(0, Integer)
-                Call id(3), args( Variable(3, Integer), Tag(0, 3), )
+                Call id(4), args( Variable(3, Integer), Tag(0, 3), )
                 Return
             Block 2:Block:
                 Variable(0, Integer) = Store Integer(5)
@@ -277,11 +282,10 @@ fn integer_assign_with_hybrid_value_within_an_if_with_dynamic_condition() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Regular
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -291,11 +295,12 @@ fn integer_assign_with_hybrid_value_within_an_if_with_dynamic_condition() {
         readout_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__read_result
-                call_type: Readout
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
                 input_type:
-                    [0]: Result
-                output_type: Boolean
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
                 body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
@@ -304,12 +309,11 @@ fn integer_assign_with_hybrid_value_within_an_if_with_dynamic_condition() {
         output_record_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__int_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_blocks(
@@ -317,16 +321,17 @@ fn integer_assign_with_hybrid_value_within_an_if_with_dynamic_condition() {
         &expect![[r#"
             Blocks:
             Block 0:Block:
+                Call id(1), args( Pointer, )
                 Variable(0, Integer) = Store Integer(0)
                 Variable(1, Integer) = Store Integer(0)
-                Call id(1), args( Qubit(0), Result(0), )
-                Variable(2, Boolean) = Call id(2), args( Result(0), )
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(2, Boolean) = Call id(3), args( Result(0), )
                 Variable(3, Boolean) = Store Variable(2, Boolean)
                 Branch Variable(3, Boolean), 2, 1
             Block 1:Block:
                 Variable(1, Integer) = Store Integer(1)
-                Call id(1), args( Qubit(0), Result(1), )
-                Variable(4, Boolean) = Call id(2), args( Result(1), )
+                Call id(2), args( Qubit(0), Result(1), )
+                Variable(4, Boolean) = Call id(3), args( Result(1), )
                 Variable(5, Boolean) = Store Variable(4, Boolean)
                 Branch Variable(5, Boolean), 4, 3
             Block 2:Block:
@@ -335,7 +340,7 @@ fn integer_assign_with_hybrid_value_within_an_if_with_dynamic_condition() {
             Block 3:Block:
                 Variable(1, Integer) = Store Integer(2)
                 Variable(7, Integer) = Store Variable(0, Integer)
-                Call id(3), args( Variable(7, Integer), Tag(0, 3), )
+                Call id(4), args( Variable(7, Integer), Tag(0, 3), )
                 Return
             Block 4:Block:
                 Variable(6, Integer) = BitwiseOr Variable(0, Integer), Integer(2)
@@ -376,7 +381,7 @@ fn large_loop_with_inner_if_completes_eval_and_transform() {
             Block:
                 Variable(1, Integer) = Store Integer(100)
                 Variable(400, Integer) = Store Variable(0, Integer)
-                Call id(3), args( Variable(400, Integer), Tag(0, 3), )
+                Call id(4), args( Variable(400, Integer), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -407,19 +412,32 @@ fn if_else_expression_with_dynamic_logical_and_condition() {
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let read_result_callable_id = CallableId(2);
     assert_callable(
         &program,
         read_result_callable_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    let op_a_callable_id = CallableId(3);
+    assert_callable(
+        &program,
+        op_a_callable_id,
         &expect![[r#"
             Callable:
                 name: __quantum__rt__read_result
@@ -429,31 +447,18 @@ fn if_else_expression_with_dynamic_logical_and_condition() {
                 output_type: Boolean
                 body: <NONE>"#]],
     );
-    let op_a_callable_id = CallableId(3);
-    assert_callable(
-        &program,
-        op_a_callable_id,
-        &expect![[r#"
-        Callable:
-            name: opA
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
-    );
     let op_b_callable_id = CallableId(4);
     assert_callable(
         &program,
         op_b_callable_id,
         &expect![[r#"
-        Callable:
-            name: opB
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: opA
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
 
     assert_blocks(
@@ -461,27 +466,28 @@ fn if_else_expression_with_dynamic_logical_and_condition() {
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(2), args( Result(0), )
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(0, Boolean) = Call id(3), args( Result(0), )
                 Variable(1, Boolean) = Store Variable(0, Boolean)
                 Variable(2, Boolean) = Store Bool(false)
                 Branch Variable(1, Boolean), 2, 1
             Block 1:Block:
                 Branch Variable(2, Boolean), 4, 5
             Block 2:Block:
-                Call id(1), args( Qubit(1), Result(1), )
-                Variable(3, Boolean) = Call id(2), args( Result(1), )
+                Call id(2), args( Qubit(1), Result(1), )
+                Variable(3, Boolean) = Call id(3), args( Result(1), )
                 Variable(4, Boolean) = Store Variable(3, Boolean)
                 Variable(2, Boolean) = Store Variable(4, Boolean)
                 Jump(1)
             Block 3:Block:
-                Call id(5), args( Integer(0), EmptyTag, )
+                Call id(6), args( Integer(0), EmptyTag, )
                 Return
             Block 4:Block:
-                Call id(3), args( Qubit(2), )
+                Call id(4), args( Qubit(2), )
                 Jump(3)
             Block 5:Block:
-                Call id(4), args( Qubit(2), )
+                Call id(5), args( Qubit(2), )
                 Jump(3)"#]],
     );
 }
@@ -512,19 +518,32 @@ fn if_else_expression_with_dynamic_logical_or_condition() {
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let read_result_callable_id = CallableId(2);
     assert_callable(
         &program,
         read_result_callable_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    let op_a_callable_id = CallableId(3);
+    assert_callable(
+        &program,
+        op_a_callable_id,
         &expect![[r#"
             Callable:
                 name: __quantum__rt__read_result
@@ -534,31 +553,18 @@ fn if_else_expression_with_dynamic_logical_or_condition() {
                 output_type: Boolean
                 body: <NONE>"#]],
     );
-    let op_a_callable_id = CallableId(3);
-    assert_callable(
-        &program,
-        op_a_callable_id,
-        &expect![[r#"
-        Callable:
-            name: opA
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
-    );
     let op_b_callable_id = CallableId(4);
     assert_callable(
         &program,
         op_b_callable_id,
         &expect![[r#"
-        Callable:
-            name: opB
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: opA
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
 
     assert_blocks(
@@ -566,27 +572,28 @@ fn if_else_expression_with_dynamic_logical_or_condition() {
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(2), args( Result(0), )
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(0, Boolean) = Call id(3), args( Result(0), )
                 Variable(1, Boolean) = Store Variable(0, Boolean)
                 Variable(2, Boolean) = Store Bool(true)
                 Branch Variable(1, Boolean), 1, 2
             Block 1:Block:
                 Branch Variable(2, Boolean), 4, 5
             Block 2:Block:
-                Call id(1), args( Qubit(1), Result(1), )
-                Variable(3, Boolean) = Call id(2), args( Result(1), )
+                Call id(2), args( Qubit(1), Result(1), )
+                Variable(3, Boolean) = Call id(3), args( Result(1), )
                 Variable(4, Boolean) = Store Variable(3, Boolean)
                 Variable(2, Boolean) = Store Variable(4, Boolean)
                 Jump(1)
             Block 3:Block:
-                Call id(5), args( Integer(0), EmptyTag, )
+                Call id(6), args( Integer(0), EmptyTag, )
                 Return
             Block 4:Block:
-                Call id(3), args( Qubit(2), )
+                Call id(4), args( Qubit(2), )
                 Jump(3)
             Block 5:Block:
-                Call id(4), args( Qubit(2), )
+                Call id(5), args( Qubit(2), )
                 Jump(3)"#]],
     );
 }
