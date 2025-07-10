@@ -589,6 +589,7 @@ def test_adaptive_ri_qir_can_be_generated() -> None:
 
         define i64 @ENTRYPOINT__main() #0 {
         block_0:
+          call void @__quantum__rt__initialize(i8* null)
           call void @__quantum__qis__rz__body(double 2.0, %Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__rz__body(double 0.0, %Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__rz__body(double 1.0, %Qubit* inttoptr (i64 0 to %Qubit*))
@@ -596,6 +597,8 @@ def test_adaptive_ri_qir_can_be_generated() -> None:
           call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
           ret i64 0
         }
+
+        declare void @__quantum__rt__initialize(i8*)
 
         declare void @__quantum__qis__rz__body(double, %Qubit*)
 
@@ -650,6 +653,7 @@ def test_base_qir_can_be_generated() -> None:
 
         define i64 @ENTRYPOINT__main() #0 {
         block_0:
+          call void @__quantum__rt__initialize(i8* null)
           call void @__quantum__qis__rz__body(double 2.0, %Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__rz__body(double 0.0, %Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__rz__body(double 1.0, %Qubit* inttoptr (i64 0 to %Qubit*))
@@ -657,6 +661,8 @@ def test_base_qir_can_be_generated() -> None:
           call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
           ret i64 0
         }
+
+        declare void @__quantum__rt__initialize(i8*)
 
         declare void @__quantum__qis__rz__body(double, %Qubit*)
 

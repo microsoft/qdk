@@ -32,23 +32,23 @@ def test_compile_qir_input_data() -> None:
     qir = operation._repr_qir_()
     assert isinstance(qir, bytes)
     module = Module.from_ir(Context(), qir.decode(), "module")
-    assert len(module.functions) == 3
+    assert len(module.functions) == 4
     assert module.functions[0].name == "ENTRYPOINT__main"
     func = module.functions[0]
     assert len(func.basic_blocks) == 1
-    assert len(func.basic_blocks[0].instructions) == 3
-    call_m = func.basic_blocks[0].instructions[0]
+    assert len(func.basic_blocks[0].instructions) == 4
+    call_m = func.basic_blocks[0].instructions[1]
     assert isinstance(call_m, Call)
     assert call_m.callee.name == "__quantum__qis__m__body"
     assert len(call_m.args) == 2
     assert qubit_id(call_m.args[0]) == 0
     assert result_id(call_m.args[1]) == 0
-    record_res = func.basic_blocks[0].instructions[1]
+    record_res = func.basic_blocks[0].instructions[2]
     assert isinstance(record_res, Call)
     assert len(record_res.args) == 2
     assert record_res.callee.name == "__quantum__rt__result_record_output"
     assert result_id(record_res.args[0]) == 0
-    assert func.basic_blocks[0].instructions[2].opcode == Opcode.RET
+    assert func.basic_blocks[0].instructions[3].opcode == Opcode.RET
 
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
@@ -85,14 +85,14 @@ def test_compile_qir_all_gates() -> None:
     qir = operation._repr_qir_()
     assert isinstance(qir, bytes)
     module = Module.from_ir(Context(), qir.decode(), "module")
-    assert len(module.functions) == 24
+    assert len(module.functions) == 25
     assert module.functions[0].name == "ENTRYPOINT__main"
     func = module.functions[0]
     assert len(func.basic_blocks) == 1
-    assert len(func.basic_blocks[0].instructions) == 27
+    assert len(func.basic_blocks[0].instructions) == 28
 
     def check_call(i: int, name: str, num_args: int) -> None:
-        call = func.basic_blocks[0].instructions[i]
+        call = func.basic_blocks[0].instructions[i + 1]
         assert isinstance(call, Call)
         assert call.callee.name == name
         assert len(call.args) == num_args

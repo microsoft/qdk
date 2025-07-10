@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#![allow(clippy::too_many_lines)]
 use super::{assert_error, get_partial_evaluation_error, get_rir_program};
 use expect_test::expect;
 use indoc::indoc;
@@ -31,6 +32,13 @@ fn output_recording_for_tuple_of_different_types() {
                     output_type: Integer
                     body: 0
                 Callable 1: Callable:
+                    name: __quantum__rt__initialize
+                    call_type: Regular
+                    input_type:
+                        [0]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 2: Callable:
                     name: __quantum__qis__mresetz__body
                     call_type: Measurement
                     input_type:
@@ -38,14 +46,14 @@ fn output_recording_for_tuple_of_different_types() {
                         [1]: Result
                     output_type: <VOID>
                     body: <NONE>
-                Callable 2: Callable:
+                Callable 3: Callable:
                     name: __quantum__rt__read_result
                     call_type: Readout
                     input_type:
                         [0]: Result
                     output_type: Boolean
                     body: <NONE>
-                Callable 3: Callable:
+                Callable 4: Callable:
                     name: __quantum__rt__tuple_record_output
                     call_type: OutputRecording
                     input_type:
@@ -53,7 +61,7 @@ fn output_recording_for_tuple_of_different_types() {
                         [1]: Pointer
                     output_type: <VOID>
                     body: <NONE>
-                Callable 4: Callable:
+                Callable 5: Callable:
                     name: __quantum__rt__result_record_output
                     call_type: OutputRecording
                     input_type:
@@ -61,7 +69,7 @@ fn output_recording_for_tuple_of_different_types() {
                         [1]: Pointer
                     output_type: <VOID>
                     body: <NONE>
-                Callable 5: Callable:
+                Callable 6: Callable:
                     name: __quantum__rt__bool_record_output
                     call_type: OutputRecording
                     input_type:
@@ -71,12 +79,13 @@ fn output_recording_for_tuple_of_different_types() {
                     body: <NONE>
             blocks:
                 Block 0: Block:
-                    Call id(1), args( Qubit(0), Result(0), )
-                    Variable(0, Boolean) = Call id(2), args( Result(0), )
+                    Call id(1), args( Pointer, )
+                    Call id(2), args( Qubit(0), Result(0), )
+                    Variable(0, Boolean) = Call id(3), args( Result(0), )
                     Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
-                    Call id(3), args( Integer(2), EmptyTag, )
-                    Call id(4), args( Result(0), Tag(0, 5), )
-                    Call id(5), args( Variable(1, Boolean), Tag(1, 5), )
+                    Call id(4), args( Integer(2), EmptyTag, )
+                    Call id(5), args( Result(0), Tag(0, 5), )
+                    Call id(6), args( Variable(1, Boolean), Tag(1, 5), )
                     Return
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
@@ -115,6 +124,13 @@ fn output_recording_for_nested_tuples() {
                     output_type: Integer
                     body: 0
                 Callable 1: Callable:
+                    name: __quantum__rt__initialize
+                    call_type: Regular
+                    input_type:
+                        [0]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 2: Callable:
                     name: __quantum__qis__mresetz__body
                     call_type: Measurement
                     input_type:
@@ -122,14 +138,14 @@ fn output_recording_for_nested_tuples() {
                         [1]: Result
                     output_type: <VOID>
                     body: <NONE>
-                Callable 2: Callable:
+                Callable 3: Callable:
                     name: __quantum__rt__read_result
                     call_type: Readout
                     input_type:
                         [0]: Result
                     output_type: Boolean
                     body: <NONE>
-                Callable 3: Callable:
+                Callable 4: Callable:
                     name: __quantum__rt__tuple_record_output
                     call_type: OutputRecording
                     input_type:
@@ -137,7 +153,7 @@ fn output_recording_for_nested_tuples() {
                         [1]: Pointer
                     output_type: <VOID>
                     body: <NONE>
-                Callable 4: Callable:
+                Callable 5: Callable:
                     name: __quantum__rt__result_record_output
                     call_type: OutputRecording
                     input_type:
@@ -145,7 +161,7 @@ fn output_recording_for_nested_tuples() {
                         [1]: Pointer
                     output_type: <VOID>
                     body: <NONE>
-                Callable 5: Callable:
+                Callable 6: Callable:
                     name: __quantum__rt__bool_record_output
                     call_type: OutputRecording
                     input_type:
@@ -155,18 +171,19 @@ fn output_recording_for_nested_tuples() {
                     body: <NONE>
             blocks:
                 Block 0: Block:
-                    Call id(1), args( Qubit(0), Result(0), )
-                    Variable(0, Boolean) = Call id(2), args( Result(0), )
+                    Call id(1), args( Pointer, )
+                    Call id(2), args( Qubit(0), Result(0), )
+                    Variable(0, Boolean) = Call id(3), args( Result(0), )
                     Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
-                    Variable(2, Boolean) = Call id(2), args( Result(0), )
+                    Variable(2, Boolean) = Call id(3), args( Result(0), )
                     Variable(3, Boolean) = Store Variable(2, Boolean)
-                    Call id(3), args( Integer(3), EmptyTag, )
-                    Call id(4), args( Result(0), Tag(0, 5), )
-                    Call id(3), args( Integer(2), EmptyTag, )
-                    Call id(5), args( Variable(1, Boolean), Tag(1, 7), )
-                    Call id(4), args( Result(0), Tag(2, 7), )
-                    Call id(3), args( Integer(1), EmptyTag, )
-                    Call id(5), args( Variable(3, Boolean), Tag(3, 7), )
+                    Call id(4), args( Integer(3), EmptyTag, )
+                    Call id(5), args( Result(0), Tag(0, 5), )
+                    Call id(4), args( Integer(2), EmptyTag, )
+                    Call id(6), args( Variable(1, Boolean), Tag(1, 7), )
+                    Call id(5), args( Result(0), Tag(2, 7), )
+                    Call id(4), args( Integer(1), EmptyTag, )
+                    Call id(6), args( Variable(3, Boolean), Tag(3, 7), )
                     Return
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
@@ -209,6 +226,13 @@ fn output_recording_for_tuple_of_arrays() {
                     output_type: Integer
                     body: 0
                 Callable 1: Callable:
+                    name: __quantum__rt__initialize
+                    call_type: Regular
+                    input_type:
+                        [0]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 2: Callable:
                     name: __quantum__qis__mresetz__body
                     call_type: Measurement
                     input_type:
@@ -216,14 +240,14 @@ fn output_recording_for_tuple_of_arrays() {
                         [1]: Result
                     output_type: <VOID>
                     body: <NONE>
-                Callable 2: Callable:
+                Callable 3: Callable:
                     name: __quantum__rt__read_result
                     call_type: Readout
                     input_type:
                         [0]: Result
                     output_type: Boolean
                     body: <NONE>
-                Callable 3: Callable:
+                Callable 4: Callable:
                     name: __quantum__rt__tuple_record_output
                     call_type: OutputRecording
                     input_type:
@@ -231,7 +255,7 @@ fn output_recording_for_tuple_of_arrays() {
                         [1]: Pointer
                     output_type: <VOID>
                     body: <NONE>
-                Callable 4: Callable:
+                Callable 5: Callable:
                     name: __quantum__rt__result_record_output
                     call_type: OutputRecording
                     input_type:
@@ -239,7 +263,7 @@ fn output_recording_for_tuple_of_arrays() {
                         [1]: Pointer
                     output_type: <VOID>
                     body: <NONE>
-                Callable 5: Callable:
+                Callable 6: Callable:
                     name: __quantum__rt__array_record_output
                     call_type: OutputRecording
                     input_type:
@@ -247,7 +271,7 @@ fn output_recording_for_tuple_of_arrays() {
                         [1]: Pointer
                     output_type: <VOID>
                     body: <NONE>
-                Callable 6: Callable:
+                Callable 7: Callable:
                     name: __quantum__rt__bool_record_output
                     call_type: OutputRecording
                     input_type:
@@ -257,16 +281,17 @@ fn output_recording_for_tuple_of_arrays() {
                     body: <NONE>
             blocks:
                 Block 0: Block:
-                    Call id(1), args( Qubit(0), Result(0), )
-                    Variable(0, Boolean) = Call id(2), args( Result(0), )
+                    Call id(1), args( Pointer, )
+                    Call id(2), args( Qubit(0), Result(0), )
+                    Variable(0, Boolean) = Call id(3), args( Result(0), )
                     Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
-                    Variable(2, Boolean) = Call id(2), args( Result(0), )
+                    Variable(2, Boolean) = Call id(3), args( Result(0), )
                     Variable(3, Boolean) = Store Variable(2, Boolean)
-                    Call id(3), args( Integer(2), EmptyTag, )
-                    Call id(4), args( Result(0), Tag(0, 5), )
-                    Call id(5), args( Integer(2), EmptyTag, )
-                    Call id(6), args( Variable(1, Boolean), Tag(1, 7), )
-                    Call id(6), args( Variable(3, Boolean), Tag(2, 7), )
+                    Call id(4), args( Integer(2), EmptyTag, )
+                    Call id(5), args( Result(0), Tag(0, 5), )
+                    Call id(6), args( Integer(2), EmptyTag, )
+                    Call id(7), args( Variable(1, Boolean), Tag(1, 7), )
+                    Call id(7), args( Variable(3, Boolean), Tag(2, 7), )
                     Return
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
@@ -306,6 +331,13 @@ fn output_recording_for_array_of_tuples() {
                     output_type: Integer
                     body: 0
                 Callable 1: Callable:
+                    name: __quantum__rt__initialize
+                    call_type: Regular
+                    input_type:
+                        [0]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 2: Callable:
                     name: __quantum__qis__mresetz__body
                     call_type: Measurement
                     input_type:
@@ -313,14 +345,14 @@ fn output_recording_for_array_of_tuples() {
                         [1]: Result
                     output_type: <VOID>
                     body: <NONE>
-                Callable 2: Callable:
+                Callable 3: Callable:
                     name: __quantum__rt__read_result
                     call_type: Readout
                     input_type:
                         [0]: Result
                     output_type: Boolean
                     body: <NONE>
-                Callable 3: Callable:
+                Callable 4: Callable:
                     name: __quantum__rt__array_record_output
                     call_type: OutputRecording
                     input_type:
@@ -328,7 +360,7 @@ fn output_recording_for_array_of_tuples() {
                         [1]: Pointer
                     output_type: <VOID>
                     body: <NONE>
-                Callable 4: Callable:
+                Callable 5: Callable:
                     name: __quantum__rt__tuple_record_output
                     call_type: OutputRecording
                     input_type:
@@ -336,7 +368,7 @@ fn output_recording_for_array_of_tuples() {
                         [1]: Pointer
                     output_type: <VOID>
                     body: <NONE>
-                Callable 5: Callable:
+                Callable 6: Callable:
                     name: __quantum__rt__result_record_output
                     call_type: OutputRecording
                     input_type:
@@ -344,7 +376,7 @@ fn output_recording_for_array_of_tuples() {
                         [1]: Pointer
                     output_type: <VOID>
                     body: <NONE>
-                Callable 6: Callable:
+                Callable 7: Callable:
                     name: __quantum__rt__bool_record_output
                     call_type: OutputRecording
                     input_type:
@@ -354,18 +386,19 @@ fn output_recording_for_array_of_tuples() {
                     body: <NONE>
             blocks:
                 Block 0: Block:
-                    Call id(1), args( Qubit(0), Result(0), )
-                    Variable(0, Boolean) = Call id(2), args( Result(0), )
+                    Call id(1), args( Pointer, )
+                    Call id(2), args( Qubit(0), Result(0), )
+                    Variable(0, Boolean) = Call id(3), args( Result(0), )
                     Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
-                    Variable(2, Boolean) = Call id(2), args( Result(0), )
+                    Variable(2, Boolean) = Call id(3), args( Result(0), )
                     Variable(3, Boolean) = Store Variable(2, Boolean)
-                    Call id(3), args( Integer(2), EmptyTag, )
                     Call id(4), args( Integer(2), EmptyTag, )
-                    Call id(5), args( Result(0), Tag(0, 7), )
-                    Call id(6), args( Variable(1, Boolean), Tag(1, 7), )
-                    Call id(4), args( Integer(2), EmptyTag, )
-                    Call id(5), args( Result(0), Tag(2, 7), )
-                    Call id(6), args( Variable(3, Boolean), Tag(3, 7), )
+                    Call id(5), args( Integer(2), EmptyTag, )
+                    Call id(6), args( Result(0), Tag(0, 7), )
+                    Call id(7), args( Variable(1, Boolean), Tag(1, 7), )
+                    Call id(5), args( Integer(2), EmptyTag, )
+                    Call id(6), args( Result(0), Tag(2, 7), )
+                    Call id(7), args( Variable(3, Boolean), Tag(3, 7), )
                     Return
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
@@ -404,6 +437,13 @@ fn output_recording_for_literal_bool() {
                     output_type: Integer
                     body: 0
                 Callable 1: Callable:
+                    name: __quantum__rt__initialize
+                    call_type: Regular
+                    input_type:
+                        [0]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 2: Callable:
                     name: __quantum__rt__bool_record_output
                     call_type: OutputRecording
                     input_type:
@@ -413,7 +453,8 @@ fn output_recording_for_literal_bool() {
                     body: <NONE>
             blocks:
                 Block 0: Block:
-                    Call id(1), args( Bool(true), Tag(0, 3), )
+                    Call id(1), args( Pointer, )
+                    Call id(2), args( Bool(true), Tag(0, 3), )
                     Return
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
@@ -449,6 +490,13 @@ fn output_recording_for_literal_double() {
                     output_type: Integer
                     body: 0
                 Callable 1: Callable:
+                    name: __quantum__rt__initialize
+                    call_type: Regular
+                    input_type:
+                        [0]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 2: Callable:
                     name: __quantum__rt__double_record_output
                     call_type: OutputRecording
                     input_type:
@@ -458,7 +506,8 @@ fn output_recording_for_literal_double() {
                     body: <NONE>
             blocks:
                 Block 0: Block:
-                    Call id(1), args( Double(42.1), Tag(0, 3), )
+                    Call id(1), args( Pointer, )
+                    Call id(2), args( Double(42.1), Tag(0, 3), )
                     Return
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
@@ -494,6 +543,13 @@ fn output_recording_for_literal_int() {
                     output_type: Integer
                     body: 0
                 Callable 1: Callable:
+                    name: __quantum__rt__initialize
+                    call_type: Regular
+                    input_type:
+                        [0]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 2: Callable:
                     name: __quantum__rt__int_record_output
                     call_type: OutputRecording
                     input_type:
@@ -503,7 +559,8 @@ fn output_recording_for_literal_int() {
                     body: <NONE>
             blocks:
                 Block 0: Block:
-                    Call id(1), args( Integer(42), Tag(0, 3), )
+                    Call id(1), args( Pointer, )
+                    Call id(2), args( Integer(42), Tag(0, 3), )
                     Return
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
@@ -541,6 +598,13 @@ fn output_recording_for_mix_of_literal_and_variable() {
                     output_type: Integer
                     body: 0
                 Callable 1: Callable:
+                    name: __quantum__rt__initialize
+                    call_type: Regular
+                    input_type:
+                        [0]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 2: Callable:
                     name: __quantum__qis__mresetz__body
                     call_type: Measurement
                     input_type:
@@ -548,7 +612,7 @@ fn output_recording_for_mix_of_literal_and_variable() {
                         [1]: Result
                     output_type: <VOID>
                     body: <NONE>
-                Callable 2: Callable:
+                Callable 3: Callable:
                     name: __quantum__rt__tuple_record_output
                     call_type: OutputRecording
                     input_type:
@@ -556,7 +620,7 @@ fn output_recording_for_mix_of_literal_and_variable() {
                         [1]: Pointer
                     output_type: <VOID>
                     body: <NONE>
-                Callable 3: Callable:
+                Callable 4: Callable:
                     name: __quantum__rt__result_record_output
                     call_type: OutputRecording
                     input_type:
@@ -564,7 +628,7 @@ fn output_recording_for_mix_of_literal_and_variable() {
                         [1]: Pointer
                     output_type: <VOID>
                     body: <NONE>
-                Callable 4: Callable:
+                Callable 5: Callable:
                     name: __quantum__rt__bool_record_output
                     call_type: OutputRecording
                     input_type:
@@ -574,10 +638,11 @@ fn output_recording_for_mix_of_literal_and_variable() {
                     body: <NONE>
             blocks:
                 Block 0: Block:
-                    Call id(1), args( Qubit(0), Result(0), )
-                    Call id(2), args( Integer(2), EmptyTag, )
-                    Call id(3), args( Result(0), Tag(0, 5), )
-                    Call id(4), args( Bool(true), Tag(1, 5), )
+                    Call id(1), args( Pointer, )
+                    Call id(2), args( Qubit(0), Result(0), )
+                    Call id(3), args( Integer(2), EmptyTag, )
+                    Call id(4), args( Result(0), Tag(0, 5), )
+                    Call id(5), args( Bool(true), Tag(1, 5), )
                     Return
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)

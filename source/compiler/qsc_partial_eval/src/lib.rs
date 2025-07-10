@@ -46,7 +46,7 @@ use qsc_rca::{
     },
 };
 use qsc_rir::{
-    builder,
+    builder::{self, initialize_decl},
     rir::{
         self, Callable, CallableId, CallableType, ConditionCode, FcmpConditionCode, Instruction,
         Literal, Operand, Program, VariableId,
@@ -231,6 +231,19 @@ impl<'a> PartialEvaluator<'a> {
         };
         program.callables.insert(entry_point_id, entry_point);
         program.entry = entry_point_id;
+
+        // Add the required call to the initialization function.
+        let init_func = initialize_decl();
+        let init_id = resource_manager.next_callable();
+        program.callables.insert(init_id, init_func);
+        program
+            .get_block_mut(entry_block_id)
+            .0
+            .push(Instruction::Call(
+                init_id,
+                vec![Operand::Literal(Literal::Pointer)],
+                None,
+            ));
 
         // Initialize the evaluation context and create a new partial evaluator.
         let context = EvaluationContext::new(

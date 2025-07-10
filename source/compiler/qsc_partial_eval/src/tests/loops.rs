@@ -28,27 +28,28 @@ fn unitary_call_within_a_for_loop() {
         &program,
         op_callable_id,
         &expect![[r#"
-        Callable:
-            name: op
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
+                Call id(1), args( Pointer, )
                 Variable(0, Integer) = Store Integer(1)
-                Call id(1), args( Qubit(0), )
+                Call id(2), args( Qubit(0), )
                 Variable(0, Integer) = Store Integer(2)
-                Call id(1), args( Qubit(0), )
+                Call id(2), args( Qubit(0), )
                 Variable(0, Integer) = Store Integer(3)
-                Call id(1), args( Qubit(0), )
+                Call id(2), args( Qubit(0), )
                 Variable(0, Integer) = Store Integer(4)
-                Call id(2), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -77,27 +78,28 @@ fn unitary_call_within_a_while_loop() {
         &program,
         rotation_callable_id,
         &expect![[r#"
-        Callable:
-            name: op
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
+                Call id(1), args( Pointer, )
                 Variable(0, Integer) = Store Integer(0)
-                Call id(1), args( Qubit(0), )
+                Call id(2), args( Qubit(0), )
                 Variable(0, Integer) = Store Integer(1)
-                Call id(1), args( Qubit(0), )
+                Call id(2), args( Qubit(0), )
                 Variable(0, Integer) = Store Integer(2)
-                Call id(1), args( Qubit(0), )
+                Call id(2), args( Qubit(0), )
                 Variable(0, Integer) = Store Integer(3)
-                Call id(2), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -126,31 +128,32 @@ fn unitary_call_within_a_repeat_until_loop() {
         &program,
         op_callable_id,
         &expect![[r#"
-        Callable:
-            name: op
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
+                Call id(1), args( Pointer, )
                 Variable(0, Integer) = Store Integer(0)
                 Variable(1, Boolean) = Store Bool(true)
-                Call id(1), args( Qubit(0), )
+                Call id(2), args( Qubit(0), )
                 Variable(0, Integer) = Store Integer(1)
                 Variable(1, Boolean) = Store Bool(true)
-                Call id(1), args( Qubit(0), )
+                Call id(2), args( Qubit(0), )
                 Variable(0, Integer) = Store Integer(2)
                 Variable(1, Boolean) = Store Bool(true)
-                Call id(1), args( Qubit(0), )
+                Call id(2), args( Qubit(0), )
                 Variable(0, Integer) = Store Integer(3)
                 Variable(1, Boolean) = Store Bool(false)
-                Call id(2), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -177,28 +180,28 @@ fn rotation_call_within_a_for_loop() {
         &program,
         rotation_callable_id,
         &expect![[r#"
-        Callable:
-            name: rotation
-            call_type: Regular
-            input_type:
-                [0]: Double
-                [1]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
+                Call id(1), args( Pointer, )
                 Variable(0, Integer) = Store Integer(0)
-                Call id(1), args( Double(0), Qubit(0), )
+                Call id(2), args( Double(0), Qubit(0), )
                 Variable(0, Integer) = Store Integer(1)
-                Call id(1), args( Double(1), Qubit(0), )
+                Call id(2), args( Double(1), Qubit(0), )
                 Variable(0, Integer) = Store Integer(2)
-                Call id(1), args( Double(2), Qubit(0), )
+                Call id(2), args( Double(2), Qubit(0), )
                 Variable(0, Integer) = Store Integer(3)
-                Call id(2), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -228,28 +231,28 @@ fn rotation_call_within_a_while_loop() {
         &program,
         op_callable_id,
         &expect![[r#"
-        Callable:
-            name: rotation
-            call_type: Regular
-            input_type:
-                [0]: Double
-                [1]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
+                Call id(1), args( Pointer, )
                 Variable(0, Integer) = Store Integer(0)
-                Call id(1), args( Double(0), Qubit(0), )
+                Call id(2), args( Double(0), Qubit(0), )
                 Variable(0, Integer) = Store Integer(1)
-                Call id(1), args( Double(1), Qubit(0), )
+                Call id(2), args( Double(1), Qubit(0), )
                 Variable(0, Integer) = Store Integer(2)
-                Call id(1), args( Double(2), Qubit(0), )
+                Call id(2), args( Double(2), Qubit(0), )
                 Variable(0, Integer) = Store Integer(3)
-                Call id(2), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -279,32 +282,32 @@ fn rotation_call_within_a_repeat_until_loop() {
         &program,
         rotation_callable_id,
         &expect![[r#"
-        Callable:
-            name: rotation
-            call_type: Regular
-            input_type:
-                [0]: Double
-                [1]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
+                Call id(1), args( Pointer, )
                 Variable(0, Integer) = Store Integer(0)
                 Variable(1, Boolean) = Store Bool(true)
-                Call id(1), args( Double(0), Qubit(0), )
+                Call id(2), args( Double(0), Qubit(0), )
                 Variable(0, Integer) = Store Integer(1)
                 Variable(1, Boolean) = Store Bool(true)
-                Call id(1), args( Double(1), Qubit(0), )
+                Call id(2), args( Double(1), Qubit(0), )
                 Variable(0, Integer) = Store Integer(2)
                 Variable(1, Boolean) = Store Bool(true)
-                Call id(1), args( Double(2), Qubit(0), )
+                Call id(2), args( Double(2), Qubit(0), )
                 Variable(0, Integer) = Store Integer(3)
                 Variable(1, Boolean) = Store Bool(false)
-                Call id(2), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
 }
@@ -333,10 +336,11 @@ fn mutable_bool_updated_in_loop() {
         BlockId(0),
         &expect![[r#"
             Block:
+                Call id(1), args( Pointer, )
                 Variable(0, Boolean) = Store Bool(false)
                 Variable(1, Integer) = Store Integer(1)
-                Call id(1), args( Qubit(0), Result(0), )
-                Variable(2, Boolean) = Call id(2), args( Result(0), )
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(2, Boolean) = Call id(3), args( Result(0), )
                 Variable(3, Boolean) = Store Variable(2, Boolean)
                 Variable(0, Boolean) = Store Variable(3, Boolean)
                 Variable(1, Integer) = Store Integer(2)
@@ -369,10 +373,11 @@ fn mutable_int_updated_in_loop() {
         BlockId(0),
         &expect![[r#"
             Block:
+                Call id(1), args( Pointer, )
                 Variable(0, Integer) = Store Integer(1)
                 Variable(1, Integer) = Store Integer(1)
-                Call id(1), args( Qubit(0), Result(0), )
-                Variable(2, Boolean) = Call id(2), args( Result(0), )
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(2, Boolean) = Call id(3), args( Result(0), )
                 Variable(3, Boolean) = Store Variable(2, Boolean)
                 Branch Variable(3, Boolean), 2, 1"#]],
     );
@@ -403,10 +408,11 @@ fn mutable_double_updated_in_loop() {
         &expect![[r#"
             Blocks:
             Block 0:Block:
+                Call id(1), args( Pointer, )
                 Variable(0, Double) = Store Double(1.1)
                 Variable(1, Integer) = Store Integer(1)
-                Call id(1), args( Qubit(0), Result(0), )
-                Variable(2, Boolean) = Call id(2), args( Result(0), )
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(2, Boolean) = Call id(3), args( Result(0), )
                 Variable(3, Boolean) = Store Variable(2, Boolean)
                 Branch Variable(3, Boolean), 2, 1
             Block 1:Block:
@@ -420,8 +426,8 @@ fn mutable_double_updated_in_loop() {
             Block 3:Block:
                 Branch Variable(5, Boolean), 6, 5
             Block 4:Block:
-                Call id(1), args( Qubit(0), Result(1), )
-                Variable(6, Boolean) = Call id(2), args( Result(1), )
+                Call id(2), args( Qubit(0), Result(1), )
+                Variable(6, Boolean) = Call id(3), args( Result(1), )
                 Variable(7, Boolean) = Store Variable(6, Boolean)
                 Variable(5, Boolean) = Store Variable(7, Boolean)
                 Jump(3)
@@ -437,14 +443,14 @@ fn mutable_double_updated_in_loop() {
             Block 7:Block:
                 Branch Variable(10, Boolean), 10, 9
             Block 8:Block:
-                Call id(1), args( Qubit(0), Result(2), )
-                Variable(11, Boolean) = Call id(2), args( Result(2), )
+                Call id(2), args( Qubit(0), Result(2), )
+                Variable(11, Boolean) = Call id(3), args( Result(2), )
                 Variable(12, Boolean) = Store Variable(11, Boolean)
                 Variable(10, Boolean) = Store Variable(12, Boolean)
                 Jump(7)
             Block 9:Block:
                 Variable(1, Integer) = Store Integer(4)
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(4), args( Integer(0), EmptyTag, )
                 Return
             Block 10:Block:
                 Variable(13, Double) = Fmul Double(-1), Variable(0, Double)

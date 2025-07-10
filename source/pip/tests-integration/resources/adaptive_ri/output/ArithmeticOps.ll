@@ -9,6 +9,7 @@
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
+  call void @__quantum__rt__initialize(i8* null)
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 1 to %Qubit*))
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 2 to %Qubit*))
@@ -92,6 +93,8 @@ block_10:
   call void @__quantum__rt__int_record_output(i64 %var_55, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @3, i64 0, i64 0))
   ret i64 0
 }
+
+declare void @__quantum__rt__initialize(i8*)
 
 declare void @__quantum__qis__x__body(%Qubit*)
 
