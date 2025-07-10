@@ -414,7 +414,7 @@ fn qubit_reindexed_across_branches() {
                     output_type: <VOID>
                     body: <NONE>
                 Callable 2: Callable:
-                    name: __quantum__qis__read_result__body
+                    name: __quantum__rt__read_result
                     call_type: Readout
                     input_type:
                         [0]: Result

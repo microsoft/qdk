@@ -742,13 +742,13 @@ fn call_to_intrinsic_begin_estimate_caching_with_dynamic_values_yields_true() {
         &program,
         read_result_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     let op_callable_id = CallableId(3);
     assert_callable(

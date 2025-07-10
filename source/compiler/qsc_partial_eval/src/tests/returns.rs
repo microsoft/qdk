@@ -436,13 +436,13 @@ fn non_classical_entry_point_with_early_return_after_branching_halts_evaluation(
         &program,
         read_result_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     let op_a_callable_id = CallableId(3);
     assert_callable(
@@ -561,13 +561,13 @@ fn operation_with_early_return_within_dynamic_branch_halts_evaluation_at_the_cal
         &program,
         read_result_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     let op_a_callable_id = CallableId(3);
     assert_callable(

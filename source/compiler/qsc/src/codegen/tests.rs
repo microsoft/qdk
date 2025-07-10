@@ -1188,7 +1188,7 @@ mod adaptive_ri_profile {
             block_0:
               call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
               call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-              %var_0 = call i1 @__quantum__qis__read_result__body(%Result* inttoptr (i64 0 to %Result*))
+              %var_0 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
               %var_1 = icmp eq i1 %var_0, false
               br i1 %var_1, label %block_1, label %block_2
             block_1:
@@ -1205,7 +1205,7 @@ mod adaptive_ri_profile {
 
             declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
 
-            declare i1 @__quantum__qis__read_result__body(%Result*)
+            declare i1 @__quantum__rt__read_result(%Result*)
 
             declare void @__quantum__rt__int_record_output(i64, i8*)
 
@@ -1665,7 +1665,7 @@ mod adaptive_rif_profile {
             block_0:
               call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
               call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-              %var_0 = call i1 @__quantum__qis__read_result__body(%Result* inttoptr (i64 0 to %Result*))
+              %var_0 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
               %var_1 = icmp eq i1 %var_0, false
               br i1 %var_1, label %block_1, label %block_2
             block_1:
@@ -1682,7 +1682,7 @@ mod adaptive_rif_profile {
 
             declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
 
-            declare i1 @__quantum__qis__read_result__body(%Result*)
+            declare i1 @__quantum__rt__read_result(%Result*)
 
             declare void @__quantum__rt__int_record_output(i64, i8*)
 
@@ -1724,7 +1724,7 @@ mod adaptive_rif_profile {
             block_0:
               call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
               call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-              %var_0 = call i1 @__quantum__qis__read_result__body(%Result* inttoptr (i64 0 to %Result*))
+              %var_0 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
               %var_1 = icmp eq i1 %var_0, false
               br i1 %var_1, label %block_1, label %block_2
             block_1:
@@ -1741,7 +1741,7 @@ mod adaptive_rif_profile {
 
             declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
 
-            declare i1 @__quantum__qis__read_result__body(%Result*)
+            declare i1 @__quantum__rt__read_result(%Result*)
 
             declare void @__quantum__rt__double_record_output(double, i8*)
 
@@ -1844,7 +1844,7 @@ mod adaptive_rif_profile {
             block_0:
               call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
               call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-              %var_0 = call i1 @__quantum__qis__read_result__body(%Result* inttoptr (i64 0 to %Result*))
+              %var_0 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
               %var_1 = icmp eq i1 %var_0, false
               br i1 %var_1, label %block_1, label %block_2
             block_1:
@@ -1871,7 +1871,7 @@ mod adaptive_rif_profile {
 
             declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
 
-            declare i1 @__quantum__qis__read_result__body(%Result*)
+            declare i1 @__quantum__rt__read_result(%Result*)
 
             declare void @OpA(double, %Qubit*)
 

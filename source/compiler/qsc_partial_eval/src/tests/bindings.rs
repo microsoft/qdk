@@ -146,7 +146,7 @@ fn immutable_bool_binding_does_not_generate_store_instruction() {
         read_result_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__read_result__body
+                name: __quantum__rt__read_result
                 call_type: Readout
                 input_type:
                     [0]: Result
@@ -214,7 +214,7 @@ fn mutable_bool_binding_generates_store_instruction() {
         read_result_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__read_result__body
+                name: __quantum__rt__read_result
                 call_type: Readout
                 input_type:
                     [0]: Result
@@ -282,7 +282,7 @@ fn immutable_int_binding_does_not_generate_store_instruction() {
         read_result_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__read_result__body
+                name: __quantum__rt__read_result
                 call_type: Readout
                 input_type:
                     [0]: Result
@@ -358,7 +358,7 @@ fn mutable_int_binding_does_generate_store_instruction() {
         read_result_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__read_result__body
+                name: __quantum__rt__read_result
                 call_type: Readout
                 input_type:
                     [0]: Result
@@ -444,7 +444,7 @@ fn mutable_variable_in_outer_scope_set_to_mutable_from_inner_scope() {
         read_result_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__read_result__body
+                name: __quantum__rt__read_result
                 call_type: Readout
                 input_type:
                     [0]: Result
@@ -521,7 +521,7 @@ fn mutable_double_binding_does_generate_store_instruction() {
         read_result_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__read_result__body
+                name: __quantum__rt__read_result
                 call_type: Readout
                 input_type:
                     [0]: Result
