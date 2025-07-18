@@ -285,9 +285,10 @@ fn result_array_value_at_negative_index_works() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), )
-                Call id(1), args( Qubit(1), Result(1), )
-                Call id(2), args( Result(1), Pointer, )
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Call id(2), args( Qubit(1), Result(1), )
+                Call id(3), args( Result(1), Tag(0, 3), )
                 Return"#]],
     );
 }
