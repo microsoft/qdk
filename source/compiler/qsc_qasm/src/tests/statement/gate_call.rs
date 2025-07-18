@@ -659,13 +659,18 @@ fn qdk_qir_intrinsic_on_gate_stmt_generates_correct_qir() -> miette::Result<(), 
         %Result = type opaque
         %Qubit = type opaque
 
-        define void @ENTRYPOINT__main() #0 {
+        @empty_tag = internal constant [1 x i8] c"\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
         block_0:
+          call void @__quantum__rt__initialize(i8* null)
           call void @my_gate(%Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-          call void @__quantum__rt__tuple_record_output(i64 0, i8* null)
-          ret void
+          call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+          ret i64 0
         }
+
+        declare void @__quantum__rt__initialize(i8*)
 
         declare void @my_gate(%Qubit*)
 
@@ -684,7 +689,7 @@ fn qdk_qir_intrinsic_on_gate_stmt_generates_correct_qir() -> miette::Result<(), 
         !1 = !{i32 7, !"qir_minor_version", i32 0}
         !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
         !3 = !{i32 1, !"dynamic_result_management", i1 false}
-        !4 = !{i32 1, !"int_computations", !"i64"}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
     "#]].assert_eq(&qsharp);
     Ok(())
 }
@@ -1462,14 +1467,20 @@ fn qasm2_qdk_qir_intrinsic_on_gate_stmt_generates_correct_qir() -> miette::Resul
         %Result = type opaque
         %Qubit = type opaque
 
-        define void @ENTRYPOINT__main() #0 {
+        @empty_tag = internal constant [1 x i8] c"\00"
+        @0 = internal constant [6 x i8] c"0_a0r\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
         block_0:
+          call void @__quantum__rt__initialize(i8* null)
           call void @my_gate(%Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-          call void @__quantum__rt__array_record_output(i64 1, i8* null)
-          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)
-          ret void
+          call void @__quantum__rt__array_record_output(i64 1, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @0, i64 0, i64 0))
+          ret i64 0
         }
+
+        declare void @__quantum__rt__initialize(i8*)
 
         declare void @my_gate(%Qubit*)
 
@@ -1490,7 +1501,7 @@ fn qasm2_qdk_qir_intrinsic_on_gate_stmt_generates_correct_qir() -> miette::Resul
         !1 = !{i32 7, !"qir_minor_version", i32 0}
         !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
         !3 = !{i32 1, !"dynamic_result_management", i1 false}
-        !4 = !{i32 1, !"int_computations", !"i64"}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
     "#]].assert_eq(&qsharp);
     Ok(())
 }
