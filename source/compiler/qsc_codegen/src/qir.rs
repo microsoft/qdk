@@ -748,6 +748,7 @@ fn get_module_metadata(program: &rir::Program) -> String {
         for cap in program.config.capabilities.iter() {
             match cap {
                 TargetCapabilityFlags::IntegerComputations => {
+                    // Use `5` as the flag to signify "Append" mode. See https://llvm.org/docs/LangRef.html#module-flags-metadata
                     writeln!(
                         flags,
                         "!{index} = !{{i32 5, !\"int_computations\", !{{!\"i64\"}}}}",
@@ -756,6 +757,7 @@ fn get_module_metadata(program: &rir::Program) -> String {
                     index += 1;
                 }
                 TargetCapabilityFlags::FloatingPointComputations => {
+                    // Use `5` as the flag to signify "Append" mode. See https://llvm.org/docs/LangRef.html#module-flags-metadata
                     writeln!(
                         flags,
                         "!{index} = !{{i32 5, !\"float_computations\", !{{!\"f64\"}}}}",
