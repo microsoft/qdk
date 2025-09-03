@@ -748,21 +748,17 @@ fn get_module_metadata(program: &rir::Program) -> String {
         for cap in program.config.capabilities.iter() {
             match cap {
                 TargetCapabilityFlags::IntegerComputations => {
-                    let name = "int_computations";
                     writeln!(
                         flags,
-                        "!{} = !{{i32 {}, !\"{}\", !{{!\"i{}\"}}}}",
-                        index, 5, name, 64
+                        "!{index} = !{{i32 5, !\"int_computations\", !{{!\"i64\"}}}}",
                     )
                     .expect("writing to string should succeed");
                     index += 1;
                 }
                 TargetCapabilityFlags::FloatingPointComputations => {
-                    let name = "float_computations";
                     writeln!(
                         flags,
-                        "!{} = !{{i32 {}, !\"{}\", !{{!\"f{}\"}}}}",
-                        index, 5, name, 64
+                        "!{index} = !{{i32 5, !\"float_computations\", !{{!\"f64\"}}}}",
                     )
                     .expect("writing to string should succeed");
                     index += 1;

@@ -1378,11 +1378,12 @@ fn call_to_recursive_callable_succeeds() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), )
-                Call id(1), args( Qubit(0), )
-                Call id(1), args( Qubit(0), )
-                Call id(2), args( Qubit(0), Result(0), )
-                Call id(3), args( Result(0), Pointer, )
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), )
+                Call id(2), args( Qubit(0), )
+                Call id(2), args( Qubit(0), )
+                Call id(3), args( Qubit(0), Result(0), )
+                Call id(4), args( Result(0), Tag(0, 3), )
                 Return"#]],
     );
 }
