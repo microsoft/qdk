@@ -223,10 +223,11 @@ export async function generateCircuit(
  * Wrapper around getCircuit() that enforces a timeout.
  * Won't throw for known errors.
  */
-async function getCircuitOrErrorWithTimeout(
+export async function getCircuitOrErrorWithTimeout(
   extensionUri: Uri,
   params: CircuitParams,
   simulate: boolean,
+  timeoutMs: number = compilerRunTimeoutMs,
 ): Promise<CircuitOrError> {
   let timeout = false;
 
@@ -240,7 +241,7 @@ async function getCircuitOrErrorWithTimeout(
     timeout = true;
     log.info("terminating circuit worker due to timeout");
     worker.terminate();
-  }, compilerRunTimeoutMs);
+  }, timeoutMs);
 
   const result = await getCircuitOrError(worker, params, simulate);
   clearTimeout(compilerTimeout);

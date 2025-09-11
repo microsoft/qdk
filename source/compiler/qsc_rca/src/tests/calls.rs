@@ -325,3 +325,49 @@ fn check_rca_for_call_to_function_that_receives_tuple_with_a_non_tuple_dynamic_a
                 dynamic_param_applications: <empty>"#]],
     );
 }
+
+#[test]
+fn check_rca_for_call_to_function_passed_single_tuple_variable_for_multiple_args() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        use q = Qubit();
+        let x = (if MResetX(q) == One { 1 } else { 0 }, 2, 3);
+        operation foo(a : Int, b : Int, c : Int) : Int { a + b + c };
+        foo(x)
+        "#,
+    );
+    let package_store_compute_properties = compilation_context.get_compute_properties();
+    check_last_statement_compute_properties(
+        package_store_compute_properties,
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Quantum: QuantumProperties:
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
+                    value_kind: Element(Dynamic)
+                dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_call_to_lambda_passed_single_tuple_variable_for_multiple_args() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        use q = Qubit();
+        let x = (if MResetX(q) == One { 1 } else { 0 }, 2, 3);
+        let lambda = (a, b, c) -> { a + b + c };
+        lambda(x)
+        "#,
+    );
+    let package_store_compute_properties = compilation_context.get_compute_properties();
+    check_last_statement_compute_properties(
+        package_store_compute_properties,
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Quantum: QuantumProperties:
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
+                    value_kind: Element(Dynamic)
+                dynamic_param_applications: <empty>"#]],
+    );
+}

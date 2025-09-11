@@ -2604,7 +2604,21 @@ fn map_input_pattern_to_input_expressions(
                 // All elements in the pattern map to the same expression.
                 // This is one of the boundaries where we can lose specific information since we are "unpacking" the
                 // tuple represented by a single expression.
-                vec![expr_id.expr; pats.len()]
+                let pats_len = if skip_ahead.is_some() {
+                    // When skip_ahead is not None we know we are processing a lambda, so check if pattern is itself a tuple.
+                    // If it is, that is the length we need to use rather than the original one.
+                    if let PatKind::Tuple(pats) =
+                        &package_store.get_pat((pat_id.package, pats[0]).into()).kind
+                    {
+                        pats.len()
+                    } else {
+                        pats.len()
+                    }
+                } else {
+                    pats.len()
+                };
+
+                vec![expr_id.expr; pats_len]
             }
         }
     }

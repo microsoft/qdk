@@ -9,6 +9,7 @@ import {
   QuantumUris,
   ResponseTypes,
   storageRequest,
+  StorageUris,
 } from "./networkRequests";
 import { Job, WorkspaceConnection } from "./treeView";
 import {
@@ -16,12 +17,7 @@ import {
   shouldExcludeTarget,
 } from "./providerProperties";
 import { getRandomGuid } from "../utils";
-import {
-  EventType,
-  sendTelemetryEvent,
-  UserFlowStatus,
-  UserTaskInvocationType,
-} from "../telemetry";
+import { EventType, sendTelemetryEvent, UserFlowStatus } from "../telemetry";
 import { getTenantIdAndToken, getTokenForWorkspace } from "./auth";
 
 export function getAzurePortalWorkspaceLink(workspace: WorkspaceConnection) {
@@ -527,124 +523,81 @@ export async function getJobFiles(
   return blob;
 }
 
+type JobContext = {
+  jobId: string;
+  storageUris: StorageUris;
+  quantumUris: QuantumUris;
+  token: string;
+};
+
 export async function submitJob(
-  token: string,
-  quantumUris: QuantumUris,
-  qirFile: Uint8Array | string,
+  workspace: WorkspaceConnection,
+  associationId: string,
+  qir: string,
   providerId: string,
   target: string,
-  jobName?: string | undefined,
-  numberOfShots?: number | undefined,
+  jobName: string,
+  numberOfShots: number,
+): Promise<JobContext> {
+  const quantumUris = new QuantumUris(workspace.endpointUri, workspace.id);
+  const token = await getTokenForWorkspace(workspace);
+  const jobId = getRandomGuid();
+
+  const storageUris = await createStorageContainer(
+    jobId,
+    quantumUris,
+    token,
+    associationId,
+  );
+
+  await uploadBlob(
+    storageUris,
+    quantumUris,
+    token,
+    "inputData",
+    qir,
+    "text/plain",
+    associationId,
+  );
+
+  await putJobData(
+    quantumUris,
+    storageUris,
+    jobId,
+    jobName,
+    associationId,
+    token,
+    providerId,
+    target,
+    numberOfShots,
+  );
+
+  vscode.window.showInformationMessage(`Job ${jobName} submitted`);
+
+  return { jobId, storageUris, quantumUris, token };
+}
+
+async function putJobData(
+  quantumUris: QuantumUris,
+  storageUris: StorageUris,
+  jobId: string,
+  jobName: string,
+  associationId: string,
+  token: string,
+  providerId: string,
+  target: string,
+  numberOfShots: number,
 ) {
-  const associationId = getRandomGuid();
-  const start = performance.now();
-  sendTelemetryEvent(
-    EventType.SubmitToAzureStart,
-    { associationId, invocationType: UserTaskInvocationType.Command },
-    {},
-  );
-
-  const containerName = getRandomGuid();
-  if (!jobName) {
-    jobName = await vscode.window.showInputBox({
-      prompt: "Job name",
-      value: new Date().toISOString(),
-    });
-    if (!jobName) return; // TODO: Log a telemetry event for this?
-  }
-
-  if (!numberOfShots) {
-    // validator for the user-provided number of shots input
-    const validateShotsInput = (input: string) => {
-      const result = parseFloat(input);
-      if (isNaN(result) || Math.floor(result) !== result) {
-        return "Number of shots must be an integer";
-      }
-    };
-
-    // prompt the user for the number of shots
-    const numberOfShotsPrompted = await vscode.window.showInputBox({
-      value: "100",
-      prompt: "Number of shots",
-      validateInput: validateShotsInput,
-    });
-
-    // abort if the user hits <Esc> during shots entry
-    if (numberOfShotsPrompted === undefined) {
-      sendTelemetryEvent(
-        EventType.SubmitToAzureEnd,
-        {
-          associationId,
-          reason: "undefined number of shots",
-          flowStatus: UserFlowStatus.Aborted,
-        },
-        { timeToCompleteMs: performance.now() - start },
-      );
-      return;
-    }
-
-    numberOfShots = parseInt(numberOfShotsPrompted);
-  }
-
-  // Get a sasUri for the container
-  const body = JSON.stringify({ containerName });
-  const sasResponse = await azureRequest(
-    quantumUris.sasUri(),
-    token,
-    associationId,
-    "POST",
-    body,
-  );
-
-  const sasUri = decodeURI(sasResponse.sasUri);
-
-  // Parse the Uri to get the storage account and sasToken
-  const sasUriObj = vscode.Uri.parse(sasUri);
-  const storageAccount = sasUriObj.scheme + "://" + sasUriObj.authority;
-
-  // Get the raw value to append to other query strings
-  const sasTokenRaw = sasResponse.sasUri.substring(
-    sasResponse.sasUri.indexOf("?") + 1,
-  );
-
-  // Create the container
-  const containerPutUri = `${storageAccount}/${containerName}?restype=container&${sasTokenRaw}`;
-  await storageRequest(
-    containerPutUri,
-    "PUT",
-    token,
-    quantumUris.storageProxy(),
-    undefined,
-    undefined,
-    associationId,
-  );
-
-  // Write the input data
-  const inputDataUri = `${storageAccount}/${containerName}/inputData?${sasTokenRaw}`;
-  await storageRequest(
-    inputDataUri,
-    "PUT",
-    token,
-    quantumUris.storageProxy(),
-    [
-      ["x-ms-blob-type", "BlockBlob"],
-      ["Content-Type", "text/plain"],
-    ],
-    qirFile,
-    associationId,
-  );
-
-  // PUT the job data
-  const putJobUri = quantumUris.jobs(containerName);
+  const putJobUri = quantumUris.jobs(jobId);
 
   const payload = {
-    id: containerName,
+    id: jobId,
     name: jobName,
     providerId,
     target,
     itemType: "Job",
-    containerUri: sasResponse.sasUri,
-    inputDataUri: `${storageAccount}/${containerName}/inputData`,
+    containerUri: storageUris.containerWithSasToken(),
+    inputDataUri: storageUris.blob("inputData"),
     inputDataFormat: "qir.v1",
     outputDataFormat: "microsoft.quantum-results.v2",
     inputParams: {
@@ -661,17 +614,62 @@ export async function submitJob(
     "PUT",
     JSON.stringify(payload),
   );
+}
 
-  vscode.window.showInformationMessage(`Job ${jobName} submitted`);
-  sendTelemetryEvent(
-    EventType.SubmitToAzureEnd,
-    {
-      associationId,
-      reason: "job submitted",
-      flowStatus: UserFlowStatus.Succeeded,
-    },
-    { timeToCompleteMs: performance.now() - start },
+async function createStorageContainer(
+  containerName: string,
+  quantumUris: QuantumUris,
+  token: string,
+  associationId: string,
+): Promise<StorageUris> {
+  // Get a sasUri for the container
+  const body = JSON.stringify({ containerName });
+  const sasResponse = await azureRequest(
+    quantumUris.sasUri(),
+    token,
+    associationId,
+    "POST",
+    body,
   );
 
-  return containerName; // The jobId
+  const storageUris = new StorageUris(
+    decodeURI(sasResponse.sasUri),
+    containerName,
+  );
+
+  // Create the container
+  await storageRequest(
+    storageUris.containerPutWithSasToken(),
+    "PUT",
+    token,
+    quantumUris.storageProxy(),
+    undefined,
+    undefined,
+    associationId,
+  );
+
+  return storageUris;
+}
+
+export async function uploadBlob(
+  storageUris: StorageUris,
+  quantumUris: QuantumUris,
+  token: string,
+  blobName: string,
+  content: string,
+  contentType: string,
+  associationId: string,
+) {
+  await storageRequest(
+    storageUris.blobWithSasToken(blobName),
+    "PUT",
+    token,
+    quantumUris.storageProxy(),
+    [
+      ["x-ms-blob-type", "BlockBlob"],
+      ["Content-Type", contentType],
+    ],
+    content,
+    associationId,
+  );
 }

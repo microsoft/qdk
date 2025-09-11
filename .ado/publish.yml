@@ -39,11 +39,11 @@ parameters:
     arch: x86_64
     additionalTargets: wasm32-unknown-unknown
   - name: linux_aarch64
-    poolName: 'Azure-Pipelines-DevTools-EO'
-    imageName: 'ubuntu-22.04'
+    poolName: 'Azure-Pipelines-DevTools-ARM64-EO'
+    imageName: 'mariner-2.0-arm64'
     os: linux
     arch: aarch64
-    additionalRustTargets: aarch64-unknown-linux-gnu wasm32-unknown-unknown
+    additionalRustTargets: wasm32-unknown-unknown
   - name: mac_universal
     poolName: 'Azure Pipelines'
     imageName: 'macOS-latest'       # MacOS-specific Py (Mac is usually quite limited).
@@ -241,6 +241,8 @@ extends:
             name: ${{ target.poolName }}
             image: ${{ target.imageName }}
             os: ${{ target.os }}
+            ${{ if and(eq(target.arch, 'aarch64'), eq(target.os, 'linux')) }}:
+              hostArchitecture: Arm64
           variables:
             arch: ${{ target.arch }}
             additionalRustTargets: ${{ target.additionalRustTargets }}
@@ -291,49 +293,40 @@ extends:
           - task: UsePythonVersion@0
             inputs:
               versionSpec: '3.11'
+            condition: and(ne(variables['Agent.OS'], 'Linux'), ne(variables['arch'], 'aarch64'))
 
           - task: UseNode@1
             inputs:
               version: "20.x"
 
           - script: |
-              python ./prereqs.py --skip-wasm && python ./version.py
-            displayName: Install Prereqs and set version
-
-          - script: |
-              chmod +x ./.ado/docker/linux-aarch64/install_prereqs.sh
-              sudo ./.ado/docker/linux-aarch64/install_prereqs.sh
-            displayName: Install Linux aarch64 cross prereqs
-            condition: and(eq(variables['Agent.OS'], 'Linux'), eq(variables['arch'], 'aarch64'))
-
-          - script: |
-              python build.py --pip --no-check-prereqs --integration-tests
-            displayName: Build Platform-Dependent Py Packages
-            condition: ne(variables['arch'], 'aarch64')
-
-          - script: |
-              python -m pip install auditwheel patchelf
-              ls target/wheels
-              ls target/wheels/*.whl | xargs auditwheel show
-              ls target/wheels/*.whl | xargs auditwheel repair --wheel-dir ./target/wheels/ --plat manylinux_2_35_x86_64
-              rm target/wheels/*-linux_x86_64.whl
-              ls target/wheels
-            displayName: Run auditwheel for Linux Wheels
+              sudo apt update
+              sudo apt install -y patchelf
+            displayName: Install Linux x86_64 prereqs
             condition: and(eq(variables['Agent.OS'], 'Linux'), eq(variables['arch'], 'x86_64'))
 
-          # for linux aarch64 cross build we want to skip tests as we can't run the code.
-          # and we can't run the samples as qsc is currently cross compiled.
+          # on mariner we need to install:
+          # ld with binutils
+          # crt1.o and others with glibc-devel
+          # std lib headers with kernel-headers
+          # patchelf for modifying ELF files via auditwheel
           - script: |
-              env CARGO_BUILD_TARGET=aarch64-unknown-linux-gnu python build.py --pip --no-check-prereqs --no-check --no-test
-            displayName: Cross Build Linux aarch64 Py Packages
-            condition: and(eq(variables['Agent.OS'], 'Linux'), eq(variables['arch'], 'aarch64'))
+              sudo tdnf install binutils glibc-devel kernel-headers patchelf -y
+            displayName: Install c++ build tools on mariner
+            condition: and(succeeded(), eq(variables['Agent.OS'], 'Linux'), eq(variables['arch'], 'aarch64'))
 
           - script: |
-              chmod +x ./.ado/docker/linux-aarch64/run.sh
+              python ./prereqs.py --skip-wasm
+            displayName: Install Prereqs
+            condition: and(ne(variables['Agent.OS'], 'Linux'), ne(variables['arch'], 'aarch64'))
 
-              ./.ado/docker/linux-aarch64/run.sh
-            displayName: Run auditwheel and python tests for Linux aarch64 Wheels
-            condition: and(eq(variables['Agent.OS'], 'Linux'), eq(variables['arch'], 'aarch64'))
+          - script: |
+              python ./version.py
+            displayName: Set version
+
+          - script: |
+              python build.py --pip --no-check-prereqs --integration-tests --manylinux
+            displayName: Build Platform-Dependent Py Packages
 
           - script: |
               echo ##vso[task.setvariable variable=CARGO_BUILD_TARGET]aarch64-pc-windows-msvc

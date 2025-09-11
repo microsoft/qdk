@@ -10,12 +10,7 @@ import {
 import * as vscode from "vscode";
 import { qsharpExtensionId } from "./common";
 import { invokeAndReportCommandDiagnostics } from "./diagnostics";
-import {
-  FullProgramConfig,
-  getActiveProgram,
-  getActiveQdkDocumentUri,
-} from "./programConfig";
-import { openManifestFile } from "./projectSystem";
+import { FullProgramConfig, getActiveProgram } from "./programConfig";
 import {
   EventType,
   getActiveDocumentType,
@@ -48,12 +43,10 @@ export async function getQirForActiveWindow(
     throw new QirGenerationError(program.errorMsg);
   }
 
-  const docUri = getActiveQdkDocumentUri();
   return getQirForProgram(
     program.programConfig,
     preferredTargetProfile,
     getActiveDocumentType(),
-    docUri,
     isLocalQirGeneration,
   );
 }
@@ -82,11 +75,8 @@ export async function getQirForProgram(
   config: FullProgramConfig,
   preferredTargetProfile: TargetProfile,
   telemetryDocumentType: QsharpDocumentType,
-  documentUri?: vscode.Uri,
   isLocalQirGeneration = false,
 ): Promise<string> {
-  let result = "";
-
   const compatible = checkCompatibility(config.profile, preferredTargetProfile);
   if (!compatible) {
     let errorMsg =
@@ -99,20 +89,18 @@ export async function getQirForProgram(
 
     if (config.packageGraphSources.hasManifest) {
       // Open the manifest file to allow the user to update the profile.
-      const docUri =
-        documentUri ?? vscode.window.activeTextEditor?.document.uri;
-      if (docUri != undefined) {
-        try {
-          await openManifestFile(docUri);
-          errorMsg +=
-            " Please update the target profile in the manifest file to " +
-            preferredTargetProfile;
-        } catch {
-          // If the manifest file cannot be opened, just log the error.
-          log.error(
-            "Could not open qsharp.json manifest to update the QIR target profile.",
-          );
-        }
+      try {
+        await vscode.window.showTextDocument(
+          vscode.Uri.parse(config.projectUri),
+        );
+        errorMsg +=
+          " Please update the target profile in the manifest file to " +
+          preferredTargetProfile;
+      } catch {
+        // If the manifest file cannot be opened, just log the error.
+        log.error(
+          "Could not open qsharp.json manifest to update the QIR target profile.",
+        );
       }
     }
     throw new QirGenerationError(errorMsg);
@@ -138,7 +126,7 @@ export async function getQirForProgram(
       {},
     );
 
-    result = await vscode.window.withProgress(
+    const result = await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
         cancellable: true,
@@ -165,6 +153,8 @@ export async function getQirForProgram(
       { qirLength: result.length, timeToCompleteMs: performance.now() - start },
     );
     clearTimeout(compilerTimeout);
+
+    return result;
   } catch (e: any) {
     if (e instanceof WebAssembly.RuntimeError) {
       throw new QirGenerationError(
@@ -197,8 +187,6 @@ export async function getQirForProgram(
   } finally {
     worker.terminate();
   }
-
-  return result;
 }
 
 async function getQirForActiveWindowCommand() {

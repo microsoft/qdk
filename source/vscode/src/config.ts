@@ -44,3 +44,9 @@ export function getShowDevDiagnostics(): boolean {
     .getConfiguration("Q#")
     .get<boolean>("dev.showDevDiagnostics", false);
 }
+
+export function getUploadSupplementalData(): boolean {
+  return vscode.workspace
+    .getConfiguration("Q#")
+    .get<boolean>("azure.experimental.uploadSupplementalData", false);
+}

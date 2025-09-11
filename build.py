@@ -4,6 +4,7 @@
 # Licensed under the MIT License.
 
 import argparse
+from glob import glob
 import os
 import platform
 import sys
@@ -80,6 +81,13 @@ parser.add_argument(
     action=argparse.BooleanOptionalAction,
     default=False,
     help="Run the benchmarking script that is run in CI (default is --no-ci-bench)",
+)
+
+parser.add_argument(
+    "--manylinux",
+    action=argparse.BooleanOptionalAction,
+    default=False,
+    help="Run the manylinux auditwheel repair (default is --no-manylinux)",
 )
 
 args = parser.parse_args()
@@ -259,6 +267,46 @@ def install_qsharp_python_package(cwd, wheelhouse, interpreter):
     subprocess.run(command_args, check=True, text=True, cwd=cwd)
 
 
+def repair_manylinux_wheels(cwd, wheelhouse, interpreter):
+    if platform.system() != "Linux":
+        print("Not on Linux, skipping manylinux repair")
+        return
+
+    tag = "manylinux_2_35_x86_64"
+
+    if platform.machine() == "aarch64":
+        tag = "manylinux_2_35_aarch64"
+
+    command_args = [
+        interpreter,
+        "-m",
+        "pip",
+        "install",
+        "auditwheel",
+        "patchelf",
+    ]
+    subprocess.run(command_args, check=True, text=True, cwd=cwd)
+
+    wheel_files = glob(wheelhouse + "/qsharp-*.whl")
+
+    for wheel in wheel_files:
+        command_args = [
+            interpreter,
+            "-m",
+            "auditwheel",
+            "repair",
+            "--plat",
+            tag,
+            "--wheel-dir",
+            wheelhouse,
+            wheel,
+        ]
+        subprocess.run(command_args, check=True, text=True, cwd=cwd)
+
+        if "manylinux" not in wheel:
+            subprocess.run(["rm", wheel], check=True, text=True, cwd=cwd)
+
+
 # If any package fails to install when using a requirements file, the entire
 # process will fail with unpredicatable state of installed packages. To avoid
 # this, we install each package individually from the requirements file.
@@ -390,6 +438,12 @@ if build_pip:
 
         step_end()
 
+    if args.manylinux:
+        step_start("Repairing manylinux wheels")
+
+        repair_manylinux_wheels(pip_src, wheels_dir, python_bin)
+
+        step_end()
 
 if build_widgets:
     step_start("Building the Python widgets")

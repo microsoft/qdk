@@ -3,6 +3,7 @@
 
 import { log } from "qsharp-lang";
 import { EventType, getUserAgent, sendTelemetryEvent } from "../telemetry";
+import * as vscode from "vscode";
 
 export async function azureRequest(
   uri: string,
@@ -240,30 +241,35 @@ export class QuantumUris {
 }
 
 export class StorageUris {
-  // Requests use a Shared Access Signature. See https://learn.microsoft.com/en-us/rest/api/storageservices/service-sas-examples
+  private storageAccount: string;
+  private sasTokenRaw: string;
 
-  // x-ms-date header should be present in format: Sun, 06 Nov 1994 08:49:37 GMT
-  // See https://learn.microsoft.com/en-us/rest/api/storageservices/representation-of-date-time-values-in-headers
+  constructor(
+    private sasUri: string,
+    private containerName: string,
+  ) {
+    // Parse the Uri to get the storage account and sasToken
+    const sasUriObj = vscode.Uri.parse(sasUri);
+    this.storageAccount = sasUriObj.scheme + "://" + sasUriObj.authority;
 
-  readonly apiVersion = "2023-01-03"; // Pass as x-ms-version header (see https://learn.microsoft.com/en-us/rest/api/storageservices/versioning-for-the-azure-storage-services#authorize-requests-by-using-azure-ad-shared-key-or-shared-key-lite)
-
-  // Same for PUT, with a status code of 201 if successful
-  getContainer(storageAccount: string, container: string, sas: string) {
-    return `https://${storageAccount}.blob.core.windows.net/${container}?restype=container&${sas}`;
+    // Get the raw value to append to other query strings
+    this.sasTokenRaw = sasUri.substring(sasUri.indexOf("?") + 1);
   }
 
-  // Same for DELETE, with a status code of 202 if successful
-  // Also same URI for PUT, but must include the following headers:
-  // - x-ms-blob-type: BlockBlob
-  // - Content-Length: <n>
-  // It will return 201 if created.
-  getBlob(
-    storageAccount: string,
-    container: string,
-    blob: string,
-    sas: string,
-  ) {
-    return `https://${storageAccount}.blob.core.windows.net/${container}/${blob}?${sas}`;
+  blob(blobName: string) {
+    return `${this.storageAccount}/${this.containerName}/${blobName}`;
+  }
+
+  blobWithSasToken(blobName: string) {
+    return `${this.storageAccount}/${this.containerName}/${blobName}?${this.sasTokenRaw}`;
+  }
+
+  containerWithSasToken() {
+    return this.sasUri;
+  }
+
+  containerPutWithSasToken() {
+    return `${this.storageAccount}/${this.containerName}?restype=container&${this.sasTokenRaw}`;
   }
 }
 

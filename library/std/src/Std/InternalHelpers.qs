@@ -160,17 +160,19 @@ internal operation CCY(control1 : Qubit, control2 : Qubit, target : Qubit) : Uni
 
 internal operation CRxx(control : Qubit, theta : Double, qubit0 : Qubit, qubit1 : Qubit) : Unit {
     within {
-        CNOT(qubit1, qubit0);
+        MapPauliAxis(PauliZ, PauliX, qubit0);
+        MapPauliAxis(PauliZ, PauliX, qubit1);
     } apply {
-        Controlled Rx([control], (theta, qubit0));
+        CRzz(control, theta, qubit0, qubit1);
     }
 }
 
 internal operation CRyy(control : Qubit, theta : Double, qubit0 : Qubit, qubit1 : Qubit) : Unit {
     within {
-        CNOT(qubit1, qubit0);
+        MapPauliAxis(PauliZ, PauliY, qubit0);
+        MapPauliAxis(PauliZ, PauliY, qubit1);
     } apply {
-        Controlled Ry([control], (theta, qubit0));
+        CRzz(control, theta, qubit0, qubit1);
     }
 }
 

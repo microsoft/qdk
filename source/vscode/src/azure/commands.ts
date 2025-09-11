@@ -1,9 +1,30 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+import { log, QdkDiagnostics, TargetProfile } from "qsharp-lang";
 import * as vscode from "vscode";
-import { log } from "qsharp-lang";
-
+import { getCircuitOrErrorWithTimeout } from "../circuit";
+import { qsharpExtensionId } from "../common";
+import { getUploadSupplementalData } from "../config";
+import { FullProgramConfig, getActiveProgram } from "../programConfig";
+import { getQirForProgram, QirGenerationError } from "../qirGeneration";
+import {
+  EventType,
+  getActiveDocumentType,
+  QsharpDocumentType,
+  sendTelemetryEvent,
+  UserFlowStatus,
+  UserTaskInvocationType,
+} from "../telemetry";
+import { getRandomGuid } from "../utils";
+import { sendMessageToPanel } from "../webviewPanel";
+import { getTokenForWorkspace } from "./auth";
+import { QuantumUris, StorageUris } from "./networkRequests";
+import {
+  getPreferredTargetProfile,
+  targetSupportQir,
+} from "./providerProperties";
+import { startRefreshCycle } from "./treeRefresher";
 import {
   Job,
   Target,
@@ -17,21 +38,14 @@ import {
   getPythonCodeForWorkspace,
   queryWorkspaces,
   submitJob,
+  uploadBlob,
 } from "./workspaceActions";
-import { QuantumUris } from "./networkRequests";
-import { getQirForActiveWindow } from "../qirGeneration";
-import {
-  getPreferredTargetProfile,
-  targetSupportQir,
-} from "./providerProperties";
-import { startRefreshCycle } from "./treeRefresher";
-import { getTokenForWorkspace } from "./auth";
-import { qsharpExtensionId } from "../common";
-import { sendMessageToPanel } from "../webviewPanel";
 
 const workspacesSecret = `${qsharpExtensionId}.workspaces`;
+let extensionUri: vscode.Uri;
 
 export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
+  extensionUri = context.extensionUri;
   const workspaceTreeProvider = new WorkspaceTreeProvider();
   WorkspaceTreeProvider.instance = workspaceTreeProvider;
 
@@ -112,42 +126,33 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
 
         const target = treeItem.itemData as Target;
 
-        let qir = "";
         try {
-          qir = await getQirForActiveWindow(
-            getPreferredTargetProfile(target.id),
+          const preferredTargetProfile = getPreferredTargetProfile(target.id);
+          const program = await getActiveProgram({
+            showModalError: true,
+            targetProfileFallback: preferredTargetProfile,
+          });
+
+          if (!program.success) {
+            throw new QirGenerationError(program.errorMsg);
+          }
+
+          await compileAndSubmit(
+            program.programConfig,
+            preferredTargetProfile,
+            getActiveDocumentType(),
+            UserTaskInvocationType.Command,
+            workspaceTreeProvider,
+            treeItem.workspace,
+            target,
           );
-        } catch (e: any) {
-          if (e?.name === "QirGenerationError") {
+        } catch (e: unknown) {
+          log.warn("Failed to submit job. ", e);
+
+          if (e instanceof QirGenerationError) {
             vscode.window.showErrorMessage(e.message, { modal: true });
             return;
           }
-        }
-        if (!qir) return;
-
-        const quantumUris = new QuantumUris(
-          treeItem.workspace.endpointUri,
-          treeItem.workspace.id,
-        );
-
-        try {
-          const token = await getTokenForWorkspace(treeItem.workspace);
-          if (!token) return;
-
-          const jobId = await submitJob(
-            token,
-            quantumUris,
-            qir,
-            target.providerId,
-            target.id,
-          );
-          if (jobId) {
-            // The job submitted fine. Refresh the workspace until it shows up
-            // and all jobs are finished. Don't await on this, just let it run
-            startRefreshCycle(workspaceTreeProvider, treeItem.workspace, jobId);
-          }
-        } catch (e: any) {
-          log.error("Failed to submit job. ", e);
 
           vscode.window.showErrorMessage("Failed to submit the job to Azure.", {
             modal: true,
@@ -400,4 +405,171 @@ function getHistogramBucketsFromData(
     log.debug("Failed to parse job results as histogram data.", file, e);
   }
   return undefined;
+}
+
+export async function compileAndSubmit(
+  program: FullProgramConfig,
+  targetProfile: TargetProfile,
+  telemetryDocumentType: QsharpDocumentType,
+  telemetryInvocationType: UserTaskInvocationType,
+  workspaceTreeProvider: WorkspaceTreeProvider,
+  workspace: WorkspaceConnection,
+  target: Target,
+  parameters: { jobName: string; shots: number } | undefined = undefined,
+) {
+  const associationId = getRandomGuid();
+  const start = performance.now();
+  sendTelemetryEvent(
+    EventType.SubmitToAzureStart,
+    { associationId, invocationType: telemetryInvocationType },
+    {},
+  );
+
+  const qir = await getQirForProgram(
+    program,
+    targetProfile,
+    telemetryDocumentType,
+  );
+
+  if (!parameters) {
+    const result = await promptForJobParameters();
+    if (!result) {
+      sendTelemetryEvent(
+        EventType.SubmitToAzureEnd,
+        {
+          associationId,
+          reason: "user cancelled parameter input",
+          flowStatus: UserFlowStatus.Aborted,
+        },
+        { timeToCompleteMs: performance.now() - start },
+      );
+      return;
+    }
+    parameters = { jobName: result.jobName, shots: result.numberOfShots };
+  }
+
+  const { jobId, storageUris, quantumUris, token } = await submitJob(
+    workspace,
+    associationId,
+    qir,
+    target.providerId,
+    target.id,
+    parameters.jobName,
+    parameters.shots,
+  );
+
+  sendTelemetryEvent(
+    EventType.SubmitToAzureEnd,
+    {
+      associationId,
+      reason: "job submitted",
+      flowStatus: UserFlowStatus.Succeeded,
+    },
+    { timeToCompleteMs: performance.now() - start },
+  );
+
+  // The job submitted fine. Refresh the workspace until it shows up
+  // and all jobs are finished. Don't await on this, just let it run
+  startRefreshCycle(workspaceTreeProvider, workspace, jobId);
+
+  if (getUploadSupplementalData()) {
+    // Now generate and upload the supplemental data.
+    // Fire and forget - the supplemental data is best-effort .
+    uploadSupplementalData(
+      program,
+      storageUris,
+      quantumUris,
+      token,
+      associationId,
+    ).catch((e) => {
+      log.warn("Failed to upload supplemental job data", e);
+    });
+  }
+
+  return jobId;
+}
+
+async function promptForJobParameters(): Promise<
+  { jobName: string; numberOfShots: number } | undefined
+> {
+  const jobName = await vscode.window.showInputBox({
+    prompt: "Job name",
+    value: new Date().toISOString(),
+  });
+  if (!jobName) return;
+
+  // validator for the user-provided number of shots input
+  const validateShotsInput = (input: string) => {
+    const result = parseFloat(input);
+    if (isNaN(result) || Math.floor(result) !== result) {
+      return "Number of shots must be an integer";
+    }
+  };
+
+  // prompt the user for the number of shots
+  const numberOfShotsPrompted = await vscode.window.showInputBox({
+    value: "100",
+    prompt: "Number of shots",
+    validateInput: validateShotsInput,
+  });
+
+  // abort if the user hits <Esc> during shots entry
+  if (numberOfShotsPrompted === undefined) {
+    return;
+  }
+
+  const numberOfShots = parseInt(numberOfShotsPrompted);
+  return { jobName, numberOfShots };
+}
+
+/**
+ * Uploads supplemental input data for the job, which is currently just
+ * the circuit diagram (if it can be generated).
+ *
+ * Throws an exception if any part of this process fails.
+ */
+async function uploadSupplementalData(
+  program: FullProgramConfig,
+  storageUris: StorageUris,
+  quantumUris: QuantumUris,
+  token: string,
+  associationId: string,
+) {
+  const circuitDiagram = await getCircuitJson(program);
+
+  await uploadBlob(
+    storageUris,
+    quantumUris,
+    token,
+    "circuitDiagram",
+    circuitDiagram,
+    "application/json",
+    associationId,
+  );
+}
+
+/**
+ * Generates a circuit diagram for the program, or throws if it can't be generated.
+ */
+async function getCircuitJson(program: FullProgramConfig): Promise<string> {
+  const circuit = await getCircuitOrErrorWithTimeout(
+    extensionUri,
+    {
+      program,
+    },
+    false,
+    5000, // If we can't generate in 5 seconds, give up - something's wrong or program is way too complex
+  );
+
+  if (circuit.result === "success") {
+    return JSON.stringify(circuit.circuit);
+  } else {
+    if (circuit.errors?.length > 0) {
+      throw new QdkDiagnostics(circuit.errors);
+    }
+    if (circuit.timeout) {
+      throw new Error(`Timed out generating circuit`);
+    }
+    throw new Error("Unknown error generating circuit diagram");
+  }
 }

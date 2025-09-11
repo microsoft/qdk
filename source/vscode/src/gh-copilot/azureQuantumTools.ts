@@ -4,9 +4,9 @@
 import { log, TargetProfile } from "qsharp-lang";
 import * as vscode from "vscode";
 import { getTokenForWorkspace } from "../azure/auth.js";
+import { compileAndSubmit } from "../azure/commands.js";
 import { QuantumUris } from "../azure/networkRequests.js";
 import { getPreferredTargetProfile } from "../azure/providerProperties.js";
-import { startRefreshCycle } from "../azure/treeRefresher.js";
 import {
   Job,
   Provider,
@@ -14,15 +14,9 @@ import {
   WorkspaceConnection,
   WorkspaceTreeProvider,
 } from "../azure/treeView.js";
-import { getJobFiles, submitJob } from "../azure/workspaceActions.js";
-import { getQirForProgram } from "../qirGeneration.js";
-import {
-  EventType,
-  sendTelemetryEvent,
-  UserFlowStatus,
-  UserTaskInvocationType,
-} from "../telemetry.js";
-import { getRandomGuid } from "../utils.js";
+import { getJobFiles } from "../azure/workspaceActions.js";
+import { QirGenerationError } from "../qirGeneration.js";
+import { UserTaskInvocationType } from "../telemetry.js";
 import { sendMessageToPanel } from "../webviewPanel.js";
 import { ProjectInfo, QSharpTools } from "./qsharpTools.js";
 import { CopilotToolError, HistogramData } from "./types.js";
@@ -64,21 +58,6 @@ async function getConversationWorkspace(
     toolState.activeWorkspace = initialWorkspaceResult;
     return initialWorkspaceResult;
   }
-}
-
-/**
- * Poll for updates on the workspace until the job
- * with the given ID is found and all pending jobs are completed.
- */
-function startRefreshingWorkspace(
-  workspaceConnection: WorkspaceConnection,
-  newJobId?: string,
-) {
-  startRefreshCycle(
-    WorkspaceTreeProvider.instance,
-    workspaceConnection,
-    newJobId,
-  );
 }
 
 /**
@@ -402,15 +381,6 @@ export async function submitToTarget(
     shots: number;
   },
 ): Promise<ProjectInfo & { result: string }> {
-  const associationId = getRandomGuid();
-  const start = performance.now();
-
-  sendTelemetryEvent(
-    EventType.SubmitToAzureStart,
-    { associationId, invocationType: UserTaskInvocationType.ChatToolCall },
-    {},
-  );
-
   try {
     const target = (await getTarget(toolState, { target_id: targetId })).result;
     if (!target) {
@@ -434,69 +404,27 @@ export async function submitToTarget(
 
     const workspace = await getConversationWorkspace(toolState);
 
-    let qir = "";
-    try {
-      qir = await getQirForProgram(
-        programConfig,
-        preferredTargetProfile,
-        program.telemetryDocumentType,
-      );
-    } catch (e: any) {
-      if (e?.name === "QirGenerationError") {
-        throw new CopilotToolError(e.message);
-      }
-    }
-
-    if (!qir) throw new CopilotToolError("Failed to generate QIR.");
-
-    const quantumUris = new QuantumUris(workspace.endpointUri, workspace.id);
-
-    try {
-      const token = await getTokenForWorkspace(workspace);
-      if (!token) {
-        log.error("Unable to get token for the workspace", workspace);
-        throw new CopilotToolError("Failed to connect to the workspace.");
-      }
-
-      const jobId = await submitJob(
-        token,
-        quantumUris,
-        qir,
-        target.providerId,
-        target.id,
-        jobName,
-        shots,
-      );
-      startRefreshingWorkspace(workspace, jobId);
-      sendTelemetryEvent(
-        EventType.SubmitToAzureEnd,
-        {
-          associationId,
-          flowStatus: UserFlowStatus.Succeeded,
-        },
-        { timeToCompleteMs: performance.now() - start },
-      );
-      return {
-        result: "Job submitted successfully with ID: " + jobId,
-        ...program.additionalContextForModel,
-      };
-    } catch (e: any) {
-      log.error("Failed to submit job. ", e);
-      const error = e instanceof Error ? e.message : "";
-
-      throw new CopilotToolError("Failed to submit the job. " + error);
-    }
-  } catch (e) {
-    sendTelemetryEvent(
-      EventType.SubmitToAzureEnd,
-      {
-        associationId,
-        flowStatus: UserFlowStatus.Failed,
-      },
-      { timeToCompleteMs: performance.now() - start },
+    const jobId = await compileAndSubmit(
+      programConfig,
+      preferredTargetProfile,
+      program.telemetryDocumentType,
+      UserTaskInvocationType.ChatToolCall,
+      WorkspaceTreeProvider.instance,
+      workspace,
+      target,
+      { jobName, shots },
     );
 
-    throw e;
+    return {
+      result: "Job submitted successfully with ID: " + jobId,
+      ...program.additionalContextForModel,
+    };
+  } catch (e: any) {
+    if (e instanceof QirGenerationError) {
+      throw new CopilotToolError(e.message);
+    }
+    const error = e instanceof Error ? e.message : "";
+    throw new CopilotToolError("Failed to submit the job. " + error);
   }
 }
 
