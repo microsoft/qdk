@@ -25,6 +25,7 @@ members = [
     "source/fuzz",
     "source/language_service",
     "source/simulators",
+    "source/stabilizer_simulator",
     "source/pip",
     "source/resource_estimator",
     "source/samples_test",
@@ -53,6 +54,7 @@ futures-util = "0.3"
 fasteval = "0.2"
 getrandom = "0.2"
 indoc = "2.0"
+itertools = "0.14"
 js-sys = "0.3"
 libfuzzer-sys = "0.4"
 log = "0.4"
@@ -62,17 +64,22 @@ nalgebra = { version = "0.33" }
 ndarray = "0.15.4"
 num-bigint = "0.4"
 num-complex = "0.4"
+num-derive = "0.4"
 num-traits = "0.2"
 probability = "0.20"
+proptest = "1.0"
 indenter = "0.3"
 regex-lite = "0.1"
 rustc-hash = "1"
 serde = { version = "1.0", features = [ "derive" ] }
 serde-wasm-bindgen = "0.6"
+sorted-vec = "0.8"
+sorted-iter = "0.1"
 wasm-bindgen = "0.2.100"
 wasm-bindgen-futures = "0.4"
 rand = "0.8"
 serde_json = "1.0"
+smallvec = "1.8.1"
 pyo3 = "0.24"
 quantum-sparse-sim = { git = "https://github.com/qir-alliance/qir-runner", rev = "8cd6fa698521ecf96d459f88254e53dd6e5d6877" }
 async-trait = "0.1"

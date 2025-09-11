@@ -1,0 +1,30 @@
+[package]
+name = "paulimer"
+version = "0.0.1"
+edition = "2021"
+publish = false
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+itertools = { workspace = true }
+rand = { workspace = true }
+sorted-vec = { workspace = true }
+sorted-iter = { workspace = true }
+num-derive = { workspace = true }
+num-traits = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+proptest = { workspace = true }
+
+[target.'cfg(unix)'.dev-dependencies]
+pprof = { version = "0.14", features = ["criterion", "flamegraph"] }
+
+[[bench]]
+name = "bitmatrix_benchmark"
+harness = false
+
+[[bench]]
+name = "pauli_benchmark"
+harness = false
