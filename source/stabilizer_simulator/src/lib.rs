@@ -58,6 +58,7 @@ pub struct Simulator {
 
 impl Simulator {
     /// Creates a new Simulator with `num_qubits` qubits.
+    #[must_use]
     pub fn new(num_qubits: usize, noise_config: NoiseConfig) -> Self {
         Self {
             noise_config: noise_config.into(),
@@ -71,10 +72,50 @@ impl Simulator {
         }
     }
 
+    /// Single qubit X gate.
+    pub fn x(&mut self, target: QubitID) {
+        self.apply_gate(&Operation::X { target });
+    }
+
+    /// Single qubit X gate.
+    pub fn y(&mut self, target: QubitID) {
+        self.apply_gate(&Operation::X { target });
+    }
+
+    /// Single qubit Z gate.
+    pub fn z(&mut self, target: QubitID) {
+        self.apply_gate(&Operation::X { target });
+    }
+
+    /// Single qubit H gate.
+    pub fn h(&mut self, target: QubitID) {
+        self.apply_gate(&Operation::H { target });
+    }
+
+    /// Single qubit S gate.
+    pub fn s(&mut self, target: QubitID) {
+        self.apply_gate(&Operation::S { target });
+    }
+
+    /// Controlled-Z gate.
+    pub fn cz(&mut self, control: QubitID, target: QubitID) {
+        self.apply_gate(&Operation::CZ { control, target });
+    }
+
+    pub fn mresetz(&mut self, target: QubitID) {
+        self.apply_gate(&Operation::MResetZ { target });
+    }
+
+    /// Move operation. The purpose of this operation is modeling
+    /// the noise coming from qubit movement in neutral atom machines.
+    pub fn mov(&mut self, target: QubitID) {
+        self.apply_gate(&Operation::Move { target });
+    }
+
     /// Applies a gate to the system.
     pub fn apply_gate(&mut self, gate: &Operation) {
         self.apply_gate_in_place(gate);
-        // self.apply_noise(gate);
+        self.apply_noise(gate);
     }
 
     /// Applies a list of gates to the system.
@@ -203,6 +244,8 @@ impl Simulator {
         &self.measurements
     }
 
+    /// Returns a string of 0s, 1s, and Ls representing the |0⟩, |1⟩, and Loss
+    /// results during the simulation.
     pub fn measurements_str(&self) -> String {
         let mut buffer = String::new();
         for m in &self.measurements {
