@@ -284,7 +284,10 @@ fn check_rref_with_transforms_on_random_matrix(nrows: usize, ncols: usize) {
     let (reduced, t, t_inv_t, profile) = rref_with_transforms(array.clone());
     assert!(is_rref(&reduced, &profile));
     assert_eq!(t.dot(&array), reduced);
-    assert_eq!(t.dot(&t_inv_t.transposed()), BitMatrix::identity(array.rowcount()));
+    assert_eq!(
+        t.dot(&t_inv_t.transposed()),
+        BitMatrix::identity(array.rowcount())
+    );
 }
 
 #[test]

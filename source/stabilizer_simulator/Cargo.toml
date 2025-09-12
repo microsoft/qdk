@@ -7,14 +7,13 @@ edition = "2024"
 expect-test = { workspace = true }
 rand = { workspace = true }
 smallvec = { workspace = true }
-num = "0.4.3"
 paulimer = { path = "../paulimer" }
 
 [dev-dependencies]
 criterion = { workspace = true}
 
 [target.'cfg(target_os="linux")'.dev-dependencies]
-iai-callgrind = "0.16.1"
+iai-callgrind = { workspace = true }
 
 [profile.release]
 lto = true

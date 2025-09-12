@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 use crate::bits::{self, Bitwise, IndexAssignable, IndexSet};
 use crate::pauli::generic::{PauliCharacterError, PauliUnitary};
@@ -11,10 +11,10 @@ pub type SparsePauliProjective = PauliUnitaryProjective<IndexSet>;
 
 // Note: Can be improved using PauliMutable trait
 // Question: Should 'i' be interpreted as I or complex phase ?
-impl TryFrom<HashMap<usize, char>> for SparsePauli {
+impl TryFrom<FxHashMap<usize, char>> for SparsePauli {
     type Error = PauliCharacterError;
 
-    fn try_from(characters: HashMap<usize, char>) -> Result<Self, Self::Error> {
+    fn try_from(characters: FxHashMap<usize, char>) -> Result<Self, Self::Error> {
         let mut x_bits = IndexSet::new();
         let mut z_bits = IndexSet::new();
         let mut exponent: u8 = 0;
@@ -53,7 +53,11 @@ impl From<&[PositionedPauliObservable]> for SparsePauli {
         let mut z_indices = IndexSet::new();
         let mut phase = 0u8;
 
-        for quantum_core::PositionedPauliObservable { qubit_id, observable } in obs_copy {
+        for quantum_core::PositionedPauliObservable {
+            qubit_id,
+            observable,
+        } in obs_copy
+        {
             match observable {
                 quantum_core::PauliObservable::PlusI => (),
                 quantum_core::PauliObservable::MinusI => phase += 2,
@@ -99,7 +103,11 @@ impl From<&[PositionedPauliObservable]> for SparsePauliProjective {
         let mut x_indices = IndexSet::new();
         let mut z_indices = IndexSet::new();
 
-        for quantum_core::PositionedPauliObservable { qubit_id, observable } in obs_copy {
+        for quantum_core::PositionedPauliObservable {
+            qubit_id,
+            observable,
+        } in obs_copy
+        {
             match observable {
                 quantum_core::PauliObservable::PlusI | quantum_core::PauliObservable::MinusI => (),
                 quantum_core::PauliObservable::PlusX | quantum_core::PauliObservable::MinusX => {

@@ -25,7 +25,6 @@ members = [
     "source/fuzz",
     "source/language_service",
     "source/simulators",
-    "source/stabilizer_simulator",
     "source/pip",
     "source/resource_estimator",
     "source/samples_test",
@@ -53,6 +52,7 @@ futures = "0.3"
 futures-util = "0.3"
 fasteval = "0.2"
 getrandom = "0.2"
+iai-callgrind = "0.16.1"
 indoc = "2.0"
 itertools = "0.14"
 js-sys = "0.3"
@@ -66,6 +66,7 @@ num-bigint = "0.4"
 num-complex = "0.4"
 num-derive = "0.4"
 num-traits = "0.2"
+pprof = { version = "0.14", features = ["criterion", "flamegraph"] }
 probability = "0.20"
 proptest = "1.0"
 indenter = "0.3"
