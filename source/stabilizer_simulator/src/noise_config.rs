@@ -18,6 +18,27 @@ pub struct NoiseConfig {
     cz: NoiseTable,
     mov: NoiseTable,
     mz: NoiseTable,
+    idle: IdleNoiseParams,
+}
+
+/// The probability of idle noise is computed using the equation:
+///   `idle_noise_prob(steps) = (s_probability + 1.0).pow(step) - 1.0`
+///
+/// Where:
+///  - `s_probability`: is the probability of an `S` happening during
+///    an idle a step, and is in the range `[0, 1]`.
+///
+/// This structure allows the user to paremetrize the equation.
+#[derive(Default)]
+pub struct IdleNoiseParams {
+    s_probability: f32,
+}
+
+impl IdleNoiseParams {
+    fn s_probability(&self, steps: u32) -> f32 {
+        (self.s_probability + 1.0).powi(i32::try_from(steps).expect("steps should fit in 31 bits"))
+            - 1.0
+    }
 }
 
 /// Describes the noise configuration for each operation.
@@ -33,6 +54,7 @@ pub(crate) struct CumulativeNoiseConfig {
     pub cz: CumulativeNoiseTable,
     pub mov: CumulativeNoiseTable,
     pub mresetz: CumulativeNoiseTable,
+    pub idle: IdleNoiseParams,
 }
 
 impl From<NoiseConfig> for CumulativeNoiseConfig {
@@ -46,6 +68,7 @@ impl From<NoiseConfig> for CumulativeNoiseConfig {
             cz: value.cz.into(),
             mov: value.mov.into(),
             mresetz: value.mz.into(),
+            idle: value.idle,
         }
     }
 }
@@ -53,12 +76,13 @@ impl From<NoiseConfig> for CumulativeNoiseConfig {
 impl CumulativeNoiseConfig {
     /// Samples a float in the range [0, 1] and picks one of the faults
     /// `X`, `Y`, `Z`, `S` based on the provided noise table.
-    pub fn gen_idle_fault(&self, _idle_steps: u32) -> Fault {
-        // TODO: 1. How the idle noise accumulates.
-        //          Is it just `(p(idle_noise) + 1.0).pow(idle_steps) - 1.0`
-        //          or is it some other function?
-        //       2. How to pick among X, Y, Z, S?
-        Fault::None
+    pub fn gen_idle_fault(&self, idle_steps: u32) -> Fault {
+        let sample: f32 = rand::rngs::ThreadRng::default().gen_range(0.0..1.0);
+        if sample < self.idle.s_probability(idle_steps) {
+            Fault::S
+        } else {
+            Fault::None
+        }
     }
 }
 
@@ -114,7 +138,6 @@ impl CumulativeNoiseTable {
         if sample < self.loss {
             return Fault::Loss;
         }
-
         let sample: f32 = rand::rngs::ThreadRng::default().gen_range(0.0..1.0);
         if sample < self.x {
             Fault::X

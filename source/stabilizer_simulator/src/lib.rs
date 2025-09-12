@@ -101,42 +101,42 @@ impl Simulator {
 
     /// Single qubit X gate.
     pub fn x(&mut self, target: QubitID) {
-        self.apply_gate(&Operation::X { target });
+        self.apply_gate_in_place(&Operation::X { target });
     }
 
     /// Single qubit X gate.
     pub fn y(&mut self, target: QubitID) {
-        self.apply_gate(&Operation::X { target });
+        self.apply_gate_in_place(&Operation::Y { target });
     }
 
     /// Single qubit Z gate.
     pub fn z(&mut self, target: QubitID) {
-        self.apply_gate(&Operation::X { target });
+        self.apply_gate_in_place(&Operation::Z { target });
     }
 
     /// Single qubit H gate.
     pub fn h(&mut self, target: QubitID) {
-        self.apply_gate(&Operation::H { target });
+        self.apply_gate_in_place(&Operation::H { target });
     }
 
     /// Single qubit S gate.
     pub fn s(&mut self, target: QubitID) {
-        self.apply_gate(&Operation::S { target });
+        self.apply_gate_in_place(&Operation::S { target });
     }
 
     /// Controlled-Z gate.
     pub fn cz(&mut self, control: QubitID, target: QubitID) {
-        self.apply_gate(&Operation::CZ { control, target });
+        self.apply_gate_in_place(&Operation::CZ { control, target });
     }
 
     pub fn mresetz(&mut self, target: QubitID) {
-        self.apply_gate(&Operation::MResetZ { target });
+        self.apply_gate_in_place(&Operation::MResetZ { target });
     }
 
     /// Move operation. The purpose of this operation is modeling
     /// the noise coming from qubit movement in neutral atom machines.
     pub fn mov(&mut self, target: QubitID) {
-        self.apply_gate(&Operation::Move { target });
+        self.apply_gate_in_place(&Operation::Move { target });
     }
 
     /// Applies a gate to the system.
@@ -146,7 +146,7 @@ impl Simulator {
 
     /// Applies a list of gates to the system.
     pub fn apply_gates(&mut self, gates: &[Operation]) {
-        gates.iter().for_each(|gate| self.apply_gate(gate));
+        gates.iter().for_each(|gate| self.apply_gate_in_place(gate));
     }
 
     fn apply_gate_in_place(&mut self, gate: &Operation) {
@@ -221,10 +221,10 @@ impl Simulator {
     fn apply_fault(&mut self, fault: Fault, target: QubitID) {
         match fault {
             Fault::None => (),
-            Fault::X => self.apply_gate_in_place(&Operation::X { target }),
-            Fault::Y => self.apply_gate_in_place(&Operation::Y { target }),
-            Fault::Z => self.apply_gate_in_place(&Operation::Z { target }),
-            Fault::S => self.apply_gate_in_place(&Operation::S { target }),
+            Fault::X => self.state.apply_unitary(UnitaryOp::X, &[target]),
+            Fault::Y => self.state.apply_unitary(UnitaryOp::Y, &[target]),
+            Fault::Z => self.state.apply_unitary(UnitaryOp::Z, &[target]),
+            Fault::S => self.state.apply_unitary(UnitaryOp::SqrtZ, &[target]),
             Fault::Loss => {
                 self.measure_z(target);
                 self.loss[target] = true;
