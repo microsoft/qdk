@@ -65,8 +65,8 @@ impl CumulativeNoiseConfig {
 /// Noise description for an operation.
 /// Each field must be a number in the range[0, 1]
 /// representing the probability of that kind of fault
-/// happening. The probabilities should add to a number
-/// equal or less than 1.
+/// happening. The x, y, z probabilities should add to
+/// a number equal or less than 1.
 ///
 /// This is the format in which the user config files are
 /// written.
@@ -75,7 +75,6 @@ pub struct NoiseTable {
     x: f32,
     y: f32,
     z: f32,
-    s: f32,
     loss: f32,
 }
 
@@ -88,23 +87,21 @@ pub(crate) struct CumulativeNoiseTable {
     x: f32,
     y: f32,
     z: f32,
-    s: f32,
     loss: f32,
 }
 
 impl From<NoiseTable> for CumulativeNoiseTable {
     fn from(value: NoiseTable) -> Self {
-        let NoiseTable { x, y, z, s, loss } = value;
+        let NoiseTable { x, y, z, loss } = value;
         assert!(
-            x + y + z + s + loss <= 1.0,
+            x + y + z + loss <= 1.0,
             "`NoiseTable` probabilities should add to 1.0 or less"
         );
         Self {
             x,
             y: x + y,
             z: x + y + z,
-            s: x + y + z + s,
-            loss: x + y + z + s + loss,
+            loss,
         }
     }
 }
@@ -114,16 +111,17 @@ impl CumulativeNoiseTable {
     /// `X`, `Y`, `Z`, `Loss` based on the provided noise table.
     pub fn gen_operation_fault(&self) -> Fault {
         let sample: f32 = rand::rngs::ThreadRng::default().gen_range(0.0..1.0);
+        if sample < self.loss {
+            return Fault::Loss;
+        }
+
+        let sample: f32 = rand::rngs::ThreadRng::default().gen_range(0.0..1.0);
         if sample < self.x {
             Fault::X
         } else if sample < self.y {
             Fault::Y
         } else if sample < self.z {
             Fault::Z
-        } else if sample < self.s {
-            Fault::S
-        } else if sample < self.loss {
-            Fault::Loss
         } else {
             Fault::None
         }
