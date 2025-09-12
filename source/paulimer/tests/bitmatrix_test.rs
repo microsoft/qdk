@@ -5,9 +5,10 @@ use paulimer::bits::{BitMatrix, BitVec, Bitwise, BitwiseBinaryOps, WORD_COUNT_DE
 use proptest::prelude::*;
 use rand::prelude::*;
 use rand::Rng;
+use rustc_hash::FxHashSet;
 use sorted_iter::assume::AssumeSortedByItemExt;
 use sorted_iter::SortedIterator;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::str::FromStr;
 
 proptest! {
@@ -55,7 +56,8 @@ proptest! {
         for column_index in 0..matrix.columncount() {
             assert_eq!(matrix[[row_indexes[0], column_index]], swapped[[row_indexes[1], column_index]]);
         }
-        for row_index in (0..matrix.rowcount()).collect::<HashSet<usize>>().difference(&HashSet::from(row_indexes)) {
+        let row_indexes = row_indexes.into_iter().collect::<rustc_hash::FxHashSet<usize>>();
+        for row_index in (0..matrix.rowcount()).collect::<FxHashSet<usize>>().difference(&row_indexes) {
             for column_index in 0..matrix.columncount() {
                 assert_eq!(matrix[[*row_index, column_index]], swapped[[*row_index, column_index]]);
             }
@@ -70,7 +72,8 @@ proptest! {
         for row_index in 0..matrix.rowcount() {
             assert_eq!(matrix[[row_index, column_indexes[0]]], swapped[[row_index, column_indexes[1]]]);
         }
-        for column_index in (0..matrix.columncount()).collect::<HashSet<usize>>().difference(&HashSet::from(column_indexes)) {
+        let column_indexes = column_indexes.into_iter().collect::<rustc_hash::FxHashSet<usize>>();
+        for column_index in (0..matrix.columncount()).collect::<FxHashSet<usize>>().difference(&column_indexes) {
             for row_index in 0..matrix.rowcount() {
                 assert_eq!(matrix[[row_index, *column_index]], swapped[[row_index, *column_index]]);
             }
