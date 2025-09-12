@@ -63,7 +63,9 @@ use std::path::Path;
 pub enum Output<'a> {
     Flamegraph(Option<FlamegraphOptions<'a>>),
 
-    #[deprecated(note = "This branch is used to include lifetime parameter. Don't use it directly.")]
+    #[deprecated(
+        note = "This branch is used to include lifetime parameter. Don't use it directly."
+    )]
     _Phantom(PhantomData<&'a ()>),
 }
 #[cfg(unix)]
@@ -100,8 +102,9 @@ impl Profiler for PProfProfiler<'_, '_> {
             Output::_Phantom(_) => "",
         };
         let output_path = benchmark_dir.join(filename);
-        let output_file = File::create(&output_path)
-            .unwrap_or_else(|_| panic!("File system error while creating {}", output_path.display()));
+        let output_file = File::create(&output_path).unwrap_or_else(|_| {
+            panic!("File system error while creating {}", output_path.display())
+        });
 
         if let Some(profiler) = self.active_profiler.take() {
             match &mut self.output {

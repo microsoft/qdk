@@ -11,7 +11,8 @@ use crate::NeutralElement;
 
 use super::{
     generic::{PhaseExponent, PhaseExponentMutable},
-    Pauli, PauliBinaryOps, PauliBits, PauliMutable, PauliNeutralElement, PauliUnitary, PauliUnitaryProjective,
+    Pauli, PauliBinaryOps, PauliBits, PauliMutable, PauliNeutralElement, PauliUnitary,
+    PauliUnitaryProjective,
 };
 
 impl<BitsLeft, PhaseLeft, PauliRight: Pauli<PhaseExponentValue = u8>> MulAssign<&PauliRight>
@@ -26,7 +27,8 @@ where
     }
 }
 
-impl<BitsLeft, PauliRight: Pauli<PhaseExponentValue = u8>> MulAssign<&PauliRight> for PauliUnitaryProjective<BitsLeft>
+impl<BitsLeft, PauliRight: Pauli<PhaseExponentValue = u8>> MulAssign<&PauliRight>
+    for PauliUnitaryProjective<BitsLeft>
 where
     PauliUnitaryProjective<BitsLeft>: PauliBinaryOps<PauliRight>,
     BitsLeft: PauliBits,
@@ -60,7 +62,8 @@ where
     }
 }
 
-impl<BitsLeft, PauliRight: Pauli<PhaseExponentValue = u8>> Mul<&PauliRight> for PauliUnitaryProjective<BitsLeft>
+impl<BitsLeft, PauliRight: Pauli<PhaseExponentValue = u8>> Mul<&PauliRight>
+    for PauliUnitaryProjective<BitsLeft>
 where
     PauliUnitaryProjective<BitsLeft>: for<'a> MulAssign<&'a PauliRight>,
     BitsLeft: PauliBits,
@@ -90,7 +93,8 @@ where
     }
 }
 
-impl<BitsLeft, PauliRight: Pauli<PhaseExponentValue = ()>> Mul<PauliRight> for &PauliUnitaryProjective<BitsLeft>
+impl<BitsLeft, PauliRight: Pauli<PhaseExponentValue = ()>> Mul<PauliRight>
+    for &PauliUnitaryProjective<BitsLeft>
 where
     PauliRight: PauliBinaryOps<PauliUnitaryProjective<BitsLeft>>,
     BitsLeft: PauliBits,
@@ -105,8 +109,8 @@ where
 
 // Multiplying by a phase
 
-impl<Bits: PauliBits, _Phase: PhaseExponentMutable, Exponent: PhaseExponent> MulAssign<Phase<Exponent>>
-    for PauliUnitary<Bits, _Phase>
+impl<Bits: PauliBits, _Phase: PhaseExponentMutable, Exponent: PhaseExponent>
+    MulAssign<Phase<Exponent>> for PauliUnitary<Bits, _Phase>
 where
     PauliUnitary<Bits, _Phase>: PauliMutable + Pauli<PhaseExponentValue = u8>,
 {
@@ -149,7 +153,8 @@ where
     }
 }
 
-impl<BitsLeft, BitsRight> Mul<&PauliUnitaryProjective<BitsRight>> for &PauliUnitaryProjective<BitsLeft>
+impl<BitsLeft, BitsRight> Mul<&PauliUnitaryProjective<BitsRight>>
+    for &PauliUnitaryProjective<BitsLeft>
 where
     PauliUnitaryProjective<BitsLeft>: PauliNeutralElement,
     <PauliUnitaryProjective<BitsLeft> as NeutralElement>::NeutralElementType:
@@ -190,7 +195,8 @@ where
 }
 
 // negating object consumes it and returns the negation
-impl<Bits: PauliBits + Clone, Phase: PhaseExponentMutable + Clone> Neg for &PauliUnitary<Bits, Phase>
+impl<Bits: PauliBits + Clone, Phase: PhaseExponentMutable + Clone> Neg
+    for &PauliUnitary<Bits, Phase>
 where
     PauliUnitary<Bits, Phase>: PauliMutable + Pauli<PhaseExponentValue = u8>,
 {

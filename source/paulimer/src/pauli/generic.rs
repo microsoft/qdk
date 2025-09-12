@@ -1,7 +1,9 @@
 use crate::quantum_core::PositionedPauliObservable;
 
 use crate::bits::{self, BitVec, BitView, FromBits, IndexSet};
-use crate::bits::{Bitwise, BitwiseBinaryOps, BitwiseNeutralElement, Dot, IndexAssignable, OverlapWeight};
+use crate::bits::{
+    Bitwise, BitwiseBinaryOps, BitwiseNeutralElement, Dot, IndexAssignable, OverlapWeight,
+};
 use crate::{subscript_digits, NeutralElement};
 
 use std::collections::btree_map::Entry;
@@ -11,7 +13,10 @@ use std::str::FromStr;
 use std::{collections::BTreeMap, fmt::Display};
 
 use super::sparse::SparsePauliProjective;
-use super::{Pauli, PauliBinaryOps, PauliBits, PauliMutable, PauliMutableBits, PauliNeutralElement, SparsePauli};
+use super::{
+    Pauli, PauliBinaryOps, PauliBits, PauliMutable, PauliMutableBits, PauliNeutralElement,
+    SparsePauli,
+};
 
 pub trait PhaseExponent {
     fn raw_value(&self) -> u8;
@@ -51,7 +56,10 @@ pub trait PhaseExponentMutable: PhaseExponent {
     fn set_random(&mut self, random_number_generator: &mut impl rand::Rng);
 }
 
-pub trait PhaseNeutralElement: PhaseExponent + NeutralElement<NeutralElementType: PhaseExponentMutable> {}
+pub trait PhaseNeutralElement:
+    PhaseExponent + NeutralElement<NeutralElementType: PhaseExponentMutable>
+{
+}
 
 impl PhaseExponent for u8 {
     fn raw_value(&self) -> u8 {
@@ -251,7 +259,9 @@ impl<Bits: PauliBits + OverlapWeight, PhExp: PhaseExponent> Pauli for PauliUnita
     }
 
     fn is_pauli_y(&self, qubit: usize) -> bool {
-        self.x_bits.is_one_bit(qubit) && self.z_bits.is_one_bit(qubit) && self.xz_phase_exp.value() == 1
+        self.x_bits.is_one_bit(qubit)
+            && self.z_bits.is_one_bit(qubit)
+            && self.xz_phase_exp.value() == 1
     }
 
     fn equals_to(&self, rhs: &Self) -> bool {
@@ -283,8 +293,11 @@ impl<OtherBits: Bitwise, Bits: BitwiseBinaryOps<OtherBits> + PauliBits> PauliMut
     }
 }
 
-impl<OtherBits: Bitwise, Bits: BitwiseBinaryOps<OtherBits> + PauliBits, PhExp: PhaseExponentMutable>
-    PauliMutableBits<OtherBits> for PauliUnitary<Bits, PhExp>
+impl<
+        OtherBits: Bitwise,
+        Bits: BitwiseBinaryOps<OtherBits> + PauliBits,
+        PhExp: PhaseExponentMutable,
+    > PauliMutableBits<OtherBits> for PauliUnitary<Bits, PhExp>
 {
     type BitsMutable = Bits;
 
@@ -299,7 +312,9 @@ impl<OtherBits: Bitwise, Bits: BitwiseBinaryOps<OtherBits> + PauliBits, PhExp: P
 
 // PauliOps
 
-impl<Bits: PauliBits + IndexAssignable, Exponent: PhaseExponentMutable> PauliMutable for PauliUnitary<Bits, Exponent> {
+impl<Bits: PauliBits + IndexAssignable, Exponent: PhaseExponentMutable> PauliMutable
+    for PauliUnitary<Bits, Exponent>
+{
     fn assign_phase_exp(&mut self, rhs: u8) {
         self.xz_phase_exp.assign(rhs);
     }
@@ -371,7 +386,11 @@ impl<Bits: PauliBits + IndexAssignable, Exponent: PhaseExponentMutable> PauliMut
         self.xz_phase_exp.set_random(random_number_generator);
     }
 
-    fn set_random_order_two(&mut self, num_qubits: usize, random_number_generator: &mut impl rand::Rng) {
+    fn set_random_order_two(
+        &mut self,
+        num_qubits: usize,
+        random_number_generator: &mut impl rand::Rng,
+    ) {
         self.set_random(num_qubits, random_number_generator);
         if !self.is_order_two() {
             self.xz_phase_exp.add_assign(1u8);
@@ -431,7 +450,11 @@ impl<Bits: PauliBits + IndexAssignable> PauliMutable for PauliUnitaryProjective<
         self.z_bits.set_random(num_qubits, random_number_generator);
     }
 
-    fn set_random_order_two(&mut self, num_qubits: usize, random_number_generator: &mut impl rand::Rng) {
+    fn set_random_order_two(
+        &mut self,
+        num_qubits: usize,
+        random_number_generator: &mut impl rand::Rng,
+    ) {
         self.set_random(num_qubits, random_number_generator);
     }
 }
@@ -473,7 +496,8 @@ where
     x == b.x_bits() && z == b.z_bits()
 }
 
-impl<Bits, OtherPauli: Pauli<PhaseExponentValue = ()>> PauliBinaryOps<OtherPauli> for PauliUnitaryProjective<Bits>
+impl<Bits, OtherPauli: Pauli<PhaseExponentValue = ()>> PauliBinaryOps<OtherPauli>
+    for PauliUnitaryProjective<Bits>
 where
     Bits: BitwiseBinaryOps<OtherPauli::Bits> + PauliBits,
     OtherPauli: Pauli,
@@ -490,7 +514,12 @@ where
         assign_bits(self, rhs);
     }
 
-    fn assign_with_offset(&mut self, rhs: &OtherPauli, start_qubit_index: usize, num_qubits: usize) {
+    fn assign_with_offset(
+        &mut self,
+        rhs: &OtherPauli,
+        start_qubit_index: usize,
+        num_qubits: usize,
+    ) {
         assign_bits_with_offset(self, rhs, start_qubit_index, num_qubits);
     }
 }
@@ -510,13 +539,21 @@ where
     Exponent: PhaseExponentMutable,
 {
     fn mul_assign_right(&mut self, rhs: &OtherPauli) {
-        let cross: u8 = if self.z_bits().dot(rhs.x_bits()) { 2u8 } else { 0u8 };
+        let cross: u8 = if self.z_bits().dot(rhs.x_bits()) {
+            2u8
+        } else {
+            0u8
+        };
         add_assign_bits(self, rhs);
         self.add_assign_phase_exp(cross.wrapping_add(rhs.xz_phase_exponent()));
     }
 
     fn mul_assign_left(&mut self, lhs: &OtherPauli) {
-        let cross: u8 = if self.x_bits().dot(lhs.z_bits()) { 2u8 } else { 0u8 };
+        let cross: u8 = if self.x_bits().dot(lhs.z_bits()) {
+            2u8
+        } else {
+            0u8
+        };
         add_assign_bits(self, lhs);
         self.add_assign_phase_exp(cross.wrapping_add(lhs.xz_phase_exponent()));
     }
@@ -526,7 +563,12 @@ where
         assign_bits(self, rhs);
     }
 
-    fn assign_with_offset(&mut self, rhs: &OtherPauli, start_qubit_index: usize, num_qubits: usize) {
+    fn assign_with_offset(
+        &mut self,
+        rhs: &OtherPauli,
+        start_qubit_index: usize,
+        num_qubits: usize,
+    ) {
         self.assign_phase_exp(rhs.xz_phase_exponent());
         assign_bits_with_offset(self, rhs, start_qubit_index, num_qubits);
     }
@@ -601,7 +643,8 @@ where
     RightPhase: PhaseExponent,
 {
     fn eq(&self, other: &PauliUnitary<RightBits, RightPhase>) -> bool {
-        (self.xz_phase_exponent() == other.xz_phase_exponent()) && bits_eq(&self.x_bits, &self.z_bits, other)
+        (self.xz_phase_exponent() == other.xz_phase_exponent())
+            && bits_eq(&self.x_bits, &self.z_bits, other)
     }
 }
 
@@ -641,7 +684,8 @@ where
 //     }
 // }
 
-impl<LeftBits, RightBits> PartialEq<PauliUnitaryProjective<RightBits>> for PauliUnitaryProjective<LeftBits>
+impl<LeftBits, RightBits> PartialEq<PauliUnitaryProjective<RightBits>>
+    for PauliUnitaryProjective<LeftBits>
 where
     LeftBits: PartialEq<RightBits> + PauliBits,
     RightBits: PauliBits,
@@ -651,7 +695,8 @@ where
     }
 }
 
-impl<LeftBits, RightBits> PartialEq<PauliUnitaryProjective<RightBits>> for &PauliUnitaryProjective<LeftBits>
+impl<LeftBits, RightBits> PartialEq<PauliUnitaryProjective<RightBits>>
+    for &PauliUnitaryProjective<LeftBits>
 where
     LeftBits: PartialEq<RightBits> + PauliBits,
     RightBits: PauliBits,
@@ -661,7 +706,8 @@ where
     }
 }
 
-impl<LeftBits, RightBits> PartialEq<&PauliUnitaryProjective<RightBits>> for PauliUnitaryProjective<LeftBits>
+impl<LeftBits, RightBits> PartialEq<&PauliUnitaryProjective<RightBits>>
+    for PauliUnitaryProjective<LeftBits>
 where
     LeftBits: PartialEq<RightBits> + PauliBits,
     RightBits: PauliBits,
@@ -691,12 +737,21 @@ fn string_map(pauli: &impl Pauli) -> (u8, BTreeMap<usize, char>) {
     (phase, support)
 }
 
-fn pauli_string(pauli: &impl Pauli, phase: u8, add_phase: bool, sign_plus: bool, dense: bool) -> String {
+fn pauli_string(
+    pauli: &impl Pauli,
+    phase: u8,
+    add_phase: bool,
+    sign_plus: bool,
+    dense: bool,
+) -> String {
     if let Some(last_index) = pauli.max_qubit_id() {
         let mut string = String::new();
         let (extra_phase, id_to_character) = string_map(pauli);
         if add_phase {
-            string.push_str(&phase_to_string((phase.wrapping_add(extra_phase)) % 4u8, sign_plus));
+            string.push_str(&phase_to_string(
+                (phase.wrapping_add(extra_phase)) % 4u8,
+                sign_plus,
+            ));
         }
         if dense {
             for index in 0..=last_index {
@@ -834,7 +889,10 @@ where
     type NeutralElementType = PauliUnitaryProjective<Bits::NeutralElementType>;
 
     fn neutral_element(&self) -> Self::NeutralElementType {
-        PauliUnitaryProjective::from_bits(self.x_bits.neutral_element(), self.z_bits.neutral_element())
+        PauliUnitaryProjective::from_bits(
+            self.x_bits.neutral_element(),
+            self.z_bits.neutral_element(),
+        )
     }
 
     fn default_size_neutral_element() -> Self::NeutralElementType {
@@ -867,7 +925,8 @@ where
 {
 }
 
-impl<BitsFrom: PauliBits, Bits: PauliBits> FromBits<PauliUnitaryProjective<BitsFrom>> for PauliUnitaryProjective<Bits>
+impl<BitsFrom: PauliBits, Bits: PauliBits> FromBits<PauliUnitaryProjective<BitsFrom>>
+    for PauliUnitaryProjective<Bits>
 where
     Self: PauliNeutralElement<NeutralElementType = Self>,
     Bits: FromBits<BitsFrom>,
@@ -893,7 +952,8 @@ where
     fn from_bits(other: &PauliUnitary<BitsFrom, PhaseFrom>) -> Self {
         let x = Bits::from_bits(other.x_bits());
         let z = Bits::from_bits(other.z_bits());
-        let mut res = PauliUnitary::<Bits, Phase>::from_bits(x, z, Phase::default_size_neutral_element());
+        let mut res =
+            PauliUnitary::<Bits, Phase>::from_bits(x, z, Phase::default_size_neutral_element());
         res.add_assign_phase_exp(other.xz_phase_exponent());
         res
     }
@@ -1013,7 +1073,10 @@ where
     Ok(res)
 }
 
-fn parse_phase<'life>(no_whitespace: &'life str, phase_prefix_options: [&'static str; 8]) -> (&'life str, u8) {
+fn parse_phase<'life>(
+    no_whitespace: &'life str,
+    phase_prefix_options: [&'static str; 8],
+) -> (&'life str, u8) {
     for phase_prefix in phase_prefix_options {
         if no_whitespace.starts_with(phase_prefix) {
             let (phase_string, remainder) = no_whitespace.split_at(phase_prefix.len());
@@ -1066,7 +1129,8 @@ where
     }
 }
 
-impl<Bits, Phase, const LENGTH: usize> PartialEq<[PositionedPauliObservable; LENGTH]> for PauliUnitary<Bits, Phase>
+impl<Bits, Phase, const LENGTH: usize> PartialEq<[PositionedPauliObservable; LENGTH]>
+    for PauliUnitary<Bits, Phase>
 where
     Bits: PauliBits + std::cmp::PartialEq<bits::IndexSet>,
     Phase: PhaseNeutralElement,
@@ -1095,7 +1159,8 @@ where
     }
 }
 
-impl<Bits, const LENGTH: usize> PartialEq<[PositionedPauliObservable; LENGTH]> for PauliUnitaryProjective<Bits>
+impl<Bits, const LENGTH: usize> PartialEq<[PositionedPauliObservable; LENGTH]>
+    for PauliUnitaryProjective<Bits>
 where
     Bits: PauliBits + std::cmp::PartialEq<bits::IndexSet>,
 {
@@ -1125,8 +1190,8 @@ impl<Bits: PauliBits> From<(Bits, Bits)> for PauliUnitaryProjective<Bits> {
     }
 }
 
-impl<Bits: PauliBits, Phase: PhaseExponent + NeutralElement<NeutralElementType = Phase>> From<(Bits, Bits)>
-    for PauliUnitary<Bits, Phase>
+impl<Bits: PauliBits, Phase: PhaseExponent + NeutralElement<NeutralElementType = Phase>>
+    From<(Bits, Bits)> for PauliUnitary<Bits, Phase>
 {
     fn from(value: (Bits, Bits)) -> Self {
         PauliUnitary::<Bits, Phase>::from_bits_tuple(value, Phase::default_size_neutral_element())
@@ -1141,8 +1206,8 @@ impl<'life, const WORD_COUNT: usize> From<PauliUnitaryProjective<BitView<'life, 
     }
 }
 
-impl<Bits: PauliBits, T: Pauli<PhaseExponentValue = u8, Bits = Bits>, const WORD_COUNT: usize> From<T>
-    for PauliUnitaryProjective<BitVec<WORD_COUNT>>
+impl<Bits: PauliBits, T: Pauli<PhaseExponentValue = u8, Bits = Bits>, const WORD_COUNT: usize>
+    From<T> for PauliUnitaryProjective<BitVec<WORD_COUNT>>
 where
     BitVec<WORD_COUNT>: for<'life> From<&'life Bits>,
 {
@@ -1151,8 +1216,8 @@ where
     }
 }
 
-impl<Bits: PauliBits, T: Pauli<PhaseExponentValue = (), Bits = Bits>, const WORD_COUNT: usize> From<T>
-    for PauliUnitary<BitVec<WORD_COUNT>, u8>
+impl<Bits: PauliBits, T: Pauli<PhaseExponentValue = (), Bits = Bits>, const WORD_COUNT: usize>
+    From<T> for PauliUnitary<BitVec<WORD_COUNT>, u8>
 where
     BitVec<WORD_COUNT>: for<'life> From<&'life Bits>,
 {
@@ -1166,12 +1231,17 @@ where
     }
 }
 
-impl<Bits: PauliBits, T: Pauli<PhaseExponentValue = u8, Bits = Bits>> From<T> for PauliUnitary<IndexSet, u8>
+impl<Bits: PauliBits, T: Pauli<PhaseExponentValue = u8, Bits = Bits>> From<T>
+    for PauliUnitary<IndexSet, u8>
 where
     IndexSet: for<'life> From<&'life Bits>,
 {
     fn from(value: T) -> Self {
-        Self::from_bits(value.x_bits().into(), value.z_bits().into(), value.xz_phase_exponent())
+        Self::from_bits(
+            value.x_bits().into(),
+            value.z_bits().into(),
+            value.xz_phase_exponent(),
+        )
     }
 }
 
@@ -1187,7 +1257,11 @@ impl<'life, const WORD_COUNT: usize> From<PauliUnitary<BitView<'life, WORD_COUNT
     for PauliUnitary<BitVec<WORD_COUNT>, u8>
 {
     fn from(value: PauliUnitary<BitView<'life, WORD_COUNT>, &u8>) -> Self {
-        Self::from_bits(value.x_bits.into(), value.z_bits.into(), *value.xz_phase_exp)
+        Self::from_bits(
+            value.x_bits.into(),
+            value.z_bits.into(),
+            *value.xz_phase_exp,
+        )
     }
 }
 
@@ -1202,7 +1276,9 @@ pub fn pauli_random<PauliLike: NeutralElement<NeutralElementType = PauliLike> + 
 
 /// # Example
 /// `pauli_random_order_two(6, &mut thread_rng());`
-pub fn pauli_random_order_two<PauliLike: NeutralElement<NeutralElementType = PauliLike> + PauliMutable>(
+pub fn pauli_random_order_two<
+    PauliLike: NeutralElement<NeutralElementType = PauliLike> + PauliMutable,
+>(
     num_qubits: usize,
     random_number_generator: &mut impl rand::Rng,
 ) -> PauliLike {

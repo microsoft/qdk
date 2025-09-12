@@ -64,7 +64,9 @@ impl<'life, const WORD_COUNT: usize> From<&'life BitVec<WORD_COUNT>> for BitVec<
     }
 }
 
-impl<'life, const WORD_COUNT: usize> From<MutableBitView<'life, WORD_COUNT>> for BitVec<WORD_COUNT> {
+impl<'life, const WORD_COUNT: usize> From<MutableBitView<'life, WORD_COUNT>>
+    for BitVec<WORD_COUNT>
+{
     fn from(value: MutableBitView<'life, WORD_COUNT>) -> Self {
         Self::from_view_mut(&value)
     }

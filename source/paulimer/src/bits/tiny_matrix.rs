@@ -16,7 +16,11 @@ pub fn tiny_matrix_from_bitmatrix<const ROW_COUNT: usize>(matrix: &BitMatrix) ->
     tiny_matrix
 }
 
-pub fn xor_tiny_column<const NUM_ROWS: usize>(tiny_matrix: &mut [u64; NUM_ROWS], column_index: usize, column: u64) {
+pub fn xor_tiny_column<const NUM_ROWS: usize>(
+    tiny_matrix: &mut [u64; NUM_ROWS],
+    column_index: usize,
+    column: u64,
+) {
     let mask = 1 << column_index;
     for (row_id, row) in tiny_matrix.iter_mut().enumerate() {
         if column & (1 << row_id) != 0 {
@@ -26,7 +30,10 @@ pub fn xor_tiny_column<const NUM_ROWS: usize>(tiny_matrix: &mut [u64; NUM_ROWS],
 }
 
 #[must_use]
-pub fn get_tiny_column<const NUM_ROWS: usize>(tiny_matrix: &[u64; NUM_ROWS], column_index: usize) -> u64 {
+pub fn get_tiny_column<const NUM_ROWS: usize>(
+    tiny_matrix: &[u64; NUM_ROWS],
+    column_index: usize,
+) -> u64 {
     let mask = 1 << column_index;
     let mut column = 0u64;
     for (row_id, row) in tiny_matrix.iter().enumerate() {
@@ -81,7 +88,9 @@ fn tiny_reduce_backward<const NUM_ROWS: usize>(
     NUM_ROWS
 }
 
-pub fn tiny_matrix_rref<const NUM_ROWS: usize, const NUM_COLUMNS: usize>(tiny_matrix: &mut [u64; NUM_ROWS]) -> usize {
+pub fn tiny_matrix_rref<const NUM_ROWS: usize, const NUM_COLUMNS: usize>(
+    tiny_matrix: &mut [u64; NUM_ROWS],
+) -> usize {
     let mut rank_profile = [0usize; 64];
     let mut column_id = 0;
     let mut current_row_id = 0;

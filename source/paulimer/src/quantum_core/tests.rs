@@ -1,5 +1,5 @@
-use itertools::iproduct;
 use super::{id, x, y, z, All, Axis, DirectedAxis, PauliMatrix, PauliObservable};
+use itertools::iproduct;
 
 #[test]
 fn iter_and_print_test() {

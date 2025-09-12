@@ -124,13 +124,20 @@ pub trait PreimageViews {
 
 pub trait MutablePreImages {
     type PhaseExponentValue;
-    type PreImageViewMut<'life>: PauliBinaryOps + Pauli<PhaseExponentValue = Self::PhaseExponentValue>
+    type PreImageViewMut<'life>: PauliBinaryOps
+        + Pauli<PhaseExponentValue = Self::PhaseExponentValue>
     where
         Self: 'life;
     fn preimage_x_view_mut(&mut self, qubit_index: usize) -> Self::PreImageViewMut<'_>;
     fn preimage_z_view_mut(&mut self, qubit_index: usize) -> Self::PreImageViewMut<'_>;
-    fn preimage_xz_views_mut(&mut self, index: usize) -> (Self::PreImageViewMut<'_>, Self::PreImageViewMut<'_>);
-    fn preimage_xz_views_mut_distinct(&mut self, index: (usize, usize)) -> crate::Tuple2x2<Self::PreImageViewMut<'_>>;
+    fn preimage_xz_views_mut(
+        &mut self,
+        index: usize,
+    ) -> (Self::PreImageViewMut<'_>, Self::PreImageViewMut<'_>);
+    fn preimage_xz_views_mut_distinct(
+        &mut self,
+        index: (usize, usize),
+    ) -> crate::Tuple2x2<Self::PreImageViewMut<'_>>;
 }
 
 pub mod generic_algos;
@@ -155,7 +162,9 @@ pub struct CliffordModPauliBatch<const WORD_COUNT: usize, const QUBIT_COUNT: usi
     pub preimages: [[[u64; WORD_COUNT]; QUBIT_COUNT]; 4],
 }
 
-pub struct PauliExponent<Bits: PauliBits, Phase: crate::pauli::generic::PhaseExponent>(PauliUnitary<Bits, Phase>);
+pub struct PauliExponent<Bits: PauliBits, Phase: crate::pauli::generic::PhaseExponent>(
+    PauliUnitary<Bits, Phase>,
+);
 pub struct ControlledPauli<Bits: PauliBits, Phase: crate::pauli::generic::PhaseExponent>(
     PauliUnitary<Bits, Phase>,
     PauliUnitary<Bits, Phase>,

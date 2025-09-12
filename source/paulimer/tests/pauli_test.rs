@@ -1,15 +1,15 @@
 use core::fmt;
 use std::str::FromStr;
 
+use paulimer::quantum_core::{x, y, z};
 use paulimer::{
     bits::MutableBitView,
     pauli::{
-        commutes_with, generic::PhaseExponent, DensePauli, DensePauliProjective, Pauli, PauliBinaryOps, PauliUnitary,
-        Phase, SparsePauli, SparsePauliProjective,
+        commutes_with, generic::PhaseExponent, DensePauli, DensePauliProjective, Pauli,
+        PauliBinaryOps, PauliUnitary, Phase, SparsePauli, SparsePauliProjective,
     },
 };
 use proptest::prelude::*;
-use paulimer::quantum_core::{x, y, z};
 use rand::thread_rng;
 
 proptest! {
@@ -157,8 +157,11 @@ fn pauli_product_test() {
     let mut phase = preimage.xz_phase_exponent().raw_value();
 
     let (mut x_bits, mut z_bits) = preimage.to_xz_bits();
-    let mut preimage_view =
-        PauliUnitary::<MutableBitView, &mut u8>::from_bits(x_bits.as_view_mut(), z_bits.as_view_mut(), &mut phase);
+    let mut preimage_view = PauliUnitary::<MutableBitView, &mut u8>::from_bits(
+        x_bits.as_view_mut(),
+        z_bits.as_view_mut(),
+        &mut phase,
+    );
 
     let control: DensePauli = [y(0), x(1)].into();
     let preimage_r: DensePauli = [-y(1)].into();

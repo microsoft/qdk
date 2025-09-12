@@ -166,7 +166,12 @@ impl From<DirectedAxis> for PauliObservable {
 
 impl All<4> for PauliMatrix {
     fn all() -> [PauliMatrix; 4] {
-        [PauliMatrix::I, PauliMatrix::X, PauliMatrix::Y, PauliMatrix::Z]
+        [
+            PauliMatrix::I,
+            PauliMatrix::X,
+            PauliMatrix::Y,
+            PauliMatrix::Z,
+        ]
     }
 }
 

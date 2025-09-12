@@ -74,7 +74,10 @@ pub fn symmetric_two_qubit_operations(qubit_count: usize, qubit_op: UnitaryOp) -
 pub fn diagonal_operations(qubit_count: usize) -> Operations {
     use UnitaryOp::{ControlledZ, SqrtZ};
     let mut res = Vec::new();
-    res.append(&mut symmetric_two_qubit_operations(qubit_count, ControlledZ));
+    res.append(&mut symmetric_two_qubit_operations(
+        qubit_count,
+        ControlledZ,
+    ));
     res.append(&mut qubit_operations(qubit_count, SqrtZ));
     res
 }
@@ -84,6 +87,9 @@ pub fn css_operations(qubit_count: usize) -> Operations {
     use UnitaryOp::{ControlledX, Swap};
     let mut res = Vec::new();
     res.append(&mut symmetric_two_qubit_operations(qubit_count, Swap));
-    res.append(&mut asymmetric_two_qubit_operations(qubit_count, ControlledX));
+    res.append(&mut asymmetric_two_qubit_operations(
+        qubit_count,
+        ControlledX,
+    ));
     res
 }

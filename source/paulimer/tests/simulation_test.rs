@@ -2,11 +2,11 @@ use itertools::enumerate;
 use paulimer::bits::BitMatrix;
 use paulimer::bits::Bitwise;
 use paulimer::bits::{BitVec, BitView};
-use paulimer::{
-    outcome_complete_simulation::OutcomeCompleteSimulation, outcome_specific_simulation::OutcomeSpecificSimulation,
-    Simulation, UnitaryOp,
-};
 use paulimer::quantum_core::{x, z, PositionedPauliObservable};
+use paulimer::{
+    outcome_complete_simulation::OutcomeCompleteSimulation,
+    outcome_specific_simulation::OutcomeSpecificSimulation, Simulation, UnitaryOp,
+};
 
 fn measure_and_fix(
     sim: &mut impl Simulation,
@@ -140,7 +140,10 @@ fn check_outcome_matrix_and_shift_properties(sim: &OutcomeCompleteSimulation) {
     let rank_profile: Vec<usize> = enumerate(sim.random_outcome_indicator())
         .filter_map(|(k, is_random)| if *is_random { Some(k) } else { None })
         .collect();
-    assert!(is_column_reduced_with_profile(sim.outcome_matrix(), &rank_profile));
+    assert!(is_column_reduced_with_profile(
+        sim.outcome_matrix(),
+        &rank_profile
+    ));
 }
 
 #[must_use]
@@ -152,7 +155,8 @@ pub fn is_column_reduced_with_profile(matrix: &BitMatrix, rank_profile: &[usize]
     }
     let mut current_pivot_pos = 0;
     for row in 0..matrix.rowcount() {
-        if current_pivot_pos < rank_profile.len() - 1 && row >= rank_profile[current_pivot_pos + 1] {
+        if current_pivot_pos < rank_profile.len() - 1 && row >= rank_profile[current_pivot_pos + 1]
+        {
             current_pivot_pos += 1;
         }
         if !is_supported_on_first_k_bits(&matrix.row(row), current_pivot_pos + 1) {

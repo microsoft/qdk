@@ -1,5 +1,6 @@
 use super::{
-    Bitwise, BitwiseBinaryOps, BitwiseNeutralElement, BorrowAsBitIterator, Dot, IndexAssignable, OverlapWeight,
+    Bitwise, BitwiseBinaryOps, BitwiseNeutralElement, BorrowAsBitIterator, Dot, IndexAssignable,
+    OverlapWeight,
 };
 use crate::bits::bitvec::block_count;
 use crate::NeutralElement;
@@ -419,7 +420,9 @@ macro_rules! neutral_element_for_unsigned_int {
                 0 as Self::NeutralElementType
             }
 
-            fn neutral_element_of_size(size: usize) -> <Self as NeutralElement>::NeutralElementType {
+            fn neutral_element_of_size(
+                size: usize,
+            ) -> <Self as NeutralElement>::NeutralElementType {
                 assert!(size <= Self::BITS_PER_BLOCK);
                 Self::default_size_neutral_element()
             }
@@ -531,7 +534,9 @@ pub unsafe fn array_set_unchecked<const WORD_COUNT: usize, T: BitsPerBlock + Ind
     to: bool,
 ) {
     let (block_index, bit_index) = block_and_bit_index::<T>(index);
-    array.get_unchecked_mut(block_index).assign_index(bit_index, to);
+    array
+        .get_unchecked_mut(block_index)
+        .assign_index(bit_index, to);
 }
 
 #[inline]
@@ -544,7 +549,10 @@ unsafe fn array_bitxor_unchecked<const WORD_COUNT: usize, T: BitsPerBlock + Inde
 }
 
 #[inline]
-pub fn array_dot<const WORD_COUNT: usize, T: Dot>(array1: &[T; WORD_COUNT], array2: &[T; WORD_COUNT]) -> bool {
+pub fn array_dot<const WORD_COUNT: usize, T: Dot>(
+    array1: &[T; WORD_COUNT],
+    array2: &[T; WORD_COUNT],
+) -> bool {
     let mut parity = false;
     for j in 0..WORD_COUNT {
         parity ^= unsafe { array1.get_unchecked(j).dot(array2.get_unchecked(j)) };
@@ -687,7 +695,8 @@ macro_rules! bitwise_binary_ops_for_unsigned_int_array {
             fn assign(&mut self, other: &$arr_type2) {
                 for j in 0..WORD_COUNT {
                     unsafe {
-                        *MutRefs::as_ref_mut(self).get_unchecked_mut(j) = *RefsAndValues::as_ref(other).get_unchecked(j)
+                        *MutRefs::as_ref_mut(self).get_unchecked_mut(j) =
+                            *RefsAndValues::as_ref(other).get_unchecked(j)
                     }
                 }
             }
@@ -754,8 +763,14 @@ macro_rules! bit_traits_for_arrays_of_unsigned_ints {
         bitwise_for_unsigned_int_arr!(&mut [$word_type; WORD_COUNT], $word_type);
         index_assignable_for_unsigned_int_arr!([$word_type; WORD_COUNT]);
         index_assignable_for_unsigned_int_arr!(&mut [$word_type; WORD_COUNT]);
-        bitwise_binary_ops_for_unsigned_int_array_with_refs!([$word_type; WORD_COUNT], [$word_type; WORD_COUNT]);
-        bitwise_binary_ops_for_unsigned_int_array_with_refs!(&mut [$word_type; WORD_COUNT], [$word_type; WORD_COUNT]);
+        bitwise_binary_ops_for_unsigned_int_array_with_refs!(
+            [$word_type; WORD_COUNT],
+            [$word_type; WORD_COUNT]
+        );
+        bitwise_binary_ops_for_unsigned_int_array_with_refs!(
+            &mut [$word_type; WORD_COUNT],
+            [$word_type; WORD_COUNT]
+        );
         neutral_element_for_unsigned_int_array!([$word_type; WORD_COUNT]);
         neutral_element_for_unsigned_int_array!(&[$word_type; WORD_COUNT]);
         neutral_element_for_unsigned_int_array!(&mut [$word_type; WORD_COUNT]);
@@ -794,8 +809,9 @@ macro_rules! bit_iterator_for_unsigned_int_slice {
             fn next(&mut self) -> Option<Self::Item> {
                 const LAST_BIT_MASK: $word_type = (1 as $word_type) << (<$word_type>::BITS - 1);
                 if self.word_index < self.bits.len() {
-                    let value =
-                        (*unsafe { self.bits.get_unchecked(self.word_index) }) & self.word_mask == self.word_mask;
+                    let value = (*unsafe { self.bits.get_unchecked(self.word_index) })
+                        & self.word_mask
+                        == self.word_mask;
                     if self.word_mask == LAST_BIT_MASK {
                         self.word_mask = 1;
                         self.word_index += 1;
@@ -1116,8 +1132,16 @@ macro_rules! bitwise_binary_ops_for_vec_refs {
 
 macro_rules! bitwise_binary_ops_for_vec_variations {
     ($word_type:ty) => {
-        bitwise_binary_ops_for_vec_refs!(Vec<$word_type>, Vec<[$word_type; WORD_COUNT]>, $word_type);
-        bitwise_binary_ops_for_vec_refs!(&mut [$word_type], &mut [[$word_type; WORD_COUNT]], $word_type);
+        bitwise_binary_ops_for_vec_refs!(
+            Vec<$word_type>,
+            Vec<[$word_type; WORD_COUNT]>,
+            $word_type
+        );
+        bitwise_binary_ops_for_vec_refs!(
+            &mut [$word_type],
+            &mut [[$word_type; WORD_COUNT]],
+            $word_type
+        );
     };
 }
 
@@ -1139,8 +1163,12 @@ macro_rules! neutral_element_for_vec_body {
         }
 
         fn neutral_element_of_size(size: usize) -> Self::NeutralElementType {
-            let bits_per_block: usize = <$inner as NeutralElement>::NeutralElementType::BITS_PER_BLOCK;
-            vec![<$inner as NeutralElement>::default_size_neutral_element(); block_count(size, bits_per_block)]
+            let bits_per_block: usize =
+                <$inner as NeutralElement>::NeutralElementType::BITS_PER_BLOCK;
+            vec![
+                <$inner as NeutralElement>::default_size_neutral_element();
+                block_count(size, bits_per_block)
+            ]
         }
     };
 }
@@ -1223,7 +1251,10 @@ macro_rules! implement_bitwise_array_body {
 
         fn support(&self) -> impl sorted_iter::SortedIterator<Item = usize> {
             sorted_iter::assume::AssumeSortedByItemExt::assume_sorted_by_item(
-                self.iter().enumerate().filter(|pair| *pair.1).map(|pair| pair.0),
+                self.iter()
+                    .enumerate()
+                    .filter(|pair| *pair.1)
+                    .map(|pair| pair.0),
             )
         }
     };
@@ -1391,7 +1422,9 @@ macro_rules! bitwise_binary_ops_for_vec_bool {
 
 macro_rules! bitwise_binary_ops_for_arr_bool {
     ($array_type:ty) => {
-        impl<T: BorrowAsBitIterator + Bitwise, const SIZE: usize> BitwiseBinaryOps<T> for $array_type {
+        impl<T: BorrowAsBitIterator + Bitwise, const SIZE: usize> BitwiseBinaryOps<T>
+            for $array_type
+        {
             bitwise_binary_ops_body_for_bool!();
         }
     };

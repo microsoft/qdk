@@ -6,7 +6,10 @@ impl<Bits: PauliBits, Phase: PhaseExponent> ControlledPauli<Bits, Phase> {
     /// # Panics
     ///
     /// Will panic
-    pub fn new(control: PauliUnitary<Bits, Phase>, target: PauliUnitary<Bits, Phase>) -> ControlledPauli<Bits, Phase> {
+    pub fn new(
+        control: PauliUnitary<Bits, Phase>,
+        target: PauliUnitary<Bits, Phase>,
+    ) -> ControlledPauli<Bits, Phase> {
         assert!(commutes_with(&control, &target));
         assert!(control.is_order_two());
         assert!(target.is_order_two());
@@ -35,7 +38,9 @@ macro_rules! delegate_left_multiplication_template_variants {
             }
         }
 
-        impl<Bits: PauliBits, _Phase: PhaseExponent> Mul<&mut CliffordUnitary> for $left<Bits, _Phase> {
+        impl<Bits: PauliBits, _Phase: PhaseExponent> Mul<&mut CliffordUnitary>
+            for $left<Bits, _Phase>
+        {
             type Output = ();
 
             fn mul(self, clifford: &mut CliffordUnitary) -> Self::Output {

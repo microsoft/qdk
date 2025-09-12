@@ -56,13 +56,17 @@ impl<const WORD_COUNT: usize> BitVec<WORD_COUNT> {
         &mut self.blocks[0][0]
     }
 
-    pub fn from_view<const WORD_COUNT_IN: usize>(view: &BitView<WORD_COUNT_IN>) -> BitVec<WORD_COUNT_IN> {
+    pub fn from_view<const WORD_COUNT_IN: usize>(
+        view: &BitView<WORD_COUNT_IN>,
+    ) -> BitVec<WORD_COUNT_IN> {
         BitVec::<WORD_COUNT_IN> {
             blocks: view.blocks.to_vec(),
         }
     }
 
-    pub fn from_view_mut<const WORD_COUNT_IN: usize>(view: &MutableBitView<WORD_COUNT_IN>) -> BitVec<WORD_COUNT_IN> {
+    pub fn from_view_mut<const WORD_COUNT_IN: usize>(
+        view: &MutableBitView<WORD_COUNT_IN>,
+    ) -> BitVec<WORD_COUNT_IN> {
         BitVec::<WORD_COUNT_IN> {
             blocks: view.blocks.to_vec(),
         }
@@ -86,7 +90,9 @@ impl<const WORD_COUNT: usize> BitVec<WORD_COUNT> {
 
     #[must_use]
     pub fn as_view(&self) -> BitView<'_, WORD_COUNT> {
-        BitView { blocks: &self.blocks }
+        BitView {
+            blocks: &self.blocks,
+        }
     }
 
     pub fn as_view_mut(&mut self) -> MutableBitView<'_, WORD_COUNT> {

@@ -1,3 +1,4 @@
+use crate::quantum_core;
 use crate::{
     bits::{BitMatrix, BitVec, Bitwise, BitwiseBinaryOps, Dot, IndexAssignable, IndexSet},
     clifford::{Clifford, CliffordMutable, CliffordUnitary, ControlledPauli, PauliExponent, Swap},
@@ -5,7 +6,6 @@ use crate::{
     Simulation, UnitaryOp,
 };
 use std::borrow::Borrow;
-use crate::quantum_core;
 
 type SparsePauli = PauliUnitary<IndexSet, u8>;
 
@@ -156,7 +156,8 @@ pub fn measure_pauli_with_hint<HintBits: PauliBits, HintPhase: PhaseExponent>(
         let mut pauli = observable.clone() * hint;
         pauli *= Phase::from_exponent(3u8.wrapping_sub(preimage.xz_phase_exponent()));
         PauliExponent::new(pauli) * &mut simulation.clifford;
-        let mut random_bits_indicator = row_sum(&simulation.sign_matrix, preimage.z_bits().support());
+        let mut random_bits_indicator =
+            row_sum(&simulation.sign_matrix, preimage.z_bits().support());
         random_bits_indicator.assign_index(simulation.num_random_bits, true);
         allocate_random_bit(simulation);
         apply_pauli_conditioned_on_inner_random_bits(simulation, hint, &random_bits_indicator);
@@ -199,7 +200,9 @@ fn measure_deterministic<Bits: PauliBits, Phase: PhaseExponent>(
         .assign(&outcome_matrix_row);
     debug_assert!(preimage.xz_phase_exponent().is_even());
     if preimage.xz_phase_exponent().value() == 2 {
-        simulation.outcome_shift.assign_index(outcome_position, true);
+        simulation
+            .outcome_shift
+            .assign_index(outcome_position, true);
     }
     simulation.random_outcome_indicator.push(false);
 }

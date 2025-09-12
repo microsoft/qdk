@@ -1,5 +1,7 @@
 pub mod generic;
-pub use generic::{add_assign_bits, pauli_random, pauli_random_order_two, PauliUnitary, PauliUnitaryProjective};
+pub use generic::{
+    add_assign_bits, pauli_random, pauli_random_order_two, PauliUnitary, PauliUnitaryProjective,
+};
 
 pub mod operators;
 pub use operators::Phase;
@@ -9,7 +11,9 @@ pub use dense::{dense_from, DensePauli, DensePauliProjective};
 use sorted_iter::SortedIterator;
 
 mod sparse;
-pub use sparse::{as_sparse, as_sparse_projective, remapped_sparse, SparsePauli, SparsePauliProjective};
+pub use sparse::{
+    as_sparse, as_sparse_projective, remapped_sparse, SparsePauli, SparsePauliProjective,
+};
 
 mod algorithms;
 pub use algorithms::{
@@ -106,7 +110,10 @@ pub trait PauliMutable: Pauli<Bits: IndexAssignable> {
     fn complex_conjugate(&mut self);
     fn invert(&mut self);
     fn negate(&mut self);
-    fn assign_phase_from<PauliLike: Pauli<PhaseExponentValue = Self::PhaseExponentValue>>(&mut self, other: &PauliLike);
+    fn assign_phase_from<PauliLike: Pauli<PhaseExponentValue = Self::PhaseExponentValue>>(
+        &mut self,
+        other: &PauliLike,
+    );
     fn mul_assign_phase_from<PauliLike: Pauli<PhaseExponentValue = Self::PhaseExponentValue>>(
         &mut self,
         other: &PauliLike,
@@ -118,7 +125,11 @@ pub trait PauliMutable: Pauli<Bits: IndexAssignable> {
     fn mul_assign_right_z(&mut self, qubit_id: usize);
     fn set_identity(&mut self);
     fn set_random(&mut self, num_qubits: usize, random_number_generator: &mut impl rand::Rng);
-    fn set_random_order_two(&mut self, num_qubits: usize, random_number_generator: &mut impl rand::Rng);
+    fn set_random_order_two(
+        &mut self,
+        num_qubits: usize,
+        random_number_generator: &mut impl rand::Rng,
+    );
 
     fn mul_assign_left_y(&mut self, qubit_id: usize) {
         self.mul_assign_left_z(qubit_id);
@@ -133,14 +144,20 @@ pub trait PauliMutable: Pauli<Bits: IndexAssignable> {
     }
 }
 
-pub fn anti_commutes_with<LeftPauli: Pauli, RightPauli: Pauli>(left: &LeftPauli, right: &RightPauli) -> bool
+pub fn anti_commutes_with<LeftPauli: Pauli, RightPauli: Pauli>(
+    left: &LeftPauli,
+    right: &RightPauli,
+) -> bool
 where
     LeftPauli::Bits: Dot<RightPauli::Bits>,
 {
     left.x_bits().dot(right.z_bits()) ^ left.z_bits().dot(right.x_bits())
 }
 
-pub fn commutes_with<LeftPauli: Pauli, RightPauli: Pauli>(left: &LeftPauli, right: &RightPauli) -> bool
+pub fn commutes_with<LeftPauli: Pauli, RightPauli: Pauli>(
+    left: &LeftPauli,
+    right: &RightPauli,
+) -> bool
 where
     LeftPauli::Bits: Dot<RightPauli::Bits>,
 {
@@ -160,4 +177,7 @@ pub trait PauliBinaryOps<Other: ?Sized + Pauli = Self>: PauliMutable {
     fn mul_assign_left(&mut self, lhs: &Other);
 }
 
-pub trait PauliNeutralElement: Pauli + NeutralElement<NeutralElementType: PauliBinaryOps<Self>> {}
+pub trait PauliNeutralElement:
+    Pauli + NeutralElement<NeutralElementType: PauliBinaryOps<Self>>
+{
+}

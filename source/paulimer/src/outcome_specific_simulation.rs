@@ -2,10 +2,11 @@ use rand::{thread_rng, Rng};
 
 use crate::{
     bits::{Bitwise, IndexSet},
-    clifford::{Clifford, CliffordMutable, CliffordUnitary, ControlledPauli, Hadamard, PauliExponent, Swap},
+    clifford::{
+        Clifford, CliffordMutable, CliffordUnitary, ControlledPauli, Hadamard, PauliExponent, Swap,
+    },
     pauli::{anti_commutes_with, generic::PhaseExponent, Pauli, PauliBits, PauliUnitary, Phase},
-    quantum_core,
-    Simulation, UnitaryOp,
+    quantum_core, Simulation, UnitaryOp,
 };
 
 type SparsePauli = PauliUnitary<IndexSet, u8>;
@@ -14,7 +15,7 @@ type SparsePauli = PauliUnitary<IndexSet, u8>;
 pub struct OutcomeSpecificSimulation {
     clifford: CliffordUnitary, // R
     outcome_vector: Vec<bool>,
-    random_outcome_source: Vec<bool>,    // vec(p), [j] is true iff vec(p)_j = 1/2
+    random_outcome_source: Vec<bool>, // vec(p), [j] is true iff vec(p)_j = 1/2
     random_outcome_indicator: Vec<bool>, // vec(p), [j] is true iff vec(p)_j = 1/2
     num_random_bits: usize,
 }
@@ -30,15 +31,25 @@ impl OutcomeSpecificSimulation {
         }
     }
 
-    pub fn new_with_random_outcomes(num_qubits: usize, num_outcomes: usize, num_random_bits: usize) -> Self {
+    pub fn new_with_random_outcomes(
+        num_qubits: usize,
+        num_outcomes: usize,
+        num_random_bits: usize,
+    ) -> Self {
         let mut result = Self::new(num_qubits, num_outcomes, num_random_bits);
         for _ in 0..num_random_bits {
-            result.random_outcome_source.push(thread_rng().gen::<bool>());
+            result
+                .random_outcome_source
+                .push(thread_rng().gen::<bool>());
         }
         result
     }
 
-    pub fn new_with_zero_outcomes(num_qubits: usize, num_outcomes: usize, num_random_bits: usize) -> Self {
+    pub fn new_with_zero_outcomes(
+        num_qubits: usize,
+        num_outcomes: usize,
+        num_random_bits: usize,
+    ) -> Self {
         let mut result = Self::new(num_qubits, num_outcomes, num_random_bits);
         for _ in 0..num_random_bits {
             result.random_outcome_source.push(false);
@@ -136,7 +147,12 @@ pub fn measure_pauli_with_hint<HintBits: PauliBits, HintPhase: PhaseExponent>(
         pauli *= Phase::from_exponent(3u8.wrapping_sub(preimage.xz_phase_exponent().raw_value()));
         PauliExponent::new(pauli) * &mut simulation.clifford;
         allocate_random_bit(simulation);
-        apply_conditional_pauli(simulation, hint, &[simulation.outcome_vector.len() - 1], true);
+        apply_conditional_pauli(
+            simulation,
+            hint,
+            &[simulation.outcome_vector.len() - 1],
+            true,
+        );
     }
 }
 
@@ -273,7 +289,11 @@ impl Simulation for OutcomeSpecificSimulation {
     }
 
     fn with_capacity(num_qubits: usize, num_outcomes: usize, num_random_outcomes: usize) -> Self {
-        OutcomeSpecificSimulation::new_with_random_outcomes(num_qubits, num_outcomes, num_random_outcomes)
+        OutcomeSpecificSimulation::new_with_random_outcomes(
+            num_qubits,
+            num_outcomes,
+            num_random_outcomes,
+        )
     }
 
     fn new() -> Self {

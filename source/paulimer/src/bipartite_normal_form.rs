@@ -3,14 +3,20 @@ use std::ops::Range;
 
 use crate::{
     bits::{
-        bitmatrix::{directly_summed, full_rank_row_completion_with_inv, row_stacked, BitMatrix, MutableRow},
+        bitmatrix::{
+            directly_summed, full_rank_row_completion_with_inv, row_stacked, BitMatrix, MutableRow,
+        },
         BitVec, Bitwise, BitwiseBinaryOps, IndexAssignable, WORD_COUNT_DEFAULT,
     },
     clifford::{
-        generic_algos::{support_restricted_z_images, support_restricted_z_images_from_support_complement},
+        generic_algos::{
+            support_restricted_z_images, support_restricted_z_images_from_support_complement,
+        },
         Clifford, CliffordUnitary, PreimageViews,
     },
-    pauli::{anti_commutes_with, commutes_with, DensePauli, Pauli, PauliBinaryOps, PauliUnitary, Phase},
+    pauli::{
+        anti_commutes_with, commutes_with, DensePauli, Pauli, PauliBinaryOps, PauliUnitary, Phase,
+    },
     setwise::{complement, is_subset},
     NeutralElement,
 };
@@ -31,7 +37,10 @@ pub fn css_clifford(
         computational_basis_action_inv_t.columncount()
     );
 
-    CliffordUnitary::from_css_preimage_indicators(computational_basis_action_inv_t, computational_basis_action)
+    CliffordUnitary::from_css_preimage_indicators(
+        computational_basis_action_inv_t,
+        computational_basis_action,
+    )
 }
 
 /// # Safety
@@ -44,7 +53,9 @@ pub unsafe fn get_pair_mut_unsafe<T>(v: &mut Vec<T>, i: usize, j: usize) -> (&mu
 /// # Panics
 ///
 /// Will panic
-pub fn symplectic_basis_with_transforms<T: PauliBinaryOps>(mut paulies: Vec<T>) -> (Vec<T>, BitMatrix, BitMatrix) {
+pub fn symplectic_basis_with_transforms<T: PauliBinaryOps>(
+    mut paulies: Vec<T>,
+) -> (Vec<T>, BitMatrix, BitMatrix) {
     assert!(paulies.len() % 2 == 0);
     let mut res = BitMatrix::identity(paulies.len());
     let mut res_inv_t = BitMatrix::identity(paulies.len());
@@ -103,14 +114,21 @@ where
     let num_qubits = clifford.num_qubits();
     let support_complement = complement(sorted_support, num_qubits);
 
-    let right_clifford = <CliffordLike as NeutralElement>::neutral_element_of_size(sorted_support.len());
-    let left_clifford = <CliffordLike as NeutralElement>::neutral_element_of_size(support_complement.len());
+    let right_clifford =
+        <CliffordLike as NeutralElement>::neutral_element_of_size(sorted_support.len());
+    let left_clifford =
+        <CliffordLike as NeutralElement>::neutral_element_of_size(support_complement.len());
     let transform = BitMatrix::zeros(num_qubits, num_qubits);
     let transform_inv = BitMatrix::zeros(num_qubits, num_qubits);
 
-    let transform_1 =
-        support_restricted_z_images_from_support_complement::<CliffordLike>(clifford, &support_complement);
-    let transform_2 = support_restricted_z_images_from_support_complement::<CliffordLike>(clifford, sorted_support);
+    let transform_1 = support_restricted_z_images_from_support_complement::<CliffordLike>(
+        clifford,
+        &support_complement,
+    );
+    let transform_2 = support_restricted_z_images_from_support_complement::<CliffordLike>(
+        clifford,
+        sorted_support,
+    );
     let (_restricting_transform, _restricting_transform_inv) =
         full_rank_row_completion_with_inv(&row_stacked([&transform_1, &transform_2]));
 
@@ -154,13 +172,22 @@ pub fn bipartite_normal_form(
     let transform_2 = support_restricted_z_images::<CliffordUnitary>(clifford, &support_complement);
     let restricting_transform = full_rank_row_completion(row_stacked([&transform_1, &transform_2]));
     let restricting_transform_inv = restricting_transform.inverted();
-    let clifford_with_restricted_images =
-        clifford * &css_clifford(&restricting_transform_inv, &restricting_transform.transposed());
+    let clifford_with_restricted_images = clifford
+        * &css_clifford(
+            &restricting_transform_inv,
+            &restricting_transform.transposed(),
+        );
 
     let k1 = transform_1.rowcount();
     let k2 = transform_2.rowcount();
 
-    check_restricted_clifford(&clifford_with_restricted_images, &support, &support_complement, k1, k2);
+    check_restricted_clifford(
+        &clifford_with_restricted_images,
+        &support,
+        &support_complement,
+        k1,
+        k2,
+    );
 
     let offset = k1 + k2;
     let num_remaining_images = num_qubits - offset;
@@ -184,7 +211,8 @@ pub fn bipartite_normal_form(
     );
 
     let permuted_transform =
-        directly_summed([&BitMatrix::identity(k1 + k2), &symplectic_transform]).dot(&restricting_transform);
+        directly_summed([&BitMatrix::identity(k1 + k2), &symplectic_transform])
+            .dot(&restricting_transform);
     let row_permutation: Vec<usize> = (0..k1)
         .chain((offset..num_qubits).step_by(2))
         .chain(k1..offset)
@@ -252,7 +280,11 @@ pub fn bipartite_normal_form(
     assert_eq!(left_clifford_x_images.len(), num_qubits - support_range);
     assert_eq!(left_clifford_z_images.len(), num_qubits - support_range);
 
-    ensure_commutation(&mut right_clifford_x_images, &mut right_clifford_z_images, k1);
+    ensure_commutation(
+        &mut right_clifford_x_images,
+        &mut right_clifford_z_images,
+        k1,
+    );
     ensure_commutation(&mut left_clifford_x_images, &mut left_clifford_z_images, k2);
 
     check_left_and_right_clifford_images(
@@ -328,7 +360,11 @@ fn check_symplectic_basis_results(
     assert!(is_symplectic_basis(symplectic_basis));
 }
 
-fn z_images_are_restricted_to(support: &[usize], clifford: &CliffordUnitary, mut indexes: Range<usize>) -> bool {
+fn z_images_are_restricted_to(
+    support: &[usize],
+    clifford: &CliffordUnitary,
+    mut indexes: Range<usize>,
+) -> bool {
     indexes.all(|index| {
         is_subset(
             &Iterator::collect::<Vec<usize>>(clifford.image_z(index).support()),
@@ -391,16 +427,32 @@ fn check_block_clifford_properties(
         for qubit_id2 in 0..k {
             assert_eq!(
                 commutes_with(
-                    &image_z_restriction_up_to_sign(block_clifford, support_range - k + qubit_id1, support),
-                    &image_z_restriction_up_to_sign(block_clifford, num_qubits - k + qubit_id2, support)
+                    &image_z_restriction_up_to_sign(
+                        block_clifford,
+                        support_range - k + qubit_id1,
+                        support
+                    ),
+                    &image_z_restriction_up_to_sign(
+                        block_clifford,
+                        num_qubits - k + qubit_id2,
+                        support
+                    )
                 ),
                 qubit_id1 != qubit_id2
             );
 
             assert_eq!(
                 commutes_with(
-                    &image_z_restriction_up_to_sign(block_clifford, support_range - k + qubit_id1, support_complement),
-                    &image_z_restriction_up_to_sign(block_clifford, num_qubits - k + qubit_id2, support_complement)
+                    &image_z_restriction_up_to_sign(
+                        block_clifford,
+                        support_range - k + qubit_id1,
+                        support_complement
+                    ),
+                    &image_z_restriction_up_to_sign(
+                        block_clifford,
+                        num_qubits - k + qubit_id2,
+                        support_complement
+                    )
                 ),
                 qubit_id1 != qubit_id2
             );
@@ -421,8 +473,10 @@ fn check_block_clifford_properties(
 
     for qubit_id1 in support_range..num_qubits - k {
         for qubit_id2 in support_range..num_qubits - k {
-            let z_image = image_z_restriction_up_to_sign(block_clifford, qubit_id1, support_complement);
-            let x_image = image_x_restriction_up_to_sign(block_clifford, qubit_id1, support_complement);
+            let z_image =
+                image_z_restriction_up_to_sign(block_clifford, qubit_id1, support_complement);
+            let x_image =
+                image_x_restriction_up_to_sign(block_clifford, qubit_id1, support_complement);
             assert_eq!(commutes_with(&z_image, &x_image), qubit_id1 != qubit_id2);
         }
     }
@@ -446,11 +500,19 @@ fn full_rank_row_completion(mut matrix: BitMatrix) -> BitMatrix {
     res
 }
 
-fn image_z_split(clifford: &CliffordUnitary, qubit_id: usize, split_position: usize) -> (DensePauli, DensePauli) {
+fn image_z_split(
+    clifford: &CliffordUnitary,
+    qubit_id: usize,
+    split_position: usize,
+) -> (DensePauli, DensePauli) {
     split_at(split_position, &clifford.image_z(qubit_id))
 }
 
-fn image_x_split(clifford: &CliffordUnitary, qubit_id: usize, split_position: usize) -> (DensePauli, DensePauli) {
+fn image_x_split(
+    clifford: &CliffordUnitary,
+    qubit_id: usize,
+    split_position: usize,
+) -> (DensePauli, DensePauli) {
     split_at(split_position, &clifford.image_x(qubit_id))
 }
 
@@ -486,7 +548,11 @@ fn split_at(index: usize, image: &DensePauli) -> (DensePauli, DensePauli) {
     (before, after)
 }
 
-pub fn image_z_restriction_up_to_sign(clifford: &CliffordUnitary, qubit_id: usize, support: &[usize]) -> DensePauli {
+pub fn image_z_restriction_up_to_sign(
+    clifford: &CliffordUnitary,
+    qubit_id: usize,
+    support: &[usize],
+) -> DensePauli {
     let image = clifford.image_z(qubit_id);
     DensePauli::from_bits(
         BitVec::<WORD_COUNT_DEFAULT>::selected_from(&image.x_bits().as_view(), support),
@@ -495,7 +561,11 @@ pub fn image_z_restriction_up_to_sign(clifford: &CliffordUnitary, qubit_id: usiz
     )
 }
 
-pub fn image_x_restriction_up_to_sign(clifford: &CliffordUnitary, qubit_id: usize, support: &[usize]) -> DensePauli {
+pub fn image_x_restriction_up_to_sign(
+    clifford: &CliffordUnitary,
+    qubit_id: usize,
+    support: &[usize],
+) -> DensePauli {
     let image = clifford.image_x(qubit_id);
     DensePauli::from_bits(
         BitVec::<WORD_COUNT_DEFAULT>::selected_from(&image.x_bits().as_view(), support),

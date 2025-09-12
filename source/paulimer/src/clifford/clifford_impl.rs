@@ -1,21 +1,27 @@
-use itertools::{enumerate, Itertools};
 use crate::quantum_core::{y, Axis};
+use itertools::{enumerate, Itertools};
 use sorted_iter::assume::AssumeSortedByItemExt;
 use sorted_iter::SortedIterator;
 
 use super::generic_algos::support_restricted_z_images_from_support_complement;
 use super::{
-    Bitwise, Clifford, CliffordModPauliBatch, CliffordMutable, CliffordStringParsingError, CliffordUnitary,
-    CliffordUnitaryModPauli, ControlledPauli, Hadamard, MutablePreImages, PauliExponent, PreimageViews, Swap, XOrZ,
+    Bitwise, Clifford, CliffordModPauliBatch, CliffordMutable, CliffordStringParsingError,
+    CliffordUnitary, CliffordUnitaryModPauli, ControlledPauli, Hadamard, MutablePreImages,
+    PauliExponent, PreimageViews, Swap, XOrZ,
 };
 
-use crate::bits::bitmatrix::{are_zero_rows, is_zero_padded_identity, is_zero_padded_symmetric, BitMatrix, Column};
-use crate::bits::{BitVec, BitView, BitwiseBinaryOps, IndexAssignable, IndexSet, MutableBitView, WORD_COUNT_DEFAULT};
+use crate::bits::bitmatrix::{
+    are_zero_rows, is_zero_padded_identity, is_zero_padded_symmetric, BitMatrix, Column,
+};
+use crate::bits::{
+    BitVec, BitView, BitwiseBinaryOps, IndexAssignable, IndexSet, MutableBitView,
+    WORD_COUNT_DEFAULT,
+};
 use crate::pauli::generic::PhaseExponent;
 use crate::pauli::{
-    apply_pauli_exponent, apply_root_x, are_mutually_commuting, dense_from, remapped_sparse, DensePauli,
-    DensePauliProjective, Pauli, PauliBinaryOps, PauliBits, PauliMutable, PauliUnitary, PauliUnitaryProjective,
-    SparsePauli, SparsePauliProjective,
+    apply_pauli_exponent, apply_root_x, are_mutually_commuting, dense_from, remapped_sparse,
+    DensePauli, DensePauliProjective, Pauli, PauliBinaryOps, PauliBits, PauliMutable, PauliUnitary,
+    PauliUnitaryProjective, SparsePauli, SparsePauliProjective,
 };
 use crate::{assert_1q_gate, assert_2q_gate, UnitaryOp};
 use crate::{subscript_digits, NeutralElement, Tuple2x2, Tuple4, Tuple4x2, Tuple8};
@@ -39,11 +45,18 @@ fn split2<T>(ab: Tuple4<T>) -> Tuple2x2<T> {
 }
 
 fn concat4<T>(a: Tuple4x2<T>) -> Tuple8<T> {
-    (a.0 .0, a.0 .1, a.1 .0, a.1 .1, a.2 .0, a.2 .1, a.3 .0, a.3 .1)
+    (
+        a.0 .0, a.0 .1, a.1 .0, a.1 .1, a.2 .0, a.2 .1, a.3 .0, a.3 .1,
+    )
 }
 
 fn split4<T>(abcd: Tuple8<T>) -> Tuple4x2<T> {
-    ((abcd.0, abcd.1), (abcd.2, abcd.3), (abcd.4, abcd.5), (abcd.6, abcd.7))
+    (
+        (abcd.0, abcd.1),
+        (abcd.2, abcd.3),
+        (abcd.4, abcd.5),
+        (abcd.6, abcd.7),
+    )
 }
 
 /// Does not check if indices are distinct
@@ -70,15 +83,19 @@ unsafe fn tuple4_from_vec<T>(
 
 // Neutral element trait
 
-fn set_identity_pre_images<PauliLike: Pauli, CliffordLike: Clifford + MutablePreImages>(clifford: &mut CliffordLike)
-where
-    for<'life> <CliffordLike as MutablePreImages>::PreImageViewMut<'life>: PauliBinaryOps<PauliLike>,
+fn set_identity_pre_images<PauliLike: Pauli, CliffordLike: Clifford + MutablePreImages>(
+    clifford: &mut CliffordLike,
+) where
+    for<'life> <CliffordLike as MutablePreImages>::PreImageViewMut<'life>:
+        PauliBinaryOps<PauliLike>,
 {
     for index in 0..clifford.num_qubits() {
         debug_assert!(clifford.preimage_x_view_mut(index).is_identity());
         clifford.preimage_x_view_mut(index).mul_assign_left_x(index);
         debug_assert!(clifford.preimage_z_view_mut(index).is_identity());
-        clifford.preimage_z_view_mut(index).mul_assign_right_z(index);
+        clifford
+            .preimage_z_view_mut(index)
+            .mul_assign_right_z(index);
     }
 }
 
@@ -288,7 +305,8 @@ macro_rules! clifford_common_impl {
 
         fn random(num_qubits: usize, random_number_generator: &mut impl rand::Rng) -> Self {
             let mut res = Self::identity(num_qubits);
-            let mut random_pauli: Self::DensePauli = Self::DensePauli::neutral_element_of_size(num_qubits);
+            let mut random_pauli: Self::DensePauli =
+                Self::DensePauli::neutral_element_of_size(num_qubits);
             for _ in 0..2 * num_qubits + 1 {
                 random_pauli.set_random_order_two(num_qubits, random_number_generator);
                 res.left_mul_pauli_exp(&random_pauli);
@@ -302,7 +320,10 @@ macro_rules! clifford_common_impl {
             res
         }
 
-        fn from_css_preimage_indicators(x_indicators: &BitMatrix, z_indicators: &BitMatrix) -> Self {
+        fn from_css_preimage_indicators(
+            x_indicators: &BitMatrix,
+            z_indicators: &BitMatrix,
+        ) -> Self {
             super::generic_algos::clifford_from_css_preimage_indicators(x_indicators, z_indicators)
         }
 
@@ -333,13 +354,17 @@ macro_rules! clifford_common_impl {
             let mut res = BitMatrix::zeros(2 * qubit_count, 2 * qubit_count);
             for qubit in self.qubits() {
                 let (x, z) = (self.preimage_x_view(qubit), self.preimage_z_view(qubit));
-                res.row_mut(qubit).assign_with_offset(x.x_bits(), 0, qubit_count);
+                res.row_mut(qubit)
+                    .assign_with_offset(x.x_bits(), 0, qubit_count);
                 res.row_mut(qubit)
                     .assign_with_offset(x.z_bits(), qubit_count, qubit_count);
                 res.row_mut(qubit + qubit_count)
                     .assign_with_offset(z.x_bits(), 0, qubit_count);
-                res.row_mut(qubit + qubit_count)
-                    .assign_with_offset(z.z_bits(), qubit_count, qubit_count);
+                res.row_mut(qubit + qubit_count).assign_with_offset(
+                    z.z_bits(),
+                    qubit_count,
+                    qubit_count,
+                );
             }
             res
         }
@@ -364,13 +389,21 @@ impl Clifford for CliffordUnitary {
 
     fn image_x_bits(&self, x_bits: &impl Bitwise) -> Self::DensePauli {
         let mut image_up_to_phase = self.x_image_view_up_to_phase(0).neutral_element();
-        super::generic_algos::mul_assign_right_clifford_image_x_bits_up_to_phase(&mut image_up_to_phase, self, x_bits);
+        super::generic_algos::mul_assign_right_clifford_image_x_bits_up_to_phase(
+            &mut image_up_to_phase,
+            self,
+            x_bits,
+        );
         super::generic_algos::clifford_image_with_phase(self, image_up_to_phase.to_xz_bits())
     }
 
     fn image_z_bits(&self, z_bits: &impl Bitwise) -> Self::DensePauli {
         let mut image_up_to_phase = self.x_image_view_up_to_phase(0).neutral_element();
-        super::generic_algos::mul_assign_right_clifford_image_z_bits_up_to_phase(&mut image_up_to_phase, self, z_bits);
+        super::generic_algos::mul_assign_right_clifford_image_z_bits_up_to_phase(
+            &mut image_up_to_phase,
+            self,
+            z_bits,
+        );
         super::generic_algos::clifford_image_with_phase(self, image_up_to_phase.to_xz_bits())
     }
 
@@ -379,8 +412,13 @@ impl Clifford for CliffordUnitary {
         pauli: &PauliLike,
     ) -> Self::DensePauli {
         let mut image_up_to_phase = self.x_image_view_up_to_phase(0).neutral_element();
-        super::generic_algos::mul_assign_right_clifford_image_up_to_phase(&mut image_up_to_phase, self, pauli);
-        let mut res = super::generic_algos::clifford_image_with_phase(self, image_up_to_phase.to_xz_bits());
+        super::generic_algos::mul_assign_right_clifford_image_up_to_phase(
+            &mut image_up_to_phase,
+            self,
+            pauli,
+        );
+        let mut res =
+            super::generic_algos::clifford_image_with_phase(self, image_up_to_phase.to_xz_bits());
         res.mul_assign_phase_from(pauli);
         res
     }
@@ -444,7 +482,9 @@ impl PreimageViews for CliffordUnitary {
     type ImageViewUpToPhase<'life> = PauliUnitaryProjective<Column<'life, WORD_COUNT_DEFAULT>>;
 
     fn preimage_x_view(&self, qubit_index: usize) -> Self::PreImageView<'_> {
-        let xz_bits = self.bits.rows2(x_preimage_rows_ids(self.num_qubits(), qubit_index));
+        let xz_bits = self
+            .bits
+            .rows2(x_preimage_rows_ids(self.num_qubits(), qubit_index));
         Self::PreImageView::from_bits_tuple(
             xz_bits,
             &self.preimage_phase_exponents[phase_of_preimage_x(qubit_index)],
@@ -452,7 +492,9 @@ impl PreimageViews for CliffordUnitary {
     }
 
     fn preimage_z_view(&self, qubit_index: usize) -> Self::PreImageView<'_> {
-        let xz_bits = self.bits.rows2(z_preimage_rows_ids(self.num_qubits(), qubit_index));
+        let xz_bits = self
+            .bits
+            .rows2(z_preimage_rows_ids(self.num_qubits(), qubit_index));
         Self::PreImageView::from_bits_tuple(
             xz_bits,
             &self.preimage_phase_exponents[phase_of_preimage_z(qubit_index)],
@@ -468,7 +510,9 @@ impl PreimageViews for CliffordUnitary {
     }
 }
 
-fn inverse_with_signs<CliffordLikeFrom: Clifford, CliffordLikeTo>(from: &CliffordLikeFrom) -> CliffordLikeTo
+fn inverse_with_signs<CliffordLikeFrom: Clifford, CliffordLikeTo>(
+    from: &CliffordLikeFrom,
+) -> CliffordLikeTo
 where
     CliffordLikeTo: Clifford + PreimageViews + MutablePreImages,
     for<'life> <CliffordLikeTo as MutablePreImages>::PreImageViewMut<'life>:
@@ -476,8 +520,10 @@ where
 {
     let mut res = CliffordLikeTo::identity(from.num_qubits());
     for qubit_index in 0..from.num_qubits() {
-        res.preimage_x_view_mut(qubit_index).assign(&from.image_x(qubit_index));
-        res.preimage_z_view_mut(qubit_index).assign(&from.image_z(qubit_index));
+        res.preimage_x_view_mut(qubit_index)
+            .assign(&from.image_x(qubit_index));
+        res.preimage_z_view_mut(qubit_index)
+            .assign(&from.image_z(qubit_index));
     }
     res
 }
@@ -501,13 +547,17 @@ impl Clifford for CliffordUnitaryModPauli {
 
     fn image_x_bits(&self, x_bits: &impl Bitwise) -> Self::DensePauli {
         let mut res = Self::DensePauli::neutral_element_of_size(self.num_qubits());
-        super::generic_algos::mul_assign_right_clifford_image_x_bits_up_to_phase(&mut res, self, x_bits);
+        super::generic_algos::mul_assign_right_clifford_image_x_bits_up_to_phase(
+            &mut res, self, x_bits,
+        );
         res
     }
 
     fn image_z_bits(&self, z_bits: &impl Bitwise) -> Self::DensePauli {
         let mut res = Self::DensePauli::neutral_element_of_size(self.num_qubits());
-        super::generic_algos::mul_assign_right_clifford_image_z_bits_up_to_phase(&mut res, self, z_bits);
+        super::generic_algos::mul_assign_right_clifford_image_z_bits_up_to_phase(
+            &mut res, self, z_bits,
+        );
         res
     }
 
@@ -542,12 +592,16 @@ impl PreimageViews for CliffordUnitaryModPauli {
     type ImageViewUpToPhase<'life> = PauliUnitaryProjective<Column<'life, WORD_COUNT_DEFAULT>>;
 
     fn preimage_x_view(&self, qubit_index: usize) -> Self::PreImageView<'_> {
-        let xz_bits = self.bits.rows2(x_preimage_rows_ids(self.num_qubits(), qubit_index));
+        let xz_bits = self
+            .bits
+            .rows2(x_preimage_rows_ids(self.num_qubits(), qubit_index));
         Self::PreImageView::from_bits_tuple(xz_bits)
     }
 
     fn preimage_z_view(&self, qubit_index: usize) -> Self::PreImageView<'_> {
-        let xz_bits = self.bits.rows2(z_preimage_rows_ids(self.num_qubits(), qubit_index));
+        let xz_bits = self
+            .bits
+            .rows2(z_preimage_rows_ids(self.num_qubits(), qubit_index));
         Self::PreImageView::from_bits_tuple(xz_bits)
     }
 
@@ -598,16 +652,23 @@ where
     type PreImageViewMut<'life> = PauliUnitaryProjective<MutableBitView<'life, WORD_COUNT_DEFAULT>>;
 
     fn preimage_x_view_mut(&mut self, index: usize) -> Self::PreImageViewMut<'_> {
-        let xz_bits = self.bits.rows2_mut(x_preimage_rows_ids(self.num_qubits(), index));
+        let xz_bits = self
+            .bits
+            .rows2_mut(x_preimage_rows_ids(self.num_qubits(), index));
         Self::PreImageViewMut::from_bits_tuple(xz_bits)
     }
 
     fn preimage_z_view_mut(&mut self, index: usize) -> Self::PreImageViewMut<'_> {
-        let xz_bits = self.bits.rows2_mut(z_preimage_rows_ids(self.num_qubits(), index));
+        let xz_bits = self
+            .bits
+            .rows2_mut(z_preimage_rows_ids(self.num_qubits(), index));
         Self::PreImageViewMut::from_bits_tuple(xz_bits)
     }
 
-    fn preimage_xz_views_mut(&mut self, index: usize) -> (Self::PreImageViewMut<'_>, Self::PreImageViewMut<'_>) {
+    fn preimage_xz_views_mut(
+        &mut self,
+        index: usize,
+    ) -> (Self::PreImageViewMut<'_>, Self::PreImageViewMut<'_>) {
         unsafe {
             let xz_ids = xz_preimage_rows_ids(self.num_qubits(), index);
             let (xz_of_x, xz_of_z) = split2(self.bits.rows4_mut(concat2(xz_ids)));
@@ -630,11 +691,12 @@ where
         let (xz_of_x0_ids, xz_of_z0_ids) = xz_preimage_rows_ids(self.num_qubits(), index.0);
         let (xz_of_x1_ids, xz_of_z1_ids) = xz_preimage_rows_ids(self.num_qubits(), index.1);
         unsafe {
-            let (xz_of_x0, xz_of_z0, xz_of_x1, xz_of_z1) =
-                split4(
-                    self.bits
-                        .rows8_mut(concat4((xz_of_x0_ids, xz_of_z0_ids, xz_of_x1_ids, xz_of_z1_ids))),
-                );
+            let (xz_of_x0, xz_of_z0, xz_of_x1, xz_of_z1) = split4(self.bits.rows8_mut(concat4((
+                xz_of_x0_ids,
+                xz_of_z0_ids,
+                xz_of_x1_ids,
+                xz_of_z1_ids,
+            ))));
             (
                 (
                     Self::PreImageViewMut::from_bits_tuple(xz_of_x0),
@@ -684,7 +746,11 @@ macro_rules! clifford_mutable_common_impl {
         }
 
         fn left_mul_prepare_bell(&mut self, control_qubit_id: usize, target_qubit_id: usize) {
-            super::generic_algos::clifford_left_mul_eq_prepare_bell(self, control_qubit_id, target_qubit_id)
+            super::generic_algos::clifford_left_mul_eq_prepare_bell(
+                self,
+                control_qubit_id,
+                target_qubit_id,
+            )
         }
 
         fn left_mul(&mut self, unitary_op: UnitaryOp, support: &[usize]) {
@@ -772,7 +838,9 @@ macro_rules! clifford_mutable_common_multi_qubit_impl {
             }
         }
 
-        fn left_mul_controlled_pauli<PauliLike: Pauli<PhaseExponentValue = Self::PhaseExponentValue>>(
+        fn left_mul_controlled_pauli<
+            PauliLike: Pauli<PhaseExponentValue = Self::PhaseExponentValue>,
+        >(
             &mut self,
             control: &PauliLike,
             target: &PauliLike,
@@ -794,18 +862,26 @@ macro_rules! clifford_mutable_common_multi_qubit_impl {
                 ));
             }
             for (elt_index, elt) in enumerate(support) {
-                <Self as MutablePreImages>::preimage_x_view_mut(self, *elt).assign(&new_preimages[elt_index].0);
-                <Self as MutablePreImages>::preimage_z_view_mut(self, *elt).assign(&new_preimages[elt_index].1);
+                <Self as MutablePreImages>::preimage_x_view_mut(self, *elt)
+                    .assign(&new_preimages[elt_index].0);
+                <Self as MutablePreImages>::preimage_z_view_mut(self, *elt)
+                    .assign(&new_preimages[elt_index].1);
             }
         }
     };
 }
 
-fn reindexed_support(new_index: &[usize], bit_support: impl sorted_iter::SortedIterator<Item = usize>) -> IndexSet {
+fn reindexed_support(
+    new_index: &[usize],
+    bit_support: impl sorted_iter::SortedIterator<Item = usize>,
+) -> IndexSet {
     bit_support.map(|bit| new_index[bit]).collect()
 }
 
-fn sparse_projective_pauli_on_support(pauli: &impl Pauli, support: &[usize]) -> PauliUnitaryProjective<IndexSet> {
+fn sparse_projective_pauli_on_support(
+    pauli: &impl Pauli,
+    support: &[usize],
+) -> PauliUnitaryProjective<IndexSet> {
     PauliUnitaryProjective::<IndexSet>::from_bits(
         reindexed_support(support, pauli.x_bits().support()),
         reindexed_support(support, pauli.z_bits().support()),
@@ -877,17 +953,23 @@ impl CliffordMutable for CliffordUnitaryModPauli {
         assert_eq! {support.len(),clifford.num_qubits()};
         assert!(has_no_duplicates(support));
 
-        let mut new_preimages =
-            Vec::<(<Self as Clifford>::DensePauli, <Self as Clifford>::DensePauli)>::with_capacity(support.len());
+        let mut new_preimages = Vec::<(
+            <Self as Clifford>::DensePauli,
+            <Self as Clifford>::DensePauli,
+        )>::with_capacity(support.len());
         for elt_index in 0..support.len() {
-            let px_on_support = sparse_projective_pauli_on_support(&clifford.preimage_x_view(elt_index), support);
-            let pz_on_support = sparse_projective_pauli_on_support(&clifford.preimage_z_view(elt_index), support);
+            let px_on_support =
+                sparse_projective_pauli_on_support(&clifford.preimage_x_view(elt_index), support);
+            let pz_on_support =
+                sparse_projective_pauli_on_support(&clifford.preimage_z_view(elt_index), support);
             new_preimages.push((self.preimage(&px_on_support), self.preimage(&pz_on_support)));
         }
 
         for (elt_index, elt) in enumerate(support) {
-            self.preimage_x_view_mut(*elt).assign(&new_preimages[elt_index].0);
-            self.preimage_z_view_mut(*elt).assign(&new_preimages[elt_index].1);
+            self.preimage_x_view_mut(*elt)
+                .assign(&new_preimages[elt_index].0);
+            self.preimage_z_view_mut(*elt)
+                .assign(&new_preimages[elt_index].1);
         }
     }
 
@@ -899,19 +981,33 @@ where
     for<'life> PauliUnitary<MutableBitView<'life, WORD_COUNT_DEFAULT>, &'life mut u8>:
         PauliBinaryOps + Pauli<PhaseExponentValue = u8>,
 {
-    type PreImageViewMut<'life> = PauliUnitary<MutableBitView<'life, WORD_COUNT_DEFAULT>, &'life mut u8>;
+    type PreImageViewMut<'life> =
+        PauliUnitary<MutableBitView<'life, WORD_COUNT_DEFAULT>, &'life mut u8>;
 
     fn preimage_x_view_mut(&mut self, index: usize) -> Self::PreImageViewMut<'_> {
-        let xz_bits = self.bits.rows2_mut(x_preimage_rows_ids(self.num_qubits(), index));
-        Self::PreImageViewMut::from_bits_tuple(xz_bits, &mut self.preimage_phase_exponents[phase_of_preimage_x(index)])
+        let xz_bits = self
+            .bits
+            .rows2_mut(x_preimage_rows_ids(self.num_qubits(), index));
+        Self::PreImageViewMut::from_bits_tuple(
+            xz_bits,
+            &mut self.preimage_phase_exponents[phase_of_preimage_x(index)],
+        )
     }
 
     fn preimage_z_view_mut(&mut self, index: usize) -> Self::PreImageViewMut<'_> {
-        let xz_bits = self.bits.rows2_mut(z_preimage_rows_ids(self.num_qubits(), index));
-        Self::PreImageViewMut::from_bits_tuple(xz_bits, &mut self.preimage_phase_exponents[phase_of_preimage_z(index)])
+        let xz_bits = self
+            .bits
+            .rows2_mut(z_preimage_rows_ids(self.num_qubits(), index));
+        Self::PreImageViewMut::from_bits_tuple(
+            xz_bits,
+            &mut self.preimage_phase_exponents[phase_of_preimage_z(index)],
+        )
     }
 
-    fn preimage_xz_views_mut(&mut self, index: usize) -> (Self::PreImageViewMut<'_>, Self::PreImageViewMut<'_>) {
+    fn preimage_xz_views_mut(
+        &mut self,
+        index: usize,
+    ) -> (Self::PreImageViewMut<'_>, Self::PreImageViewMut<'_>) {
         unsafe {
             let (xz_of_x, xz_of_z) = split2(
                 self.bits
@@ -939,11 +1035,12 @@ where
         let (xz_of_x0_ids, xz_of_z0_ids) = xz_preimage_rows_ids(self.num_qubits(), index.0);
         let (xz_of_x1_ids, xz_of_z1_ids) = xz_preimage_rows_ids(self.num_qubits(), index.1);
         unsafe {
-            let (xz_of_x0, xz_of_z0, xz_of_x1, xz_of_z1) =
-                split4(
-                    self.bits
-                        .rows8_mut(concat4((xz_of_x0_ids, xz_of_z0_ids, xz_of_x1_ids, xz_of_z1_ids))),
-                );
+            let (xz_of_x0, xz_of_z0, xz_of_x1, xz_of_z1) = split4(self.bits.rows8_mut(concat4((
+                xz_of_x0_ids,
+                xz_of_z0_ids,
+                xz_of_x1_ids,
+                xz_of_z1_ids,
+            ))));
             let (px0, pz0, px1, pz1) = tuple4_from_vec(
                 &mut self.preimage_phase_exponents,
                 (
@@ -978,10 +1075,14 @@ impl CliffordMutable for CliffordUnitary {
 
     fn left_mul_swap(&mut self, qubit1_id: usize, qubit2_id: usize) {
         swap_clifford_bits(self.num_qubits(), qubit1_id, qubit2_id, &mut self.bits);
-        self.preimage_phase_exponents
-            .swap(phase_of_preimage_x(qubit1_id), phase_of_preimage_x(qubit2_id));
-        self.preimage_phase_exponents
-            .swap(phase_of_preimage_z(qubit1_id), phase_of_preimage_z(qubit2_id));
+        self.preimage_phase_exponents.swap(
+            phase_of_preimage_x(qubit1_id),
+            phase_of_preimage_x(qubit2_id),
+        );
+        self.preimage_phase_exponents.swap(
+            phase_of_preimage_z(qubit1_id),
+            phase_of_preimage_z(qubit2_id),
+        );
     }
 
     fn left_mul_x(&mut self, qubit_id: usize) {
@@ -1011,17 +1112,23 @@ impl CliffordMutable for CliffordUnitary {
         assert_eq! {support.len(),clifford.num_qubits()};
         assert! {has_no_duplicates(support)};
 
-        let mut new_preimages =
-            Vec::<(<Self as Clifford>::DensePauli, <Self as Clifford>::DensePauli)>::with_capacity(support.len());
+        let mut new_preimages = Vec::<(
+            <Self as Clifford>::DensePauli,
+            <Self as Clifford>::DensePauli,
+        )>::with_capacity(support.len());
         for elt_index in 0..support.len() {
-            let px_on_support = sparse_pauli_on_support(&clifford.preimage_x_view(elt_index), support);
-            let pz_on_support = sparse_pauli_on_support(&clifford.preimage_z_view(elt_index), support);
+            let px_on_support =
+                sparse_pauli_on_support(&clifford.preimage_x_view(elt_index), support);
+            let pz_on_support =
+                sparse_pauli_on_support(&clifford.preimage_z_view(elt_index), support);
             new_preimages.push((self.preimage(&px_on_support), self.preimage(&pz_on_support)));
         }
 
         for (elt_index, elt) in enumerate(support) {
-            self.preimage_x_view_mut(*elt).assign(&new_preimages[elt_index].0);
-            self.preimage_z_view_mut(*elt).assign(&new_preimages[elt_index].1);
+            self.preimage_x_view_mut(*elt)
+                .assign(&new_preimages[elt_index].0);
+            self.preimage_z_view_mut(*elt)
+                .assign(&new_preimages[elt_index].1);
         }
     }
 
@@ -1114,7 +1221,8 @@ where
     }
     if image_pairs.len() % 2 == 0 {
         let qubit_count = image_pairs.len() / 2;
-        let mut preimages = vec![DensePauliLike::neutral_element_of_size(qubit_count); 2 * qubit_count];
+        let mut preimages =
+            vec![DensePauliLike::neutral_element_of_size(qubit_count); 2 * qubit_count];
         for (pauli_from, pauli_to) in image_pairs {
             if pauli_from.weight() == 1 {
                 if let Some(qubit_id) = pauli_from.support().next() {
@@ -1195,7 +1303,9 @@ impl Mul for &CliffordUnitary {
     }
 }
 
-impl<'life, Bits: PauliBits, _Phase: PhaseExponent> Mul<&'life mut CliffordUnitary> for &PauliUnitary<Bits, _Phase> {
+impl<'life, Bits: PauliBits, _Phase: PhaseExponent> Mul<&'life mut CliffordUnitary>
+    for &PauliUnitary<Bits, _Phase>
+{
     type Output = ();
 
     fn mul(self, clifford: &'life mut CliffordUnitary) -> Self::Output {
@@ -1211,7 +1321,9 @@ impl<'life, Bits: PauliBits, _Phase: PhaseExponent> Mul<&'life mut CliffordUnita
     }
 }
 
-impl<Bits: PauliBits, Phase: PhaseExponent> Mul<&mut CliffordUnitary> for &ControlledPauli<Bits, Phase> {
+impl<Bits: PauliBits, Phase: PhaseExponent> Mul<&mut CliffordUnitary>
+    for &ControlledPauli<Bits, Phase>
+{
     type Output = ();
 
     fn mul(self, clifford: &mut CliffordUnitary) -> Self::Output {
@@ -1219,7 +1331,9 @@ impl<Bits: PauliBits, Phase: PhaseExponent> Mul<&mut CliffordUnitary> for &Contr
     }
 }
 
-impl<Bits: PauliBits, _Phase: PhaseExponent> Mul<&mut CliffordUnitary> for &PauliExponent<Bits, _Phase> {
+impl<Bits: PauliBits, _Phase: PhaseExponent> Mul<&mut CliffordUnitary>
+    for &PauliExponent<Bits, _Phase>
+{
     type Output = ();
 
     fn mul(self, clifford: &mut CliffordUnitary) -> Self::Output {
@@ -1260,7 +1374,9 @@ impl Mul<&mut CliffordUnitary> for &Hadamard {
     }
 }
 
-impl<const WORD_COUNT: usize, const QUBIT_COUNT: usize> CliffordModPauliBatch<WORD_COUNT, QUBIT_COUNT> {
+impl<const WORD_COUNT: usize, const QUBIT_COUNT: usize>
+    CliffordModPauliBatch<WORD_COUNT, QUBIT_COUNT>
+{
     #[must_use]
     pub fn num_qubits(&self) -> usize {
         QUBIT_COUNT
@@ -1276,7 +1392,12 @@ impl<const WORD_COUNT: usize, const QUBIT_COUNT: usize> CliffordModPauliBatch<WO
     }
 
     #[must_use]
-    pub fn preimage_bits(&self, qubit_index: usize, axis_index: usize, preimage_index: usize) -> &[u64; WORD_COUNT] {
+    pub fn preimage_bits(
+        &self,
+        qubit_index: usize,
+        axis_index: usize,
+        preimage_index: usize,
+    ) -> &[u64; WORD_COUNT] {
         &self.preimages[2 * preimage_index + axis_index][qubit_index]
     }
 
@@ -1284,7 +1405,8 @@ impl<const WORD_COUNT: usize, const QUBIT_COUNT: usize> CliffordModPauliBatch<WO
         &self,
         pauli: &PauliLike,
     ) -> PauliUnitaryProjective<[u64; WORD_COUNT]> {
-        let mut res = PauliUnitaryProjective::<[u64; WORD_COUNT]>::neutral_element_of_size(self.num_qubits());
+        let mut res =
+            PauliUnitaryProjective::<[u64; WORD_COUNT]>::neutral_element_of_size(self.num_qubits());
         super::generic_algos::mul_assign_right_clifford_preimage(&mut res, self, pauli);
         res
     }
@@ -1296,7 +1418,9 @@ impl<const WORD_COUNT: usize, const QUBIT_COUNT: usize> CliffordModPauliBatch<WO
     }
 }
 
-impl<const WORD_COUNT: usize, const QUBIT_COUNT: usize> Default for CliffordModPauliBatch<WORD_COUNT, QUBIT_COUNT> {
+impl<const WORD_COUNT: usize, const QUBIT_COUNT: usize> Default
+    for CliffordModPauliBatch<WORD_COUNT, QUBIT_COUNT>
+{
     fn default() -> Self {
         Self {
             preimages: [[[0u64; WORD_COUNT]; QUBIT_COUNT]; 4],
@@ -1311,10 +1435,18 @@ unsafe fn get_pair_mut_unsafe<T>(v: &mut [T; 4], i: usize) -> (&mut T, &mut T) {
 
 unsafe fn get_quad_mut_unsafe<T>(v: &mut [T; 4]) -> (&mut T, &mut T, &mut T, &mut T) {
     let ptr = v as *mut [T; 4];
-    (&mut (*ptr)[0], &mut (*ptr)[1], &mut (*ptr)[2], &mut (*ptr)[3])
+    (
+        &mut (*ptr)[0],
+        &mut (*ptr)[1],
+        &mut (*ptr)[2],
+        &mut (*ptr)[3],
+    )
 }
 
-unsafe fn get_tuple_mut_unsafe<T, const SIZE: usize>(v: &mut [T; SIZE], i: (usize, usize)) -> (&mut T, &mut T) {
+unsafe fn get_tuple_mut_unsafe<T, const SIZE: usize>(
+    v: &mut [T; SIZE],
+    i: (usize, usize),
+) -> (&mut T, &mut T) {
     let ptr = v as *mut [T; SIZE];
     (&mut (*ptr)[i.0], &mut (*ptr)[i.1])
 }
@@ -1338,7 +1470,10 @@ impl<const WORD_COUNT: usize, const QUBIT_COUNT: usize> MutablePreImages
         }
     }
 
-    fn preimage_xz_views_mut(&mut self, index: usize) -> (Self::PreImageViewMut<'_>, Self::PreImageViewMut<'_>) {
+    fn preimage_xz_views_mut(
+        &mut self,
+        index: usize,
+    ) -> (Self::PreImageViewMut<'_>, Self::PreImageViewMut<'_>) {
         unsafe {
             let (xx, xz, zx, zz) = get_quad_mut_unsafe(&mut self.preimages);
             (
@@ -1349,7 +1484,10 @@ impl<const WORD_COUNT: usize, const QUBIT_COUNT: usize> MutablePreImages
     }
 
     #[allow(clippy::similar_names)]
-    fn preimage_xz_views_mut_distinct(&mut self, index: (usize, usize)) -> crate::Tuple2x2<Self::PreImageViewMut<'_>> {
+    fn preimage_xz_views_mut_distinct(
+        &mut self,
+        index: (usize, usize),
+    ) -> crate::Tuple2x2<Self::PreImageViewMut<'_>> {
         debug_assert!(index.0 != index.1);
         unsafe {
             let (xx, xz, zx, zz) = get_quad_mut_unsafe(&mut self.preimages);
@@ -1448,14 +1586,18 @@ impl<const WORD_COUNT: usize, const QUBIT_COUNT: usize> CliffordMutable
             PauliUnitaryProjective<[u64; WORD_COUNT]>,
         )>::with_capacity(support.len());
         for elt_index in 0..support.len() {
-            let px_on_support = sparse_projective_pauli_on_support(&clifford.preimage_x_view(elt_index), support);
-            let pz_on_support = sparse_projective_pauli_on_support(&clifford.preimage_z_view(elt_index), support);
+            let px_on_support =
+                sparse_projective_pauli_on_support(&clifford.preimage_x_view(elt_index), support);
+            let pz_on_support =
+                sparse_projective_pauli_on_support(&clifford.preimage_z_view(elt_index), support);
             new_preimages.push((self.preimage(&px_on_support), self.preimage(&pz_on_support)));
         }
 
         for (elt_index, elt) in enumerate(support) {
-            self.preimage_x_view_mut(*elt).assign(&new_preimages[elt_index].0);
-            self.preimage_z_view_mut(*elt).assign(&new_preimages[elt_index].1);
+            self.preimage_x_view_mut(*elt)
+                .assign(&new_preimages[elt_index].0);
+            self.preimage_z_view_mut(*elt)
+                .assign(&new_preimages[elt_index].1);
         }
     }
 
@@ -1503,7 +1645,11 @@ trait CliffordBitBlocks {
         image: XOrZ,
         iter: impl ExactSizeIterator<Item = usize>,
     ) -> impl ExactSizeIterator<Item = Self::Column<'_>>;
-    fn block_mut(&mut self, bits: XOrZ, image: XOrZ) -> impl ExactSizeIterator<Item = Self::ColumnMutable<'_>>;
+    fn block_mut(
+        &mut self,
+        bits: XOrZ,
+        image: XOrZ,
+    ) -> impl ExactSizeIterator<Item = Self::ColumnMutable<'_>>;
     // fn block_restriction_mut(
     //     &mut self,
     //     bits: XOrZ,
@@ -1514,7 +1660,11 @@ trait CliffordBitBlocks {
 
 macro_rules! clifford_bit_blocks_common {
     () => {
-        fn block(&self, bits: XOrZ, image: XOrZ) -> impl ExactSizeIterator<Item = Self::Column<'_>> {
+        fn block(
+            &self,
+            bits: XOrZ,
+            image: XOrZ,
+        ) -> impl ExactSizeIterator<Item = Self::Column<'_>> {
             self.bits
                 .row_iterator(image_block_range(self.num_qubits(), bits, image))
         }
@@ -1529,7 +1679,11 @@ macro_rules! clifford_bit_blocks_common {
                 .row_iterator(image_block_iterator(self.num_qubits(), bits, image, iter))
         }
 
-        fn block_mut(&mut self, bits: XOrZ, image: XOrZ) -> impl ExactSizeIterator<Item = Self::ColumnMutable<'_>> {
+        fn block_mut(
+            &mut self,
+            bits: XOrZ,
+            image: XOrZ,
+        ) -> impl ExactSizeIterator<Item = Self::ColumnMutable<'_>> {
             self.bits
                 .row_iterator_mut(image_block_range(self.num_qubits(), bits, image))
         }
@@ -1586,17 +1740,25 @@ fn is_css_clifford(clifford: &impl CliffordBitBlocks) -> bool {
 //         & is_zero_padded_symmetric(clifford.block(Z, Z), clifford.num_qubits())
 // }
 
-fn is_z_diagonal_resource_encoder<'life, CliffordLike>(clifford: &'life CliffordLike) -> Option<BitMatrix>
+fn is_z_diagonal_resource_encoder<'life, CliffordLike>(
+    clifford: &'life CliffordLike,
+) -> Option<BitMatrix>
 where
     CliffordLike: CliffordBitBlocks<Column<'life> = BitView<'life, WORD_COUNT_DEFAULT>> + Clifford,
 {
     use XOrZ::{X, Z};
     let qubit_count = clifford.num_qubits();
-    let chain = clifford.block(X, Z).chain(clifford.block(Z, Z)).collect_vec();
+    let chain = clifford
+        .block(X, Z)
+        .chain(clifford.block(Z, Z))
+        .collect_vec();
     is_reduced_symmetric(qubit_count, chain)
 }
 
-fn is_reduced_symmetric(qubit_count: usize, chain: Vec<BitView<'_, WORD_COUNT_DEFAULT>>) -> Option<BitMatrix> {
+fn is_reduced_symmetric(
+    qubit_count: usize,
+    chain: Vec<BitView<'_, WORD_COUNT_DEFAULT>>,
+) -> Option<BitMatrix> {
     let mut matrix = BitMatrix::from_row_iter(chain.into_iter(), qubit_count).transposed();
     matrix.echelonize();
     let transposed_rref = matrix.transposed();
@@ -1620,13 +1782,18 @@ fn split_blocks(
     (top_block, bottom_block)
 }
 
-fn is_x_diagonal_resource_encoder<'life, CliffordLike>(clifford: &'life CliffordLike) -> Option<BitMatrix>
+fn is_x_diagonal_resource_encoder<'life, CliffordLike>(
+    clifford: &'life CliffordLike,
+) -> Option<BitMatrix>
 where
     CliffordLike: CliffordBitBlocks<Column<'life> = BitView<'life, WORD_COUNT_DEFAULT>> + Clifford,
 {
     use XOrZ::{X, Z};
     let qubit_count = clifford.num_qubits();
-    let chain = clifford.block(Z, Z).chain(clifford.block(X, Z)).collect_vec();
+    let chain = clifford
+        .block(Z, Z)
+        .chain(clifford.block(X, Z))
+        .collect_vec();
     is_reduced_symmetric(qubit_count, chain)
 }
 
@@ -1639,9 +1806,13 @@ where
 //         & is_zero_padded_symmetric(clifford.block(X, Z), clifford.num_qubits())
 // }
 
-fn blocks_from_diagonal_resource_state<CliffordLike>(encoder: &CliffordLike, axis: XOrZ) -> Option<CliffordLike>
+fn blocks_from_diagonal_resource_state<CliffordLike>(
+    encoder: &CliffordLike,
+    axis: XOrZ,
+) -> Option<CliffordLike>
 where
-    for<'life1> CliffordLike: CliffordBitBlocks<Column<'life1> = BitView<'life1, 8>> + Clifford + 'life1,
+    for<'life1> CliffordLike:
+        CliffordBitBlocks<Column<'life1> = BitView<'life1, 8>> + Clifford + 'life1,
     for<'life1, 'life2> <CliffordLike as CliffordBitBlocks>::ColumnMutable<'life1>:
         BitwiseBinaryOps<<CliffordLike as CliffordBitBlocks>::Column<'life2>>,
 {
@@ -1678,15 +1849,23 @@ pub fn split_clifford_mod_pauli_with_transforms(
     clifford: &CliffordUnitaryModPauli,
     support: &[usize],
     support_complement: &[usize],
-) -> Option<(CliffordUnitaryModPauli, CliffordUnitaryModPauli, BitMatrix, BitMatrix)> {
+) -> Option<(
+    CliffordUnitaryModPauli,
+    CliffordUnitaryModPauli,
+    BitMatrix,
+    BitMatrix,
+)> {
     use XOrZ::{X, Z};
 
     let qubit_count = clifford.num_qubits();
-    let restriction_transform =
-        support_restricted_z_images_from_support_complement::<CliffordUnitaryModPauli>(clifford, support_complement);
-    let restriction_transform_complement =
-        support_restricted_z_images_from_support_complement::<CliffordUnitaryModPauli>(clifford, support);
-    if restriction_transform.rowcount() + restriction_transform_complement.rowcount() != qubit_count {
+    let restriction_transform = support_restricted_z_images_from_support_complement::<
+        CliffordUnitaryModPauli,
+    >(clifford, support_complement);
+    let restriction_transform_complement = support_restricted_z_images_from_support_complement::<
+        CliffordUnitaryModPauli,
+    >(clifford, support);
+    if restriction_transform.rowcount() + restriction_transform_complement.rowcount() != qubit_count
+    {
         return None;
     }
     let stacked_rows = restriction_transform
@@ -1695,8 +1874,10 @@ pub fn split_clifford_mod_pauli_with_transforms(
         .collect_vec();
     let stacked = BitMatrix::from_row_iter(stacked_rows.into_iter(), clifford.num_qubits());
     let stacked_inv_transpose = stacked.inverted().transposed();
-    let split_transform =
-        CliffordUnitaryModPauli::from_css_preimage_indicators(&stacked.transposed(), &stacked.inverted());
+    let split_transform = CliffordUnitaryModPauli::from_css_preimage_indicators(
+        &stacked.transposed(),
+        &stacked.inverted(),
+    );
     let split_clifford = clifford.multiply_with(&split_transform);
 
     let size1 = support.len();
@@ -1705,21 +1886,30 @@ pub fn split_clifford_mod_pauli_with_transforms(
     let mut split_clifford2 = CliffordUnitaryModPauli::zero(size2);
     for image_axis in [X, Z] {
         for bits_axis in [X, Z] {
-            let block_from_1 = split_clifford.block_restriction(bits_axis, image_axis, support.iter().copied());
+            let block_from_1 =
+                split_clifford.block_restriction(bits_axis, image_axis, support.iter().copied());
             let block_to_1 = split_clifford1.block_mut(bits_axis, image_axis);
             for (mut row_to, row_from) in zip(block_to_1, block_from_1) {
                 row_to.assign_from_interval(&row_from, 0, size1);
             }
 
-            let block_from_2 =
-                split_clifford.block_restriction(bits_axis, image_axis, support_complement.iter().copied());
+            let block_from_2 = split_clifford.block_restriction(
+                bits_axis,
+                image_axis,
+                support_complement.iter().copied(),
+            );
             let block_to_2 = split_clifford2.block_mut(bits_axis, image_axis);
             for (mut row_to, row_from) in zip(block_to_2, block_from_2) {
                 row_to.assign_from_interval(&row_from, size1, size2);
             }
         }
     }
-    Some((split_clifford1, split_clifford2, stacked, stacked_inv_transpose))
+    Some((
+        split_clifford1,
+        split_clifford2,
+        stacked,
+        stacked_inv_transpose,
+    ))
 }
 
 #[must_use]
@@ -1759,16 +1949,27 @@ pub fn split_clifford_encoder(
     tensor_product_encoder: &CliffordUnitary,
 ) -> Option<(CliffordUnitary, CliffordUnitary)> {
     let first_part_qubits = (0..first_part_qubit_count).collect_vec();
-    let second_part_qubits = (first_part_qubit_count..tensor_product_encoder.num_qubits()).collect_vec();
-    if let Some((first_part_encoder_mod_pauli, second_part_encoder_mod_pauli)) = split_clifford_encoder_mod_pauli(
-        &tensor_product_encoder.clone().into(),
-        &first_part_qubits,
-        &second_part_qubits,
-    ) {
+    let second_part_qubits =
+        (first_part_qubit_count..tensor_product_encoder.num_qubits()).collect_vec();
+    if let Some((first_part_encoder_mod_pauli, second_part_encoder_mod_pauli)) =
+        split_clifford_encoder_mod_pauli(
+            &tensor_product_encoder.clone().into(),
+            &first_part_qubits,
+            &second_part_qubits,
+        )
+    {
         let mut first_part_encoder: CliffordUnitary = first_part_encoder_mod_pauli.into();
         let mut second_part_encoder: CliffordUnitary = second_part_encoder_mod_pauli.into();
-        recover_z_images_phases(&mut first_part_encoder, &first_part_qubits, tensor_product_encoder);
-        recover_z_images_phases(&mut second_part_encoder, &second_part_qubits, tensor_product_encoder);
+        recover_z_images_phases(
+            &mut first_part_encoder,
+            &first_part_qubits,
+            tensor_product_encoder,
+        );
+        recover_z_images_phases(
+            &mut second_part_encoder,
+            &second_part_qubits,
+            tensor_product_encoder,
+        );
         Some((first_part_encoder, second_part_encoder))
     } else {
         None
@@ -1912,7 +2113,11 @@ pub fn dense_restriction_of(
     {
         x_bits.assign_index(index, true);
     }
-    for index in pauli.z_bits().support().intersection(support.assume_sorted_by_item()) {
+    for index in pauli
+        .z_bits()
+        .support()
+        .intersection(support.assume_sorted_by_item())
+    {
         z_bits.assign_index(index, true);
     }
     DensePauli::from_bits(x_bits, z_bits, pauli.xz_phase_exponent())
@@ -1967,7 +2172,11 @@ where
             panic!("Group generators are not independent")
         }
     }
-    let new_order = pivots.iter().chain(current_support.iter()).copied().collect_vec();
+    let new_order = pivots
+        .iter()
+        .chain(current_support.iter())
+        .copied()
+        .collect_vec();
     result.left_mul_permutation(&new_order, &(0..qubit_count).collect_vec());
     result.inverse()
 }
@@ -1982,8 +2191,11 @@ impl PartialEq for CliffordUnitaryModPauli {
 
 impl PartialEq for CliffordUnitary {
     fn eq(&self, other: &Self) -> bool {
-        zip(&self.preimage_phase_exponents, &other.preimage_phase_exponents)
-            .all(|(x, y)| <u8 as PhaseExponent>::raw_eq(*x, *y))
+        zip(
+            &self.preimage_phase_exponents,
+            &other.preimage_phase_exponents,
+        )
+        .all(|(x, y)| <u8 as PhaseExponent>::raw_eq(*x, *y))
             && (self.bits == other.bits)
     }
 }

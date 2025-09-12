@@ -1,7 +1,7 @@
 #[cfg(target_os = "linux")]
 mod bench {
     #![allow(clippy::unit_arg)]
-    
+
     use iai_callgrind::{library_benchmark, library_benchmark_group};
     use stabilizer_simulator::{Simulator, operation::*};
     use std::hint::black_box;
@@ -10,13 +10,13 @@ mod bench {
         let simulator = Simulator::new(NUM_QUBITS, Default::default());
         (simulator, gates)
     }
-    
+
     fn teardown(_: (Simulator, Vec<Operation>)) {}
-    
+
     fn run_simulation(simulator: &mut Simulator, gates: &[Operation]) {
         simulator.apply_gates(gates);
     }
-    
+
     #[library_benchmark]
     #[benches::with_setup(
         args = [
@@ -37,12 +37,11 @@ mod bench {
         black_box(run_simulation(&mut simulator, &gates));
         (simulator, gates)
     }
-    
+
     library_benchmark_group!(
         name = bench_gates;
         benchmarks = gates
     );
-    
 }
 
 #[cfg(target_os = "linux")]

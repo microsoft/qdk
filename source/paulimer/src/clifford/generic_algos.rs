@@ -36,20 +36,29 @@ pub fn mul_assign_right_clifford_preimage_z_bits<'life, Target, PreImageUnder: P
     }
 }
 
-pub fn mul_assign_right_clifford_preimage<'life, Target, PreImageUnder: PreimageViews, PreImageOf: Pauli>(
+pub fn mul_assign_right_clifford_preimage<
+    'life,
+    Target,
+    PreImageUnder: PreimageViews,
+    PreImageOf: Pauli,
+>(
     target: &mut Target,
     clifford: &'life PreImageUnder,
     pauli: &PreImageOf,
 ) where
-    Target:
-        PauliBinaryOps<PreImageUnder::PreImageView<'life>> + Pauli<PhaseExponentValue = PreImageOf::PhaseExponentValue>,
+    Target: PauliBinaryOps<PreImageUnder::PreImageView<'life>>
+        + Pauli<PhaseExponentValue = PreImageOf::PhaseExponentValue>,
 {
     mul_assign_right_clifford_preimage_x_bits(target, clifford, pauli.x_bits());
     mul_assign_right_clifford_preimage_z_bits(target, clifford, pauli.z_bits());
     target.mul_assign_phase_from(pauli);
 }
 
-pub fn mul_assign_right_clifford_image_x_bits_up_to_phase<'life, Target, ImageUnder: Clifford + PreimageViews>(
+pub fn mul_assign_right_clifford_image_x_bits_up_to_phase<
+    'life,
+    Target,
+    ImageUnder: Clifford + PreimageViews,
+>(
     target: &mut Target,
     clifford: &'life ImageUnder,
     bits: &impl Bitwise,
@@ -61,7 +70,11 @@ pub fn mul_assign_right_clifford_image_x_bits_up_to_phase<'life, Target, ImageUn
     }
 }
 
-pub fn mul_assign_right_clifford_image_z_bits_up_to_phase<'life, Target, ImageUnder: Clifford + PreimageViews>(
+pub fn mul_assign_right_clifford_image_z_bits_up_to_phase<
+    'life,
+    Target,
+    ImageUnder: Clifford + PreimageViews,
+>(
     target: &mut Target,
     clifford: &'life ImageUnder,
     bits: &impl Bitwise,
@@ -106,7 +119,9 @@ pub fn is_valid_clifford<CliffordLike: Clifford + PreimageViews>(candidate: &Cli
             let zx = anti_commutes_with(&z_preimage, &other_x_preimage);
             let zz = anti_commutes_with(&z_preimage, &other_z_preimage);
             if xx || xz || zx || zz {
-                println!("anti_commutes_with failed for:{index}, {other_index}, {xx} {xz} {zx} {zz}");
+                println!(
+                    "anti_commutes_with failed for:{index}, {other_index}, {xx} {xz} {zx} {zz}"
+                );
                 return false;
             }
         }
@@ -114,14 +129,24 @@ pub fn is_valid_clifford<CliffordLike: Clifford + PreimageViews>(candidate: &Cli
     true
 }
 
-pub fn clifford_left_mul_eq_cnot(clifford: &mut impl MutablePreImages, control_id: usize, target_id: usize) {
-    let ((mut xc, zc), (xt, mut zt)) = clifford.preimage_xz_views_mut_distinct((control_id, target_id));
+pub fn clifford_left_mul_eq_cnot(
+    clifford: &mut impl MutablePreImages,
+    control_id: usize,
+    target_id: usize,
+) {
+    let ((mut xc, zc), (xt, mut zt)) =
+        clifford.preimage_xz_views_mut_distinct((control_id, target_id));
     xc.mul_assign_left(&xt);
     zt.mul_assign_left(&zc);
 }
 
-pub fn clifford_left_mul_eq_cz(clifford: &mut impl MutablePreImages, control_id: usize, target_id: usize) {
-    let ((mut xc, zc), (mut xt, zt)) = clifford.preimage_xz_views_mut_distinct((control_id, target_id));
+pub fn clifford_left_mul_eq_cz(
+    clifford: &mut impl MutablePreImages,
+    control_id: usize,
+    target_id: usize,
+) {
+    let ((mut xc, zc), (mut xt, zt)) =
+        clifford.preimage_xz_views_mut_distinct((control_id, target_id));
     xc.mul_assign_left(&zt);
     xt.mul_assign_left(&zc);
 }
@@ -254,14 +279,20 @@ where
 
 /// Each row of result a is such that image of Z^a is supported on `supported_on_qubits`.
 /// The result has full row rank; the rank is maximal possible.
-pub fn support_restricted_z_images<CliffordLike>(clifford: &CliffordLike, sorted_support: &[usize]) -> BitMatrix
+pub fn support_restricted_z_images<CliffordLike>(
+    clifford: &CliffordLike,
+    sorted_support: &[usize],
+) -> BitMatrix
 where
     CliffordLike: Clifford + PreimageViews,
     for<'a> MutableRow<'a>: BitwiseBinaryOps<<CliffordLike::PreImageView<'a> as Pauli>::Bits>,
 {
     let num_qubits = clifford.num_qubits();
     let support_complement = complement(sorted_support, num_qubits);
-    support_restricted_z_images_from_support_complement::<CliffordLike>(clifford, &support_complement)
+    support_restricted_z_images_from_support_complement::<CliffordLike>(
+        clifford,
+        &support_complement,
+    )
 }
 
 pub fn clifford_left_mul_eq_prepare_bell<CliffordLike>(
@@ -318,7 +349,9 @@ where
     result
 }
 
-pub fn clifford_is_identity<CliffordLike: Clifford + PreimageViews>(clifford: &CliffordLike) -> bool {
+pub fn clifford_is_identity<CliffordLike: Clifford + PreimageViews>(
+    clifford: &CliffordLike,
+) -> bool {
     for qubit_id in 0..clifford.num_qubits() {
         if !clifford.preimage_x_view(qubit_id).is_pauli_x(qubit_id) {
             return false;
@@ -333,10 +366,13 @@ pub fn clifford_is_identity<CliffordLike: Clifford + PreimageViews>(clifford: &C
 /// # Panics
 ///
 /// Will panic if preimages do not correspond to a Clifford unitary
-pub fn clifford_from_preimages<'life, Paulis, PauliLike: Pauli + 'life, CliffordLike>(preimages: Paulis) -> CliffordLike
+pub fn clifford_from_preimages<'life, Paulis, PauliLike: Pauli + 'life, CliffordLike>(
+    preimages: Paulis,
+) -> CliffordLike
 where
     CliffordLike: Clifford + MutablePreImages + PreimageViews,
-    for<'life1> <CliffordLike as MutablePreImages>::PreImageViewMut<'life1>: PauliBinaryOps<PauliLike>,
+    for<'life1> <CliffordLike as MutablePreImages>::PreImageViewMut<'life1>:
+        PauliBinaryOps<PauliLike>,
     Paulis: ExactSizeIterator<Item = &'life PauliLike>,
 {
     let preimages_iter = preimages.into_iter();
@@ -351,10 +387,13 @@ where
     res
 }
 
-pub fn clifford_from_images<'life, Paulis, PauliLike: Pauli + 'life, CliffordLike>(images: Paulis) -> CliffordLike
+pub fn clifford_from_images<'life, Paulis, PauliLike: Pauli + 'life, CliffordLike>(
+    images: Paulis,
+) -> CliffordLike
 where
     CliffordLike: Clifford + MutablePreImages + PreimageViews,
-    for<'life1> <CliffordLike as MutablePreImages>::PreImageViewMut<'life1>: PauliBinaryOps<PauliLike>,
+    for<'life1> <CliffordLike as MutablePreImages>::PreImageViewMut<'life1>:
+        PauliBinaryOps<PauliLike>,
     Paulis: ExactSizeIterator<Item = &'life PauliLike>,
 {
     clifford_from_preimages::<Paulis, PauliLike, CliffordLike>(images).inverse()
@@ -398,10 +437,14 @@ pub fn clifford_left_mul_eq_pauli_exp<
     mul_assign_right_clifford_preimage(&mut pauli_preimage, clifford, pauli);
     pauli_preimage.add_assign_phase_exp(1u8);
     for index in pauli.x_bits().support() {
-        clifford.preimage_z_view_mut(index).mul_assign_right(&pauli_preimage);
+        clifford
+            .preimage_z_view_mut(index)
+            .mul_assign_right(&pauli_preimage);
     }
     for index in pauli.z_bits().support() {
-        clifford.preimage_x_view_mut(index).mul_assign_right(&pauli_preimage);
+        clifford
+            .preimage_x_view_mut(index)
+            .mul_assign_right(&pauli_preimage);
     }
 }
 
@@ -423,16 +466,24 @@ pub fn clifford_left_mul_eq_controlled_pauli<CliffordLike: PreimageViews + Mutab
     mul_assign_right_clifford_preimage(&mut target_preimage, clifford, target);
     mul_assign_right_clifford_preimage(&mut control_preimage, clifford, control);
     for index in control.x_bits().support() {
-        clifford.preimage_z_view_mut(index).mul_assign_right(&target_preimage);
+        clifford
+            .preimage_z_view_mut(index)
+            .mul_assign_right(&target_preimage);
     }
     for index in control.z_bits().support() {
-        clifford.preimage_x_view_mut(index).mul_assign_right(&target_preimage);
+        clifford
+            .preimage_x_view_mut(index)
+            .mul_assign_right(&target_preimage);
     }
     for index in target.x_bits().support() {
-        clifford.preimage_z_view_mut(index).mul_assign_left(&control_preimage);
+        clifford
+            .preimage_z_view_mut(index)
+            .mul_assign_left(&control_preimage);
     }
     for index in target.z_bits().support() {
-        clifford.preimage_x_view_mut(index).mul_assign_left(&control_preimage);
+        clifford
+            .preimage_x_view_mut(index)
+            .mul_assign_left(&control_preimage);
     }
 }
 
@@ -470,20 +521,32 @@ where
     let num_output_qubits = lhs_num_qubits + rhs_num_qubits;
     let mut result = CliffordLike::zero(num_output_qubits);
     for qubit_id in 0..lhs_num_qubits {
-        result
-            .preimage_x_view_mut(qubit_id)
-            .assign_with_offset(&left.preimage_x_view(qubit_id), 0, lhs_num_qubits);
-        result
-            .preimage_z_view_mut(qubit_id)
-            .assign_with_offset(&left.preimage_z_view(qubit_id), 0, lhs_num_qubits);
+        result.preimage_x_view_mut(qubit_id).assign_with_offset(
+            &left.preimage_x_view(qubit_id),
+            0,
+            lhs_num_qubits,
+        );
+        result.preimage_z_view_mut(qubit_id).assign_with_offset(
+            &left.preimage_z_view(qubit_id),
+            0,
+            lhs_num_qubits,
+        );
     }
     for qubit_id in 0..rhs_num_qubits {
         result
             .preimage_x_view_mut(lhs_num_qubits + qubit_id)
-            .assign_with_offset(&right.preimage_x_view(qubit_id), lhs_num_qubits, rhs_num_qubits);
+            .assign_with_offset(
+                &right.preimage_x_view(qubit_id),
+                lhs_num_qubits,
+                rhs_num_qubits,
+            );
         result
             .preimage_z_view_mut(lhs_num_qubits + qubit_id)
-            .assign_with_offset(&right.preimage_z_view(qubit_id), lhs_num_qubits, rhs_num_qubits);
+            .assign_with_offset(
+                &right.preimage_z_view(qubit_id),
+                lhs_num_qubits,
+                rhs_num_qubits,
+            );
     }
     debug_assert!(result.is_valid());
     result

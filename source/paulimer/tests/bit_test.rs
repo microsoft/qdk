@@ -1,6 +1,9 @@
 use itertools::Itertools;
 use paulimer::{
-    bits::{bitblock::BitBlock, BitVec, Bitwise, BitwiseBinaryOps, BitwiseNeutralElement, IndexAssignable, IndexSet},
+    bits::{
+        bitblock::BitBlock, BitVec, Bitwise, BitwiseBinaryOps, BitwiseNeutralElement,
+        IndexAssignable, IndexSet,
+    },
     NeutralElement,
 };
 use std::any::type_name;
@@ -8,7 +11,10 @@ use std::any::type_name;
 /// # Panics
 ///
 /// Will panic
-pub fn test_one_bit_index<T: IndexAssignable + Bitwise + BitwiseNeutralElement>(mut bits: T, index: usize) -> T {
+pub fn test_one_bit_index<T: IndexAssignable + Bitwise + BitwiseNeutralElement>(
+    mut bits: T,
+    index: usize,
+) -> T {
     bits.clear_bits();
     assert!(bits.is_zero());
     bits.assign_index(index, true);

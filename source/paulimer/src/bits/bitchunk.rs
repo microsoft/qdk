@@ -10,7 +10,8 @@ impl<const CHUNK_SIZE: usize> Default for BitChunkAccessor<CHUNK_SIZE> {
     /// When `CHUNK_SIZE` does not fit into u32
     fn default() -> Self {
         Self {
-            threshold: (u64::BITS / u32::try_from(CHUNK_SIZE).unwrap() - 1) * u32::try_from(CHUNK_SIZE).unwrap(),
+            threshold: (u64::BITS / u32::try_from(CHUNK_SIZE).unwrap() - 1)
+                * u32::try_from(CHUNK_SIZE).unwrap(),
             shift: 0,
             word_id: 0,
             mask: u64::MAX >> (u64::BITS - u32::try_from(CHUNK_SIZE).unwrap()),

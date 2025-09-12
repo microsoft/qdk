@@ -8,8 +8,9 @@ pub mod operation;
 use noise_config::{CumulativeNoiseConfig, NoiseConfig};
 use operation::Operation;
 use paulimer::{
-    outcome_specific_simulation::{apply_hadamard, OutcomeSpecificSimulation},
-    quantum_core, Simulation, UnitaryOp,
+    Simulation, UnitaryOp,
+    outcome_specific_simulation::{OutcomeSpecificSimulation, apply_hadamard},
+    quantum_core,
 };
 use std::fmt::Write;
 

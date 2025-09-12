@@ -11,14 +11,15 @@ type CliffordUnitary = paulimer::clifford::CliffordUnitary;
 type CliffordUnitaryModPauli = paulimer::clifford::CliffordUnitaryModPauli;
 
 use paulimer::pauli::{
-    anti_commutes_with, apply_pauli_exponent, apply_root_x, apply_root_y, apply_root_z, pauli_random,
-    pauli_random_order_two, DensePauli, DensePauliProjective, PauliMutable, SparsePauliProjective,
+    anti_commutes_with, apply_pauli_exponent, apply_root_x, apply_root_y, apply_root_z,
+    pauli_random, pauli_random_order_two, DensePauli, DensePauliProjective, PauliMutable,
+    SparsePauliProjective,
 };
 use paulimer::pauli::{commutes_with, Pauli, PauliBinaryOps, PauliUnitary, Phase, SparsePauli};
 
 use paulimer::operations::{css_operations, diagonal_operations};
-use proptest::prelude::*;
 use paulimer::quantum_core::{x, y, z, PositionedPauliObservable};
+use proptest::prelude::*;
 use rand::prelude::*;
 use std::borrow::Borrow;
 use std::ops::Range;
@@ -497,10 +498,9 @@ fn arbitrary_clifford_of_dimension(dimension: usize) -> CliffordUnitary {
 
 fn arbitrary_css_clifford_of_dimension(dimension: usize) -> CliffordUnitary {
     let mut clifford: CliffordUnitary = random_css_clifford(dimension);
-    let pauli = pauli_random_order_two::<<paulimer::clifford::CliffordUnitary as Clifford>::DensePauli>(
-        clifford.num_qubits(),
-        &mut thread_rng(),
-    );
+    let pauli = pauli_random_order_two::<
+        <paulimer::clifford::CliffordUnitary as Clifford>::DensePauli,
+    >(clifford.num_qubits(), &mut thread_rng());
     clifford.left_mul_pauli(&pauli);
     clifford
 }
@@ -516,10 +516,9 @@ fn arbitrary_qubit_cliffords_of_dimension(dimension: usize) -> CliffordUnitary {
 
 fn arbitrary_diagonal_clifford_of_dimension(dimension: usize) -> CliffordUnitary {
     let mut clifford: CliffordUnitary = random_diagonal_clifford(dimension);
-    let pauli = pauli_random_order_two::<<paulimer::clifford::CliffordUnitary as Clifford>::DensePauli>(
-        clifford.num_qubits(),
-        &mut thread_rng(),
-    );
+    let pauli = pauli_random_order_two::<
+        <paulimer::clifford::CliffordUnitary as Clifford>::DensePauli,
+    >(clifford.num_qubits(), &mut thread_rng());
     clifford.left_mul_pauli(&pauli);
     clifford
 }
@@ -565,8 +564,18 @@ macro_rules! generic_qubit_unitary_test_macro {
     ($func:ident, $image_func:expr) => {
         for num_qubits in 0..6 {
             for qubit_index in 0..num_qubits {
-                generic_qubit_unitary_test(num_qubits, qubit_index, CliffordUnitary::$func, $image_func);
-                generic_qubit_unitary_test(num_qubits, qubit_index, CliffordUnitaryModPauli::$func, $image_func);
+                generic_qubit_unitary_test(
+                    num_qubits,
+                    qubit_index,
+                    CliffordUnitary::$func,
+                    $image_func,
+                );
+                generic_qubit_unitary_test(
+                    num_qubits,
+                    qubit_index,
+                    CliffordUnitaryModPauli::$func,
+                    $image_func,
+                );
             }
         }
     };
@@ -649,7 +658,10 @@ fn prepare_bell_test() {
     generic_two_qubit_unitary_test_macro!(left_mul_prepare_bell, prepare_bell_images);
 }
 
-type ImageTable = Vec<(Vec<PositionedPauliObservable>, Vec<PositionedPauliObservable>)>;
+type ImageTable = Vec<(
+    Vec<PositionedPauliObservable>,
+    Vec<PositionedPauliObservable>,
+)>;
 
 fn cx_images(c: usize, t: usize) -> ImageTable {
     vec![
@@ -934,7 +946,9 @@ fn assert_preimages_consistent<CliffordLike: TestableClifford>(clifford: &Cliffo
     }
 }
 
-fn assert_inverse_and_multiply_are_consistent<CliffordLike: TestableClifford>(clifford: &CliffordLike) {
+fn assert_inverse_and_multiply_are_consistent<CliffordLike: TestableClifford>(
+    clifford: &CliffordLike,
+) {
     let inv = clifford.inverse();
     assert!(inv.multiply_with(clifford).is_identity());
     assert!(clifford.multiply_with(&inv).is_identity());
@@ -1054,14 +1068,18 @@ fn generic_clifford_identities_test<CliffordLike: TestableClifford>() {
     root_xyz_identities::<CliffordLike>();
 }
 
-fn controlled_pauli_via_pauli_exp_test(control: &[PositionedPauliObservable], target: &[PositionedPauliObservable]) {
+fn controlled_pauli_via_pauli_exp_test(
+    control: &[PositionedPauliObservable],
+    target: &[PositionedPauliObservable],
+) {
     let mut control_sparse: SparsePauli = control.into();
     let mut target_sparse: SparsePauli = target.into();
 
     let mut p1p2 = control_sparse.clone();
     p1p2.mul_assign_right(&target_sparse);
 
-    let num_qubits = std::cmp::max(control_sparse.max_qubit_id(), target_sparse.max_qubit_id()).unwrap() + 1;
+    let num_qubits =
+        std::cmp::max(control_sparse.max_qubit_id(), target_sparse.max_qubit_id()).unwrap() + 1;
     let mut clifford1 = CliffordUnitary::identity(num_qubits);
     let mut clifford2 = CliffordUnitary::identity(num_qubits);
     clifford1.left_mul_controlled_pauli(&control_sparse, &target_sparse);
@@ -1083,7 +1101,10 @@ fn clifford_identities_test() {
     generic_clifford_identities_test::<CliffordUnitary>();
 }
 
-fn generic_random_tensor_test<CliffordLike: TestableClifford>(num_qubits1: usize, num_qubits2: usize) {
+fn generic_random_tensor_test<CliffordLike: TestableClifford>(
+    num_qubits1: usize,
+    num_qubits2: usize,
+) {
     let id1 = CliffordLike::identity(num_qubits1);
     let id2 = CliffordLike::identity(num_qubits2);
     let r1 = CliffordLike::random(num_qubits1, &mut thread_rng());

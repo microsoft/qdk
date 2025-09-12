@@ -4,7 +4,10 @@ use std::borrow::Borrow;
 
 #[must_use]
 pub fn union(v1: &[usize], v2: &[usize]) -> Vec<usize> {
-    as_sorted_iter(v1).union(as_sorted_iter(v2)).copied().collect()
+    as_sorted_iter(v1)
+        .union(as_sorted_iter(v2))
+        .copied()
+        .collect()
 }
 
 #[must_use]
@@ -14,7 +17,10 @@ pub fn is_subset(subset: &[usize], superset: &[usize]) -> bool {
 
 #[must_use]
 pub fn intersection(v1: &[usize], v2: &[usize]) -> Vec<usize> {
-    as_sorted_iter(v1).intersection(as_sorted_iter(v2)).copied().collect()
+    as_sorted_iter(v1)
+        .intersection(as_sorted_iter(v2))
+        .copied()
+        .collect()
 }
 
 #[must_use]
@@ -71,8 +77,14 @@ where
 
 #[test]
 fn union_test() {
-    assert_eq!(union(&[1, 2, 3, 6], &[3, 4, 5, 10]), vec![1, 2, 3, 4, 5, 6, 10]);
-    assert_eq!(union(&[1, 2, 3, 6], &[2, 3, 4, 5, 10]), vec![1, 2, 3, 4, 5, 6, 10]);
+    assert_eq!(
+        union(&[1, 2, 3, 6], &[3, 4, 5, 10]),
+        vec![1, 2, 3, 4, 5, 6, 10]
+    );
+    assert_eq!(
+        union(&[1, 2, 3, 6], &[2, 3, 4, 5, 10]),
+        vec![1, 2, 3, 4, 5, 6, 10]
+    );
 }
 
 #[test]

@@ -1,5 +1,7 @@
 use crate::bits::bitblock::{BitAccessor, BitBlock};
-use crate::bits::{BitVec, BitView, Bitwise, BitwiseBinaryOps, Dot, IndexAssignable, MutableBitView};
+use crate::bits::{
+    BitVec, BitView, Bitwise, BitwiseBinaryOps, Dot, IndexAssignable, MutableBitView,
+};
 use crate::NeutralElement;
 // use bit_vec::BitVec;
 use itertools::enumerate;
@@ -34,7 +36,8 @@ impl<const WORD_COUNT: usize> Hash for BitMatrix<WORD_COUNT> {
 unsafe impl Sync for BitMatrix {}
 
 pub type Row<'life, const WORD_COUNT: usize = WORD_COUNT_DEFAULT> = BitView<'life, WORD_COUNT>; // should we use View in the name to indicate that it is a view and not a copy of a row ?
-pub type MutableRow<'life, const WORD_COUNT: usize = WORD_COUNT_DEFAULT> = MutableBitView<'life, WORD_COUNT>; // should we use View in the name to indicate that it is a view and not a copy of a row ?
+pub type MutableRow<'life, const WORD_COUNT: usize = WORD_COUNT_DEFAULT> =
+    MutableBitView<'life, WORD_COUNT>; // should we use View in the name to indicate that it is a view and not a copy of a row ?
 
 #[derive(Clone, Debug, Hash)]
 pub struct Column<'life, const WORD_COUNT: usize = WORD_COUNT_DEFAULT> {
@@ -160,9 +163,16 @@ impl<const WORD_COUNT: usize> BitMatrix<WORD_COUNT> {
         rowstride + usize::from(adjustment)
     }
 
-    fn rows_of(blocks: &mut [BitBlock<WORD_COUNT>], rowcount: usize) -> Vec<*mut BitBlock<WORD_COUNT>> {
+    fn rows_of(
+        blocks: &mut [BitBlock<WORD_COUNT>],
+        rowcount: usize,
+    ) -> Vec<*mut BitBlock<WORD_COUNT>> {
         let mut rows = Vec::<*mut BitBlock<WORD_COUNT>>::new();
-        let rowstride = if rowcount == 0 { 0 } else { blocks.len() / rowcount };
+        let rowstride = if rowcount == 0 {
+            0
+        } else {
+            blocks.len() / rowcount
+        };
         if rowstride == 0 {
             rows = vec![blocks.as_mut_ptr(); rowcount];
         } else {
@@ -191,7 +201,9 @@ impl<const WORD_COUNT: usize> BitMatrix<WORD_COUNT> {
     #[must_use]
     pub fn row(&self, index: usize) -> Row<WORD_COUNT> {
         Row::<WORD_COUNT> {
-            blocks: unsafe { std::slice::from_raw_parts((*self.rows[index]).array(), self.block_count()) },
+            blocks: unsafe {
+                std::slice::from_raw_parts((*self.rows[index]).array(), self.block_count())
+            },
         }
     }
 
@@ -230,16 +242,31 @@ impl<const WORD_COUNT: usize> BitMatrix<WORD_COUNT> {
     fn build_mutable_row(&self, index: usize) -> MutableRow<WORD_COUNT> {
         let ptr = self.rows[index];
         MutableRow::<WORD_COUNT> {
-            blocks: unsafe { std::slice::from_raw_parts_mut((*ptr).array_mut(), self.block_count()) },
+            blocks: unsafe {
+                std::slice::from_raw_parts_mut((*ptr).array_mut(), self.block_count())
+            },
         }
     }
 
-    pub fn rows_mut(&mut self, index: usize, index2: usize) -> (MutableRow<WORD_COUNT>, MutableRow<WORD_COUNT>) {
-        (self.build_mutable_row(index), self.build_mutable_row(index2))
+    pub fn rows_mut(
+        &mut self,
+        index: usize,
+        index2: usize,
+    ) -> (MutableRow<WORD_COUNT>, MutableRow<WORD_COUNT>) {
+        (
+            self.build_mutable_row(index),
+            self.build_mutable_row(index2),
+        )
     }
 
-    pub fn rows2_mut(&mut self, index: (usize, usize)) -> (MutableRow<WORD_COUNT>, MutableRow<WORD_COUNT>) {
-        (self.build_mutable_row(index.0), self.build_mutable_row(index.1))
+    pub fn rows2_mut(
+        &mut self,
+        index: (usize, usize),
+    ) -> (MutableRow<WORD_COUNT>, MutableRow<WORD_COUNT>) {
+        (
+            self.build_mutable_row(index.0),
+            self.build_mutable_row(index.1),
+        )
     }
 
     #[must_use]
@@ -269,7 +296,10 @@ impl<const WORD_COUNT: usize> BitMatrix<WORD_COUNT> {
     /// TODO(VK): Maybe use <https://doc.rust-lang.org/std/primitive.slice.html#method.get_many_mut> when it becomes stable
     /// # Safety
     /// Does not check if all indexes are distinct
-    pub unsafe fn rows8_mut(&mut self, index: crate::Tuple8<usize>) -> crate::Tuple8<MutableRow<WORD_COUNT>> {
+    pub unsafe fn rows8_mut(
+        &mut self,
+        index: crate::Tuple8<usize>,
+    ) -> crate::Tuple8<MutableRow<WORD_COUNT>> {
         (
             self.build_mutable_row(index.0),
             self.build_mutable_row(index.1),
@@ -380,7 +410,10 @@ impl<const WORD_COUNT: usize> BitMatrix<WORD_COUNT> {
         assert!(self.columncount() == self.rowcount());
         let (_, t, _, profile) = rref_with_transforms(self.clone());
         assert!(profile.len() == self.rowcount());
-        debug_assert_eq!(self * &t, BitMatrix::<WORD_COUNT>::identity(self.rowcount()));
+        debug_assert_eq!(
+            self * &t,
+            BitMatrix::<WORD_COUNT>::identity(self.rowcount())
+        );
         t
     }
 
@@ -431,7 +464,8 @@ impl<const WORD_COUNT: usize> BitMatrix<WORD_COUNT> {
                     for into_column_index in 0..rhs.columncount() {
                         row.assign_index(
                             into_column_index,
-                            row.index(into_column_index) ^ rhs.get((column_index, into_column_index)),
+                            row.index(into_column_index)
+                                ^ rhs.get((column_index, into_column_index)),
                         );
                     }
                 }
@@ -626,7 +660,9 @@ impl<const WORD_COUNT: usize> FromStr for BitMatrix<WORD_COUNT> {
 /// # Panics
 ///
 /// Should not panic. TODO: refactor so clippy does not complain
-pub fn row_stacked<'t, Matrices, const WORD_COUNT: usize>(matrices: Matrices) -> BitMatrix<WORD_COUNT>
+pub fn row_stacked<'t, Matrices, const WORD_COUNT: usize>(
+    matrices: Matrices,
+) -> BitMatrix<WORD_COUNT>
 where
     Matrices: IntoIterator<Item = &'t BitMatrix<WORD_COUNT>>,
 {
@@ -671,7 +707,10 @@ where
     sum
 }
 
-fn pivot_of<const WORD_COUNT: usize>(matrix: &BitMatrix<WORD_COUNT>, starting_at: (usize, usize)) -> (usize, usize) {
+fn pivot_of<const WORD_COUNT: usize>(
+    matrix: &BitMatrix<WORD_COUNT>,
+    starting_at: (usize, usize),
+) -> (usize, usize) {
     let (mut row_index, mut column_index) = starting_at;
     if row_index >= matrix.rowcount() || column_index >= matrix.columncount() {
         return (row_index, column_index);
@@ -796,10 +835,24 @@ fn reduce_with_transforms<const WORD_COUNT: usize>(
 ) {
     let rowcount = matrix.rowcount();
     for row_index in 0..from.0 {
-        xor_if_column_with_transforms(from.1, matrix, transform, transform_inv_t, row_index, from.0);
+        xor_if_column_with_transforms(
+            from.1,
+            matrix,
+            transform,
+            transform_inv_t,
+            row_index,
+            from.0,
+        );
     }
     for row_index in from.0 + 1..rowcount {
-        xor_if_column_with_transforms(from.1, matrix, transform, transform_inv_t, row_index, from.0);
+        xor_if_column_with_transforms(
+            from.1,
+            matrix,
+            transform,
+            transform_inv_t,
+            row_index,
+            from.0,
+        );
     }
 }
 
@@ -818,7 +871,9 @@ fn xor_if_column_with_transforms<const WORD_COUNT: usize>(
     }
 }
 
-pub fn kernel_basis_matrix<const WORD_COUNT: usize>(matrix: &BitMatrix<WORD_COUNT>) -> BitMatrix<WORD_COUNT> {
+pub fn kernel_basis_matrix<const WORD_COUNT: usize>(
+    matrix: &BitMatrix<WORD_COUNT>,
+) -> BitMatrix<WORD_COUNT> {
     let num_cols = matrix.columncount();
     let mut rr = matrix.clone();
     let rank_profile = rr.echelonize();
@@ -826,7 +881,11 @@ pub fn kernel_basis_matrix<const WORD_COUNT: usize>(matrix: &BitMatrix<WORD_COUN
     let res_row_count = num_cols - rank_profile.len();
     let mut res = BitMatrix::zeros(res_row_count, num_cols);
     for (index, elt) in enumerate(rank_profile) {
-        for (row_pos, col_src) in rank_profile_complement.iter().enumerate().take(res_row_count) {
+        for (row_pos, col_src) in rank_profile_complement
+            .iter()
+            .enumerate()
+            .take(res_row_count)
+        {
             res.set((row_pos, elt), rr[(index, *col_src)]);
         }
     }
@@ -852,7 +911,13 @@ impl<const WORD_COUNT: usize> Bitwise for Column<'_, WORD_COUNT> {
     }
 
     fn support(&self) -> impl SortedIterator<Item = usize> {
-        Box::new(self.into_iter().enumerate().filter(|pair| pair.1).map(|pair| pair.0)).assume_sorted_by_item()
+        Box::new(
+            self.into_iter()
+                .enumerate()
+                .filter(|pair| pair.1)
+                .map(|pair| pair.0),
+        )
+        .assume_sorted_by_item()
     }
 
     fn index(&self, index: usize) -> bool {
@@ -998,7 +1063,9 @@ impl<const WORD_COUNT: usize> NeutralElement for Column<'_, WORD_COUNT> {
 
 impl<const WORD_COUNT: usize> BitwiseNeutralElement for Column<'_, WORD_COUNT> {}
 
-impl<'life, const WORD_COUNT: usize> BitwiseBinaryOps<Column<'life, WORD_COUNT>> for BitVec<WORD_COUNT> {
+impl<'life, const WORD_COUNT: usize> BitwiseBinaryOps<Column<'life, WORD_COUNT>>
+    for BitVec<WORD_COUNT>
+{
     fn assign(&mut self, other: &Column<'life, WORD_COUNT>) {
         for (index, val) in itertools::enumerate(other.into_iter()) {
             self.assign_index(index, val);
@@ -1022,8 +1089,8 @@ impl<'life, const WORD_COUNT: usize> BitwiseBinaryOps<Column<'life, WORD_COUNT>>
     }
 }
 
-impl<'life1, const WORD_COUNT_1: usize, const WORD_COUNT_2: usize> BitwiseBinaryOps<Column<'life1, WORD_COUNT_1>>
-    for MutableBitView<'_, WORD_COUNT_2>
+impl<'life1, const WORD_COUNT_1: usize, const WORD_COUNT_2: usize>
+    BitwiseBinaryOps<Column<'life1, WORD_COUNT_1>> for MutableBitView<'_, WORD_COUNT_2>
 {
     fn assign(&mut self, other: &Column<'life1, WORD_COUNT_1>) {
         for (index, val) in itertools::enumerate(other.into_iter()) {

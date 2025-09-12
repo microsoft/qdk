@@ -8,7 +8,10 @@ use itertools::enumerate;
 
 /// # Panics
 /// Will panic if the input `paulis` are not independent
-pub fn complete_to_full_pauli_basis<PauliLike: Pauli>(paulis: &[PauliLike], qubit_count: usize) -> Vec<DensePauli>
+pub fn complete_to_full_pauli_basis<PauliLike: Pauli>(
+    paulis: &[PauliLike],
+    qubit_count: usize,
+) -> Vec<DensePauli>
 where
     DensePauli: PauliBinaryOps<PauliLike>,
 {
@@ -32,7 +35,10 @@ where
     result
 }
 
-pub fn bitmatrix_from_paulis<PauliLike: Pauli>(paulis: &[PauliLike], qubit_count: usize) -> BitMatrix {
+pub fn bitmatrix_from_paulis<PauliLike: Pauli>(
+    paulis: &[PauliLike],
+    qubit_count: usize,
+) -> BitMatrix {
     let mut result = BitMatrix::zeros(paulis.len(), 2 * qubit_count);
     for (row_index, pauli) in enumerate(paulis) {
         for x_column_index in pauli.x_bits().support() {
@@ -46,7 +52,11 @@ pub fn bitmatrix_from_paulis<PauliLike: Pauli>(paulis: &[PauliLike], qubit_count
 }
 
 pub fn paulis_qubit_count<PauliLike: Pauli>(pauli: &[PauliLike]) -> usize {
-    pauli.iter().map(super::Pauli::qubit_count).max().unwrap_or(0)
+    pauli
+        .iter()
+        .map(super::Pauli::qubit_count)
+        .max()
+        .unwrap_or(0)
 }
 
 pub fn are_the_same_group_up_to_phases<PauliLike1: Pauli, PauliLike2: Pauli>(
@@ -84,7 +94,10 @@ pub fn are_mutually_commuting<PauliLike: Pauli>(paulis: &[PauliLike]) -> bool {
     true
 }
 
-pub fn apply_pauli_exponent<PauliLike: Pauli + PauliBinaryOps>(target: &mut PauliLike, exponent: &PauliLike) {
+pub fn apply_pauli_exponent<PauliLike: Pauli + PauliBinaryOps>(
+    target: &mut PauliLike,
+    exponent: &PauliLike,
+) {
     if anti_commutes_with(target, exponent) {
         target.mul_assign_left(exponent);
         target.add_assign_phase_exp(1);

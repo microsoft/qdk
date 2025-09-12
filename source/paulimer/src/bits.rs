@@ -19,7 +19,8 @@ pub use bitmatrix::BitMatrix;
 use crate::NeutralElement;
 
 pub trait BitwiseNeutralElement:
-    Bitwise + NeutralElement<NeutralElementType: BitwiseBinaryOps<Self> + NeutralElement + IndexAssignable>
+    Bitwise
+    + NeutralElement<NeutralElementType: BitwiseBinaryOps<Self> + NeutralElement + IndexAssignable>
 {
 }
 

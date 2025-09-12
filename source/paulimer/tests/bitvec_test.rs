@@ -58,7 +58,8 @@ proptest! {
 }
 
 fn arbitrary_bitvec(max_length: usize) -> impl Strategy<Value = BitVec<WORD_COUNT_DEFAULT>> {
-    prop::collection::vec(any::<bool>(), 0..max_length).prop_map(BitVec::<WORD_COUNT_DEFAULT>::from_iter)
+    prop::collection::vec(any::<bool>(), 0..max_length)
+        .prop_map(BitVec::<WORD_COUNT_DEFAULT>::from_iter)
 }
 
 fn equal_length_bitvecs(max_length: usize) -> impl Strategy<Value = (BitVec, BitVec)> {

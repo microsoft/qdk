@@ -1,12 +1,12 @@
 pub mod bipartite_normal_form;
 pub mod bits;
 pub mod clifford;
+pub mod operations;
 pub mod outcome_complete_simulation;
 pub mod outcome_specific_simulation;
 pub mod pauli;
-pub mod setwise;
-pub mod operations;
 pub mod quantum_core;
+pub mod setwise;
 
 pub use operations::UnitaryOp;
 
@@ -52,7 +52,12 @@ pub trait Simulation {
     ) -> usize;
     fn measure_sparse(&mut self, pauli: &SparsePauli) -> usize;
 
-    fn conditional_pauli(&mut self, observable: &[PositionedPauliObservable], outcomes: &[usize], parity: bool);
+    fn conditional_pauli(
+        &mut self,
+        observable: &[PositionedPauliObservable],
+        outcomes: &[usize],
+        parity: bool,
+    );
 
     fn assert_stabilizer(&self, observable: &[PositionedPauliObservable]);
     fn assert_stabilizer_up_to_sign(&self, observable: &[PositionedPauliObservable]);

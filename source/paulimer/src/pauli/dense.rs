@@ -14,7 +14,8 @@ impl From<&[PositionedPauliObservable]> for DensePauli {
         let r: SparsePauli = value.into();
         match super::Pauli::max_qubit_id(&r) {
             Some(max_id) => {
-                let mut dense = <DensePauli as crate::NeutralElement>::neutral_element_of_size(max_id + 1);
+                let mut dense =
+                    <DensePauli as crate::NeutralElement>::neutral_element_of_size(max_id + 1);
                 super::PauliBinaryOps::assign(&mut dense, &r);
                 dense
             }
