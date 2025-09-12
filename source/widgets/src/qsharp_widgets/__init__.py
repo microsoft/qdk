@@ -180,3 +180,17 @@ class Circuit(anywidget.AnyWidget):
         super().__init__()
         self.circuit_json = circuit.json()
         self.layout.overflow = "visible scroll"
+
+
+class Atoms(anywidget.AnyWidget):
+    _esm = pathlib.Path(__file__).parent / "static" / "index.js"
+    _css = pathlib.Path(__file__).parent / "static" / "index.css"
+
+    comp = traitlets.Unicode("Atoms").tag(sync=True)
+    machine_layout = traitlets.Dict().tag(sync=True)
+    trace_data = traitlets.Dict().tag(sync=True)
+
+    def __init__(self, machine_layout, trace_data):
+        super().__init__()
+        self.machine_layout = machine_layout
+        self.trace_data = trace_data

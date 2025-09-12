@@ -1,0 +1,182 @@
+/* Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License. */
+
+/* Default colors, or theme set explicitly to light */
+/* data-vscode-theme-kind="vscode-dark" or "vscode-light" or "vscode-high-contrast" or "vscode-high-contrast-light" */
+:root,
+[data-theme="light"],
+[data-vscode-theme-kind="vscode-light"],
+[data-vscode-theme-kind="vscode-high-contrast-light"] {
+  --qs-atoms-primay-color: #222;
+  --qs-atoms-background-color: #eee;
+  --qs-atoms-qubitbox: #bbd;
+  --qs-atoms-qubit: #123;
+  --qs-atoms-label: #aaa;
+  --qs-atoms-gate: #66d;
+  --qs-atoms-gate-cz: #ec4;
+  --qs-atoms-gate-mz: #822;
+  --qs-atoms-gate-reset: #282;
+}
+/* User has set OS preference for dark (explict theme will override) */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --qs-atoms-primay-color: #eee;
+    --qs-atoms-background-color: #222;
+    --qs-atoms-qubitbox: #446;
+    --qs-atoms-qubit: #9df;
+    --qs-atoms-label: #666;
+    --qs-atoms-gate: #ccf;
+    --qs-atoms-gate-cz: #b91;
+    --qs-atoms-gate-mz: #e88;
+    --qs-atoms-gate-reset: #8e8;
+  }
+}
+/* Explicit dark theme set (should match above dark preference values) */
+[data-theme="dark"],
+[data-vscode-theme-kind="vscode-dark"],
+[data-vscode-theme-kind="vscode-high-contrast"] {
+  --qs-atoms-primay-color: #eee;
+  --qs-atoms-background-color: #222;
+  --qs-atoms-qubitbox: #446;
+  --qs-atoms-qubit: #9df;
+  --qs-atoms-label: #666;
+  --qs-atoms-gate: #ccf;
+  --qs-atoms-gate-cz: #b91;
+  --qs-atoms-gate-mz: #e88;
+  --qs-atoms-gate-reset: #8e8;
+}
+
+.qs-atoms-app {
+  background-color: var(--qs-atoms-background-color);
+  color: var(--qs-atoms-primay-color);
+  font-family: system-ui, "Segoe UI", Roboto, sans-serif;
+  box-sizing: border-box;
+  width: 600px;
+  border: 1px solid gray;
+  border-radius: 8px;
+  margin: auto;
+  margin-top: 24px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+.qs-atoms-app:focus {
+  outline: none;
+}
+
+.qs-atoms-toolstrip {
+  display: flex;
+  align-items: center;
+}
+
+.qs-atoms-toolbar {
+  height: 28px;
+  user-select: none;
+}
+
+.qs-atoms-icon > circle {
+  stroke: var(--qs-atoms-primay-color);
+  stroke-width: 6;
+  fill: transparent;
+  cursor: pointer;
+}
+
+.qs-atoms-icon > circle:hover {
+  stroke-width: 10;
+}
+
+.qs-atoms-icon > path {
+  stroke: none;
+  fill: var(--qs-atoms-primay-color);
+  pointer-events: none;
+}
+
+.qs-atoms-icon > .qs-atoms-icon-line {
+  fill: none;
+  stroke-width: 16;
+  stroke: var(--qs-atoms-primay-color);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.qs-atoms-slider:focus {
+  outline: none;
+}
+
+.qs-atoms-step {
+  min-width: 128px;
+  text-align: end;
+  margin: 0 20px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.qs-atoms-bigsmall {
+  margin-left: auto;
+}
+
+.qs-atoms-zones {
+  margin: 8px auto;
+}
+
+.qs-atoms-zone-text {
+  font-size: 8px;
+  font-family: system-ui;
+  fill: gray;
+  stroke-width: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.qs-atoms-label {
+  font-size: 6px;
+  font-family: system-ui;
+  fill: var(--qs-atoms-label);
+  stroke-width: 0;
+  user-select: none;
+  -webkit-user-select: none;
+  text-anchor: middle;
+  dominant-baseline: central;
+  width: 20px;
+}
+
+.qs-atoms-zonebox {
+  stroke: var(--qs-atoms-background-color);
+  stroke-width: 0.75;
+  fill: var(--qs-atoms-qubitbox);
+}
+
+.qs-atoms-qubit {
+  stroke: none;
+  fill: var(--qs-atoms-qubit);
+}
+
+.qs-atoms-gate {
+  fill: var(--qs-atoms-gate);
+  stroke-width: 0;
+}
+
+.qs-atoms-gate-cz {
+  fill: var(--qs-atoms-gate-cz);
+}
+.qs-atoms-gate-mz {
+  fill: var(--qs-atoms-gate-mz);
+}
+
+.qs-atoms-gate-reset {
+  fill: var(--qs-atoms-gate-reset);
+}
+
+.qs-atoms-gate-text {
+  stroke-width: 0;
+  fill: var(--qs-atoms-background-color);
+  font-size: 5px;
+  font-family: Verdana, Geneva, Tahoma, sans-serif;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+.qs-atoms-gate-text-small {
+  font-size: 4px;
+}
