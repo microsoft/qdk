@@ -50,11 +50,13 @@ pub struct Simulator {
     /// The current inverse state of the simulation.
     state: OutcomeSpecificSimulation,
     /// A vector storing whether a qubit was lost or not.
-    ///
-    /// TODO: When does the loss flag gets unset?
     loss: Vec<bool>,
     /// Measurement results.
     measurements: Vec<MeasurementResult>,
+    /// The last time each qubit was operated upon.
+    last_operation_time: Vec<u32>,
+    /// Current simulation time.
+    time: u32,
 }
 
 impl Simulator {
@@ -70,7 +72,31 @@ impl Simulator {
             ),
             loss: vec![false; num_qubits],
             measurements: Vec::with_capacity(2048),
+            last_operation_time: vec![0; num_qubits],
+            time: 0,
         }
+    }
+
+    /// Increment the simulation time by one.
+    /// This is used to compute the idle noise on qubits.
+    pub fn step(&mut self) {
+        self.time += 1;
+    }
+
+    /// Increment the simulation time by `steps`.
+    /// This is used to compute the idle noise on qubits.
+    pub fn steps(&mut self, steps: u32) {
+        self.time += steps;
+    }
+
+    /// Reload a qubit.
+    pub fn reload_qubit(&mut self, target: QubitID) {
+        self.loss[target] = false;
+    }
+
+    /// Reload a list of qubits.
+    pub fn reload_qubits(&mut self, targets: &[QubitID]) {
+        targets.iter().for_each(|q| self.reload_qubit(*q));
     }
 
     /// Single qubit X gate.
@@ -116,7 +142,6 @@ impl Simulator {
     /// Applies a gate to the system.
     pub fn apply_gate(&mut self, gate: &Operation) {
         self.apply_gate_in_place(gate);
-        self.apply_noise(gate);
     }
 
     /// Applies a list of gates to the system.
@@ -129,73 +154,68 @@ impl Simulator {
             Operation::I { .. } => (),
             Operation::X { target } => {
                 if !self.loss[target] {
+                    self.apply_idle_noise(target);
                     self.state.apply_unitary(UnitaryOp::X, &[target]);
+                    self.apply_fault(self.noise_config.x.gen_operation_fault(), target);
                 }
             }
             Operation::Y { target } => {
                 if !self.loss[target] {
+                    self.apply_idle_noise(target);
                     self.state.apply_unitary(UnitaryOp::Y, &[target]);
+                    self.apply_fault(self.noise_config.y.gen_operation_fault(), target);
                 }
             }
             Operation::Z { target } => {
                 if !self.loss[target] {
+                    self.apply_idle_noise(target);
                     self.state.apply_unitary(UnitaryOp::Z, &[target]);
+                    self.apply_fault(self.noise_config.z.gen_operation_fault(), target);
                 }
             }
             Operation::H { target } => {
                 if !self.loss[target] {
+                    self.apply_idle_noise(target);
                     apply_hadamard(&mut self.state, target);
+                    self.apply_fault(self.noise_config.h.gen_operation_fault(), target);
                 }
             }
             Operation::S { target } => {
                 if !self.loss[target] {
+                    self.apply_idle_noise(target);
                     self.state.apply_unitary(UnitaryOp::SqrtZ, &[target]);
+                    self.apply_fault(self.noise_config.s.gen_operation_fault(), target);
                 }
             }
             Operation::CZ { control, target } => {
                 if !self.loss[control] && !self.loss[target] {
+                    self.apply_idle_noise(control);
+                    self.apply_idle_noise(target);
                     self.state
                         .apply_unitary(UnitaryOp::ControlledZ, &[control, target]);
+                    self.apply_fault(self.noise_config.cz.gen_operation_fault(), control);
+                    self.apply_fault(self.noise_config.cz.gen_operation_fault(), target);
                 }
             }
-            Operation::Move { .. } => (),
+            Operation::Move { target } => {
+                if !self.loss[target] {
+                    self.apply_idle_noise(target);
+                    self.apply_fault(self.noise_config.mov.gen_operation_fault(), target);
+                }
+            }
             Operation::MResetZ { target } => {
+                self.apply_idle_noise(target);
                 self.record_z_measurement(target);
+                self.apply_fault(self.noise_config.mresetz.gen_operation_fault(), target);
             }
         }
     }
 
-    fn apply_noise(&mut self, gate: &Operation) {
-        match *gate {
-            Operation::I { target } => {
-                self.apply_fault(self.noise_config.id.gen_operation_fault(), target)
-            }
-            Operation::X { target } => {
-                self.apply_fault(self.noise_config.x.gen_operation_fault(), target)
-            }
-            Operation::Y { target } => {
-                self.apply_fault(self.noise_config.y.gen_operation_fault(), target)
-            }
-            Operation::Z { target } => {
-                self.apply_fault(self.noise_config.z.gen_operation_fault(), target)
-            }
-            Operation::H { target } => {
-                self.apply_fault(self.noise_config.h.gen_operation_fault(), target)
-            }
-            Operation::S { target } => {
-                self.apply_fault(self.noise_config.s.gen_operation_fault(), target)
-            }
-            Operation::CZ { control, target } => {
-                self.apply_fault(self.noise_config.cz.gen_operation_fault(), control);
-                self.apply_fault(self.noise_config.cz.gen_operation_fault(), target);
-            }
-            Operation::Move { target } => {
-                self.apply_fault(self.noise_config.move_.gen_operation_fault(), target)
-            }
-            Operation::MResetZ { target } => {
-                self.apply_fault(self.noise_config.mresetz.gen_operation_fault(), target)
-            }
-        }
+    fn apply_idle_noise(&mut self, target: QubitID) {
+        let idle_time = self.time - self.last_operation_time[target];
+        self.last_operation_time[target] = self.time;
+        let fault = self.noise_config.gen_idle_fault(idle_time);
+        self.apply_fault(fault, target);
     }
 
     fn apply_fault(&mut self, fault: Fault, target: QubitID) {
@@ -241,12 +261,14 @@ impl Simulator {
     }
 
     /// Returns a list of the measurements recorded during the simulation.
+    #[must_use]
     pub fn measurements(&self) -> &[MeasurementResult] {
         &self.measurements
     }
 
     /// Returns a string of 0s, 1s, and Ls representing the |0⟩, |1⟩, and Loss
     /// results during the simulation.
+    #[must_use]
     pub fn measurements_str(&self) -> String {
         let mut buffer = String::new();
         for m in &self.measurements {

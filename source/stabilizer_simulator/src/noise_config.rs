@@ -10,14 +10,13 @@ use rand::Rng;
 /// written.
 #[derive(Default)]
 pub struct NoiseConfig {
-    id: NoiseTable,
     x: NoiseTable,
     y: NoiseTable,
     z: NoiseTable,
     h: NoiseTable,
     s: NoiseTable,
     cz: NoiseTable,
-    move_: NoiseTable,
+    mov: NoiseTable,
     mz: NoiseTable,
 }
 
@@ -26,30 +25,40 @@ pub struct NoiseConfig {
 /// This is the internal format used by the simulator.
 #[derive(Default)]
 pub(crate) struct CumulativeNoiseConfig {
-    pub id: CumulativeNoiseTable,
     pub x: CumulativeNoiseTable,
     pub y: CumulativeNoiseTable,
     pub z: CumulativeNoiseTable,
     pub h: CumulativeNoiseTable,
     pub s: CumulativeNoiseTable,
     pub cz: CumulativeNoiseTable,
-    pub move_: CumulativeNoiseTable,
+    pub mov: CumulativeNoiseTable,
     pub mresetz: CumulativeNoiseTable,
 }
 
 impl From<NoiseConfig> for CumulativeNoiseConfig {
     fn from(value: NoiseConfig) -> Self {
         Self {
-            id: value.id.into(),
             x: value.x.into(),
             y: value.y.into(),
             z: value.z.into(),
             h: value.h.into(),
             s: value.s.into(),
             cz: value.cz.into(),
-            move_: value.move_.into(),
+            mov: value.mov.into(),
             mresetz: value.mz.into(),
         }
+    }
+}
+
+impl CumulativeNoiseConfig {
+    /// Samples a float in the range [0, 1] and picks one of the faults
+    /// `X`, `Y`, `Z`, `S` based on the provided noise table.
+    pub fn gen_idle_fault(&self, _idle_steps: u32) -> Fault {
+        // TODO: 1. How the idle noise accumulates.
+        //          Is it just `(p(idle_noise) + 1.0).pow(idle_steps) - 1.0`
+        //          or is it some other function?
+        //       2. How to pick among X, Y, Z, S?
+        Fault::None
     }
 }
 
@@ -118,14 +127,5 @@ impl CumulativeNoiseTable {
         } else {
             Fault::None
         }
-    }
-
-    /// Samples a float in the range [0, 1] and picks one of the faults
-    /// `X`, `Y`, `Z`, `S` based on the provided noise table.
-    fn gen_idle_fault(&self, _idle_steps: u32) -> Fault {
-        // TODO: ask how the idle noise accumulates.
-        //       Is it just `(1.0 + noise).pow(idle_steps) - 1.0`
-        //       or is it some other function?
-        unimplemented!()
     }
 }
