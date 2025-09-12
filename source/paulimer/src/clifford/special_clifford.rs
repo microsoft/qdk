@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 use super::{CliffordUnitary, ControlledPauli, Hadamard, PauliExponent, Swap};
 use crate::pauli::{commutes_with, generic::PhaseExponent, Pauli, PauliBits, PauliUnitary};
 use std::ops::Mul;

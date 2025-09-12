@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 use super::{BitVec, BitwiseNeutralElement, BorrowAsBitIterator, FromBits, OverlapWeight};
 use crate::bits::{are_supports_equal, Bitwise, BitwiseBinaryOps, Dot, IndexAssignable};
 use crate::NeutralElement;

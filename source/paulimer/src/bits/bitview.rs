@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 use super::bitvec::WORD_COUNT_DEFAULT;
 use super::standard_types::BitsPerBlock;
 use super::BitVec;

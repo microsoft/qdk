@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 pub mod bipartite_normal_form;
 pub mod bits;
 pub mod clifford;

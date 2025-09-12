@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 use crate::bits::bitblock::{BitAccessor, BitBlock};
 use crate::bits::{
     BitVec, BitView, Bitwise, BitwiseBinaryOps, Dot, IndexAssignable, MutableBitView,

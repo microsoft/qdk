@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 use super::{id, x, y, z, All, Axis, DirectedAxis, PauliMatrix, PauliObservable};
 use itertools::iproduct;
 

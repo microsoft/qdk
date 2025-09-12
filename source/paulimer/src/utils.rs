@@ -1,9 +1,16 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 use crate::{BitStringView, BitWord, BITS_PER_WORD};
 
 pub const SUB_CHARS: [char; 10] = ['₀', '₁', '₂', '₃', '₄', '₅', '₆', '₇', '₈', '₉'];
 
 #[must_use]
-pub fn one_indicies(bitstring: &BitStringView, word_offset: usize, words_range_length: usize) -> Vec<usize> {
+pub fn one_indicies(
+    bitstring: &BitStringView,
+    word_offset: usize,
+    words_range_length: usize,
+) -> Vec<usize> {
     let mut res = Vec::<usize>::with_capacity(bitstring.len() * BITS_PER_WORD);
     for word_idx in 0..words_range_length {
         let mut word: BitWord = bitstring[word_offset + word_idx];
@@ -62,4 +69,3 @@ pub fn phase_to_string(phase: u32) -> String {
     };
     String::from(s)
 }
-

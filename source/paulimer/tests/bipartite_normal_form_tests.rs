@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 use paulimer::quantum_core::z;
 use paulimer::{
     bipartite_normal_form, outcome_complete_simulation::OutcomeCompleteSimulation, Simulation,

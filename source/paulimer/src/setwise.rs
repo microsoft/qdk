@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 use itertools::Itertools;
 use sorted_iter::{assume::AssumeSortedByItemExt, SortedIterator};
 use std::borrow::Borrow;

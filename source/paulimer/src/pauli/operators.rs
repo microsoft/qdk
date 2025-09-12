@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 // fn is_sorted<Items: Iterator<Item = usize>>(items: Items) -> bool {
 //     let vec_items: Vec<usize> = items.collect();
 //     equal(sorted(vec_items.iter()), vec_items.iter())

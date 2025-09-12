@@ -1,6 +1,8 @@
-use rand::Rng;
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
 
 use crate::Fault;
+use rand::Rng;
 
 /// Noise description for each operation.
 ///
@@ -124,6 +126,6 @@ impl CumulativeNoiseTable {
         // TODO: ask how the idle noise accumulates.
         //       Is it just `(1.0 + noise).pow(idle_steps) - 1.0`
         //       or is it some other function?
-        todo!()
+        unimplemented!()
     }
 }

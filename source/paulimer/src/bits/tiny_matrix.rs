@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 // Tiny bitmatrix with RREF, not heap allocation, compile-time known sizes
 
 use super::BitMatrix;

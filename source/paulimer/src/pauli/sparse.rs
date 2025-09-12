@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 use rustc_hash::FxHashMap;
 
 use crate::bits::{self, Bitwise, IndexAssignable, IndexSet};

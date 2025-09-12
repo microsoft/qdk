@@ -1,6 +1,7 @@
-//! This crate implements a stabilizer simulator for the QDK.
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
 
-#![allow(dead_code)]
+//! This crate implements a stabilizer simulator for the QDK.
 
 pub mod noise_config;
 pub mod operation;

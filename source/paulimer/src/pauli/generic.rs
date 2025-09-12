@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 use crate::quantum_core::PositionedPauliObservable;
 
 use crate::bits::{self, BitVec, BitView, FromBits, IndexSet};

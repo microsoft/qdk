@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 use crate::QubitID;
 
 /// An extension of the Clifford gates, also including a `Move` operation.

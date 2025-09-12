@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 use crate::quantum_core::{y, Axis};
 use itertools::{enumerate, Itertools};
 use sorted_iter::assume::AssumeSortedByItemExt;

@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 use crate::bits::{BitMatrix, Bitwise, WORD_COUNT_DEFAULT};
 use crate::pauli::{Pauli, PauliBinaryOps, PauliBits, PauliMutable, PauliUnitary};
 use crate::quantum_core;

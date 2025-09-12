@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 use itertools::iproduct;
 use paulimer::bits::bitmatrix::{directly_summed, kernel_basis_matrix, rref_with_transforms};
 use paulimer::bits::tiny_matrix::{tiny_matrix_from_bitmatrix, tiny_matrix_rref};

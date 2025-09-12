@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 pub struct BitChunkAccessor<const CHUNK_SIZE: usize> {
     pub threshold: u32,
     pub shift: u32,

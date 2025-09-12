@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 use num_derive::{FromPrimitive, ToPrimitive};
 
 #[derive(FromPrimitive, ToPrimitive, Clone, Copy, Debug)]

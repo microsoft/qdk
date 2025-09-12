@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 use std::ops::{BitAnd, BitAndAssign, BitXor, BitXorAssign, Index};
 
 use super::standard_types::{array_get_unchecked, array_set_unchecked, BitIterator};

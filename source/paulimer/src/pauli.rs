@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 pub mod generic;
 pub use generic::{
     add_assign_bits, pauli_random, pauli_random_order_two, PauliUnitary, PauliUnitaryProjective,

@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 use super::{
     Bitwise, BitwiseBinaryOps, BitwiseNeutralElement, BorrowAsBitIterator, Dot, IndexAssignable,
     OverlapWeight,

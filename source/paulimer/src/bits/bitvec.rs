@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 use crate::bits::bitblock::{BitBlock, Word};
 use crate::bits::bitview::{BitView, MutableBitView};
 use crate::bits::index_set::IndexSet;

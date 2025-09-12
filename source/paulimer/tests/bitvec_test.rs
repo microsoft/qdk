@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 use paulimer::bits::BitVec;
 use paulimer::bits::Bitwise;
 use paulimer::bits::BitwiseBinaryOps;

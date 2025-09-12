@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 use itertools::enumerate;
 use paulimer::bits::BitMatrix;
 use paulimer::bits::Bitwise;

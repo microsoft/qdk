@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 use paulimer::bits::bitblock::BitBlock;
 use paulimer::bits::WORD_COUNT_DEFAULT;
 use proptest::prelude::*;

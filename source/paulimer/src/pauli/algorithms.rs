@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 use super::{anti_commutes_with, DensePauli, Pauli, PauliBinaryOps};
 use crate::{
     bits::{BitMatrix, Bitwise},

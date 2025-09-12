@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 use crate::quantum_core;
 use crate::{
     bits::{BitMatrix, BitVec, Bitwise, BitwiseBinaryOps, Dot, IndexAssignable, IndexSet},

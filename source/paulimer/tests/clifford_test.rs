@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 use itertools::{enumerate, Itertools};
 use paulimer::bits::{BitMatrix, BitVec, Bitwise, IndexSet};
 use paulimer::clifford::generic_algos::{clifford_from_images, clifford_to_prepare_bell_states};

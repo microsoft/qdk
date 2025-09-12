@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 // use paulimer::utils::subscript_digits;
 
 // #[test]
