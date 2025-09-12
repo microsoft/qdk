@@ -2,11 +2,21 @@
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use rand::{SeedableRng, distributions::Uniform, prelude::Distribution, rngs::StdRng};
-use stabilizer_simulator::{QubitID, Simulator, noise_config::NoiseConfig, operation::*};
+use stabilizer_simulator::{
+    QubitID, Simulator,
+    noise_config::{IdleNoiseParams, NoiseConfig},
+    operation::*,
+};
 use std::hint::black_box;
 
 const SEED: u64 = 1000;
 const NUM_QUBITS: usize = 1_224;
+const NOISE_CONFIG: NoiseConfig = NoiseConfig {
+    idle: IdleNoiseParams {
+        s_probability: 0.01,
+    },
+    ..NoiseConfig::NOISELESS
+};
 
 fn random_qubit(rng: &mut StdRng) -> QubitID {
     let distr = Uniform::new(0, usize::MAX);
@@ -47,7 +57,7 @@ fn sim_1k_gates(c: &mut Criterion) {
     let gates = random_gates(NUM_GATES);
     c.bench_function("1k gates", |b| {
         b.iter(|| {
-            let mut simulator = Simulator::new(NUM_QUBITS, NoiseConfig::NOISELESS);
+            let mut simulator = Simulator::new(NUM_QUBITS, NOISE_CONFIG);
             black_box(simulator.apply_gates(black_box(&gates)))
         })
     });
@@ -58,7 +68,7 @@ fn sim_20k_gates(c: &mut Criterion) {
     let gates = random_gates(NUM_GATES);
     c.bench_function("20k gates", |b| {
         b.iter(|| {
-            let mut simulator = Simulator::new(NUM_QUBITS, NoiseConfig::NOISELESS);
+            let mut simulator = Simulator::new(NUM_QUBITS, NOISE_CONFIG);
             black_box(simulator.apply_gates(black_box(&gates)))
         })
     });
@@ -69,7 +79,7 @@ fn sim_1m_gates(c: &mut Criterion) {
     let gates = random_gates(NUM_GATES);
     c.bench_function("1m gates", |b| {
         b.iter(|| {
-            let mut simulator = Simulator::new(NUM_QUBITS, NoiseConfig::NOISELESS);
+            let mut simulator = Simulator::new(NUM_QUBITS, NOISE_CONFIG);
             black_box(simulator.apply_gates(black_box(&gates)))
         })
     });

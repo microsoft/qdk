@@ -8,17 +8,30 @@ use rand::Rng;
 ///
 /// This is the format in which the user config files are
 /// written.
-#[derive(Default)]
 pub struct NoiseConfig {
-    x: NoiseTable,
-    y: NoiseTable,
-    z: NoiseTable,
-    h: NoiseTable,
-    s: NoiseTable,
-    cz: NoiseTable,
-    mov: NoiseTable,
-    mz: NoiseTable,
-    idle: IdleNoiseParams,
+    pub x: NoiseTable,
+    pub y: NoiseTable,
+    pub z: NoiseTable,
+    pub h: NoiseTable,
+    pub s: NoiseTable,
+    pub cz: NoiseTable,
+    pub mov: NoiseTable,
+    pub mz: NoiseTable,
+    pub idle: IdleNoiseParams,
+}
+
+impl NoiseConfig {
+    pub const NOISELESS: Self = Self {
+        x: NoiseTable::NOISELESS,
+        y: NoiseTable::NOISELESS,
+        z: NoiseTable::NOISELESS,
+        h: NoiseTable::NOISELESS,
+        s: NoiseTable::NOISELESS,
+        cz: NoiseTable::NOISELESS,
+        mov: NoiseTable::NOISELESS,
+        mz: NoiseTable::NOISELESS,
+        idle: IdleNoiseParams::NOISELESS,
+    };
 }
 
 /// The probability of idle noise is computed using the equation:
@@ -29,12 +42,13 @@ pub struct NoiseConfig {
 ///    an idle a step, and is in the range `[0, 1]`.
 ///
 /// This structure allows the user to paremetrize the equation.
-#[derive(Default)]
 pub struct IdleNoiseParams {
-    s_probability: f32,
+    pub s_probability: f32,
 }
 
 impl IdleNoiseParams {
+    pub const NOISELESS: Self = Self { s_probability: 0.0 };
+
     fn s_probability(&self, steps: u32) -> f32 {
         (self.s_probability + 1.0).powi(i32::try_from(steps).expect("steps should fit in 31 bits"))
             - 1.0
@@ -44,7 +58,6 @@ impl IdleNoiseParams {
 /// Describes the noise configuration for each operation.
 ///
 /// This is the internal format used by the simulator.
-#[derive(Default)]
 pub(crate) struct CumulativeNoiseConfig {
     pub x: CumulativeNoiseTable,
     pub y: CumulativeNoiseTable,
@@ -94,19 +107,26 @@ impl CumulativeNoiseConfig {
 ///
 /// This is the format in which the user config files are
 /// written.
-#[derive(Default)]
 pub struct NoiseTable {
-    x: f32,
-    y: f32,
-    z: f32,
-    loss: f32,
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub loss: f32,
+}
+
+impl NoiseTable {
+    pub const NOISELESS: Self = Self {
+        x: 0.0,
+        y: 0.0,
+        z: 0.0,
+        loss: 0.0,
+    };
 }
 
 /// A cumulative representation of the NoiseTable to make
 /// computation more efficient.
 ///
 /// This is the internal format used by the simulator.
-#[derive(Default)]
 pub(crate) struct CumulativeNoiseTable {
     x: f32,
     y: f32,

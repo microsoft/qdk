@@ -28,5 +28,9 @@ name = "sim_time"
 harness = false
 
 [[bench]]
+name = "sim_time_noisy"
+harness = false
+
+[[bench]]
 name = "sim_mem"
 harness = false
