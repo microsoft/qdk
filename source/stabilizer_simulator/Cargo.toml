@@ -1,0 +1,36 @@
+[package]
+name = "stabilizer_simulator"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+expect-test = { workspace = true }
+rand = { workspace = true }
+smallvec = { workspace = true }
+paulimer = { path = "../paulimer" }
+
+[dev-dependencies]
+criterion = { workspace = true}
+
+[target.'cfg(target_os="linux")'.dev-dependencies]
+iai-callgrind = { workspace = true }
+
+[profile.release]
+lto = true
+
+[profile.bench]
+debug = true
+strip = false
+lto = true
+
+[[bench]]
+name = "sim_time"
+harness = false
+
+[[bench]]
+name = "sim_time_noisy"
+harness = false
+
+[[bench]]
+name = "sim_mem"
+harness = false

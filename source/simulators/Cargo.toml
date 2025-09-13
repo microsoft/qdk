@@ -10,6 +10,7 @@ repository.workspace = true
 
 [dependencies]
 quantum-sparse-sim = { workspace = true }
+stabilizer_simulator = { path = "../stabilizer_simulator" }
 
 [lints]
 workspace = true
