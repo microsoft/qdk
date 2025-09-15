@@ -62,10 +62,7 @@ use std::path::Path;
 #[allow(clippy::large_enum_variant)]
 pub enum Output<'a> {
     Flamegraph(Option<FlamegraphOptions<'a>>),
-
-    #[deprecated(
-        note = "This branch is used to include lifetime parameter. Don't use it directly."
-    )]
+    /// This branch is used to include lifetime parameter. Don't use it directly.
     _Phantom(PhantomData<&'a ()>),
 }
 #[cfg(unix)]
