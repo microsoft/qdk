@@ -14,9 +14,11 @@ pub struct NoiseConfig {
     pub z: NoiseTable,
     pub h: NoiseTable,
     pub s: NoiseTable,
+    pub s_adj: NoiseTable,
+    pub sx: NoiseTable,
     pub cz: NoiseTable,
     pub mov: NoiseTable,
-    pub mz: NoiseTable,
+    pub mresetz: NoiseTable,
     pub idle: IdleNoiseParams,
 }
 
@@ -27,9 +29,11 @@ impl NoiseConfig {
         z: NoiseTable::NOISELESS,
         h: NoiseTable::NOISELESS,
         s: NoiseTable::NOISELESS,
+        s_adj: NoiseTable::NOISELESS,
+        sx: NoiseTable::NOISELESS,
         cz: NoiseTable::NOISELESS,
         mov: NoiseTable::NOISELESS,
-        mz: NoiseTable::NOISELESS,
+        mresetz: NoiseTable::NOISELESS,
         idle: IdleNoiseParams::NOISELESS,
     };
 }
@@ -64,6 +68,8 @@ pub(crate) struct CumulativeNoiseConfig {
     pub z: CumulativeNoiseTable,
     pub h: CumulativeNoiseTable,
     pub s: CumulativeNoiseTable,
+    pub s_adj: CumulativeNoiseTable,
+    pub sx: CumulativeNoiseTable,
     pub cz: CumulativeNoiseTable,
     pub mov: CumulativeNoiseTable,
     pub mresetz: CumulativeNoiseTable,
@@ -78,9 +84,11 @@ impl From<NoiseConfig> for CumulativeNoiseConfig {
             z: value.z.into(),
             h: value.h.into(),
             s: value.s.into(),
+            s_adj: value.s_adj.into(),
+            sx: value.sx.into(),
             cz: value.cz.into(),
             mov: value.mov.into(),
-            mresetz: value.mz.into(),
+            mresetz: value.mresetz.into(),
             idle: value.idle,
         }
     }

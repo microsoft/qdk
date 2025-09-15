@@ -14,6 +14,8 @@ pub enum Operation {
     Z { target: QubitID },
     H { target: QubitID },
     S { target: QubitID },
+    SAdj { target: QubitID },
+    SX { target: QubitID },
     CZ { control: QubitID, target: QubitID },
     Move { target: QubitID },
     MResetZ { target: QubitID },

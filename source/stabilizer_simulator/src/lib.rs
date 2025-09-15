@@ -124,11 +124,22 @@ impl Simulator {
         self.apply_gate_in_place(&Operation::S { target });
     }
 
+    /// Single qubit S adjoint gate.
+    pub fn s_adj(&mut self, target: QubitID) {
+        self.apply_gate_in_place(&Operation::SAdj { target });
+    }
+
+    /// Single qubit SX gate.
+    pub fn sx(&mut self, target: QubitID) {
+        self.apply_gate_in_place(&Operation::SX { target });
+    }
+
     /// Controlled-Z gate.
     pub fn cz(&mut self, control: QubitID, target: QubitID) {
         self.apply_gate_in_place(&Operation::CZ { control, target });
     }
 
+    /// MResetZ operation.
     pub fn mresetz(&mut self, target: QubitID) {
         self.apply_gate_in_place(&Operation::MResetZ { target });
     }
@@ -185,6 +196,20 @@ impl Simulator {
                     self.apply_idle_noise(target);
                     self.state.apply_unitary(UnitaryOp::SqrtZ, &[target]);
                     self.apply_fault(self.noise_config.s.gen_operation_fault(), target);
+                }
+            }
+            Operation::SX { target } => {
+                if !self.loss[target] {
+                    self.apply_idle_noise(target);
+                    self.state.apply_unitary(UnitaryOp::SqrtX, &[target]);
+                    self.apply_fault(self.noise_config.sx.gen_operation_fault(), target);
+                }
+            }
+            Operation::SAdj { target } => {
+                if !self.loss[target] {
+                    self.apply_idle_noise(target);
+                    self.state.apply_unitary(UnitaryOp::SqrtZInv, &[target]);
+                    self.apply_fault(self.noise_config.s_adj.gen_operation_fault(), target);
                 }
             }
             Operation::CZ { control, target } => {
