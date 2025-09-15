@@ -3,7 +3,7 @@ use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criteri
 use paulimer::{bits::BitVec, pauli::PauliUnitary};
 use rand::prelude::*;
 
-pub fn multiply_benchmark(criterion: &mut Criterion) {
+fn multiply_benchmark(criterion: &mut Criterion) {
     let mut group = criterion.benchmark_group("Pauli::multiply");
     for size in [100usize, 1000usize, 10000usize] {
         group.bench_with_input(BenchmarkId::from_parameter(size), &size, |bencher, size| {
@@ -58,22 +58,25 @@ use std::os::raw::c_int;
 #[cfg(unix)]
 use std::path::Path;
 
+/// An empty type to prevent the construction `Output::_Phantom`.
+#[cfg(unix)]
+enum Empty {}
+
 #[cfg(unix)]
 #[allow(clippy::large_enum_variant)]
-pub enum Output<'a> {
+enum Output<'a> {
     Flamegraph(Option<FlamegraphOptions<'a>>),
-
-    #[deprecated(
-        note = "This branch is used to include lifetime parameter. Don't use it directly."
-    )]
-    _Phantom(PhantomData<&'a ()>),
+    /// This branch is used to include lifetime parameter. Don't use it directly.
+    _Phantom(PhantomData<&'a Empty>),
 }
+
 #[cfg(unix)]
-pub struct PProfProfiler<'a, 'b> {
+struct PProfProfiler<'a, 'b> {
     frequency: c_int,
     output: Output<'b>,
     active_profiler: Option<ProfilerGuard<'a>>,
 }
+
 #[cfg(unix)]
 impl<'b> PProfProfiler<'_, 'b> {
     #[must_use]
