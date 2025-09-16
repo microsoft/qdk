@@ -917,12 +917,13 @@ where
 
 #[pyfunction]
 pub fn run_clifford<'py>(
-    _py: Python<'py>,
+    py: Python<'py>,
     input: &Bound<'py, PyList>,
     num_qubits: usize,
     shots: usize,
     noise_config: NoiseConfig,
-) -> PyResult<String> {
+) -> PyResult<PyObject> {
+    use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
     assert!(shots > 0, "must run at least one shot");
 
     // convert Python list input to Vec<QirInstruction>
@@ -934,32 +935,41 @@ pub fn run_clifford<'py>(
         instructions.push(item);
     }
 
-    // set up containers for results
-    let mut results: Vec<Vec<MeasurementResult>> = Vec::with_capacity(shots);
-
     let noise = noise_config.into();
 
     // run the shots
-    for _ in 0..shots {
-        let measurements = run_clifford_shot(&instructions, num_qubits, noise);
-        results.push(measurements);
-    }
+    let output = (0..shots)
+        .collect::<Vec<_>>()
+        .par_iter()
+        .map(|_| run_clifford_shot(&instructions, num_qubits, noise))
+        .collect::<Vec<_>>();
 
     // convert results to a string with one line per shot
-    let mut string_results = Vec::with_capacity(shots);
-    for m in results {
-        let mut buffer = String::new();
-        for measurement in m {
+    let mut values = Vec::with_capacity(shots);
+    for shot_result in output {
+        let mut buffer = String::with_capacity(shot_result.len());
+        for measurement in shot_result {
             match measurement {
                 MeasurementResult::Zero => write!(&mut buffer, "0").expect("write should succeed"),
                 MeasurementResult::One => write!(&mut buffer, "1").expect("write should succeed"),
                 MeasurementResult::Loss => write!(&mut buffer, "L").expect("write should succeed"),
             }
         }
-        string_results.push(buffer);
+        values.push(buffer);
     }
-    // todo: create a value array of results instead of a string with newlines
-    Ok(string_results.join("\n"))
+
+    let mut array = Vec::with_capacity(shots);
+    for val in values {
+        array.push(
+            val.into_py_any(py).map_err(|e| {
+                PyValueError::new_err(format!("failed to create Python string: {e}"))
+            })?,
+        );
+    }
+
+    PyList::new(py, array)
+        .map_err(|e| PyValueError::new_err(format!("failed to create Python list: {e}")))?
+        .into_py_any(py)
 }
 
 fn run_clifford_shot(

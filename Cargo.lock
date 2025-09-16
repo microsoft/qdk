@@ -1811,6 +1811,7 @@ dependencies = [
  "pyo3",
  "qdk_simulators",
  "qsc",
+ "rayon",
  "resource_estimator",
  "rustc-hash",
  "serde",

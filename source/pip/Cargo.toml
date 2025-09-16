@@ -20,6 +20,7 @@ miette = { workspace = true, features = ["fancy"] }
 rustc-hash = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+rayon = { workspace = true }
 
 [lints]
 workspace = true
