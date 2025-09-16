@@ -138,11 +138,13 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
         elif callee_name == "__quantum__qis__s__body":
             self.gates.append((QirInstructionId.S, pyqir.qubit_id(call.args[0])))
         elif callee_name == "__quantum__qis__s__adj":
-            self.gates.append((QirInstructionId.S_ADJ, pyqir.qubit_id(call.args[0])))
+            self.gates.append((QirInstructionId.SAdj, pyqir.qubit_id(call.args[0])))
+        elif callee_name == "__quantum__qis__sx__body":
+            self.gates.append((QirInstructionId.SX, pyqir.qubit_id(call.args[0])))
         elif callee_name == "__quantum__qis__t__body":
             self.gates.append((QirInstructionId.T, pyqir.qubit_id(call.args[0])))
         elif callee_name == "__quantum__qis__t__adj":
-            self.gates.append((QirInstructionId.T_ADJ, pyqir.qubit_id(call.args[0])))
+            self.gates.append((QirInstructionId.TAdj, pyqir.qubit_id(call.args[0])))
         elif callee_name == "__quantum__qis__x__body":
             self.gates.append((QirInstructionId.X, pyqir.qubit_id(call.args[0])))
         elif callee_name == "__quantum__qis__y__body":

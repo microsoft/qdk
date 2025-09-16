@@ -46,8 +46,12 @@ def test_1224_clifford_ising_1MM_calls():
 
 
 def test_million():
-    from qsharp._simulation import run_qir
+    from qsharp._simulation import run_qir, NoiseConfig
+    from qsharp import TargetProfile
 
-    ir = read_file_relative("one_million_clifford_1224q.ll")
-    output = run_qir(ir, 1, None)
+    qsharp.init(target_profile=TargetProfile.Base)
+    qsharp.eval(read_file_relative("CliffordCalls.qs"))
+
+    ir = qsharp.compile("Main()")
+    output = run_qir(str(ir), 1, NoiseConfig())
     print(output)

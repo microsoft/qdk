@@ -693,6 +693,7 @@ class QirInstructionId(Enum):
     Z: QirInstructionId
     S: QirInstructionId
     SAdj: QirInstructionId
+    SX: QirInstructionId
     T: QirInstructionId
     TAdj: QirInstructionId
     CNOT: QirInstructionId
