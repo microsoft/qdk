@@ -36,32 +36,6 @@ def as_qis_gate(instr: Instruction) -> Dict:
     return {}
 
 
-# Return true if the first instruction depends on any values from the second instruction.
-# This treats any qubit or result constants that share an id as a dependency to preserve ordering of
-# quantum operations.
-def depends_on(instr1: Instruction, instr2: Instruction):
-    vals1 = []
-    vals2 = []
-    if isinstance(instr1, Call):
-        vals1 = instr1.args
-    else:
-        vals1 = instr1.operands
-    vals1.append(instr1)
-    if isinstance(instr2, Call):
-        vals2 = instr2.args
-    else:
-        vals2 = instr2.operands
-    vals2.append(instr2)
-    return any(
-        [
-            val in vals2
-            for val in vals1
-            if not isinstance(val, Constant)
-            or (is_qubit_type(val.type) or is_result_type(val.type))
-        ]
-    )
-
-
 # Returns all values used by the instruction.
 def get_used_values(instr: Instruction):
     vals = []

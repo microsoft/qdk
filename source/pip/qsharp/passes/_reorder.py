@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from ._utils import as_qis_gate, depends_on, get_used_values, uses_any_value
+from ._utils import as_qis_gate, get_used_values, uses_any_value
 from pyqir import Call, Instruction, Function, QirModuleVisitor
 
 
