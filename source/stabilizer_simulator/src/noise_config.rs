@@ -8,6 +8,7 @@ use rand::Rng;
 ///
 /// This is the format in which the user config files are
 /// written.
+#[derive(Clone, Copy, Debug)]
 pub struct NoiseConfig {
     pub x: NoiseTable,
     pub y: NoiseTable,
@@ -46,6 +47,7 @@ impl NoiseConfig {
 ///    an idle a step, and is in the range `[0, 1]`.
 ///
 /// This structure allows the user to paremetrize the equation.
+#[derive(Clone, Copy, Debug)]
 pub struct IdleNoiseParams {
     pub s_probability: f32,
 }
@@ -115,6 +117,7 @@ impl CumulativeNoiseConfig {
 ///
 /// This is the format in which the user config files are
 /// written.
+#[derive(Clone, Copy, Debug)]
 pub struct NoiseTable {
     pub x: f32,
     pub y: f32,

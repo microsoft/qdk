@@ -1809,6 +1809,7 @@ dependencies = [
  "num-bigint",
  "num-complex",
  "pyo3",
+ "qdk_simulators",
  "qsc",
  "resource_estimator",
  "rustc-hash",

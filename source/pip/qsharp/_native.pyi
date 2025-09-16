@@ -685,3 +685,65 @@ class UdtIR:
 
     name: str
     fields: List[Tuple[str, TypeIR]]
+
+class QirInstructionId(Enum):
+    H: QirInstructionId
+    X: QirInstructionId
+    Y: QirInstructionId
+    Z: QirInstructionId
+    S: QirInstructionId
+    SAdj: QirInstructionId
+    T: QirInstructionId
+    TAdj: QirInstructionId
+    CNOT: QirInstructionId
+    CX: QirInstructionId
+    CY: QirInstructionId
+    CZ: QirInstructionId
+    CXX: QirInstructionId
+    SWAP: QirInstructionId
+    RX: QirInstructionId
+    RY: QirInstructionId
+    RZ: QirInstructionId
+    RXX: QirInstructionId
+    RYY: QirInstructionId
+    RZZ: QirInstructionId
+    M: QirInstructionId
+    MResetZ: QirInstructionId
+    MZ: QirInstructionId
+    ReadResult: QirInstructionId
+    RESULT_RECORD_OUTPUT: QirInstructionId
+    BOOL_RECORD_OUTPUT: QirInstructionId
+    INT_RECORD_OUTPUT: QirInstructionId
+    DOUBLE_RECORD_OUTPUT: QirInstructionId
+    TUPLE_RECORD_OUTPUT: QirInstructionId
+    ARRAY_RECORD_OUTPUT: QirInstructionId
+
+class QirInstruction: ...
+
+class IdleNoiseParams:
+    s_probability: float
+
+class NoiseTable:
+    x: float
+    y: float
+    z: float
+    loss: float
+
+class NoiseConfig:
+    x: NoiseTable
+    y: NoiseTable
+    z: NoiseTable
+    h: NoiseTable
+    s: NoiseTable
+    s_adj: NoiseTable
+    sx: NoiseTable
+    cz: NoiseTable
+    mov: NoiseTable
+    mresetz: NoiseTable
+    idle: IdleNoiseParams
+
+def run_clifford(
+    input: List[QirInstruction], nub_qubits: int, shots: int, noise: NoiseConfig
+) -> str:
+    """ """
+    ...
