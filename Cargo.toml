@@ -85,6 +85,7 @@ pyo3 = "0.24"
 quantum-sparse-sim = { git = "https://github.com/qir-alliance/qir-runner", rev = "8cd6fa698521ecf96d459f88254e53dd6e5d6877" }
 async-trait = "0.1"
 tokio = { version = "1.44", features = ["macros", "rt"] }
+rayon = "1.11.0"
 
 [workspace.lints.clippy]
 mod_module_files = "warn"

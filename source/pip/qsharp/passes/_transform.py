@@ -5,6 +5,7 @@ from pyqir import Module, Context
 from .._qsharp import QirInputData
 from ._decomp import (
     DecomposeMultiQubitToCZ,
+    DecomposeRzAnglesToCliffordGates,
     DecomposeSingleRotationToRz,
     DecomposeSingleQubitToRzSX,
 )
@@ -52,3 +53,18 @@ def transform(qir: str | QirInputData, check_clifford: bool = False) -> QirInput
         ValidateCliffordRzAngles().run(module)
 
     return QirInputData(name, str(module))
+
+
+def transform_to_clifford(input: str | QirInputData) -> QirInputData:
+    name = ""
+    if isinstance(input, QirInputData):
+        name = input._name
+
+    input = transform(input, check_clifford=True)
+
+    module = Module.from_ir(Context(), str(input))
+
+    DecomposeRzAnglesToCliffordGates().run(module)
+    data = QirInputData(name, str(module))
+
+    return data

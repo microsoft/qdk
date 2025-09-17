@@ -2,6 +2,7 @@
 # Licensed under the MIT License.
 
 from pyqir import (
+    FloatConstant,
     const,
     Function,
     FunctionType,
@@ -11,6 +12,7 @@ from pyqir import (
     QirModuleVisitor,
 )
 from math import pi
+from ._utils import TOLERANCE
 
 
 class DecomposeMultiQubitToCZ(QirModuleVisitor):
@@ -373,4 +375,79 @@ class DecomposeSingleQubitToRzSX(QirModuleVisitor):
             self.rz_func,
             [const(self.double_ty, pi), target],
         )
+        call.erase()
+
+
+class DecomposeRzAnglesToCliffordGates(QirModuleVisitor):
+    """
+    Ensure that the module only contains Clifford gates instead of rotation angles.
+    """
+
+    THREE_PI_OVER_2 = 3 * pi / 2
+    PI_OVER_2 = pi / 2
+    TWO_PI = 2 * pi
+
+    def _on_module(self, module):
+        void = Type.void(module.context)
+        qubit_ty = qubit_type(module.context)
+        self.double_ty = Type.double(module.context)
+        # Find or create all the needed functions.
+        self.z_func = None
+        self.s_func = None
+        self.sadj_func = None
+        for func in module.functions:
+            match func.name:
+                case "__quantum__qis__s__body":
+                    self.s_func = func
+                case "__quantum__qis__s__adj":
+                    self.sadj_func = func
+                case "__quantum__qis__z__body":
+                    self.z_func = func
+
+        if not self.s_func:
+            self.s_func = Function(
+                FunctionType(void, [qubit_ty]),
+                Linkage.EXTERNAL,
+                "__quantum__qis__s__body",
+                module,
+            )
+        if not self.sadj_func:
+            self.sadj_func = Function(
+                FunctionType(void, [qubit_ty]),
+                Linkage.EXTERNAL,
+                "__quantum__qis__s__adj",
+                module,
+            )
+        if not self.z_func:
+            self.z_func = Function(
+                FunctionType(void, [qubit_ty]),
+                Linkage.EXTERNAL,
+                "__quantum__qis__z__body",
+                module,
+            )
+
+        super()._on_module(module)
+
+    def _on_qis_rz(self, call, angle, target):
+        if not isinstance(angle, FloatConstant):
+            raise ValueError("Angle used in RZ must be a constant")
+        angle = angle.value
+
+        self.builder.insert_before(call)
+        angle = abs(angle)
+
+        if abs(angle - self.THREE_PI_OVER_2) < TOLERANCE:
+            self.builder.call(self.sadj_func, [target])
+        elif abs(angle - pi) < TOLERANCE:
+            self.builder.call(self.z_func, [target])
+        elif abs(angle - self.PI_OVER_2) < TOLERANCE:
+            self.builder.call(self.s_func, [target])
+        elif angle < TOLERANCE or abs(angle - self.TWO_PI) < TOLERANCE:
+            # I, drop it
+            pass
+        else:
+            raise ValueError(
+                f"Angle {angle} used in RZ is not a Clifford compatible rotation angle"
+            )
+
         call.erase()
