@@ -291,6 +291,10 @@ impl Simulator {
         &self.measurements
     }
 
+    pub fn take_measurements(&mut self) -> Vec<MeasurementResult> {
+        std::mem::take(&mut self.measurements)
+    }
+
     /// Returns a string of 0s, 1s, and Ls representing the |0⟩, |1⟩, and Loss
     /// results during the simulation.
     #[must_use]

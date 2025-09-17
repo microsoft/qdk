@@ -14,11 +14,13 @@ noisy_simulator = { path = "../noisy_simulator" }
 num-bigint = { workspace = true }
 num-complex = { workspace = true }
 qsc = { path = "../compiler/qsc" }
+qdk_simulators = { path = "../simulators" }
 resource_estimator = { path = "../resource_estimator" }
 miette = { workspace = true, features = ["fancy"] }
 rustc-hash = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+rayon = { workspace = true }
 
 [lints]
 workspace = true
