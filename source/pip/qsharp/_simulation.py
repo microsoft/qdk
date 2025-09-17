@@ -3,7 +3,13 @@
 
 from typing import List, Optional, Tuple, Union
 import pyqir
-from ._native import QirInstructionId, QirInstruction, run_clifford, NoiseConfig
+from ._native import (
+    QirInstructionId,
+    QirInstruction,
+    run_clifford,
+    run_gpu_full_state,
+    NoiseConfig,
+)
 
 
 class AggregateGatesPass(pyqir.QirModuleVisitor):
@@ -185,7 +191,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
             tag = self._get_value_as_string(call.args[1])
             self.gates.append(
                 (
-                    QirInstructionId.RESULT_RECORD_OUTPUT,
+                    QirInstructionId.ResultRecordOutput,
                     str(pyqir.result_id(call.args[0])),
                     tag,
                 )
@@ -193,27 +199,27 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
         elif callee_name == "__quantum__rt__bool_record_output":
             tag = self._get_value_as_string(call.args[1])
             self.gates.append(
-                (QirInstructionId.BOOL_RECORD_OUTPUT, str(call.args[0].value), tag)
+                (QirInstructionId.BoolRecordOutput, str(call.args[0].value), tag)
             )
         elif callee_name == "__quantum__rt__int_record_output":
             tag = self._get_value_as_string(call.args[1])
             self.gates.append(
-                (QirInstructionId.INT_RECORD_OUTPUT, str(call.args[0].value), tag)
+                (QirInstructionId.IntRecordOutput, str(call.args[0].value), tag)
             )
         elif callee_name == "__quantum__rt__double_record_output":
             tag = self._get_value_as_string(call.args[1])
             self.gates.append(
-                (QirInstructionId.DOUBLE_RECORD_OUTPUT, str(call.args[0].value), tag)
+                (QirInstructionId.DoubleRecordOutput, str(call.args[0].value), tag)
             )
         elif callee_name == "__quantum__rt__tuple_record_output":
             tag = self._get_value_as_string(call.args[1])
             self.gates.append(
-                (QirInstructionId.TUPLE_RECORD_OUTPUT, str(call.args[0].value), tag)
+                (QirInstructionId.TupleRecordOutput, str(call.args[0].value), tag)
             )
         elif callee_name == "__quantum__rt__array_record_output":
             tag = self._get_value_as_string(call.args[1])
             self.gates.append(
-                (QirInstructionId.ARRAY_RECORD_OUTPUT, str(call.args[0].value), tag)
+                (QirInstructionId.ArrayRecordOutput, str(call.args[0].value), tag)
             )
         else:
             pass
@@ -239,3 +245,22 @@ def run_qir(
         shots = 1
 
     return run_clifford(gates, required_num_qubits, shots, noise)
+
+
+def run_qir_gpu(
+    input: Union[str, bytes],
+    shots: Optional[int] = 1,
+) -> str:
+    context = pyqir.Context()
+    if isinstance(input, str):
+        mod = pyqir.Module.from_ir(context, input)
+    else:
+        mod = pyqir.Module.from_bitcode(context, input)
+
+    passtoRun = AggregateGatesPass()
+    (gates, required_num_qubits, _) = passtoRun.run(mod)
+
+    if shots is None:
+        shots = 1
+
+    return run_gpu_full_state(gates, required_num_qubits, shots)

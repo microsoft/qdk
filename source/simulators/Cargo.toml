@@ -11,9 +11,26 @@ repository.workspace = true
 [dependencies]
 quantum-sparse-sim = { workspace = true }
 stabilizer_simulator = { path = "../stabilizer_simulator" }
+bytemuck = { workspace = true }
+futures = { workspace = true }
+wgpu = { workspace = true }
+
+[dev-dependencies]
+expect-test = { workspace = true }
+criterion = { workspace = true}
+rand = { workspace = true }
 
 [lints]
 workspace = true
 
 [lib]
 doctest = false
+
+[profile.bench]
+debug = true
+strip = false
+lto = true
+
+[[bench]]
+name = "gpu"
+harness = false

@@ -17,6 +17,10 @@ use crate::{
         pyobj_to_value, type_ir_from_qsharp_ty, value_to_pyobj,
     },
     noisy_simulator::register_noisy_simulator_submodule,
+    qir_simulation::{
+        IdleNoiseParams, NoiseConfig, NoiseTable, QirInstruction, QirInstructionId,
+        clifford::run_clifford, gpu_full_state::run_gpu_full_state,
+    },
 };
 use miette::{Diagnostic, Report};
 use num_bigint::BigUint;
@@ -27,7 +31,6 @@ use pyo3::{
     prelude::*,
     types::{PyDict, PyList, PyString, PyTuple, PyType},
 };
-use qdk_simulators::stabilizer_simulator::{MeasurementResult, Simulator};
 use qsc::{
     LanguageFeatures, PackageType, SourceMap,
     error::WithSource,
@@ -108,6 +111,7 @@ fn _native<'a>(py: Python<'a>, m: &Bound<'a, PyModule>) -> PyResult<()> {
     m.add_class::<IdleNoiseParams>()?;
     m.add_function(wrap_pyfunction!(physical_estimates, m)?)?;
     m.add_function(wrap_pyfunction!(run_clifford, m)?)?;
+    m.add_function(wrap_pyfunction!(run_gpu_full_state, m)?)?;
     m.add("QSharpError", py.get_type::<QSharpError>())?;
     register_noisy_simulator_submodule(py, m)?;
     register_generic_estimator_submodule(m)?;
@@ -916,107 +920,6 @@ where
 }
 
 #[pyfunction]
-pub fn run_clifford<'py>(
-    py: Python<'py>,
-    input: &Bound<'py, PyList>,
-    num_qubits: usize,
-    shots: usize,
-    noise_config: &Bound<'py, NoiseConfig>,
-) -> PyResult<PyObject> {
-    use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
-    assert!(shots > 0, "must run at least one shot");
-
-    // convert Python list input to Vec<QirInstruction>
-    let mut instructions: Vec<QirInstruction> = Vec::with_capacity(input.len());
-    for item in input.iter() {
-        let item = <QirInstruction as FromPyObject>::extract_bound(&item).map_err(|e| {
-            PyValueError::new_err(format!("expected QirInstruction, got {item:?}: {e}"))
-        })?;
-        instructions.push(item);
-    }
-
-    let noise = unbind_noise_config(py, noise_config);
-
-    // run the shots
-    let output = (0..shots)
-        .collect::<Vec<_>>()
-        .par_iter()
-        .map(|_| run_clifford_shot(&instructions, num_qubits, noise))
-        .collect::<Vec<_>>();
-
-    // convert results to a string with one line per shot
-    let mut values = Vec::with_capacity(shots);
-    for shot_result in output {
-        let mut buffer = String::with_capacity(shot_result.len());
-        for measurement in shot_result {
-            match measurement {
-                MeasurementResult::Zero => write!(&mut buffer, "0").expect("write should succeed"),
-                MeasurementResult::One => write!(&mut buffer, "1").expect("write should succeed"),
-                MeasurementResult::Loss => write!(&mut buffer, "L").expect("write should succeed"),
-            }
-        }
-        values.push(buffer);
-    }
-
-    let mut array = Vec::with_capacity(shots);
-    for val in values {
-        array.push(
-            val.into_py_any(py).map_err(|e| {
-                PyValueError::new_err(format!("failed to create Python string: {e}"))
-            })?,
-        );
-    }
-
-    PyList::new(py, array)
-        .map_err(|e| PyValueError::new_err(format!("failed to create Python list: {e}")))?
-        .into_py_any(py)
-}
-
-fn run_clifford_shot(
-    instructions: &Vec<QirInstruction>,
-    num_qubits: usize,
-    noise: qdk_simulators::stabilizer_simulator::NoiseConfig,
-) -> Vec<MeasurementResult> {
-    let mut sim = Simulator::new(num_qubits, noise);
-    for op in instructions {
-        match op {
-            QirInstruction::OneQubitGate(id, qubit) => match id {
-                QirInstructionId::H => sim.h(*qubit),
-                QirInstructionId::X => sim.x(*qubit),
-                QirInstructionId::Y => sim.y(*qubit),
-                QirInstructionId::Z => sim.z(*qubit),
-                QirInstructionId::S => sim.s(*qubit),
-                QirInstructionId::SAdj => sim.s_adj(*qubit),
-                QirInstructionId::SX => sim.sx(*qubit),
-                _ => panic!(
-                    "only one qubit gates H, X, Y, Z, S, SAdj, and SX are supported in Clifford simulator"
-                ),
-            },
-            QirInstruction::TwoQubitGate(id, control, target) => match id {
-                QirInstructionId::CZ => sim.cz(*control, *target),
-                QirInstructionId::MResetZ | QirInstructionId::M | QirInstructionId::MZ => {
-                    sim.mresetz(*control);
-                }
-                _ => panic!(
-                    "only CZ, M, MZ, and MResetZ are supported in Clifford simulator, got {id:?}"
-                ),
-            },
-            QirInstruction::OneQubitRotationGate(id, _, _)
-            | QirInstruction::TwoQubitRotationGate(id, _, _, _)
-            | QirInstruction::ThreeQubitGate(id, _, _, _) => {
-                panic!("unsupported gate in Clifford simulator, got {id:?}")
-            }
-            QirInstruction::OutputRecording(_id, _s, _tag) => {
-                // todo: handle output recording
-                //println!("output recording: {id:?}, {s}, {tag}");
-            }
-        }
-    }
-
-    sim.take_measurements()
-}
-
-#[pyfunction]
 pub fn physical_estimates(logical_resources: &str, job_params: &str) -> PyResult<String> {
     match re::estimate_physical_resources_from_json(logical_resources, job_params) {
         Ok(estimates) => Ok(estimates),
@@ -1404,227 +1307,4 @@ fn create_py_class(
     make_class.call1(py, args)?;
 
     Ok(())
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-#[pyclass(eq, eq_int, module = "qsharp._native")]
-pub enum QirInstructionId {
-    H,
-    X,
-    Y,
-    Z,
-    S,
-    SAdj,
-    SX,
-    T,
-    TAdj,
-    CNOT,
-    CX,
-    CY,
-    CZ,
-    CCX,
-    SWAP,
-    RX,
-    RY,
-    RZ,
-    RXX,
-    RYY,
-    RZZ,
-    M,
-    MResetZ,
-    MZ,
-    ReadResult,
-    RESULT_RECORD_OUTPUT,
-    BOOL_RECORD_OUTPUT,
-    INT_RECORD_OUTPUT,
-    DOUBLE_RECORD_OUTPUT,
-    TUPLE_RECORD_OUTPUT,
-    ARRAY_RECORD_OUTPUT,
-}
-
-#[derive(Debug)]
-#[pyclass(module = "qsharp._native")]
-#[derive(FromPyObject)]
-pub enum QirInstruction {
-    OneQubitGate(QirInstructionId, usize),
-    TwoQubitGate(QirInstructionId, usize, usize),
-    OneQubitRotationGate(QirInstructionId, f64, usize),
-    TwoQubitRotationGate(QirInstructionId, f64, usize, usize),
-    ThreeQubitGate(QirInstructionId, usize, usize, usize),
-    OutputRecording(QirInstructionId, String, String), // inst, value, tag
-}
-
-#[derive(Debug)]
-#[pyclass(module = "qsharp._native")]
-pub struct NoiseConfig {
-    #[pyo3(get)]
-    pub x: Py<NoiseTable>,
-    #[pyo3(get)]
-    pub y: Py<NoiseTable>,
-    #[pyo3(get)]
-    pub z: Py<NoiseTable>,
-    #[pyo3(get)]
-    pub h: Py<NoiseTable>,
-    #[pyo3(get)]
-    pub s: Py<NoiseTable>,
-    #[pyo3(get)]
-    pub s_adj: Py<NoiseTable>,
-    #[pyo3(get)]
-    pub sx: Py<NoiseTable>,
-    #[pyo3(get)]
-    pub cz: Py<NoiseTable>,
-    #[pyo3(get)]
-    pub mov: Py<NoiseTable>,
-    #[pyo3(get)]
-    pub mresetz: Py<NoiseTable>,
-    #[pyo3(get)]
-    pub idle: Py<IdleNoiseParams>,
-}
-
-#[pymethods]
-impl NoiseConfig {
-    #[new]
-    fn new(py: Python) -> PyResult<Self> {
-        bind_noise_config(
-            py,
-            qdk_simulators::stabilizer_simulator::NoiseConfig::NOISELESS,
-        )
-    }
-}
-
-fn bind_noise_config(
-    py: Python,
-    value: qdk_simulators::stabilizer_simulator::NoiseConfig,
-) -> PyResult<NoiseConfig> {
-    Ok(NoiseConfig {
-        x: Py::new(py, NoiseTable::from(value.x))?,
-        y: Py::new(py, NoiseTable::from(value.y))?,
-        z: Py::new(py, NoiseTable::from(value.z))?,
-        h: Py::new(py, NoiseTable::from(value.h))?,
-        s: Py::new(py, NoiseTable::from(value.s))?,
-        s_adj: Py::new(py, NoiseTable::from(value.s_adj))?,
-        sx: Py::new(py, NoiseTable::from(value.sx))?,
-        cz: Py::new(py, NoiseTable::from(value.cz))?,
-        mov: Py::new(py, NoiseTable::from(value.mov))?,
-        mresetz: Py::new(py, NoiseTable::from(value.mresetz))?,
-        idle: Py::new(py, IdleNoiseParams::from(value.idle))?,
-    })
-}
-
-fn unbind_noise_config(
-    py: Python,
-    value: &Bound<NoiseConfig>,
-) -> qdk_simulators::stabilizer_simulator::NoiseConfig {
-    let value = value.borrow();
-    qdk_simulators::stabilizer_simulator::NoiseConfig {
-        x: from_noise_table_ref(&value.x.borrow(py)),
-        y: from_noise_table_ref(&value.y.borrow(py)),
-        z: from_noise_table_ref(&value.z.borrow(py)),
-        h: from_noise_table_ref(&value.h.borrow(py)),
-        s: from_noise_table_ref(&value.s.borrow(py)),
-        s_adj: from_noise_table_ref(&value.s_adj.borrow(py)),
-        sx: from_noise_table_ref(&value.sx.borrow(py)),
-        cz: from_noise_table_ref(&value.cz.borrow(py)),
-        mov: from_noise_table_ref(&value.mov.borrow(py)),
-        mresetz: from_noise_table_ref(&value.mresetz.borrow(py)),
-        idle: from_idle_noise_params_ref(&value.idle.borrow(py)),
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-#[pyclass(module = "qsharp._native")]
-pub struct IdleNoiseParams {
-    #[pyo3(get, set)]
-    pub s_probability: f32,
-}
-
-#[pymethods]
-impl IdleNoiseParams {
-    #[new]
-    fn new() -> Self {
-        IdleNoiseParams { s_probability: 0.0 }
-    }
-}
-
-impl From<IdleNoiseParams> for qdk_simulators::stabilizer_simulator::IdleNoiseParams {
-    fn from(value: IdleNoiseParams) -> Self {
-        qdk_simulators::stabilizer_simulator::IdleNoiseParams {
-            s_probability: value.s_probability,
-        }
-    }
-}
-
-fn from_idle_noise_params_ref(
-    value: &PyRef<'_, IdleNoiseParams>,
-) -> qdk_simulators::stabilizer_simulator::IdleNoiseParams {
-    qdk_simulators::stabilizer_simulator::IdleNoiseParams {
-        s_probability: value.s_probability,
-    }
-}
-
-impl From<qdk_simulators::stabilizer_simulator::IdleNoiseParams> for IdleNoiseParams {
-    fn from(value: qdk_simulators::stabilizer_simulator::IdleNoiseParams) -> Self {
-        IdleNoiseParams {
-            s_probability: value.s_probability,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-#[pyclass(module = "qsharp._native")]
-pub struct NoiseTable {
-    #[pyo3(get, set)]
-    pub x: f32,
-    #[pyo3(get, set)]
-    pub y: f32,
-    #[pyo3(get, set)]
-    pub z: f32,
-    #[pyo3(get, set)]
-    pub loss: f32,
-}
-
-#[pymethods]
-impl NoiseTable {
-    #[new]
-    fn new() -> Self {
-        NoiseTable {
-            x: 0.0,
-            y: 0.0,
-            z: 0.0,
-            loss: 0.0,
-        }
-    }
-}
-
-impl From<NoiseTable> for qdk_simulators::stabilizer_simulator::NoiseTable {
-    fn from(value: NoiseTable) -> Self {
-        qdk_simulators::stabilizer_simulator::NoiseTable {
-            x: value.x,
-            y: value.y,
-            z: value.z,
-            loss: value.loss,
-        }
-    }
-}
-
-fn from_noise_table_ref(
-    value: &PyRef<'_, NoiseTable>,
-) -> qdk_simulators::stabilizer_simulator::NoiseTable {
-    qdk_simulators::stabilizer_simulator::NoiseTable {
-        x: value.x,
-        y: value.y,
-        z: value.z,
-        loss: value.loss,
-    }
-}
-
-impl From<qdk_simulators::stabilizer_simulator::NoiseTable> for NoiseTable {
-    fn from(value: qdk_simulators::stabilizer_simulator::NoiseTable) -> Self {
-        NoiseTable {
-            x: value.x,
-            y: value.y,
-            z: value.z,
-            loss: value.loss,
-        }
-    }
 }
