@@ -81,7 +81,7 @@ class Reorder(QirModuleVisitor):
                 last_dependent_step_idx = len(steps) - 1
                 used_values = get_used_values(instr)
                 while last_dependent_step_idx >= 0:
-                    if not uses_any_value(
+                    if uses_any_value(
                         used_values, values_used_in_step[last_dependent_step_idx]
                     ):
                         break
