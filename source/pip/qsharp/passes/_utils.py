@@ -43,6 +43,7 @@ def get_used_values(instr: Instruction):
         vals = instr.args
     else:
         vals = instr.operands
+    vals.append(instr)
     return vals
 
 
