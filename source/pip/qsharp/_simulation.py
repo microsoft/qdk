@@ -44,7 +44,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
         if callee_name == "__quantum__qis__ccx__body":
             self.gates.append(
                 (
-                    QirInstructionId.CXX,
+                    QirInstructionId.CCX,
                     pyqir.qubit_id(call.args[0]),
                     pyqir.qubit_id(call.args[1]),
                     pyqir.qubit_id(call.args[2]),
@@ -61,7 +61,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
         elif callee_name == "__quantum__qis__cy__body":
             self.gates.append(
                 (
-                    QirInstructionId.CX,
+                    QirInstructionId.CY,
                     pyqir.qubit_id(call.args[0]),
                     pyqir.qubit_id(call.args[1]),
                 )
