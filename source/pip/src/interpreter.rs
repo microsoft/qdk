@@ -927,7 +927,7 @@ pub fn run_clifford<'py>(
     assert!(shots > 0, "must run at least one shot");
 
     // convert Python list input to Vec<QirInstruction>
-    let mut instructions: Vec<QirInstruction> = vec![];
+    let mut instructions: Vec<QirInstruction> = Vec::with_capacity(input.len());
     for item in input.iter() {
         let item = <QirInstruction as FromPyObject>::extract_bound(&item).map_err(|e| {
             PyValueError::new_err(format!("expected QirInstruction, got {item:?}: {e}"))
@@ -1003,7 +1003,7 @@ fn run_clifford_shot(
             },
             QirInstruction::OneQubitRotationGate(id, _, _)
             | QirInstruction::TwoQubitRotationGate(id, _, _, _)
-            | QirInstruction::ThreeQubitRotationGate(id, _, _, _) => {
+            | QirInstruction::ThreeQubitGate(id, _, _, _) => {
                 panic!("unsupported gate in Clifford simulator, got {id:?}")
             }
             QirInstruction::OutputRecording(_id, _s, _tag) => {
@@ -1422,7 +1422,7 @@ pub enum QirInstructionId {
     CX,
     CY,
     CZ,
-    CXX,
+    CCX,
     SWAP,
     RX,
     RY,
@@ -1450,7 +1450,7 @@ pub enum QirInstruction {
     TwoQubitGate(QirInstructionId, usize, usize),
     OneQubitRotationGate(QirInstructionId, f64, usize),
     TwoQubitRotationGate(QirInstructionId, f64, usize, usize),
-    ThreeQubitRotationGate(QirInstructionId, usize, usize, usize),
+    ThreeQubitGate(QirInstructionId, usize, usize, usize),
     OutputRecording(QirInstructionId, String, String), // inst, value, tag
 }
 
