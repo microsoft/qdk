@@ -4,17 +4,6 @@
 from enum import Enum
 
 
-AC1K = {
-    "cols": 36,
-    "zones": [
-        {"title": "Register 1", "rows": 17, "kind": "register"},
-        {"title": "Interaction Zone", "rows": 4, "kind": "interaction"},
-        {"title": "Register 2", "rows": 17, "kind": "register"},
-        {"title": "Measurement Zone", "rows": 4, "kind": "measurement"},
-    ],
-}
-
-
 class ZoneType(Enum):
     """
     Enum representing different types of zones in the device layout.
@@ -133,3 +122,21 @@ class Device:
             list[Zone]: The measurement zones.
         """
         return [zone for zone in self.zones if zone.type == ZoneType.MEAS]
+
+    def as_dict(self) -> dict:
+        """
+        Get the device layout as a dictionary.
+
+        Returns:
+            dict: The device layout as a dictionary.
+        """
+        return {
+            "cols": self.column_count,
+            "zones": [
+                {"title": zone.name, "rows": zone.row_count, "kind": zone.type.value}
+                for zone in self.zones
+            ],
+        }
+
+
+AC1K = Device.ac1k().as_dict()
