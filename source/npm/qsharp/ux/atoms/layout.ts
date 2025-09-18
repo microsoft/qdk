@@ -91,7 +91,7 @@ function parseGate(
 
 /*
 We want to build up a cache of the qubit location at each 'n' steps so that scrubbing is fast.
-Storing for each step is too large for the number of shots we want to handle. Also, the building
+Storing for each step is too large for the number of steps we want to handle. Also, the building
 of the cache can take a long time, so we want to chunk it up to avoid blocking the UI thread.
 */
 function TraceToGetLayoutFn(trace: TraceData) {
