@@ -36,11 +36,6 @@ export type TraceData = {
 
 type Location = [number, number, SVGElement?];
 
-type PerStepLayout = Array<{
-  qubits: Location[];
-  ops: string[];
-}>;
-
 const qubitSize = 10;
 const zoneSpacing = 8;
 const colPadding = 20;
@@ -94,31 +89,125 @@ function parseGate(
   }
 }
 
-function TraceToPerStepLayout(trace: TraceData): PerStepLayout {
-  const perStepLayout: PerStepLayout = [];
+/*
+We want to build up a cache of the qubit location at each 'n' steps so that scrubbing is fast.
+Storing for each step is too large for the number of shots we want to handle. Also, the building
+of the cache can take a long time, so we want to chunk it up to avoid blocking the UI thread.
+*/
+function TraceToGetLayoutFn(trace: TraceData) {
+  const STEP_SIZE = 100; // How many steps between each cache entry
 
-  trace.steps.forEach((step, idx) => {
-    if (idx == 0) {
-      perStepLayout.push({
-        qubits: structuredClone(trace.qubits),
-        ops: step.ops,
-      });
-    } else {
-      // New locations are the previous locations with the previous step moves applied
-      const prevStep = perStepLayout[idx - 1];
-      // forEach and map are only invoked for populated elements in sparse arrays
-      const prevMoves = prevStep.ops
-        .map(parseMove)
-        .filter((x) => x != undefined);
+  const cacheEntries = Math.ceil(trace.steps.length / STEP_SIZE);
+  const entrySize = trace.qubits.length * 2; // row and col for each qubit
+  const cache = new Uint16Array(cacheEntries * entrySize);
 
-      const qubits = structuredClone(prevStep.qubits);
-      prevMoves.forEach((move) => {
-        qubits[move.qubit] = move.to;
-      });
-      perStepLayout.push({ qubits, ops: step.ops });
-    }
+  // Fill initial locations
+  trace.qubits.forEach((loc, idx) => {
+    cache[idx * 2] = loc[0];
+    cache[idx * 2 + 1] = loc[1];
   });
-  return perStepLayout;
+
+  let lastIndexProcessed = 0;
+
+  // Update the layout (which should be the prior step layout)
+  function getNextStepLayout(stepIndex: number, layout: Uint16Array) {
+    if (stepIndex <= 0 || stepIndex >= trace.steps.length) {
+      throw "Step out of range";
+    }
+    // Extract the move operations in the prior step, to apply to the prior layout
+    const moves = trace.steps[stepIndex - 1].ops
+      .map(parseMove)
+      .filter((x) => x != undefined);
+
+    // Then apply them to the layout
+    moves.forEach((move) => {
+      layout[move.qubit * 2] = move.to[0];
+      layout[move.qubit * 2 + 1] = move.to[1];
+    });
+  }
+
+  // syncRunToIndex is used to force processing up to a certain index synchronously, such as
+  // when the user is scrubbing to a point not yet processed asynchronously.
+  function processChunk(syncRunToIndex = 0) {
+    if (lastIndexProcessed >= cacheEntries - 1) {
+      return; // Done
+    }
+
+    const startPriorIndex = lastIndexProcessed * entrySize;
+    const startIndex = (lastIndexProcessed + 1) * entrySize;
+
+    // Copy to the next entry as the starting point
+    cache.copyWithin(startIndex, startPriorIndex, startPriorIndex + entrySize);
+    const targetSlice = cache.subarray(startIndex, startIndex + entrySize);
+
+    // Run each step in the chunk and apply the moves to the cache
+    for (let stepOffset = 1; stepOffset <= STEP_SIZE; ++stepOffset) {
+      const stepIndex = lastIndexProcessed * STEP_SIZE + stepOffset;
+      if (stepIndex >= trace.steps.length) break;
+      getNextStepLayout(stepIndex, targetSlice);
+    }
+
+    // Queue up the next chunk
+    ++lastIndexProcessed;
+    if (syncRunToIndex > 0) {
+      // Process synchronously up to the requested index if not done yet
+      if (lastIndexProcessed < syncRunToIndex) processChunk(syncRunToIndex);
+    } else {
+      // Process the next chunk asynchronously
+      setTimeout(processChunk, 0);
+    }
+  }
+  // Kick off the async processing
+  processChunk();
+
+  // When a layout is requested for a step, cache the response. Most of the time the following
+  // step will be requested next, so we can easily just apply one set of moves to the prior layout.
+  let lastRequestedStep = -1;
+  const lastLayout = new Uint16Array(entrySize);
+
+  function getLayoutAtStep(step: number): Uint16Array {
+    if (step < 0 || step >= trace.steps.length) {
+      throw "Step out of range";
+    }
+
+    // If the cache hasn't processed up to the required step, do so now
+    if (step >= (lastIndexProcessed + 1) * STEP_SIZE) {
+      const entryIndex = Math.floor(step / STEP_SIZE);
+      processChunk(entryIndex);
+    }
+
+    // If the step exactly matches a cache entry, return that
+    if (step % STEP_SIZE === 0) {
+      const entryIndex = step / STEP_SIZE;
+      const startIndex = entryIndex * entrySize;
+      lastLayout.set(cache.subarray(startIndex, startIndex + entrySize));
+      lastRequestedStep = step;
+      return lastLayout;
+    }
+
+    // Otherwise, if the last requested step was the prior step, just apply the moves
+    if (step === lastRequestedStep + 1) {
+      getNextStepLayout(step, lastLayout);
+      ++lastRequestedStep;
+      return lastLayout;
+    }
+
+    // Otherwise, find the nearest prior cache entry and apply moves from there
+    const entryIndex = Math.floor(step / STEP_SIZE);
+    const startIndex = entryIndex * entrySize;
+    lastLayout.set(cache.subarray(startIndex, startIndex + entrySize));
+    for (
+      let stepIndex = entryIndex * STEP_SIZE + 1;
+      stepIndex <= step;
+      ++stepIndex
+    ) {
+      getNextStepLayout(stepIndex, lastLayout);
+    }
+    lastRequestedStep = step;
+    return lastLayout;
+  }
+
+  return getLayoutAtStep;
 }
 
 export class Layout {
@@ -131,7 +220,8 @@ export class Layout {
   currentStep = 0;
   trackParent: SVGGElement;
   activeGates: SVGElement[] = [];
-  perStepLayout: PerStepLayout;
+  trace: TraceData;
+  getStepLayout: (step: number) => Uint16Array;
   showTracks = true;
   stepInterval = 500; // Used for playing and animations
 
@@ -142,9 +232,10 @@ export class Layout {
     if (!trace.qubits?.length) {
       trace.qubits = fillQubitLocations(layout);
     }
+    this.trace = trace;
+    this.getStepLayout = TraceToGetLayoutFn(trace);
 
-    this.perStepLayout = TraceToPerStepLayout(trace);
-    this.qubits = structuredClone(this.perStepLayout[0].qubits);
+    this.qubits = structuredClone(trace.qubits);
 
     this.container = document.createElementNS(
       "http://www.w3.org/2000/svg",
@@ -185,6 +276,13 @@ export class Layout {
     appendChildren(this.container, [this.trackParent]);
 
     this.renderQubits();
+  }
+
+  private getOpsAtStep(step: number) {
+    if (step < 0 || step >= this.trace.steps.length) {
+      throw "Step out of range";
+    }
+    return this.trace.steps[step].ops;
   }
 
   private renderZone(zoneIndex: number, offset: number, firstRowNum = 0) {
@@ -476,22 +574,25 @@ export class Layout {
     const qubitLocationIndex = step === 0 ? 0 : step - 1;
 
     // Update all qubit locations
-    this.perStepLayout[qubitLocationIndex].qubits.forEach((loc, idx) => {
+    const qubitLayout = this.getStepLayout(qubitLocationIndex);
+    const qubitCount = qubitLayout.length / 2;
+    for (let idx = 0; idx < qubitCount; ++idx) {
       const elem = this.qubits[idx][2];
       if (elem === undefined) {
         throw "Invalid qubit index in step";
       }
+      const loc: Location = [qubitLayout[idx * 2], qubitLayout[idx * 2 + 1]];
       this.qubits[idx] = [loc[0], loc[1], elem]; // Update the location
 
       // Get the offset for the location and move it there
       const [x, y] = this.getQubitCenter(idx);
       elem.style.transform = `translate(${x}px, ${y}px)`;
-    });
+    }
 
     // Now apply the ops
     if (step > 0) {
       const duration = forwards ? this.stepInterval / 2 : 0;
-      const ops = this.perStepLayout[qubitLocationIndex].ops;
+      const ops = this.getOpsAtStep(qubitLocationIndex);
       let trailId = 0;
       ops.forEach((op) => {
         const move = parseMove(op);
