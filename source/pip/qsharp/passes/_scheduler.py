@@ -187,7 +187,6 @@ class Schedule(QirModuleVisitor):
             return
         # Else, create movements for remaining single qubit ops and insert them, then the ops, then move back.
         else:
-            # TODO: Create moves for remaining single qubit ops...
             interaction_zone = self.device.get_interaction_zones()[0]
             interaction_zone_row_offset = (
                 interaction_zone.offset // self.device.column_count

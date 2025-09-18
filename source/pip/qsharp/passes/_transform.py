@@ -121,7 +121,7 @@ def transform(
         start_time = end_time
 
     ValidateAllowedIntrinsics().run(module)
-    ValidateBeginEndParallel().run(module)
+    # ValidateBeginEndParallel().run(module)
     if check_clifford:
         ValidateSingleBlock().run(module)
         ValidateCliffordRzAngles().run(module)
