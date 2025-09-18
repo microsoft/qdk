@@ -921,7 +921,7 @@ pub fn run_clifford<'py>(
     input: &Bound<'py, PyList>,
     num_qubits: usize,
     shots: usize,
-    noise_config: NoiseConfig,
+    noise_config: &Bound<'py, NoiseConfig>,
 ) -> PyResult<PyObject> {
     use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
     assert!(shots > 0, "must run at least one shot");
@@ -935,7 +935,7 @@ pub fn run_clifford<'py>(
         instructions.push(item);
     }
 
-    let noise = noise_config.into();
+    let noise = unbind_noise_config(py, noise_config);
 
     // run the shots
     let output = (0..shots)
@@ -1454,75 +1454,87 @@ pub enum QirInstruction {
     OutputRecording(QirInstructionId, String, String), // inst, value, tag
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 #[pyclass(module = "qsharp._native")]
 pub struct NoiseConfig {
-    pub x: NoiseTable,
-    pub y: NoiseTable,
-    pub z: NoiseTable,
-    pub h: NoiseTable,
-    pub s: NoiseTable,
-    pub s_adj: NoiseTable,
-    pub sx: NoiseTable,
-    pub cz: NoiseTable,
-    pub mov: NoiseTable,
-    pub mresetz: NoiseTable,
-    pub idle: IdleNoiseParams,
+    #[pyo3(get)]
+    pub x: Py<NoiseTable>,
+    #[pyo3(get)]
+    pub y: Py<NoiseTable>,
+    #[pyo3(get)]
+    pub z: Py<NoiseTable>,
+    #[pyo3(get)]
+    pub h: Py<NoiseTable>,
+    #[pyo3(get)]
+    pub s: Py<NoiseTable>,
+    #[pyo3(get)]
+    pub s_adj: Py<NoiseTable>,
+    #[pyo3(get)]
+    pub sx: Py<NoiseTable>,
+    #[pyo3(get)]
+    pub cz: Py<NoiseTable>,
+    #[pyo3(get)]
+    pub mov: Py<NoiseTable>,
+    #[pyo3(get)]
+    pub mresetz: Py<NoiseTable>,
+    #[pyo3(get)]
+    pub idle: Py<IdleNoiseParams>,
 }
 
 #[pymethods]
 impl NoiseConfig {
     #[new]
-    fn new() -> Self {
-        Default::default()
+    fn new(py: Python) -> PyResult<Self> {
+        bind_noise_config(
+            py,
+            qdk_simulators::stabilizer_simulator::NoiseConfig::NOISELESS,
+        )
     }
 }
 
-impl Default for NoiseConfig {
-    fn default() -> Self {
-        qdk_simulators::stabilizer_simulator::NoiseConfig::NOISELESS.into()
-    }
+fn bind_noise_config(
+    py: Python,
+    value: qdk_simulators::stabilizer_simulator::NoiseConfig,
+) -> PyResult<NoiseConfig> {
+    Ok(NoiseConfig {
+        x: Py::new(py, NoiseTable::from(value.x))?,
+        y: Py::new(py, NoiseTable::from(value.y))?,
+        z: Py::new(py, NoiseTable::from(value.z))?,
+        h: Py::new(py, NoiseTable::from(value.h))?,
+        s: Py::new(py, NoiseTable::from(value.s))?,
+        s_adj: Py::new(py, NoiseTable::from(value.s_adj))?,
+        sx: Py::new(py, NoiseTable::from(value.sx))?,
+        cz: Py::new(py, NoiseTable::from(value.cz))?,
+        mov: Py::new(py, NoiseTable::from(value.mov))?,
+        mresetz: Py::new(py, NoiseTable::from(value.mresetz))?,
+        idle: Py::new(py, IdleNoiseParams::from(value.idle))?,
+    })
 }
 
-impl From<NoiseConfig> for qdk_simulators::stabilizer_simulator::NoiseConfig {
-    fn from(value: NoiseConfig) -> Self {
-        qdk_simulators::stabilizer_simulator::NoiseConfig {
-            x: value.x.into(),
-            y: value.y.into(),
-            z: value.z.into(),
-            h: value.h.into(),
-            s: value.s.into(),
-            s_adj: value.s_adj.into(),
-            sx: value.sx.into(),
-            cz: value.cz.into(),
-            mov: value.mov.into(),
-            mresetz: value.mresetz.into(),
-            idle: value.idle.into(),
-        }
-    }
-}
-
-impl From<qdk_simulators::stabilizer_simulator::NoiseConfig> for NoiseConfig {
-    fn from(value: qdk_simulators::stabilizer_simulator::NoiseConfig) -> Self {
-        NoiseConfig {
-            x: value.x.into(),
-            y: value.y.into(),
-            z: value.z.into(),
-            h: value.h.into(),
-            s: value.s.into(),
-            s_adj: value.s_adj.into(),
-            sx: value.sx.into(),
-            cz: value.cz.into(),
-            mov: value.mov.into(),
-            mresetz: value.mresetz.into(),
-            idle: value.idle.into(),
-        }
+fn unbind_noise_config(
+    py: Python,
+    value: &Bound<NoiseConfig>,
+) -> qdk_simulators::stabilizer_simulator::NoiseConfig {
+    let value = value.borrow();
+    qdk_simulators::stabilizer_simulator::NoiseConfig {
+        x: from_noise_table_ref(&value.x.borrow(py)),
+        y: from_noise_table_ref(&value.y.borrow(py)),
+        z: from_noise_table_ref(&value.z.borrow(py)),
+        h: from_noise_table_ref(&value.h.borrow(py)),
+        s: from_noise_table_ref(&value.s.borrow(py)),
+        s_adj: from_noise_table_ref(&value.s_adj.borrow(py)),
+        sx: from_noise_table_ref(&value.sx.borrow(py)),
+        cz: from_noise_table_ref(&value.cz.borrow(py)),
+        mov: from_noise_table_ref(&value.mov.borrow(py)),
+        mresetz: from_noise_table_ref(&value.mresetz.borrow(py)),
+        idle: from_idle_noise_params_ref(&value.idle.borrow(py)),
     }
 }
 
 #[derive(Clone, Copy, Debug)]
 #[pyclass(module = "qsharp._native")]
 pub struct IdleNoiseParams {
+    #[pyo3(get, set)]
     pub s_probability: f32,
 }
 
@@ -1542,6 +1554,14 @@ impl From<IdleNoiseParams> for qdk_simulators::stabilizer_simulator::IdleNoisePa
     }
 }
 
+fn from_idle_noise_params_ref(
+    value: &PyRef<'_, IdleNoiseParams>,
+) -> qdk_simulators::stabilizer_simulator::IdleNoiseParams {
+    qdk_simulators::stabilizer_simulator::IdleNoiseParams {
+        s_probability: value.s_probability,
+    }
+}
+
 impl From<qdk_simulators::stabilizer_simulator::IdleNoiseParams> for IdleNoiseParams {
     fn from(value: qdk_simulators::stabilizer_simulator::IdleNoiseParams) -> Self {
         IdleNoiseParams {
@@ -1553,9 +1573,13 @@ impl From<qdk_simulators::stabilizer_simulator::IdleNoiseParams> for IdleNoisePa
 #[derive(Clone, Copy, Debug)]
 #[pyclass(module = "qsharp._native")]
 pub struct NoiseTable {
+    #[pyo3(get, set)]
     pub x: f32,
+    #[pyo3(get, set)]
     pub y: f32,
+    #[pyo3(get, set)]
     pub z: f32,
+    #[pyo3(get, set)]
     pub loss: f32,
 }
 
@@ -1580,6 +1604,17 @@ impl From<NoiseTable> for qdk_simulators::stabilizer_simulator::NoiseTable {
             z: value.z,
             loss: value.loss,
         }
+    }
+}
+
+fn from_noise_table_ref(
+    value: &PyRef<'_, NoiseTable>,
+) -> qdk_simulators::stabilizer_simulator::NoiseTable {
+    qdk_simulators::stabilizer_simulator::NoiseTable {
+        x: value.x,
+        y: value.y,
+        z: value.z,
+        loss: value.loss,
     }
 }
 
