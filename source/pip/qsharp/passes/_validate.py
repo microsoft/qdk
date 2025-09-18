@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from pyqir import FloatConstant, QirModuleVisitor
+from pyqir import FloatConstant, QirModuleVisitor, is_entry_point
 from math import pi
 from ._utils import TOLERANCE
 
@@ -11,18 +11,24 @@ class ValidateAllowedIntrinsics(QirModuleVisitor):
     Ensure that the module only contains allowed intrinsics.
     """
 
-    def _on_call_instr(self, call):
-        if not call.callee.name.endswith("_record_output") and call.callee.name not in [
-            "__quantum__rt__begin_parallel",
-            "__quantum__rt__end_parallel",
-            "__quantum__qis__read_result__body",
-            "__quantum__qis__move__body",
-            "__quantum__qis__cz__body",
-            "__quantum__qis__sx__body",
-            "__quantum__qis__rz__body",
-            "__quantum__qis__mresetz__body",
-        ]:
-            raise ValueError(f"{call.callee.name} is not a supported intrinsic")
+    def _on_function(self, function):
+        name = function.name
+        if (
+            not is_entry_point(function)
+            and not name.endswith("_record_output")
+            and name
+            not in [
+                "__quantum__rt__begin_parallel",
+                "__quantum__rt__end_parallel",
+                "__quantum__qis__read_result__body",
+                "__quantum__qis__move__body",
+                "__quantum__qis__cz__body",
+                "__quantum__qis__sx__body",
+                "__quantum__qis__rz__body",
+                "__quantum__qis__mresetz__body",
+            ]
+        ):
+            raise ValueError(f"{name} is not a supported intrinsic")
 
 
 class ValidateBeginEndParallel(QirModuleVisitor):

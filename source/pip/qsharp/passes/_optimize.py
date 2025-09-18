@@ -9,6 +9,7 @@ from pyqir import (
     Linkage,
     const,
     qubit_type,
+    qubit_id,
     result_type,
     is_entry_point,
     QirModuleVisitor,
@@ -181,9 +182,10 @@ class OptimizeSingleQubitGates(QirModuleVisitor):
         # Since instructions are only removed when they are canceled out by their adjoint or folded with another
         # instruction, we can just pop the entries for these qubits so they start fresh with the next gates.
         for qubit in qubits:
-            self.qubit_ops.pop(str(qubit), None)
-            self.last_meas.pop(str(qubit), None)
-            self.used_qubits.add(str(qubit))
+            q = qubit_id(qubit)
+            self.qubit_ops.pop(q, None)
+            self.last_meas.pop(q, None)
+            self.used_qubits.add(q)
 
     def schedule(self, instr, key, name, adj):
         self.last_meas.pop(key, None)
@@ -293,44 +295,44 @@ class OptimizeSingleQubitGates(QirModuleVisitor):
             super()._on_call_instr(call)
 
     def _on_qis_h(self, call, target):
-        self.schedule(call, str(target), "h", "h")
+        self.schedule(call, qubit_id(target), "h", "h")
 
     def _on_qis_s(self, call, target):
-        self.schedule(call, str(target), "s", "s_adj")
+        self.schedule(call, qubit_id(target), "s", "s_adj")
 
     def _on_qis_s_adj(self, call, target):
-        self.schedule(call, str(target), "s_adj", "s")
+        self.schedule(call, qubit_id(target), "s_adj", "s")
 
     def _on_qis_t(self, call, target):
-        self.schedule(call, str(target), "t", "t_adj")
+        self.schedule(call, qubit_id(target), "t", "t_adj")
 
     def _on_qis_t_adj(self, call, target):
-        self.schedule(call, str(target), "t_adj", "t")
+        self.schedule(call, qubit_id(target), "t_adj", "t")
 
     def _on_qis_x(self, call, target):
-        self.schedule(call, str(target), "x", "x")
+        self.schedule(call, qubit_id(target), "x", "x")
 
     def _on_qis_y(self, call, target):
-        self.schedule(call, str(target), "y", "y")
+        self.schedule(call, qubit_id(target), "y", "y")
 
     def _on_qis_z(self, call, target):
-        self.schedule(call, str(target), "z", "z")
+        self.schedule(call, qubit_id(target), "z", "z")
 
     def _on_qis_rx(self, call, angle, target):
-        self.rotate(call, str(target), "rx")
+        self.rotate(call, qubit_id(target), "rx")
 
     def _on_qis_ry(self, call, angle, target):
-        self.rotate(call, str(target), "ry")
+        self.rotate(call, qubit_id(target), "ry")
 
     def _on_qis_rz(self, call, angle, target):
-        self.rotate(call, str(target), "rz")
+        self.rotate(call, qubit_id(target), "rz")
 
     def _on_qis_cz(self, call, target1, target2):
         self.flush_ops([target1, target2])
 
     def _on_qis_m(self, call, target, result):
         self.flush_ops([target])
-        self.last_meas[str(target)] = (call, target, result)
+        self.last_meas[qubit_id(target)] = (call, target, result)
 
     def _on_qis_mz(self, call, target, result):
         self._on_qis_m(call, target, result)
@@ -339,9 +341,10 @@ class OptimizeSingleQubitGates(QirModuleVisitor):
         self.flush_ops([target])
 
     def _on_qis_reset(self, call, target):
-        if str(target) in self.last_meas:
+        id = qubit_id(target)
+        if id in self.last_meas:
             # Since there was a measurement on this qubit, we can combine that measurement with the reset.
-            (instr, target, result) = self.last_meas.pop(str(target))
+            (instr, target, result) = self.last_meas.pop(id)
             instr.erase()
             self.builder.insert_before(call)
             self.builder.call(
@@ -349,7 +352,7 @@ class OptimizeSingleQubitGates(QirModuleVisitor):
                 [target, result],
             )
             call.erase()
-        elif not str(target) in self.used_qubits:
+        elif not id in self.used_qubits:
             # This qubit was never used, so we can just erase the reset instruction.
             call.erase()
             return
