@@ -31,19 +31,11 @@ def instr_key(instr: Instruction):
     if gate != {}:
         qubits = sorted(gate["qubit_args"])
         if len(qubits) == 2:
-            # if qubits[0] % 2 == 1 and qubits[1] % 2 == 0:
-            # Swap qubits to ensure that the first qubit is always even.
-            # return (gate["gate"], 0, qubits[1], qubits[0])
-            # elif qubits[0] % 2 != qubits[1] % 2:
-            return (gate["gate"], 0, qubits[0], qubits[1])
-            # elif qubits[0] % 2 == 0:
-            # return (gate["gate"], 1, qubits[0], qubits[1])
-            # else:
-            # return (gate["gate"], 2, qubits[1], qubits[0])
+            return (gate["gate"], qubits[0], qubits[1])
         if len(gate["result_args"]) > 0:
-            return (gate["gate"], 0, gate["result_args"][0])
-        return (gate["gate"], 0, qubits[0])
-    return ("", 0)
+            return (gate["gate"], gate["result_args"][0])
+        return (gate["gate"], qubits[0])
+    return ("",)
 
 
 class Reorder(QirModuleVisitor):
