@@ -22,7 +22,6 @@ fn gate_op(id: u32, q1: u32, q2: u32, q3: u32, angle: f32) -> Op {
         q2,
         q3,
         angle,
-        padding: [0; 204],
         _00r: 0.0,
         _00i: 0.0,
         _01r: 0.0,
@@ -31,15 +30,12 @@ fn gate_op(id: u32, q1: u32, q2: u32, q3: u32, angle: f32) -> Op {
         _10i: 0.0,
         _11r: 0.0,
         _11i: 0.0,
+        padding: [0; 204],
     }
 }
 
 fn m_every_z() -> Op {
     gate_op(ops::MEVERYZ, 0, 0, 0, 0.0)
-}
-
-fn one_qubit_gate(id: u32, qubit: u32) -> Op {
-    gate_op(id, qubit, 0, 0, 0.0)
 }
 
 fn gate(rng: &mut StdRng) -> Op {
