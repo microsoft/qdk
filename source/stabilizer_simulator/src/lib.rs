@@ -266,6 +266,7 @@ impl Simulator {
     /// Measures a Z observable on the given `target`.
     fn measure_z(&mut self, target: QubitID) -> MeasurementResult {
         if self.loss[target] {
+            self.loss[target] = false;
             return MeasurementResult::Loss;
         }
 

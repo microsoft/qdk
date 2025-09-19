@@ -2,7 +2,15 @@
 # Licensed under the MIT License.
 
 from ._utils import as_qis_gate, get_used_values, uses_any_value
-from pyqir import Call, Instruction, Function, QirModuleVisitor
+from pyqir import (
+    Call,
+    Instruction,
+    Function,
+    QirModuleVisitor,
+    is_entry_point,
+    qubit_id,
+    required_num_qubits,
+)
 
 
 def is_output_recording(instr: Instruction):
@@ -23,17 +31,18 @@ def instr_key(instr: Instruction):
     if gate != {}:
         qubits = sorted(gate["qubit_args"])
         if len(qubits) == 2:
-            if qubits[0] % 2 == 1 and qubits[1] % 2 == 0:
-                # Swap qubits to ensure that the first qubit is always even.
-                return (gate["gate"], 0, qubits[1], qubits[0])
-            elif qubits[0] % 2 != qubits[1] % 2:
-                return (gate["gate"], 0, qubits[0], qubits[1])
-            elif qubits[0] % 2 == 0:
-                return (gate["gate"], 1, qubits[0], qubits[1])
-            else:
-                return (gate["gate"], 2, qubits[1], qubits[0])
-        else:
-            return (gate["gate"], 0, qubits[0])
+            # if qubits[0] % 2 == 1 and qubits[1] % 2 == 0:
+            # Swap qubits to ensure that the first qubit is always even.
+            # return (gate["gate"], 0, qubits[1], qubits[0])
+            # elif qubits[0] % 2 != qubits[1] % 2:
+            return (gate["gate"], 0, qubits[0], qubits[1])
+            # elif qubits[0] % 2 == 0:
+            # return (gate["gate"], 1, qubits[0], qubits[1])
+            # else:
+            # return (gate["gate"], 2, qubits[1], qubits[0])
+        if len(gate["result_args"]) > 0:
+            return (gate["gate"], 0, gate["result_args"][0])
+        return (gate["gate"], 0, qubits[0])
     return ("", 0)
 
 
@@ -67,13 +76,19 @@ class Reorder(QirModuleVisitor):
                 # the terminator.
                 output_recording.append(instr)
             elif is_irreversible(instr):
+                used_values = get_used_values(instr)
                 # Irreversible instructions must be placed in their own step. Only add
                 # them to the last step if it is also for irreversible instructions.
-                if any(is_irreversible(s) for s in steps[-1]):
+                if (
+                    len(steps) > 0
+                    and any(is_irreversible(s) for s in steps[-1])
+                    and not uses_any_value(used_values, values_used_in_step[-1])
+                ):
                     steps[-1].append(instr)
+                    values_used_in_step[-1].update(used_values)
                 else:
                     steps.append([instr])
-                    values_used_in_step.append(set(get_used_values(instr)))
+                    values_used_in_step.append(set(used_values))
             else:
                 # Find the last step that contains instructions that the current instruction
                 # depends on. We want to insert the current instruction on the earliest possible
@@ -106,3 +121,35 @@ class Reorder(QirModuleVisitor):
         for instr in output_recording:
             self.builder.instr(instr)
         self.builder.instr(terminator)
+
+
+class PerQubitOrdering(QirModuleVisitor):
+    """
+    Get the ordering of instructions on each qubit as a data structure.
+    """
+
+    qubit_instructions: list[list[str]]
+
+    def _on_function(self, function):
+        if is_entry_point(function):
+            self.qubit_instructions = [[] for _ in range(required_num_qubits(function))]
+            super()._on_function(function)
+
+    def _on_call_instr(self, call):
+        if call.callee.name == "__quantum__qis__sx__body":
+            self._on_qis_sx(call, call.args[0])
+        else:
+            super()._on_call_instr(call)
+
+    def _on_qis_cz(self, call, ctrl, target):
+        self.qubit_instructions[qubit_id(ctrl)].append(str(call))
+        self.qubit_instructions[qubit_id(target)].append(str(call))
+
+    def _on_qis_sx(self, call, target):
+        self.qubit_instructions[qubit_id(target)].append(str(call))
+
+    def _on_qis_rz(self, call, angle, target):
+        self.qubit_instructions[qubit_id(target)].append(str(call))
+
+    def _on_qis_mresetz(self, call, target, result):
+        self.qubit_instructions[qubit_id(target)].append(str(call))

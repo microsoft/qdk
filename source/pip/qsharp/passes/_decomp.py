@@ -434,15 +434,24 @@ class DecomposeRzAnglesToCliffordGates(QirModuleVisitor):
         angle = angle.value
 
         self.builder.insert_before(call)
-        angle = abs(angle)
 
-        if abs(angle - self.THREE_PI_OVER_2) < TOLERANCE:
+        if (
+            abs(angle - self.THREE_PI_OVER_2) < TOLERANCE
+            or abs(angle + self.PI_OVER_2) < TOLERANCE
+        ):
             self.builder.call(self.sadj_func, [target])
-        elif abs(angle - pi) < TOLERANCE:
+        elif abs(angle - pi) < TOLERANCE or abs(angle + pi) < TOLERANCE:
             self.builder.call(self.z_func, [target])
-        elif abs(angle - self.PI_OVER_2) < TOLERANCE:
+        elif (
+            abs(angle - self.PI_OVER_2) < TOLERANCE
+            or abs(angle + self.THREE_PI_OVER_2) < TOLERANCE
+        ):
             self.builder.call(self.s_func, [target])
-        elif angle < TOLERANCE or abs(angle - self.TWO_PI) < TOLERANCE:
+        elif (
+            angle < TOLERANCE
+            or abs(angle - self.TWO_PI) < TOLERANCE
+            or abs(angle + self.TWO_PI) < TOLERANCE
+        ):
             # I, drop it
             pass
         else:

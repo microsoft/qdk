@@ -88,6 +88,7 @@ class Schedule(QirModuleVisitor):
         self.measurements = []
         self.pending_moves = []
         self.vals_used_in_cz_ops = set()
+        self.vals_used_in_measurements = set()
         for instr in instructions:
             gate = as_qis_gate(instr)
             if (
@@ -106,7 +107,8 @@ class Schedule(QirModuleVisitor):
                 # Create move instructions to move qubits to interaction zone and save them in pending moves for later insertion.
                 vals_used = get_used_values(instr)
                 if (
-                    uses_any_value(vals_used, self.vals_used_in_cz_ops)
+                    len(self.measurements) > 0
+                    or uses_any_value(vals_used, self.vals_used_in_cz_ops)
                     or len(self.cz_ops_by_row[-1]) >= iz_pairs_per_row
                 ):
                     self.flush_pending(instr)
@@ -128,16 +130,20 @@ class Schedule(QirModuleVisitor):
                 loc2 = (row + interaction_zone_row_offset, col2)
                 self.pending_moves.append((instr.args[0], loc1))
                 self.pending_moves.append((instr.args[1], loc2))
-                pass
             elif gate != {} and len(gate["result_args"]) == 1:
                 # Do measurement stuff...
                 # Pick next available measurement zone location for this qubit. If none, flush the current set and start a fresh set.
                 # Create move instructions to move qubit to measurement zone and save them in pending moves for later insertion.
-
+                vals_used = get_used_values(instr)
                 if (
                     len(self.measurements) == 0
                     or len(self.measurements) >= max_measurements
+                    or uses_any_value(vals_used, self.vals_used_in_measurements)
                 ):
+                    self.flush_pending(instr)
+                if len(self.single_qubit_ops[gate["qubit_args"][0]]) > 0:
+                    # There are still pending single qubits ops for the qubit we want to measure,
+                    # so trigger another flush.
                     self.flush_pending(instr)
                 instr.remove()
                 idx = len(self.measurements)
@@ -145,10 +151,10 @@ class Schedule(QirModuleVisitor):
                 col = idx % self.device.column_count
                 loc = (row + measurement_zone_row_offset, col)
                 self.measurements.append((instr, gate))
+                self.vals_used_in_measurements.update(vals_used)
                 self.pending_moves.append((instr.args[0], loc))
             else:
                 self.flush_pending(instr)
-                pass
 
     def flush_pending(self, insert_before: Instruction):
         self.builder.insert_before(insert_before)
@@ -182,6 +188,7 @@ class Schedule(QirModuleVisitor):
                 self.builder.instr(meas_op)
             self.builder.call(self.end_func, [])
             self.measurements = []
+            self.vals_used_in_measurements = set()
             self.insert_moves_back()
             self.pending_moves = []
             return

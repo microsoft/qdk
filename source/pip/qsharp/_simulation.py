@@ -30,9 +30,9 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
 
         # verify that the module is base profile
         func = next(filter(pyqir.is_entry_point, mod.functions))
-        profile_attr = func.attributes.func["qir_profiles"]
-        if profile_attr is None or profile_attr.string_value != "base_profile":
-            raise ValueError("Only base profile is supported")
+        # profile_attr = func.attributes.func["qir_profiles"]
+        # if profile_attr is None or profile_attr.string_value != "base_profile":
+        #     raise ValueError("Only base profile is supported")
         self.required_num_qubits = pyqir.required_num_qubits(func)
         self.required_num_results = pyqir.required_num_results(func)
 
