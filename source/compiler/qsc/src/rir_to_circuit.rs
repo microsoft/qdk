@@ -122,14 +122,31 @@ pub(crate) fn make_circuit(
     let mut program_map = ProgramMap::new(program.num_qubits);
     let callables = &program.callables;
 
-    for (id, block) in program.blocks.iter() {
-        let block_operations =
-            operations_in_block(&mut program_map, callables, block, config.group_scopes)?;
-        program_map.blocks.insert(id, block_operations);
-    }
+    let mut more_work = true;
+    while more_work {
+        for (id, block) in program.blocks.iter() {
+            let block_operations =
+                operations_in_block(&mut program_map, callables, block, config.group_scopes)?;
+            program_map.blocks.insert(id, block_operations);
+        }
 
-    expand_branches(program, &mut program_map)?;
-    program_map.blocks.clear();
+        // TODO: this is a terrible way of doing this
+        let len_before = program_map
+            .variables
+            .values()
+            .filter(|v| v.is_unresolved())
+            .count();
+        eprintln!("expanding branches, unresolved vars before = {len_before}");
+        let _ = expand_branches(program, &mut program_map);
+        program_map.blocks.clear();
+        let len_after = program_map
+            .variables
+            .values()
+            .filter(|v| v.is_unresolved())
+            .count();
+        eprintln!("expanding branches, unresolved vars after = {len_after}");
+        more_work = len_after != len_before;
+    }
 
     // Do it all again, with all variables properly resolved
     for (id, block) in program.blocks.iter() {
@@ -138,6 +155,7 @@ pub(crate) fn make_circuit(
         program_map.blocks.insert(id, block_operations);
     }
 
+    debug!("expanding branches, #2");
     expand_branches(program, &mut program_map)?;
 
     let entry_block = program
@@ -187,8 +205,6 @@ fn expand_branches(program: &Program, state: &mut ProgramMap) -> Result<(), Erro
             .expect("block should exist")
             .clone();
 
-        eprintln!("block terminator is {:?}", circuit_block.terminator);
-
         if let Some(Terminator::Conditional(branch)) = circuit_block
             .terminator
             .take_if(|t| matches!(t, Terminator::Conditional(_)))
@@ -211,7 +227,6 @@ fn expand_branches(program: &Program, state: &mut ProgramMap) -> Result<(), Erro
                 .get(expanded_branch.unconditional_successor)
                 .expect("successor block should exist");
 
-            eprintln!("processing successor block: {successor_block:?}");
             let condition_expr = state.expr_for_variable(branch.condition.variable_id)?;
 
             let phi_vars = store_phi_vars_from_branch(
@@ -260,26 +275,21 @@ fn store_phi_vars_from_branch(
 fn combine_exprs(options: Vec<(Expr, Expr)>) -> Result<Expr, Error> {
     // assert all the exprs are the same type
     let first = &options.first().expect("options should not be empty").1;
-    if let Expr::Unresolved(_) = first {
-    } else {
-        for (_, expr) in &options {
-            if let Expr::Unresolved(_) = expr {
-                continue;
-            }
-            assert!(
-                !(std::mem::discriminant(expr) != std::mem::discriminant(first)),
-                "cannot combine expressions of different types: {first:?} and {expr:?}"
-            );
-        }
+
+    if first.is_unresolved() {
+        return Err(Error::UnsupportedFeature(format!(
+            "complex phi chains not supported yet: {options:?}"
+        )));
     }
 
     let e = match first {
-        Expr::Rich(_) | Expr::Bool(_) => Expr::Rich(RichExpr::Options(options)),
-        Expr::Unresolved(_) => {
-            return Err(Error::UnsupportedFeature(format!(
-                "complex phi chains not supported yet: {options:?}"
-            )));
-        }
+        Expr::Rich(_) | Expr::Bool(_) => Expr::Rich(RichExpr::FunctionOf(
+            options
+                .into_iter()
+                .flat_map(|(cond, expr)| vec![cond, expr])
+                .collect(),
+        )),
+        Expr::Unresolved(_) => panic!("unresolved expr should have been caught earlier"),
     };
     Ok(e)
 }
@@ -462,8 +472,6 @@ fn expand_branch(
     curent_block_id: BlockId,
     branch: &Branch,
 ) -> Result<ExpandedBranchBlock, Error> {
-    eprintln!("expanding branch: {branch:?}");
-
     let cond_expr = state.expr_for_variable(branch.condition.variable_id)?;
     let results = cond_expr.linked_results();
 
@@ -1210,15 +1218,12 @@ enum BoolExpr {
     BinOp(Box<Expr>, Box<Expr>, String),
 }
 
-impl BoolExpr {}
-
 /// These could be of type boolean, we just don't necessary know
 /// when they get complex. We could keep track, though it's probably
 /// not necessary at this point.
 #[derive(Debug, Clone, PartialEq)]
 enum RichExpr {
     Literal(String),
-    Options(Vec<(Expr, Expr)>),
     FunctionOf(Vec<Expr>), // catch-all for complex expressions
 }
 
@@ -1235,21 +1240,18 @@ impl Expr {
                     filter: (!f00, !f01, !f10, !f11),
                 })
             }
-            Expr::Rich(RichExpr::Options(opts)) => {
-                // collect all the exprssions in `opts` and just dump them all into
-                // the same vector without negating them. Use RichExpr::FunctionOf
-                // and leave it at that.
-                let exprs = opts
-                    .iter()
-                    .flat_map(|(cond, expr)| vec![cond.clone(), expr.clone()])
-                    .collect();
-                Expr::Rich(RichExpr::FunctionOf(exprs))
+            Expr::Bool(BoolExpr::BinOp(left, right, op)) => {
+                Expr::Rich(RichExpr::FunctionOf(vec![Expr::Bool(BoolExpr::BinOp(
+                    left.clone(),
+                    right.clone(),
+                    op.clone(),
+                ))]))
             }
-            expr => {
-                return Err(Error::UnsupportedFeature(format!(
-                    "too tired to negate complex expressions: {expr:?}"
-                )));
-            }
+            Expr::Rich(rich_expr) => match rich_expr {
+                RichExpr::Literal(l) => Expr::Rich(RichExpr::Literal(format!("!({l})"))),
+                RichExpr::FunctionOf(_) => self.clone(),
+            },
+            Expr::Unresolved(_) => self.clone(),
         };
         Ok(b)
     }
@@ -1257,12 +1259,6 @@ impl Expr {
     fn linked_results(&self) -> Vec<u32> {
         match self {
             Expr::Rich(rich_expr) => match rich_expr {
-                RichExpr::Options(exprs) => exprs
-                    .iter()
-                    .flat_map(|(cond, e)| {
-                        cond.linked_results().into_iter().chain(e.linked_results())
-                    })
-                    .collect(),
                 RichExpr::Literal(_) => vec![],
                 RichExpr::FunctionOf(exprs) => {
                     exprs.iter().flat_map(Expr::linked_results).collect()
@@ -1290,29 +1286,46 @@ impl Expr {
             }
         }
     }
+
+    fn is_unresolved(&self) -> bool {
+        match self {
+            Self::Rich(rich_expr) => match rich_expr {
+                RichExpr::Literal(_) => false,
+                RichExpr::FunctionOf(exprs) => exprs.iter().any(Expr::is_unresolved),
+            },
+            Self::Bool(bool_expr) => match bool_expr {
+                BoolExpr::TwoResultCondition { .. }
+                | BoolExpr::Result(_)
+                | BoolExpr::NotResult(_)
+                | BoolExpr::LiteralBool(_) => false,
+                BoolExpr::BinOp(expr1, expr2, _) => expr1.is_unresolved() || expr2.is_unresolved(),
+            },
+            Self::Unresolved(_) => true,
+        }
+    }
 }
 
 impl Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Expr::Rich(complicated_expr) => match complicated_expr {
-                RichExpr::Options(exprs) => {
-                    let exprs_str: Vec<String> = exprs
-                        .iter()
-                        .map(|(cond, val)| format!("if {cond} then {val}"))
-                        .collect();
-                    write!(f, "(one of: ({}))", exprs_str.join(", "))
-                }
                 RichExpr::Literal(literal_str) => write!(f, "{literal_str}"),
-                RichExpr::FunctionOf(exprs) => write!(
-                    f,
-                    "function of: ({})",
-                    exprs
+                RichExpr::FunctionOf(exprs) => {
+                    let results = exprs
                         .iter()
-                        .map(ToString::to_string)
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ),
+                        .flat_map(Expr::linked_results)
+                        .collect::<FxHashSet<_>>();
+
+                    write!(
+                        f,
+                        "function of {}",
+                        results
+                            .into_iter()
+                            .map(|r| format!("c_{r}"))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                }
             },
             Expr::Bool(condition_expr) => write!(f, "{condition_expr}"),
             Expr::Unresolved(variable_id) => write!(f, "unresolved({variable_id:?})"),
@@ -1402,6 +1415,7 @@ impl ProgramMap {
 
     fn expr_for_variable(&self, variable_id: VariableId) -> Result<&Expr, Error> {
         let expr = self.variables.get(variable_id);
+        eprintln!("debug: expr for variable {variable_id:?} is {expr:?}");
         Ok(expr.unwrap_or_else(|| {
             panic!("variable {variable_id:?} is not linked to a result or expression")
         }))
@@ -1431,8 +1445,9 @@ impl ProgramMap {
     fn store_expr_in_variable(&mut self, var: Variable, expr: Expr) -> Result<(), Error> {
         let variable_id = var.variable_id;
         if let Some(old_value) = self.variables.get(variable_id) {
-            if let Expr::Unresolved(_) = old_value {
+            if old_value.is_unresolved() {
                 // allow overwriting unresolved variables
+                eprintln!("note: variable {variable_id:?} was unresolved, now storing {expr:?}");
             } else if old_value != &expr {
                 panic!(
                     "variable {variable_id:?} already stored {old_value:?}, cannot store {expr:?}"
