@@ -17,6 +17,9 @@ export function Atoms(
   zoneLayout: ZoneLayout,
   trace: TraceData,
 ) {
+  // On first load, Python might still be syncing the underlying model, so just bail if required data is missing
+  if (!zoneLayout.zones?.length || !trace.steps?.length) return;
+
   container.classList.add("qs-atoms-app");
   const toolstrip = addChildWithClass(container, "div", "qs-atoms-toolstrip");
 
