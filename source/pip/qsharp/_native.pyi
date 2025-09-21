@@ -687,6 +687,7 @@ class UdtIR:
     fields: List[Tuple[str, TypeIR]]
 
 class QirInstructionId(Enum):
+    I: QirInstructionId
     H: QirInstructionId
     X: QirInstructionId
     Y: QirInstructionId
@@ -694,6 +695,7 @@ class QirInstructionId(Enum):
     S: QirInstructionId
     SAdj: QirInstructionId
     SX: QirInstructionId
+    SXAdj: QirInstructionId
     T: QirInstructionId
     TAdj: QirInstructionId
     CNOT: QirInstructionId
@@ -708,16 +710,17 @@ class QirInstructionId(Enum):
     RXX: QirInstructionId
     RYY: QirInstructionId
     RZZ: QirInstructionId
+    RESET: QirInstructionId
     M: QirInstructionId
     MResetZ: QirInstructionId
     MZ: QirInstructionId
     ReadResult: QirInstructionId
-    RESULT_RECORD_OUTPUT: QirInstructionId
-    BOOL_RECORD_OUTPUT: QirInstructionId
-    INT_RECORD_OUTPUT: QirInstructionId
-    DOUBLE_RECORD_OUTPUT: QirInstructionId
-    TUPLE_RECORD_OUTPUT: QirInstructionId
-    ARRAY_RECORD_OUTPUT: QirInstructionId
+    ResultRecordOutput: QirInstructionId
+    BoolRecordOutput: QirInstructionId
+    IntRecordOutput: QirInstructionId
+    DoubleRecordOutput: QirInstructionId
+    TupleRecordOutput: QirInstructionId
+    ArrayRecordOutput: QirInstructionId
 
 class QirInstruction: ...
 
@@ -744,6 +747,12 @@ class NoiseConfig:
     idle: IdleNoiseParams
 
 def run_clifford(
+    input: List[QirInstruction], nub_qubits: int, shots: int, noise: NoiseConfig
+) -> str:
+    """ """
+    ...
+
+def run_gpu_full_state(
     input: List[QirInstruction], nub_qubits: int, shots: int, noise: NoiseConfig
 ) -> str:
     """ """
