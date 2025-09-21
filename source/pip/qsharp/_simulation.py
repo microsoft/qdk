@@ -10,6 +10,7 @@ from ._native import (
     run_gpu_full_state,
     NoiseConfig,
 )
+from ._qsharp import Result
 
 
 class AggregateGatesPass(pyqir.QirModuleVisitor):
@@ -36,9 +37,9 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
 
         # verify that the module is base profile
         func = next(filter(pyqir.is_entry_point, mod.functions))
-        profile_attr = func.attributes.func["qir_profiles"]
-        if profile_attr is None or profile_attr.string_value != "base_profile":
-            raise ValueError("Only base profile is supported")
+        # profile_attr = func.attributes.func["qir_profiles"]
+        # if profile_attr is None or profile_attr.string_value != "base_profile":
+        #     raise ValueError("Only base profile is supported")
         self.required_num_qubits = pyqir.required_num_qubits(func)
         self.required_num_results = pyqir.required_num_results(func)
 
@@ -225,6 +226,56 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
             pass
 
 
+class OutputRecordingPass(pyqir.QirModuleVisitor):
+    _output_str = ""
+    _closers = []
+    _counters = []
+
+    def process_output(self, bitstring: str):
+        return eval(
+            self._output_str,
+            {
+                "o": [
+                    Result.Zero if x == "0" else Result.One if x == "1" else Result.Loss
+                    for x in bitstring
+                ]
+            },
+        )
+
+    def _on_function(self, function):
+        if pyqir.is_entry_point(function):
+            super()._on_function(function)
+            while len(self._closers) > 0:
+                self._output_str += self._closers.pop()
+                self._counters.pop()
+
+    def _on_rt_result_record_output(self, call, result, target):
+        self._output_str += f"o[{pyqir.result_id(result)}]"
+        while len(self._counters) > 0:
+            self._output_str += ","
+            self._counters[-1] -= 1
+            if self._counters[-1] == 0:
+                self._output_str += self._closers[-1]
+                self._closers.pop()
+                self._counters.pop()
+            else:
+                break
+
+    def _on_rt_array_record_output(self, call, value, target):
+        self._output_str += "["
+        self._closers.append("]")
+        # if len(self._counters) > 0:
+        #     self._counters[-1] -= 1
+        self._counters.append(value.value)
+
+    def _on_rt_tuple_record_output(self, call, value, target):
+        self._output_str += "("
+        self._closers.append(")")
+        # if len(self._counters) > 0:
+        #     self._counters[-1] -= 1
+        self._counters.append(value.value)
+
+
 def run_qir(
     input: Union[str, bytes],
     shots: Optional[int] = 1,
@@ -239,12 +290,20 @@ def run_qir(
     passtoRun = AggregateGatesPass()
     (gates, required_num_qubits, _) = passtoRun.run(mod)
 
+    recorder = OutputRecordingPass()
+    recorder.run(mod)
+
     if noise is None:
         noise = NoiseConfig()
     if shots is None:
         shots = 1
 
-    return run_clifford(gates, required_num_qubits, shots, noise)
+    return list(
+        map(
+            recorder.process_output,
+            run_clifford(gates, required_num_qubits, shots, noise),
+        )
+    )
 
 
 def run_qir_gpu(

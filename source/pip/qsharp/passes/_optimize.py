@@ -189,7 +189,6 @@ class OptimizeSingleQubitGates(QirModuleVisitor):
 
     def schedule(self, instr, key, name, adj):
         self.last_meas.pop(key, None)
-        self.used_qubits.add(key)
         if key in self.qubit_ops:
             # There are previous operations on this qubit, so check if the last one was the adjoint of this one.
             if self.qubit_ops[key][-1][1] == adj:
@@ -214,20 +213,24 @@ class OptimizeSingleQubitGates(QirModuleVisitor):
                 other_instr.erase()
                 (other_instr, _) = self.qubit_ops[key].pop()
                 other_instr.erase()
+                if len(self.qubit_ops[key]) == 0:
+                    # There are no more operations on this qubit, so pop it's entry to avoid having empty lists in the dict.
+                    self.qubit_ops.pop(key)
             else:
                 # The last operation was not the adjoint of this one, so add this instruction to the list.
                 self.qubit_ops[key].append((instr, name))
+                self.used_qubits.add(key)
         else:
             # No previous operations on this qubit, so create a new list from this instruction.
             self.qubit_ops[key] = [(instr, name)]
+            self.used_qubits.add(key)
 
     def rotate(self, instr, key, name):
         self.last_meas.pop(key, None)
-        self.used_qubits.add(key)
         if isinstance(instr.args[0], FloatConstant):
             # The angle is constant, so we can try to fold this rotation with other instances of the same rotation
             # tht are constant.
-            if key in self.qubit_ops and len(self.qubit_ops[key]) > 0:
+            if key in self.qubit_ops:
                 if self.qubit_ops[key][-1][1] == name and isinstance(
                     self.qubit_ops[key][-1][0].args[0], FloatConstant
                 ):
@@ -251,21 +254,25 @@ class OptimizeSingleQubitGates(QirModuleVisitor):
                             [const(self.double_ty, new_angle), instr.args[1]],
                         )
                         self.qubit_ops[key].append((new_instr, name))
+                        self.used_qubits.add(key)
                     # Erase the old instructions the new rotation replaces.
                     other_instr.erase()
                     instr.erase()
                 else:
                     # Can't fold this rotation with the previous one, so just add it to the list.
                     self.qubit_ops[key].append((instr, name))
+                    self.used_qubits.add(key)
             else:
                 # No previous operations on this qubit, so create a new list from this instruction.
                 self.qubit_ops[key] = [(instr, name)]
+                self.used_qubits.add(key)
         else:
             # This angle is not constant, so append it to the list of operations on this qubit.
             if key in self.qubit_ops:
                 self.qubit_ops[key].append((instr, name))
             else:
                 self.qubit_ops[key] = [(instr, name)]
+            self.used_qubits.add(key)
 
     def _on_function(self, function):
         self.last_meas = {}
@@ -321,13 +328,34 @@ class OptimizeSingleQubitGates(QirModuleVisitor):
     def _on_qis_rx(self, call, angle, target):
         self.rotate(call, qubit_id(target), "rx")
 
+    def _on_qis_rxx(self, call, angle, target1, target2):
+        self.flush_ops([target1, target2])
+
     def _on_qis_ry(self, call, angle, target):
         self.rotate(call, qubit_id(target), "ry")
+
+    def _on_qis_ryy(self, call, angle, target1, target2):
+        self.flush_ops([target1, target2])
 
     def _on_qis_rz(self, call, angle, target):
         self.rotate(call, qubit_id(target), "rz")
 
+    def _on_qis_rzz(self, call, angle, target1, target2):
+        self.flush_ops([target1, target2])
+
+    def _on_qis_ccx(self, call, ctrl1, ctrl2, target):
+        self.flush_ops([ctrl1, ctrl2, target])
+
+    def _on_qis_cx(self, call, target1, target2):
+        self.flush_ops([target1, target2])
+
+    def _on_qis_cy(self, call, target1, target2):
+        self.flush_ops([target1, target2])
+
     def _on_qis_cz(self, call, target1, target2):
+        self.flush_ops([target1, target2])
+
+    def _on_qis_swap(self, call, target1, target2):
         self.flush_ops([target1, target2])
 
     def _on_qis_m(self, call, target, result):
@@ -338,7 +366,7 @@ class OptimizeSingleQubitGates(QirModuleVisitor):
         self._on_qis_m(call, target, result)
 
     def _on_qis_mresetz(self, call, target, result):
-        self.flush_ops([target])
+        self._on_qis_m(call, target, result)
 
     def _on_qis_reset(self, call, target):
         id = qubit_id(target)
@@ -347,16 +375,18 @@ class OptimizeSingleQubitGates(QirModuleVisitor):
             (instr, target, result) = self.last_meas.pop(id)
             instr.erase()
             self.builder.insert_before(call)
-            self.builder.call(
+            new_call = self.builder.call(
                 self.mresetz_func,
                 [target, result],
             )
             call.erase()
+            self.last_meas[qubit_id(target)] = (new_call, target, result)
         elif not id in self.used_qubits:
             # This qubit was never used, so we can just erase the reset instruction.
             call.erase()
             return
-        self.flush_ops([target])
+        else:
+            self.flush_ops([target])
 
 
 class PruneUnusedFunctions(QirModuleVisitor):
