@@ -228,7 +228,12 @@ class OutputRecordingPass(pyqir.QirModuleVisitor):
     def process_output(self, bitstring: str):
         return eval(
             self._output_str,
-            {"o": [Result.Zero if x == "0" else Result.One for x in bitstring]},
+            {
+                "o": [
+                    Result.Zero if x == "0" else Result.One if x == "1" else Result.Loss
+                    for x in bitstring
+                ]
+            },
         )
 
     def _on_function(self, function):
