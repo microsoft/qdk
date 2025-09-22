@@ -229,7 +229,7 @@ extends:
           displayName: Install Prereqs and set version
 
         - script: |
-            python ./build.py --jupyterlab --widgets --qdk --no-check --no-check-prereqs
+            python ./build.py --jupyterlab --widgets --no-check --no-check-prereqs
           displayName: Build JupyterLab Package
 
         - script: |
