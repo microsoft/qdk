@@ -605,9 +605,27 @@ impl LocalsComputeKindMap {
         self.0.get(local_var_id)
     }
 
-    pub fn get_local_compute_kind(&self, local_var_id: LocalVarId) -> &LocalComputeKind {
-        self.find_local_compute_kind(local_var_id)
-            .expect("local compute kind does not exist")
+    pub fn get_or_init_local_compute_kind(
+        &mut self,
+        local_var_id: LocalVarId,
+        local_kind: LocalKind,
+        compute_kind: ComputeKind,
+    ) -> &LocalComputeKind {
+        if self.0.contains_key(local_var_id) {
+            self.0.get(local_var_id).expect("local should exist")
+        } else {
+            self.0.insert(
+                local_var_id,
+                LocalComputeKind {
+                    local: Local {
+                        var: local_var_id,
+                        kind: local_kind,
+                    },
+                    compute_kind,
+                },
+            );
+            self.0.get(local_var_id).expect("local should exist")
+        }
     }
 
     pub fn insert(&mut self, local_var_id: LocalVarId, value: LocalComputeKind) {
