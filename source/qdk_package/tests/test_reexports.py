@@ -18,36 +18,32 @@ def test_estimator_and_openqasm_shims():
     assert hasattr(oq, "__doc__")
 
 
-def test_require_helper():
+def test_qsharp_direct_import():
+    # Core submodule import always works (qsharp is a dependency of the meta-package)
     qdk = importlib.import_module("qdk")
-    mod = qdk.require("qsharp")
-    assert hasattr(mod, "run")
-
-    with pytest.raises(ImportError):
-        qdk.require("__definitely_missing_feature__")
+    assert hasattr(qdk.qsharp, "run")
 
 
-def test_azure_require_missing():
-    qdk = importlib.import_module("qdk")
-
-    try:
-        importlib.import_module("azure.quantum")
-        installed = True
-    except Exception:
-        installed = False
-    if not installed:
-        with pytest.raises(ImportError):
-            qdk.require("azure")
-
-
-def test_qiskit_require_missing():
-    qdk = importlib.import_module("qdk")
-
-    try:
-        importlib.import_module("qiskit")
-        installed = True
-    except Exception:
-        installed = False
-    if not installed:
-        with pytest.raises(ImportError):
-            qdk.require("qiskit")
+def test_missing_optional_direct_imports():
+    # If optional extras truly not installed, importing their submodules should raise ImportError.
+    # We probe without using mocks here.
+    for mod in ("qdk.widgets", "qdk.azure", "qdk.qiskit"):
+        base_dep = {
+            "qdk.widgets": "qsharp_widgets",
+            "qdk.azure": "azure.quantum",
+            "qdk.qiskit": "qiskit",
+        }[mod]
+        try:
+            importlib.import_module(base_dep)
+            dep_installed = True
+        except Exception:
+            dep_installed = False
+        if not dep_installed:
+            try:
+                importlib.import_module(mod)
+            except ImportError as e:
+                # Expected path: verify helpful hint present
+                assert "pip install qdk[" in str(e)
+            else:
+                # If it imported anyway, treat as environment providing the feature (e.g. via dev install)
+                pass

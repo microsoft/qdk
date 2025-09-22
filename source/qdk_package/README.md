@@ -49,44 +49,35 @@ print(result)
 Widgets (installed via jupyter extra):
 
 ```python
-from qdk import widgets_available, require
-
-if widgets_available():
-    widgets = require("widgets")
+try:
+    from qdk import widgets  # requires: pip install qdk[jupyter]
     # Use widgets per qsharp-widgets documentation
+except ImportError:
+    widgets = None  # Optional: feature not installed
 ```
 
-Azure Quantum (if installed):
 Qiskit (if installed):
 
 ```python
-from qdk import qiskit_available, require
-
-if qiskit_available():
-    qk = require("qiskit")
+try:
+    from qdk import qiskit  # requires: pip install qdk[qiskit]
+    qk = qiskit
     # Example: qk.transpile(...)
+except ImportError:
+    qk = None
 ```
 
-```python
-from qdk import azure_available, require
+Azure Quantum (if installed):
 
-if azure_available():
-    azure = require("azure")
-    # Example: azure.Workspace(...) etc., per azure-quantum docs
+```python
+try:
+    from qdk import azure  # requires: pip install qdk[azure]
+    # Example: azure.Workspace(...)
+except ImportError:
+    azure = None
 ```
 
 ## Public API Surface
-
-Root-level symbols (kept intentionally small):
-
-| Symbol                | Description                                                                 |
-| --------------------- | --------------------------------------------------------------------------- |
-| `qsharp`              | Submodule re-export of the upstream `qsharp` package.                       |
-| `widgets_available()` | Boolean: is widget support (jupyter extra) installed?                       |
-| `azure_available()`   | Boolean: is the azure extra installed?                                      |
-| `qiskit_available()`  | Boolean: is the qiskit extra installed?                                     |
-| `require(name)`       | Retrieve a feature module (`"qsharp"`, `"widgets"`, `"azure"`, `"qiskit"`). |
-| (lifted utilities)    | Convenience re-exports from `qsharp` (see section below).                   |
 
 Submodules:
 
@@ -99,7 +90,7 @@ Submodules:
 
 ### Lifted utilities from `qsharp`
 
-For convenience, frequently-used helpers and types are available directly at the `qdk` root. Algorithm execution APIs (like `run` / `estimate`) remain under `qdk.qsharp`.
+For convenience, the following helpers and types are also importable directly from the `qdk` root (e.g. `from qdk import code, Result`). Algorithm execution APIs (like `run` / `estimate`) remain under `qdk.qsharp`.
 
 | Symbol               | Type     | Origin                      | Description                                                         |
 | -------------------- | -------- | --------------------------- | ------------------------------------------------------------------- |
@@ -119,36 +110,6 @@ For convenience, frequently-used helpers and types are available directly at the
 
 If you need additional items, import them from `qdk.qsharp` directly rather than expanding the root surface.
 
-## `require()` Helper
-
-```python
-from qdk import require
-
-# Core always available (raises only if qsharp itself missing):
-core = require("qsharp")
-
-# Widgets / jupyter (alias) extra
-try:
-    widgets = require("widgets")  # or require("jupyter")
-except ImportError:
-    widgets = None
-
-# Azure extra
-try:
-    azure = require("azure")
-except ImportError:
-    azure = None
-
-# Qiskit extra
-try:
-    qk = require("qiskit")
-except ImportError:
-    qk = None
-
-# Estimator & OpenQASM shims (will ImportError only if that part of qsharp missing)
-from qdk import estimator, openqasm
-```
-
 ## Design Notes
 
 - Root re-exports selected utility symbols from `qsharp` (e.g. `code`, `set_quantum_seed`, types) for convenience; algorithm APIs still live under `qdk.qsharp`.
@@ -163,13 +124,12 @@ optional dependencies to be installed.
 
 Current approach (kept intentionally lean):
 
-1. Core behavior: ensure the root package exposes only the minimal public API and that
-   `require()` returns the expected submodules.
+1. Core behavior: ensure the root package exposes only the minimal public API.
 2. A lightweight stub for the upstream `qsharp` package is injected (see `tests/conftest.py`)
    if the true package is not present, enabling fast iteration when working only on this meta-package.
 3. Optional extras (widgets, azure, qiskit) are tested using synthetic modules created in `tests/mocks.py`:
-   - `mock_widgets()` creates a lightweight `qsharp_widgets` module (with a version attribute). Tests assert the `qdk.widgets` shim imports (doc presence).
-   - `mock_azure()` creates the nested namespace `azure.quantum` (with a version attribute). Tests assert the `qdk.azure` shim imports (doc presence).
+   - `mock_widgets()` creates a lightweight `qsharp_widgets` module (with a version attribute). Tests assert the `qdk.widgets` shim imports.
+   - `mock_azure()` creates the nested namespace `azure.quantum` (with a version attribute). Tests assert the `qdk.azure` shim imports.
    - `mock_qiskit()` creates a `qiskit` module exposing a callable `transpile()` so tests can assert a functional symbol survives re-export.
 4. No network or cloud interactions are performed; all tests operate purely on import mechanics and mocks.
 
