@@ -1006,6 +1006,7 @@ fn check_add(ty: &Ty) -> bool {
             .0
             .iter()
             .any(|bound| matches!(bound, ClassConstraint::Add)),
+        Ty::Udt(_, Res::Item(id)) if *id == ItemId::complex() => true,
         _ => false,
     }
 }
@@ -1135,6 +1136,7 @@ fn check_eq(ty: Ty, span: Span) -> (Vec<Constraint>, Vec<Error>) {
                 ),
             }
         }
+        Ty::Udt(_, Res::Item(id)) if id == ItemId::complex() => (Vec::new(), Vec::new()),
         _ => (
             Vec::new(),
             vec![Error(ErrorKind::MissingClassEq(ty.display(), span))],
@@ -1155,6 +1157,14 @@ fn check_exp(base: Ty, given_power: Ty, span: Span) -> (Vec<Constraint>, Vec<Err
         Ty::Prim(Prim::Double | Prim::Int) => (
             vec![Constraint::Eq {
                 expected: base,
+                actual: given_power,
+                span,
+            }],
+            Vec::new(),
+        ),
+        Ty::Udt(name, Res::Item(id)) if id == ItemId::complex() => (
+            vec![Constraint::Eq {
+                expected: Ty::Udt(name, Res::Item(id)),
                 actual: given_power,
                 span,
             }],
@@ -1406,6 +1416,12 @@ fn check_iterable(container: Ty, item: Ty, span: Span) -> (Vec<Constraint>, Vec<
 fn check_num_constraint(constraint: &ClassConstraint, ty: &Ty) -> bool {
     match ty {
         Ty::Prim(Prim::BigInt | Prim::Double | Prim::Int) => true,
+        Ty::Udt(_, Res::Item(id))
+            if *id == ItemId::complex()
+                && !matches!(constraint, ClassConstraint::Ord | ClassConstraint::Mod) =>
+        {
+            true
+        }
         Ty::Param { bounds, .. } => {
             // check if the bounds contain Num
             bounds.0.contains(constraint)

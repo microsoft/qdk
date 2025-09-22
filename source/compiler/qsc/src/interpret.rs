@@ -518,7 +518,7 @@ impl Interpreter {
             if matches!(&namespace[..], &["Std", "OpenQASM", "Angle"]) && &*udt.name == "Angle" {
                 *self.angle_ty_cache.borrow_mut() = Some(*item_id);
                 UdtKind::Angle
-            } else if matches!(&namespace[..], &["Std", "Math"]) && &*udt.name == "Complex" {
+            } else if matches!(&namespace[..], &["Std", "Core"]) && &*udt.name == "Complex" {
                 *self.complex_ty_cache.borrow_mut() = Some(*item_id);
                 UdtKind::Complex
             } else {

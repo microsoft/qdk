@@ -2918,3 +2918,33 @@ fn export_parent_namespace_is_err() {
                         ctl-adj: <none>"#]],
     );
 }
+
+#[test]
+fn literal_complex_lowers_as_struct_decl() {
+    check_hir(
+        indoc! {"
+            function Imaginary4() : Complex {
+                4.0i
+            }
+        "},
+        &expect![[r#"
+            Package:
+                Item 0 [0-44] (Public):
+                    Namespace (Ident 11 [0-44] "test"): Item 1
+                Item 1 [0-44] (Internal):
+                    Parent: 0
+                    Callable 0 [0-44] (function):
+                        name: Ident 1 [9-19] "Imaginary4"
+                        input: Pat 2 [19-21] [Type Unit]: Unit
+                        output: UDT<"Complex": Item 3 (Package 0)>
+                        functors: empty set
+                        body: SpecDecl 3 [0-44]: Impl:
+                            Block 4 [32-44] [Type UDT<"Complex": Item 3 (Package 0)>]:
+                                Stmt 5 [38-42]: Expr: Expr 6 [38-42] [Type UDT<"Complex": Item 3 (Package 0)>]: Struct (Item 3 (Package 0)):
+                                    FieldsAssign 7 [0-0]: (Path([0])) Expr 8 [0-0] [Type Double]: Lit: Double(0)
+                                    FieldsAssign 9 [0-0]: (Path([1])) Expr 10 [0-0] [Type Double]: Lit: Double(4)
+                        adj: <none>
+                        ctl: <none>
+                        ctl-adj: <none>"#]],
+    );
+}

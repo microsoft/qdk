@@ -4811,3 +4811,279 @@ fn type_exceeding_size_limit_is_not_propaged_and_generates_error() {
         "##]],
     );
 }
+
+#[test]
+fn complex_literal_imaginary_only() {
+    check(
+        "",
+        "4.0i",
+        &expect![[r##"
+        #1 0-4 "4.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+    "##]],
+    );
+}
+
+#[test]
+fn complex_literal_imaginary_only_negation() {
+    check(
+        "",
+        "-4.0i",
+        &expect![[r##"
+            #1 0-5 "-4.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #2 1-5 "4.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+        "##]],
+    );
+}
+
+#[test]
+fn complex_literal_real_and_imaginary() {
+    check(
+        "",
+        "3.0 + 4.0i",
+        &expect![[r##"
+            #1 0-10 "3.0 + 4.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #2 0-3 "3.0" : Double
+            #3 6-10 "4.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+        "##]],
+    );
+}
+
+#[test]
+fn complex_literal_imaginary_and_real() {
+    check(
+        "",
+        "4.0i + 3.0",
+        &expect![[r##"
+            #1 0-10 "4.0i + 3.0" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #2 0-4 "4.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #3 7-10 "3.0" : Double
+        "##]],
+    );
+}
+
+#[test]
+fn complex_literal_with_subtraction() {
+    check(
+        "",
+        "3.0 - 4.0i",
+        &expect![[r##"
+            #1 0-10 "3.0 - 4.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #2 0-3 "3.0" : Double
+            #3 6-10 "4.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+        "##]],
+    );
+}
+
+#[test]
+fn complex_literal_with_subtraction_imaginary_first() {
+    check(
+        "",
+        "4.0i - 3.0",
+        &expect![[r##"
+            #1 0-10 "4.0i - 3.0" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #2 0-4 "4.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #3 7-10 "3.0" : Double
+        "##]],
+    );
+}
+
+#[test]
+fn complex_literal_with_negation() {
+    check(
+        "",
+        "-3.0 + 4.0i",
+        &expect![[r##"
+            #1 0-11 "-3.0 + 4.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #2 0-4 "-3.0" : Double
+            #3 1-4 "3.0" : Double
+            #4 7-11 "4.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+        "##]],
+    );
+}
+
+#[test]
+fn complex_literal_with_two_real_parts_error() {
+    check(
+        "",
+        "2.0 + 3.0 + 4.0i",
+        &expect![[r##"
+            #1 0-16 "2.0 + 3.0 + 4.0i" : Double
+            #2 0-9 "2.0 + 3.0" : Double
+            #3 0-3 "2.0" : Double
+            #4 6-9 "3.0" : Double
+            #5 12-16 "4.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            Error(Type(Error(TyMismatch("Double", "Complex(Test)", Span { lo: 12, hi: 16 }))))
+        "##]],
+    );
+}
+
+#[test]
+fn add_double_and_complex_literal_with_parens_error() {
+    check(
+        "",
+        "2.0 + (3.0 + 4.0i)",
+        &expect![[r##"
+            #1 0-18 "2.0 + (3.0 + 4.0i)" : Double
+            #2 0-3 "2.0" : Double
+            #3 6-18 "(3.0 + 4.0i)" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #4 7-17 "3.0 + 4.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #5 7-10 "3.0" : Double
+            #6 13-17 "4.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            Error(Type(Error(TyMismatch("Double", "Complex(Test)", Span { lo: 6, hi: 18 }))))
+        "##]],
+    );
+}
+
+#[test]
+fn add_complex_literals() {
+    check(
+        "",
+        "(2.0 + 3.0i) + (4.0 + 5.0i)",
+        &expect![[r##"
+            #1 0-27 "(2.0 + 3.0i) + (4.0 + 5.0i)" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #2 0-12 "(2.0 + 3.0i)" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #3 1-11 "2.0 + 3.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #4 1-4 "2.0" : Double
+            #5 7-11 "3.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #6 15-27 "(4.0 + 5.0i)" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #7 16-26 "4.0 + 5.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #8 16-19 "4.0" : Double
+            #9 22-26 "5.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+        "##]],
+    );
+}
+
+#[test]
+fn subtract_complex_literals() {
+    check(
+        "",
+        "(2.0 + 3.0i) - (4.0 + 5.0i)",
+        &expect![[r##"
+            #1 0-27 "(2.0 + 3.0i) - (4.0 + 5.0i)" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #2 0-12 "(2.0 + 3.0i)" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #3 1-11 "2.0 + 3.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #4 1-4 "2.0" : Double
+            #5 7-11 "3.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #6 15-27 "(4.0 + 5.0i)" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #7 16-26 "4.0 + 5.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #8 16-19 "4.0" : Double
+            #9 22-26 "5.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+        "##]],
+    );
+}
+
+#[test]
+fn multiply_complex_literals() {
+    check(
+        "",
+        "(2.0 + 3.0i) * (4.0 + 5.0i)",
+        &expect![[r##"
+            #1 0-27 "(2.0 + 3.0i) * (4.0 + 5.0i)" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #2 0-12 "(2.0 + 3.0i)" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #3 1-11 "2.0 + 3.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #4 1-4 "2.0" : Double
+            #5 7-11 "3.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #6 15-27 "(4.0 + 5.0i)" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #7 16-26 "4.0 + 5.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #8 16-19 "4.0" : Double
+            #9 22-26 "5.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+        "##]],
+    );
+}
+
+#[test]
+fn divide_complex_literals() {
+    check(
+        "",
+        "(2.0 + 3.0i) / (4.0 + 5.0i)",
+        &expect![[r##"
+            #1 0-27 "(2.0 + 3.0i) / (4.0 + 5.0i)" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #2 0-12 "(2.0 + 3.0i)" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #3 1-11 "2.0 + 3.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #4 1-4 "2.0" : Double
+            #5 7-11 "3.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #6 15-27 "(4.0 + 5.0i)" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #7 16-26 "4.0 + 5.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #8 16-19 "4.0" : Double
+            #9 22-26 "5.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+        "##]],
+    );
+}
+
+#[test]
+fn exponential_with_complex_literal() {
+    check(
+        "",
+        "(2.0 + 3.0i) ^ (4.0 + 5.0i)",
+        &expect![[r##"
+            #1 0-27 "(2.0 + 3.0i) ^ (4.0 + 5.0i)" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #2 0-12 "(2.0 + 3.0i)" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #3 1-11 "2.0 + 3.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #4 1-4 "2.0" : Double
+            #5 7-11 "3.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #6 15-27 "(4.0 + 5.0i)" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #7 16-26 "4.0 + 5.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #8 16-19 "4.0" : Double
+            #9 22-26 "5.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+        "##]],
+    );
+}
+
+#[test]
+fn complex_literal_supports_eq() {
+    check(
+        "",
+        "(2.0 + 3.0i) == (4.0 + 5.0i)",
+        &expect![[r##"
+            #1 0-28 "(2.0 + 3.0i) == (4.0 + 5.0i)" : Bool
+            #2 0-12 "(2.0 + 3.0i)" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #3 1-11 "2.0 + 3.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #4 1-4 "2.0" : Double
+            #5 7-11 "3.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #6 16-28 "(4.0 + 5.0i)" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #7 17-27 "4.0 + 5.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #8 17-20 "4.0" : Double
+            #9 23-27 "5.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+        "##]],
+    );
+}
+
+#[test]
+fn complex_literal_does_not_support_ord() {
+    check(
+        "",
+        "(2.0 + 3.0i) < (4.0 + 5.0i)",
+        &expect![[r##"
+            #1 0-27 "(2.0 + 3.0i) < (4.0 + 5.0i)" : Bool
+            #2 0-12 "(2.0 + 3.0i)" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #3 1-11 "2.0 + 3.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #4 1-4 "2.0" : Double
+            #5 7-11 "3.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #6 15-27 "(4.0 + 5.0i)" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #7 16-26 "4.0 + 5.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #8 16-19 "4.0" : Double
+            #9 22-26 "5.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            Error(Type(Error(MissingClassOrd("Complex(Test)", Span { lo: 0, hi: 12 }))))
+        "##]],
+    );
+}
+
+#[test]
+fn complex_literal_does_not_support_mod() {
+    check(
+        "",
+        "(2.0 + 3.0i) % (4.0 + 5.0i)",
+        &expect![[r##"
+            #1 0-27 "(2.0 + 3.0i) % (4.0 + 5.0i)" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #2 0-12 "(2.0 + 3.0i)" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #3 1-11 "2.0 + 3.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #4 1-4 "2.0" : Double
+            #5 7-11 "3.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #6 15-27 "(4.0 + 5.0i)" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #7 16-26 "4.0 + 5.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            #8 16-19 "4.0" : Double
+            #9 22-26 "5.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
+            Error(Type(Error(MissingClassMod("Complex(Test)", Span { lo: 0, hi: 12 }))))
+        "##]],
+    );
+}

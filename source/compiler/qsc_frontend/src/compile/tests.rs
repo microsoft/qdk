@@ -416,7 +416,7 @@ fn insert_core_call() {
                     body: SpecDecl 3 [18-41]: Impl:
                         Block 4 [39-41] [Type Unit]:
                             Stmt 6 [0-0]: Semi: Expr 7 [0-0] [Type Qubit]: Call:
-                                Expr 8 [0-0] [Type (Unit => Qubit)]: Var: Item 6 (Package 0)
+                                Expr 8 [0-0] [Type (Unit => Qubit)]: Var: Item 8 (Package 0)
                                 Expr 9 [0-0] [Type Unit]: Unit
                     adj: <none>
                     ctl: <none>

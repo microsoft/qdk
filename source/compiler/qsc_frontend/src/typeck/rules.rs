@@ -17,7 +17,7 @@ use qsc_ast::ast::{
 use qsc_data_structures::span::Span;
 use qsc_hir::{
     hir::{self, ItemId},
-    ty::{Arrow, FunctorSet, FunctorSetValue, GenericArg, Prim, Scheme, Ty},
+    ty::{Arrow, FunctorSet, FunctorSetValue, GenericArg, Prim, Scheme, Ty, Udt},
 };
 use rustc_hash::FxHashMap;
 use std::{cell::RefCell, convert::identity, rc::Rc};
@@ -411,6 +411,7 @@ impl<'a> Context<'a> {
                 Lit::BigInt(_) => converge(Ty::Prim(Prim::BigInt)),
                 Lit::Bool(_) => converge(Ty::Prim(Prim::Bool)),
                 Lit::Double(_) => converge(Ty::Prim(Prim::Double)),
+                Lit::Imaginary(_) => self.converge_complex_ty(),
                 Lit::Int(_) => converge(Ty::Prim(Prim::Int)),
                 Lit::Pauli(_) => converge(Ty::Prim(Prim::Pauli)),
                 Lit::Result(_) => converge(Ty::Prim(Prim::Result)),
@@ -743,6 +744,12 @@ impl<'a> Context<'a> {
     }
 
     fn infer_binop(&mut self, span: Span, op: BinOp, lhs: &Expr, rhs: &Expr) -> Partial<Ty> {
+        let is_complex_literal = if op == BinOp::Add || op == BinOp::Sub {
+            is_complex_literal(lhs, rhs)
+        } else {
+            false
+        };
+
         let lhs_span = lhs.span;
         let lhs = self.infer_expr(lhs);
         let rhs_span = rhs.span;
@@ -762,9 +769,14 @@ impl<'a> Context<'a> {
                 converge(Ty::Prim(Prim::Bool))
             }
             BinOp::Add => {
-                self.inferrer.eq(rhs_span, lhs.ty.clone(), rhs.ty);
-                self.inferrer.class(lhs_span, Class::Add(lhs.ty.clone()));
-                lhs
+                if is_complex_literal {
+                    // Special case for complex literals. The output type is complex.
+                    self.converge_complex_ty()
+                } else {
+                    self.inferrer.eq(rhs_span, lhs.ty.clone(), rhs.ty);
+                    self.inferrer.class(lhs_span, Class::Add(lhs.ty.clone()));
+                    lhs
+                }
             }
             BinOp::Gt | BinOp::Gte | BinOp::Lt | BinOp::Lte => {
                 self.inferrer.eq(rhs_span, lhs.ty.clone(), rhs.ty);
@@ -788,9 +800,14 @@ impl<'a> Context<'a> {
                 lhs
             }
             BinOp::Sub => {
-                self.inferrer.eq(rhs_span, lhs.ty.clone(), rhs.ty);
-                self.inferrer.class(lhs_span, Class::Sub(lhs.ty.clone()));
-                lhs
+                if is_complex_literal {
+                    // Special case for complex literals. The output type is complex.
+                    self.converge_complex_ty()
+                } else {
+                    self.inferrer.eq(rhs_span, lhs.ty.clone(), rhs.ty);
+                    self.inferrer.class(lhs_span, Class::Sub(lhs.ty.clone()));
+                    lhs
+                }
             }
             BinOp::Mod => {
                 self.inferrer.eq(rhs_span, lhs.ty.clone(), rhs.ty);
@@ -930,6 +947,33 @@ impl<'a> Context<'a> {
         ty
     }
 
+    fn converge_complex_ty(&mut self) -> Partial<Ty> {
+        let complex_item_id = ItemId::complex();
+        let complex_def = self.table.udts.get(&complex_item_id);
+        match complex_def {
+            None => {
+                // Manually construct the type for tests. Use a different name to identify this as
+                // test specific, since this should never occur in production.
+                converge(Ty::Udt(
+                    "Complex(Test)".into(),
+                    hir::Res::Item(complex_item_id),
+                ))
+            }
+            Some(Udt {
+                span: _,
+                name,
+                definition: _,
+            }) => {
+                assert_eq!(
+                    name.as_ref(),
+                    "Complex",
+                    "Complex type should be defined and well-known"
+                );
+                converge(Ty::Udt(Rc::clone(name), hir::Res::Item(complex_item_id)))
+            }
+        }
+    }
+
     fn diverge(&mut self) -> Partial<Ty> {
         Partial {
             ty: self.inferrer.fresh_ty(TySource::divergent()),
@@ -984,6 +1028,30 @@ impl<'a> Context<'a> {
         }
 
         errs
+    }
+}
+
+fn is_complex_literal(lhs: &Expr, rhs: &Expr) -> bool {
+    let (lhs_kind, rhs_kind) = (lhs.kind.as_ref(), rhs.kind.as_ref());
+    match (lhs_kind, rhs_kind) {
+        (ExprKind::Lit(lhs_lit), ExprKind::Lit(rhs_lit)) => {
+            matches!(
+                (lhs_lit.as_ref(), rhs_lit.as_ref()),
+                (Lit::Double(_), Lit::Imaginary(_)) | (Lit::Imaginary(_), Lit::Double(_))
+            )
+        }
+        (ExprKind::UnOp(UnOp::Pos | UnOp::Neg, lhs), ExprKind::Lit(rhs_lit)) => {
+            match (lhs.kind.as_ref(), rhs_lit.as_ref()) {
+                (ExprKind::Lit(lhs_lit), Lit::Imaginary(_)) => {
+                    matches!(lhs_lit.as_ref(), Lit::Double(_))
+                }
+                (ExprKind::Lit(lhs_lit), Lit::Double(_)) => {
+                    matches!(lhs_lit.as_ref(), Lit::Imaginary(_))
+                }
+                _ => false,
+            }
+        }
+        _ => false,
     }
 }
 

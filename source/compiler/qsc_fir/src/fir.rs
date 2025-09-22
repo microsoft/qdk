@@ -332,6 +332,17 @@ pub struct StoreItemId {
     pub item: LocalItemId,
 }
 
+impl StoreItemId {
+    /// The item ID for the Complex type in the core library.
+    #[must_use]
+    pub fn complex() -> Self {
+        Self {
+            package: PackageId::CORE,
+            item: LocalItemId(3),
+        }
+    }
+}
+
 impl Display for StoreItemId {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "<item {} in package {}>", self.item, self.package)

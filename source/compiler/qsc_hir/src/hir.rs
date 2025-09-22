@@ -182,6 +182,17 @@ pub struct ItemId {
     pub item: LocalItemId,
 }
 
+impl ItemId {
+    /// Returns the [`ItemId`] corresponding to the Complex type in the core package.
+    #[must_use]
+    pub fn complex() -> Self {
+        Self {
+            package: Some(PackageId::CORE),
+            item: LocalItemId(3),
+        }
+    }
+}
+
 impl Display for ItemId {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self.package {

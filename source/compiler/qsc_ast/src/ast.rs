@@ -1685,6 +1685,8 @@ pub enum Lit {
     Bool(bool),
     /// A floating-point literal.
     Double(f64),
+    /// A floating-point imaginary literal, e.g `1.0i`.
+    Imaginary(f64),
     /// An integer literal.
     Int(i64),
     /// A Pauli operator literal.
@@ -1701,6 +1703,7 @@ impl Display for Lit {
             Lit::BigInt(val) => write!(f, "BigInt({val})")?,
             Lit::Bool(val) => write!(f, "Bool({val})")?,
             Lit::Double(val) => write!(f, "Double({val})")?,
+            Lit::Imaginary(val) => write!(f, "Imaginary({val})")?,
             Lit::Int(val) => write!(f, "Int({val})")?,
             Lit::Pauli(val) => write!(f, "Pauli({val:?})")?,
             Lit::Result(val) => write!(f, "Result({val:?})")?,
