@@ -2202,7 +2202,19 @@ fn gather_operands(
             },
             o @ Operand::Variable(var) => {
                 if let &OperandType::Arg = operand_type {
-                    args.push(state.expr_for_variable(var.variable_id)?.to_string());
+                    let expr = state.expr_for_variable(var.variable_id)?.clone();
+                    // Add classical controls if this expr is dependent on a result
+                    let results = expr
+                        .linked_results()
+                        .into_iter()
+                        .map(|r| state.result_register(r))
+                        .collect::<Vec<_>>();
+                    for r in results {
+                        if !controls.contains(&r) {
+                            controls.push(r);
+                        }
+                    }
+                    args.push(expr.to_string());
                 } else {
                     return Err(Error::UnsupportedFeature(format!(
                         "variable operand cannot be a target or control of a unitary operation: {o:?}"
