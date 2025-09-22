@@ -1455,12 +1455,13 @@ fn expand_real_branch_block(operations: &Vec<Op>) -> Result<ConditionalBlock, Er
             seen.insert((r.0, Some(r.1)));
         }
     }
+    // TODO: actually test measurements in branches
 
-    if seen.iter().any(|(_, r)| r.is_some()) {
-        return Err(Error::UnsupportedFeature(
-            "measurement operation in a branch block".to_owned(),
-        ));
-    }
+    // if seen.iter().any(|(_, r)| r.is_some()) {
+    //     return Err(Error::UnsupportedFeature(
+    //         "measurement operation in a branch block".to_owned(),
+    //     ));
+    // }
 
     // TODO: everything is a target. Don't know how else we would do this.
     let target_qubits = seen.into_iter().map(|(q, _)| q).collect();

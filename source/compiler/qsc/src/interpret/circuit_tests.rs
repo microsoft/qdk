@@ -1515,7 +1515,6 @@ fn custom_intrinsic_variable_arg() {
 
 #[test]
 fn branch_on_dynamic_double() {
-    // TODO: this doesn't show classical control
     let circ = circuit(
         r"
             namespace Test {
