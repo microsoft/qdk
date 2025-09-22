@@ -480,6 +480,8 @@ if build_qdk:
 
     if run_tests:
         step_start("Running tests for the qdk python package")
+        # Install per-package test requirements (pytest, etc.)
+        install_python_test_requirements(qdk_python_src, python_bin)
 
         # Install qsharp wheel first so dependency resolution is offline & version-synced.
         install_qsharp_python_package(qdk_python_src, wheels_dir, python_bin)
