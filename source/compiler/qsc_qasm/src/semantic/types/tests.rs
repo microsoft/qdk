@@ -39,6 +39,23 @@ fn sliced_type_has_right_dimensions() {
 }
 
 #[test]
+fn zero_sized_slice_has_right_dimensions() {
+    let source = "
+        array[bool, 5, 1, 2] arr_1;
+        array[bool, 3, 1, 2] arr_2 = arr_1[1:3];
+    ";
+
+    check_qasm_to_qsharp(
+        source,
+        &expect![[r#"
+        import Std.OpenQASM.Intrinsic.*;
+        mutable arr_1 = [[[false, false]], [[false, false]], [[false, false]], [[false, false]], [[false, false]]];
+        mutable arr_2 = arr_1[1..3];
+    "#]],
+    );
+}
+
+#[test]
 fn bigint_output_is_initially_zero_l() {
     let source = "
         input uint[128] input_var;

@@ -4589,8 +4589,8 @@ impl Lowerer {
         // The spec says that the step cannot be zero, so we push an error in that case.
         // <https://openqasm.com/language/types.html#register-concatenation-and-slicing>
         if let Some(Some(step)) = &step {
-            if let semantic::ExprKind::Lit(semantic::LiteralKind::Int(val)) = &*step.kind {
-                if *val == 0 {
+            if let Some(semantic::LiteralKind::Int(val)) = step.get_const_value() {
+                if val == 0 {
                     self.push_semantic_error(SemanticErrorKind::ZeroStepInRange(range.span));
                     return None;
                 }
