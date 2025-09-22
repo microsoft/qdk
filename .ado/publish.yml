@@ -194,7 +194,7 @@ extends:
           displayName: Pack VSCode Extension
           workingDirectory: '$(System.DefaultWorkingDirectory)/source/vscode'
 
-      - job: "JupyterLab"
+      - job: "Platform-Agnostic-Python"
         pool:
           name: 'Azure-Pipelines-DevTools-EO'
           image: 'ubuntu-latest'
@@ -203,9 +203,9 @@ extends:
         templateContext:
           outputs:
           - output: pipelineArtifact
-            displayName: 'Upload JupyterLab Python Artifacts'
+            displayName: 'Upload Platform-Agnostic Python Artifacts'
             targetPath: $(System.DefaultWorkingDirectory)/target/wheels/
-            artifactName: Wheels.JupyterLab
+            artifactName: Wheels.PlatformAgnostic
             condition: succeeded()
         steps:
         # common init steps
@@ -229,8 +229,8 @@ extends:
           displayName: Install Prereqs and set version
 
         - script: |
-            python ./build.py --jupyterlab --widgets --no-check --no-check-prereqs
-          displayName: Build JupyterLab Package
+            python ./build.py --jupyterlab --widgets --qdk --no-check --no-check-prereqs
+          displayName: Build Platform-Agnostic Packages
 
         - script: |
             ls target/wheels/*
@@ -325,7 +325,7 @@ extends:
             displayName: Set version
 
           - script: |
-              python build.py --pip --qdk --no-check-prereqs --integration-tests --manylinux
+              python build.py --pip --no-check-prereqs --integration-tests --manylinux
             displayName: Build Platform-Dependent Py Packages
 
           - script: |
@@ -334,7 +334,7 @@ extends:
             condition: and(eq(variables['Agent.OS'], 'Windows_NT'), eq(variables['arch'], 'aarch64'))
 
           - script: |
-              python build.py --pip --qdk --no-check-prereqs --no-check --no-test
+              python build.py --pip --no-check-prereqs --no-check --no-test
             displayName: Cross Build Windows aarch64 Py Packages
             condition: and(eq(variables['Agent.OS'], 'Windows_NT'), eq(variables['arch'], 'aarch64'))
 
@@ -441,8 +441,8 @@ extends:
             artifactName: Wheels.Linux.aarch64
             targetPath: $(System.DefaultWorkingDirectory)/artifacts/linux-aarch64
           - input: pipelineArtifact
-            artifactName: Wheels.JupyterLab
-            targetPath: $(System.DefaultWorkingDirectory)/artifacts/jupyterlab
+            artifactName: Wheels.PlatformAgnostic
+            targetPath: $(System.DefaultWorkingDirectory)/artifacts/platform-agnostic
         steps:
         - script: |
             mkdir -p $(System.DefaultWorkingDirectory)/target/wheels
