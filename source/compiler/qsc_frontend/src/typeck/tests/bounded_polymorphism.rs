@@ -726,13 +726,13 @@ fn show_and_eq_should_fail() {
             #51 277-367 "{\n                let x = Foo(1, true);\n                let y = Foo(1, \"2\");\n            }" : Unit
             #53 299-300 "x" : String
             #55 303-315 "Foo(1, true)" : String
-            #56 303-306 "Foo" : ((Bool, Bool) -> String)
+            #56 303-306 "Foo" : ((Int, Int) -> String)
             #59 306-315 "(1, true)" : (Int, Bool)
             #60 307-308 "1" : Int
             #61 310-314 "true" : Bool
             #63 337-338 "y" : String
             #65 341-352 "Foo(1, \"2\")" : String
-            #66 341-344 "Foo" : ((String, String) -> String)
+            #66 341-344 "Foo" : ((Int, Int) -> String)
             #69 344-352 "(1, \"2\")" : (Int, String)
             #70 345-346 "1" : Int
             #71 348-351 "\"2\"" : String

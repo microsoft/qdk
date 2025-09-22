@@ -269,7 +269,21 @@ impl<'a> Context<'a> {
                 let input = if has_holes(input) {
                     self.infer_hole_tuple_arg(input)
                 } else {
-                    self.infer_expr(input).map(ArgTy::Given)
+                    let ty = self.infer_expr(input);
+                    // If the outermost element is a tuple, we must wrap it in an `ArgTy::Tuple`.
+                    match ty {
+                        Partial {
+                            ty: Ty::Tuple(tys),
+                            diverges,
+                        } => Partial {
+                            ty: ArgTy::Tuple(tys.into_iter().map(ArgTy::Given).collect()),
+                            diverges,
+                        },
+                        _ => Partial {
+                            ty: ArgTy::Given(ty.ty),
+                            diverges: false,
+                        },
+                    }
                 };
                 let output_ty = self.inferrer.fresh_ty(TySource::not_divergent(expr.span));
                 self.inferrer.class(
