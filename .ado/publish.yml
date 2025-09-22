@@ -194,7 +194,7 @@ extends:
           displayName: Pack VSCode Extension
           workingDirectory: '$(System.DefaultWorkingDirectory)/source/vscode'
 
-      - job: "Platform-Agnostic-Python"
+      - job: "Platform_Agnostic_Python"
         pool:
           name: 'Azure-Pipelines-DevTools-EO'
           image: 'ubuntu-latest'
