@@ -7,8 +7,6 @@ If azure is not installed (with the qdk[azure] extra), importing this
 module raises an ImportError describing how to enable it.
 """
 
-from __future__ import annotations
-
 try:
     from azure.quantum import *
     from azure.quantum import target as target

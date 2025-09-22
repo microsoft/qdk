@@ -7,8 +7,6 @@ If qiskit is not installed (with the qdk[qiskit] extra), importing this
 module raises an ImportError describing how to enable it.
 """
 
-from __future__ import annotations
-
 try:
     from qiskit import *
     from qsharp.interop.qiskit import *

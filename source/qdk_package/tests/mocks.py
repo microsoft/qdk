@@ -9,8 +9,6 @@ Functions return a list of module names they created so callers can later clean 
 up using cleanup_modules(). This keeps test intent explicit.
 """
 
-from __future__ import annotations
-
 import sys
 import types
 from typing import List

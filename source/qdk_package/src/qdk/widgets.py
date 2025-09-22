@@ -7,8 +7,6 @@ If widgets is not installed (with the qdk[widgets] extra), importing this
 module raises an ImportError describing how to enable it.
 """
 
-from __future__ import annotations
-
 try:
     from qsharp_widgets import *
 except Exception as ex:

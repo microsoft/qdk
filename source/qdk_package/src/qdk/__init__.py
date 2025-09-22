@@ -14,17 +14,7 @@ Optional extras:
 
 """
 
-from __future__ import annotations
-
 from importlib import import_module
-
-# Eagerly check for qsharp presence to provide a clear error message.
-try:
-    import_module("qsharp")
-except ModuleNotFoundError as _ex:
-    raise ImportError(
-        "qdk requires the 'qsharp' package. Install with 'pip install qsharp'."
-    ) from _ex
 
 # Eagerly import qdk.qsharp to ensure qdk.qsharp is always available if qdk is.
 try:
