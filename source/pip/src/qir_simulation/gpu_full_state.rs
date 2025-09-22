@@ -131,47 +131,25 @@ fn map_instruction(qir_inst: &QirInstruction) -> Option<qdk_simulators::shader_t
                 return None;
             }
         },
-        QirInstruction::TwoQubitRotationGate(id, angle, control, target) => {
+        QirInstruction::TwoQubitRotationGate(id, angle, qubit1, qubit2) => {
             #[allow(clippy::cast_possible_truncation)]
             let angle = *angle as f32;
-            qdk_simulators::shader_types::Op {
-                id: map_ids(*id),
-                q1: *control,
-                q2: *target,
-                q3: 0,
-                angle,
-                _00r: 0.0,
-                _00i: 0.0,
-                _01r: 0.0,
-                _01i: 0.0,
-                _10r: 0.0,
-                _10i: 0.0,
-                _11r: 0.0,
-                _11i: 0.0,
-                padding: [0; 204],
+            match id {
+                QirInstructionId::RXX => Op::new_rxx_gate(angle, *qubit1, *qubit2),
+                QirInstructionId::RYY => Op::new_ryy_gate(angle, *qubit1, *qubit2),
+                QirInstructionId::RZZ => Op::new_rzz_gate(angle, *qubit1, *qubit2),
+                _ => {
+                    return None;
+                }
             }
         }
-        QirInstruction::ThreeQubitGate(id, control, c2, target) => {
-            qdk_simulators::shader_types::Op {
-                id: map_ids(*id),
-                q1: *control,
-                q2: *c2,
-                q3: *target,
-                angle: 0.0,
-                _00r: 0.0,
-                _00i: 0.0,
-                _01r: 0.0,
-                _01i: 0.0,
-                _10r: 0.0,
-                _10i: 0.0,
-                _11r: 0.0,
-                _11i: 0.0,
-                padding: [0; 204],
+        QirInstruction::ThreeQubitGate(id, c1, c2, target) => match id {
+            QirInstructionId::CCX => unimplemented!("ccx"), //Op::new_ccx_gate(*c1, *c2, *target),
+            _ => {
+                return None;
             }
-        }
-        _ => {
-            return None;
-        }
+        },
+        _ => return None,
     };
     Some(op)
 }
