@@ -1085,19 +1085,38 @@ fn if_no_else_must_be_unit() {
 }
 
 #[test]
+fn if_fail_else() {
+    check(
+        "",
+        r#"if false { fail "error"; } else { 5 }"#,
+        &expect![[r##"
+            #1 0-37 "if false { fail \"error\"; } else { 5 }" : Int
+            #2 3-8 "false" : Bool
+            #3 9-26 "{ fail \"error\"; }" : Int
+            #5 11-23 "fail \"error\"" : Unit
+            #6 16-23 "\"error\"" : String
+            #7 27-37 "else { 5 }" : Int
+            #8 32-37 "{ 5 }" : Int
+            #10 34-35 "5" : Int
+        "##]],
+    );
+}
+
+#[test]
 fn if_else_fail() {
     check(
         "",
-        r#"if false {} else { fail "error"; }"#,
-        &expect![[r#"
-            #1 0-34 "if false {} else { fail \"error\"; }" : Unit
+        r#"if false { 5 } else { fail "error"; }"#,
+        &expect![[r##"
+            #1 0-37 "if false { 5 } else { fail \"error\"; }" : Int
             #2 3-8 "false" : Bool
-            #3 9-11 "{}" : Unit
-            #4 12-34 "else { fail \"error\"; }" : Unit
-            #5 17-34 "{ fail \"error\"; }" : Unit
-            #7 19-31 "fail \"error\"" : Unit
-            #8 24-31 "\"error\"" : String
-        "#]],
+            #3 9-14 "{ 5 }" : Int
+            #5 11-12 "5" : Int
+            #6 15-37 "else { fail \"error\"; }" : Int
+            #7 20-37 "{ fail \"error\"; }" : Unit
+            #9 22-34 "fail \"error\"" : Unit
+            #10 27-34 "\"error\"" : String
+        "##]],
     );
 }
 
@@ -1116,10 +1135,10 @@ fn if_cond_fail() {
             }
         "#},
         "",
-        &expect![[r#"
+        &expect![[r##"
             #6 28-30 "()" : Unit
             #10 37-154 "{\n        if fail \"error\" {\n            \"this type doesn't matter\"\n        } else {\n            \"foo\"\n        }\n    }" : Int
-            #12 47-148 "if fail \"error\" {\n            \"this type doesn't matter\"\n        } else {\n            \"foo\"\n        }" : Int
+            #12 47-148 "if fail \"error\" {\n            \"this type doesn't matter\"\n        } else {\n            \"foo\"\n        }" : String
             #13 50-62 "fail \"error\"" : Bool
             #14 55-62 "\"error\"" : String
             #15 63-113 "{\n            \"this type doesn't matter\"\n        }" : String
@@ -1127,7 +1146,7 @@ fn if_cond_fail() {
             #18 114-148 "else {\n            \"foo\"\n        }" : String
             #19 119-148 "{\n            \"foo\"\n        }" : String
             #21 133-138 "\"foo\"" : String
-        "#]],
+        "##]],
     );
 }
 
@@ -1146,20 +1165,20 @@ fn if_all_diverge() {
             }
         "#},
         "",
-        &expect![[r#"
+        &expect![[r##"
             #6 28-30 "()" : Unit
             #10 37-145 "{\n        if fail \"cond\" {\n            fail \"true\"\n        } else {\n            fail \"false\"\n        }\n    }" : Int
-            #12 47-139 "if fail \"cond\" {\n            fail \"true\"\n        } else {\n            fail \"false\"\n        }" : Int
+            #12 47-139 "if fail \"cond\" {\n            fail \"true\"\n        } else {\n            fail \"false\"\n        }" : Unit
             #13 50-61 "fail \"cond\"" : Bool
             #14 55-61 "\"cond\"" : String
-            #15 62-97 "{\n            fail \"true\"\n        }" : Int
-            #17 76-87 "fail \"true\"" : Int
+            #15 62-97 "{\n            fail \"true\"\n        }" : Unit
+            #17 76-87 "fail \"true\"" : Unit
             #18 81-87 "\"true\"" : String
-            #19 98-139 "else {\n            fail \"false\"\n        }" : Int
-            #20 103-139 "{\n            fail \"false\"\n        }" : Int
-            #22 117-129 "fail \"false\"" : Int
+            #19 98-139 "else {\n            fail \"false\"\n        }" : Unit
+            #20 103-139 "{\n            fail \"false\"\n        }" : Unit
+            #22 117-129 "fail \"false\"" : Unit
             #23 122-129 "\"false\"" : String
-        "#]],
+        "##]],
     );
 }
 
@@ -1837,16 +1856,183 @@ fn fail_diverges() {
                 4
             }
         "#},
-        &expect![[r#"
+        &expect![[r##"
             #1 0-42 "if true {\n    fail \"true\"\n} else {\n    4\n}" : Int
             #2 3-7 "true" : Bool
             #3 8-27 "{\n    fail \"true\"\n}" : Int
-            #5 14-25 "fail \"true\"" : Int
+            #5 14-25 "fail \"true\"" : Unit
             #6 19-25 "\"true\"" : String
             #7 28-42 "else {\n    4\n}" : Int
             #8 33-42 "{\n    4\n}" : Int
             #10 39-40 "4" : Int
-        "#]],
+        "##]],
+    );
+}
+
+#[test]
+fn fail_in_tuple_does_not_diverge_entire_tuple() {
+    check(
+        "",
+        indoc! {r#"
+            (1, fail "true", 3.0)
+        "#},
+        &expect![[r##"
+            #1 0-21 "(1, fail \"true\", 3.0)" : (Int, Unit, Double)
+            #2 1-2 "1" : Int
+            #3 4-15 "fail \"true\"" : Unit
+            #4 9-15 "\"true\"" : String
+            #5 17-20 "3.0" : Double
+        "##]],
+    );
+}
+
+#[test]
+fn fail_in_array_does_not_diverge_entire_array() {
+    check(
+        "",
+        indoc! {r#"
+            [1, fail "true", 3]
+        "#},
+        &expect![[r##"
+            #1 0-19 "[1, fail \"true\", 3]" : Int[]
+            #2 1-2 "1" : Int
+            #3 4-15 "fail \"true\"" : Int
+            #4 9-15 "\"true\"" : String
+            #5 17-18 "3" : Int
+        "##]],
+    );
+}
+
+#[test]
+fn fail_in_array_still_checks_other_array_elements() {
+    check(
+        "",
+        indoc! {r#"
+            [1, fail "true", 3.0]
+        "#},
+        &expect![[r##"
+            #1 0-21 "[1, fail \"true\", 3.0]" : Int[]
+            #2 1-2 "1" : Int
+            #3 4-15 "fail \"true\"" : Int
+            #4 9-15 "\"true\"" : String
+            #5 17-20 "3.0" : Double
+            Error(Type(Error(TyMismatch("Int", "Double", Span { lo: 17, hi: 20 }))))
+        "##]],
+    );
+}
+
+#[test]
+fn fail_in_call_args_checks_arity() {
+    check(
+        "",
+        indoc! {r#"
+        {
+            function Foo(a : Int, b : Int, c : Int) : Unit {}
+            Foo(1, fail "true")
+        }
+        "#},
+        &expect![[r##"
+            #1 0-81 "{\n    function Foo(a : Int, b : Int, c : Int) : Unit {}\n    Foo(1, fail \"true\")\n}" : Unit
+            #2 0-81 "{\n    function Foo(a : Int, b : Int, c : Int) : Unit {}\n    Foo(1, fail \"true\")\n}" : Unit
+            #7 18-45 "(a : Int, b : Int, c : Int)" : (Int, Int, Int)
+            #8 19-26 "a : Int" : Int
+            #13 28-35 "b : Int" : Int
+            #18 37-44 "c : Int" : Int
+            #26 53-55 "{}" : Unit
+            #28 60-79 "Foo(1, fail \"true\")" : Unit
+            #29 60-63 "Foo" : ((Int, Int, Int) -> Unit)
+            #32 63-79 "(1, fail \"true\")" : (Int, Int)
+            #33 64-65 "1" : Int
+            #34 67-78 "fail \"true\"" : Int
+            #35 72-78 "\"true\"" : String
+            Error(Type(Error(TyMismatch("(Int, Int, Int)", "(Int, ?)", Span { lo: 60, hi: 79 }))))
+        "##]],
+    );
+}
+
+#[test]
+fn fail_in_call_args_checks_non_divergent_types() {
+    check(
+        "",
+        indoc! {r#"
+        {
+            function Foo(a : Int, b : Int, c : Int) : Unit {}
+            Foo(1, fail "true", 3.0)
+        }
+        "#},
+        &expect![[r##"
+            #1 0-86 "{\n    function Foo(a : Int, b : Int, c : Int) : Unit {}\n    Foo(1, fail \"true\", 3.0)\n}" : Unit
+            #2 0-86 "{\n    function Foo(a : Int, b : Int, c : Int) : Unit {}\n    Foo(1, fail \"true\", 3.0)\n}" : Unit
+            #7 18-45 "(a : Int, b : Int, c : Int)" : (Int, Int, Int)
+            #8 19-26 "a : Int" : Int
+            #13 28-35 "b : Int" : Int
+            #18 37-44 "c : Int" : Int
+            #26 53-55 "{}" : Unit
+            #28 60-84 "Foo(1, fail \"true\", 3.0)" : Unit
+            #29 60-63 "Foo" : ((Int, Int, Int) -> Unit)
+            #32 63-84 "(1, fail \"true\", 3.0)" : (Int, Int, Double)
+            #33 64-65 "1" : Int
+            #34 67-78 "fail \"true\"" : Int
+            #35 72-78 "\"true\"" : String
+            #36 80-83 "3.0" : Double
+            Error(Type(Error(TyMismatch("Int", "Double", Span { lo: 60, hi: 84 }))))
+        "##]],
+    );
+}
+
+#[test]
+fn fail_in_call_args_alone_diverges() {
+    check(
+        "",
+        indoc! {r#"
+        {
+            function Foo(a : Int, b : Int, c : Int) : Unit {}
+            Foo(fail "true")
+        }
+        "#},
+        &expect![[r##"
+            #1 0-78 "{\n    function Foo(a : Int, b : Int, c : Int) : Unit {}\n    Foo(fail \"true\")\n}" : Unit
+            #2 0-78 "{\n    function Foo(a : Int, b : Int, c : Int) : Unit {}\n    Foo(fail \"true\")\n}" : Unit
+            #7 18-45 "(a : Int, b : Int, c : Int)" : (Int, Int, Int)
+            #8 19-26 "a : Int" : Int
+            #13 28-35 "b : Int" : Int
+            #18 37-44 "c : Int" : Int
+            #26 53-55 "{}" : Unit
+            #28 60-76 "Foo(fail \"true\")" : Unit
+            #29 60-63 "Foo" : ((Int, Int, Int) -> Unit)
+            #32 63-76 "(fail \"true\")" : (Int, Int, Int)
+            #33 64-75 "fail \"true\"" : (Int, Int, Int)
+            #34 69-75 "\"true\"" : String
+        "##]],
+    );
+}
+
+#[test]
+fn fail_in_lambda_args_alone_diverges() {
+    check(
+        "",
+        indoc! {r#"
+        {
+            let f: (Int, Int, Int) -> Unit = (a, b, c) -> ();
+            f(fail "true")
+        }
+        "#},
+        &expect![[r##"
+            #1 0-76 "{\n    let f: (Int, Int, Int) -> Unit = (a, b, c) -> ();\n    f(fail \"true\")\n}" : Unit
+            #2 0-76 "{\n    let f: (Int, Int, Int) -> Unit = (a, b, c) -> ();\n    f(fail \"true\")\n}" : Unit
+            #4 10-36 "f: (Int, Int, Int) -> Unit" : ((Int, Int, Int) -> Unit)
+            #20 39-54 "(a, b, c) -> ()" : ((Int, Int, Int) -> Unit)
+            #21 39-48 "(a, b, c)" : (Int, Int, Int)
+            #22 40-41 "a" : Int
+            #24 43-44 "b" : Int
+            #26 46-47 "c" : Int
+            #28 52-54 "()" : Unit
+            #30 60-74 "f(fail \"true\")" : Unit
+            #31 60-61 "f" : ((Int, Int, Int) -> Unit)
+            #34 61-74 "(fail \"true\")" : (Int, Int, Int)
+            #35 62-73 "fail \"true\"" : (Int, Int, Int)
+            #36 67-73 "\"true\"" : String
+        "##]],
     );
 }
 
@@ -1866,7 +2052,7 @@ fn return_diverges() {
             }
         "},
         "",
-        &expect![[r#"
+        &expect![[r##"
             #6 30-40 "(x : Bool)" : Bool
             #7 31-39 "x : Bool" : Bool
             #15 47-153 "{\n        let x = if x {\n            return 1\n        } else {\n            true\n        };\n        2\n    }" : Int
@@ -1874,13 +2060,13 @@ fn return_diverges() {
             #19 65-136 "if x {\n            return 1\n        } else {\n            true\n        }" : Bool
             #20 68-69 "x" : Bool
             #23 70-102 "{\n            return 1\n        }" : Bool
-            #25 84-92 "return 1" : Bool
+            #25 84-92 "return 1" : Unit
             #26 91-92 "1" : Int
             #27 103-136 "else {\n            true\n        }" : Bool
             #28 108-136 "{\n            true\n        }" : Bool
             #30 122-126 "true" : Bool
             #32 146-147 "2" : Int
-        "#]],
+        "##]],
     );
 }
 
@@ -1899,18 +2085,150 @@ fn return_diverges_stmt_after() {
             }
         "},
         "",
-        &expect![[r#"
+        &expect![[r##"
             #6 30-40 "(x : Bool)" : Bool
             #7 31-39 "x : Bool" : Bool
             #15 47-132 "{\n        let x = {\n            return 1;\n            true\n        };\n        x\n    }" : Int
-            #17 61-62 "x" : Unit
-            #19 65-115 "{\n            return 1;\n            true\n        }" : Unit
-            #20 65-115 "{\n            return 1;\n            true\n        }" : Unit
+            #17 61-62 "x" : Bool
+            #19 65-115 "{\n            return 1;\n            true\n        }" : Bool
+            #20 65-115 "{\n            return 1;\n            true\n        }" : Bool
             #22 79-87 "return 1" : Unit
             #23 86-87 "1" : Int
             #25 101-105 "true" : Bool
-            #27 125-126 "x" : Unit
-        "#]],
+            #27 125-126 "x" : Bool
+        "##]],
+    );
+}
+
+#[test]
+fn return_in_tuple_does_not_diverge_entire_tuple() {
+    check(
+        "",
+        indoc! {r#"
+            (1, return "true", 3.0)
+        "#},
+        &expect![[r##"
+            #1 0-23 "(1, return \"true\", 3.0)" : (Int, Unit, Double)
+            #2 1-2 "1" : Int
+            #3 4-17 "return \"true\"" : Unit
+            #4 11-17 "\"true\"" : String
+            #5 19-22 "3.0" : Double
+        "##]],
+    );
+}
+
+#[test]
+fn return_in_call_args_checks_arity() {
+    check(
+        "",
+        indoc! {r#"
+        {
+            function Foo(a : Int, b : Int, c : Int) : Unit {}
+            Foo(1, return "true")
+        }
+        "#},
+        &expect![[r##"
+            #1 0-83 "{\n    function Foo(a : Int, b : Int, c : Int) : Unit {}\n    Foo(1, return \"true\")\n}" : Unit
+            #2 0-83 "{\n    function Foo(a : Int, b : Int, c : Int) : Unit {}\n    Foo(1, return \"true\")\n}" : Unit
+            #7 18-45 "(a : Int, b : Int, c : Int)" : (Int, Int, Int)
+            #8 19-26 "a : Int" : Int
+            #13 28-35 "b : Int" : Int
+            #18 37-44 "c : Int" : Int
+            #26 53-55 "{}" : Unit
+            #28 60-81 "Foo(1, return \"true\")" : Unit
+            #29 60-63 "Foo" : ((Int, Int, Int) -> Unit)
+            #32 63-81 "(1, return \"true\")" : (Int, Int)
+            #33 64-65 "1" : Int
+            #34 67-80 "return \"true\"" : Int
+            #35 74-80 "\"true\"" : String
+            Error(Type(Error(TyMismatch("(Int, Int, Int)", "(Int, ?)", Span { lo: 60, hi: 81 }))))
+        "##]],
+    );
+}
+
+#[test]
+fn return_in_call_args_checks_non_divergent_types() {
+    check(
+        "",
+        indoc! {r#"
+        {
+            function Foo(a : Int, b : Int, c : Int) : Unit {}
+            Foo(1, return "true", 3.0)
+        }
+        "#},
+        &expect![[r##"
+            #1 0-88 "{\n    function Foo(a : Int, b : Int, c : Int) : Unit {}\n    Foo(1, return \"true\", 3.0)\n}" : Unit
+            #2 0-88 "{\n    function Foo(a : Int, b : Int, c : Int) : Unit {}\n    Foo(1, return \"true\", 3.0)\n}" : Unit
+            #7 18-45 "(a : Int, b : Int, c : Int)" : (Int, Int, Int)
+            #8 19-26 "a : Int" : Int
+            #13 28-35 "b : Int" : Int
+            #18 37-44 "c : Int" : Int
+            #26 53-55 "{}" : Unit
+            #28 60-86 "Foo(1, return \"true\", 3.0)" : Unit
+            #29 60-63 "Foo" : ((Int, Int, Int) -> Unit)
+            #32 63-86 "(1, return \"true\", 3.0)" : (Int, Int, Double)
+            #33 64-65 "1" : Int
+            #34 67-80 "return \"true\"" : Int
+            #35 74-80 "\"true\"" : String
+            #36 82-85 "3.0" : Double
+            Error(Type(Error(TyMismatch("Int", "Double", Span { lo: 60, hi: 86 }))))
+        "##]],
+    );
+}
+
+#[test]
+fn return_in_call_args_alone_diverges() {
+    check(
+        "",
+        indoc! {r#"
+        {
+            function Foo(a : Int, b : Int, c : Int) : Unit {}
+            Foo(return "true")
+        }
+        "#},
+        &expect![[r##"
+            #1 0-80 "{\n    function Foo(a : Int, b : Int, c : Int) : Unit {}\n    Foo(return \"true\")\n}" : Unit
+            #2 0-80 "{\n    function Foo(a : Int, b : Int, c : Int) : Unit {}\n    Foo(return \"true\")\n}" : Unit
+            #7 18-45 "(a : Int, b : Int, c : Int)" : (Int, Int, Int)
+            #8 19-26 "a : Int" : Int
+            #13 28-35 "b : Int" : Int
+            #18 37-44 "c : Int" : Int
+            #26 53-55 "{}" : Unit
+            #28 60-78 "Foo(return \"true\")" : Unit
+            #29 60-63 "Foo" : ((Int, Int, Int) -> Unit)
+            #32 63-78 "(return \"true\")" : (Int, Int, Int)
+            #33 64-77 "return \"true\"" : (Int, Int, Int)
+            #34 71-77 "\"true\"" : String
+        "##]],
+    );
+}
+
+#[test]
+fn return_in_lambda_args_alone_diverges() {
+    check(
+        "",
+        indoc! {r#"
+        {
+            let f: (Int, Int, Int) -> Unit = (a, b, c) -> ();
+            f(return "true")
+        }
+        "#},
+        &expect![[r##"
+            #1 0-78 "{\n    let f: (Int, Int, Int) -> Unit = (a, b, c) -> ();\n    f(return \"true\")\n}" : Unit
+            #2 0-78 "{\n    let f: (Int, Int, Int) -> Unit = (a, b, c) -> ();\n    f(return \"true\")\n}" : Unit
+            #4 10-36 "f: (Int, Int, Int) -> Unit" : ((Int, Int, Int) -> Unit)
+            #20 39-54 "(a, b, c) -> ()" : ((Int, Int, Int) -> Unit)
+            #21 39-48 "(a, b, c)" : (Int, Int, Int)
+            #22 40-41 "a" : Int
+            #24 43-44 "b" : Int
+            #26 46-47 "c" : Int
+            #28 52-54 "()" : Unit
+            #30 60-76 "f(return \"true\")" : Unit
+            #31 60-61 "f" : ((Int, Int, Int) -> Unit)
+            #34 61-76 "(return \"true\")" : (Int, Int, Int)
+            #35 62-75 "return \"true\"" : (Int, Int, Int)
+            #36 69-75 "\"true\"" : String
+        "##]],
     );
 }
 
@@ -3239,21 +3557,21 @@ fn lambda_inner_return() {
             }
         "},
         "",
-        &expect![[r#"
+        &expect![[r##"
             #6 30-32 "()" : Unit
             #10 40-126 "{\n        let f = () -> {\n            return 42;\n        };\n        let r = f();\n    }" : Unit
             #12 54-55 "f" : (Unit -> Int)
             #14 58-98 "() -> {\n            return 42;\n        }" : (Unit -> Int)
             #15 58-60 "()" : Unit
             #16 64-98 "{\n            return 42;\n        }" : Int
-            #17 64-98 "{\n            return 42;\n        }" : Int
+            #17 64-98 "{\n            return 42;\n        }" : Unit
             #19 78-87 "return 42" : Unit
             #20 85-87 "42" : Int
             #22 112-113 "r" : Int
             #24 116-119 "f()" : Int
             #25 116-117 "f" : (Unit -> Int)
             #28 117-119 "()" : Unit
-        "#]],
+        "##]],
     );
 }
 
@@ -3270,7 +3588,7 @@ fn lambda_inner_return_without_call_ambiguous() {
             }
         "},
         "",
-        &expect![[r#"
+        &expect![[r##"
             #6 30-32 "()" : Unit
             #10 40-112 "{\n        let f = (a, b) -> {\n            return a + b;\n        };\n    }" : Unit
             #12 54-55 "f" : ((?2, ?2) -> ?2)
@@ -3279,13 +3597,13 @@ fn lambda_inner_return_without_call_ambiguous() {
             #16 59-60 "a" : ?2
             #18 62-63 "b" : ?2
             #20 68-105 "{\n            return a + b;\n        }" : ?2
-            #21 68-105 "{\n            return a + b;\n        }" : ?2
+            #21 68-105 "{\n            return a + b;\n        }" : Unit
             #23 82-94 "return a + b" : Unit
             #24 89-94 "a + b" : ?2
             #25 89-90 "a" : ?2
             #28 93-94 "b" : ?2
             Error(Type(Error(AmbiguousTy(Span { lo: 62, hi: 63 }))))
-        "#]],
+        "##]],
     );
 }
 
