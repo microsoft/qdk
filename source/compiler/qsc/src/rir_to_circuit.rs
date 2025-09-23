@@ -1,4 +1,7 @@
-use std::fmt::{Display, Write};
+use std::{
+    fmt::{Display, Write},
+    rc::Rc,
+};
 
 use log::{debug, warn};
 use qsc_circuit::{
@@ -12,8 +15,8 @@ use qsc_partial_eval::{
     Callable, CallableType, ConditionCode, FcmpConditionCode, Instruction, Literal, Operand,
     VariableId,
     rir::{
-        BlockId, BlockWithMetadata, InstructionMetadata, InstructionWithMetadata, Program, Ty,
-        Variable,
+        BlockId, BlockWithMetadata, DbgLocation, DbgMetadataScope, InstructionMetadata,
+        InstructionWithMetadata, Program, Ty, Variable,
     },
 };
 use rustc_hash::FxHashSet;
@@ -143,8 +146,14 @@ pub(crate) fn make_circuit(
 
     // Do it all again, with all variables properly resolved
     for (id, block) in program.blocks.iter() {
-        let block_operations =
-            operations_in_block(&mut program_map, callables, block, config.group_scopes)?;
+        let block_operations = operations_in_block(
+            &mut program_map,
+            &program.dbg_locations,
+            &program.dbg_metadata_scopes,
+            callables,
+            block,
+            config.group_scopes,
+        )?;
         program_map.blocks.insert(id, block_operations);
     }
 
@@ -851,6 +860,8 @@ struct CircuitBlock {
 
 fn operations_in_block(
     state: &mut ProgramMap,
+    dbg_locations: &[DbgLocation],
+    dbg_metadata_scopes: &[DbgMetadataScope],
     callables: &IndexMap<qsc_partial_eval::CallableId, Callable>,
     block: &BlockWithMetadata,
     group_scopes: bool,
@@ -887,6 +898,8 @@ fn operations_in_block(
             &mut operations,
             &mut current_scope,
             &mut last_scope,
+            dbg_locations,
+            dbg_metadata_scopes,
             new_operations,
             group_scopes,
         );
@@ -912,13 +925,16 @@ fn extend_operations(
     operations: &mut Vec<Op>,
     current_scope: &mut Vec<Op>,
     last_scope: &mut Option<String>,
+    dbg_locations: &[DbgLocation],
+    dbg_metadata_scopes: &[DbgMetadataScope],
     new_operations: Vec<Op>,
     group_scopes: bool,
 ) {
     for op in new_operations {
         let metadata = &op.metadata;
         if let Some(metadata) = metadata {
-            let scope = instruction_scope(metadata);
+            let scope = instruction_scope(dbg_locations, dbg_metadata_scopes, metadata)
+                .map(|s| s.to_string());
 
             if let Some(scope) = scope {
                 if last_scope
@@ -963,12 +979,26 @@ fn extend_operations(
     }
 }
 
-fn instruction_scope(metadata: &InstructionMetadata) -> Option<String> {
-    if let (Some(callable), Some(block_id)) = (&metadata.current_callable_name, metadata.scope_id) {
-        Some(format!("{callable}_{block_id}"))
-    } else {
-        None
+fn instruction_scope(
+    dbg_locations: &[DbgLocation],
+    dbg_metadata_scopes: &[DbgMetadataScope],
+    metadata: &InstructionMetadata,
+) -> Option<Rc<str>> {
+    if let Some(dbg_location_idx) = metadata.dbg_location {
+        let mut scope_stack = vec![];
+        let location = dbg_locations
+            .get(dbg_location_idx)
+            .expect("dbg location should exist");
+        let scope = dbg_metadata_scopes
+            .get(location.scope)
+            .expect("scope should exist");
+        match scope {
+            DbgMetadataScope::SubProgram { name, location } => scope_stack.push(name.clone()),
+        }
+
+        return Some(Rc::from(scope_stack.join("::")));
     }
+    None
 }
 
 fn flush_scope(
