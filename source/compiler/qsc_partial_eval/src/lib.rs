@@ -15,7 +15,9 @@ use core::panic;
 use evaluation_context::{Arg, BlockNode, EvalControlFlow, EvaluationContext, Scope};
 use management::{QuantumIntrinsicsChecker, ResourceManager};
 use miette::Diagnostic;
-use qsc_data_structures::{functors::FunctorApp, span::Span, target::TargetCapabilityFlags};
+use qsc_data_structures::{
+    functors::FunctorApp, index_map::IndexMap, span::Span, target::TargetCapabilityFlags,
+};
 use qsc_eval::{
     self, Error as EvalError, ErrorBehavior, PackageSpan, State, StepAction, StepResult, Variable,
     are_ctls_unique, exec_graph_section,
@@ -45,7 +47,7 @@ use qsc_rca::{
         get_missing_runtime_features,
     },
 };
-use qsc_rir::rir::{InstructionMetadata, MetadataPackageSpan};
+use qsc_rir::rir::{DbgLocation, DbgMetadataScope, InstructionMetadata, MetadataPackageSpan};
 pub use qsc_rir::{
     builder,
     rir::{
@@ -1480,6 +1482,11 @@ impl<'a> PartialEvaluator<'a> {
 
         self.check_unresolved_call_capabilities(call_expr_id, callee_expr_id, &call_scope)?;
 
+        self.eval_context.get_current_scope_mut().current_expr = Some(call_expr_id);
+        self.eval_context
+            .get_current_scope_mut()
+            .current_distinct_dbg_location = Some(self.current_dbg_location_idx());
+
         // We generate instructions differently depending on whether we are calling an intrinsic or a specialization
         // with an implementation.
         let value = match spec_decl {
@@ -1497,6 +1504,8 @@ impl<'a> PartialEvaluator<'a> {
                 self.eval_expr_call_to_spec(call_scope, store_item_id, functor_app, spec_decl)?
             }
         };
+
+        self.eval_context.get_current_scope_mut().current_expr = None;
         Ok(EvalControlFlow::Continue(value))
     }
 
@@ -1771,7 +1780,7 @@ impl<'a> PartialEvaluator<'a> {
 
         let instruction = Instruction::Call(callable_id, args_operands, output_var);
         let last_user_span = self.eval_context.get_current_user_caller();
-        let dbg_metadata = last_user_span.and_then(|s| self.dbg_metadata(s));
+        let dbg_metadata = last_user_span.and_then(|s| self.new_dbg_metadata(callee_expr_span));
         let current_block = self.get_current_rir_block_mut();
         current_block
             .0
@@ -1967,6 +1976,127 @@ impl<'a> PartialEvaluator<'a> {
         Ok(block_node_id)
     }
 
+    fn new_dbg_metadata(&mut self, instr_span: PackageSpan) -> Option<InstructionMetadata> {
+        let current_source_block = self.eval_context.current_user_source_block.last();
+        let current_source_block_span = current_source_block.and_then(|block| {
+            self.eval_context
+                .get_current_user_scope()
+                .map(|s| s.package_id)
+                .and_then(|package_id| {
+                    self.package_store
+                        .get(package_id)
+                        .blocks
+                        .get(*block)
+                        .map(|b| PackageSpan {
+                            package: map_fir_package_to_hir(package_id),
+                            span: b.span,
+                        })
+                })
+        });
+        let current_iteration = self.eval_context.current_iteration;
+        let current_runtime_scope = self.eval_context.get_current_user_scope();
+        let current_callable =
+            current_runtime_scope.and_then(|s| s.callable.map(|(id, _)| (s.package_id, id)));
+
+        let current_callable_name = current_callable.and_then(|(package_id, callable_id)| {
+            self.package_store
+                .get(package_id)
+                .items
+                .get(callable_id)
+                .map(|i| match &i.kind {
+                    fir::ItemKind::Callable(callable_decl) => callable_decl.name.name.clone(),
+                    fir::ItemKind::Namespace(_, _)
+                    | fir::ItemKind::Ty(_, _)
+                    | fir::ItemKind::Export(_, _) => "_".into(),
+                })
+        });
+
+        Some({
+            let scope_id = current_source_block.copied();
+            InstructionMetadata {
+                dbg_location: Some(
+                    self.eval_context
+                        .get_current_scope()
+                        .current_distinct_dbg_location
+                        .expect("expected current distinct dbg location"),
+                ),
+                location: into_metadata_package_span(instr_span),
+                scope_id: scope_id.map(|id| id.0),
+                scope_block_location: current_source_block_span.map(into_metadata_package_span),
+                scope_block_discriminator: current_iteration,
+                current_callable_name,
+            }
+        })
+    }
+
+    fn current_dbg_location_idx(&mut self) -> usize {
+        let call_expr = self.eval_context.get_current_scope().current_expr;
+        let Some(call_expr_id) = call_expr else {
+            panic!("expected current expr id because this is a call");
+        };
+
+        let current_package = self.package_store.get(self.get_current_package_id());
+
+        let current_subprogram_scope = {
+            let current_callable = self.eval_context.get_current_scope().callable;
+            current_callable
+                .map(|c| {
+                    let s = self.eval_context.dbg_callable_to_scope.get(&c.0).cloned();
+
+                    match s {
+                        Some(s) => s,
+                        None => {
+                            let (name, span) = match &current_package
+                                .items
+                                .get(c.0)
+                                .expect("expected callable")
+                                .kind
+                            {
+                                fir::ItemKind::Callable(callable_decl) => {
+                                    (callable_decl.name.name.clone(), callable_decl.span)
+                                }
+                                _ => panic!("expected callable"),
+                            };
+                            let scope = DbgMetadataScope::SubProgram {
+                                name,
+                                location: into_metadata_package_span(PackageSpan {
+                                    package: map_fir_package_to_hir(self.get_current_package_id()),
+                                    span,
+                                }),
+                            };
+                            self.program.dbg_metadata_scopes.push(scope);
+                            let i = self.program.dbg_metadata_scopes.len() - 1;
+                            self.eval_context.dbg_callable_to_scope.insert(c.0, i);
+                            i
+                        }
+                    }
+                })
+                .unwrap_or(0) // magic entry scope
+        };
+        let current_expr = current_package
+            .exprs
+            .get(call_expr_id)
+            .expect("current expr id not found");
+
+        let inlined_at = self
+            .eval_context
+            .get_caller_scope()
+            .and_then(|s| s.current_distinct_dbg_location);
+
+        let new_location = DbgLocation {
+            location: into_metadata_package_span(PackageSpan {
+                package: map_fir_package_to_hir(self.get_current_package_id()),
+                span: current_expr.span,
+            }),
+            scope: current_subprogram_scope,
+            inlined_at,
+        };
+
+        self.program.dbg_locations.push(new_location);
+        let dbg_location_idx = self.program.dbg_locations.len() - 1;
+        dbg_location_idx
+    }
+
     fn dbg_metadata(&mut self, span: PackageSpan) -> Option<InstructionMetadata> {
         let current_source_block = self.eval_context.current_user_source_block.last();
         let current_source_block_span = current_source_block.and_then(|block| {
@@ -2002,13 +2132,17 @@ impl<'a> PartialEvaluator<'a> {
                 })
         });
 
-        Some(fmt_dbg_metadata(
-            span,
-            current_source_block.copied(),
-            current_source_block_span,
-            current_iteration,
-            current_callable_name,
-        ))
+        Some({
+            let scope_id = current_source_block.copied();
+            InstructionMetadata {
+                dbg_location: None,
+                location: into_metadata_package_span(span),
+                scope_id: scope_id.map(|id| id.0),
+                scope_block_location: current_source_block_span.map(into_metadata_package_span),
+                scope_block_discriminator: current_iteration,
+                current_callable_name,
+            }
+        })
     }
 
     fn eval_expr_if_with_classical_condition(
@@ -3551,22 +3685,6 @@ impl<'a> PartialEvaluator<'a> {
         self.eval_context
             .get_current_scope_mut()
             .keep_matching_static_var_mappings(other_mappings);
-    }
-}
-
-fn fmt_dbg_metadata(
-    location: PackageSpan,
-    scope_id: Option<BlockId>,
-    scope_block_location: Option<PackageSpan>,
-    scope_block_discriminator: Option<usize>,
-    current_callable_name: Option<Rc<str>>,
-) -> InstructionMetadata {
-    InstructionMetadata {
-        location: into_metadata_package_span(location),
-        scope_id: scope_id.map(|id| id.0),
-        scope_block_location: scope_block_location.map(into_metadata_package_span),
-        scope_block_discriminator,
-        current_callable_name,
     }
 }
 

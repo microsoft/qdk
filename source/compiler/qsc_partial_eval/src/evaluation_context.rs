@@ -6,7 +6,7 @@ use qsc_eval::{
     Env, PackageSpan, Variable,
     val::{Result, Value},
 };
-use qsc_fir::fir::{LocalItemId, LocalVarId, PackageId};
+use qsc_fir::fir::{ExprId, LocalItemId, LocalVarId, PackageId};
 use qsc_lowerer::map_fir_package_to_hir;
 use qsc_rca::{RuntimeKind, ValueKind};
 use qsc_rir::rir::{BlockId, Literal, VariableId};
@@ -20,6 +20,8 @@ pub struct EvaluationContext {
     scopes: Vec<Scope>,
     pub current_user_source_block: Vec<qsc_fir::fir::BlockId>,
     pub current_iteration: Option<usize>,
+
+    pub dbg_callable_to_scope: FxHashMap<(LocalItemId), usize>,
 }
 
 impl EvaluationContext {
@@ -34,6 +36,7 @@ impl EvaluationContext {
             scopes: vec![entry_callable_scope],
             current_user_source_block: vec![],
             current_iteration: None,
+            dbg_callable_to_scope: Default::default(),
         }
     }
 
@@ -47,6 +50,11 @@ impl EvaluationContext {
         self.scopes
             .last()
             .expect("the evaluation context does not have a current scope")
+    }
+
+    /// Gets an immutable reference to the current (call) scope.
+    pub fn get_caller_scope(&self) -> Option<&Scope> {
+        self.scopes.iter().rev().nth(1)
     }
 
     /// Gets a mutable reference to the current (call) scope.
@@ -136,6 +144,13 @@ pub struct Scope {
     static_vars: FxHashMap<VariableId, Literal>,
     /// Number of currently active blocks (starting from where this scope was created).
     active_block_count: usize,
+    /// The current expression being evaluated, if any.
+    /// index into `dbg_locations` in `Program`
+    pub current_distinct_dbg_location: Option<usize>,
+    /// The current expression being evaluated, if any.
+    pub current_expr: Option<ExprId>,
+
+    ///
     caller_expr_span: Option<PackageSpan>,
 }
 
@@ -197,6 +212,8 @@ impl Scope {
             hybrid_vars,
             static_vars: FxHashMap::default(),
             caller_expr_span,
+            current_distinct_dbg_location: None,
+            current_expr: None,
         }
     }
 

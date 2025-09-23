@@ -51,11 +51,127 @@ fn call_to_single_qubit_unitary_with_two_calls_to_the_same_intrinsic() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[234-246] scope=0 scope_package_id=2 scope_span=[115-152] callable=OpSquared
-                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[234-246] scope=0 scope_package_id=2 scope_span=[115-152] callable=OpSquared
+                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[125-127] scope=0 scope_package_id=2 scope_span=[115-152] callable=OpSquared dbg_location=3
+                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[140-142] scope=0 scope_package_id=2 scope_span=[115-152] callable=OpSquared dbg_location=4
                 Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[185-189]
                 Return !dbg package_id=2 span=[185-189]"#]],
     );
+    expect![[r#"
+        [
+            DbgLocation {
+                location: MetadataPackageSpan {
+                    package: 2,
+                    span: Span {
+                        lo: 0,
+                        hi: 0,
+                    },
+                },
+                scope: 0,
+                inlined_at: None,
+            },
+            DbgLocation {
+                location: MetadataPackageSpan {
+                    package: 2,
+                    span: Span {
+                        lo: 209,
+                        hi: 225,
+                    },
+                },
+                scope: 1,
+                inlined_at: Some(
+                    0,
+                ),
+            },
+            DbgLocation {
+                location: MetadataPackageSpan {
+                    package: 2,
+                    span: Span {
+                        lo: 234,
+                        hi: 246,
+                    },
+                },
+                scope: 1,
+                inlined_at: Some(
+                    0,
+                ),
+            },
+            DbgLocation {
+                location: MetadataPackageSpan {
+                    package: 2,
+                    span: Span {
+                        lo: 125,
+                        hi: 130,
+                    },
+                },
+                scope: 2,
+                inlined_at: Some(
+                    2,
+                ),
+            },
+            DbgLocation {
+                location: MetadataPackageSpan {
+                    package: 2,
+                    span: Span {
+                        lo: 140,
+                        hi: 145,
+                    },
+                },
+                scope: 2,
+                inlined_at: Some(
+                    2,
+                ),
+            },
+            DbgLocation {
+                location: MetadataPackageSpan {
+                    package: 2,
+                    span: Span {
+                        lo: 209,
+                        hi: 225,
+                    },
+                },
+                scope: 1,
+                inlined_at: Some(
+                    0,
+                ),
+            },
+        ]
+    "#]]
+    .assert_debug_eq(&program.dbg_locations);
+
+    expect![[r#"
+        [
+            SubProgram {
+                name: "entry",
+                location: MetadataPackageSpan {
+                    package: 0,
+                    span: Span {
+                        lo: 0,
+                        hi: 0,
+                    },
+                },
+            },
+            SubProgram {
+                name: "Main",
+                location: MetadataPackageSpan {
+                    package: 2,
+                    span: Span {
+                        lo: 175,
+                        hi: 253,
+                    },
+                },
+            },
+            SubProgram {
+                name: "OpSquared",
+                location: MetadataPackageSpan {
+                    package: 2,
+                    span: Span {
+                        lo: 77,
+                        hi: 152,
+                    },
+                },
+            },
+        ]
+    "#]].assert_debug_eq(&program.dbg_metadata_scopes);
 }
 
 #[test]
@@ -106,8 +222,8 @@ fn call_to_single_qubit_unitary_with_calls_to_different_intrinsics() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[292-303] scope=0 scope_package_id=2 scope_span=[171-210] callable=Combined
-                Call id(2), args( Qubit(0), ) !dbg package_id=2 span=[292-303] scope=0 scope_package_id=2 scope_span=[171-210] callable=Combined
+                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[181-184] scope=0 scope_package_id=2 scope_span=[171-210] callable=Combined dbg_location=3
+                Call id(2), args( Qubit(0), ) !dbg package_id=2 span=[197-200] scope=0 scope_package_id=2 scope_span=[171-210] callable=Combined dbg_location=4
                 Call id(3), args( Integer(0), Pointer, ) !dbg package_id=2 span=[243-247]
                 Return !dbg package_id=2 span=[243-247]"#]],
     );
@@ -148,8 +264,8 @@ fn call_to_two_qubit_unitary() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Qubit(1), ) !dbg package_id=2 span=[298-325] scope=0 scope_package_id=2 scope_span=[151-198] callable=ApplyOpCombinations
-                Call id(1), args( Qubit(1), Qubit(0), ) !dbg package_id=2 span=[298-325] scope=0 scope_package_id=2 scope_span=[151-198] callable=ApplyOpCombinations
+                Call id(1), args( Qubit(0), Qubit(1), ) !dbg package_id=2 span=[161-163] scope=0 scope_package_id=2 scope_span=[151-198] callable=ApplyOpCombinations dbg_location=4
+                Call id(1), args( Qubit(1), Qubit(0), ) !dbg package_id=2 span=[181-183] scope=0 scope_package_id=2 scope_span=[151-198] callable=ApplyOpCombinations dbg_location=5
                 Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[231-235]
                 Return !dbg package_id=2 span=[231-235]"#]],
     );
@@ -205,8 +321,8 @@ fn call_to_unitary_that_receives_double_and_qubit() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Double(1), Qubit(0), ) !dbg package_id=2 span=[358-368] scope=0 scope_package_id=2 scope_span=[216-276] callable=Op
-                Call id(2), args( Qubit(0), Double(1), ) !dbg package_id=2 span=[358-368] scope=0 scope_package_id=2 scope_span=[216-276] callable=Op
+                Call id(1), args( Double(1), Qubit(0), ) !dbg package_id=2 span=[226-237] scope=0 scope_package_id=2 scope_span=[216-276] callable=Op dbg_location=3
+                Call id(2), args( Qubit(0), Double(1), ) !dbg package_id=2 span=[253-263] scope=0 scope_package_id=2 scope_span=[216-276] callable=Op dbg_location=4
                 Call id(3), args( Integer(0), Pointer, ) !dbg package_id=2 span=[309-313]
                 Return !dbg package_id=2 span=[309-313]"#]],
     );
@@ -278,8 +394,8 @@ fn calls_to_unitary_that_conditionally_calls_intrinsic_with_classical_bool() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[363-391] scope=1 scope_package_id=2 scope_span=[207-238] callable=ConditionallyCallOp
-                Call id(2), args( Qubit(0), ) !dbg package_id=2 span=[401-430] scope=2 scope_package_id=2 scope_span=[244-275] callable=ConditionallyCallOp
+                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[221-224] scope=1 scope_package_id=2 scope_span=[207-238] callable=ConditionallyCallOp dbg_location=3
+                Call id(2), args( Qubit(0), ) !dbg package_id=2 span=[258-261] scope=2 scope_package_id=2 scope_span=[244-275] callable=ConditionallyCallOp dbg_location=5
                 Call id(3), args( Integer(0), Pointer, ) !dbg package_id=2 span=[314-318]
                 Return !dbg package_id=2 span=[314-318]"#]],
     );
@@ -386,10 +502,10 @@ fn calls_to_unitary_that_conditionally_calls_intrinsic_with_dynamic_bool() {
                 Call id(5), args( Integer(0), Pointer, ) !dbg package_id=2 span=[314-318]
                 Return !dbg package_id=2 span=[314-318]
             Block 2:Block:
-                Call id(3), args( Qubit(1), ) !dbg package_id=2 span=[440-473] scope=1 scope_package_id=2 scope_span=[207-238] callable=ConditionallyCallOp
+                Call id(3), args( Qubit(1), ) !dbg package_id=2 span=[221-224] scope=1 scope_package_id=2 scope_span=[207-238] callable=ConditionallyCallOp dbg_location=5
                 Jump(1) !dbg package_id=2 span=[207-238] scope=0 scope_package_id=2 scope_span=[192-281] callable=ConditionallyCallOp
             Block 3:Block:
-                Call id(4), args( Qubit(1), ) !dbg package_id=2 span=[440-473] scope=2 scope_package_id=2 scope_span=[244-275] callable=ConditionallyCallOp
+                Call id(4), args( Qubit(1), ) !dbg package_id=2 span=[258-261] scope=2 scope_package_id=2 scope_span=[244-275] callable=ConditionallyCallOp dbg_location=6
                 Jump(1) !dbg package_id=2 span=[239-275] scope=0 scope_package_id=2 scope_span=[192-281] callable=ConditionallyCallOp"#]],
     );
 }
@@ -429,8 +545,8 @@ fn call_to_unitary_rotation_unitary_with_computation() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Double(4), Qubit(0), ) !dbg package_id=2 span=[278-309] scope=0 scope_package_id=2 scope_span=[159-196] callable=RotationWithComputation
-                Call id(1), args( Double(6), Qubit(0), ) !dbg package_id=2 span=[319-350] scope=0 scope_package_id=2 scope_span=[159-196] callable=RotationWithComputation
+                Call id(1), args( Double(4), Qubit(0), ) !dbg package_id=2 span=[169-177] scope=0 scope_package_id=2 scope_span=[159-196] callable=RotationWithComputation dbg_location=3
+                Call id(1), args( Double(6), Qubit(0), ) !dbg package_id=2 span=[169-177] scope=0 scope_package_id=2 scope_span=[159-196] callable=RotationWithComputation dbg_location=5
                 Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[229-233]
                 Return !dbg package_id=2 span=[229-233]"#]],
     );
@@ -612,7 +728,7 @@ fn call_to_boolean_function_using_result_literal_as_argument_yields_constant() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[0-0] scope=3 scope_package_id=2 scope_span=[360-390] callable=Main
+                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[374-376] scope=3 scope_package_id=2 scope_span=[360-390] callable=Main dbg_location=2
                 Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[175-179]
                 Return !dbg package_id=2 span=[175-179]"#]],
     );
@@ -705,7 +821,7 @@ fn call_to_boolean_function_using_dynamic_result_as_argument_generates_branches(
                 Call id(4), args( Integer(0), Pointer, ) !dbg package_id=2 span=[199-203]
                 Return !dbg package_id=2 span=[199-203]
             Block 2:Block:
-                Call id(3), args( Qubit(1), ) !dbg package_id=2 span=[0-0] scope=2 scope_package_id=2 scope_span=[384-415] callable=Main
+                Call id(3), args( Qubit(1), ) !dbg package_id=2 span=[398-400] scope=2 scope_package_id=2 scope_span=[384-415] callable=Main dbg_location=5
                 Jump(1) !dbg package_id=2 span=[384-415] scope=1 scope_package_id=2 scope_span=[213-421] callable=Main"#]],
     );
 }
@@ -778,8 +894,8 @@ fn call_to_unitary_operation_with_one_qubit_argument_using_one_control_qubit() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(1), ) !dbg package_id=2 span=[454-464] scope=0 scope_package_id=2 scope_span=[226-264] callable=Op
-                Call id(2), args( Qubit(0), Qubit(1), ) !dbg package_id=2 span=[474-502] scope=1 scope_package_id=2 scope_span=[296-343] callable=Op
+                Call id(1), args( Qubit(1), ) !dbg package_id=2 span=[240-250] scope=0 scope_package_id=2 scope_span=[226-264] callable=Op dbg_location=4
+                Call id(2), args( Qubit(0), Qubit(1), ) !dbg package_id=2 span=[310-320] scope=1 scope_package_id=2 scope_span=[296-343] callable=Op dbg_location=6
                 Call id(3), args( Integer(0), Pointer, ) !dbg package_id=2 span=[382-386]
                 Return !dbg package_id=2 span=[382-386]"#]],
     );
@@ -854,8 +970,8 @@ fn call_to_unitary_operation_with_one_qubit_argument_using_mutiple_control_qubit
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(2), ) !dbg package_id=2 span=[497-507] scope=0 scope_package_id=2 scope_span=[244-282] callable=Op
-                Call id(2), args( Qubit(0), Qubit(1), Qubit(2), ) !dbg package_id=2 span=[517-552] scope=1 scope_package_id=2 scope_span=[314-370] callable=Op
+                Call id(1), args( Qubit(2), ) !dbg package_id=2 span=[258-268] scope=0 scope_package_id=2 scope_span=[244-282] callable=Op dbg_location=5
+                Call id(2), args( Qubit(0), Qubit(1), Qubit(2), ) !dbg package_id=2 span=[328-338] scope=1 scope_package_id=2 scope_span=[314-370] callable=Op dbg_location=7
                 Call id(3), args( Integer(0), Pointer, ) !dbg package_id=2 span=[409-413]
                 Return !dbg package_id=2 span=[409-413]"#]],
     );
@@ -931,8 +1047,8 @@ fn call_to_unitary_operation_with_two_qubit_arguments_using_one_control_qubit() 
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(1), Qubit(2), ) !dbg package_id=2 span=[526-546] scope=0 scope_package_id=2 scope_span=[269-312] callable=Op
-                Call id(2), args( Qubit(0), Qubit(1), Qubit(2), ) !dbg package_id=2 span=[556-596] scope=1 scope_package_id=2 scope_span=[344-396] callable=Op
+                Call id(1), args( Qubit(1), Qubit(2), ) !dbg package_id=2 span=[283-293] scope=0 scope_package_id=2 scope_span=[269-312] callable=Op dbg_location=5
+                Call id(2), args( Qubit(0), Qubit(1), Qubit(2), ) !dbg package_id=2 span=[358-368] scope=1 scope_package_id=2 scope_span=[344-396] callable=Op dbg_location=7
                 Call id(3), args( Integer(0), Pointer, ) !dbg package_id=2 span=[435-439]
                 Return !dbg package_id=2 span=[435-439]"#]],
     );
@@ -1045,10 +1161,10 @@ fn call_to_unitary_operation_using_multiple_controlled_functors() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[872-882] scope=0 scope_package_id=2 scope_span=[393-432] callable=Op
-                Call id(2), args( Qubit(1), Qubit(0), ) !dbg package_id=2 span=[892-921] scope=2 scope_package_id=2 scope_span=[526-581] callable=Op
-                Call id(3), args( Qubit(1), Qubit(2), Qubit(0), ) !dbg package_id=2 span=[931-981] scope=3 scope_package_id=2 scope_span=[596-660] callable=Op
-                Call id(4), args( Qubit(3), ) !dbg package_id=2 span=[991-1062] scope=4 scope_package_id=2 scope_span=[666-719] callable=Op
+                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[407-418] scope=0 scope_package_id=2 scope_span=[393-432] callable=Op dbg_location=6
+                Call id(2), args( Qubit(1), Qubit(0), ) !dbg package_id=2 span=[544-554] scope=2 scope_package_id=2 scope_span=[526-581] callable=Op dbg_location=8
+                Call id(3), args( Qubit(1), Qubit(2), Qubit(0), ) !dbg package_id=2 span=[614-624] scope=3 scope_package_id=2 scope_span=[596-660] callable=Op dbg_location=10
+                Call id(4), args( Qubit(3), ) !dbg package_id=2 span=[684-695] scope=4 scope_package_id=2 scope_span=[666-719] callable=Op dbg_location=12
                 Call id(5), args( Integer(0), Pointer, ) !dbg package_id=2 span=[768-772]
                 Return !dbg package_id=2 span=[768-772]"#]],
     );
@@ -1085,7 +1201,7 @@ fn call_to_closue_with_no_bound_locals() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[65-69] scope=3 scope_package_id=2 scope_span=[65-69] callable=<lambda>
+                Call id(1), args( Qubit(0), ) !dbg package_id=1 span=[133086-133109] scope=3 scope_package_id=2 scope_span=[65-69] callable=<lambda> dbg_location=4
                 Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[108-112]
                 Return !dbg package_id=2 span=[108-112]"#]],
     );
@@ -1123,7 +1239,7 @@ fn call_to_closue_with_one_bound_local() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Double(1), Qubit(0), ) !dbg package_id=2 span=[65-75] scope=3 scope_package_id=2 scope_span=[65-75] callable=<lambda>
+                Call id(1), args( Double(1), Qubit(0), ) !dbg package_id=1 span=[118832-118856] scope=3 scope_package_id=2 scope_span=[65-75] callable=<lambda> dbg_location=4
                 Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[114-118]
                 Return !dbg package_id=2 span=[114-118]"#]],
     );
@@ -1161,7 +1277,7 @@ fn call_to_closue_with_two_bound_locals() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Double(1), Qubit(0), ) !dbg package_id=2 span=[65-82] scope=3 scope_package_id=2 scope_span=[65-82] callable=<lambda>
+                Call id(1), args( Double(1), Qubit(0), ) !dbg package_id=1 span=[118832-118856] scope=3 scope_package_id=2 scope_span=[65-82] callable=<lambda> dbg_location=5
                 Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[121-125]
                 Return !dbg package_id=2 span=[121-125]"#]],
     );
@@ -1199,7 +1315,7 @@ fn call_to_closue_with_one_bound_local_two_unbound() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Double(1), Qubit(0), ) !dbg package_id=2 span=[75-90] scope=3 scope_package_id=2 scope_span=[75-90] callable=<lambda>
+                Call id(1), args( Double(1), Qubit(0), ) !dbg package_id=1 span=[118832-118856] scope=3 scope_package_id=2 scope_span=[75-90] callable=<lambda> dbg_location=5
                 Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[129-133]
                 Return !dbg package_id=2 span=[129-133]"#]],
     );
@@ -1229,7 +1345,7 @@ fn call_to_unresolved_callee_with_classical_arg_allowed() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Double(1), Qubit(0), ) !dbg package_id=2 span=[98-119] scope=0 scope_package_id=2 scope_span=[88-126] callable=Op
+                Call id(1), args( Double(1), Qubit(0), ) !dbg package_id=1 span=[118832-118856] scope=0 scope_package_id=2 scope_span=[88-126] callable=Op dbg_location=4
                 Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[159-163]
                 Return !dbg package_id=2 span=[159-163]"#]],
     );
@@ -1341,7 +1457,7 @@ fn call_to_unresolved_callee_with_static_arg_and_entry_return_value_succeeds() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Double(1), Qubit(0), ) !dbg package_id=2 span=[98-119] scope=0 scope_package_id=2 scope_span=[88-126] callable=Op
+                Call id(1), args( Double(1), Qubit(0), ) !dbg package_id=1 span=[118832-118856] scope=0 scope_package_id=2 scope_span=[88-126] callable=Op dbg_location=4
                 Call id(2), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[252-262] scope=1 scope_package_id=2 scope_span=[175-268] callable=Main
                 Call id(3), args( Result(0), Pointer, ) !dbg package_id=2 span=[159-163]
                 Return !dbg package_id=2 span=[159-163]"#]],
@@ -1373,9 +1489,9 @@ fn call_to_recursive_callable_succeeds() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[209-213] scope=2 scope_package_id=2 scope_span=[195-256] callable=Recursive
-                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[209-213] scope=2 scope_package_id=2 scope_span=[195-256] callable=Recursive
-                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[209-213] scope=2 scope_package_id=2 scope_span=[195-256] callable=Recursive
+                Call id(1), args( Qubit(0), ) !dbg package_id=1 span=[110288-110311] scope=2 scope_package_id=2 scope_span=[195-256] callable=Recursive dbg_location=4
+                Call id(1), args( Qubit(0), ) !dbg package_id=1 span=[110288-110311] scope=2 scope_package_id=2 scope_span=[195-256] callable=Recursive dbg_location=7
+                Call id(1), args( Qubit(0), ) !dbg package_id=1 span=[110288-110311] scope=2 scope_package_id=2 scope_span=[195-256] callable=Recursive dbg_location=10
                 Call id(2), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[108-118] scope=0 scope_package_id=2 scope_span=[48-124] callable=Main
                 Call id(3), args( Result(0), Pointer, ) !dbg package_id=2 span=[32-36]
                 Return !dbg package_id=2 span=[32-36]"#]],

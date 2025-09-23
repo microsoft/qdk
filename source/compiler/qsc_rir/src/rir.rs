@@ -17,6 +17,8 @@ pub struct Program {
     pub config: Config,
     pub num_qubits: u32,
     pub num_results: u32,
+    pub dbg_metadata_scopes: Vec<DbgMetadataScope>,
+    pub dbg_locations: Vec<DbgLocation>,
 }
 
 #[derive(Default, Clone)]
@@ -121,6 +123,18 @@ impl Display for Program {
         write!(indent, "\nconfig: {}", self.config)?;
         write!(indent, "\nnum_qubits: {}", self.num_qubits)?;
         write!(indent, "\nnum_results: {}", self.num_results)?;
+        write!(indent, "\ndbg_metadata_scopes:")?;
+        write!(indent, " [")?;
+        for (index, scope) in self.dbg_metadata_scopes.iter().enumerate() {
+            write!(indent, "\n[{}]: {:?}", index, scope)?;
+        }
+        write!(indent, "\n]")?;
+        write!(indent, "\ndbg_locations:")?;
+        write!(indent, " [")?;
+        for (index, location) in self.dbg_locations.iter().enumerate() {
+            write!(indent, "\n[{}]: {:?}", index, location)?;
+        }
+        write!(indent, "\n]")?;
         Ok(())
     }
 }
@@ -128,7 +142,15 @@ impl Display for Program {
 impl Program {
     #[must_use]
     pub fn new() -> Self {
-        Self::default()
+        let mut s = Self::default();
+        s.dbg_metadata_scopes.push(DbgMetadataScope::SubProgram {
+            name: "entry".into(),
+            location: MetadataPackageSpan {
+                package: 0, // wrong, obviously
+                span: Span::default(),
+            },
+        });
+        s
     }
 
     #[must_use]
@@ -229,6 +251,25 @@ impl Display for InstructionWithMetadata {
 }
 
 #[derive(Clone, Debug)]
+pub enum DbgMetadataScope {
+    /// Corresponds to a callable.
+    SubProgram {
+        name: Rc<str>,
+        location: MetadataPackageSpan,
+    },
+    // TODO: LexicalBlockFile
+}
+
+#[derive(Clone, Debug)]
+pub struct DbgLocation {
+    pub location: MetadataPackageSpan,
+    /// Index into the `dbg_metadata_scopes` vector in the `Program`.
+    pub scope: usize,
+    /// Index into the `dbg_locations` vector in the `Program`
+    pub inlined_at: Option<usize>,
+}
+
+#[derive(Clone, Debug)]
 pub struct MetadataPackageSpan {
     pub package: u32,
     pub span: Span,
@@ -236,6 +277,8 @@ pub struct MetadataPackageSpan {
 
 #[derive(Clone, Debug)]
 pub struct InstructionMetadata {
+    /// Index into the `dbg_locations` vector in the `Program`.
+    pub dbg_location: Option<usize>,
     pub location: MetadataPackageSpan,
     pub scope_id: Option<u32>,
     pub scope_block_location: Option<MetadataPackageSpan>,
@@ -265,6 +308,10 @@ impl Display for InstructionMetadata {
         }
         if let Some(current_callable_name) = &self.current_callable_name {
             write!(f, " callable={current_callable_name}")?;
+        }
+
+        if let Some(dbg_location) = self.dbg_location {
+            write!(f, " dbg_location={dbg_location}")?;
         }
         Ok(())
     }
