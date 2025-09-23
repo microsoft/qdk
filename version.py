@@ -147,13 +147,11 @@ update_file(
     qdk_pyproject,
     r"qsharp-widgets==0.0.0",
     r"qsharp-widgets=={}".format(pip_version),
-    is_regex=True,
 )
 update_file(
     qdk_pyproject,
     r"qsharp-jupyterlab==0.0.0",
     r"qsharp-jupyterlab=={}".format(jupyterlab_version),
-    is_regex=True,
 )
 
 update_file(
