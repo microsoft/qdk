@@ -126,8 +126,7 @@ pub(crate) fn make_circuit(
     let mut done = false;
     while !done {
         for (id, block) in program.blocks.iter() {
-            let block_operations =
-                process_block_vars(&mut program_map, callables, block, config.group_scopes)?;
+            let block_operations = process_block_vars(&mut program_map, callables, block)?;
             program_map.blocks.insert(id, block_operations);
         }
 
@@ -400,16 +399,11 @@ fn process_block_vars(
     state: &mut ProgramMap,
     callables: &IndexMap<qsc_partial_eval::CallableId, Callable>,
     block: &BlockWithMetadata,
-    group_scopes: bool,
 ) -> Result<CircuitBlock, Error> {
     // TODO: use get_block_successors from utils
     let mut terminator = None;
     let mut phis = vec![];
-    let mut operations = vec![];
     let mut done = false;
-
-    let mut current_scope = vec![];
-    let mut last_scope = None;
 
     for instruction in &block.0 {
         if done {
@@ -418,8 +412,8 @@ fn process_block_vars(
             ));
         }
         let BlockUpdate {
-            operations: new_operations,
             terminator: new_terminator,
+            ..
         } = get_operations_for_instruction(state, callables, &mut phis, &mut done, instruction)?;
 
         if let Some(new_terminator) = new_terminator {
@@ -429,28 +423,11 @@ fn process_block_vars(
                 "did not expect more than one unconditional successor for block, old: {old:?} new: {terminator:?}"
             );
         }
-
-        extend_operations(
-            &mut operations,
-            &mut current_scope,
-            &mut last_scope,
-            new_operations,
-            group_scopes,
-        );
-    }
-
-    if !current_scope.is_empty() {
-        flush_scope(
-            &mut operations,
-            &mut current_scope,
-            &mut last_scope,
-            group_scopes,
-        );
     }
 
     Ok(CircuitBlock {
         phis,
-        operations,
+        operations: vec![],
         terminator, // TODO: make this exhaustive, and detect corrupt blocks
     })
 }
@@ -941,10 +918,9 @@ fn extend_operations(
     for op in new_operations {
         let metadata = &op.metadata;
         if let Some(metadata) = metadata {
-            if let (Some(callable), Some(block_id)) =
-                (&metadata.current_callable_name, metadata.scope_id)
-            {
-                let scope = format!("{callable}_{block_id}");
+            let scope = instruction_scope(metadata);
+
+            if let Some(scope) = scope {
                 if last_scope
                     .as_ref()
                     .is_some_and(|last_scope| last_scope == &scope)
@@ -984,6 +960,14 @@ fn extend_operations(
 
         // add this operation
         operations.push(op);
+    }
+}
+
+fn instruction_scope(metadata: &InstructionMetadata) -> Option<String> {
+    if let (Some(callable), Some(block_id)) = (&metadata.current_callable_name, metadata.scope_id) {
+        Some(format!("{callable}_{block_id}"))
+    } else {
+        None
     }
 }
 
