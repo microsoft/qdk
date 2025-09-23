@@ -40,9 +40,14 @@ struct Op {
     target_results: Vec<ResultId>,
     control_results: Vec<ResultId>,
     is_adjoint: bool,
-    children: Vec<Op>,
     args: Vec<String>,
     metadata: Option<InstructionMetadata>,
+}
+
+impl Op {
+    fn has_children(&self) -> bool {
+        matches!(&self.kind, OperationKind::Group { children, .. } if !children.is_empty())
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -50,6 +55,10 @@ enum OperationKind {
     Unitary,
     Measurement,
     Ket,
+    Group {
+        children: Vec<Op>,
+        stack: Option<Vec<(usize, usize)>>,
+    },
 }
 
 impl From<Op> for Operation {
@@ -60,9 +69,6 @@ impl From<Op> for Operation {
             .chain(value.metadata.map(|md| format!("metadata={md}")))
             .collect();
 
-        let children = vec![ComponentColumn {
-            components: value.children.into_iter().map(Into::into).collect(),
-        }];
         let targets = value
             .target_qubits
             .into_iter()
@@ -92,7 +98,7 @@ impl From<Op> for Operation {
             OperationKind::Unitary => Operation::Unitary(Unitary {
                 gate: value.label,
                 args,
-                children,
+                children: vec![],
                 targets,
                 controls,
                 is_adjoint: value.is_adjoint,
@@ -100,15 +106,25 @@ impl From<Op> for Operation {
             OperationKind::Measurement => Operation::Measurement(Measurement {
                 gate: value.label,
                 args,
-                children,
+                children: vec![],
                 qubits: controls,
                 results: targets,
             }),
             OperationKind::Ket => Operation::Ket(Ket {
                 gate: value.label,
                 args,
-                children,
+                children: vec![],
                 targets,
+            }),
+            OperationKind::Group { children, stack: _ } => Operation::Unitary(Unitary {
+                gate: value.label,
+                args,
+                children: vec![ComponentColumn {
+                    components: children.into_iter().map(Into::into).collect(),
+                }],
+                targets,
+                controls,
+                is_adjoint: false,
             }),
         }
     }
@@ -213,7 +229,11 @@ fn expand_branches_vars(program: &Program, state: &mut ProgramMap) -> Result<boo
             let expanded_branch = expand_branch_vars(state, block_id, &branch)?;
 
             if let Some(expanded_branch) = expanded_branch {
-                if !expanded_branch.grouped_operation.children.is_empty() {
+                let add = match &expanded_branch.grouped_operation.kind {
+                    OperationKind::Group { children, stack } => !children.is_empty(),
+                    _ => false,
+                };
+                if add {
                     // don't add operations for empty branches
                     circuit_block
                         .operations
@@ -310,10 +330,12 @@ fn expand_branch_vars(
         })
         .collect::<Vec<_>>();
     let true_container = Op {
-        kind: OperationKind::Unitary,
+        kind: OperationKind::Group {
+            children: true_operations.clone(),
+            stack: None,
+        },
         label: "true".into(),
         args: vec![],
-        children: true_operations.clone(),
         target_qubits: true_targets.clone(),
         control_qubits: vec![],
         target_results: vec![],
@@ -329,7 +351,10 @@ fn expand_branch_vars(
          }| {
             (
                 Op {
-                    kind: OperationKind::Unitary,
+                    kind: OperationKind::Group {
+                        children: false_operations.clone(),
+                        stack: None,
+                    },
                     label: "false".into(),
                     target_qubits: false_targets.clone(),
                     control_qubits: vec![],
@@ -337,7 +362,6 @@ fn expand_branch_vars(
                     control_results: control_results.clone(),
                     args: vec![],
                     is_adjoint: false,
-                    children: false_operations.clone(),
                     metadata: None,
                 },
                 false_targets,
@@ -345,18 +369,13 @@ fn expand_branch_vars(
         },
     );
 
-    let true_container = if true_container.children.is_empty() {
+    let true_container = if !true_container.has_children() {
         None
     } else {
         Some(true_container)
     };
-    let false_container = false_container.and_then(|f| {
-        if f.0.children.is_empty() {
-            None
-        } else {
-            Some(f)
-        }
-    });
+    let false_container =
+        false_container.and_then(|f| if !f.0.has_children() { None } else { Some(f) });
 
     let mut children = vec![];
     let mut target_qubits = vec![];
@@ -382,14 +401,16 @@ fn expand_branch_vars(
     Ok(Some(ExpandedBranchBlock {
         _condition: branch.condition,
         grouped_operation: Op {
-            kind: OperationKind::Unitary,
+            kind: OperationKind::Group {
+                children: children.into_iter().collect(),
+                stack: None,
+            },
             label,
             target_qubits,
             control_qubits: vec![],
             target_results: vec![],
             control_results: control_results.clone(),
             is_adjoint: false,
-            children: children.into_iter().collect(),
             args,
             metadata: branch.metadata.clone(),
         },
@@ -459,7 +480,12 @@ fn expand_branches(program: &Program, state: &mut ProgramMap) -> Result<(), Erro
         {
             let expanded_branch = expand_branch(state, block_id, &branch)?;
 
-            if !expanded_branch.grouped_operation.children.is_empty() {
+            let add = match &expanded_branch.grouped_operation.kind {
+                OperationKind::Group { children, stack } => !children.is_empty(),
+                _ => false,
+            };
+
+            if add {
                 // don't add operations for empty branches
                 circuit_block
                     .operations
@@ -468,24 +494,6 @@ fn expand_branches(program: &Program, state: &mut ProgramMap) -> Result<(), Erro
             circuit_block.terminator = Some(Terminator::Unconditional(
                 expanded_branch.unconditional_successor,
             ));
-
-            // Find the successor and see if it has any phi nodes
-            // let successor_block = state
-            //     .blocks
-            //     .get(expanded_branch.unconditional_successor)
-            //     .expect("successor block should exist");
-
-            // let condition_expr = state.expr_for_variable(branch.condition.variable_id)?;
-
-            // let phi_vars = store_phi_vars_from_branch(
-            //     successor_block,
-            //     expanded_branch.true_predecessor_to_successor,
-            //     expanded_branch.false_predecessor_to_successor,
-            //     condition_expr,
-            // )?;
-            // for (var, expr) in phi_vars {
-            //     state.store_expr_in_variable(var, expr)?;
-            // }
         }
 
         state.blocks.insert(block_id, circuit_block);
@@ -757,10 +765,12 @@ fn expand_branch(
         })
         .collect::<Vec<_>>();
     let true_container = Op {
-        kind: OperationKind::Unitary,
+        kind: OperationKind::Group {
+            children: true_operations.clone(),
+            stack: None,
+        },
         label: "true".into(),
         args: vec![],
-        children: true_operations.clone(),
         target_qubits: true_targets.clone(),
         control_qubits: vec![],
         target_results: vec![],
@@ -776,7 +786,10 @@ fn expand_branch(
          }| {
             (
                 Op {
-                    kind: OperationKind::Unitary,
+                    kind: OperationKind::Group {
+                        children: false_operations.clone(),
+                        stack: None,
+                    },
                     label: "false".into(),
                     target_qubits: false_targets.clone(),
                     control_qubits: vec![],
@@ -784,7 +797,6 @@ fn expand_branch(
                     control_results: control_results.clone(),
                     args: vec![],
                     is_adjoint: false,
-                    children: false_operations.clone(),
                     metadata: None,
                 },
                 false_targets,
@@ -792,18 +804,13 @@ fn expand_branch(
         },
     );
 
-    let true_container = if true_container.children.is_empty() {
+    let true_container = if !true_container.has_children() {
         None
     } else {
         Some(true_container)
     };
-    let false_container = false_container.and_then(|f| {
-        if f.0.children.is_empty() {
-            None
-        } else {
-            Some(f)
-        }
-    });
+    let false_container =
+        false_container.and_then(|f| if !f.0.has_children() { None } else { Some(f) });
 
     let mut children = vec![];
     let mut target_qubits = vec![];
@@ -829,14 +836,16 @@ fn expand_branch(
     Ok(ExpandedBranchBlock {
         _condition: branch.condition,
         grouped_operation: Op {
-            kind: OperationKind::Unitary,
+            kind: OperationKind::Group {
+                children: children.into_iter().collect(),
+                stack: None,
+            },
             label,
             target_qubits,
             control_qubits: vec![],
             target_results: vec![],
             control_results: control_results.clone(),
             is_adjoint: false,
-            children: children.into_iter().collect(),
             args,
             metadata: branch.metadata.clone(),
         },
@@ -1010,26 +1019,23 @@ fn extend_operations(
 }
 
 fn flush_if_not_empty(
-    operations: &mut Vec<Op>,
-    current_scope: &mut Vec<Op>,
+    block_operations: &mut Vec<Op>,
+    ops_in_current_scope: &mut Vec<Op>,
     dbg_locations: &[DbgLocation],
     dbg_metadata_scopes: &[DbgMetadataScope],
     instruction_stack: Option<&Vec<(usize, usize)>>,
     group_scopes: bool,
 ) {
-    if !current_scope.is_empty() {
-        let label = instruction_stack
-            .expect("instruction stack should exist")
-            .into_iter()
-            .map(|(scope, location)| {
-                let scope = &dbg_metadata_scopes[*scope];
-                match scope {
-                    DbgMetadataScope::SubProgram { name, span } => name.clone(),
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("::");
-        flush_scope(operations, current_scope, label, group_scopes);
+    if !ops_in_current_scope.is_empty() {
+        let instruction_stack = instruction_stack.expect("instruction stack should exist");
+        flush_scope(
+            block_operations,
+            ops_in_current_scope,
+            dbg_locations,
+            dbg_metadata_scopes,
+            instruction_stack.clone(),
+            group_scopes,
+        );
     }
 }
 
@@ -1073,40 +1079,33 @@ fn instruction_logical_stack(
     None
 }
 
+fn scope_name(
+    instruction_stack: &[(usize, usize)],
+    dbg_metadata_scopes: &[DbgMetadataScope],
+) -> String {
+    instruction_stack
+        .into_iter()
+        .map(|(scope, location)| {
+            let scope = &dbg_metadata_scopes[*scope];
+            match scope {
+                DbgMetadataScope::SubProgram { name, span } => name.clone(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("::")
+}
+
 fn flush_scope(
     operations: &mut Vec<Op>,
     current_scope: &mut Vec<Op>,
-    label: String,
+    dbg_locations: &[DbgLocation],
+    dbg_metadata_scopes: &[DbgMetadataScope],
+    instruction_stack: Vec<(usize, usize)>,
     group_scopes: bool,
 ) {
-    let mut should_group = true;
-    if !group_scopes {
-        should_group = false;
-    }
-    // don't group if there is no overlap at all in the qubits
-    // if should_group {
-    //     let mut some_overlap = false;
-    //     let mut qubits: FxHashSet<usize> = FxHashSet::default();
-    //     for op in current_scope.iter() {
-    //         let op_qubits: Vec<usize> = op
-    //             .control_qubits
-    //             .iter()
-    //             .chain(&op.target_qubits)
-    //             .copied()
-    //             .collect();
-    //         let initial_len = qubits.len();
-    //         qubits.extend(op_qubits.clone());
-    //         if qubits.len() < initial_len + op_qubits.len() {
-    //             some_overlap = true;
-    //             break;
-    //         }
-    //     }
-    //     if !some_overlap {
-    //         should_group = false;
-    //     }
-    // }
+    if group_scopes {
+        let label = scope_name(&instruction_stack, dbg_metadata_scopes);
 
-    if should_group {
         let args = current_scope[0].args.clone();
         let metadata = current_scope[0].metadata.clone();
         let qubits: FxHashSet<usize> = current_scope
@@ -1119,20 +1118,23 @@ fn flush_scope(
             .collect();
 
         let group = Op {
-            kind: OperationKind::Unitary,
+            kind: OperationKind::Group {
+                children: current_scope.clone(),
+                stack: Some(instruction_stack.to_vec()),
+            },
             label,
             target_qubits: qubits.into_iter().collect(),
             control_qubits: vec![],
-            target_results: results.into_iter().collect(),
+            target_results: vec![], // results.into_iter().collect(), TODO: include results too somehow
             control_results: vec![],
             is_adjoint: false,
-            children: current_scope.clone(),
             args,
             metadata,
         };
         operations.push(group);
         current_scope.clear();
     } else {
+        // Add individually
         for op in current_scope.drain(..) {
             operations.push(op);
         }
@@ -1963,7 +1965,6 @@ fn map_callable_to_operations(
                         .filter_map(|reg| reg.result.map(|r| (reg.qubit, r)))
                         .collect(),
                     is_adjoint: false,
-                    children: vec![],
                     args,
                     metadata: metadata.cloned(),
                 }]
@@ -2003,7 +2004,6 @@ fn map_reset_call_into_operations(
                     .collect(),
                 control_results: vec![],
                 is_adjoint: false,
-                children: vec![],
                 args: vec![],
                 metadata: metadata.cloned(),
             }]
@@ -2055,7 +2055,6 @@ fn map_measurement_call_to_operations(
                     .collect(),
                 control_results: vec![],
                 is_adjoint: false,
-                children: vec![],
                 args: vec![],
                 metadata: metadata.cloned(),
             },
@@ -2076,7 +2075,6 @@ fn map_measurement_call_to_operations(
                 target_results: vec![],
                 control_results: vec![],
                 is_adjoint: false,
-                children: vec![],
                 args: vec![],
                 metadata: metadata.cloned(),
             },
@@ -2107,7 +2105,6 @@ fn map_measurement_call_to_operations(
                 .collect(),
             control_results: vec![],
             is_adjoint: false,
-            children: vec![],
             args: vec![],
             metadata: metadata.cloned(),
         }]
