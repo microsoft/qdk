@@ -95,6 +95,7 @@ For convenience, the following helpers and types are also importable directly fr
 | Symbol               | Type     | Origin                      | Description                                                         |
 | -------------------- | -------- | --------------------------- | ------------------------------------------------------------------- |
 | `code`               | module   | `qsharp.code`               | Define inline Q# snippets / code objects.                           |
+| `init`               | function | `qsharp.init`               | Initialize/configure the QDK interpreter (target profile, options). |
 | `set_quantum_seed`   | function | `qsharp.set_quantum_seed`   | Deterministic seed for quantum randomness (simulators).             |
 | `set_classical_seed` | function | `qsharp.set_classical_seed` | Deterministic seed for classical host RNG.                          |
 | `dump_machine`       | function | `qsharp.dump_machine`       | Emit a structured dump of full quantum state (simulator dependent). |
@@ -112,7 +113,7 @@ If you need additional items, import them from `qdk.qsharp` directly rather than
 
 ## Design Notes
 
-- Root re-exports selected utility symbols from `qsharp` (e.g. `code`, `set_quantum_seed`, types) for convenience; algorithm APIs still live under `qdk.qsharp`.
+- Root re-exports selected utility symbols from `qsharp` (e.g. `code`, `init`, `set_quantum_seed`, types) for convenience; algorithm APIs still live under `qdk.qsharp`.
 - Additional shims (`qdk.estimator`, `qdk.openqasm`) are thin pass-throughs to the corresponding `qsharp` submodules for discoverability.
 - Optional extras are thin pass-through modules; failure messages instruct how to install.
 - Tests may stub dependencies in isolation environments.
