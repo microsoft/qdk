@@ -43,8 +43,6 @@ from qsharp import (
 
 __all__ = [
     "qsharp",
-    "estimator",
-    "openqasm",
     # utilities lifted from qsharp
     "code",
     "set_quantum_seed",
