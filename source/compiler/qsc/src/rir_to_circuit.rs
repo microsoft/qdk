@@ -122,30 +122,24 @@ pub(crate) fn make_circuit(
     let mut program_map = ProgramMap::new(program.num_qubits);
     let callables = &program.callables;
 
-    let mut more_work = true;
-    while more_work {
+    let mut i = 0;
+    let mut done = false;
+    while !done {
         for (id, block) in program.blocks.iter() {
             let block_operations =
-                operations_in_block(&mut program_map, callables, block, config.group_scopes)?;
+                process_block_vars(&mut program_map, callables, block, config.group_scopes)?;
             program_map.blocks.insert(id, block_operations);
         }
 
-        // TODO: this is a terrible way of doing this
-        let len_before = program_map
-            .variables
-            .values()
-            .filter(|v| v.is_unresolved())
-            .count();
-        eprintln!("expanding branches, unresolved vars before = {len_before}");
-        let _ = expand_branches(program, &mut program_map);
+        done = expand_branches_vars(program, &mut program_map)?;
         program_map.blocks.clear();
-        let len_after = program_map
-            .variables
-            .values()
-            .filter(|v| v.is_unresolved())
-            .count();
-        eprintln!("expanding branches, unresolved vars after = {len_after}");
-        more_work = len_after != len_before;
+        i += 1;
+        if i > 100 {
+            warn!("make_circuit: too many iterations expanding branches, giving up");
+            return Err(Error::UnsupportedFeature(
+                "too many iterations expanding branches".to_owned(),
+            ));
+        }
     }
 
     // Do it all again, with all variables properly resolved
@@ -193,6 +187,274 @@ pub(crate) fn make_circuit(
     Ok(circuit)
 }
 
+/// true result means done
+fn expand_branches_vars(program: &Program, state: &mut ProgramMap) -> Result<bool, Error> {
+    let mut done = true;
+    for (block_id, _) in program.blocks.iter() {
+        // TODO: we can just iterate over state.blocks here
+        let mut circuit_block = state
+            .blocks
+            .get(block_id)
+            .expect("block should exist")
+            .clone();
+
+        if let Some(Terminator::Conditional(branch)) = circuit_block
+            .terminator
+            .take_if(|t| matches!(t, Terminator::Conditional(_)))
+        {
+            let expanded_branch = expand_branch_vars(state, block_id, &branch)?;
+
+            if let Some(expanded_branch) = expanded_branch {
+                if !expanded_branch.grouped_operation.children.is_empty() {
+                    // don't add operations for empty branches
+                    circuit_block
+                        .operations
+                        .push(expanded_branch.grouped_operation);
+                }
+                circuit_block.terminator = Some(Terminator::Unconditional(
+                    expanded_branch.unconditional_successor,
+                ));
+
+                let condition_expr = state
+                    .expr_for_variable(branch.condition.variable_id)?
+                    .clone();
+                // Find the successor and see if it has any phi nodes
+                for successor in expanded_branch.successors_to_check_for_phis {
+                    let successor_block = state
+                        .blocks
+                        .get(successor.block_id)
+                        .expect("successor block should exist");
+
+                    let phi_vars = get_phi_vars_from_branch(
+                        successor_block,
+                        successor.predecessors,
+                        &condition_expr,
+                    )?;
+                    if let Some(phi_vars) = phi_vars {
+                        for (var, expr) in phi_vars {
+                            state.store_expr_in_variable(var, expr)?;
+                        }
+                    } else {
+                        done = false;
+                    }
+                }
+            } else {
+                done = false;
+            }
+        }
+
+        state.blocks.insert(block_id, circuit_block);
+    }
+    Ok(done)
+}
+
+// None means more work to be done
+fn expand_branch_vars(
+    state: &mut ProgramMap,
+    curent_block_id: BlockId,
+    branch: &Branch,
+) -> Result<Option<ExpandedBranchBlock>, Error> {
+    let cond_expr = state.expr_for_variable(branch.condition.variable_id)?;
+    if cond_expr.is_unresolved() {
+        debug!(
+            "expand_branch_vars: unresolved condition expr for branch: {:?}",
+            cond_expr
+        );
+        return Ok(None);
+    }
+    let results = cond_expr.linked_results();
+
+    if let Expr::Bool(BoolExpr::LiteralBool(_)) = cond_expr {
+        return Err(Error::UnsupportedFeature(
+            "constant condition in branch".to_owned(),
+        ));
+    }
+
+    if results.is_empty() {
+        debug!(
+            "expand_branch_vars: condition expr has no results for branch: {:?}",
+            cond_expr
+        );
+        return Ok(None);
+    }
+
+    let branch_block = make_simple_branch_block(
+        state,
+        cond_expr,
+        curent_block_id,
+        branch.true_block,
+        branch.false_block,
+    )?;
+    debug!("expand_branch: made simple branch block: {branch_block:?}");
+    let ConditionalBlock {
+        operations: true_operations,
+        targets: true_targets,
+    } = branch_block.true_block;
+
+    let control_results = results
+        .iter()
+        .map(|r| state.result_register(*r))
+        .map(|r| {
+            (
+                r.qubit,
+                r.result.expect("result register must have result idx"),
+            )
+        })
+        .collect::<Vec<_>>();
+    let true_container = Op {
+        kind: OperationKind::Unitary,
+        label: "true".into(),
+        args: vec![],
+        children: true_operations.clone(),
+        target_qubits: true_targets.clone(),
+        control_qubits: vec![],
+        target_results: vec![],
+        control_results: control_results.clone(),
+        is_adjoint: false,
+        metadata: None,
+    };
+
+    let false_container = branch_block.false_block.map(
+        |ConditionalBlock {
+             operations: false_operations,
+             targets: false_targets,
+         }| {
+            (
+                Op {
+                    kind: OperationKind::Unitary,
+                    label: "false".into(),
+                    target_qubits: false_targets.clone(),
+                    control_qubits: vec![],
+                    target_results: vec![],
+                    control_results: control_results.clone(),
+                    args: vec![],
+                    is_adjoint: false,
+                    children: false_operations.clone(),
+                    metadata: None,
+                },
+                false_targets,
+            )
+        },
+    );
+
+    let true_container = if true_container.children.is_empty() {
+        None
+    } else {
+        Some(true_container)
+    };
+    let false_container = false_container.and_then(|f| {
+        if f.0.children.is_empty() {
+            None
+        } else {
+            Some(f)
+        }
+    });
+
+    let mut children = vec![];
+    let mut target_qubits = vec![];
+
+    if let Some(true_container) = true_container {
+        children.push(true_container);
+        target_qubits.extend(true_targets);
+    }
+
+    if let Some((false_container, false_targets)) = false_container {
+        children.push(false_container);
+        target_qubits.extend(false_targets);
+    }
+
+    // dedup targets
+    target_qubits.sort_unstable();
+    target_qubits.dedup();
+    // TODO: target results for container? measurements in branches?
+
+    let args = vec![branch_block.cond_expr.to_string().clone()];
+    let label = "check ".to_string();
+
+    Ok(Some(ExpandedBranchBlock {
+        _condition: branch.condition,
+        grouped_operation: Op {
+            kind: OperationKind::Unitary,
+            label,
+            target_qubits,
+            control_qubits: vec![],
+            target_results: vec![],
+            control_results: control_results.clone(),
+            is_adjoint: false,
+            children: children.into_iter().collect(),
+            args,
+            metadata: branch.metadata.clone(),
+        },
+        unconditional_successor: branch_block.unconditional_successor.block_id,
+        successors_to_check_for_phis: [
+            branch_block.unconditional_successor,
+            branch_block.true_successor,
+        ]
+        .into_iter()
+        .chain(branch_block.false_successor.into_iter())
+        .collect(),
+    }))
+}
+
+fn process_block_vars(
+    state: &mut ProgramMap,
+    callables: &IndexMap<qsc_partial_eval::CallableId, Callable>,
+    block: &BlockWithMetadata,
+    group_scopes: bool,
+) -> Result<CircuitBlock, Error> {
+    // TODO: use get_block_successors from utils
+    let mut terminator = None;
+    let mut phis = vec![];
+    let mut operations = vec![];
+    let mut done = false;
+
+    let mut current_scope = vec![];
+    let mut last_scope = None;
+
+    for instruction in &block.0 {
+        if done {
+            return Err(Error::UnsupportedFeature(
+                "instructions after return or jump in block".to_owned(),
+            ));
+        }
+        let BlockUpdate {
+            operations: new_operations,
+            terminator: new_terminator,
+        } = get_operations_for_instruction(state, callables, &mut phis, &mut done, instruction)?;
+
+        if let Some(new_terminator) = new_terminator {
+            let old = terminator.replace(new_terminator);
+            assert!(
+                old.is_none(),
+                "did not expect more than one unconditional successor for block, old: {old:?} new: {terminator:?}"
+            );
+        }
+
+        extend_operations(
+            &mut operations,
+            &mut current_scope,
+            &mut last_scope,
+            new_operations,
+            group_scopes,
+        );
+    }
+
+    if !current_scope.is_empty() {
+        flush_scope(
+            &mut operations,
+            &mut current_scope,
+            &mut last_scope,
+            group_scopes,
+        );
+    }
+
+    Ok(CircuitBlock {
+        phis,
+        operations,
+        terminator, // TODO: make this exhaustive, and detect corrupt blocks
+    })
+}
+
 /// Iterates over all the basic blocks in the original program. If a block ends with a conditional branch,
 /// the corresponding block in the program map is modified to replace the conditional branch with an unconditional branch,
 /// and an operation is added to the block that represents the branch logic (i.e., a unitary operation with two children, one for the true branch and one for the false branch).
@@ -222,23 +484,22 @@ fn expand_branches(program: &Program, state: &mut ProgramMap) -> Result<(), Erro
             ));
 
             // Find the successor and see if it has any phi nodes
-            let successor_block = state
-                .blocks
-                .get(expanded_branch.unconditional_successor)
-                .expect("successor block should exist");
+            // let successor_block = state
+            //     .blocks
+            //     .get(expanded_branch.unconditional_successor)
+            //     .expect("successor block should exist");
 
-            let condition_expr = state.expr_for_variable(branch.condition.variable_id)?;
+            // let condition_expr = state.expr_for_variable(branch.condition.variable_id)?;
 
-            let phi_vars = store_phi_vars_from_branch(
-                successor_block,
-                expanded_branch.true_predecessor_to_successor,
-                expanded_branch.false_predecessor_to_successor,
-                condition_expr,
-            )?;
-            for (var, expr) in phi_vars {
-                debug!("storing phi var {var} = {expr:?}");
-                state.store_expr_in_variable(var, expr)?;
-            }
+            // let phi_vars = store_phi_vars_from_branch(
+            //     successor_block,
+            //     expanded_branch.true_predecessor_to_successor,
+            //     expanded_branch.false_predecessor_to_successor,
+            //     condition_expr,
+            // )?;
+            // for (var, expr) in phi_vars {
+            //     state.store_expr_in_variable(var, expr)?;
+            // }
         }
 
         state.blocks.insert(block_id, circuit_block);
@@ -246,52 +507,50 @@ fn expand_branches(program: &Program, state: &mut ProgramMap) -> Result<(), Erro
     Ok(())
 }
 
-fn store_phi_vars_from_branch(
+// None means unresolved, more work to do
+fn get_phi_vars_from_branch(
     successor_block: &CircuitBlock,
-    true_predecessor: BlockId,
-    false_predecessor: BlockId,
+    predecessors: Vec<BlockId>,
     condition: &Expr,
-) -> Result<Vec<(Variable, Expr)>, Error> {
+) -> Result<Option<Vec<(Variable, Expr)>>, Error> {
+    let mut done = true;
     let mut phi_vars = vec![];
     for phi in &successor_block.phis {
         let (var, pres) = phi;
+        debug!("attempting to resolve phi var {var:?} with pres {pres:?}");
         let mut options = vec![];
         for (expr, block_id) in pres {
             // TODO: this is not how it works
-            if *block_id == true_predecessor {
-                options.push((condition.clone(), expr.clone()));
-            }
-            if *block_id == false_predecessor {
-                options.push((condition.negate()?.clone(), expr.clone()));
+            if predecessors.contains(block_id) {
+                if options.is_empty() {
+                    options.push(condition.clone());
+                }
+                options.push(expr.clone());
             }
         }
 
         let rich = combine_exprs(options)?;
-        phi_vars.push((*var, rich));
+        if let Some(rich) = rich {
+            phi_vars.push((*var, rich));
+        } else {
+            debug!("get_phi_vars_from_branch: unresolved phi var {var:?} in successor block");
+            done = false;
+        }
     }
-    Ok(phi_vars)
+    if done { Ok(Some(phi_vars)) } else { Ok(None) }
 }
 
-fn combine_exprs(options: Vec<(Expr, Expr)>) -> Result<Expr, Error> {
-    // assert all the exprs are the same type
-    let first = &options.first().expect("options should not be empty").1;
-
-    if first.is_unresolved() {
-        return Err(Error::UnsupportedFeature(format!(
-            "complex phi chains not supported yet: {options:?}"
-        )));
+// None means unresolved, more work to do
+fn combine_exprs(options: Vec<Expr>) -> Result<Option<Expr>, Error> {
+    if options.iter().any(|expr| expr.is_unresolved()) {
+        debug!("combine_exprs: unresolved expr in options: {options:?}");
+        return Ok(None);
     }
 
-    let e = match first {
-        Expr::Rich(_) | Expr::Bool(_) => Expr::Rich(RichExpr::FunctionOf(
-            options
-                .into_iter()
-                .flat_map(|(cond, expr)| vec![cond, expr])
-                .collect(),
-        )),
-        Expr::Unresolved(_) => panic!("unresolved expr should have been caught earlier"),
-    };
-    Ok(e)
+    let e = Expr::Rich(RichExpr::FunctionOf(
+        options.into_iter().flat_map(|e| e.flat_exprs()).collect(),
+    ));
+    Ok(Some(e))
 }
 
 fn extend_with_successors(state: &ProgramMap, entry_block: &CircuitBlock) -> Vec<Op> {
@@ -462,9 +721,8 @@ fn parse_span(rest: &str) -> Option<Span> {
 struct ExpandedBranchBlock {
     _condition: Variable,
     grouped_operation: Op,
+    successors_to_check_for_phis: Vec<Successor>,
     unconditional_successor: BlockId,
-    true_predecessor_to_successor: BlockId,
-    false_predecessor_to_successor: BlockId,
 }
 
 fn expand_branch(
@@ -495,6 +753,8 @@ fn expand_branch(
         branch.true_block,
         branch.false_block,
     )?;
+
+    debug!("expand_branch: made simple branch block: {branch_block:?}");
     let ConditionalBlock {
         operations: true_operations,
         targets: true_targets,
@@ -594,9 +854,14 @@ fn expand_branch(
             args,
             metadata: branch.metadata.clone(),
         },
-        unconditional_successor: branch_block.unconditional_successor,
-        true_predecessor_to_successor: branch_block.true_predecessor_to_successor,
-        false_predecessor_to_successor: branch_block.false_predecessor_to_successor,
+        unconditional_successor: branch_block.unconditional_successor.block_id,
+        successors_to_check_for_phis: [
+            branch_block.unconditional_successor,
+            branch_block.true_successor,
+        ]
+        .into_iter()
+        .chain(branch_block.false_successor.into_iter())
+        .collect(),
     })
 }
 
@@ -903,7 +1168,12 @@ fn extend_block_with_binop_instruction(
 ) -> Result<(), Error> {
     let expr_left = expr_from_operand(state, operand)?;
     let expr_right = expr_from_operand(state, operand1)?;
-    let expr = Expr::Rich(RichExpr::FunctionOf(vec![expr_left, expr_right]));
+    let expr = Expr::Rich(RichExpr::FunctionOf(
+        [expr_left, expr_right]
+            .into_iter()
+            .flat_map(|e| e.flat_exprs())
+            .collect(),
+    ));
     state.store_expr_in_variable(variable, expr)?;
     Ok(())
 }
@@ -1049,18 +1319,26 @@ fn eq_expr(expr_left: Expr, expr_right: Expr) -> Result<BoolExpr, Error> {
     })
 }
 
+#[derive(Clone, Debug)]
 struct ConditionalBlock {
     operations: Vec<Op>,
     targets: Vec<usize>,
 }
 
+#[derive(Clone, Debug)]
+struct Successor {
+    block_id: BlockId,
+    predecessors: Vec<BlockId>,
+}
+
+#[derive(Clone, Debug)]
 struct BranchBlock {
     cond_expr: Expr,
     true_block: ConditionalBlock,
     false_block: Option<ConditionalBlock>,
-    unconditional_successor: BlockId,
-    true_predecessor_to_successor: BlockId,
-    false_predecessor_to_successor: BlockId,
+    unconditional_successor: Successor,
+    true_successor: Successor,
+    false_successor: Option<Successor>,
 }
 
 /// Can only handle basic branches
@@ -1102,23 +1380,35 @@ fn make_simple_branch_block(
             cond_expr: cond_expr.clone(),
             true_block,
             false_block: None,
-            unconditional_successor: false_block_id,
-            true_predecessor_to_successor: true_block_id,
-            false_predecessor_to_successor: current_block_id,
+            unconditional_successor: Successor {
+                block_id: false_block_id,
+                predecessors: vec![true_block_id, current_block_id],
+            },
+            true_successor: Successor {
+                block_id: true_block_id,
+                predecessors: vec![current_block_id],
+            },
+            false_successor: None,
         })
     } else if false_successor.is_some_and(|c| c == true_block_id) && true_successor.is_none() {
         // simple if, but flipped (i.e. just else)
         // TODO: test
 
-        let true_block = expand_real_branch_block(true_operations)?;
+        let true_block = expand_real_branch_block(false_operations)?;
 
         Ok(BranchBlock {
-            cond_expr: cond_expr.negate()?,
+            cond_expr: cond_expr.negate()?, // negating
             true_block,
             false_block: None,
-            unconditional_successor: false_block_id,
-            true_predecessor_to_successor: true_block_id,
-            false_predecessor_to_successor: current_block_id,
+            unconditional_successor: Successor {
+                block_id: true_block_id,
+                predecessors: vec![false_block_id, current_block_id],
+            },
+            true_successor: Successor {
+                block_id: false_block_id,
+                predecessors: vec![current_block_id],
+            },
+            false_successor: None,
         })
     } else if true_successor
         .and_then(|true_successor| {
@@ -1134,9 +1424,18 @@ fn make_simple_branch_block(
             cond_expr: cond_expr.clone(),
             true_block,
             false_block: Some(false_block),
-            unconditional_successor: true_successor.expect("true_successor should exist"),
-            true_predecessor_to_successor: true_block_id,
-            false_predecessor_to_successor: false_block_id,
+            unconditional_successor: Successor {
+                block_id: true_successor.expect("should exist"),
+                predecessors: vec![true_block_id, false_block_id],
+            },
+            true_successor: Successor {
+                block_id: true_block_id,
+                predecessors: vec![current_block_id],
+            },
+            false_successor: Some(Successor {
+                block_id: false_block_id,
+                predecessors: vec![current_block_id],
+            }),
         })
     } else {
         Err(Error::UnsupportedFeature(format!(
@@ -1157,12 +1456,13 @@ fn expand_real_branch_block(operations: &Vec<Op>) -> Result<ConditionalBlock, Er
             seen.insert((r.0, Some(r.1)));
         }
     }
+    // TODO: actually test measurements in branches
 
-    if seen.iter().any(|(_, r)| r.is_some()) {
-        return Err(Error::UnsupportedFeature(
-            "measurement operation in a branch block".to_owned(),
-        ));
-    }
+    // if seen.iter().any(|(_, r)| r.is_some()) {
+    //     return Err(Error::UnsupportedFeature(
+    //         "measurement operation in a branch block".to_owned(),
+    //     ));
+    // }
 
     // TODO: everything is a target. Don't know how else we would do this.
     let target_qubits = seen.into_iter().map(|(q, _)| q).collect();
@@ -1240,20 +1540,30 @@ impl Expr {
                     filter: (!f00, !f01, !f10, !f11),
                 })
             }
-            Expr::Bool(BoolExpr::BinOp(left, right, op)) => {
-                Expr::Rich(RichExpr::FunctionOf(vec![Expr::Bool(BoolExpr::BinOp(
-                    left.clone(),
-                    right.clone(),
-                    op.clone(),
-                ))]))
-            }
-            Expr::Rich(rich_expr) => match rich_expr {
-                RichExpr::Literal(l) => Expr::Rich(RichExpr::Literal(format!("!({l})"))),
-                RichExpr::FunctionOf(_) => self.clone(),
-            },
-            Expr::Unresolved(_) => self.clone(),
+            expr => Expr::Rich(RichExpr::FunctionOf(expr.flat_exprs())),
         };
         Ok(b)
+    }
+
+    fn flat_exprs(&self) -> Vec<Expr> {
+        match self {
+            Expr::Rich(rich_expr) => match rich_expr {
+                RichExpr::Literal(_) => vec![self.clone()],
+                RichExpr::FunctionOf(exprs) => exprs.iter().flat_map(Expr::flat_exprs).collect(),
+            },
+            Expr::Bool(condition_expr) => match condition_expr {
+                BoolExpr::Result(_) | BoolExpr::NotResult(_) | BoolExpr::LiteralBool(_) => {
+                    vec![self.clone()]
+                }
+                BoolExpr::TwoResultCondition { .. } => vec![self.clone()],
+                BoolExpr::BinOp(condition_expr, condition_expr1, _) => condition_expr
+                    .flat_exprs()
+                    .into_iter()
+                    .chain(condition_expr1.flat_exprs())
+                    .collect(),
+            },
+            Expr::Unresolved(_) => vec![self.clone()],
+        }
     }
 
     fn linked_results(&self) -> Vec<u32> {
@@ -1289,18 +1599,18 @@ impl Expr {
 
     fn is_unresolved(&self) -> bool {
         match self {
-            Self::Rich(rich_expr) => match rich_expr {
+            Expr::Rich(rich_expr) => match rich_expr {
                 RichExpr::Literal(_) => false,
                 RichExpr::FunctionOf(exprs) => exprs.iter().any(Expr::is_unresolved),
             },
-            Self::Bool(bool_expr) => match bool_expr {
-                BoolExpr::TwoResultCondition { .. }
-                | BoolExpr::Result(_)
-                | BoolExpr::NotResult(_)
-                | BoolExpr::LiteralBool(_) => false,
-                BoolExpr::BinOp(expr1, expr2, _) => expr1.is_unresolved() || expr2.is_unresolved(),
+            Expr::Bool(bool_expr) => match bool_expr {
+                BoolExpr::Result(_) | BoolExpr::NotResult(_) | BoolExpr::LiteralBool(_) => false,
+                BoolExpr::TwoResultCondition { .. } => false,
+                BoolExpr::BinOp(condition_expr, condition_expr1, _) => {
+                    condition_expr.is_unresolved() || condition_expr1.is_unresolved()
+                }
             },
-            Self::Unresolved(_) => true,
+            Expr::Unresolved(_) => true,
         }
     }
 }
@@ -1311,20 +1621,15 @@ impl Display for Expr {
             Expr::Rich(complicated_expr) => match complicated_expr {
                 RichExpr::Literal(literal_str) => write!(f, "{literal_str}"),
                 RichExpr::FunctionOf(exprs) => {
-                    let results = exprs
+                    let mut results = exprs
                         .iter()
                         .flat_map(Expr::linked_results)
-                        .collect::<FxHashSet<_>>();
+                        .map(|r| format!("c_{r}"))
+                        .collect::<Vec<_>>();
 
-                    write!(
-                        f,
-                        "function of {}",
-                        results
-                            .into_iter()
-                            .map(|r| format!("c_{r}"))
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    )
+                    results.sort();
+                    results.dedup();
+                    write!(f, "function of: ({})", results.join(", "))
                 }
             },
             Expr::Bool(condition_expr) => write!(f, "{condition_expr}"),
@@ -1522,7 +1827,10 @@ fn map_callable_to_operations(
                     operands
                         .iter()
                         .map(|o| expr_from_operand(state, o))
-                        .collect::<Result<Vec<_>, _>>()?,
+                        .collect::<Result<Vec<_>, _>>()?
+                        .into_iter()
+                        .flat_map(|e| e.flat_exprs())
+                        .collect(),
                 ));
 
                 state.store_expr_in_variable(var, result_expr)?;
@@ -1896,7 +2204,19 @@ fn gather_operands(
             },
             o @ Operand::Variable(var) => {
                 if let &OperandType::Arg = operand_type {
-                    args.push(state.expr_for_variable(var.variable_id)?.to_string());
+                    let expr = state.expr_for_variable(var.variable_id)?.clone();
+                    // Add classical controls if this expr is dependent on a result
+                    let results = expr
+                        .linked_results()
+                        .into_iter()
+                        .map(|r| state.result_register(r))
+                        .collect::<Vec<_>>();
+                    for r in results {
+                        if !controls.contains(&r) {
+                            controls.push(r);
+                        }
+                    }
+                    args.push(expr.to_string());
                 } else {
                     return Err(Error::UnsupportedFeature(format!(
                         "variable operand cannot be a target or control of a unitary operation: {o:?}"

@@ -1442,10 +1442,10 @@ fn multiple_possible_float_values_in_unitary_arg() {
     .expect("circuit generation should succeed");
 
     expect![[r#"
-        q_0    ────────── H ──────────── M ──
-                                         ╘═══
-        q_1    ─ Rx(function of c_0) ─── M ──
-                                         ╘═══
+        q_0    ── H ──── M ────────────────────────────────────
+                         ╘═══════════════ ● ═══════════════════
+        q_1    ─────────────── Rx(function of: (c_0)) ──── M ──
+                                                           ╘═══
     "#]]
     .assert_eq(&circ.to_string());
 }
@@ -1507,15 +1507,14 @@ fn custom_intrinsic_variable_arg() {
     .expect("circuit generation should succeed");
 
     expect![[r#"
-        q_0    ── H ──── M ─── foo(function of c_0) ──
-                         ╘════════════════════════════
+        q_0    ── H ──── M ─── foo(function of: (c_0)) ─
+                         ╘═══════════════ ● ════════════
     "#]]
     .assert_eq(&circ.to_string());
 }
 
 #[test]
 fn branch_on_dynamic_double() {
-    // TODO: this doesn't show classical control
     let circ = circuit(
         r"
             namespace Test {
@@ -1548,10 +1547,10 @@ fn branch_on_dynamic_double() {
     .expect("circuit generation should succeed");
 
     expect![[r#"
-        q_0    ────────── H ──────────── M ──
-                                         ╘═══
-        q_1    ─ Rx(function of c_0) ─── M ──
-                                         ╘═══
+        q_0    ── H ──── M ────────────────────────────────────
+                         ╘═══════════════ ● ═══════════════════
+        q_1    ─────────────── Rx(function of: (c_0)) ──── M ──
+                                                           ╘═══
     "#]]
     .assert_eq(&circ.to_string());
 }
@@ -1593,10 +1592,10 @@ fn branch_on_dynamic_bool() {
     .expect("circuit generation should succeed");
 
     expect![[r#"
-        q_0    ── H ──── M ────────────────────────────────────────────────────────────────────────────────────
-                         ╘═══════════════════════ ● ════════════════════════ ● ════════════════════════════════
-        q_1    ─────────────── [[ ─── [check (function of c_0)] ── [[ ─── [true] ──── X ─── ]] ─── ]] ──── M ──
-                                                                                                           ╘═══
+        q_0    ── H ──── M ────────────────────────────────────────────────────────────────────────────────────────
+                         ╘═════════════════════════ ● ══════════════════════════ ● ════════════════════════════════
+        q_1    ─────────────── [[ ─── [check (function of: (c_0))] ─── [[ ─── [true] ──── X ─── ]] ─── ]] ──── M ──
+                                                                                                               ╘═══
     "#]]
     .assert_eq(&circ.to_string());
 }
