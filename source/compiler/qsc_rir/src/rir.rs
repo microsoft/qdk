@@ -126,13 +126,13 @@ impl Display for Program {
         write!(indent, "\ndbg_metadata_scopes:")?;
         write!(indent, " [")?;
         for (index, scope) in self.dbg_metadata_scopes.iter().enumerate() {
-            write!(indent, "\n[{}]: {:?}", index, scope)?;
+            write!(indent, "\n[{index}]: {scope:?}")?;
         }
         write!(indent, "\n]")?;
         write!(indent, "\ndbg_locations:")?;
         write!(indent, " [")?;
         for (index, location) in self.dbg_locations.iter().enumerate() {
-            write!(indent, "\n[{}]: {:?}", index, location)?;
+            write!(indent, "\n[{index}]: {location:?}")?;
         }
         write!(indent, "\n]")?;
         Ok(())

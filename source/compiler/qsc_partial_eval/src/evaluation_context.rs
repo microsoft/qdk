@@ -21,7 +21,7 @@ pub struct EvaluationContext {
     pub current_user_source_block: Vec<qsc_fir::fir::BlockId>,
     pub current_iteration: Option<usize>,
 
-    pub dbg_callable_to_scope: FxHashMap<(LocalItemId), usize>,
+    pub dbg_callable_to_scope: FxHashMap<LocalItemId, usize>,
 }
 
 impl EvaluationContext {
@@ -149,8 +149,6 @@ pub struct Scope {
     pub current_distinct_dbg_location: Option<usize>,
     /// The current expression being evaluated, if any.
     pub current_expr: Option<ExprId>,
-
-    ///
     caller_expr_span: Option<PackageSpan>,
 }
 

@@ -25,7 +25,7 @@ struct Branch {
     condition: Variable,
     true_block: BlockId,
     false_block: BlockId,
-    metadata: Option<InstructionMetadata>,
+    metadata: Option<GroupMetadata>,
 }
 
 #[derive(Clone, Debug)]
@@ -38,7 +38,11 @@ struct Op {
     control_results: Vec<ResultId>,
     is_adjoint: bool,
     args: Vec<String>,
-    metadata: Option<InstructionMetadata>,
+}
+
+#[derive(Clone, Debug)]
+struct GroupMetadata {
+    pub location: MetadataPackageSpan,
 }
 
 impl Op {
@@ -49,12 +53,19 @@ impl Op {
 
 #[derive(Clone, Debug)]
 enum OperationKind {
-    Unitary,
-    Measurement,
-    Ket,
+    Unitary {
+        metadata: Option<InstructionMetadata>,
+    },
+    Measurement {
+        metadata: Option<InstructionMetadata>,
+    },
+    Ket {
+        metadata: Option<InstructionMetadata>,
+    },
     Group {
         children: Vec<Op>,
         stack: Option<Vec<(usize, usize)>>,
+        metadata: Option<GroupMetadata>,
     },
 }
 
@@ -88,7 +99,7 @@ impl From<Op> for Operation {
             .collect();
 
         match value.kind {
-            OperationKind::Unitary => Operation::Unitary(Unitary {
+            OperationKind::Unitary { metadata: _ } => Operation::Unitary(Unitary {
                 gate: value.label,
                 args,
                 children: vec![],
@@ -96,20 +107,24 @@ impl From<Op> for Operation {
                 controls,
                 is_adjoint: value.is_adjoint,
             }),
-            OperationKind::Measurement => Operation::Measurement(Measurement {
+            OperationKind::Measurement { metadata: _ } => Operation::Measurement(Measurement {
                 gate: value.label,
                 args,
                 children: vec![],
                 qubits: controls,
                 results: targets,
             }),
-            OperationKind::Ket => Operation::Ket(Ket {
+            OperationKind::Ket { metadata: _ } => Operation::Ket(Ket {
                 gate: value.label,
                 args,
                 children: vec![],
                 targets,
             }),
-            OperationKind::Group { children, stack: _ } => Operation::Unitary(Unitary {
+            OperationKind::Group {
+                children,
+                stack: _,
+                metadata: _,
+            } => Operation::Unitary(Unitary {
                 gate: value.label,
                 args,
                 children: vec![ComponentColumn {
@@ -223,7 +238,11 @@ fn expand_branches_vars(program: &Program, state: &mut ProgramMap) -> Result<boo
 
             if let Some(expanded_branch) = expanded_branch {
                 let add = match &expanded_branch.grouped_operation.kind {
-                    OperationKind::Group { children, stack: _ } => !children.is_empty(),
+                    OperationKind::Group {
+                        children,
+                        stack: _,
+                        metadata: _,
+                    } => !children.is_empty(),
                     _ => false,
                 };
                 if add {
@@ -248,7 +267,7 @@ fn expand_branches_vars(program: &Program, state: &mut ProgramMap) -> Result<boo
 
                     let phi_vars = get_phi_vars_from_branch(
                         successor_block,
-                        successor.predecessors,
+                        &successor.predecessors,
                         &condition_expr,
                     )?;
                     if let Some(phi_vars) = phi_vars {
@@ -326,6 +345,7 @@ fn expand_branch_vars(
         kind: OperationKind::Group {
             children: true_operations.clone(),
             stack: None,
+            metadata: None,
         },
         label: "true".into(),
         args: vec![],
@@ -334,7 +354,6 @@ fn expand_branch_vars(
         target_results: vec![],
         control_results: control_results.clone(),
         is_adjoint: false,
-        metadata: None,
     };
 
     let false_container = branch_block.false_block.map(
@@ -347,6 +366,7 @@ fn expand_branch_vars(
                     kind: OperationKind::Group {
                         children: false_operations.clone(),
                         stack: None,
+                        metadata: None,
                     },
                     label: "false".into(),
                     target_qubits: false_targets.clone(),
@@ -355,20 +375,19 @@ fn expand_branch_vars(
                     control_results: control_results.clone(),
                     args: vec![],
                     is_adjoint: false,
-                    metadata: None,
                 },
                 false_targets,
             )
         },
     );
 
-    let true_container = if !true_container.has_children() {
-        None
-    } else {
+    let true_container = if true_container.has_children() {
         Some(true_container)
+    } else {
+        None
     };
     let false_container =
-        false_container.and_then(|f| if !f.0.has_children() { None } else { Some(f) });
+        false_container.and_then(|f| if f.0.has_children() { Some(f) } else { None });
 
     let mut children = vec![];
     let mut target_qubits = vec![];
@@ -397,6 +416,7 @@ fn expand_branch_vars(
             kind: OperationKind::Group {
                 children: children.into_iter().collect(),
                 stack: None,
+                metadata: branch.metadata.clone(),
             },
             label,
             target_qubits,
@@ -405,7 +425,6 @@ fn expand_branch_vars(
             control_results: control_results.clone(),
             is_adjoint: false,
             args,
-            metadata: branch.metadata.clone(),
         },
         unconditional_successor: branch_block.unconditional_successor.block_id,
         successors_to_check_for_phis: [
@@ -413,7 +432,7 @@ fn expand_branch_vars(
             branch_block.true_successor,
         ]
         .into_iter()
-        .chain(branch_block.false_successor.into_iter())
+        .chain(branch_block.false_successor)
         .collect(),
     }))
 }
@@ -474,7 +493,7 @@ fn expand_branches(program: &Program, state: &mut ProgramMap) -> Result<(), Erro
             let expanded_branch = expand_branch(state, block_id, &branch)?;
 
             let add = match &expanded_branch.grouped_operation.kind {
-                OperationKind::Group { children, stack } => !children.is_empty(),
+                OperationKind::Group { children, .. } => !children.is_empty(),
                 _ => false,
             };
 
@@ -497,7 +516,7 @@ fn expand_branches(program: &Program, state: &mut ProgramMap) -> Result<(), Erro
 // None means unresolved, more work to do
 fn get_phi_vars_from_branch(
     successor_block: &CircuitBlock,
-    predecessors: Vec<BlockId>,
+    predecessors: &[BlockId],
     condition: &Expr,
 ) -> Result<Option<Vec<(Variable, Expr)>>, Error> {
     let mut done = true;
@@ -529,7 +548,7 @@ fn get_phi_vars_from_branch(
 
 // None means unresolved, more work to do
 fn combine_exprs(options: Vec<Expr>) -> Result<Option<Expr>, Error> {
-    if options.iter().any(|expr| expr.is_unresolved()) {
+    if options.iter().any(Expr::is_unresolved) {
         debug!("combine_exprs: unresolved expr in options: {options:?}");
         return Ok(None);
     }
@@ -568,25 +587,26 @@ fn fill_in_dbg_metadata(
     position_encoding: Encoding,
 ) -> Result<(), Error> {
     for op in operations {
-        let children = match &mut op.kind {
-            OperationKind::Group { children, .. } => children,
-            _ => continue,
+        if let OperationKind::Group { children, .. } = &mut op.kind {
+            fill_in_dbg_metadata(children, package_store, position_encoding)?;
+        }
+
+        let location = match &op.kind {
+            OperationKind::Unitary { metadata }
+            | OperationKind::Measurement { metadata }
+            | OperationKind::Ket { metadata } => metadata.as_ref().map(|md| &md.location),
+            OperationKind::Group {
+                children: _,
+                stack: _,
+                metadata,
+            } => metadata.as_ref().map(|md| &md.location),
         };
 
-        fill_in_dbg_metadata(children, package_store, position_encoding)?;
-
-        if let Some(dbg_metadata) = &op.metadata {
-            let InstructionMetadata {
-                location:
-                    MetadataPackageSpan {
-                        package: package_id,
-                        span,
-                    },
-                scope_id: scope,
-                scope_block_discriminator: discriminator,
-                ..
-            } = dbg_metadata;
-
+        if let Some(MetadataPackageSpan {
+            package: package_id,
+            span,
+        }) = &location
+        {
             let location = Location::from(
                 *span,
                 usize::try_from(*package_id)
@@ -672,6 +692,7 @@ fn expand_branch(
         kind: OperationKind::Group {
             children: true_operations.clone(),
             stack: None,
+            metadata: None,
         },
         label: "true".into(),
         args: vec![],
@@ -680,7 +701,6 @@ fn expand_branch(
         target_results: vec![],
         control_results: control_results.clone(),
         is_adjoint: false,
-        metadata: None,
     };
 
     let false_container = branch_block.false_block.map(
@@ -693,6 +713,7 @@ fn expand_branch(
                     kind: OperationKind::Group {
                         children: false_operations.clone(),
                         stack: None,
+                        metadata: None,
                     },
                     label: "false".into(),
                     target_qubits: false_targets.clone(),
@@ -701,20 +722,19 @@ fn expand_branch(
                     control_results: control_results.clone(),
                     args: vec![],
                     is_adjoint: false,
-                    metadata: None,
                 },
                 false_targets,
             )
         },
     );
 
-    let true_container = if !true_container.has_children() {
-        None
-    } else {
+    let true_container = if true_container.has_children() {
         Some(true_container)
+    } else {
+        None
     };
     let false_container =
-        false_container.and_then(|f| if !f.0.has_children() { None } else { Some(f) });
+        false_container.and_then(|f| if f.0.has_children() { Some(f) } else { None });
 
     let mut children = vec![];
     let mut target_qubits = vec![];
@@ -743,6 +763,7 @@ fn expand_branch(
             kind: OperationKind::Group {
                 children: children.into_iter().collect(),
                 stack: None,
+                metadata: branch.metadata.clone(),
             },
             label,
             target_qubits,
@@ -751,7 +772,6 @@ fn expand_branch(
             control_results: control_results.clone(),
             is_adjoint: false,
             args,
-            metadata: branch.metadata.clone(),
         },
         unconditional_successor: branch_block.unconditional_successor.block_id,
         successors_to_check_for_phis: [
@@ -759,7 +779,7 @@ fn expand_branch(
             branch_block.true_successor,
         ]
         .into_iter()
-        .chain(branch_block.false_successor.into_iter())
+        .chain(branch_block.false_successor)
         .collect(),
     })
 }
@@ -845,8 +865,13 @@ fn extend_operations(
     group_scopes: bool,
 ) {
     for op in new_operations {
-        let metadata = &op.metadata;
-        if let Some(metadata) = metadata {
+        let instruction_metadata = match &op.kind {
+            OperationKind::Unitary { metadata }
+            | OperationKind::Measurement { metadata }
+            | OperationKind::Ket { metadata } => metadata.as_ref(),
+            OperationKind::Group { .. } => None,
+        };
+        if let Some(metadata) = instruction_metadata {
             let stack = instruction_logical_stack(dbg_locations, dbg_metadata_scopes, metadata);
 
             if let Some(stack) = stack {
@@ -857,7 +882,7 @@ fn extend_operations(
                 if !matches!(
                     &op,
                     Op {
-                        kind: OperationKind::Unitary,
+                        kind: OperationKind::Unitary { .. },
                         ..
                     }
                 ) {
@@ -907,24 +932,18 @@ fn extend_operations(
 }
 
 fn are_stacks_siblings(left: &[(usize, usize)], right: &[(usize, usize)]) -> bool {
-    if left.len() != right.len() {
-        false
-    } else {
+    if left.len() == right.len() {
         let last_stack = left.split_last();
         let stack = right.split_last();
-        match (last_stack, stack) {
-            (Some((last_top, last_rest)), Some((top, rest))) => {
-                // the top of the stack should match in scope
-                if last_top.0 != top.0 {
-                    false
-                } else {
-                    // the rest of the stack should match exactly
-                    last_rest == rest
-                }
+        if let (Some((last_top, last_rest)), Some((top, rest))) = (last_stack, stack) {
+            // the top of the stack should match in scope
+            if last_top.0 == top.0 {
+                // the rest of the stack should match exactly
+                return last_rest == rest;
             }
-            _ => false,
         }
     }
+    false
 }
 
 fn flush_if_not_empty(
@@ -966,11 +985,11 @@ fn instruction_logical_stack(
         }
 
         // filter out scopes in std and core
-        location_stack.retain(|(scope, location)| {
+        location_stack.retain(|(scope, _location)| {
             let scope = &dbg_metadata_scopes[*scope];
             match scope {
                 DbgMetadataScope::SubProgram {
-                    name,
+                    name: _,
                     span: location,
                 } => {
                     let package_id =
@@ -992,36 +1011,35 @@ fn scope_name(
     instruction_stack: &[(usize, usize)],
     dbg_metadata_scopes: &[DbgMetadataScope],
 ) -> String {
-    let (scope, location) = instruction_stack
+    let (scope, _location) = instruction_stack
         .last()
         .expect("should be at least one scope");
 
     let scope = &dbg_metadata_scopes[*scope];
     match scope {
-        DbgMetadataScope::SubProgram { name, span } => name.to_string(),
+        DbgMetadataScope::SubProgram { name, span: _ } => name.to_string(),
     }
 }
 
 fn flush_scope(
     block_ops: &mut Vec<Op>,
     ops_to_flush: &mut Vec<Op>,
-    dbg_locations: &[DbgLocation],
+    _dbg_locations: &[DbgLocation],
     dbg_metadata_scopes: &[DbgMetadataScope],
     instruction_stack: Vec<(usize, usize)>,
     group_scopes: bool,
 ) {
     if group_scopes {
-        let metadata = ops_to_flush[0].metadata.clone(); // TODO: this metadata could be better now
         let qubits: FxHashSet<usize> = ops_to_flush
             .iter()
             .flat_map(|op| op.control_qubits.iter().chain(&op.target_qubits).copied())
             .collect();
-        let results: FxHashSet<(usize, usize)> = ops_to_flush
+        // TODO: use these results somehow
+        let _results: FxHashSet<(usize, usize)> = ops_to_flush
             .iter()
             .flat_map(|op| op.control_results.iter().chain(&op.target_results).copied())
             .collect();
 
-        let stack = instruction_stack.to_vec();
         let children = ops_to_flush.clone();
         let target_qubits = qubits.into_iter().collect();
 
@@ -1029,9 +1047,8 @@ fn flush_scope(
             block_ops,
             dbg_metadata_scopes,
             children,
-            stack,
+            instruction_stack,
             target_qubits,
-            metadata,
         );
         ops_to_flush.clear();
     } else {
@@ -1042,19 +1059,36 @@ fn flush_scope(
     }
 }
 
+fn make_scope_metadata(
+    dbg_metadata_scopes: &[DbgMetadataScope],
+    current_location: &(usize, usize),
+) -> GroupMetadata {
+    let scope_location = current_location.0;
+    let scope_location = &dbg_metadata_scopes[scope_location];
+    let scope_location = match scope_location {
+        DbgMetadataScope::SubProgram { span, .. } => span,
+    };
+
+    GroupMetadata {
+        location: scope_location.clone(),
+    }
+}
+
 fn push_group(
     block_ops: &mut Vec<Op>,
     dbg_metadata_scopes: &[DbgMetadataScope],
     children: Vec<Op>,
     stack: Vec<(usize, usize)>,
     target_qubits: Vec<usize>,
-    metadata: Option<InstructionMetadata>,
 ) {
+    let last = stack.last().expect("should be at least one scope");
+    let metadata = make_scope_metadata(dbg_metadata_scopes, last);
     let label = scope_name(&stack, dbg_metadata_scopes);
     let group = Op {
         kind: OperationKind::Group {
             children,
             stack: Some(stack),
+            metadata: Some(metadata),
         },
         label,
         target_qubits,
@@ -1063,23 +1097,21 @@ fn push_group(
         control_results: vec![],
         is_adjoint: false,
         args: vec![],
-        metadata,
     };
 
     let instruction_stack = match &group.kind {
-        OperationKind::Group { children: _, stack } => {
-            stack.clone().expect("group should have stack")
-        }
+        OperationKind::Group { stack, .. } => stack.clone().expect("group should have stack"),
         _ => panic!("expected group operation"),
     };
 
     // find last common container in the block ops with the same stack prefix, and add to it if found
-    if let Some((last, prefix)) = instruction_stack.split_last() {
+    if let Some((_last, prefix)) = instruction_stack.split_last() {
         if !prefix.is_empty() {
             if let Some(last_op) = block_ops.last_mut() {
                 if let OperationKind::Group {
                     children,
                     stack: Some(stack),
+                    metadata: _,
                 } = &mut last_op.kind
                 {
                     if are_stacks_siblings(stack, prefix) {
@@ -1096,7 +1128,6 @@ fn push_group(
             let children = vec![group.clone()];
             let stack = prefix.to_vec();
             let target_qubits = group.target_qubits.clone();
-            let metadata = group.metadata.clone();
 
             push_group(
                 block_ops,
@@ -1104,7 +1135,6 @@ fn push_group(
                 children,
                 stack,
                 target_qubits,
-                metadata,
             );
 
             return;
@@ -1287,7 +1317,9 @@ fn extend_block_with_branch_instruction(
         condition: variable,
         true_block: block_id_1,
         false_block: block_id_2,
-        metadata: instruction.metadata.clone(),
+        metadata: instruction.metadata.as_ref().map(|md| GroupMetadata {
+            location: md.location.clone(),
+        }),
     };
     let old = terminator.replace(Terminator::Conditional(branch));
     if old.is_some() {
@@ -1666,8 +1698,10 @@ impl Expr {
                 RichExpr::FunctionOf(exprs) => exprs.iter().any(Expr::is_unresolved),
             },
             Expr::Bool(bool_expr) => match bool_expr {
-                BoolExpr::Result(_) | BoolExpr::NotResult(_) | BoolExpr::LiteralBool(_) => false,
-                BoolExpr::TwoResultCondition { .. } => false,
+                BoolExpr::TwoResultCondition { .. }
+                | BoolExpr::Result(_)
+                | BoolExpr::NotResult(_)
+                | BoolExpr::LiteralBool(_) => false,
                 BoolExpr::BinOp(condition_expr, condition_expr1, _) => {
                     condition_expr.is_unresolved() || condition_expr1.is_unresolved()
                 }
@@ -1907,7 +1941,9 @@ fn map_callable_to_operations(
                 vec![]
             } else {
                 vec![Op {
-                    kind: OperationKind::Unitary,
+                    kind: OperationKind::Unitary {
+                        metadata: metadata.cloned(),
+                    },
                     label: gate.to_string(),
                     target_qubits: targets
                         .iter()
@@ -1939,7 +1975,6 @@ fn map_callable_to_operations(
                         .collect(),
                     is_adjoint: false,
                     args,
-                    metadata: metadata.cloned(),
                 }]
             }
         }
@@ -1958,7 +1993,9 @@ fn map_reset_call_into_operations(
             let (targets, _, _) = gather_operands(state, &operand_types, operands)?;
 
             vec![Op {
-                kind: OperationKind::Ket,
+                kind: OperationKind::Ket {
+                    metadata: metadata.cloned(),
+                },
                 label: "0".to_string(),
                 target_qubits: targets
                     .iter()
@@ -1978,7 +2015,6 @@ fn map_reset_call_into_operations(
                 control_results: vec![],
                 is_adjoint: false,
                 args: vec![],
-                metadata: metadata.cloned(),
             }]
         }
         name => {
@@ -2004,7 +2040,9 @@ fn map_measurement_call_to_operations(
     Ok(if gate == "MResetZ" {
         vec![
             Op {
-                kind: OperationKind::Measurement,
+                kind: OperationKind::Measurement {
+                    metadata: metadata.cloned(),
+                },
                 label: gate.to_string(),
                 target_qubits: vec![],
                 control_qubits: this_qubits
@@ -2029,10 +2067,11 @@ fn map_measurement_call_to_operations(
                 control_results: vec![],
                 is_adjoint: false,
                 args: vec![],
-                metadata: metadata.cloned(),
             },
             Op {
-                kind: OperationKind::Ket,
+                kind: OperationKind::Ket {
+                    metadata: metadata.cloned(),
+                },
                 label: "0".to_string(),
                 target_qubits: this_qubits
                     .iter()
@@ -2049,12 +2088,13 @@ fn map_measurement_call_to_operations(
                 control_results: vec![],
                 is_adjoint: false,
                 args: vec![],
-                metadata: metadata.cloned(),
             },
         ]
     } else {
         vec![Op {
-            kind: OperationKind::Measurement,
+            kind: OperationKind::Measurement {
+                metadata: metadata.cloned(),
+            },
             label: gate.to_string(),
             target_qubits: vec![],
             control_qubits: this_qubits
@@ -2079,7 +2119,6 @@ fn map_measurement_call_to_operations(
             control_results: vec![],
             is_adjoint: false,
             args: vec![],
-            metadata: metadata.cloned(),
         }]
     })
 }
