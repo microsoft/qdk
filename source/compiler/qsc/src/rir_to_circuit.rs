@@ -21,6 +21,8 @@ use qsc_partial_eval::{
 };
 use rustc_hash::FxHashSet;
 
+use crate::target;
+
 type ResultId = (usize, usize);
 
 #[derive(Clone, Debug)]
@@ -946,25 +948,9 @@ fn extend_operations(
             let stack = instruction_logical_stack(dbg_locations, dbg_metadata_scopes, metadata);
 
             if let Some(stack) = stack {
-                let mut add_to_current = last_stack.as_ref().is_some_and(|last_stack| {
-                    if last_stack.len() != stack.len() {
-                        return false;
-                    }
-
-                    let last_stack = last_stack.split_last();
-                    let stack = stack.split_last();
-                    match (last_stack, stack) {
-                        (Some((last_top, last_rest)), Some((top, rest))) => {
-                            // the top of the stack should match in scope
-                            if last_top.0 != top.0 {
-                                return false;
-                            }
-                            // the rest of the stack should match exactly
-                            last_rest == rest
-                        }
-                        _ => false,
-                    }
-                });
+                let mut add_to_current = last_stack
+                    .as_ref()
+                    .is_some_and(|last_stack| are_stacks_siblings(last_stack, &stack));
 
                 if !matches!(
                     &op,
@@ -1015,6 +1001,27 @@ fn extend_operations(
 
         // add this operation
         operations.push(op);
+    }
+}
+
+fn are_stacks_siblings(left: &[(usize, usize)], right: &[(usize, usize)]) -> bool {
+    if left.len() != right.len() {
+        false
+    } else {
+        let last_stack = left.split_last();
+        let stack = right.split_last();
+        match (last_stack, stack) {
+            (Some((last_top, last_rest)), Some((top, rest))) => {
+                // the top of the stack should match in scope
+                if last_top.0 != top.0 {
+                    false
+                } else {
+                    // the rest of the stack should match exactly
+                    last_rest == rest
+                }
+            }
+            _ => false,
+        }
     }
 }
 
@@ -1083,62 +1090,126 @@ fn scope_name(
     instruction_stack: &[(usize, usize)],
     dbg_metadata_scopes: &[DbgMetadataScope],
 ) -> String {
-    instruction_stack
-        .into_iter()
-        .map(|(scope, location)| {
-            let scope = &dbg_metadata_scopes[*scope];
-            match scope {
-                DbgMetadataScope::SubProgram { name, span } => name.clone(),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("::")
+    let (scope, location) = instruction_stack
+        .last()
+        .expect("should be at least one scope");
+
+    let scope = &dbg_metadata_scopes[*scope];
+    match scope {
+        DbgMetadataScope::SubProgram { name, span } => name.to_string(),
+    }
 }
 
 fn flush_scope(
-    operations: &mut Vec<Op>,
-    current_scope: &mut Vec<Op>,
+    block_ops: &mut Vec<Op>,
+    ops_to_flush: &mut Vec<Op>,
     dbg_locations: &[DbgLocation],
     dbg_metadata_scopes: &[DbgMetadataScope],
     instruction_stack: Vec<(usize, usize)>,
     group_scopes: bool,
 ) {
     if group_scopes {
-        let label = scope_name(&instruction_stack, dbg_metadata_scopes);
-
-        let args = current_scope[0].args.clone();
-        let metadata = current_scope[0].metadata.clone();
-        let qubits: FxHashSet<usize> = current_scope
+        let metadata = ops_to_flush[0].metadata.clone(); // TODO: this metadata could be better now
+        let qubits: FxHashSet<usize> = ops_to_flush
             .iter()
             .flat_map(|op| op.control_qubits.iter().chain(&op.target_qubits).copied())
             .collect();
-        let results: FxHashSet<(usize, usize)> = current_scope
+        let results: FxHashSet<(usize, usize)> = ops_to_flush
             .iter()
             .flat_map(|op| op.control_results.iter().chain(&op.target_results).copied())
             .collect();
 
-        let group = Op {
-            kind: OperationKind::Group {
-                children: current_scope.clone(),
-                stack: Some(instruction_stack.to_vec()),
-            },
-            label,
-            target_qubits: qubits.into_iter().collect(),
-            control_qubits: vec![],
-            target_results: vec![], // results.into_iter().collect(), TODO: include results too somehow
-            control_results: vec![],
-            is_adjoint: false,
-            args,
+        let stack = instruction_stack.to_vec();
+        let children = ops_to_flush.clone();
+        let target_qubits = qubits.into_iter().collect();
+
+        push_group(
+            block_ops,
+            dbg_metadata_scopes,
+            children,
+            stack,
+            target_qubits,
             metadata,
-        };
-        operations.push(group);
-        current_scope.clear();
+        );
+        ops_to_flush.clear();
     } else {
         // Add individually
-        for op in current_scope.drain(..) {
-            operations.push(op);
+        for op in ops_to_flush.drain(..) {
+            block_ops.push(op);
         }
     }
+}
+
+fn push_group(
+    block_ops: &mut Vec<Op>,
+    dbg_metadata_scopes: &[DbgMetadataScope],
+    children: Vec<Op>,
+    stack: Vec<(usize, usize)>,
+    target_qubits: Vec<usize>,
+    metadata: Option<InstructionMetadata>,
+) {
+    let label = scope_name(&stack, dbg_metadata_scopes);
+    let group = Op {
+        kind: OperationKind::Group {
+            children,
+            stack: Some(stack),
+        },
+        label,
+        target_qubits,
+        control_qubits: vec![],
+        target_results: vec![], // results.into_iter().collect(), TODO: include results too somehow
+        control_results: vec![],
+        is_adjoint: false,
+        args: vec![],
+        metadata,
+    };
+
+    let instruction_stack = match &group.kind {
+        OperationKind::Group { children: _, stack } => {
+            stack.clone().expect("group should have stack")
+        }
+        _ => panic!("expected group operation"),
+    };
+
+    // find last common container in the block ops with the same stack prefix, and add to it if found
+    if let Some((last, prefix)) = instruction_stack.split_last() {
+        if !prefix.is_empty() {
+            if let Some(last_op) = block_ops.last_mut() {
+                if let OperationKind::Group {
+                    children,
+                    stack: Some(stack),
+                } = &mut last_op.kind
+                {
+                    if are_stacks_siblings(stack, prefix) {
+                        // add to this group
+                        last_op.target_qubits.extend(group.target_qubits.clone());
+                        last_op.target_qubits.sort_unstable();
+                        last_op.target_qubits.dedup();
+                        children.push(group);
+                        return;
+                    }
+                }
+            }
+            // create container for the prefix, and add to it
+            let children = vec![group.clone()];
+            let stack = prefix.to_vec();
+            let target_qubits = group.target_qubits.clone();
+            let metadata = group.metadata.clone();
+
+            push_group(
+                block_ops,
+                dbg_metadata_scopes,
+                children,
+                stack,
+                target_qubits,
+                metadata,
+            );
+
+            return;
+        }
+    }
+
+    block_ops.push(group);
 }
 
 struct BlockUpdate {
