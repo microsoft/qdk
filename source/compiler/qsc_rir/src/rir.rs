@@ -145,7 +145,7 @@ impl Program {
         let mut s = Self::default();
         s.dbg_metadata_scopes.push(DbgMetadataScope::SubProgram {
             name: "entry".into(),
-            location: MetadataPackageSpan {
+            span: MetadataPackageSpan {
                 package: 0, // wrong, obviously
                 span: Span::default(),
             },
@@ -255,14 +255,14 @@ pub enum DbgMetadataScope {
     /// Corresponds to a callable.
     SubProgram {
         name: Rc<str>,
-        location: MetadataPackageSpan,
+        span: MetadataPackageSpan,
     },
     // TODO: LexicalBlockFile
 }
 
 #[derive(Clone, Debug)]
 pub struct DbgLocation {
-    pub location: MetadataPackageSpan,
+    pub span: MetadataPackageSpan,
     /// Index into the `dbg_metadata_scopes` vector in the `Program`.
     pub scope: usize,
     /// Index into the `dbg_locations` vector in the `Program`
@@ -273,6 +273,12 @@ pub struct DbgLocation {
 pub struct MetadataPackageSpan {
     pub package: u32,
     pub span: Span,
+}
+
+impl Display for MetadataPackageSpan {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "package_id={} span={}", self.package, self.span)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -288,11 +294,7 @@ pub struct InstructionMetadata {
 
 impl Display for InstructionMetadata {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(
-            f,
-            "!dbg package_id={} span={}",
-            self.location.package, self.location.span
-        )?;
+        write!(f, "!dbg {}", self.location)?;
         if let Some(source_block) = self.scope_id {
             write!(f, " scope={source_block}")?;
         }

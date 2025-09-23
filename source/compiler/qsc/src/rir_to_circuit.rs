@@ -873,7 +873,7 @@ fn operations_in_block(
     let mut done = false;
 
     let mut current_scope = vec![];
-    let mut last_scope = None;
+    let mut last_stack = None;
     // let mut last_discriminator = None;
     for instruction in &block.0 {
         if done {
@@ -897,7 +897,7 @@ fn operations_in_block(
         extend_operations(
             &mut operations,
             &mut current_scope,
-            &mut last_scope,
+            &mut last_stack,
             dbg_locations,
             dbg_metadata_scopes,
             new_operations,
@@ -905,14 +905,15 @@ fn operations_in_block(
         );
     }
 
-    if !current_scope.is_empty() {
-        flush_scope(
-            &mut operations,
-            &mut current_scope,
-            &mut last_scope,
-            group_scopes,
-        );
-    }
+    // flush any remaining scope
+    flush_if_not_empty(
+        &mut operations,
+        &mut current_scope,
+        dbg_locations,
+        dbg_metadata_scopes,
+        last_stack.as_ref(),
+        group_scopes,
+    );
 
     Ok(CircuitBlock {
         phis,
@@ -924,7 +925,7 @@ fn operations_in_block(
 fn extend_operations(
     operations: &mut Vec<Op>,
     current_scope: &mut Vec<Op>,
-    last_scope: &mut Option<String>,
+    last_stack: &mut Option<Vec<(usize, usize)>>,
     dbg_locations: &[DbgLocation],
     dbg_metadata_scopes: &[DbgMetadataScope],
     new_operations: Vec<Op>,
@@ -933,33 +934,57 @@ fn extend_operations(
     for op in new_operations {
         let metadata = &op.metadata;
         if let Some(metadata) = metadata {
-            let scope = instruction_scope(dbg_locations, dbg_metadata_scopes, metadata)
-                .map(|s| s.to_string());
+            let stack = instruction_logical_stack(dbg_locations, dbg_metadata_scopes, metadata);
 
-            if let Some(scope) = scope {
-                if last_scope
-                    .as_ref()
-                    .is_some_and(|last_scope| last_scope == &scope)
-                    && matches!(
-                        &op,
-                        Op {
-                            kind: OperationKind::Unitary,
-                            ..
+            if let Some(stack) = stack {
+                let mut add_to_current = last_stack.as_ref().is_some_and(|last_stack| {
+                    if last_stack.len() != stack.len() {
+                        return false;
+                    }
+
+                    let last_stack = last_stack.split_last();
+                    let stack = stack.split_last();
+                    match (last_stack, stack) {
+                        (Some((last_top, last_rest)), Some((top, rest))) => {
+                            // the top of the stack should match in scope
+                            if last_top.0 != top.0 {
+                                return false;
+                            }
+                            // the rest of the stack should match exactly
+                            last_rest == rest
                         }
-                    )
-                // only group unitaries
-                {
+                        _ => false,
+                    }
+                });
+
+                if !matches!(
+                    &op,
+                    Op {
+                        kind: OperationKind::Unitary,
+                        ..
+                    }
+                ) {
+                    // only group unitaries
+                    add_to_current = false;
+                }
+
+                if add_to_current {
                     // Add to current group
                     current_scope.push(op);
                 } else {
-                    // flush group
-                    if !current_scope.is_empty() {
-                        flush_scope(operations, current_scope, last_scope, group_scopes);
-                    }
-
+                    // Start new group
+                    flush_if_not_empty(
+                        operations,
+                        current_scope,
+                        dbg_locations,
+                        dbg_metadata_scopes,
+                        last_stack.as_ref(),
+                        group_scopes,
+                    );
                     current_scope.push(op);
                 }
-                *last_scope = Some(scope);
+
+                *last_stack = Some(stack);
 
                 continue;
             }
@@ -967,36 +992,83 @@ fn extend_operations(
         // no scope grouping, flush current scope if any, then add this one right away
 
         // flush group
-        if !current_scope.is_empty() {
-            flush_scope(operations, current_scope, last_scope, group_scopes);
-        }
+        flush_if_not_empty(
+            operations,
+            current_scope,
+            dbg_locations,
+            dbg_metadata_scopes,
+            last_stack.as_ref(),
+            group_scopes,
+        );
 
         // reset last scope
-        *last_scope = None;
+        *last_stack = None;
 
         // add this operation
         operations.push(op);
     }
 }
 
-fn instruction_scope(
+fn flush_if_not_empty(
+    operations: &mut Vec<Op>,
+    current_scope: &mut Vec<Op>,
+    dbg_locations: &[DbgLocation],
+    dbg_metadata_scopes: &[DbgMetadataScope],
+    instruction_stack: Option<&Vec<(usize, usize)>>,
+    group_scopes: bool,
+) {
+    if !current_scope.is_empty() {
+        let label = instruction_stack
+            .expect("instruction stack should exist")
+            .into_iter()
+            .map(|(scope, location)| {
+                let scope = &dbg_metadata_scopes[*scope];
+                match scope {
+                    DbgMetadataScope::SubProgram { name, span } => name.clone(),
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("::");
+        flush_scope(operations, current_scope, label, group_scopes);
+    }
+}
+
+fn instruction_logical_stack(
     dbg_locations: &[DbgLocation],
     dbg_metadata_scopes: &[DbgMetadataScope],
     metadata: &InstructionMetadata,
-) -> Option<Rc<str>> {
+) -> Option<Vec<(usize, usize)>> {
     if let Some(dbg_location_idx) = metadata.dbg_location {
-        let mut scope_stack = vec![];
-        let location = dbg_locations
-            .get(dbg_location_idx)
-            .expect("dbg location should exist");
-        let scope = dbg_metadata_scopes
-            .get(location.scope)
-            .expect("scope should exist");
-        match scope {
-            DbgMetadataScope::SubProgram { name, location } => scope_stack.push(name.clone()),
+        let mut location_stack = vec![];
+        let mut current_location_idx = Some(dbg_location_idx);
+
+        while let Some(location_idx) = current_location_idx {
+            let location = dbg_locations
+                .get(location_idx)
+                .expect("dbg location should exist");
+            location_stack.push((location.scope, location_idx));
+            current_location_idx = location.inlined_at;
         }
 
-        return Some(Rc::from(scope_stack.join("::")));
+        // filter out scopes in std and core
+        location_stack.retain(|(scope, location)| {
+            let scope = &dbg_metadata_scopes[*scope];
+            match scope {
+                DbgMetadataScope::SubProgram {
+                    name,
+                    span: location,
+                } => {
+                    let package_id =
+                        usize::try_from(location.package).expect("package id should fit in usize");
+                    package_id != usize::from(PackageId::CORE)
+                        && package_id != usize::from(PackageId::CORE.successor())
+                }
+            }
+        });
+
+        location_stack.reverse();
+
+        return Some(dbg!(location_stack));
     }
     None
 }
@@ -1004,35 +1076,35 @@ fn instruction_scope(
 fn flush_scope(
     operations: &mut Vec<Op>,
     current_scope: &mut Vec<Op>,
-    last_scope: &mut Option<String>,
+    label: String,
     group_scopes: bool,
 ) {
-    let mut should_group = current_scope.len() > 1;
+    let mut should_group = true;
     if !group_scopes {
         should_group = false;
     }
     // don't group if there is no overlap at all in the qubits
-    if should_group {
-        let mut some_overlap = false;
-        let mut qubits: FxHashSet<usize> = FxHashSet::default();
-        for op in current_scope.iter() {
-            let op_qubits: Vec<usize> = op
-                .control_qubits
-                .iter()
-                .chain(&op.target_qubits)
-                .copied()
-                .collect();
-            let initial_len = qubits.len();
-            qubits.extend(op_qubits.clone());
-            if qubits.len() < initial_len + op_qubits.len() {
-                some_overlap = true;
-                break;
-            }
-        }
-        if !some_overlap {
-            should_group = false;
-        }
-    }
+    // if should_group {
+    //     let mut some_overlap = false;
+    //     let mut qubits: FxHashSet<usize> = FxHashSet::default();
+    //     for op in current_scope.iter() {
+    //         let op_qubits: Vec<usize> = op
+    //             .control_qubits
+    //             .iter()
+    //             .chain(&op.target_qubits)
+    //             .copied()
+    //             .collect();
+    //         let initial_len = qubits.len();
+    //         qubits.extend(op_qubits.clone());
+    //         if qubits.len() < initial_len + op_qubits.len() {
+    //             some_overlap = true;
+    //             break;
+    //         }
+    //     }
+    //     if !some_overlap {
+    //         should_group = false;
+    //     }
+    // }
 
     if should_group {
         let args = current_scope[0].args.clone();
@@ -1041,16 +1113,17 @@ fn flush_scope(
             .iter()
             .flat_map(|op| op.control_qubits.iter().chain(&op.target_qubits).copied())
             .collect();
+        let results: FxHashSet<(usize, usize)> = current_scope
+            .iter()
+            .flat_map(|op| op.control_results.iter().chain(&op.target_results).copied())
+            .collect();
 
         let group = Op {
             kind: OperationKind::Unitary,
-            label: last_scope
-                .as_ref()
-                .expect("last scope should exist here")
-                .to_string(),
+            label,
             target_qubits: qubits.into_iter().collect(),
             control_qubits: vec![],
-            target_results: vec![],
+            target_results: results.into_iter().collect(),
             control_results: vec![],
             is_adjoint: false,
             children: current_scope.clone(),
