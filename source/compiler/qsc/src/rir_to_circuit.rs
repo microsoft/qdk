@@ -1,14 +1,11 @@
-use std::{
-    fmt::{Display, Write},
-    rc::Rc,
-};
+use std::fmt::{Display, Write};
 
 use log::{debug, warn};
 use qsc_circuit::{
-    Circuit, Component, ComponentColumn, ComponentGrid, Config, Error, GenerationMethod, Ket,
-    Measurement, Operation, Qubit, Register, Unitary, group_qubits, operation_list_to_grid,
+    Circuit, ComponentColumn, Config, Error, GenerationMethod, Ket, Measurement, Operation, Qubit,
+    Register, Unitary, group_qubits, operation_list_to_grid,
 };
-use qsc_data_structures::{index_map::IndexMap, line_column::Encoding, span::Span};
+use qsc_data_structures::{index_map::IndexMap, line_column::Encoding};
 use qsc_frontend::{compile::PackageStore, location::Location};
 use qsc_hir::hir::PackageId;
 use qsc_partial_eval::{
@@ -16,12 +13,10 @@ use qsc_partial_eval::{
     VariableId,
     rir::{
         BlockId, BlockWithMetadata, DbgLocation, DbgMetadataScope, InstructionMetadata,
-        InstructionWithMetadata, Program, Ty, Variable,
+        InstructionWithMetadata, MetadataPackageSpan, Program, Ty, Variable,
     },
 };
 use rustc_hash::FxHashSet;
-
-use crate::target;
 
 type ResultId = (usize, usize);
 
@@ -65,11 +60,7 @@ enum OperationKind {
 
 impl From<Op> for Operation {
     fn from(value: Op) -> Self {
-        let args = value
-            .args
-            .into_iter()
-            .chain(value.metadata.map(|md| format!("metadata={md}")))
-            .collect();
+        let args = value.args.into_iter().collect();
 
         let targets = value
             .target_qubits
@@ -190,9 +181,11 @@ pub(crate) fn make_circuit(
         .get(entry_block)
         .expect("entry block should have been processed");
 
-    let operations = extend_with_successors(&program_map, entry_block);
+    let mut operations = extend_with_successors(&program_map, entry_block);
 
     let qubits = program_map.into_qubits();
+
+    fill_in_dbg_metadata(&mut operations, package_store, position_encoding)?;
     let operations = operations.into_iter().map(Into::into).collect();
 
     let (operations, qubits) = if config.collapse_qubit_registers && qubits.len() > 2 {
@@ -202,9 +195,7 @@ pub(crate) fn make_circuit(
         (operations, qubits)
     };
 
-    let mut component_grid = operation_list_to_grid(operations, &qubits, config.loop_detection);
-
-    fill_in_dbg_metadata(&mut component_grid, package_store, position_encoding)?;
+    let component_grid = operation_list_to_grid(operations, &qubits, config.loop_detection);
 
     let circuit = Circuit {
         qubits,
@@ -232,7 +223,7 @@ fn expand_branches_vars(program: &Program, state: &mut ProgramMap) -> Result<boo
 
             if let Some(expanded_branch) = expanded_branch {
                 let add = match &expanded_branch.grouped_operation.kind {
-                    OperationKind::Group { children, stack } => !children.is_empty(),
+                    OperationKind::Group { children, stack: _ } => !children.is_empty(),
                     _ => false,
                 };
                 if add {
@@ -572,43 +563,43 @@ fn extend_with_successors(state: &ProgramMap, entry_block: &CircuitBlock) -> Vec
 }
 
 fn fill_in_dbg_metadata(
-    component_grid: &mut ComponentGrid,
+    operations: &mut [Op],
     package_store: &PackageStore,
     position_encoding: Encoding,
 ) -> Result<(), Error> {
-    for column in component_grid {
-        for component in &mut column.components {
-            let children = match component {
-                Component::Unitary(unitary) => &mut unitary.children,
-                Component::Measurement(measurement) => &mut measurement.children,
-                Component::Ket(ket) => &mut ket.children,
-            };
+    for op in operations {
+        let children = match &mut op.kind {
+            OperationKind::Group { children, .. } => children,
+            _ => continue,
+        };
 
-            fill_in_dbg_metadata(children, package_store, position_encoding)?;
+        fill_in_dbg_metadata(children, package_store, position_encoding)?;
 
-            let args = match component {
-                Component::Unitary(unitary) => &mut unitary.args,
-                Component::Measurement(measurement) => &mut measurement.args,
-                Component::Ket(ket) => &mut ket.args,
-            };
+        if let Some(dbg_metadata) = &op.metadata {
+            let InstructionMetadata {
+                location:
+                    MetadataPackageSpan {
+                        package: package_id,
+                        span,
+                    },
+                scope_id: scope,
+                scope_block_discriminator: discriminator,
+                ..
+            } = dbg_metadata;
 
-            // if last arg starts with metadata=, pop it
-            let metadata_str = args
-                .last()
-                .and_then(|last_arg| last_arg.strip_prefix("metadata="))
-                .map(ToOwned::to_owned);
-
-            if let Some(metadata_str) = metadata_str {
-                args.pop();
-                let dbg_metadata = parse_dbg_metadata(&metadata_str);
-                if let Some(((package_id, span), scope, discriminator, _)) = dbg_metadata {
-                    let location =
-                        Location::from(span, package_id, package_store, position_encoding);
-                    let mut json = String::new();
-                    writeln!(&mut json, "metadata={{").expect("writing to string should work");
-                    writeln!(&mut json, r#""source": {:?},"#, location.source)
-                        .expect("writing to string should work");
-                    write!(
+            let location = Location::from(
+                *span,
+                usize::try_from(*package_id)
+                    .expect("package id should fit into usize")
+                    .into(),
+                package_store,
+                position_encoding,
+            );
+            let mut json = String::new();
+            writeln!(&mut json, "metadata={{").expect("writing to string should work");
+            writeln!(&mut json, r#""source": {:?},"#, location.source)
+                .expect("writing to string should work");
+            write!(
                         &mut json,
                         r#""span": {{"start": {{"line": {}, "character": {}}}, "end": {{"line": {}, "character": {}}}}}"#,
                         location.range.start.line,
@@ -617,100 +608,11 @@ fn fill_in_dbg_metadata(
                         location.range.end.column
                     )
                     .expect("writing to string should work");
-                    if let Some((block_id, package_id, span)) = scope {
-                        writeln!(&mut json, ",").expect("writing to string should work");
-                        let scope_location =
-                            Location::from(span, package_id, package_store, position_encoding);
-                        write!(&mut json, "\"scope\": {},", block_id.0)
-                            .expect("writing to string should work");
-                        write!(
-                            &mut json,
-                            r#""scope_location": {{"start": {{"line": {}, "character": {}}}, "end": {{"line": {}, "character": {}}}}}"#,
-                            scope_location.range.start.line,
-                            scope_location.range.start.column,
-                            scope_location.range.end.line,
-                            scope_location.range.end.column
-                        )
-                        .expect("writing to string should work");
-                    }
-                    if let Some(discriminator) = discriminator {
-                        writeln!(&mut json, ",").expect("writing to string should work");
-                        write!(&mut json, "\"discriminator\": {discriminator}")
-                            .expect("writing to string should work");
-                    }
-                    write!(&mut json, "}}").expect("writing to string should work");
-                    args.push(json);
-                }
-            }
+            write!(&mut json, "}}").expect("writing to string should work");
+            op.args.push(json);
         }
     }
     Ok(())
-}
-
-type DbgMetadata = (
-    (PackageId, Span),                  // source location
-    Option<(BlockId, PackageId, Span)>, // scope id and location
-    Option<usize>,                      // discriminator
-    Option<String>,                     // callable name
-);
-
-fn parse_dbg_metadata(metadata_str: &str) -> Option<DbgMetadata> {
-    // metadata is of the format "!dbg package_id=0 span=[2161-2172] scope=0 scope_package_id=1 scope_span=[123-345] discriminator=1 callable=foo"
-    if let Some(rest) = metadata_str.strip_prefix("!dbg ") {
-        let mut package_id: Option<usize> = None;
-        let mut span = None;
-        let mut scope: Option<usize> = None;
-        let mut discriminator = None;
-        let mut callable = None;
-        let mut scope_package_id: Option<usize> = None;
-        let mut scope_span: Option<Span> = None;
-
-        for token in rest.split_whitespace() {
-            if let Some(rest) = token.strip_prefix("package_id=") {
-                package_id = rest.parse().ok();
-            } else if let Some(rest) = token.strip_prefix("span=") {
-                span = parse_span(rest);
-            } else if let Some(rest) = token.strip_prefix("scope=") {
-                scope = rest.parse().ok();
-            } else if let Some(rest) = token.strip_prefix("scope_package_id=") {
-                scope_package_id = rest.parse().ok();
-            } else if let Some(rest) = token.strip_prefix("scope_span=") {
-                scope_span = parse_span(rest);
-            } else if let Some(rest) = token.strip_prefix("discriminator=") {
-                discriminator = rest.parse().ok();
-            } else if let Some(rest) = token.strip_prefix("callable=") {
-                callable = Some(rest.to_string());
-            }
-        }
-
-        if let (Some(package_id), Some(span)) = (package_id, span) {
-            let package_id = package_id.into();
-            let scope: Option<BlockId> = scope.map(Into::into);
-            let scope_package_id: Option<PackageId> = scope_package_id.map(Into::into);
-            let scope = match (scope, scope_package_id, scope_span) {
-                (Some(s), Some(p), Some(sp)) => Some((s, p, sp)),
-                _ => None,
-            };
-            return Some(((package_id, span), scope, discriminator, callable));
-        }
-    }
-    None
-}
-
-fn parse_span(rest: &str) -> Option<Span> {
-    if let Some(span_str) = rest.strip_prefix("[") {
-        if let Some(span_str) = span_str.strip_suffix("]") {
-            let span_parts: Vec<&str> = span_str.split('-').collect();
-            if span_parts.len() == 2 {
-                if let (Ok(start), Ok(end)) =
-                    (span_parts[0].parse::<u32>(), span_parts[1].parse::<u32>())
-                {
-                    return Some(Span { lo: start, hi: end });
-                }
-            }
-        }
-    }
-    None
 }
 
 // TODO: this could be represented by a circuit block, maybe. Consider.
