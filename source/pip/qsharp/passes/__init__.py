@@ -1,9 +1,9 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+from ._device import Device, AC1K, AC1000
 from ._transform import transform, transform_to_clifford
 from ._trace import trace
-from ._device import Device, AC1K
 
 __all__ = [
     "transform",
@@ -11,4 +11,5 @@ __all__ = [
     "trace",
     "Device",
     "AC1K",
+    "AC1000",
 ]

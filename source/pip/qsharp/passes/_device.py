@@ -2,6 +2,7 @@
 # Licensed under the MIT License.
 
 from enum import Enum
+from .._qsharp import QirInputData
 
 
 class ZoneType(Enum):
@@ -123,6 +124,15 @@ class Device:
         """
         return [zone for zone in self.zones if zone.type == ZoneType.MEAS]
 
+    def compile(self, program: str) -> bytes:
+        """
+        Compile the given program for the device.
+
+        Args:
+            program (str): The program to compile.
+        """
+        raise NotImplementedError("Device.compile is only implemented in subclasses")
+
     def as_dict(self) -> dict:
         """
         Get the device layout as a dictionary.
@@ -137,6 +147,45 @@ class Device:
                 for zone in self.zones
             ],
         }
+
+    def get_layout(self) -> dict:
+        """
+        Get the device layout as a dictionary.
+
+        Returns:
+            dict: The device layout as a dictionary.
+        """
+        return self.as_dict()
+
+
+class AC1000(Device):
+    def __init__(self):
+        super().__init__(
+            36,
+            [
+                Zone("Register 1", 17, ZoneType.REG),
+                Zone("Interaction Zone", 4, ZoneType.INTER),
+                Zone("Register 2", 17, ZoneType.REG),
+                Zone("Measurement Zone", 4, ZoneType.MEAS),
+            ],
+        )
+
+    def compile(
+        self,
+        qir: str | QirInputData,
+        skip_scheduling: bool = False,
+        check_clifford: bool = False,
+        verbose: bool = False,
+    ) -> QirInputData:
+        from ._transform import transform
+
+        return transform(
+            qir,
+            self,
+            skip_scheduling,
+            check_clifford,
+            verbose,
+        )
 
 
 AC1K = Device.ac1k().as_dict()
