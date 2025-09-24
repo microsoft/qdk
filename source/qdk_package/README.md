@@ -84,9 +84,9 @@ Submodules:
 - `qdk.qsharp` – direct passthrough to `qsharp` APIs (import explicitly: `import qdk.qsharp`).
 - `qdk.widgets` – only if `qsharp-widgets` installed (through `qdk[jupyter]`).
 - `qdk.azure` – only if `azure-quantum` installed. Now a package with subpackages:
-    - `qdk.azure.target` → `azure.quantum.target`
-    - `qdk.azure.argument_types` → `azure.quantum.argument_types`
-    - `qdk.azure.job` → `azure.quantum.job`
+  - `qdk.azure.target` → `azure.quantum.target`
+  - `qdk.azure.argument_types` → `azure.quantum.argument_types`
+  - `qdk.azure.job` → `azure.quantum.job`
     Import style example: `from qdk.azure.job import Job`
 - `qdk.qiskit` – only if `qiskit` extra installed; exposes only QDK interop symbols (no blanket upstream re-export). Import upstream APIs directly from `qiskit`.
 - `qdk.estimator` – shim re-export of `qsharp.estimator` (always present if underlying `qsharp` provides it).
