@@ -29,6 +29,8 @@ use qsc::interpret::{self, GenericReceiver, Interpreter, Value};
 use system::estimate_physical_resources;
 use thiserror::Error;
 
+use crate::system::LogicalResourceCounts;
+
 #[derive(Debug, Diagnostic, Error)]
 #[error(transparent)]
 #[diagnostic(transparent)]
@@ -77,4 +79,31 @@ pub fn estimate_call(
         .map_err(|e| e.into_iter().map(Error::Interpreter).collect::<Vec<_>>())?;
     estimate_physical_resources(counter.logical_resources(), params)
         .map_err(|e| vec![Error::Estimation(e)])
+}
+
+pub fn logical_counts_expr(
+    interpreter: &mut Interpreter,
+    expr: &str,
+) -> Result<LogicalResourceCounts, Vec<Error>> {
+    let mut counter = LogicalCounter::default();
+    let mut stdout = std::io::sink();
+    let mut out = GenericReceiver::new(&mut stdout);
+    interpreter
+        .run_with_sim(&mut counter, &mut out, Some(expr))
+        .map_err(|e| e.into_iter().map(Error::Interpreter).collect::<Vec<_>>())?;
+    Ok(counter.logical_resources())
+}
+
+pub fn logical_counts_call(
+    interpreter: &mut Interpreter,
+    callable: Value,
+    args: Value,
+) -> Result<LogicalResourceCounts, Vec<Error>> {
+    let mut counter = LogicalCounter::default();
+    let mut stdout = std::io::sink();
+    let mut out = GenericReceiver::new(&mut stdout);
+    interpreter
+        .invoke_with_sim(&mut counter, &mut out, callable, args)
+        .map_err(|e| e.into_iter().map(Error::Interpreter).collect::<Vec<_>>())?;
+    Ok(counter.logical_resources())
 }

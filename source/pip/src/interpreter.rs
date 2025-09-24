@@ -42,7 +42,9 @@ use qsc::{
     target::Profile,
 };
 
-use resource_estimator::{self as re, estimate_call, estimate_expr};
+use resource_estimator::{
+    self as re, estimate_call, estimate_expr, logical_counts_call, logical_counts_expr,
+};
 use std::{cell::RefCell, fmt::Write, path::PathBuf, rc::Rc, str::FromStr, sync::Arc};
 
 /// If the classes are not Send, the Python interpreter
@@ -792,6 +794,63 @@ impl Interpreter {
         };
         match results {
             Ok(estimate) => Ok(estimate),
+            Err(errors) if matches!(errors[0], re::Error::Interpreter(_)) => {
+                Err(QSharpError::new_err(format_errors(
+                    errors
+                        .into_iter()
+                        .map(|e| match e {
+                            re::Error::Interpreter(e) => e,
+                            re::Error::Estimation(_) => unreachable!(),
+                        })
+                        .collect::<Vec<_>>(),
+                )))
+            }
+            Err(errors) => Err(QSharpError::new_err(
+                errors
+                    .into_iter()
+                    .map(|e| match e {
+                        re::Error::Estimation(e) => e.to_string(),
+                        re::Error::Interpreter(_) => unreachable!(),
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            )),
+        }
+    }
+
+    #[pyo3(signature=(entry_expr=None, callable=None, args=None))]
+    fn logical_counts<'a>(
+        &mut self,
+        py: Python<'a>,
+        entry_expr: Option<&str>,
+        callable: Option<GlobalCallable>,
+        args: Option<PyObject>,
+    ) -> PyResult<Bound<'a, PyDict>> {
+        let results = if let Some(entry_expr) = entry_expr {
+            logical_counts_expr(&mut self.interpreter, entry_expr)
+        } else {
+            let callable = callable.ok_or_else(|| {
+                QSharpError::new_err("either entry_expr or callable must be specified")
+            })?;
+            let (input_ty, output_ty) = self
+                .interpreter
+                .global_callable_ty(&callable.0)
+                .ok_or(QSharpError::new_err("callable not found"))?;
+            let args = args_to_values(&self.interpreter, py, args, &input_ty, &output_ty)?;
+            logical_counts_call(&mut self.interpreter, callable.0, args)
+        };
+        match results {
+            Ok(counts) => {
+                let dict = PyDict::new(py);
+                dict.set_item("numQubits", counts.num_qubits)?;
+                dict.set_item("tCount", counts.t_count)?;
+                dict.set_item("rotationCount", counts.rotation_count)?;
+                dict.set_item("rotationDepth", counts.rotation_depth)?;
+                dict.set_item("cczCount", counts.ccz_count)?;
+                dict.set_item("ccixCount", counts.ccix_count)?;
+                dict.set_item("measurementCount", counts.measurement_count)?;
+                Ok(dict)
+            }
             Err(errors) if matches!(errors[0], re::Error::Interpreter(_)) => {
                 Err(QSharpError::new_err(format_errors(
                     errors
