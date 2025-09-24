@@ -5,10 +5,10 @@ import pytest, importlib
 
 
 def test_qdk_qsharp_submodule_available():
-    qdk = importlib.import_module("qdk")
-    assert hasattr(qdk, "qsharp"), "qdk.qsharp submodule not exposed"
+    # Import the qsharp submodule explicitly.
+    qdk_qsharp = importlib.import_module("qdk.qsharp")
     # Ensure a core API is reachable via submodule
-    assert hasattr(qdk.qsharp, "run"), "qsharp.run missing in submodule"
+    assert hasattr(qdk_qsharp, "run"), "qsharp.run missing in submodule"
 
 
 def test_estimator_and_openqasm_shims():
@@ -16,12 +16,6 @@ def test_estimator_and_openqasm_shims():
     oq = importlib.import_module("qdk.openqasm")
     assert hasattr(est, "__doc__")
     assert hasattr(oq, "__doc__")
-
-
-def test_qsharp_direct_import():
-    # Core submodule import always works (qsharp is a dependency of the meta-package)
-    qdk = importlib.import_module("qdk")
-    assert hasattr(qdk.qsharp, "run")
 
 
 def test_missing_optional_direct_imports():

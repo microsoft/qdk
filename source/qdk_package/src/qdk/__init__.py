@@ -14,8 +14,6 @@ Optional extras:
 
 """
 
-from . import qsharp as qsharp
-
 # Optional: use telemetry hook if present (skipped in stub/mock envs)
 try:
     import qsharp.telemetry_events.on_qdk_import
@@ -41,9 +39,8 @@ from qsharp import (
     PhaseFlipNoise,
 )
 
+# utilities lifted from qsharp
 __all__ = [
-    "qsharp",
-    # utilities lifted from qsharp
     "code",
     "set_quantum_seed",
     "set_classical_seed",
