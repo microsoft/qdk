@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qdk"
+version = "0.0.0"
+description = "Unified Quantum Development Kit Python meta-package (wraps qsharp and optional extras)"
+readme = "README.md"
+authors = [ { name = "Microsoft" } ]
+license = { file = "LICENSE.txt" }
+requires-python = ">=3.9"
+dependencies = ["qsharp==0.0.0"]
+
+[project.optional-dependencies]
+jupyter = ["qsharp-widgets==0.0.0", "qsharp-jupyterlab==0.0.0"]
+azure = ["azure-quantum==3.2.0"]
+qiskit = ["qiskit>=1.2.2,<2.0.0"]
+all = [
+  "qsharp-widgets==0.0.0",
+  "azure-quantum==3.2.0",
+  "qiskit>=1.2.2,<2.0.0",
+  "qsharp-jupyterlab==0.0.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
