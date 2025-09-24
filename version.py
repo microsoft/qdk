@@ -14,12 +14,14 @@ root_dir = os.path.dirname(os.path.abspath(__file__))
 source_dir = os.path.join(root_dir, "source")
 
 
-def update_file(file: str, old_text: str, new_text: str, is_regex: bool = False):
+def update_file(
+    file: str, old_text: str, new_text: str, is_regex: bool = False, count=1
+):
     # Open the file and replace the first string matching the old text with the new text
     with open(file, "r+", newline="") as f:
         contents = f.read()
         new_contents = (
-            contents.replace(old_text, new_text, 1)
+            contents.replace(old_text, new_text, count)
             if not is_regex
             else re.sub(old_text, new_text, contents)
         )
@@ -148,11 +150,13 @@ update_file(
     qdk_pyproject,
     r"qsharp-widgets==0.0.0",
     r"qsharp-widgets=={}".format(pip_version),
+    count=2,
 )
 update_file(
     qdk_pyproject,
     r"qsharp-jupyterlab==0.0.0",
     r"qsharp-jupyterlab=={}".format(jupyterlab_version),
+    count=2,
 )
 
 update_file(
