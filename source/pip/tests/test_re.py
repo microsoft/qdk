@@ -6,16 +6,16 @@ from qsharp.estimator import EstimatorParams, QubitParams, QECScheme, LogicalCou
 
 
 def test_qsharp_estimation() -> None:
+    source = """{{
+             use qs = Qubit[10];
+             for q in qs {{
+                 T(q);
+                 M(q);
+             }}
+             }}"""
+
     qsharp.init(target_profile=qsharp.TargetProfile.Unrestricted)
-    res = qsharp.estimate(
-        """{{
-        use qs = Qubit[10];
-        for q in qs {{
-            T(q);
-            M(q);
-        }}
-        }}"""
-    )
+    res = qsharp.estimate(source)
     assert res["status"] == "success"
     assert res["physicalCounts"] is not None
     assert res.logical_counts == LogicalCounts(
@@ -29,19 +29,22 @@ def test_qsharp_estimation() -> None:
         }
     )
 
+    res_logical = qsharp.logical_counts(source)
+    assert res_logical == res.logical_counts
+
 
 def test_qsharp_estimation_from_precalculated_counts() -> None:
+    source = """{{
+             import Std.ResourceEstimation.*;
+             use qubits = Qubit[12581];
+             AccountForEstimates(
+                 [TCount(12), RotationCount(12), RotationDepth(12),
+                 CczCount(3731607428), MeasurementCount(1078154040)],
+                 PSSPCLayout(), qubits);
+             }}"""
+
     qsharp.init(target_profile=qsharp.TargetProfile.Unrestricted)
-    res = qsharp.estimate(
-        """{{
-        import Std.ResourceEstimation.*;
-        use qubits = Qubit[12581];
-        AccountForEstimates(
-            [TCount(12), RotationCount(12), RotationDepth(12),
-            CczCount(3731607428), MeasurementCount(1078154040)],
-            PSSPCLayout(), qubits);
-        }}"""
-    )
+    res = qsharp.estimate(source)
 
     assert res["status"] == "success"
     assert res["physicalCounts"] is not None
@@ -55,6 +58,10 @@ def test_qsharp_estimation_from_precalculated_counts() -> None:
             "measurementCount": 1078154040,
         }
     )
+
+    res_logical = qsharp.logical_counts(source)
+
+    assert res_logical == res.logical_counts
 
 
 def test_qsharp_estimation_with_single_params() -> None:
@@ -218,6 +225,9 @@ def test_qsharp_estimation_with_multiple_params_from_python_callable() -> None:
         )
     assert res[2]["jobParams"]["qecScheme"]["name"] == QECScheme.FLOQUET_CODE
 
+    res_logical = qsharp.logical_counts(qsharp.code.Test)
+    assert res_logical == res[0]["logicalCounts"]
+
 
 def test_qsharp_estimation_with_multiple_params_from_python_callable_with_arg() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Unrestricted)
@@ -281,6 +291,9 @@ def test_qsharp_estimation_with_multiple_params_from_python_callable_with_arg() 
             }
         )
     assert res[2]["jobParams"]["qecScheme"]["name"] == QECScheme.FLOQUET_CODE
+
+    res_logical = qsharp.logical_counts(qsharp.code.Test, 7)
+    assert res_logical == res[0]["logicalCounts"]
 
 
 def test_estimation_from_logical_counts() -> None:

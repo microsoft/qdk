@@ -60,6 +60,11 @@ def check_estimate(source: str):
     e.estimate("", source)
 
 
+def check_logical_counts(source: str):
+    e = Interpreter(TargetProfile.Unrestricted)
+    e.logical_counts(source)
+
+
 # Tests for the native Q# interpreter class
 
 
@@ -244,6 +249,7 @@ def test_value_udt() -> None:
     check_invoke(udt_def, callable, output)
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
+    check_logical_counts(entry_expr)
     with pytest.raises(QSharpError, match="Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(udt_def + callable, "makeData()", "")
 
@@ -263,6 +269,7 @@ def test_value_nested_udts() -> None:
     check_invoke(udt_def, callable, output)
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
+    check_logical_counts(entry_expr)
     with pytest.raises(QSharpError, match="Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(udt_def + callable, "makeData()", "")
 
@@ -279,6 +286,7 @@ def test_value_udts_with_complex_field() -> None:
     check_invoke(udt_def, callable, output)
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
+    check_logical_counts(entry_expr)
     with pytest.raises(QSharpError, match="Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(udt_def + callable, "makeData()", "")
 
@@ -295,6 +303,7 @@ def test_value_udts_with_array_field() -> None:
     check_invoke(udt_def, callable, output)
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
+    check_logical_counts(entry_expr)
     with pytest.raises(QSharpError, match="Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(udt_def + callable, "makeData()", "")
 
@@ -311,6 +320,7 @@ def test_value_udts_with_tuple_field() -> None:
     check_invoke(udt_def, callable, output)
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
+    check_logical_counts(entry_expr)
     with pytest.raises(QSharpError, match="Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(udt_def + callable, "makeData()", "")
 
@@ -327,6 +337,7 @@ def test_value_array_of_udts() -> None:
     check_invoke(udt_def, callable, output)
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
+    check_logical_counts(entry_expr)
     with pytest.raises(QSharpError, match="Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(udt_def + callable, "makeData()", "")
 
@@ -342,6 +353,7 @@ def test_value_array_of_complex() -> None:
     check_invoke("", callable, output)
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
+    check_logical_counts(entry_expr)
     with pytest.raises(QSharpError, match="Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(callable, "makeData()", "")
 
@@ -358,6 +370,7 @@ def test_value_tuple_of_udts() -> None:
     check_invoke(udt_def, callable, output)
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
+    check_logical_counts(entry_expr)
     with pytest.raises(QSharpError, match="Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(udt_def + callable, "makeData()", "")
 
@@ -373,6 +386,7 @@ def test_value_tuple_of_complex() -> None:
     check_invoke("", callable, output)
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
+    check_logical_counts(entry_expr)
     with pytest.raises(QSharpError, match="Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(callable, "makeData()", "")
 
