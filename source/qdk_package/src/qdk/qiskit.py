@@ -9,7 +9,7 @@ Qiskit APIs directly from ``qiskit``.
 """
 
 try:
-    from qsharp.interop.qiskit import *
+    from qsharp.interop.qiskit import *  # pyright: ignore[reportWildcardImportFromLibrary]
 except Exception as ex:
     raise ImportError(
         "qdk.qiskit requires the qiskit extra. Install with 'pip install qdk[qiskit]'."

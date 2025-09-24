@@ -8,7 +8,7 @@ module raises an ImportError describing how to enable it.
 """
 
 try:
-    from azure.quantum import *
+    from azure.quantum import *  # pyright: ignore[reportWildcardImportFromLibrary]
     from azure.quantum import target as target
     from azure.quantum import argument_types as argument_types
     from azure.quantum import job as job
