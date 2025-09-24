@@ -1,13 +1,19 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+#[cfg(test)]
+mod tests;
+
 use std::{
     fmt::{Display, Write},
     mem::take,
 };
 
-use log::{debug, warn};
-use qsc_circuit::{
+use crate::{
     Circuit, ComponentColumn, Config, Error, GenerationMethod, Ket, Measurement, Operation, Qubit,
     Register, Unitary, group_qubits, operation_list_to_grid,
 };
+use log::{debug, warn};
 use qsc_data_structures::{index_map::IndexMap, line_column::Encoding};
 use qsc_frontend::{compile::PackageStore, location::Location, resolve::Scope};
 use qsc_hir::hir::PackageId;
@@ -167,7 +173,7 @@ impl From<Op> for Operation {
     }
 }
 
-pub(crate) fn make_circuit(
+pub fn make_circuit(
     program: &Program,
     package_store: &PackageStore,
     position_encoding: Encoding,

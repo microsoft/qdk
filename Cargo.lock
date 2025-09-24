@@ -1049,6 +1049,7 @@ dependencies = [
  "qsc_fir",
  "qsc_frontend",
  "qsc_hir",
+ "qsc_partial_eval",
  "qsc_passes",
  "regex-lite",
  "rustc-hash",
