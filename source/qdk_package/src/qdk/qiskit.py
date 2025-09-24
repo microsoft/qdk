@@ -1,14 +1,14 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-"""Re-export shim for the optional qiskit package as qdk.qiskit.
+"""Interop-only shim for qdk.qiskit.
 
-If qiskit is not installed (with the qdk[qiskit] extra), importing this
-module raises an ImportError describing how to enable it.
+This module re-exports the QDK Qiskit interop surface from ``qsharp.interop.qiskit``
+without importing the external ``qiskit`` package. Users should import upstream
+Qiskit APIs directly from ``qiskit``.
 """
 
 try:
-    from qiskit import *
     from qsharp.interop.qiskit import *
 except Exception as ex:
     raise ImportError(

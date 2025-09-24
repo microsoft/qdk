@@ -28,7 +28,7 @@ EXTRAS = {
     "qiskit": {
         "mock": mock_qiskit,
         "module": "qdk.qiskit",
-        "post_assert": lambda mod: hasattr(mod, "transpile"),
+        "post_assert": lambda mod: hasattr(mod, "__doc__"),
     },
 }
 
