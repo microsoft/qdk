@@ -13,7 +13,7 @@ Usage examples:
 
 try:
     # Re-export the top-level azure.quantum names.
-    from azure.quantum import *
+    from azure.quantum import *  # pyright: ignore[reportWildcardImportFromLibrary]
 except Exception as ex:
     raise ImportError(
         "qdk.azure requires the azure extra. Install with 'pip install qdk[azure]'."

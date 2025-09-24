@@ -3,4 +3,4 @@
 
 """Re-export of `qsharp` as `qdk.qsharp`."""
 
-from qsharp import *
+from qsharp import *  # pyright: ignore[reportWildcardImportFromLibrary]

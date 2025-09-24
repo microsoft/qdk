@@ -3,4 +3,4 @@
 
 """Shim exposing qsharp.openqasm as qdk.openqasm."""
 
-from qsharp.openqasm import *
+from qsharp.openqasm import *  # pyright: ignore[reportWildcardImportFromLibrary]

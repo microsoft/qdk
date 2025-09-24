@@ -3,4 +3,4 @@
 
 """Shim exposing qsharp.estimator as qdk.estimator."""
 
-from qsharp.estimator import *
+from qsharp.estimator import *  # pyright: ignore[reportWildcardImportFromLibrary]
