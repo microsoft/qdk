@@ -29,6 +29,7 @@ from qsharp import (
     set_classical_seed,
     dump_machine,
     dump_circuit,
+    init,
     Result,
     TargetProfile,
     StateDump,
