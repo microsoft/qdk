@@ -15,9 +15,9 @@ Optional extras:
 """
 
 
-import qsharp.telemetry_events.on_qdk_import
+from qsharp.telemetry_events import on_qdk_import
 
-qsharp.telemetry_events.on_qdk_import()
+on_qdk_import()
 
 # Some common utilities are lifted to the qdk root.
 from qsharp import code
