@@ -5,6 +5,7 @@
 
 import os
 import re
+import sys
 
 # To be updated every time we start a new major.minor version.
 major_minor = "1.20"
@@ -31,12 +32,12 @@ def update_file(file: str, old_text: str, new_text: str, is_regex: bool = False)
 # This should be a full triple and will update the refs in the library manifests also, e.g.
 #  ./version.py --set 1.18.0
 # IMPORTANT: This is for convenience and does simple pattern matching. Verify all changes manually before committing.
-if len(os.sys.argv) > 1 and os.sys.argv[1] == "--set":
-    if len(os.sys.argv) != 3:
-        print("Usage: {} --set n.n.n".format(os.sys.argv[0]))
+if len(sys.argv) > 1 and sys.argv[1] == "--set":
+    if len(sys.argv) != 3:
+        print("Usage: {} --set n.n.n".format(sys.argv[0]))
         exit(1)
 
-    new_version = os.sys.argv[2]
+    new_version = sys.argv[2]
     # Ensure new version is in the correct format and extract major, minor, and build numbers
     parts = new_version.split(".")
     if len(parts) != 3 or not all(part.isdigit() for part in parts):
