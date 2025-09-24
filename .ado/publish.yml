@@ -228,8 +228,11 @@ extends:
             python ./prereqs.py --skip-wasm && python ./version.py
           displayName: Install Prereqs and set version
 
+        # The jupyterlab and widgets packages have no tests. The qdk package has minimal tests but
+        # they also depend on the qsharp package which is platform-dependent. So we skip tests here
+        # and rely on the GitHub CI to run the few `qdk` tests on every PR.
         - script: |
-            python ./build.py --jupyterlab --widgets --qdk --no-check --no-check-prereqs
+            python ./build.py --jupyterlab --widgets --qdk --no-check --no-test --no-check-prereqs
           displayName: Build Platform-Agnostic Packages
 
         - script: |
