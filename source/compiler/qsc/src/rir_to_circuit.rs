@@ -1,4 +1,7 @@
-use std::fmt::{Display, Write};
+use std::{
+    fmt::{Display, Write},
+    mem::take,
+};
 
 use log::{debug, warn};
 use qsc_circuit::{
@@ -51,6 +54,8 @@ impl Op {
     }
 }
 
+type DbgLocationId = usize;
+
 #[derive(Clone, Debug)]
 enum OperationKind {
     Unitary {
@@ -64,7 +69,7 @@ enum OperationKind {
     },
     Group {
         children: Vec<Op>,
-        stack: Option<Vec<(usize, usize)>>,
+        stack: Option<Vec<DbgLocationId>>,
         metadata: Option<GroupMetadata>,
     },
 }
@@ -839,9 +844,9 @@ fn operations_in_block(
     }
 
     // flush any remaining scope
-    flush_if_not_empty(
+    flush_batch(
         &mut operations,
-        &mut current_scope,
+        current_scope,
         dbg_locations,
         dbg_metadata_scopes,
         last_stack.as_ref(),
@@ -858,7 +863,7 @@ fn operations_in_block(
 fn extend_operations(
     operations: &mut Vec<Op>,
     current_scope: &mut Vec<Op>,
-    last_stack: &mut Option<Vec<(usize, usize)>>,
+    last_stack: &mut Option<Vec<DbgLocationId>>,
     dbg_locations: &[DbgLocation],
     dbg_metadata_scopes: &[DbgMetadataScope],
     new_operations: Vec<Op>,
@@ -875,9 +880,10 @@ fn extend_operations(
             let stack = instruction_logical_stack(dbg_locations, dbg_metadata_scopes, metadata);
 
             if let Some(stack) = stack {
-                let mut add_to_current = last_stack
-                    .as_ref()
-                    .is_some_and(|last_stack| are_stacks_siblings(last_stack, &stack));
+                // let mut add_to_current = last_stack
+                //     .as_ref()
+                //     .is_some_and(|last_stack| are_stacks_siblings(last_stack, &stack));
+                let mut add_to_current = false;
 
                 if !matches!(
                     &op,
@@ -895,9 +901,9 @@ fn extend_operations(
                     current_scope.push(op);
                 } else {
                     // Start new group
-                    flush_if_not_empty(
+                    flush_batch(
                         operations,
-                        current_scope,
+                        take(current_scope),
                         dbg_locations,
                         dbg_metadata_scopes,
                         last_stack.as_ref(),
@@ -914,9 +920,9 @@ fn extend_operations(
         // no scope grouping, flush current scope if any, then add this one right away
 
         // flush group
-        flush_if_not_empty(
+        flush_batch(
             operations,
-            current_scope,
+            take(current_scope),
             dbg_locations,
             dbg_metadata_scopes,
             last_stack.as_ref(),
@@ -931,39 +937,60 @@ fn extend_operations(
     }
 }
 
-fn are_stacks_siblings(left: &[(usize, usize)], right: &[(usize, usize)]) -> bool {
+fn are_stacks_siblings(left: &[DbgLocationId], right: &[DbgLocationId]) -> bool {
     if left.len() == right.len() {
         let last_stack = left.split_last();
         let stack = right.split_last();
         if let (Some((last_top, last_rest)), Some((top, rest))) = (last_stack, stack) {
-            // the top of the stack should match in scope
-            if last_top.0 == top.0 {
-                // the rest of the stack should match exactly
-                return last_rest == rest;
-            }
+            // the tail of the stack should match exactly
+            return last_rest == rest;
         }
     }
     false
 }
 
-fn flush_if_not_empty(
+fn flush_batch(
     block_operations: &mut Vec<Op>,
-    ops_in_current_scope: &mut Vec<Op>,
+    mut current_batch: Vec<Op>,
     dbg_locations: &[DbgLocation],
     dbg_metadata_scopes: &[DbgMetadataScope],
-    instruction_stack: Option<&Vec<(usize, usize)>>,
+    instruction_stack: Option<&Vec<DbgLocationId>>,
     group_scopes: bool,
 ) {
-    if !ops_in_current_scope.is_empty() {
+    eprintln!("flush_batch: current_batch={current_batch:?}");
+    if !current_batch.is_empty() {
         let instruction_stack = instruction_stack.expect("instruction stack should exist");
-        flush_scope(
-            block_operations,
-            ops_in_current_scope,
-            dbg_locations,
-            dbg_metadata_scopes,
-            instruction_stack.clone(),
-            group_scopes,
-        );
+
+        if group_scopes {
+            let qubits: FxHashSet<usize> = current_batch
+                .iter()
+                .flat_map(|op| op.control_qubits.iter().chain(&op.target_qubits).copied())
+                .collect();
+            // TODO: use these results somehow
+            let _results: FxHashSet<(usize, usize)> = current_batch
+                .iter()
+                .flat_map(|op| op.control_results.iter().chain(&op.target_results).copied())
+                .collect();
+
+            let children = current_batch.clone();
+            let target_qubits = qubits.into_iter().collect();
+
+            flush_group(
+                block_operations,
+                dbg_locations,
+                dbg_metadata_scopes,
+                children,
+                instruction_stack.clone(),
+                target_qubits,
+            );
+        } else {
+            // Add individually
+            for op in current_batch.drain(..) {
+                block_operations.push(op);
+            }
+        }
+    } else {
+        eprintln!("flush_batch: current_batch is empty, nothing to do");
     }
 }
 
@@ -971,7 +998,7 @@ fn instruction_logical_stack(
     dbg_locations: &[DbgLocation],
     dbg_metadata_scopes: &[DbgMetadataScope],
     metadata: &InstructionMetadata,
-) -> Option<Vec<(usize, usize)>> {
+) -> Option<Vec<DbgLocationId>> {
     if let Some(dbg_location_idx) = metadata.dbg_location {
         let mut location_stack = vec![];
         let mut current_location_idx = Some(dbg_location_idx);
@@ -980,13 +1007,13 @@ fn instruction_logical_stack(
             let location = dbg_locations
                 .get(location_idx)
                 .expect("dbg location should exist");
-            location_stack.push((location.scope, location_idx));
+            location_stack.push(location_idx);
             current_location_idx = location.inlined_at;
         }
 
         // filter out scopes in std and core
-        location_stack.retain(|(scope, _location)| {
-            let scope = &dbg_metadata_scopes[*scope];
+        location_stack.retain(|location| {
+            let scope = &dbg_metadata_scopes[dbg_locations[*location].scope];
             match scope {
                 DbgMetadataScope::SubProgram {
                     name: _,
@@ -1002,68 +1029,32 @@ fn instruction_logical_stack(
 
         location_stack.reverse();
 
-        return Some(dbg!(location_stack));
+        return Some(location_stack);
     }
     None
 }
 
 fn scope_name(
-    instruction_stack: &[(usize, usize)],
+    instruction_stack: &[DbgLocationId],
+    dbg_locations: &[DbgLocation],
     dbg_metadata_scopes: &[DbgMetadataScope],
 ) -> String {
-    let (scope, _location) = instruction_stack
+    let location = instruction_stack
         .last()
         .expect("should be at least one scope");
 
-    let scope = &dbg_metadata_scopes[*scope];
+    let scope = &dbg_metadata_scopes[dbg_locations[*location].scope];
     match scope {
         DbgMetadataScope::SubProgram { name, span: _ } => name.to_string(),
     }
 }
 
-fn flush_scope(
-    block_ops: &mut Vec<Op>,
-    ops_to_flush: &mut Vec<Op>,
-    _dbg_locations: &[DbgLocation],
-    dbg_metadata_scopes: &[DbgMetadataScope],
-    instruction_stack: Vec<(usize, usize)>,
-    group_scopes: bool,
-) {
-    if group_scopes {
-        let qubits: FxHashSet<usize> = ops_to_flush
-            .iter()
-            .flat_map(|op| op.control_qubits.iter().chain(&op.target_qubits).copied())
-            .collect();
-        // TODO: use these results somehow
-        let _results: FxHashSet<(usize, usize)> = ops_to_flush
-            .iter()
-            .flat_map(|op| op.control_results.iter().chain(&op.target_results).copied())
-            .collect();
-
-        let children = ops_to_flush.clone();
-        let target_qubits = qubits.into_iter().collect();
-
-        push_group(
-            block_ops,
-            dbg_metadata_scopes,
-            children,
-            instruction_stack,
-            target_qubits,
-        );
-        ops_to_flush.clear();
-    } else {
-        // Add individually
-        for op in ops_to_flush.drain(..) {
-            block_ops.push(op);
-        }
-    }
-}
-
 fn make_scope_metadata(
+    dbg_locations: &[DbgLocation],
     dbg_metadata_scopes: &[DbgMetadataScope],
-    current_location: &(usize, usize),
+    current_location: DbgLocationId,
 ) -> GroupMetadata {
-    let scope_location = current_location.0;
+    let scope_location = dbg_locations[current_location].scope;
     let scope_location = &dbg_metadata_scopes[scope_location];
     let scope_location = match scope_location {
         DbgMetadataScope::SubProgram { span, .. } => span,
@@ -1074,16 +1065,17 @@ fn make_scope_metadata(
     }
 }
 
-fn push_group(
+fn flush_group(
     block_ops: &mut Vec<Op>,
+    dbg_locations: &[DbgLocation],
     dbg_metadata_scopes: &[DbgMetadataScope],
     children: Vec<Op>,
-    stack: Vec<(usize, usize)>,
+    stack: Vec<DbgLocationId>,
     target_qubits: Vec<usize>,
 ) {
     let last = stack.last().expect("should be at least one scope");
-    let metadata = make_scope_metadata(dbg_metadata_scopes, last);
-    let label = scope_name(&stack, dbg_metadata_scopes);
+    let metadata = make_scope_metadata(dbg_locations, dbg_metadata_scopes, *last);
+    let label = scope_name(&stack, dbg_locations, dbg_metadata_scopes);
     let group = Op {
         kind: OperationKind::Group {
             children,
@@ -1105,43 +1097,93 @@ fn push_group(
     };
 
     // find last common container in the block ops with the same stack prefix, and add to it if found
-    if let Some((_last, prefix)) = instruction_stack.split_last() {
-        if !prefix.is_empty() {
-            if let Some(last_op) = block_ops.last_mut() {
-                if let OperationKind::Group {
-                    children,
-                    stack: Some(stack),
-                    metadata: _,
-                } = &mut last_op.kind
-                {
-                    if are_stacks_siblings(stack, prefix) {
-                        // add to this group
-                        last_op.target_qubits.extend(group.target_qubits.clone());
-                        last_op.target_qubits.sort_unstable();
-                        last_op.target_qubits.dedup();
-                        children.push(group);
-                        return;
-                    }
-                }
-            }
-            // create container for the prefix, and add to it
-            let children = vec![group.clone()];
-            let stack = prefix.to_vec();
-            let target_qubits = group.target_qubits.clone();
 
-            push_group(
+    if !instruction_stack.is_empty() {
+        if let Some(last_op) = block_ops.last_mut() {
+            if add_to_existing_matching_group(&instruction_stack, last_op, group.clone()) {
+                // add to this group
+                eprintln!("flush_group: added to existing group");
+                return;
+            }
+        }
+
+        let prefix = instruction_stack
+            .split_last()
+            .expect("there should be at least one location in the stack")
+            .1
+            .to_vec();
+        if !prefix.is_empty() {
+            // create container for the prefix, and add to it
+            flush_group(
                 block_ops,
+                dbg_locations,
                 dbg_metadata_scopes,
-                children,
-                stack,
-                target_qubits,
+                vec![group.clone()],
+                prefix,
+                group.target_qubits.clone(),
             );
 
+            eprintln!("flush_group: created new parent group");
             return;
         }
     }
 
     block_ops.push(group);
+    eprintln!("flush_group: added new group");
+}
+
+fn add_to_existing_matching_group(
+    stack_to_match: &[DbgLocationId],
+    candidate_op: &mut Op,
+    op_to_add: Op,
+) -> bool {
+    if let OperationKind::Group { children, .. } = &mut candidate_op.kind {
+        // consider only the last child
+        if let Some(last_child) = children.last_mut() {
+            if add_to_existing_matching_group(stack_to_match, last_child, op_to_add.clone()) {
+                return true;
+            }
+        }
+    }
+
+    add_to_existing_matching_group_base(stack_to_match, candidate_op, op_to_add)
+}
+
+fn add_to_existing_matching_group_base(
+    stack_to_match: &[DbgLocationId],
+    candidate_op: &mut Op,
+    op_to_add: Op,
+) -> bool {
+    if let OperationKind::Group {
+        children: candidate_op_children,
+        stack: Some(candidate_stack),
+        metadata: _,
+    } = &mut candidate_op.kind
+    {
+        let parent = stack_to_match
+            .split_last()
+            .expect("there should be at least one location in the stack")
+            .1;
+        if parent == candidate_stack {
+            eprintln!(
+                "add_to_existing_matching_group_base: found matching group with stack {:?}, adding op {:?}",
+                candidate_stack, op_to_add
+            );
+            // add to this group
+            candidate_op
+                .target_qubits
+                .extend(op_to_add.target_qubits.clone());
+            candidate_op.target_qubits.sort_unstable();
+            candidate_op.target_qubits.dedup();
+            candidate_op_children.push(op_to_add);
+            return true;
+        }
+        eprintln!(
+            "add_to_existing_matching_group_base: no match for stack {:?} in candidate op {:?}",
+            stack_to_match, candidate_op
+        );
+    }
+    false
 }
 
 struct BlockUpdate {

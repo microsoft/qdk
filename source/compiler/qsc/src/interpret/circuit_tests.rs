@@ -262,6 +262,40 @@ fn nested_callables_with_measurement() {
 }
 
 #[test]
+fn callables_nested_and_sibling() {
+    let circ = circuit(
+        r"
+            operation Main() : Unit {
+                use q = Qubit();
+                Foo(q);
+                Foo(q);
+                Bar(q);
+            }
+
+            operation Bar(q: Qubit) : Unit {
+                Foo(q);
+                for _ in 1..2 {
+                    X(q);
+                    Y(q);
+                }
+            }
+
+            operation Foo(q: Qubit) : Unit {
+                H(q);
+            }
+            ",
+        CircuitEntryPoint::EntryPoint,
+        Config::default(),
+    )
+    .expect("circuit generation should succeed");
+
+    expect![[r#"
+        q_0    ─ [[ ─── [Main] ─── [[ ─── [Foo] ─── H ─── ]] ─── ]] ─── [[ ─── [Main] ─── [[ ─── [Foo] ─── H ─── ]] ─── ]] ─── [[ ─── [Main] ─── [[ ─── [Bar] ── [[ ─── [Foo] ─── H ─── ]] ─── ]] ─── [[ ─── [Bar] ─── X ─── ]] ─── [[ ─── [Bar] ─── Y ─── ]] ─── [[ ─── [Bar] ─── X ─── ]] ─── [[ ─── [Bar] ─── Y ─── ]] ─── ]] ──
+    "#]]
+    .assert_eq(&circ.to_string());
+}
+
+#[test]
 fn classical_for_loop_loop_detection() {
     let circ = circuit(
         r"

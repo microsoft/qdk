@@ -115,19 +115,19 @@ export class Sqore {
     // );
 
     // If only one top-level operation, expand automatically:
-    if (
-      _circuit.componentGrid.length == 1 &&
-      _circuit.componentGrid[0].components.length == 1 &&
-      _circuit.componentGrid[0].components[0].dataAttributes != null &&
-      Object.prototype.hasOwnProperty.call(
-        _circuit.componentGrid[0].components[0].dataAttributes,
-        "location",
-      )
-    ) {
-      const location: string =
-        _circuit.componentGrid[0].components[0].dataAttributes["location"];
-      this.expandOperation(_circuit.componentGrid, location);
-    }
+    // if (
+    //   _circuit.componentGrid.length == 1 &&
+    //   _circuit.componentGrid[0].components.length == 1 &&
+    //   _circuit.componentGrid[0].components[0].dataAttributes != null &&
+    //   Object.prototype.hasOwnProperty.call(
+    //     _circuit.componentGrid[0].components[0].dataAttributes,
+    //     "location",
+    //   )
+    // ) {
+    //   const location: string =
+    //     _circuit.componentGrid[0].components[0].dataAttributes["location"];
+    //   this.expandOperation(_circuit.componentGrid, location);
+    // }
 
     const grid = _circuit.componentGrid;
     this.expandUntilDepth(grid, renderDepth);
