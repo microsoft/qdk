@@ -22,7 +22,6 @@ use std::{
 #[derive(Clone, Debug)]
 pub struct Local {
     pub var: LocalVarId,
-    pub ty: Ty,
     pub kind: LocalKind,
 }
 
@@ -57,7 +56,6 @@ pub fn initialize_locals_map(input_params: &Vec<InputParam>) -> FxHashMap<LocalV
                 id,
                 Local {
                     var: id,
-                    ty: param.ty.clone(),
                     kind: LocalKind::InputParam(param.index),
                 },
             );

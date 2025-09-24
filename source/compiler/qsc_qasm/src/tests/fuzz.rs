@@ -171,3 +171,12 @@ fn fuzz_2669() {
     let source = "gphase(1E1000);";
     compile_qasm_best_effort(source);
 }
+
+/// We weren't detecting that the step of a range was zero if it was
+/// something other than a literal int. For example, a literal zero
+/// bitstring wasn't been detected.
+#[test]
+fn fuzz_2702() {
+    let source = r#""0"[0:"0":0]"#;
+    compile_qasm_best_effort(source);
+}

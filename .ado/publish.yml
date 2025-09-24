@@ -1,4 +1,4 @@
-name: qsharp-publish-$(BuildId)
+name: qdk-publish-$(BuildId)
 
 # Run on merges to main to ensure that the latest code
 # is always able to be published.
@@ -324,15 +324,19 @@ extends:
               python ./version.py
             displayName: Set version
 
+          # On anything except Windows aarch64, we can build and run tests normally
           - script: |
               python build.py --pip --no-check-prereqs --integration-tests --manylinux
             displayName: Build Platform-Dependent Py Packages
+            condition: not(and(eq(variables['Agent.OS'], 'Windows_NT'), eq(variables['arch'], 'aarch64')))
 
+          # On Windows aarch64 we need to set the cargo build target to cross-compile properly
           - script: |
               echo ##vso[task.setvariable variable=CARGO_BUILD_TARGET]aarch64-pc-windows-msvc
             displayName: Set cargo build target for Windows aarch64
             condition: and(eq(variables['Agent.OS'], 'Windows_NT'), eq(variables['arch'], 'aarch64'))
 
+          # now build the Windows aarch64 packages but skip tests as we can't run them
           - script: |
               python build.py --pip --no-check-prereqs --no-check --no-test
             displayName: Cross Build Windows aarch64 Py Packages

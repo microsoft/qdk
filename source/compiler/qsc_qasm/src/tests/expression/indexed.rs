@@ -442,3 +442,26 @@ fn positive_index_out_of_bounds_errors() {
         "#]],
     );
 }
+
+#[test]
+fn const_zero_step_errors() {
+    let source = r#"
+        const bit[4] a = "1010";
+        const bit b = a[:"0":];
+    "#;
+
+    check_qasm_to_qsharp(
+        source,
+        &expect![[r#"
+            Qasm.Lowerer.ZeroStepInRange
+
+              x range step cannot be zero
+               ,-[Test.qasm:3:25]
+             2 |         const bit[4] a = "1010";
+             3 |         const bit b = a[:"0":];
+               :                         ^^^^^
+             4 |     
+               `----
+        "#]],
+    );
+}

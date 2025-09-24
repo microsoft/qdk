@@ -14,7 +14,7 @@ ndarray = { workspace = true }
 num-bigint = { workspace = true }
 num-complex = { workspace = true }
 num-traits = { workspace = true }
-quantum-sparse-sim = { workspace = true }
+qdk_simulators =  { path = "../../simulators" }
 qsc_data_structures = { path = "../qsc_data_structures" }
 qsc_fir = { path = "../qsc_fir" }
 qsc_hir = { path = "../qsc_hir" }

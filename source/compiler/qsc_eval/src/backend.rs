@@ -7,7 +7,7 @@ use ndarray::Array2;
 use num_bigint::BigUint;
 use num_complex::Complex;
 use num_traits::Zero;
-use quantum_sparse_sim::QuantumSim;
+use qdk_simulators::QuantumSim;
 use rand::{Rng, RngCore, SeedableRng, rngs::StdRng};
 
 #[cfg(test)]

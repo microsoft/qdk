@@ -1107,18 +1107,6 @@ function PNormalized(p : Double, array : Double[]) : Double[] {
 //
 
 /// # Summary
-/// Represents a complex number by its real and imaginary components.
-/// The first element of the tuple is the real component,
-/// the second one - the imaginary component.
-///
-/// # Example
-/// The following snippet defines the imaginary unit 𝑖 = 0 + 1𝑖:
-/// ```qsharp
-/// let imagUnit = Complex(0.0, 1.0);
-/// ```
-struct Complex { Real : Double, Imag : Double }
-
-/// # Summary
 /// Represents a complex number in polar form.
 /// The polar representation of a complex number is c = r⋅𝑒^(t𝑖).
 ///
@@ -1218,7 +1206,7 @@ function ArgComplexPolar(input : ComplexPolar) : Double { input.Argument }
 /// # Output
 /// The unary negation of `input`.
 function NegationC(input : Complex) : Complex {
-    Complex(-input.Real, -input.Imag)
+    -input
 }
 
 /// # Summary
@@ -1246,7 +1234,7 @@ function NegationCP(input : ComplexPolar) : ComplexPolar {
 /// # Output
 /// The sum a + b.
 function PlusC(a : Complex, b : Complex) : Complex {
-    Complex(a.Real + b.Real, a.Imag + b.Imag)
+    a + b
 }
 
 /// # Summary
@@ -1261,12 +1249,7 @@ function PlusC(a : Complex, b : Complex) : Complex {
 /// # Output
 /// The sum a + b.
 function PlusCP(a : ComplexPolar, b : ComplexPolar) : ComplexPolar {
-    ComplexAsComplexPolar(
-        PlusC(
-            ComplexPolarAsComplex(a),
-            ComplexPolarAsComplex(b)
-        )
-    )
+    ComplexAsComplexPolar(ComplexPolarAsComplex(a) + ComplexPolarAsComplex(b))
 }
 
 /// # Summary
@@ -1281,7 +1264,7 @@ function PlusCP(a : ComplexPolar, b : ComplexPolar) : ComplexPolar {
 /// # Output
 /// The difference a - b.
 function MinusC(a : Complex, b : Complex) : Complex {
-    Complex(a.Real - b.Real, a.Imag - b.Imag)
+    a - b
 }
 
 /// # Summary
@@ -1311,10 +1294,7 @@ function MinusCP(a : ComplexPolar, b : ComplexPolar) : ComplexPolar {
 /// # Output
 /// The product a⋅b.
 function TimesC(a : Complex, b : Complex) : Complex {
-    Complex(
-        a.Real * b.Real - a.Imag * b.Imag,
-        a.Real * b.Imag + a.Imag * b.Real
-    )
+    a * b
 }
 
 /// # Summary
@@ -1336,33 +1316,6 @@ function TimesCP(a : ComplexPolar, b : ComplexPolar) : ComplexPolar {
 }
 
 /// # Summary
-/// Internal. Since it is easiest to define the power of two complex numbers
-/// in Cartesian form as returning in polar form, we define that here, then
-/// convert as needed.
-/// Note that this is a multi-valued function, but only one value is returned.
-internal function PowCAsCP(base : Complex, power : Complex) : ComplexPolar {
-    let (a, b) = (base.Real, base.Imag);
-    let (c, d) = (power.Real, power.Imag);
-    let baseSqNorm = a * a + b * b;
-    let baseNorm = Sqrt(baseSqNorm);
-    let baseArg = ArgComplex(base);
-
-    // We pick the principal value of the multi-valued complex function ㏑ as
-    // ㏑(a+b𝑖) = ln(|a+b𝑖|) + 𝑖⋅arg(a+b𝑖) = ln(baseNorm) + 𝑖⋅baseArg
-    // Therefore
-    // base^power = (a+b𝑖)^(c+d𝑖) = 𝑒^( (c+d𝑖)⋅㏑(a+b𝑖) ) =
-    // = 𝑒^( (c+d𝑖)⋅(ln(baseNorm)+𝑖⋅baseArg) ) =
-    // = 𝑒^( (c⋅ln(baseNorm) - d⋅baseArg) + 𝑖⋅(c⋅baseArg + d⋅ln(baseNorm)) )
-    // magnitude = 𝑒^((c⋅ln(baseNorm) - d⋅baseArg)) = baseNorm^c / 𝑒^(d⋅baseArg)
-    // angle = d⋅ln(baseNorm) + c⋅baseArg
-
-    let magnitude = baseNorm^c / E()^(d * baseArg);
-    let angle = d * Log(baseNorm) + c * baseArg;
-
-    ComplexPolar(magnitude, angle)
-}
-
-/// # Summary
 /// Returns a number raised to a given power of type `Complex`.
 /// Note that this is a multi-valued function, but only one value is returned.
 ///
@@ -1375,7 +1328,7 @@ internal function PowCAsCP(base : Complex, power : Complex) : ComplexPolar {
 /// # Output
 /// The power a^b
 function PowC(a : Complex, power : Complex) : Complex {
-    ComplexPolarAsComplex(PowCAsCP(a, power))
+    a^power
 }
 
 /// # Summary
@@ -1391,7 +1344,7 @@ function PowC(a : Complex, power : Complex) : Complex {
 /// # Output
 /// The power a^b
 function PowCP(a : ComplexPolar, power : ComplexPolar) : ComplexPolar {
-    PowCAsCP(ComplexPolarAsComplex(a), ComplexPolarAsComplex(power))
+    ComplexAsComplexPolar(ComplexPolarAsComplex(a)^ComplexPolarAsComplex(power))
 }
 
 /// # Summary
@@ -1406,11 +1359,7 @@ function PowCP(a : ComplexPolar, power : ComplexPolar) : ComplexPolar {
 /// # Output
 /// The quotient a / b.
 function DividedByC(a : Complex, b : Complex) : Complex {
-    let sqNorm = b.Real * b.Real + b.Imag * b.Imag;
-    Complex(
-        (a.Real * b.Real + a.Imag * b.Imag) / sqNorm,
-        (a.Imag * b.Real - a.Real * b.Imag) / sqNorm
-    )
+    a / b
 }
 
 /// # Summary

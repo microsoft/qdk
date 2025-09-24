@@ -468,8 +468,7 @@ impl<'a> Analyzer<'a> {
                     self.get_current_application_instance()
                         .locals_map
                         .find_local_compute_kind(local_var_id)
-                        .expect("local should have been processed before this")
-                        .compute_kind
+                        .map_or(ComputeKind::Classical, |v| v.compute_kind)
                         .value_kind_or_default(ValueKind::Element(RuntimeKind::Static))
                 })
                 .chain(self.derive_arg_value_kinds(&arg_exprs))
@@ -1091,10 +1090,10 @@ impl<'a> Analyzer<'a> {
             // Gather the current compute kind of the local.
             Res::Local(local_var_id) => {
                 let application_instance = self.get_current_application_instance();
-                let local_compute_kind = application_instance
+                application_instance
                     .locals_map
-                    .get_local_compute_kind(*local_var_id);
-                local_compute_kind.compute_kind
+                    .find_local_compute_kind(*local_var_id)
+                    .map_or(ComputeKind::Classical, |v| v.compute_kind)
             }
             Res::Err => panic!("unexpected error resolution"),
         }
@@ -1332,7 +1331,6 @@ impl<'a> Analyzer<'a> {
 
     fn bind_compute_kind_to_ident(
         &mut self,
-        pat: &Pat,
         ident: &Ident,
         local_kind: LocalKind,
         compute_kind: ComputeKind,
@@ -1340,7 +1338,6 @@ impl<'a> Analyzer<'a> {
         let application_instance = self.get_current_application_instance_mut();
         let local = Local {
             var: ident.id,
-            ty: pat.ty.clone(),
             kind: local_kind,
         };
         let local_compute_kind = LocalComputeKind {
@@ -1369,7 +1366,7 @@ impl<'a> Analyzer<'a> {
                 let application_instance = self.get_current_application_instance();
                 let expr_compute_kind = *application_instance.get_expr_compute_kind(expr_id);
                 let bound_compute_kind = ComputeKind::map_to_type(expr_compute_kind, &pat.ty);
-                self.bind_compute_kind_to_ident(pat, ident, local_kind, bound_compute_kind);
+                self.bind_compute_kind_to_ident(ident, local_kind, bound_compute_kind);
             }
             PatKind::Tuple(pats) => match &expr.kind {
                 ExprKind::Tuple(exprs) => {
@@ -1403,7 +1400,7 @@ impl<'a> Analyzer<'a> {
                 let application_instance = self.get_current_application_instance();
                 let expr_compute_kind = *application_instance.get_expr_compute_kind(expr_id);
                 let bound_compute_kind = ComputeKind::map_to_type(expr_compute_kind, &pat.ty);
-                self.bind_compute_kind_to_ident(pat, ident, local_kind, bound_compute_kind);
+                self.bind_compute_kind_to_ident(ident, local_kind, bound_compute_kind);
             }
             PatKind::Tuple(pats) => {
                 for pat_id in pats {
@@ -1569,10 +1566,14 @@ impl<'a> Analyzer<'a> {
                 // The updated compute kind is the aggregation of the compute kind of the local variable and the
                 // assigned value.
                 // Start by initializing the updated compute kind with the compute kind of the local variable.
-                let application_instance = self.get_current_application_instance();
+                let application_instance = self.get_current_application_instance_mut();
                 let local_var_compute_kind = application_instance
                     .locals_map
-                    .get_local_compute_kind(*local_var_id);
+                    .get_or_init_local_compute_kind(
+                        *local_var_id,
+                        LocalKind::Mutable,
+                        ComputeKind::Classical,
+                    );
                 let mut updated_compute_kind = local_var_compute_kind.compute_kind;
 
                 // Since the local variable compute kind is what will be updated, the value kind must match the local
@@ -1582,16 +1583,14 @@ impl<'a> Analyzer<'a> {
                 // a UDT variable field since we do not track individual UDT fields).
                 let value_expr_compute_kind =
                     *application_instance.get_expr_compute_kind(value_expr_id);
-                let assigned_compute_kind = ComputeKind::map_to_type(
-                    value_expr_compute_kind,
-                    &local_var_compute_kind.local.ty,
-                );
+                let assigned_compute_kind =
+                    ComputeKind::map_to_type(value_expr_compute_kind, &assignee_expr.ty);
                 updated_compute_kind = updated_compute_kind.aggregate(assigned_compute_kind);
 
                 // If a local is updated within a dynamic scope, the updated value of the local variable should be
                 // dynamic and additional runtime features may apply.
                 if !application_instance.active_dynamic_scopes.is_empty() {
-                    let local_type = &local_var_compute_kind.local.ty;
+                    let local_type = &assignee_expr.ty;
                     let mut dynamic_value_kind = ValueKind::new_dynamic_from_type(local_type);
                     let mut dynamic_runtime_features =
                         derive_runtime_features_for_value_kind_associated_to_type(
@@ -1621,7 +1620,7 @@ impl<'a> Analyzer<'a> {
                     updated_quantum_properties.runtime_features |=
                         derive_runtime_features_for_value_kind_associated_to_type(
                             value_kind,
-                            &local_var_compute_kind.local.ty,
+                            &assignee_expr.ty,
                         );
                 }
 
@@ -2551,7 +2550,6 @@ fn derive_specialization_controls(
         match &pat.kind {
             PatKind::Bind(ident) => Some(Local {
                 var: ident.id,
-                ty: pat.ty.clone(),
                 kind: LocalKind::SpecInput,
             }),
             PatKind::Discard => None, // Nothing to bind to.

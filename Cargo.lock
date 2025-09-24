@@ -982,6 +982,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "qdk_simulators"
+version = "0.0.0"
+dependencies = [
+ "quantum-sparse-sim",
+]
+
+[[package]]
 name = "qsc"
 version = "0.0.0"
 dependencies = [
@@ -1109,13 +1116,13 @@ dependencies = [
  "num-bigint",
  "num-complex",
  "num-traits",
+ "qdk_simulators",
  "qsc_data_structures",
  "qsc_fir",
  "qsc_frontend",
  "qsc_hir",
  "qsc_lowerer",
  "qsc_passes",
- "quantum-sparse-sim",
  "rand",
  "rustc-hash",
  "thiserror",

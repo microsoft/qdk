@@ -167,7 +167,7 @@ mod given_interpreter {
         }
 
         #[test]
-        fn invalid_statements_and_unbound_vars_return_error() {
+        fn invalid_statements_and_unbound_vars_return_error_on_immutable_usage() {
             let mut interpreter = get_interpreter();
 
             let (result, output) = line(&mut interpreter, "let y = x;");
@@ -188,6 +188,87 @@ mod given_interpreter {
                 &output,
                 &expect![[r#"
                     runtime error: name is not bound
+                       [line_1] [y]
+                "#]],
+            );
+        }
+
+        #[test]
+        fn invalid_statements_and_unbound_vars_return_error_on_mutable_update() {
+            let mut interpreter = get_interpreter();
+
+            let (result, output) = line(&mut interpreter, "mutable y = x;");
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    name error: `x` not found
+                       [line_0] [x]
+                    type error: insufficient type information to infer type
+                       [line_0] [y]
+                "#]],
+            );
+
+            let (result, output) = line(&mut interpreter, "y = 3");
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    cannot update immutable variable
+                       [line_1] [y]
+                "#]],
+            );
+        }
+
+        #[test]
+        fn invalid_statements_and_unbound_vars_return_error_on_immutable_usage_with_rca() {
+            let mut interpreter = get_interpreter_with_capabilities(TargetCapabilityFlags::empty());
+
+            let (result, output) = line(&mut interpreter, "let y = x;");
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    name error: `x` not found
+                       [line_0] [x]
+                    type error: insufficient type information to infer type
+                       [line_0] [y]
+                "#]],
+            );
+
+            let (result, output) = line(&mut interpreter, "y");
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    runtime error: name is not bound
+                       [line_1] [y]
+                "#]],
+            );
+        }
+
+        #[test]
+        fn invalid_statements_and_unbound_vars_return_error_on_mutable_update_with_rca() {
+            let mut interpreter = get_interpreter_with_capabilities(TargetCapabilityFlags::empty());
+
+            let (result, output) = line(&mut interpreter, "mutable y = x;");
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    name error: `x` not found
+                       [line_0] [x]
+                    type error: insufficient type information to infer type
+                       [line_0] [y]
+                "#]],
+            );
+
+            let (result, output) = line(&mut interpreter, "y = 3");
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    cannot update immutable variable
                        [line_1] [y]
                 "#]],
             );

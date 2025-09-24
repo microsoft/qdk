@@ -24,6 +24,7 @@ members = [
     "source/compiler/qsc_rir",
     "source/fuzz",
     "source/language_service",
+    "source/simulators",
     "source/pip",
     "source/resource_estimator",
     "source/samples_test",
