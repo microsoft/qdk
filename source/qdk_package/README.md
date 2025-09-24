@@ -81,10 +81,14 @@ except ImportError:
 
 Submodules:
 
-- `qdk.qsharp` – direct passthrough to `qsharp` APIs.
+- `qdk.qsharp` – direct passthrough to `qsharp` APIs (import explicitly: `import qdk.qsharp`).
 - `qdk.widgets` – only if `qsharp-widgets` installed (through `qdk[jupyter]`).
-- `qdk.azure` – only if `azure-quantum` installed.
-- `qdk.qiskit` – only if `qiskit` installed.
+- `qdk.azure` – only if `azure-quantum` installed. Now a package with subpackages:
+  - `qdk.azure.target` → `azure.quantum.target`
+  - `qdk.azure.argument_types` → `azure.quantum.argument_types`
+  - `qdk.azure.job` → `azure.quantum.job`
+    Import style example: `from qdk.azure.job import Job`
+- `qdk.qiskit` – only if `qiskit` extra installed; exposes only QDK interop symbols (no blanket upstream re-export). Import upstream APIs directly from `qiskit`.
 - `qdk.estimator` – shim re-export of `qsharp.estimator` (always present if underlying `qsharp` provides it).
 - `qdk.openqasm` – shim re-export of `qsharp.openqasm` for OpenQASM integration.
 
@@ -115,7 +119,9 @@ If you need additional items, import them from `qdk.qsharp` directly rather than
 
 - Root re-exports selected utility symbols from `qsharp` (e.g. `code`, `init`, `set_quantum_seed`, types) for convenience; algorithm APIs still live under `qdk.qsharp`.
 - Additional shims (`qdk.estimator`, `qdk.openqasm`) are thin pass-throughs to the corresponding `qsharp` submodules for discoverability.
-- Optional extras are thin pass-through modules; failure messages instruct how to install.
+- Optional extras are thin pass-through modules/packages; failure messages instruct how to install.
+- `qdk.qiskit` deliberately does not re-export the full upstream Qiskit API—import those from `qiskit` directly.
+- `qdk.azure` is structured as a package so dotted imports like `from qdk.azure.job import Job` work.
 - Tests may stub dependencies in isolation environments.
 
 ## Testing
