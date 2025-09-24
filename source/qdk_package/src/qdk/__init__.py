@@ -14,9 +14,13 @@ Optional extras:
 
 """
 
-import qsharp.telemetry_events.on_qdk_import
+# Optional: use telemetry hook if present (skipped in stub/mock envs)
+try:
+    import qsharp.telemetry_events.on_qdk_import
 
-qsharp.telemetry_events.on_qdk_import()
+    qsharp.telemetry_events.on_qdk_import()
+except Exception:
+    pass
 
 # Some common utilities are lifted to the qdk root.
 from qsharp import code
