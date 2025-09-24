@@ -455,15 +455,6 @@ if build_qdk:
     # Reuse (or create) the pip environment so qsharp wheel can be built/installed consistently.
     python_bin = use_python_env(qdk_python_src)
 
-    # Ensure qsharp wheel exists if the core pip package wasn't explicitly built in this run.
-    if not build_pip:
-        pip_env: dict[str, str] = os.environ.copy()
-        if platform.system() == "Darwin":
-            pip_env["ARCHFLAGS"] = "-arch x86_64 -arch arm64"
-        build_qsharp_wheel(
-            os.path.join(qdk_src_dir, "pip"), wheels_dir, python_bin, pip_env
-        )
-
     # Build the qdk wheel (no dependency build needed; it's a thin meta-package)
     qdk_build_args = [
         python_bin,
