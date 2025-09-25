@@ -185,6 +185,11 @@ function TraceToGetLayoutFn(trace: TraceData) {
       return lastLayout;
     }
 
+    // If the same as the last requested step, just return the cached layout
+    if (step === lastRequestedStep) {
+      return lastLayout;
+    }
+
     // Otherwise, if the last requested step was the prior step, just apply the moves
     if (step === lastRequestedStep + 1) {
       getNextStepLayout(step, lastLayout);
@@ -223,6 +228,7 @@ export class Layout {
   trace: TraceData;
   getStepLayout: (step: number) => Uint16Array;
   showTracks = true;
+  showDottedPath = false;
   stepInterval = 500; // Used for playing and animations
 
   constructor(
@@ -273,9 +279,37 @@ export class Layout {
 
     // Put the track parent before the qubits, so the qubits render on top
     this.trackParent = createSvgElements("g")[0] as SVGGElement;
+
+    this.trackParent.addEventListener("mouseover", (e) => {
+      const t = e.target as SVGElement;
+      if (t && t.dataset.qubitid) {
+        const qubitId = parseInt(t.dataset.qubitid);
+        this.highlightQubit(qubitId);
+      }
+    });
+    this.trackParent.addEventListener("mouseout", () => {
+      this.highlightQubit(null);
+    });
+
     appendChildren(this.container, [this.trackParent]);
 
     this.renderQubits();
+  }
+
+  private highlightQubit(qubit: number | null) {
+    if (qubit === null || qubit < 0 || qubit >= this.qubits.length) {
+      this.container
+        .querySelectorAll(".qs-atoms-qubit-highlight")
+        .forEach((elem) => {
+          elem.classList.remove("qs-atoms-qubit-highlight");
+        });
+    } else {
+      this.container
+        .querySelectorAll(`[data-qubitId="${qubit}"]`)
+        .forEach((elem) => {
+          elem.classList.add("qs-atoms-qubit-highlight");
+        });
+    }
   }
 
   private getOpsAtStep(step: number) {
@@ -382,7 +416,10 @@ export class Layout {
         cy: `0`,
         r: `2`,
         class: "qs-atoms-qubit",
+        "data-qubitid": `${index}`,
       });
+      circle.addEventListener("mouseover", () => this.highlightQubit(index));
+      circle.addEventListener("mouseout", () => this.highlightQubit(null));
       // Animation sets the transform as a style attribute, not an element attribute.
       // Also note, when animating the CSS it requires the 'px' length type (unlike the attribute).
       circle.style.transform = `translate(${x}px, ${y}px)`;
@@ -537,6 +574,18 @@ export class Layout {
     this.stepInterval = this.stepInterval / speedStep;
   }
 
+  cycleAnimation() {
+    if (!this.showTracks) {
+      this.showTracks = true;
+      this.showDottedPath = false;
+    } else if (this.showTracks && !this.showDottedPath) {
+      this.showDottedPath = true;
+    } else {
+      this.showTracks = false;
+      this.showDottedPath = false;
+    }
+  }
+
   getQubitRowOffset(row: number) {
     return this.rowOffset[row];
   }
@@ -603,30 +652,52 @@ export class Layout {
           const qubit = this.qubits[move.qubit][2];
           if (!qubit) throw "Invalid qubit index";
           if (forwards && this.showTracks) {
-            const id = `gradient-${trailId++}`;
-            // Draw the path of any qubit movements
-            const [gradient, trail] = createSvgElements(
-              "linearGradient",
-              "line",
-            );
-            setAttributes(gradient, {
-              id,
-              gradientUnits: "userSpaceOnUse",
-              x1: `${oldX}`,
-              y1: `${oldY}`,
-              x2: `${newX}`,
-              y2: `${newY}`,
-            });
-            gradient.innerHTML = `<stop offset="0%" stop-color="gray" stop-opacity="0.2"/><stop offset="100%" stop-color="gray" stop-opacity="0.8"/>`;
-            setAttributes(trail, {
-              x1: `${oldX}`,
-              y1: `${oldY}`,
-              x2: `${newX}`,
-              y2: `${newY}`,
-              class: "qs-atoms-qubit-trail",
-              style: `stroke-width: 2px; stroke: url(#${id})`,
-            });
-            appendChildren(this.trackParent, [gradient, trail]);
+            if (this.showDottedPath) {
+              // Render a hollow circle at the start position
+              const [startCircle, trail] = createSvgElements("circle", "line");
+              setAttributes(startCircle, {
+                cx: `${oldX}`,
+                cy: `${oldY}`,
+                class: `qs-atoms-qubit-trail-start`,
+                "data-qubitid": `${move.qubit}`,
+              });
+
+              const id = `dotted-trail-${trailId++}`;
+              setAttributes(trail, {
+                id,
+                x1: `${oldX}`,
+                y1: `${oldY}`,
+                x2: `${newX}`,
+                y2: `${newY}`,
+                class: "qs-atoms-qubit-trail",
+                "data-qubitid": `${move.qubit}`,
+              });
+              appendChildren(this.trackParent, [trail, startCircle]);
+            } else {
+              const id = `gradient-${trailId++}`;
+              // Draw the path of any qubit movements
+              const [gradient, trail] = createSvgElements(
+                "linearGradient",
+                "line",
+              );
+              setAttributes(gradient, {
+                id,
+                gradientUnits: "userSpaceOnUse",
+                x1: `${oldX}`,
+                y1: `${oldY}`,
+                x2: `${newX}`,
+                y2: `${newY}`,
+              });
+              gradient.innerHTML = `<stop offset="0%" stop-color="gray" stop-opacity="0.2"/><stop offset="100%" stop-color="gray" stop-opacity="0.8"/>`;
+              setAttributes(trail, {
+                x1: `${oldX}`,
+                y1: `${oldY}`,
+                x2: `${newX}`,
+                y2: `${newY}`,
+                style: `stroke-width: 2px; stroke: url(#${id})`,
+              });
+              appendChildren(this.trackParent, [gradient, trail]);
+            }
           }
           qubit
             .animate(
@@ -634,7 +705,11 @@ export class Layout {
                 { transform: `translate(${oldX}px, ${oldY}px)` },
                 { transform: `translate(${newX}px, ${newY}px)` },
               ],
-              { duration, fill: "forwards", easing: "ease" },
+              {
+                duration: this.showDottedPath ? 50 : duration,
+                fill: "forwards",
+                easing: "ease",
+              },
             )
             .finished.then((anim) => {
               anim.commitStyles();

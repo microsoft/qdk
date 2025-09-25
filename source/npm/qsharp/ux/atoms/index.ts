@@ -96,6 +96,11 @@ export function Atoms(
         e.stopPropagation();
         onPlayPause();
         break;
+      case "t":
+        e.preventDefault();
+        e.stopPropagation();
+        layout.cycleAnimation();
+        break;
     }
   });
 
