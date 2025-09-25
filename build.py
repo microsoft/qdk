@@ -29,6 +29,7 @@ parser.add_argument(
 )
 parser.add_argument("--pip", action="store_true", help="Build the pip wheel")
 parser.add_argument("--widgets", action="store_true", help="Build the Python widgets")
+parser.add_argument("--qdk", action="store_true", help="Build the qdk meta-package")
 parser.add_argument("--wasm", action="store_true", help="Build the WebAssembly files")
 parser.add_argument("--npm", action="store_true", help="Build the npm package")
 parser.add_argument("--play", action="store_true", help="Build the web playground")
@@ -100,6 +101,7 @@ build_all = (
     not args.cli
     and not args.pip
     and not args.widgets
+    and not args.qdk
     and not args.wasm
     and not args.npm
     and not args.play
@@ -110,6 +112,7 @@ build_all = (
 build_cli = build_all or args.cli
 build_pip = build_all or args.pip
 build_widgets = build_all or args.widgets
+build_qdk = build_all or args.qdk
 build_wasm = build_all or args.wasm
 build_npm = build_all or args.npm
 build_play = build_all or args.play
@@ -137,6 +140,7 @@ npm_src = os.path.join(qdk_src_dir, "npm", "qsharp")
 play_src = os.path.join(qdk_src_dir, "playground")
 pip_src = os.path.join(qdk_src_dir, "pip")
 widgets_src = os.path.join(qdk_src_dir, "widgets")
+qdk_python_src = os.path.join(qdk_src_dir, "qdk_package")
 wheels_dir = os.path.join(root_dir, "target", "wheels")
 vscode_src = os.path.join(qdk_src_dir, "vscode")
 jupyterlab_src = os.path.join(qdk_src_dir, "jupyterlab")
@@ -443,6 +447,51 @@ if build_pip:
 
         repair_manylinux_wheels(pip_src, wheels_dir, python_bin)
 
+        step_end()
+
+if build_qdk:
+    step_start("Building the qdk python package")
+
+    # Reuse (or create) the pip environment so qsharp wheel can be built/installed consistently.
+    python_bin = use_python_env(qdk_python_src)
+
+    # Build the qdk wheel (no dependency build needed; it's a thin meta-package)
+    qdk_build_args = [
+        python_bin,
+        "-m",
+        "pip",
+        "wheel",
+        "--no-deps",
+        "--wheel-dir",
+        wheels_dir,
+        qdk_python_src,
+    ]
+    subprocess.run(qdk_build_args, check=True, text=True, cwd=qdk_python_src)
+    step_end()
+
+    if run_tests:
+        step_start("Running tests for the qdk python package")
+        # Install per-package test requirements (pytest, etc.)
+        install_python_test_requirements(qdk_python_src, python_bin)
+
+        # Install qsharp wheel first so dependency resolution is offline & version-synced.
+        install_qsharp_python_package(qdk_python_src, wheels_dir, python_bin)
+
+        # Install qdk itself from the freshly built wheel (force to ensure isolation)
+        install_args = [
+            python_bin,
+            "-m",
+            "pip",
+            "install",
+            "--force-reinstall",
+            "--no-index",
+            "--find-links=" + wheels_dir,
+            "qdk",
+        ]
+        subprocess.run(install_args, check=True, text=True, cwd=qdk_python_src)
+
+        # Run its test suite
+        run_python_tests(os.path.join(qdk_python_src, "tests"), python_bin)
         step_end()
 
 if build_widgets:

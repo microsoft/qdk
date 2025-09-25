@@ -3,7 +3,7 @@
 /source/widgets/src/qsharp_widgets/static/
 node_modules/
 __pycache__/
-.venv/
+.venv*/
 .DS_Store
 .vscode/*
 .vscode-test-web/
