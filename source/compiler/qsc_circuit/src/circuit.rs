@@ -898,7 +898,7 @@ fn collapse_repetition(mut operations: Vec<Operation>) -> Vec<Operation> {
                 "children should be a single list at this point"
             );
             let mut first = op.children_mut().remove(0);
-            first.components = collapse_repetition_base(first.components);
+            first.components = collapse_repetition(first.components);
             op.children_mut().push(first);
         }
     }
