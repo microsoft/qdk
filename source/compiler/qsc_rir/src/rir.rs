@@ -146,7 +146,7 @@ impl Program {
         s.dbg_metadata_scopes.push(DbgMetadataScope::SubProgram {
             name: "entry".into(),
             span: MetadataPackageSpan {
-                package: 2, // TODO: wrong, obviously
+                package: 0, // TODO: wrong, obviously
                 span: Span::default(),
             },
         });
