@@ -17,7 +17,7 @@ import Std.Arithmetic.*;
 import Std.ResourceEstimation.*;
 
 operation Main() : Unit {
-    let bitsize = 6;
+    let bitsize = 2;
 
     // When chooseing parameters for `EstimateFrequency`, make sure that
     // generator and modules are not co-prime

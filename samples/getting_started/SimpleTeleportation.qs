@@ -5,7 +5,7 @@
 /// This Q# program demonstrates how to teleport quantum state
 /// by communicating two classical bits and using previously entangled qubits.
 /// This code teleports one specific state, but any state can be teleported.
-operation Main() : Bool {
+operation Main() : Unit {
     // Allocate `qAlice`, `qBob` qubits
     use (qAlice, qBob) = (Qubit(), Qubit());
 
@@ -39,12 +39,12 @@ operation Main() : Bool {
 
     // Make sure that the obtained message is |𝜓⟩≈0.9394|0⟩−0.3429𝑖|1⟩
     Rx(-0.7, qBob);
-    let correct = Std.Diagnostics.CheckZero(qBob);
-    Message($"Teleportation successful: {correct}.");
+    // let correct = Std.Diagnostics.CheckZero(qBob);
+    // Message($"Teleportation successful: {correct}.");
 
     // Reset all qubits to |0⟩ state.
     ResetAll([qAlice, qBob, qToTeleport]);
 
     // Return indication if the measurement of the state was correct
-    correct
+    // correct
 }

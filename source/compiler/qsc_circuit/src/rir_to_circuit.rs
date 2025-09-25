@@ -773,7 +773,16 @@ fn expand_branch(
         .collect::<Vec<_>>();
     let true_container = Op {
         kind: OperationKind::Group {
-            children: true_operations.clone(),
+            children: true_operations
+                .iter()
+                .map(|o| {
+                    let mut with_controls = o.clone();
+                    with_controls
+                        .control_results
+                        .extend(control_results.clone());
+                    with_controls
+                })
+                .collect(),
             scope_stack: None,
             metadata: None,
             instruction_stack: None,
@@ -795,7 +804,16 @@ fn expand_branch(
             (
                 Op {
                     kind: OperationKind::Group {
-                        children: false_operations.clone(),
+                        children: false_operations
+                            .iter()
+                            .map(|o| {
+                                let mut with_controls = o.clone();
+                                with_controls
+                                    .control_results
+                                    .extend(control_results.clone());
+                                with_controls
+                            })
+                            .collect(),
                         scope_stack: None,
                         metadata: None,
                         instruction_stack: None,
