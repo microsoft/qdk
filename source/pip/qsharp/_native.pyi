@@ -262,6 +262,23 @@ class Interpreter:
         """
         ...
 
+    def logical_counts(
+        self,
+        entry_expr: Optional[str],
+        callable: Optional[GlobalCallable],
+        args: Optional[Any],
+    ) -> Dict[str, int]:
+        """
+        Estimates logical operation counts for Q# source code.
+
+        :param entry_expr: The entry expression to estimate.
+        :param callable: The callable to estimate resources for, if no entry expression is provided.
+        :param args: The arguments to pass to the callable, if any.
+
+        :returns resources: The logical resources.
+        """
+        ...
+
     def set_quantum_seed(self, seed: Optional[int]) -> None:
         """
         Sets the seed for the quantum random number generator.

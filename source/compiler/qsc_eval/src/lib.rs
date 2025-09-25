@@ -30,6 +30,7 @@ use crate::val::{
     Value, index_array, make_range, slice_array, update_index_range, update_index_single,
 };
 use backend::Backend;
+use core::panic;
 use debug::{CallStack, Frame};
 pub use error::PackageSpan;
 use miette::Diagnostic;
@@ -45,7 +46,7 @@ use qsc_fir::ty::Ty;
 use qsc_lowerer::map_fir_package_to_hir;
 use rand::{SeedableRng, rngs::StdRng};
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::ops;
+use std::{array, ops};
 use std::{
     cell::RefCell,
     fmt::{self, Display, Formatter},
@@ -1512,6 +1513,15 @@ impl State {
                 Value::BigInt(v) => self.set_val_register(Value::BigInt(v.neg())),
                 Value::Double(v) => self.set_val_register(Value::Double(v.neg())),
                 Value::Int(v) => self.set_val_register(Value::Int(v.wrapping_neg())),
+                Value::Tuple(v, Some(id)) if *id.as_ref() == StoreItemId::complex() => {
+                    let [real, imag] = array::from_fn(|i| v[i].clone());
+                    let real = real.unwrap_double();
+                    let imag = imag.unwrap_double();
+                    self.set_val_register(Value::Tuple(
+                        vec![Value::Double(-real), Value::Double(-imag)].into(),
+                        Some(Rc::new(StoreItemId::complex())),
+                    ));
+                }
                 _ => panic!("value should be number"),
             },
             UnOp::NotB => match val {
@@ -1525,6 +1535,9 @@ impl State {
             },
             UnOp::Pos => match val {
                 Value::BigInt(_) | Value::Int(_) | Value::Double(_) => self.set_val_register(val),
+                Value::Tuple(_, Some(ref id)) if *id.as_ref() == StoreItemId::complex() => {
+                    self.set_val_register(val);
+                }
                 _ => panic!("value should be number"),
             },
             UnOp::Unwrap => self.set_val_register(val),
@@ -1918,8 +1931,20 @@ fn eval_binop_add(lhs_val: Value, rhs_val: Value) -> Value {
             Value::BigInt(val + rhs)
         }
         Value::Double(val) => {
-            let rhs = rhs_val.unwrap_double();
-            Value::Double(val + rhs)
+            match &rhs_val {
+                Value::Double(v) => Value::Double(val + v),
+                Value::Tuple(v, Some(id)) if *id.as_ref() == StoreItemId::complex() => {
+                    // Special case for adding a double and a complex literal.
+                    let [real, imag] = array::from_fn(|i| v[i].clone());
+                    let real = real.unwrap_double();
+                    let imag = imag.unwrap_double();
+                    Value::Tuple(
+                        vec![Value::Double(val + real), Value::Double(imag)].into(),
+                        Some(Rc::clone(id)),
+                    )
+                }
+                _ => panic!("value is not addable: {}", rhs_val.type_name()),
+            }
         }
         Value::Int(val) => {
             let rhs = rhs_val.unwrap_int();
@@ -1928,6 +1953,32 @@ fn eval_binop_add(lhs_val: Value, rhs_val: Value) -> Value {
         Value::String(val) => {
             let rhs = rhs_val.unwrap_string();
             Value::String((val.to_string() + &rhs).into())
+        }
+        Value::Tuple(v, Some(id)) if *id.as_ref() == StoreItemId::complex() => {
+            let [real, imag] = array::from_fn(|i| v[i].clone());
+            let real = real.unwrap_double();
+            let imag = imag.unwrap_double();
+            match &rhs_val {
+                // Special case for adding a complex literal and a double.
+                Value::Double(v) => Value::Tuple(
+                    vec![Value::Double(real + v), Value::Double(imag)].into(),
+                    Some(Rc::clone(&id)),
+                ),
+                Value::Tuple(v, Some(id)) if *id.as_ref() == StoreItemId::complex() => {
+                    let [rhs_real, rhs_imag] = array::from_fn(|i| v[i].clone());
+                    let rhs_real = rhs_real.unwrap_double();
+                    let rhs_imag = rhs_imag.unwrap_double();
+                    Value::Tuple(
+                        vec![
+                            Value::Double(real + rhs_real),
+                            Value::Double(imag + rhs_imag),
+                        ]
+                        .into(),
+                        Some(Rc::clone(id)),
+                    )
+                }
+                _ => panic!("value is not addable: {}", rhs_val.type_name()),
+            }
         }
         _ => panic!("value is not addable: {}", lhs_val.type_name()),
     }
@@ -1969,6 +2020,32 @@ fn eval_binop_div(lhs_val: Value, rhs_val: Value, rhs_span: PackageSpan) -> Resu
             let rhs = rhs_val.unwrap_double();
             Ok(Value::Double(val / rhs))
         }
+        Value::Tuple(v, Some(id)) if *id.as_ref() == StoreItemId::complex() => {
+            let [real, imag] = array::from_fn(|i| v[i].clone());
+            let real = real.unwrap_double();
+            let imag = imag.unwrap_double();
+            match rhs_val {
+                Value::Tuple(v, Some(id)) if *id.as_ref() == StoreItemId::complex() => {
+                    let [rhs_real, rhs_imag] = array::from_fn(|i| v[i].clone());
+                    let rhs_real = rhs_real.unwrap_double();
+                    let rhs_imag = rhs_imag.unwrap_double();
+                    let denom = rhs_real * rhs_real + rhs_imag * rhs_imag;
+                    if denom == 0.0 {
+                        Err(Error::DivZero(rhs_span))
+                    } else {
+                        Ok(Value::Tuple(
+                            vec![
+                                Value::Double((real * rhs_real + imag * rhs_imag) / denom),
+                                Value::Double((imag * rhs_real - real * rhs_imag) / denom),
+                            ]
+                            .into(),
+                            Some(Rc::clone(&id)),
+                        ))
+                    }
+                }
+                _ => panic!("value should support div"),
+            }
+        }
         _ => panic!("value should support div"),
     }
 }
@@ -2000,6 +2077,32 @@ fn eval_binop_exp(lhs_val: Value, rhs_val: Value, rhs_span: PackageSpan) -> Resu
                     Err(_) => Err(Error::IntTooLarge(rhs_val, rhs_span)),
                 }?;
                 Ok(Value::Int(result))
+            }
+        }
+        Value::Tuple(v, Some(id)) if *id.as_ref() == StoreItemId::complex() => {
+            let [real, imag] = array::from_fn(|i| v[i].clone());
+            let real = real.unwrap_double();
+            let imag = imag.unwrap_double();
+            match rhs_val {
+                Value::Tuple(v, Some(id)) if *id.as_ref() == StoreItemId::complex() => {
+                    let [rhs_real, rhs_imag] = array::from_fn(|i| v[i].clone());
+                    let rhs_real = rhs_real.unwrap_double();
+                    let rhs_imag = rhs_imag.unwrap_double();
+                    // (a + bi)^(c + di) = exp((c + di) * log(a + bi))
+                    let log_re = 0.5 * (real * real + imag * imag).ln();
+                    let log_im = imag.atan2(real);
+                    let exp_re = (rhs_real * log_re - rhs_imag * log_im).exp();
+                    let exp_im = rhs_real * log_im + rhs_imag * log_re;
+                    Ok(Value::Tuple(
+                        vec![
+                            Value::Double(exp_re * exp_im.cos()),
+                            Value::Double(exp_re * exp_im.sin()),
+                        ]
+                        .into(),
+                        Some(Rc::clone(&id)),
+                    ))
+                }
+                _ => panic!("value should support exp"),
             }
         }
         _ => panic!("value should support exp"),
@@ -2122,6 +2225,28 @@ fn eval_binop_mul(lhs_val: Value, rhs_val: Value) -> Value {
             let rhs = rhs_val.unwrap_double();
             Value::Double(val * rhs)
         }
+        Value::Tuple(v, Some(id)) if *id.as_ref() == StoreItemId::complex() => {
+            // Special case for multiplying complex literals.
+            let [real, imag] = array::from_fn(|i| v[i].clone());
+            let real = real.unwrap_double();
+            let imag = imag.unwrap_double();
+            match &rhs_val {
+                Value::Tuple(v, Some(id)) if *id.as_ref() == StoreItemId::complex() => {
+                    let [rhs_real, rhs_imag] = array::from_fn(|i| v[i].clone());
+                    let rhs_real = rhs_real.unwrap_double();
+                    let rhs_imag = rhs_imag.unwrap_double();
+                    Value::Tuple(
+                        vec![
+                            Value::Double(real * rhs_real - imag * rhs_imag),
+                            Value::Double(real * rhs_imag + imag * rhs_real),
+                        ]
+                        .into(),
+                        Some(Rc::clone(id)),
+                    )
+                }
+                _ => panic!("value is not multipliable: {}", rhs_val.type_name()),
+            }
+        }
         _ => panic!("value should support mul"),
     }
 }
@@ -2207,12 +2332,50 @@ fn eval_binop_sub(lhs_val: Value, rhs_val: Value) -> Value {
             Value::BigInt(val - rhs)
         }
         Value::Double(val) => {
-            let rhs = rhs_val.unwrap_double();
-            Value::Double(val - rhs)
+            match &rhs_val {
+                Value::Double(v) => Value::Double(val - v),
+                Value::Tuple(v, Some(id)) if *id.as_ref() == StoreItemId::complex() => {
+                    // Special case for subtracting a complex literal from a double.
+                    let [real, imag] = array::from_fn(|i| v[i].clone());
+                    let real = real.unwrap_double();
+                    let imag = imag.unwrap_double();
+                    Value::Tuple(
+                        vec![Value::Double(val - real), Value::Double(-imag)].into(),
+                        Some(Rc::clone(id)),
+                    )
+                }
+                _ => panic!("value is not subtractable: {}", rhs_val.type_name()),
+            }
         }
         Value::Int(val) => {
             let rhs = rhs_val.unwrap_int();
             Value::Int(val.wrapping_sub(rhs))
+        }
+        Value::Tuple(v, Some(id)) if *id.as_ref() == StoreItemId::complex() => {
+            let [real, imag] = array::from_fn(|i| v[i].clone());
+            let real = real.unwrap_double();
+            let imag = imag.unwrap_double();
+            match &rhs_val {
+                // Special case for subtracting a double from a complex literal.
+                Value::Double(v) => Value::Tuple(
+                    vec![Value::Double(real - v), Value::Double(imag)].into(),
+                    Some(Rc::clone(&id)),
+                ),
+                Value::Tuple(v, Some(id)) if *id.as_ref() == StoreItemId::complex() => {
+                    let [rhs_real, rhs_imag] = array::from_fn(|i| v[i].clone());
+                    let rhs_real = rhs_real.unwrap_double();
+                    let rhs_imag = rhs_imag.unwrap_double();
+                    Value::Tuple(
+                        vec![
+                            Value::Double(real - rhs_real),
+                            Value::Double(imag - rhs_imag),
+                        ]
+                        .into(),
+                        Some(Rc::clone(id)),
+                    )
+                }
+                _ => panic!("value is not subtractable: {}", rhs_val.type_name()),
+            }
         }
         _ => panic!("value is not subtractable"),
     }

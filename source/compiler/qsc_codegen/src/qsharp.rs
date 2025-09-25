@@ -693,6 +693,14 @@ impl<W: Write> Visitor<'_> for QSharpGen<W> {
                     };
                     self.write(&num_str);
                 }
+                Lit::Imaginary(value) => {
+                    let num_str = if value.fract() == 0.0 {
+                        format!("{value}.i")
+                    } else {
+                        format!("{value}i")
+                    };
+                    self.write(&num_str);
+                }
                 Lit::Int(value) => self.write(&value.to_string()),
                 Lit::Pauli(value) => match value {
                     Pauli::I => self.write("PauliI"),

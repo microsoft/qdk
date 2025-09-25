@@ -57,5 +57,19 @@ namespace Std.Core {
         output
     }
 
-    export Length, Repeated;
+    /// # Summary
+    /// Represents a complex number by its real and imaginary components.
+    /// The real component can be accessed via the `Real` field, and the imaginary
+    /// component via the `Imag` field. Complex literals can be written using the
+    /// form `a + bi`, where `a` is the Double literal for the real part and
+    /// `b` is the Double literal for the imaginary part.
+    ///
+    /// # Example
+    /// The following snippet defines the imaginary unit 𝑖 = 0 + 1𝑖:
+    /// ```qsharp
+    /// let imagUnit = 1.0i;
+    /// ```
+    struct Complex { Real : Double, Imag : Double }
+
+    export Length, Repeated, Complex;
 }

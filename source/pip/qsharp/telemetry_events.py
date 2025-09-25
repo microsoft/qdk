@@ -41,6 +41,10 @@ def on_import() -> None:
     log_telemetry("qsharp.import", 1)
 
 
+def on_qdk_import() -> None:
+    log_telemetry("qdk.import", 1)
+
+
 def on_run(shots: int, noise: bool, qubit_loss: bool) -> None:
     log_telemetry(
         "qsharp.run",

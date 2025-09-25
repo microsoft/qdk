@@ -51,6 +51,7 @@ impl Display for TokenKind {
             TokenKind::Ident => f.write_str("identifier"),
             TokenKind::Number(Number::BigInt(_)) => f.write_str("big integer"),
             TokenKind::Number(Number::Float) => f.write_str("float"),
+            TokenKind::Number(Number::Imaginary) => f.write_str("imaginary"),
             TokenKind::Number(Number::Int(_)) => f.write_str("integer"),
             TokenKind::Single(single) => write!(f, "`{single}`"),
             TokenKind::String(_) => f.write_str("string"),
@@ -146,6 +147,7 @@ impl Display for Single {
 pub enum Number {
     BigInt(Radix),
     Float,
+    Imaginary,
     Int(Radix),
 }
 
@@ -272,7 +274,11 @@ impl<'a> Lexer<'a> {
         if self.next_if_eq('L') {
             Some(Number::BigInt(radix))
         } else if radix == Radix::Decimal && self.float() {
-            Some(Number::Float)
+            if self.next_if_eq('i') {
+                Some(Number::Imaginary)
+            } else {
+                Some(Number::Float)
+            }
         } else {
             Some(Number::Int(radix))
         }
@@ -286,7 +292,11 @@ impl<'a> Lexer<'a> {
         self.eat_while(|c| c == '_' || c.is_ascii_digit());
 
         if self.float() {
-            Some(Number::Float)
+            if self.next_if_eq('i') {
+                Some(Number::Imaginary)
+            } else {
+                Some(Number::Float)
+            }
         } else if self.next_if_eq('L') {
             Some(Number::BigInt(Radix::Decimal))
         } else {

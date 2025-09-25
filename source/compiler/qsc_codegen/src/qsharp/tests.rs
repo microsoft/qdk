@@ -1049,3 +1049,17 @@ fn bases_and_readable_values() {
             }"#]],
     );
 }
+
+#[test]
+fn complex_literals() {
+    check(
+        "function Foo() : Complex { 3.0 + 4.0i }",
+        None,
+        &expect![[r#"
+            namespace test {
+                function Foo() : Complex {
+                    3. + 4.i
+                }
+            }"#]],
+    );
+}

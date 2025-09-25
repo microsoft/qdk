@@ -1,4 +1,4 @@
-name: qsharp-publish-$(BuildId)
+name: qdk-publish-$(BuildId)
 
 # Run on merges to main to ensure that the latest code
 # is always able to be published.
@@ -194,7 +194,7 @@ extends:
           displayName: Pack VSCode Extension
           workingDirectory: '$(System.DefaultWorkingDirectory)/source/vscode'
 
-      - job: "JupyterLab"
+      - job: "Platform_Agnostic_Python"
         pool:
           name: 'Azure-Pipelines-DevTools-EO'
           image: 'ubuntu-latest'
@@ -203,9 +203,9 @@ extends:
         templateContext:
           outputs:
           - output: pipelineArtifact
-            displayName: 'Upload JupyterLab Python Artifacts'
+            displayName: 'Upload Platform-Agnostic Python Artifacts'
             targetPath: $(System.DefaultWorkingDirectory)/target/wheels/
-            artifactName: Wheels.JupyterLab
+            artifactName: Wheels.PlatformAgnostic
             condition: succeeded()
         steps:
         # common init steps
@@ -228,9 +228,12 @@ extends:
             python ./prereqs.py --skip-wasm && python ./version.py
           displayName: Install Prereqs and set version
 
+        # The jupyterlab and widgets packages have no tests. The qdk package has minimal tests but
+        # they also depend on the qsharp package which is platform-dependent. So we skip tests here
+        # and rely on the GitHub CI to run the few `qdk` tests on every PR.
         - script: |
-            python ./build.py --jupyterlab --widgets --no-check --no-check-prereqs
-          displayName: Build JupyterLab Package
+            python ./build.py --jupyterlab --widgets --qdk --no-check --no-test --no-check-prereqs
+          displayName: Build Platform-Agnostic Packages
 
         - script: |
             ls target/wheels/*
@@ -324,15 +327,19 @@ extends:
               python ./version.py
             displayName: Set version
 
+          # On anything except Windows aarch64, we can build and run tests normally
           - script: |
               python build.py --pip --no-check-prereqs --integration-tests --manylinux
             displayName: Build Platform-Dependent Py Packages
+            condition: not(and(eq(variables['Agent.OS'], 'Windows_NT'), eq(variables['arch'], 'aarch64')))
 
+          # On Windows aarch64 we need to set the cargo build target to cross-compile properly
           - script: |
               echo ##vso[task.setvariable variable=CARGO_BUILD_TARGET]aarch64-pc-windows-msvc
             displayName: Set cargo build target for Windows aarch64
             condition: and(eq(variables['Agent.OS'], 'Windows_NT'), eq(variables['arch'], 'aarch64'))
 
+          # now build the Windows aarch64 packages but skip tests as we can't run them
           - script: |
               python build.py --pip --no-check-prereqs --no-check --no-test
             displayName: Cross Build Windows aarch64 Py Packages
@@ -441,8 +448,8 @@ extends:
             artifactName: Wheels.Linux.aarch64
             targetPath: $(System.DefaultWorkingDirectory)/artifacts/linux-aarch64
           - input: pipelineArtifact
-            artifactName: Wheels.JupyterLab
-            targetPath: $(System.DefaultWorkingDirectory)/artifacts/jupyterlab
+            artifactName: Wheels.PlatformAgnostic
+            targetPath: $(System.DefaultWorkingDirectory)/artifacts/platform-agnostic
         steps:
         - script: |
             mkdir -p $(System.DefaultWorkingDirectory)/target/wheels
