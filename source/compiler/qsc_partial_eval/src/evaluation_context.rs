@@ -19,8 +19,7 @@ pub struct EvaluationContext {
     active_blocks: Vec<BlockNode>,
     scopes: Vec<Scope>,
     pub current_user_source_block: Vec<qsc_fir::fir::BlockId>,
-    pub current_iteration: Option<usize>,
-
+    pub current_iteration: Option<usize>, // TODO: maybe use this later for loops
     pub dbg_callable_to_scope: FxHashMap<LocalItemId, usize>,
 }
 

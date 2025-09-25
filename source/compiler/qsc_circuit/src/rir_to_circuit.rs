@@ -4,11 +4,7 @@
 #[cfg(test)]
 mod tests;
 
-use std::{
-    fmt::{Display, Write},
-    mem::take,
-    thread::scope,
-};
+use std::fmt::{Display, Write};
 
 use crate::{
     Circuit, ComponentColumn, Config, Error, GenerationMethod, Ket, Measurement, Operation, Qubit,
@@ -16,7 +12,7 @@ use crate::{
 };
 use log::{debug, warn};
 use qsc_data_structures::{index_map::IndexMap, line_column::Encoding};
-use qsc_frontend::{compile::PackageStore, location::Location, resolve::Scope};
+use qsc_frontend::{compile::PackageStore, location::Location};
 use qsc_hir::hir::PackageId;
 use qsc_partial_eval::{
     Callable, CallableType, ConditionCode, FcmpConditionCode, Instruction, Literal, Operand,
@@ -1313,58 +1309,6 @@ fn strip_stack_prefix(
     }
     None
 }
-
-// fn add_to_existing_matching_group(
-//     stack_to_match: &[DbgLocationId],
-//     candidate_op: &mut Op,
-//     op_to_add: Op,
-// ) -> bool {
-//     if let OperationKind::Group { children, .. } = &mut candidate_op.kind {
-//         // consider only the last child
-//         if let Some(last_child) = children.last_mut() {
-//             if add_to_existing_matching_group(stack_to_match, last_child, op_to_add.clone()) {
-//                 return true;
-//             }
-//         }
-//     }
-
-//     add_to_existing_matching_group_base(stack_to_match, candidate_op, op_to_add)
-// }
-
-// fn add_to_existing_matching_group_base(
-//     stack_to_match: &[DbgLocationId],
-//     candidate_op: &mut Op,
-//     op_to_add: Op,
-// ) -> bool {
-//     if let OperationKind::Group {
-//         children: candidate_op_children,
-//         stack: Some(candidate_stack),
-//         metadata: _,
-//     } = &mut candidate_op.kind
-//     {
-//         // check if candidate_stack is a prefix of stack_to_match
-
-//         if stack_to_match.starts_with(candidate_stack) {
-//             eprintln!(
-//                 "add_to_existing_matching_group_base: found matching group with stack {:?}, adding op {:?}",
-//                 candidate_stack, op_to_add
-//             );
-//             // add to this group
-//             candidate_op
-//                 .target_qubits
-//                 .extend(op_to_add.target_qubits.clone());
-//             candidate_op.target_qubits.sort_unstable();
-//             candidate_op.target_qubits.dedup();
-//             candidate_op_children.push(op_to_add);
-//             return true;
-//         }
-//         eprintln!(
-//             "add_to_existing_matching_group_base: no match for stack {:?} in candidate op {:?}",
-//             stack_to_match, candidate_op
-//         );
-//     }
-//     false
-// }
 
 struct BlockUpdate {
     operations: Vec<Op>,
