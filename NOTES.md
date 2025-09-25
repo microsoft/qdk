@@ -22,3 +22,22 @@
 - [ ] multiple circuits for complex conditionals
 - [ ] link to source for conditions
 - [ ] show control lines when unitary arg is a variable conditional on results (test: multiple_possible_float_values_in_unitary_arg)
+
+
+## Demo files
+
+teleportation: classically controlled (conditional) gates
+
+simpleising: loops
+
+xqpe: function grouping, loops, arguments derived from measurements
+dotproduct: function grouping, loops, conditional gates
+
+bell state: function grouping
+deutsch jozsa: function grouping
+
+
+also touch on: 
+- expanding collapsing
+- source links
+- generated from QIR
