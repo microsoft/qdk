@@ -184,7 +184,8 @@ pub fn make_circuit(
     let mut done = false;
     while !done {
         for (id, block) in program.blocks.iter() {
-            let block_operations = process_block_vars(&mut program_map, callables, block)?;
+            let block_operations =
+                process_block_vars(&program.dbg_locations, &mut program_map, callables, block)?;
             program_map.blocks.insert(id, block_operations);
         }
 
@@ -231,7 +232,13 @@ pub fn make_circuit(
 
     let qubits = program_map.into_qubits();
 
-    fill_in_dbg_metadata(&mut operations, package_store, position_encoding)?;
+    fill_in_dbg_metadata(
+        &program.dbg_locations,
+        &program.dbg_metadata_scopes,
+        &mut operations,
+        package_store,
+        position_encoding,
+    )?;
     let operations = operations.into_iter().map(Into::into).collect();
 
     let (operations, qubits) = if config.collapse_qubit_registers && qubits.len() > 2 {
@@ -469,6 +476,7 @@ fn expand_branch_vars(
 }
 
 fn process_block_vars(
+    dbg_locations: &[DbgLocation],
     state: &mut ProgramMap,
     callables: &IndexMap<qsc_partial_eval::CallableId, Callable>,
     block: &BlockWithMetadata,
@@ -487,7 +495,14 @@ fn process_block_vars(
         let BlockUpdate {
             terminator: new_terminator,
             ..
-        } = get_operations_for_instruction(state, callables, &mut phis, &mut done, instruction)?;
+        } = get_operations_for_instruction(
+            dbg_locations,
+            state,
+            callables,
+            &mut phis,
+            &mut done,
+            instruction,
+        )?;
 
         if let Some(new_terminator) = new_terminator {
             let old = terminator.replace(new_terminator);
@@ -613,24 +628,38 @@ fn extend_with_successors(state: &ProgramMap, entry_block: &CircuitBlock) -> Vec
 }
 
 fn fill_in_dbg_metadata(
+    dbg_locations: &[DbgLocation],
+    dbg_metadata_scopes: &[DbgMetadataScope],
     operations: &mut [Op],
     package_store: &PackageStore,
     position_encoding: Encoding,
 ) -> Result<(), Error> {
     for op in operations {
         if let OperationKind::Group { children, .. } = &mut op.kind {
-            fill_in_dbg_metadata(children, package_store, position_encoding)?;
+            fill_in_dbg_metadata(
+                dbg_locations,
+                dbg_metadata_scopes,
+                children,
+                package_store,
+                position_encoding,
+            )?;
         }
 
         let location = match &op.kind {
             OperationKind::Unitary { metadata }
             | OperationKind::Measurement { metadata }
-            | OperationKind::Ket { metadata } => metadata.as_ref().map(|md| &md.location),
+            | OperationKind::Ket { metadata } => metadata
+                .as_ref()
+                .and_then(|metadata| {
+                    instruction_logical_stack(dbg_locations, dbg_metadata_scopes, metadata)
+                })
+                .and_then(|s| s.0.last().cloned())
+                .map(|l| dbg_locations[l].span.clone()),
             OperationKind::Group {
                 children: _,
                 stack: _,
                 metadata,
-            } => metadata.as_ref().map(|md| &md.location),
+            } => metadata.as_ref().map(|md| md.location.clone()),
         };
 
         if let Some(MetadataPackageSpan {
@@ -842,8 +871,14 @@ fn operations_in_block(
                 "instructions after return or jump in block".to_owned(),
             ));
         }
-        let block_update =
-            get_operations_for_instruction(state, callables, &mut phis, &mut done, instruction)?;
+        let block_update = get_operations_for_instruction(
+            dbg_locations,
+            state,
+            callables,
+            &mut phis,
+            &mut done,
+            instruction,
+        )?;
         operations.extend(block_update.operations);
 
         if let Some(new_terminator) = block_update.terminator {
@@ -1162,15 +1197,6 @@ fn add_scoped_op(
     instruction_stack: InstructionStack,
     target_qubits: Vec<usize>,
 ) {
-    eprintln!(
-        "add_scoped_op: processing current_scope={} instruction_stack={}",
-        current_scope
-            .as_ref()
-            .map(|s| fmt_scope_stack(dbg_locations, dbg_metadata_scopes, s))
-            .unwrap_or_default(),
-        fmt_stack(dbg_locations, dbg_metadata_scopes, &instruction_stack)
-    );
-
     let full_instruction_stack = concat_stacks(dbg_locations, &current_scope, &instruction_stack);
     let scope_stack = instruction_stack.scope_stack(dbg_locations);
 
@@ -1178,12 +1204,6 @@ fn add_scoped_op(
         && Some(&scope_stack) != current_scope.as_ref()
     {
         // there is a scope
-        eprintln!(
-            "found scope for instruction stack {}, scope={}",
-            fmt_stack(dbg_locations, dbg_metadata_scopes, &instruction_stack,),
-            fmt_scope_stack(dbg_locations, dbg_metadata_scopes, &scope_stack)
-        );
-
         if let Some(last_op) = current_scope_container.last_mut() {
             if let OperationKind::Group {
                 children: last_scope_children,
@@ -1191,23 +1211,12 @@ fn add_scoped_op(
                 metadata: last_scope_metadata,
             } = &mut last_op.kind
             {
-                eprintln!(
-                    "  considering last group with scope_stack {} ({:?}) for full_stack {} ({:?})",
-                    fmt_scope_stack(dbg_locations, dbg_metadata_scopes, last_scope_stack),
-                    last_scope_stack,
-                    fmt_stack(dbg_locations, dbg_metadata_scopes, &full_instruction_stack),
-                    full_instruction_stack
-                );
                 if let Some(rest) = strip_stack_prefix(
                     dbg_locations,
                     dbg_metadata_scopes,
                     &full_instruction_stack,
                     last_scope_stack,
                 ) {
-                    eprintln!(
-                        "  found existing matching group, rest = {}",
-                        fmt_stack(dbg_locations, dbg_metadata_scopes, &rest)
-                    );
                     last_op.target_qubits.extend(target_qubits.clone());
                     last_op.target_qubits.sort_unstable();
                     last_op.target_qubits.dedup();
@@ -1236,13 +1245,6 @@ fn add_scoped_op(
             .expect("we got here because we had a scope, so what the hell is this");
 
         if current_scope != Some(full_scope_stack.clone()) {
-            eprintln!(
-                "  creating new parent group with full_scope_stack = {}, scope_metadata={:?}, label={}",
-                fmt_scope_stack(dbg_locations, dbg_metadata_scopes, &full_scope_stack),
-                scope_metadata,
-                label
-            );
-
             let scope_group = Op {
                 kind: OperationKind::Group {
                     children: vec![op],
@@ -1270,31 +1272,8 @@ fn add_scoped_op(
             );
             return;
         }
-
-        eprintln!("  already in proper parent scope");
     }
     // no scope, top level, just push to current operations
-
-    eprintln!(
-        "  PUSHING FINAL OP with full stack ({}) op={}\n",
-        fmt_stack(dbg_locations, dbg_metadata_scopes, &full_instruction_stack,),
-        fmt_ops(dbg_locations, dbg_metadata_scopes, &[op.clone()])
-    );
-
-    // let group = Op {
-    //     kind: OperationKind::Group {
-    //         children: vec![op],
-    //         stack: Some(full_instruction_stack),
-    //         metadata: Some(scope_metadata),
-    //     },
-    //     label,
-    //     target_qubits,
-    //     control_qubits: vec![],
-    //     target_results: vec![], // results.into_iter().collect(), TODO: include results too somehow
-    //     control_results: vec![],
-    //     is_adjoint: false,
-    //     args: vec![],
-    // };
     current_scope_container.push(op);
 }
 
@@ -1399,6 +1378,7 @@ enum Terminator {
 }
 
 fn get_operations_for_instruction(
+    dbg_locations: &[DbgLocation],
     state: &mut ProgramMap,
     callables: &IndexMap<qsc_partial_eval::CallableId, Callable>,
     phis: &mut Vec<(Variable, Vec<(Expr, BlockId)>)>,
@@ -1442,6 +1422,7 @@ fn get_operations_for_instruction(
         Instruction::Branch(variable, block_id_1, block_id_2) => {
             *done = true;
             extend_block_with_branch_instruction(
+                dbg_locations,
                 &mut terminator,
                 instruction,
                 *variable,
@@ -1550,6 +1531,7 @@ fn extend_block_with_jump_instruction(
 }
 
 fn extend_block_with_branch_instruction(
+    dbg_locations: &[DbgLocation],
     terminator: &mut Option<Terminator>,
     instruction: &InstructionWithMetadata,
     variable: Variable,
@@ -1561,7 +1543,10 @@ fn extend_block_with_branch_instruction(
         true_block: block_id_1,
         false_block: block_id_2,
         metadata: instruction.metadata.as_ref().map(|md| GroupMetadata {
-            location: md.location.clone(),
+            location: md
+                .dbg_location
+                .map(|l| dbg_locations[l].span.clone())
+                .unwrap_or_default(),
         }),
     };
     let old = terminator.replace(Terminator::Conditional(branch));

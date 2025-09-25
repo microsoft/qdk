@@ -2017,11 +2017,6 @@ impl<'a> PartialEvaluator<'a> {
                         .current_distinct_dbg_location
                         .expect("expected current distinct dbg location"),
                 ),
-                location: into_metadata_package_span(instr_span),
-                scope_id: scope_id.map(|id| id.0),
-                scope_block_location: current_source_block_span.map(into_metadata_package_span),
-                scope_block_discriminator: current_iteration,
-                current_callable_name,
             }
         })
     }
@@ -2128,14 +2123,7 @@ impl<'a> PartialEvaluator<'a> {
 
         Some({
             let scope_id = current_source_block.copied();
-            InstructionMetadata {
-                dbg_location: None,
-                location: into_metadata_package_span(span),
-                scope_id: scope_id.map(|id| id.0),
-                scope_block_location: current_source_block_span.map(into_metadata_package_span),
-                scope_block_discriminator: current_iteration,
-                current_callable_name,
-            }
+            InstructionMetadata { dbg_location: None }
         })
     }
 

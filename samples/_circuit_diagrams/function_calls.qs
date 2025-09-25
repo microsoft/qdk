@@ -3,6 +3,7 @@ operation Main() : Unit {
 
     PrepareSomething(qs);
     DoSomethingElse(qs);
+    DoSomethingElse(qs);
     DoSomethingDifferent(qs);
 
     MResetEachZ(qs);

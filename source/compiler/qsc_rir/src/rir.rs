@@ -269,7 +269,7 @@ pub struct DbgLocation {
     pub inlined_at: Option<usize>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct MetadataPackageSpan {
     pub package: u32,
     pub span: Span,
@@ -285,32 +285,11 @@ impl Display for MetadataPackageSpan {
 pub struct InstructionMetadata {
     /// Index into the `dbg_locations` vector in the `Program`.
     pub dbg_location: Option<usize>,
-    pub location: MetadataPackageSpan,
-    pub scope_id: Option<u32>,
-    pub scope_block_location: Option<MetadataPackageSpan>,
-    pub scope_block_discriminator: Option<usize>,
-    pub current_callable_name: Option<Rc<str>>,
 }
 
 impl Display for InstructionMetadata {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "!dbg {}", self.location)?;
-        if let Some(source_block) = self.scope_id {
-            write!(f, " scope={source_block}")?;
-        }
-        if let Some(source_block_span) = &self.scope_block_location {
-            write!(
-                f,
-                " scope_package_id={} scope_span={}",
-                source_block_span.package, source_block_span.span
-            )?;
-        }
-        if let Some(current_iteration) = self.scope_block_discriminator {
-            write!(f, " discriminator={current_iteration}")?;
-        }
-        if let Some(current_callable_name) = &self.current_callable_name {
-            write!(f, " callable={current_callable_name}")?;
-        }
+        write!(f, "!dbg ")?;
 
         if let Some(dbg_location) = self.dbg_location {
             write!(f, " dbg_location={dbg_location}")?;

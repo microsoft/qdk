@@ -86,15 +86,6 @@ fn program(instructions: Vec<Instruction>) -> (Vec<DbgLocation>, Vec<DbgMetadata
                 i.qubits,
                 Some(InstructionMetadata {
                     dbg_location: Some(locations.len() - 1),
-                    // all the below should be unused
-                    location: MetadataPackageSpan {
-                        package: 0,
-                        span: Span::default(),
-                    },
-                    scope_id: None,
-                    scope_block_location: None,
-                    scope_block_discriminator: None,
-                    current_callable_name: None,
                 }),
             ));
         } else {
@@ -120,10 +111,13 @@ fn unitary(label: String, qubits: Vec<usize>, metadata: Option<InstructionMetada
 
 #[test]
 fn empty() {
-    check(vec![], expect![[r#"
+    check(
+        vec![],
+        expect![[r#"
         [
         ]
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
