@@ -2,6 +2,7 @@
 # Licensed under the MIT License.
 
 from enum import Enum
+from qsharp._simulation import clifford_simulation, NoiseConfig
 from .._qsharp import QirInputData
 
 
@@ -36,6 +37,7 @@ class Device:
     Represents a quantum device with specific layout expressed as zones.
     """
 
+    @staticmethod
     def ac1k():
         return Device(
             36,
@@ -124,7 +126,7 @@ class Device:
         """
         return [zone for zone in self.zones if zone.type == ZoneType.MEAS]
 
-    def compile(self, program: str) -> bytes:
+    def compile(self, program: str) -> QirInputData:
         """
         Compile the given program for the device.
 
@@ -172,7 +174,7 @@ class AC1000(Device):
 
     def compile(
         self,
-        qir: str | QirInputData,
+        program: str | QirInputData,
         skip_scheduling: bool = False,
         check_clifford: bool = False,
         verbose: bool = False,
@@ -180,12 +182,42 @@ class AC1000(Device):
         from ._transform import transform
 
         return transform(
-            qir,
+            program,
             self,
             skip_scheduling,
             check_clifford,
             verbose,
         )
+
+    def get_trace(self, qir: str | QirInputData, **kwargs) -> dict:
+        from ._trace import trace
+
+        return trace(
+            qir,
+            self,
+        )
+
+    def simulate(
+        self,
+        qir: str | QirInputData,
+        shots=1,
+        noise: NoiseConfig | None = None,
+        type="clifford",
+    ):
+        from qsharp.passes import transform_to_clifford
+
+        if noise is None:
+            noise = NoiseConfig()
+
+        if type == "clifford":
+            qir_clifford = transform_to_clifford(qir)
+            return clifford_simulation(
+                str(qir_clifford),
+                shots,
+                noise,
+            )
+
+        raise ValueError(f"Simulation type {type} is not supported")
 
 
 AC1K = Device.ac1k().as_dict()
