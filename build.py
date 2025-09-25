@@ -57,6 +57,13 @@ parser.add_argument(
 )
 
 parser.add_argument(
+    "--universal",
+    action=argparse.BooleanOptionalAction,
+    default=True,
+    help="Build both x86_64 and arm64 wheels on macOS (default is --universal)",
+)
+
+parser.add_argument(
     "--check-prereqs",
     action=argparse.BooleanOptionalAction,
     default=True,
@@ -415,7 +422,7 @@ if build_pip:
 
     # copy the process env vars
     pip_env: dict[str, str] = os.environ.copy()
-    if platform.system() == "Darwin":
+    if platform.system() == "Darwin" and args.universal:
         # if on mac, add the arch flags for universal binary
         pip_env["ARCHFLAGS"] = "-arch x86_64 -arch arm64"
 
