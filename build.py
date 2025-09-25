@@ -644,7 +644,7 @@ if build_jupyterlab:
     subprocess.run(pip_build_args, check=True, text=True, cwd=jupyterlab_src)
     step_end()
 
-if build_pip and build_widgets and args.integration_tests:
+if build_pip and build_widgets and build_qdk and args.integration_tests:
     step_start("Running notebook samples integration tests")
     # Find all notebooks in the samples directory. Skip the basic sample and the azure submission sample, since those won't run
     # nicely in automation.
@@ -690,6 +690,18 @@ if build_pip and build_widgets and args.integration_tests:
     ]
     subprocess.run(
         pip_install_args, check=True, text=True, cwd=widgets_src, env=pip_env
+    )
+
+    # Install the qdk package from the folder so dependencies are installed properly
+    pip_install_args = [
+        python_bin,
+        "-m",
+        "pip",
+        "install",
+        qdk_python_src,
+    ]
+    subprocess.run(
+        pip_install_args, check=True, text=True, cwd=qdk_python_src, env=pip_env
     )
 
     # Install other dependencies
