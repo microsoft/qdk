@@ -306,6 +306,9 @@ def run_qir(
     )
 
 
+clifford_simulation = run_qir  # alias
+
+
 def run_qir_gpu(
     input: Union[str, bytes],
     shots: Optional[int] = 1,
