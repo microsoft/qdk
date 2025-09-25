@@ -152,6 +152,25 @@
   fill: var(--qs-atoms-qubit);
 }
 
+.qs-atoms-qubit-trail-start {
+  stroke: gray;
+  stroke-width: 0.5px;
+  fill: var(--qs-atoms-qubitbox);
+  r: 2.5px;
+}
+
+.qs-atoms-qubit-trail {
+  stroke: gray;
+  stroke-width: 0.5px;
+  fill: none;
+  stroke-dasharray: 1, 1;
+}
+
+.qs-atoms-qubit-highlight {
+  stroke: orange;
+  stroke-width: 1px;
+}
+
 .qs-atoms-gate {
   fill: var(--qs-atoms-gate);
   stroke-width: 0;
