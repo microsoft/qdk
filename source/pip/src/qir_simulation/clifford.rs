@@ -81,8 +81,9 @@ fn run_clifford_shot(
                 QirInstructionId::S => sim.s(*qubit as usize),
                 QirInstructionId::SAdj => sim.s_adj(*qubit as usize),
                 QirInstructionId::SX => sim.sx(*qubit as usize),
+                QirInstructionId::Move => sim.mov(*qubit as usize),
                 _ => panic!(
-                    "only one qubit gates H, X, Y, Z, S, SAdj, and SX are supported in Clifford simulator"
+                    "only one qubit gates H, X, Y, Z, S, SAdj, SX, and Move are supported in Clifford simulator"
                 ),
             },
             QirInstruction::TwoQubitGate(id, control, target) => match id {
