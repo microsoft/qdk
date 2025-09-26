@@ -229,8 +229,8 @@ function ZoomableCircuit(props: {
 
     svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
     const zoom = Math.min(Math.ceil((containerWidth / width) * 100), 100);
-    // never auto-zoom lower than 50%
-    return Math.max(zoom, 50);
+    // never auto-zoom lower than 70%
+    return Math.max(zoom, 70);
     // return zoom;/
   }
 

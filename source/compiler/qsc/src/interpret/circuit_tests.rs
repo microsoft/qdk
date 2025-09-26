@@ -1573,7 +1573,6 @@ fn nested_ifs() {
 
 #[test]
 fn multiple_possible_float_values_in_unitary_arg() {
-    // TODO: this doesn't show classical control
     let circ = circuit(
         r"
             namespace Test {

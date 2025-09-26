@@ -1,0 +1,9 @@
+{
+  "Q#.circuits.config": {
+    "maxOperations": 10001,
+    "loopDetection": true,
+    "groupScopes": true,
+    "generationMethod": "static",
+    "collapseQubitRegisters": false
+  }
+}
