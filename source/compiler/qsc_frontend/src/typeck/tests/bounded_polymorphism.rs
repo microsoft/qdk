@@ -163,7 +163,7 @@ fn iter() {
             #11 67-74 "(a: 'T)" : Param<"'T": 0>
             #12 68-73 "a: 'T" : Param<"'T": 0>
             #19 82-180 "{\n                for item in a {\n                    return item;\n                }\n            }" : Bool
-            #21 100-166 "for item in a {\n                    return item;\n                }" : Bool
+            #21 100-166 "for item in a {\n                    return item;\n                }" : Unit
             #22 104-108 "item" : Bool
             #24 112-113 "a" : Param<"'T": 0>
             #27 114-166 "{\n                    return item;\n                }" : Unit

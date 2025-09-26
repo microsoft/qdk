@@ -29,7 +29,11 @@ from typing import (
     Set,
     Iterable,
 )
-from .estimator._estimator import EstimatorResult, EstimatorParams
+from .estimator._estimator import (
+    EstimatorResult,
+    EstimatorParams,
+    LogicalCounts,
+)
 import json
 import os
 import sys
@@ -889,6 +893,32 @@ def estimate(
     durationMs = (monotonic() - start) * 1000
     telemetry_events.on_estimate_end(durationMs, qubits)
     return EstimatorResult(res)
+
+
+def logical_counts(
+    entry_expr: Union[str, Callable],
+    *args,
+) -> LogicalCounts:
+    """
+    Extracts logical resource counts from Q# source code.
+    Either an entry expression or a callable with arguments must be provided.
+
+    :param entry_expr: The entry expression. Alternatively, a callable can be provided,
+        which must be a Q# global callable.
+
+    :returns `LogicalCounts`: Program resources in terms of logical gate counts.
+    """
+
+    ipython_helper()
+
+    if isinstance(entry_expr, Callable) and hasattr(entry_expr, "__global_callable"):
+        args = python_args_to_interpreter_args(args)
+        res_dict = get_interpreter().logical_counts(
+            callable=entry_expr.__global_callable, args=args
+        )
+    else:
+        res_dict = get_interpreter().logical_counts(entry_expr=entry_expr)
+    return LogicalCounts(res_dict)
 
 
 def set_quantum_seed(seed: Optional[int]) -> None:

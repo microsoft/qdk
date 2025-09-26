@@ -471,8 +471,8 @@ fn block_qubit_use_array_invalid_count_expr() {
                         0,
                     ),
                     span: Span {
-                        lo: 2050,
-                        hi: 2107,
+                        lo: 2664,
+                        hi: 2721,
                     },
                 },
             )
@@ -3643,6 +3643,84 @@ fn controlled_operation_with_unique_controls_duplicate_targets_allowed() {
         }",
         &expect!["()"],
     );
+}
+
+#[test]
+fn complex_literal_double_first_with_plus_expr() {
+    check_expr("", "3.0 + 4.0i", &expect!["(3.0, 4.0)"]);
+}
+
+#[test]
+fn complex_literal_double_second_with_plus_expr() {
+    check_expr("", "4.0i + 3.0", &expect!["(3.0, 4.0)"]);
+}
+
+#[test]
+fn complex_literal_double_first_with_minus_expr() {
+    check_expr("", "3.0 - 4.0i", &expect!["(3.0, -4.0)"]);
+}
+
+#[test]
+fn complex_literal_double_second_with_minus_expr() {
+    check_expr("", "4.0i - 3.0", &expect!["(-3.0, 4.0)"]);
+}
+
+#[test]
+fn complex_literal_double_first_with_negate_and_plus_expr() {
+    check_expr("", "-3.0 + 4.0i", &expect!["(-3.0, 4.0)"]);
+}
+
+#[test]
+fn complex_literal_double_first_with_negate_and_minus_expr() {
+    check_expr("", "-3.0 - 4.0i", &expect!["(-3.0, -4.0)"]);
+}
+
+#[test]
+fn complex_literal_double_second_with_negate_and_plus_expr() {
+    check_expr("", "-4.0i + 3.0", &expect!["(3.0, -4.0)"]);
+}
+
+#[test]
+fn complex_literals_support_equality() {
+    check_expr("", "(3.0 + 4.0i) == (3.0 + 4.0i)", &expect!["true"]);
+    check_expr("", "(3.0 + 4.0i) != (3.0 + 4.0i)", &expect!["false"]);
+    check_expr("", "(3.0 + 4.0i) == (3.0 - 4.0i)", &expect!["false"]);
+    check_expr("", "(3.0 + 4.0i) != (3.0 - 4.0i)", &expect!["true"]);
+}
+
+#[test]
+fn complex_literal_supports_addition() {
+    check_expr("", "(3.0 + 4.0i) + (1.0 + 2.0i)", &expect!["(4.0, 6.0)"]);
+}
+
+#[test]
+fn complex_literal_supports_subtraction() {
+    check_expr("", "(3.0 + 4.0i) - (1.0 + 2.0i)", &expect!["(2.0, 2.0)"]);
+}
+
+#[test]
+fn complex_literal_supports_multiplication() {
+    check_expr("", "(3.0 + 4.0i) * (1.0 + 2.0i)", &expect!["(-5.0, 10.0)"]);
+}
+
+#[test]
+fn complex_literal_supports_division() {
+    check_expr("", "(3.0 + 4.0i) / (1.0 + 2.0i)", &expect!["(2.2, -0.4)"]);
+}
+
+#[test]
+fn complex_literal_supports_negation() {
+    check_expr("", "-(3.0 + 4.0i)", &expect!["(-3.0, -4.0)"]);
+}
+
+#[test]
+fn complex_literal_supports_unary_positive() {
+    check_expr("", "+(3.0 + 4.0i)", &expect!["(3.0, 4.0)"]);
+}
+
+#[test]
+fn complex_literal_supports_exponentiation() {
+    check_expr("", "(3.0 + 0.0i) ^ (0.0 + 0.0i)", &expect!["(1.0, 0.0)"]);
 }
 
 #[test]

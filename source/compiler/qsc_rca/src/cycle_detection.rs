@@ -59,7 +59,6 @@ impl<'a> CycleDetector<'a> {
                     ident.id,
                     Local {
                         var: ident.id,
-                        ty: pat.ty.clone(),
                         kind,
                     },
                 );
