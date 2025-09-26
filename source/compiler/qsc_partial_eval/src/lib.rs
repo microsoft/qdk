@@ -30,16 +30,16 @@ use qsc_eval::{
 use qsc_fir::{
     fir::{
         self, BinOp, Block, BlockId, CallableDecl, CallableImpl, ExecGraph, Expr, ExprId, ExprKind,
-        Global, Ident, LocalVarId, Mutability, PackageId, PackageStore, PackageStoreLookup, Pat,
-        PatId, PatKind, Res, SpecDecl, SpecImpl, Stmt, StmtId, StmtKind, StoreBlockId, StoreExprId,
-        StoreItemId, StorePatId, StoreStmtId, UnOp,
+        Field, Global, Ident, LocalVarId, Mutability, PackageId, PackageStore, PackageStoreLookup,
+        Pat, PatId, PatKind, PrimField, Res, SpecDecl, SpecImpl, Stmt, StmtId, StmtKind,
+        StoreBlockId, StoreExprId, StoreItemId, StorePatId, StoreStmtId, UnOp,
     },
     ty::{Prim, Ty},
 };
 use qsc_lowerer::map_fir_package_to_hir;
 use qsc_rca::{
     ComputeKind, ComputePropertiesLookup, ItemComputeProperties, PackageStoreComputeProperties,
-    QuantumProperties, RuntimeFeatureFlags,
+    QuantumProperties, RuntimeFeatureFlags, RuntimeKind, ValueKind,
     errors::{
         Error as CapabilityError, generate_errors_from_runtime_features,
         get_missing_runtime_features,
@@ -1180,10 +1180,7 @@ impl<'a> PartialEvaluator<'a> {
                 "using a dynamic value in a fail statement is invalid".to_string(),
                 expr_package_span,
             )),
-            ExprKind::Field(_, _) => Err(Error::Unexpected(
-                "accessing a field of a dynamic user-defined type is invalid".to_string(),
-                expr_package_span,
-            )),
+            ExprKind::Field(expr_id, field) => self.eval_expr_field(*expr_id, field.clone()),
             ExprKind::Hole => Err(Error::Unexpected(
                 "hole expressions are not expected during partial evaluation".to_string(),
                 expr_package_span,
@@ -1978,6 +1975,47 @@ impl<'a> PartialEvaluator<'a> {
         Ok(EvalControlFlow::Continue(value))
     }
 
+    fn eval_expr_field(
+        &mut self,
+        record_id: ExprId,
+        field: Field,
+    ) -> Result<EvalControlFlow, Error> {
+        let control_flow = self.try_eval_expr(record_id)?;
+        let EvalControlFlow::Continue(record) = control_flow else {
+            return Err(Error::Unexpected(
+                "embedded return in field access expression".to_string(),
+                self.get_expr_package_span(record_id),
+            ));
+        };
+
+        let field_value = match (record, field) {
+            (Value::Range(inner), Field::Prim(PrimField::Start)) => Value::Int(
+                inner
+                    .start
+                    .expect("range access should be validated by compiler"),
+            ),
+            (Value::Range(inner), Field::Prim(PrimField::Step)) => Value::Int(inner.step),
+            (Value::Range(inner), Field::Prim(PrimField::End)) => Value::Int(
+                inner
+                    .end
+                    .expect("range access should be validated by compiler"),
+            ),
+            (mut record, Field::Path(path)) => {
+                for index in path.indices {
+                    let Value::Tuple(items, _) = record else {
+                        panic!("invalid tuple access");
+                    };
+                    record = items[index].clone();
+                }
+                record
+            }
+            (ref value, ref field) => {
+                panic!("invalid field access. value: {value:?}, field: {field:?}")
+            }
+        };
+        Ok(EvalControlFlow::Continue(field_value))
+    }
+
     fn eval_expr_return(&mut self, expr_id: ExprId) -> Result<EvalControlFlow, Error> {
         let control_flow = self.try_eval_expr(expr_id)?;
         Ok(EvalControlFlow::Return(control_flow.into_value()))
@@ -2155,16 +2193,18 @@ impl<'a> PartialEvaluator<'a> {
         condition_expr_id: ExprId,
         body_block_id: BlockId,
     ) -> Result<EvalControlFlow, Error> {
-        // Verify assumptions.
+        // Verify assumptions: the condition expression must either classical (such that it can be fully evaluated) or
+        // quantum but statically known at runtime (such that it can be partially evaluated to a known value).
         assert!(
-            self.is_classical_expr(condition_expr_id),
+            matches!(
+                self.get_expr_compute_kind(condition_expr_id),
+                ComputeKind::Classical
+                    | ComputeKind::Quantum(QuantumProperties {
+                        runtime_features: _,
+                        value_kind: ValueKind::Element(RuntimeKind::Static),
+                    })
+            ),
             "loop conditions must be purely classical"
-        );
-        let body_block = self.get_block(body_block_id);
-        assert_eq!(
-            body_block.ty,
-            Ty::UNIT,
-            "the type of a loop block is expected to be Unit"
         );
 
         // Evaluate the block until the loop condition is false.
