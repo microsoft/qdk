@@ -140,8 +140,11 @@ impl LoopUni<'_> {
         );
         let array_capture = array_id.gen_id_init(Mutability::Immutable, *iterable, self.assigner);
 
-        let Ty::Array(item_ty) = &array_id.ty else {
-            panic!("iterator should have array type");
+        let item_ty = match &array_id.ty {
+            Ty::Array(inner) => (**inner).clone(),
+            // If the type is not array, this is likely the special case where a short-circuiting expression is the iterable
+            // and the type is thus unknown. In that case, we can just use the type of the iteration variable pattern.
+            _ => iter.ty.clone(),
         };
         let ns = self
             .core
@@ -151,7 +154,7 @@ impl LoopUni<'_> {
             self.core,
             ns,
             "Length",
-            vec![GenericArg::Ty((**item_ty).clone())],
+            vec![GenericArg::Ty(item_ty)],
             array_id.span,
         );
         len_callee.id = self.assigner.next_node();
@@ -350,6 +353,12 @@ impl MutVisitor for LoopUni<'_> {
                     Ty::Array(_) => *expr = self.visit_for_array(iter, iterable, block, expr.span),
                     Ty::Prim(Prim::Range) => {
                         *expr = self.visit_for_range(iter, iterable, block, expr.span);
+                    }
+                    Ty::Tuple(ref inner) if inner.is_empty() => {
+                        // The type checking would only allow unit in here in the case where the iterable expression is
+                        // short-circuiting (an explicit `fail` or `return`), so treat this as if it were an array
+                        // of the type defined by the iteration variable.
+                        *expr = self.visit_for_array(iter, iterable, block, expr.span);
                     }
                     a => {
                         // This scenario should have been caught by type-checking earlier
