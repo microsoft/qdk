@@ -1,20 +1,24 @@
 %Result = type opaque
 %Qubit = type opaque
 
-define void @ENTRYPOINT__main() #0 {
+@empty_tag = internal constant [1 x i8] c"\00"
+@0 = internal constant [4 x i8] c"0_r\00"
+
+define i64 @ENTRYPOINT__main() #0 {
 block_0:
+  call void @__quantum__rt__initialize(i8* null)
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 1 to %Qubit*))
   call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
   call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
-  %var_5 = call i1 @__quantum__qis__read_result__body(%Result* inttoptr (i64 0 to %Result*))
+  %var_5 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
   br i1 %var_5, label %block_1, label %block_2
 block_1:
   br label %block_2
 block_2:
   %var_16 = phi i64 [0, %block_0], [1, %block_1]
   %var_7 = shl i64 %var_16, 1
-  %var_8 = call i1 @__quantum__qis__read_result__body(%Result* inttoptr (i64 1 to %Result*))
+  %var_8 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 1 to %Result*))
   br i1 %var_8, label %block_3, label %block_4
 block_3:
   %var_10 = add i64 %var_7, 1
@@ -48,15 +52,17 @@ block_12:
   br label %block_13
 block_13:
   call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Result* inttoptr (i64 2 to %Result*))
-  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 2 to %Result*), i8* null)
-  ret void
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 2 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  ret i64 0
 }
+
+declare void @__quantum__rt__initialize(i8*)
 
 declare void @__quantum__qis__x__body(%Qubit*)
 
 declare void @__quantum__qis__m__body(%Qubit*, %Result*) #1
 
-declare i1 @__quantum__qis__read_result__body(%Result*)
+declare i1 @__quantum__rt__read_result(%Result*)
 
 declare void @__quantum__qis__reset__body(%Qubit*) #1
 
@@ -81,4 +87,4 @@ attributes #1 = { "irreversible" }
 !1 = !{i32 7, !"qir_minor_version", i32 0}
 !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
 !3 = !{i32 1, !"dynamic_result_management", i1 false}
-!4 = !{i32 1, !"int_computations", !"i64"}
+!4 = !{i32 5, !"int_computations", !{!"i64"}}

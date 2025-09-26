@@ -289,7 +289,7 @@ def test_compile_qir_input_data() -> None:
 
 def test_compile_qir_str() -> None:
     qir = str(compile("qubit q; output bit c; c = measure q;"))
-    assert "define void @ENTRYPOINT__main()" in qir
+    assert "define i64 @ENTRYPOINT__main()" in qir
     assert '"required_num_qubits"="1" "required_num_results"="1"' in qir
 
 
@@ -321,7 +321,7 @@ def test_compile_qir_str_from_python_callable() -> None:
     import_openqasm("qubit q; output bit c; c = measure q;", name="Program")
     operation = compile(code.Program)
     qir = str(operation)
-    assert "define void @ENTRYPOINT__main()" in qir
+    assert "define i64 @ENTRYPOINT__main()" in qir
     assert '"required_num_qubits"="1" "required_num_results"="1"' in qir
 
 
@@ -340,13 +340,13 @@ def test_compile_qir_str_from_python_callable_with_single_arg() -> None:
 
     operation = compile(code.program, pi)
     qir = str(operation)
-    assert "define void @ENTRYPOINT__main()" in qir
+    assert "define i64 @ENTRYPOINT__main()" in qir
     assert (
         "call void @__quantum__qis__rx__body(double 3.141592653589793, %Qubit* inttoptr (i64 0 to %Qubit*))"
         in qir
     )
     assert (
-        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)"
+        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))"
         in qir
     )
     assert '"required_num_qubits"="1" "required_num_results"="1"' in qir
@@ -368,13 +368,13 @@ def test_compile_qir_str_from_python_callable_with_multiple_args() -> None:
     )
     operation = compile(code.Program, 2 * pi, 2.0)
     qir = str(operation)
-    assert "define void @ENTRYPOINT__main()" in qir
+    assert "define i64 @ENTRYPOINT__main()" in qir
     assert (
         "call void @__quantum__qis__rx__body(double 3.141592653589793, %Qubit* inttoptr (i64 0 to %Qubit*))"
         in qir
     )
     assert (
-        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)"
+        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))"
         in qir
     )
     assert '"required_num_qubits"="1" "required_num_results"="1"' in qir
@@ -399,13 +399,13 @@ def test_compile_qir_str_from_python_callable_with_multiple_args_passed_as_tuple
     args = (2 * pi, 2.0)
     operation = compile(code.Program, args)
     qir = str(operation)
-    assert "define void @ENTRYPOINT__main()" in qir
+    assert "define i64 @ENTRYPOINT__main()" in qir
     assert (
         "call void @__quantum__qis__rx__body(double 3.141592653589793, %Qubit* inttoptr (i64 0 to %Qubit*))"
         in qir
     )
     assert (
-        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)"
+        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))"
         in qir
     )
     assert '"required_num_qubits"="1" "required_num_results"="1"' in qir
@@ -424,7 +424,7 @@ def test_compile_qir_str_from_callable_with_mresetzchecked() -> None:
     )
     operation = compile(code.Program)
     qir = str(operation)
-    assert "define void @ENTRYPOINT__main()" in qir
+    assert "define i64 @ENTRYPOINT__main()" in qir
     assert (
         "call i1 @__quantum__rt__read_loss(%Result* inttoptr (i64 0 to %Result*))"
         in qir

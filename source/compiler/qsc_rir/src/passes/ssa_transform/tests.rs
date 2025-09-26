@@ -97,7 +97,7 @@ fn ssa_transform_removes_store_in_single_block_program() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -114,7 +114,9 @@ fn ssa_transform_removes_store_in_single_block_program() {
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 
     // After
@@ -127,7 +129,7 @@ fn ssa_transform_removes_store_in_single_block_program() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -143,7 +145,9 @@ fn ssa_transform_removes_store_in_single_block_program() {
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 }
 
@@ -245,7 +249,7 @@ fn ssa_transform_removes_multiple_stores_in_single_block_program() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -266,7 +270,9 @@ fn ssa_transform_removes_multiple_stores_in_single_block_program() {
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 
     // After
@@ -279,7 +285,7 @@ fn ssa_transform_removes_multiple_stores_in_single_block_program() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -297,7 +303,9 @@ fn ssa_transform_removes_multiple_stores_in_single_block_program() {
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 }
 
@@ -404,7 +412,7 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -429,7 +437,9 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks() {
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 
     // After
@@ -442,7 +452,7 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -466,7 +476,9 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks() {
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 }
 
@@ -548,7 +560,7 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks_without_i
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -571,7 +583,9 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks_without_i
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 
     // After
@@ -584,7 +598,7 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks_without_i
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -606,7 +620,9 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks_without_i
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 }
 
@@ -733,7 +749,7 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -760,7 +776,9 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage() {
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 
     // After
@@ -773,7 +791,7 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -798,7 +816,9 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage() {
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
-            num_results: 0"#]].assert_eq(&program.to_string());
+            num_results: 0
+            tags:
+    "#]].assert_eq(&program.to_string());
 }
 
 #[test]
@@ -901,7 +921,7 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage_in_one_branch() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -926,7 +946,9 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage_in_one_branch() {
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 
     // After
@@ -939,7 +961,7 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage_in_one_branch() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -963,7 +985,9 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage_in_one_branch() {
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
-            num_results: 0"#]].assert_eq(&program.to_string());
+            num_results: 0
+            tags:
+    "#]].assert_eq(&program.to_string());
 }
 
 #[test]
@@ -1138,7 +1162,7 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -1175,7 +1199,9 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 
     // After
@@ -1188,7 +1214,7 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -1222,7 +1248,9 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
-            num_results: 0"#]].assert_eq(&program.to_string());
+            num_results: 0
+            tags:
+    "#]].assert_eq(&program.to_string());
 }
 
 #[test]
@@ -1368,7 +1396,7 @@ fn ssa_transform_inserts_phi_for_multiple_stored_values() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -1397,7 +1425,9 @@ fn ssa_transform_inserts_phi_for_multiple_stored_values() {
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 
     // After
@@ -1410,7 +1440,7 @@ fn ssa_transform_inserts_phi_for_multiple_stored_values() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -1437,7 +1467,9 @@ fn ssa_transform_inserts_phi_for_multiple_stored_values() {
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
-            num_results: 0"#]].assert_eq(&program.to_string());
+            num_results: 0
+            tags:
+    "#]].assert_eq(&program.to_string());
 }
 
 #[test]
@@ -1674,7 +1706,7 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -1717,7 +1749,9 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 
     // After
@@ -1730,7 +1764,7 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -1766,7 +1800,9 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
-            num_results: 0"#]].assert_eq(&program.to_string());
+            num_results: 0
+            tags:
+    "#]].assert_eq(&program.to_string());
 }
 
 #[test]
@@ -1967,7 +2003,7 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -2005,7 +2041,9 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 
     // After
@@ -2018,7 +2056,7 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -2053,7 +2091,9 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
-            num_results: 0"#]].assert_eq(&program.to_string());
+            num_results: 0
+            tags:
+    "#]].assert_eq(&program.to_string());
 }
 
 #[test]
@@ -2156,7 +2196,7 @@ fn ssa_transform_propagates_updates_from_multiple_predecessors_to_later_single_s
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -2182,7 +2222,9 @@ fn ssa_transform_propagates_updates_from_multiple_predecessors_to_later_single_s
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 
     // After
@@ -2195,7 +2237,7 @@ fn ssa_transform_propagates_updates_from_multiple_predecessors_to_later_single_s
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -2219,7 +2261,9 @@ fn ssa_transform_propagates_updates_from_multiple_predecessors_to_later_single_s
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
-            num_results: 0"#]].assert_eq(&program.to_string());
+            num_results: 0
+            tags:
+    "#]].assert_eq(&program.to_string());
 }
 
 #[test]
@@ -2290,7 +2334,7 @@ fn ssa_transform_maps_store_instrs_that_use_values_from_other_store_instrs() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -2308,7 +2352,9 @@ fn ssa_transform_maps_store_instrs_that_use_values_from_other_store_instrs() {
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 
     // After
@@ -2321,7 +2367,7 @@ fn ssa_transform_maps_store_instrs_that_use_values_from_other_store_instrs() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -2337,7 +2383,9 @@ fn ssa_transform_maps_store_instrs_that_use_values_from_other_store_instrs() {
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
-            num_results: 0"#]].assert_eq(&program.to_string());
+            num_results: 0
+            tags:
+    "#]].assert_eq(&program.to_string());
 }
 
 #[test]
@@ -2434,7 +2482,7 @@ fn ssa_transform_maps_store_with_variable_from_store_in_conditional_to_phi_node(
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -2457,7 +2505,9 @@ fn ssa_transform_maps_store_with_variable_from_store_in_conditional_to_phi_node(
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 
     // After
@@ -2470,7 +2520,7 @@ fn ssa_transform_maps_store_with_variable_from_store_in_conditional_to_phi_node(
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -2491,7 +2541,9 @@ fn ssa_transform_maps_store_with_variable_from_store_in_conditional_to_phi_node(
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
-            num_results: 0"#]].assert_eq(&program.to_string());
+            num_results: 0
+            tags:
+    "#]].assert_eq(&program.to_string());
 }
 
 #[test]
@@ -2592,7 +2644,7 @@ fn ssa_transform_allows_point_in_time_copy_of_dynamic_variable() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -2613,7 +2665,9 @@ fn ssa_transform_allows_point_in_time_copy_of_dynamic_variable() {
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 
     // After
@@ -2626,7 +2680,7 @@ fn ssa_transform_allows_point_in_time_copy_of_dynamic_variable() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -2644,7 +2698,9 @@ fn ssa_transform_allows_point_in_time_copy_of_dynamic_variable() {
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
-            num_results: 0"#]].assert_eq(&program.to_string());
+            num_results: 0
+            tags:
+    "#]].assert_eq(&program.to_string());
 }
 
 #[test]
@@ -2776,7 +2832,7 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -2813,7 +2869,9 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 
     // After
@@ -2826,7 +2884,7 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
                     name: dynamic_bool
@@ -2861,6 +2919,8 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 }
