@@ -36,6 +36,7 @@ pub enum QirInstructionId {
     M,
     MResetZ,
     MZ,
+    Move,
     ReadResult,
     ResultRecordOutput,
     BoolRecordOutput,

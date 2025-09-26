@@ -731,6 +731,7 @@ class QirInstructionId(Enum):
     M: QirInstructionId
     MResetZ: QirInstructionId
     MZ: QirInstructionId
+    Move: QirInstructionId
     ReadResult: QirInstructionId
     ResultRecordOutput: QirInstructionId
     BoolRecordOutput: QirInstructionId
