@@ -29,12 +29,12 @@ workspace = true
 allocator = { path = "../allocator" }
 
 [target.'cfg(not(any(target_os = "windows")))'.dependencies]
-pyo3 = { workspace = true, features = ["abi3-py39", "extension-module", "num-bigint", "num-complex"] }
+pyo3 = { workspace = true, features = ["abi3-py310", "extension-module", "num-bigint", "num-complex"] }
 
 [target.'cfg(any(target_os = "windows"))'.dependencies]
 # generate-import-lib: skip requiring Python 3 distribution
 # files to be present on the (cross-)compile host system.
-pyo3 = { workspace = true, features = ["abi3-py39", "extension-module", "generate-import-lib", "num-bigint", "num-complex"] }
+pyo3 = { workspace = true, features = ["abi3-py310", "extension-module", "generate-import-lib", "num-bigint", "num-complex"] }
 
 [lib]
 crate-type = ["cdylib"]
