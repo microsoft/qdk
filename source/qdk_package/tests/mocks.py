@@ -81,6 +81,14 @@ def mock_qsharp() -> List[str]:
         stub.openqasm = oq
 
         sys.modules["qsharp"] = stub
+        # Telemetry events package with on_qdk_import function expected by qdk import
+        telemetry_pkg = types.ModuleType("qsharp.telemetry_events")
+
+        def on_qdk_import():
+            return None
+
+        telemetry_pkg.on_qdk_import = on_qdk_import
+        sys.modules["qsharp.telemetry_events"] = telemetry_pkg
         # Interop namespace for qiskit shim expectations
         interop = types.ModuleType("qsharp.interop")
         sys.modules["qsharp.interop"] = interop
@@ -93,6 +101,7 @@ def mock_qsharp() -> List[str]:
                 "qsharp",
                 "qsharp.estimator",
                 "qsharp.openqasm",
+                "qsharp.telemetry_events",
                 "qsharp.interop",
                 "qsharp.interop.qiskit",
             ]
