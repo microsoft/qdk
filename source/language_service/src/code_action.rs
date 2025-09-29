@@ -241,8 +241,15 @@ fn build_binding_expr(name: &str, ty: &Ty, decls: &mut Vec<String>) -> String {
         }
         Ty::Tuple(items) => {
             // Single binding to a tuple type: synthesize tuple literal with defaults, allocating qubits as needed.
-            let mut q_counter = 0u32;
-            let tuple_expr = build_tuple_literal(name, items, decls, &mut q_counter);
+            let mut qubit_counter = 0u32;
+            let mut qubit_reg_counter = 0u32;
+            let tuple_expr = build_tuple_literal(
+                name,
+                items,
+                decls,
+                &mut qubit_counter,
+                &mut qubit_reg_counter,
+            );
             decls.push(format!("let {name} = {tuple_expr};"));
             name.to_string()
         }
@@ -264,7 +271,8 @@ fn build_tuple_literal(
     base: &str,
     items: &[Ty],
     decls: &mut Vec<String>,
-    q_counter: &mut u32,
+    qubit_counter: &mut u32,
+    qubit_reg_counter: &mut u32,
 ) -> String {
     if items.is_empty() {
         return "()".to_string();
@@ -273,20 +281,21 @@ fn build_tuple_literal(
     for ty in items {
         match ty {
             Ty::Prim(Prim::Qubit) => {
-                let v = format!("{base}_q{q_counter}");
-                *q_counter += 1;
+                let v = format!("{base}_q{qubit_counter}");
+                *qubit_counter += 1;
                 decls.push(format!("use {v} = Qubit();"));
                 parts.push(v);
             }
             Ty::Array(inner) if matches!(**inner, Ty::Prim(Prim::Qubit)) => {
-                let v = format!("{base}_qs{q_counter}");
-                *q_counter += 1;
+                let v = format!("{base}_qs{qubit_reg_counter}");
+                *qubit_reg_counter += 1;
                 decls.push(format!("use {v} = Qubit[1];"));
                 parts.push(v);
             }
             Ty::Tuple(sub) => {
                 // Recurse: nested tuple inside bound tuple; build literal inline.
-                let nested = build_tuple_literal(base, sub, decls, q_counter);
+                let nested =
+                    build_tuple_literal(base, sub, decls, qubit_counter, qubit_reg_counter);
                 parts.push(nested);
             }
             _ => {

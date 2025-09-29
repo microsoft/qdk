@@ -184,9 +184,29 @@ async fn code_action_wrapper_qubit_tuple_counter_persistence() {
     let source = "namespace Test { operation Deep(t : (Qubit, (Qubit, Qubit), Qubit, (Qubit, Qubit), (Qubit, (Qubit, Qubit)))) : Unit { } }";
     let wrapper = get_wrapper_text(source, "Deep").await;
     // Verify sequential allocation names appear without resets.
-    for name in ["t_q0", "t_q1", "t_q2", "t_q3", "t_q4", "t_q5", "t_q6", "t_q7"] {
-        assert!(wrapper.contains(&format!("use {name} = Qubit();")), "Missing expected allocation {name}. Wrapper:\n{wrapper}");
+    for name in [
+        "t_q0", "t_q1", "t_q2", "t_q3", "t_q4", "t_q5", "t_q6", "t_q7",
+    ] {
+        assert!(
+            wrapper.contains(&format!("use {name} = Qubit();")),
+            "Missing expected allocation {name}. Wrapper:\n{wrapper}"
+        );
     }
+}
+
+#[tokio::test]
+async fn code_action_wrapper_qubit_and_array_counters() {
+    // Mix single qubits and qubit arrays to ensure independent counters.
+    let source = "namespace Test { operation Mix(t : (Qubit, Qubit[], (Qubit, Qubit[], Qubit[]), Qubit, Qubit[])) : Unit { } }";
+    let wrapper = get_wrapper_text(source, "Mix").await;
+    // Expect sequential q variables: t_q0, t_q1 ... (only for single qubits: first, inside tuple, then another)
+    assert!(wrapper.contains("use t_q0 = Qubit();"));
+    assert!(wrapper.contains("use t_q1 = Qubit();"));
+    assert!(wrapper.contains("use t_q2 = Qubit();"));
+    // Expect sequential qs variables independent: t_qs0, t_qs1, t_qs2 (outer, inner tuple, inner tuple second array, final)
+    assert!(wrapper.contains("use t_qs0 = Qubit[1];"));
+    assert!(wrapper.contains("use t_qs1 = Qubit[1];"));
+    assert!(wrapper.contains("use t_qs2 = Qubit[1];"));
 }
 
 #[tokio::test]
