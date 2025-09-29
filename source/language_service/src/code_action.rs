@@ -109,6 +109,15 @@ fn operation_refactors(
                 continue; // only operations with non-empty params
             }
 
+            // Determine indentation using source-local offset (package offset minus source base).
+            let local_lo = item.span.lo - source.offset;
+            let indent = line_indentation(&source.contents, local_lo);
+            let body_indent = if indent.contains('\t') {
+                format!("{indent}\t")
+            } else {
+                format!("{indent}    ")
+            };
+
             let original_name = decl.name.name.as_ref();
             let wrapper_name = generate_unique_wrapper_name(package, original_name);
 
@@ -124,27 +133,28 @@ fn operation_refactors(
             let return_is_unit = decl.output == Ty::UNIT;
 
             let call_line = if return_is_unit {
-                format!("    {original_name}({call_args_joined});")
+                format!("{body_indent}{original_name}({call_args_joined});")
             } else {
-                format!("    return {original_name}({call_args_joined});")
+                format!("{body_indent}return {original_name}({call_args_joined});")
             };
 
             let mut body_lines = Vec::new();
             if !decl_lines.is_empty() {
-                body_lines.push("    // TODO: Fill out the values for the parameters".to_string());
-                body_lines.extend(decl_lines);
+                body_lines.push(format!(
+                    "{body_indent}// TODO: Fill out the values for the parameters"
+                ));
+                body_lines.extend(decl_lines.iter().map(|decl| format!("{body_indent}{decl}")));
                 body_lines.push(String::new()); // blank line
             }
-            body_lines.push("    // Call original operation".to_string());
+            body_lines.push(format!("{body_indent}// Call original operation"));
             body_lines.push(call_line);
 
-            // Determine indentation using source-local offset (package offset minus source base).
-            let local_lo = item.span.lo - source.offset;
-            let indent = line_indentation(&source.contents, local_lo);
-
+            // We intentionally do NOT prefix the first line with `indent` because the insertion point
+            // inherits the existing line's leading whitespace. We DO append `{indent}` after the blank line
+            // so that the original operation keeps its indentation after the inserted block.
             let wrapper_text = format!(
-                "{indent}operation {wrapper_name}() : {return_ty} {{\n{}\n{indent}}}\n\n",
-                adjust_body_indentation(&body_lines, &indent).join("\n")
+                "operation {wrapper_name}() : {return_ty} {{\n{}\n{indent}}}\n\n{indent}",
+                &body_lines.join("\n")
             );
 
             // Insert immediately above the original operation: use zero-length span at item.span.lo
@@ -174,30 +184,6 @@ fn operation_refactors(
     code_actions
 }
 
-// Re-indent body lines that were built assuming an internal 8-space leading indent.
-// We convert leading exactly-8-spaces to (base indent + 4 spaces) so body is relative to wrapper indentation.
-fn adjust_body_indentation(lines: &[String], base: &str) -> Vec<String> {
-    let body_indent = format!("{base}    ");
-    lines
-        .iter()
-        .map(|l| {
-            if l.is_empty() {
-                l.clone()
-            } else if l.starts_with("        ") {
-                // 4 spaces
-                format!("{body_indent}{}", &l[4..])
-            } else {
-                // Fallback: if a line didn't have the expected indent, still prefix with body indent unless it already starts with base
-                if l.starts_with(base) {
-                    l.clone()
-                } else {
-                    format!("{body_indent}{l}")
-                }
-            }
-        })
-        .collect()
-}
-
 // Generate a wrapper name that does not clash with existing items in the same package (simple heuristic).
 fn generate_unique_wrapper_name(package: &qsc::hir::Package, base: &str) -> String {
     let mut candidate = format!("{base}_Wrapper");
@@ -220,31 +206,23 @@ fn build_param_decls_and_call_args(pat: &qsc::hir::Pat) -> (Vec<String>, Vec<Str
         PatKind::Tuple(items) => {
             let mut args = Vec::new();
             for item in items {
-                args.push(build_pattern_expr(item, &mut decls, None));
+                args.push(build_pattern_expr(item, &mut decls));
             }
             args
         }
-        _ => vec![build_pattern_expr(pat, &mut decls, None)],
+        _ => vec![build_pattern_expr(pat, &mut decls)],
     };
     (decls, call_args)
 }
 
 // Recursively build an expression for a pattern, pushing any needed declarations (let/use) into decls.
 // parent_name is used when synthesizing component variable names for unnamed tuple components within a single bound identifier.
-fn build_pattern_expr(
-    pat: &qsc::hir::Pat,
-    decls: &mut Vec<String>,
-    parent_name: Option<&str>,
-) -> String {
+fn build_pattern_expr(pat: &qsc::hir::Pat, decls: &mut Vec<String>) -> String {
     match &pat.kind {
-        PatKind::Discard => "_".to_string(),
-        PatKind::Err => "_".to_string(),
+        PatKind::Err | PatKind::Discard => "_".to_string(),
         PatKind::Tuple(items) => {
             // Nested tuple pattern: build each component expression.
-            let parts: Vec<String> = items
-                .iter()
-                .map(|p| build_pattern_expr(p, decls, parent_name))
-                .collect();
+            let parts: Vec<String> = items.iter().map(|p| build_pattern_expr(p, decls)).collect();
             format!("({})", parts.join(", "))
         }
         PatKind::Bind(ident) => build_binding_expr(ident.name.as_ref(), &pat.ty, decls),
@@ -254,28 +232,27 @@ fn build_pattern_expr(
 fn build_binding_expr(name: &str, ty: &Ty, decls: &mut Vec<String>) -> String {
     match ty {
         Ty::Prim(Prim::Qubit) => {
-            decls.push(format!("        use {name} = Qubit();"));
+            decls.push(format!("use {name} = Qubit();"));
             name.to_string()
         }
         Ty::Array(inner) if matches!(**inner, Ty::Prim(Prim::Qubit)) => {
-            decls.push(format!("        use {name} = Qubit[1];"));
+            decls.push(format!("use {name} = Qubit[1];"));
             name.to_string()
         }
         Ty::Tuple(items) => {
             // Single binding to a tuple type: synthesize tuple literal with defaults, allocating qubits as needed.
-            let tuple_expr = build_tuple_literal(name, items, decls);
-            decls.push(format!("        let {name} = {tuple_expr};"));
+            let mut q_counter = 0u32;
+            let tuple_expr = build_tuple_literal(name, items, decls, &mut q_counter);
+            decls.push(format!("let {name} = {tuple_expr};"));
             name.to_string()
         }
         _ => {
             let (default_expr, comment) = default_value_for_type(ty);
             if let Some(expr) = default_expr {
-                decls.push(format!("        let {name} = {expr};"));
+                decls.push(format!("let {name} = {expr};"));
                 name.to_string()
             } else {
-                decls.push(format!(
-                    "        // TODO: provide value for {name} ({comment})"
-                ));
+                decls.push(format!("// TODO: provide value for {name} ({comment})"));
                 "_".to_string()
             }
         }
@@ -283,29 +260,33 @@ fn build_binding_expr(name: &str, ty: &Ty, decls: &mut Vec<String>) -> String {
 }
 
 // Build a tuple literal expression for a list of types, adding declarations for qubits / complex components.
-fn build_tuple_literal(base: &str, items: &[Ty], decls: &mut Vec<String>) -> String {
+fn build_tuple_literal(
+    base: &str,
+    items: &[Ty],
+    decls: &mut Vec<String>,
+    q_counter: &mut u32,
+) -> String {
     if items.is_empty() {
         return "()".to_string();
     }
     let mut parts = Vec::new();
-    let mut q_counter = 0u32;
     for ty in items {
         match ty {
             Ty::Prim(Prim::Qubit) => {
                 let v = format!("{base}_q{q_counter}");
-                q_counter += 1;
-                decls.push(format!("        use {v} = Qubit();"));
+                *q_counter += 1;
+                decls.push(format!("use {v} = Qubit();"));
                 parts.push(v);
             }
             Ty::Array(inner) if matches!(**inner, Ty::Prim(Prim::Qubit)) => {
                 let v = format!("{base}_qs{q_counter}");
-                q_counter += 1;
-                decls.push(format!("        use {v} = Qubit[1];"));
+                *q_counter += 1;
+                decls.push(format!("use {v} = Qubit[1];"));
                 parts.push(v);
             }
             Ty::Tuple(sub) => {
                 // Recurse: nested tuple inside bound tuple; build literal inline.
-                let nested = build_tuple_literal(base, sub, decls);
+                let nested = build_tuple_literal(base, sub, decls, q_counter);
                 parts.push(nested);
             }
             _ => {
@@ -315,7 +296,7 @@ fn build_tuple_literal(base: &str, items: &[Ty], decls: &mut Vec<String>) -> Str
                 } else {
                     // Can't synthesize; emit comment and use underscore placeholder.
                     decls.push(format!(
-                        "        // TODO: provide value for tuple component of {base} ({comment})"
+                        "// TODO: provide value for tuple component of {base} ({comment})"
                     ));
                     parts.push("_".to_string());
                 }
@@ -340,7 +321,7 @@ fn default_value_for_type(ty: &Ty) -> (Option<String>, String) {
             Prim::Pauli => (Some("PauliI".to_string()), "Pauli".to_string()),
             Prim::BigInt => (Some("0L".to_string()), "BigInt".to_string()),
             Prim::String => (Some("\"\"".to_string()), "String".to_string()),
-            Prim::Qubit => (None, "Qubit (allocate with 'use')".to_string()),
+            Prim::Qubit => (None, "Qubit - allocate with 'use'".to_string()),
             Prim::Range | Prim::RangeTo | Prim::RangeFrom | Prim::RangeFull => {
                 (Some("0..1".to_string()), "Range".to_string())
             }
