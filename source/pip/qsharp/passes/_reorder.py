@@ -31,11 +31,11 @@ def instr_key(instr: Instruction):
     if gate != {}:
         qubits = sorted(gate["qubit_args"])
         if len(qubits) == 2:
-            return (gate["gate"], qubits[0], qubits[1])
+            return (2, qubits[0], qubits[1])
         if len(gate["result_args"]) > 0:
-            return (gate["gate"], gate["result_args"][0])
-        return (gate["gate"], qubits[0])
-    return ("",)
+            return (3, gate["qubit_args"][0])
+        return (1, qubits[0])
+    return (0,)
 
 
 class Reorder(QirModuleVisitor):
@@ -52,6 +52,7 @@ class Reorder(QirModuleVisitor):
         # A list of all values used in the current step. This is used to determine if an instruction
         # can be added to the current step or if it needs to go into a new step by checking dependencies.
         values_used_in_step = []
+        results_used_in_step = []
 
         # Output recording instructions and terminator must be treated separately, as those
         # must be at the end of the block.
@@ -67,47 +68,64 @@ class Reorder(QirModuleVisitor):
                 # Gather output recording instructions to be placed at the end of the block just before
                 # the terminator.
                 output_recording.append(instr)
-            elif is_irreversible(instr):
-                used_values = get_used_values(instr)
-                # Irreversible instructions must be placed in their own step. Only add
-                # them to the last step if it is also for irreversible instructions.
-                if (
-                    len(steps) > 0
-                    and any(is_irreversible(s) for s in steps[-1])
-                    and not uses_any_value(used_values, values_used_in_step[-1])
-                ):
-                    steps[-1].append(instr)
-                    values_used_in_step[-1].update(used_values)
-                else:
-                    steps.append([instr])
-                    values_used_in_step.append(set(used_values))
+            # elif is_irreversible(instr):
+            #     (used_values, used_results) = get_used_values(instr)
+            #     # Irreversible instructions must be placed in their own step. Only add
+            #     # them to the last step if it is also for irreversible instructions.
+            #     if (
+            #         len(steps) > 0
+            #         and all(is_irreversible(s) for s in steps[-1])
+            #         and not uses_any_value(used_values, values_used_in_step[-1])
+            #         and not uses_any_value(used_results, results_used_in_step[-1])
+            #     ):
+            #         steps[-1].append(instr)
+            #         values_used_in_step[-1].update(used_values)
+            #         results_used_in_step[-1].update(used_results)
+            #     else:
+            #         steps.append([instr])
+            #         values_used_in_step.append(set(used_values))
+            #         results_used_in_step.append(set(used_results))
             else:
                 # Find the last step that contains instructions that the current instruction
                 # depends on. We want to insert the current instruction on the earliest possible
                 # step without violating dependencies.
                 last_dependent_step_idx = len(steps) - 1
-                used_values = get_used_values(instr)
+                (used_values, used_results) = get_used_values(instr)
                 while last_dependent_step_idx >= 0:
                     if uses_any_value(
                         used_values, values_used_in_step[last_dependent_step_idx]
+                    ) or uses_any_value(
+                        used_results, results_used_in_step[last_dependent_step_idx]
                     ):
                         break
                     last_dependent_step_idx -= 1
+
+                if is_irreversible(instr):
+                    while last_dependent_step_idx < len(
+                        steps
+                    ) - 1 and not is_irreversible(
+                        steps[last_dependent_step_idx + 1][0]
+                    ):
+                        last_dependent_step_idx += 1
 
                 if last_dependent_step_idx == len(steps) - 1:
                     # The current instruction depends on the last step, so add it to a new step at the end.
                     steps.append([instr])
                     values_used_in_step.append(set(used_values))
+                    results_used_in_step.append(set(used_results))
                 else:
                     # The last dependent step is before the end, so add the current instruction to the
                     # step after it.
                     steps[last_dependent_step_idx + 1].append(instr)
                     values_used_in_step[last_dependent_step_idx + 1].update(used_values)
+                    results_used_in_step[last_dependent_step_idx + 1].update(
+                        used_results
+                    )
 
         # Insert the instructions back into the block in the correct order.
         self.builder.insert_at_end(block)
         for step in steps:
-            for instr in sorted(step, key=instr_key):
+            for instr in step:  # sorted(step, key=instr_key):
                 self.builder.instr(instr)
         # Add output recording instructions and terminator at the end of the block.
         for instr in output_recording:

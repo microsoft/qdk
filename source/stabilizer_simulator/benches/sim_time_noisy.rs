@@ -57,7 +57,7 @@ fn sim_1k_gates(c: &mut Criterion) {
     let gates = random_gates(NUM_GATES);
     c.bench_function("1k gates", |b| {
         b.iter(|| {
-            let mut simulator = Simulator::new(NUM_QUBITS, NOISE_CONFIG);
+            let mut simulator = Simulator::new(NUM_QUBITS, NUM_QUBITS, NOISE_CONFIG);
             black_box(simulator.apply_gates(black_box(&gates)))
         })
     });
@@ -68,7 +68,7 @@ fn sim_20k_gates(c: &mut Criterion) {
     let gates = random_gates(NUM_GATES);
     c.bench_function("20k gates", |b| {
         b.iter(|| {
-            let mut simulator = Simulator::new(NUM_QUBITS, NOISE_CONFIG);
+            let mut simulator = Simulator::new(NUM_QUBITS, NUM_QUBITS, NOISE_CONFIG);
             black_box(simulator.apply_gates(black_box(&gates)))
         })
     });
@@ -79,7 +79,7 @@ fn sim_1m_gates(c: &mut Criterion) {
     let gates = random_gates(NUM_GATES);
     c.bench_function("1m gates", |b| {
         b.iter(|| {
-            let mut simulator = Simulator::new(NUM_QUBITS, NOISE_CONFIG);
+            let mut simulator = Simulator::new(NUM_QUBITS, NUM_QUBITS, NOISE_CONFIG);
             black_box(simulator.apply_gates(black_box(&gates)))
         })
     });

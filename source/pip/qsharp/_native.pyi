@@ -765,7 +765,11 @@ class NoiseConfig:
     idle: IdleNoiseParams
 
 def run_clifford(
-    input: List[QirInstruction], nub_qubits: int, shots: int, noise: NoiseConfig
+    input: List[QirInstruction],
+    num_qubits: int,
+    num_results: int,
+    shots: int,
+    noise: NoiseConfig,
 ) -> str:
     """ """
     ...
