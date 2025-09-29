@@ -644,9 +644,9 @@ if build_jupyterlab:
     subprocess.run(pip_build_args, check=True, text=True, cwd=jupyterlab_src)
     step_end()
 
-if build_pip and build_widgets and build_qdk and args.integration_tests:
+if build_pip and build_widgets and args.integration_tests:
     step_start("Running notebook samples integration tests")
-    # Find all notebooks in the samples directory. Skip the some of the samples since these won't run
+    # Find all notebooks in the samples directory. Skip the basic sample and the azure submission sample, since those won't run
     # nicely in automation.
     notebook_files = [
         os.path.join(dp, f)
@@ -658,7 +658,6 @@ if build_pip and build_widgets and build_qdk and args.integration_tests:
             or f.startswith("azure_submission.")
             or f.startswith("circuits.")
             or f.startswith("iterative_phase_estimation.")
-            or f.startswith("qdk.")
             or f.startswith("repeat_until_success.")
             or f.startswith("python-deps.")
         )
