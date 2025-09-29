@@ -399,7 +399,6 @@ fn mutable_double_updated_in_loop() {
 
     assert_blocks(
         &program,
-        //BlockId(0),
         &expect![[r#"
             Blocks:
             Block 0:Block:
@@ -451,4 +450,96 @@ fn mutable_double_updated_in_loop() {
                 Variable(0, Double) = Store Variable(13, Double)
                 Jump(9)"#]],
     );
+}
+
+#[test]
+fn result_array_index_range_in_for_loop() {
+    let program = get_rir_program(indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                use qs = Qubit[2];
+                let results = MResetEachZ(qs);
+                mutable count = 0;
+                for i in Std.Arrays.IndexRange(results) {
+                    if results[i] == One {
+                        set count += 1;
+                    }
+                }
+                count
+            }
+        }
+    "#});
+    expect![[r#"
+        Program:
+            entry: 0
+            callables:
+                Callable 0: Callable:
+                    name: main
+                    call_type: Regular
+                    input_type: <VOID>
+                    output_type: <VOID>
+                    body: 0
+                Callable 1: Callable:
+                    name: __quantum__qis__mresetz__body
+                    call_type: Measurement
+                    input_type:
+                        [0]: Qubit
+                        [1]: Result
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 2: Callable:
+                    name: __quantum__qis__read_result__body
+                    call_type: Readout
+                    input_type:
+                        [0]: Result
+                    output_type: Boolean
+                    body: <NONE>
+                Callable 3: Callable:
+                    name: __quantum__rt__int_record_output
+                    call_type: OutputRecording
+                    input_type:
+                        [0]: Integer
+                        [1]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+            blocks:
+                Block 0: Block:
+                    Variable(0, Integer) = Store Integer(0)
+                    Variable(0, Integer) = Store Integer(1)
+                    Variable(0, Integer) = Store Integer(2)
+                    Variable(1, Integer) = Store Integer(0)
+                    Call id(1), args( Qubit(0), Result(0), )
+                    Variable(1, Integer) = Store Integer(1)
+                    Call id(1), args( Qubit(1), Result(1), )
+                    Variable(1, Integer) = Store Integer(2)
+                    Variable(2, Integer) = Store Integer(0)
+                    Variable(3, Integer) = Store Integer(0)
+                    Variable(4, Boolean) = Call id(2), args( Result(0), )
+                    Variable(5, Boolean) = Store Variable(4, Boolean)
+                    Branch Variable(5, Boolean), 2, 1
+                Block 1: Block:
+                    Variable(3, Integer) = Store Integer(1)
+                    Variable(6, Boolean) = Call id(2), args( Result(1), )
+                    Variable(7, Boolean) = Store Variable(6, Boolean)
+                    Branch Variable(7, Boolean), 4, 3
+                Block 2: Block:
+                    Variable(2, Integer) = Store Integer(1)
+                    Jump(1)
+                Block 3: Block:
+                    Variable(3, Integer) = Store Integer(2)
+                    Variable(9, Integer) = Store Variable(2, Integer)
+                    Variable(10, Integer) = Store Integer(0)
+                    Variable(10, Integer) = Store Integer(1)
+                    Variable(10, Integer) = Store Integer(2)
+                    Call id(3), args( Variable(9, Integer), Pointer, )
+                    Return
+                Block 4: Block:
+                    Variable(8, Integer) = Add Variable(2, Integer), Integer(1)
+                    Variable(2, Integer) = Store Variable(8, Integer)
+                    Jump(3)
+            config: Config:
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
+            num_qubits: 2
+            num_results: 2"#]].assert_eq(&program.to_string());
 }

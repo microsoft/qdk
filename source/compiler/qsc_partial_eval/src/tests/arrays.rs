@@ -1038,3 +1038,62 @@ fn result_array_copy_and_update_with_out_of_bounds_range_raises_error() {
         ]],
     );
 }
+
+#[test]
+fn result_array_index_range_returns_length_as_end() {
+    let program = get_rir_program(indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                use qs = Qubit[2];
+                let results = MResetEachZ(qs);
+                Std.Arrays.IndexRange(results).End
+            }
+        }
+    "#});
+    expect![[r#"
+        Program:
+            entry: 0
+            callables:
+                Callable 0: Callable:
+                    name: main
+                    call_type: Regular
+                    input_type: <VOID>
+                    output_type: <VOID>
+                    body: 0
+                Callable 1: Callable:
+                    name: __quantum__qis__mresetz__body
+                    call_type: Measurement
+                    input_type:
+                        [0]: Qubit
+                        [1]: Result
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 2: Callable:
+                    name: __quantum__rt__int_record_output
+                    call_type: OutputRecording
+                    input_type:
+                        [0]: Integer
+                        [1]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+            blocks:
+                Block 0: Block:
+                    Variable(0, Integer) = Store Integer(0)
+                    Variable(0, Integer) = Store Integer(1)
+                    Variable(0, Integer) = Store Integer(2)
+                    Variable(1, Integer) = Store Integer(0)
+                    Call id(1), args( Qubit(0), Result(0), )
+                    Variable(1, Integer) = Store Integer(1)
+                    Call id(1), args( Qubit(1), Result(1), )
+                    Variable(1, Integer) = Store Integer(2)
+                    Variable(2, Integer) = Store Integer(0)
+                    Variable(2, Integer) = Store Integer(1)
+                    Variable(2, Integer) = Store Integer(2)
+                    Call id(2), args( Integer(1), Pointer, )
+                    Return
+            config: Config:
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
+            num_qubits: 2
+            num_results: 2"#]].assert_eq(&program.to_string());
+}
