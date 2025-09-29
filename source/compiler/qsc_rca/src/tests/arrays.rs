@@ -542,3 +542,42 @@ fn check_rca_for_array_with_static_size_bound_through_dynamic_tuple() {
                 dynamic_param_applications: <empty>"#]],
     );
 }
+
+#[test]
+fn check_rca_for_index_range_on_array_with_classical_contents() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        let arr = [0, 1, 2, 3, 4];
+        Std.Arrays.IndexRange(arr)"#,
+    );
+    let package_store_compute_properties = compilation_context.get_compute_properties();
+    check_last_statement_compute_properties(
+        package_store_compute_properties,
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Classical
+                dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_index_range_on_array_with_dynamic_contents() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        use qs = Qubit[5];
+        let arr = MResetEachZ(qs);
+        Std.Arrays.IndexRange(arr)"#,
+    );
+    let package_store_compute_properties = compilation_context.get_compute_properties();
+    check_last_statement_compute_properties(
+        package_store_compute_properties,
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Quantum: QuantumProperties:
+                    runtime_features: RuntimeFeatureFlags(0x0)
+                    value_kind: Element(Static)
+                dynamic_param_applications: <empty>"#]],
+    );
+}
