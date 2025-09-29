@@ -184,8 +184,8 @@ fn adjust_body_indentation(lines: &[String], base: &str) -> Vec<String> {
             if l.is_empty() {
                 l.clone()
             } else if l.starts_with("        ") {
-                // 8 spaces
-                format!("{body_indent}{}", &l[8..])
+                // 4 spaces
+                format!("{body_indent}{}", &l[4..])
             } else {
                 // Fallback: if a line didn't have the expected indent, still prefix with body indent unless it already starts with base
                 if l.starts_with(base) {
