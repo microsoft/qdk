@@ -37,21 +37,45 @@ All extras:
 pip install qdk[all]
 ```
 
-Multiple extras:
-
-```bash
-pip install qdk[azure, jupyter, qiskit]
-```
-
 ## Quick Start
 
 ```python
-from qdk import qsharp, code, init
-init()
-print(qsharp.run("{ use q = Qubit(); H(q); return MResetZ(q); }", shots=5))
+from qdk import qsharp
+
+result = qsharp.run("{ use q = Qubit(); H(q); return MResetZ(q); }", shots=100)
+print(result)
 ```
 
-See the [qdk sample notebook](https://github.com/microsoft/qsharp/tree/main/samples/notebooks/qdk.ipynb) for fuller examples of each extra.
+Widgets (installed via jupyter extra):
+
+```python
+try:
+    from qdk import widgets  # requires: pip install qdk[jupyter]
+    # Use widgets per qsharp-widgets documentation
+except ImportError:
+    widgets = None  # Optional: feature not installed
+```
+
+Qiskit (if installed):
+
+```python
+try:
+    from qdk import qiskit  # requires: pip install qdk[qiskit]
+    qk = qiskit
+    # Example: qk.transpile(...)
+except ImportError:
+    qk = None
+```
+
+Azure Quantum (if installed):
+
+```python
+try:
+    from qdk import azure  # requires: pip install qdk[azure]
+    # Example: azure.Workspace(...)
+except ImportError:
+    azure = None
+```
 
 ## Public API Surface
 
