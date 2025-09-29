@@ -339,8 +339,7 @@ fn line_indentation(contents: &str, offset: u32) -> String {
     let offset_usize = offset as usize;
     let line_start = contents[..offset_usize]
         .rfind('\n')
-        .map(|idx| idx + 1)
-        .unwrap_or(0);
+        .map_or(0, |idx| idx + 1);
     contents[line_start..offset_usize]
         .chars()
         .take_while(|c| *c == ' ' || *c == '\t')
