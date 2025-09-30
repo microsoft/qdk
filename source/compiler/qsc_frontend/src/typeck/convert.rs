@@ -52,6 +52,10 @@ pub(crate) fn ty_from_ast(
             let (item, errors) = ty_from_ast(names, item, stack);
             (Ty::Array(Box::new(item)), errors)
         }
+        TyKind::SizedArray(item, size) => {
+            let (item, errors) = ty_from_ast(names, item, stack);
+            (Ty::SizedArray(Box::new(item), *size), errors)
+        }
         TyKind::Arrow(kind, input, output, functors) => {
             // shadow the stack as a new empty one, since we are in a new arrow type
             let mut stack = Default::default();
@@ -288,7 +292,7 @@ pub(crate) fn synthesize_functor_params(
     ty: &mut Ty,
 ) -> Vec<HirTypeParameter> {
     match ty {
-        Ty::Array(item) => synthesize_functor_params(next_param, item),
+        Ty::SizedArray(item, _) | Ty::Array(item) => synthesize_functor_params(next_param, item),
         Ty::Arrow(arrow) => {
             let functors = *arrow.functors.borrow();
             match functors {

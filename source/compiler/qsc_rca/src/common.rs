@@ -127,7 +127,7 @@ pub trait TyExt {
 impl TyExt for Ty {
     fn has_type_parameters(&self) -> bool {
         match self {
-            Self::Array(ty) => ty.has_type_parameters(),
+            Self::Array(ty) | Self::SizedArray(ty, _) => ty.has_type_parameters(),
             Self::Arrow(arrow) => {
                 arrow.input.has_type_parameters() || arrow.output.has_type_parameters()
             }

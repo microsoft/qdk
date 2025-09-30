@@ -325,7 +325,9 @@ pub(super) fn type_ir_from_qsharp_ty(ctx: &interpret::Interpreter, ty: &Ty) -> O
             };
             Some(TypeIR::Primitive(prim))
         }
-        Ty::Array(ty) => Some(TypeIR::Array(vec![type_ir_from_qsharp_ty(ctx, ty)?])),
+        Ty::Array(ty) | Ty::SizedArray(ty, _) => {
+            Some(TypeIR::Array(vec![type_ir_from_qsharp_ty(ctx, ty)?]))
+        }
         Ty::Tuple(items) => {
             let mut tuple = Vec::new();
             for item in items {

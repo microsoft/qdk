@@ -878,6 +878,9 @@ impl Lowerer {
     fn lower_ty(&mut self, ty: &qsc_hir::ty::Ty) -> Ty {
         match ty {
             qsc_hir::ty::Ty::Array(array) => qsc_fir::ty::Ty::Array(Box::new(self.lower_ty(array))),
+            qsc_hir::ty::Ty::SizedArray(ty, size) => {
+                qsc_fir::ty::Ty::SizedArray(Box::new(self.lower_ty(ty)), *size)
+            }
             qsc_hir::ty::Ty::Arrow(arrow) => {
                 qsc_fir::ty::Ty::Arrow(Box::new(self.lower_arrow(arrow)))
             }

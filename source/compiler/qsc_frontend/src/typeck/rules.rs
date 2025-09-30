@@ -111,6 +111,7 @@ impl<'a> Context<'a> {
     fn infer_ty(&mut self, ty: &ast::Ty) -> Ty {
         match &*ty.kind {
             TyKind::Array(item) => Ty::Array(Box::new(self.infer_ty(item))),
+            TyKind::SizedArray(item, size) => Ty::SizedArray(Box::new(self.infer_ty(item)), *size),
             TyKind::Arrow(kind, input, output, functors) => Ty::Arrow(Rc::new(Arrow {
                 kind: convert::callable_kind_from_ast(*kind),
                 input: RefCell::new(self.infer_ty(input)),

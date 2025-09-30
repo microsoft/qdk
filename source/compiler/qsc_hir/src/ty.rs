@@ -29,6 +29,8 @@ fn set_indentation<'a, 'b>(
 pub enum Ty {
     /// An array type.
     Array(Box<Ty>),
+    /// A constant-sized array type.
+    SizedArray(Box<Ty>, u32),
     /// An arrow type: `->` for a function or `=>` for an operation.
     Arrow(Rc<Arrow>),
     /// A placeholder type variable used during type inference.
@@ -145,6 +147,7 @@ impl Ty {
         match self {
             Ty::Infer(_) | Ty::Param { .. } | Ty::Prim(_) | Ty::Err => self.clone(),
             Ty::Array(item) => Ty::Array(Box::new(item.with_package(package))),
+            Ty::SizedArray(ty, size) => Ty::SizedArray(Box::new(ty.with_package(package)), *size),
             Ty::Arrow(arrow) => Ty::Arrow(Rc::new(arrow.with_package(package))),
             Ty::Tuple(items) => Ty::Tuple(
                 items
@@ -160,6 +163,9 @@ impl Ty {
         match self {
             Ty::Array(item) => {
                 format!("{}[]", item.display())
+            }
+            Ty::SizedArray(item, size) => {
+                format!("{}[{size}]", item.display())
             }
             Ty::Arrow(arrow) => {
                 let arrow_symbol = match arrow.kind {
@@ -204,7 +210,7 @@ impl Ty {
     /// This is used to avoid "large" types that can result in hangs during type inference.
     pub fn size(&self) -> usize {
         match self {
-            Ty::Array(item) => item.size() + 1,
+            Ty::SizedArray(item, _) | Ty::Array(item) => item.size() + 1,
             Ty::Arrow(arrow) => arrow.input.borrow().size() + arrow.output.borrow().size() + 1,
             Ty::Infer(_) | Ty::Err | Ty::Prim(_) | Ty::Param { .. } | Ty::Udt(_, _) => 1,
             Ty::Tuple(items) => items.iter().map(Ty::size).sum::<usize>() + 1,
@@ -216,6 +222,7 @@ impl Display for Ty {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
             Ty::Array(item) => write!(f, "{item}[]"),
+            Ty::SizedArray(item, size) => write!(f, "{item}[{size}]"),
             Ty::Arrow(arrow) => Display::fmt(arrow, f),
             Ty::Infer(infer) => Display::fmt(infer, f),
             Ty::Param { name, id, .. } => {
@@ -321,6 +328,7 @@ fn instantiate_ty<'a>(
     match ty {
         Ty::Err | Ty::Infer(_) | Ty::Prim(_) | Ty::Udt(_, _) => Ok(ty.clone()),
         Ty::Array(item) => Ok(Ty::Array(Box::new(instantiate_ty(arg, item)?))),
+        Ty::SizedArray(ty, size) => Ok(Ty::SizedArray(Box::new(instantiate_ty(arg, ty)?), *size)),
         Ty::Arrow(arrow) => Ok(Ty::Arrow(Rc::new(instantiate_arrow_ty(arg, arrow)?))),
         Ty::Param { id, .. } => match arg(id) {
             Some(GenericArg::Ty(ty_arg)) => Ok(ty_arg.clone()),

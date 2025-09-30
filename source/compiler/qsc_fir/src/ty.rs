@@ -28,6 +28,8 @@ fn set_indentation<'a, 'b>(
 pub enum Ty {
     /// An array type.
     Array(Box<Ty>),
+    /// A constant-size array type.
+    SizedArray(Box<Ty>, u32),
     /// An arrow type: `->` for a function or `=>` for an operation.
     Arrow(Box<Arrow>),
     /// A placeholder type variable used during type inference.
@@ -54,6 +56,7 @@ impl Display for Ty {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
             Ty::Array(item) => write!(f, "({item})[]"),
+            Ty::SizedArray(item, size) => write!(f, "({item})[{size}]"),
             Ty::Arrow(arrow) => Display::fmt(arrow, f),
             Ty::Infer(infer) => Display::fmt(infer, f),
             Ty::Param(param_id) => write!(f, "Param<{param_id}>"),
@@ -139,6 +142,9 @@ fn instantiate_ty<'a>(
     match ty {
         Ty::Err | Ty::Infer(_) | Ty::Prim(_) | Ty::Udt(_) => Ok(ty.clone()),
         Ty::Array(item) => Ok(Ty::Array(Box::new(instantiate_ty(arg, item)?))),
+        Ty::SizedArray(item, size) => {
+            Ok(Ty::SizedArray(Box::new(instantiate_ty(arg, item)?), *size))
+        }
         Ty::Arrow(arrow) => Ok(Ty::Arrow(Box::new(instantiate_arrow_ty(arg, arrow)?))),
         Ty::Param(param) => match arg(param) {
             Some(GenericArg::Ty(ty_arg)) => Ok(ty_arg.clone()),

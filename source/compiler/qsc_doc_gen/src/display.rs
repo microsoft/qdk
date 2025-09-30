@@ -538,6 +538,7 @@ impl Display for AstTy<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self.ty.kind.as_ref() {
             ast::TyKind::Array(ty) => write!(f, "{}[]", AstTy { ty }),
+            ast::TyKind::SizedArray(ty, size) => write!(f, "{}[{size}]", AstTy { ty }),
             ast::TyKind::Arrow(kind, input, output, functors) => {
                 let arrow = match kind {
                     ast::CallableKind::Function => "->",

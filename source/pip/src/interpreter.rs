@@ -942,7 +942,7 @@ where
         Ty::Tuple(tup) => tup
             .iter()
             .find(|t| first_unsupported_interop_ty(ctx, t).is_some()),
-        Ty::Array(ty) => first_unsupported_interop_ty(ctx, ty),
+        Ty::Array(ty) | Ty::SizedArray(ty, _) => first_unsupported_interop_ty(ctx, ty),
         Ty::Udt(_, res) => {
             let qsc::hir::Res::Item(item_id) = res else {
                 panic!("Udt should be an item");

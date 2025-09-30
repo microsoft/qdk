@@ -329,6 +329,12 @@ impl<W: Write> Visitor<'_> for QSharpGen<W> {
                 self.visit_ty(item);
                 self.write("[]");
             }
+            TyKind::SizedArray(item, size) => {
+                self.visit_ty(item);
+                self.write("[");
+                self.write(&size.to_string());
+                self.write("]");
+            }
             TyKind::Arrow(kind, lhs, rhs, functors) => {
                 self.visit_ty(lhs);
                 match kind {

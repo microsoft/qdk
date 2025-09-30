@@ -716,6 +716,9 @@ impl Solver {
             | (Ty::Udt(_, Res::Err), Ty::Udt(_, _))
             | (Ty::Udt(_, _), Ty::Udt(_, Res::Err)) => Vec::new(),
             (Ty::Array(item1), Ty::Array(item2)) => self.unify(item1, item2, span),
+            (Ty::SizedArray(item1, size1), Ty::SizedArray(item2, size2)) if size1 == size2 => {
+                self.unify(item1, item2, span)
+            }
             (Ty::Arrow(arrow1), Ty::Arrow(arrow2)) => {
                 if arrow1.kind != arrow2.kind {
                     self.errors.push(Error(ErrorKind::CallableMismatch(
@@ -894,6 +897,7 @@ fn substitute_ty(solution: &Solution, ty: &mut Ty) -> bool {
         match ty {
             Ty::Err | Ty::Param { .. } | Ty::Prim(_) | Ty::Udt(_, _) => true,
             Ty::Array(item) => substitute_ty_recursive(solution, item, limit - 1),
+            Ty::SizedArray(item, _size) => substitute_ty_recursive(solution, item, limit - 1),
             Ty::Arrow(arrow) => {
                 // These updates require borrowing the values inside the RefCells mutably.
                 // This should be safe because no other code should be borrowing these values at the same time,
@@ -979,7 +983,7 @@ fn unknown_ty(solved_types: &IndexMap<InferTyId, Ty>, given_type: &Ty) -> Option
 fn links_to_infer_ty(solution_tys: &IndexMap<InferTyId, Ty>, id: InferTyId, ty: &Ty) -> bool {
     match ty {
         Ty::Err | Ty::Param { .. } | Ty::Prim(_) | Ty::Udt(_, _) => false,
-        Ty::Array(item) => links_to_infer_ty(solution_tys, id, item),
+        Ty::Array(item) | Ty::SizedArray(item, _) => links_to_infer_ty(solution_tys, id, item),
         Ty::Arrow(arrow) => {
             links_to_infer_ty(solution_tys, id, &arrow.input.borrow())
                 || links_to_infer_ty(solution_tys, id, &arrow.output.borrow())
@@ -1386,7 +1390,7 @@ fn check_iterable(container: Ty, item: Ty, span: Span) -> (Vec<Constraint>, Vec<
             }],
             Vec::new(),
         ),
-        Ty::Array(container_item) => (
+        Ty::Array(container_item) | Ty::SizedArray(container_item, _) => (
             vec![Constraint::Eq {
                 expected: *container_item,
                 actual: item,
@@ -1394,13 +1398,33 @@ fn check_iterable(container: Ty, item: Ty, span: Span) -> (Vec<Constraint>, Vec<
             }],
             Vec::new(),
         ),
-        Ty::Param { .. } => (
-            Vec::default(),
-            vec![Error(ErrorKind::UnrecognizedClass {
-                span,
-                name: "Iterable".into(),
-            })],
-        ),
+        Ty::Param { bounds, .. } => {
+            let constraints = bounds
+                .0
+                .into_iter()
+                .filter_map(|bound| {
+                    if let ClassConstraint::Iterable { item: bound_item } = bound {
+                        Some(Constraint::Eq {
+                            expected: bound_item,
+                            actual: item.clone(),
+                            span,
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>();
+            if !constraints.is_empty() {
+                return (constraints, Vec::new());
+            }
+            (
+                Vec::default(),
+                vec![Error(ErrorKind::UnrecognizedClass {
+                    span,
+                    name: "Iterable".into(),
+                })],
+            )
+        }
         _ => (
             Vec::new(),
             vec![Error(ErrorKind::MissingClassIterable(

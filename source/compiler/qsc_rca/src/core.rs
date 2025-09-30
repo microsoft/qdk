@@ -2369,7 +2369,9 @@ fn is_length_intrinsic(callable_decl: &CallableDecl) -> bool {
 
 fn ty_to_runtime_runtime_output_flags(ty: &Ty) -> RuntimeFeatureFlags {
     match ty {
-        Ty::Array(content_type) => ty_to_runtime_runtime_output_flags(content_type),
+        Ty::Array(content_type) | Ty::SizedArray(content_type, _) => {
+            ty_to_runtime_runtime_output_flags(content_type)
+        }
         Ty::Prim(prim) => ty_prim_to_runtime_output_flag(*prim),
         Ty::Tuple(element_types) => {
             let mut runtime_features = RuntimeFeatureFlags::empty();
@@ -2422,6 +2424,34 @@ fn derive_runtime_features_for_value_kind_associated_to_type(
         if matches!(size_runtime_kind, RuntimeKind::Dynamic) {
             runtime_features |= RuntimeFeatureFlags::UseOfDynamicallySizedArray;
         }
+
+        // A dynamic array has dynamic content so we need to include the runtime features used by its content.
+        if matches!(content_runtime_kind, RuntimeKind::Dynamic) {
+            let content_value_kind = ValueKind::new_dynamic_from_type(content_type);
+            runtime_features |= derive_runtime_features_for_value_kind_associated_to_type(
+                content_value_kind,
+                content_type,
+            );
+        }
+
+        runtime_features
+    }
+
+    fn derive_runtime_features_for_value_kind_associated_to_sized_array(
+        value_kind: ValueKind,
+        content_type: &Ty,
+    ) -> RuntimeFeatureFlags {
+        let ValueKind::Array(content_runtime_kind, size_runtime_kind) = value_kind else {
+            panic!("expected array variant of value kind");
+        };
+
+        let mut runtime_features = RuntimeFeatureFlags::empty();
+
+        // Static arrays are always statically sized
+        assert!(
+            matches!(size_runtime_kind, RuntimeKind::Static),
+            "expected static size for sized array"
+        );
 
         // A dynamic array has dynamic content so we need to include the runtime features used by its content.
         if matches!(content_runtime_kind, RuntimeKind::Dynamic) {
@@ -2520,6 +2550,12 @@ fn derive_runtime_features_for_value_kind_associated_to_type(
     match ty {
         Ty::Array(content_type) => {
             derive_runtime_features_for_value_kind_associated_to_array(value_kind, content_type)
+        }
+        Ty::SizedArray(content_type, _) => {
+            derive_runtime_features_for_value_kind_associated_to_sized_array(
+                value_kind,
+                content_type,
+            )
         }
         Ty::Arrow(arrow) => {
             derive_runtime_features_for_value_kind_associated_to_arrow(value_kind, arrow)

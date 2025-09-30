@@ -213,7 +213,7 @@ pub fn walk_functor_expr<'a>(vis: &mut impl Visitor<'a>, expr: &'a FunctorExpr) 
 
 pub fn walk_ty<'a>(vis: &mut impl Visitor<'a>, ty: &'a Ty) {
     match &*ty.kind {
-        TyKind::Array(item) => vis.visit_ty(item),
+        TyKind::SizedArray(item, _) | TyKind::Array(item) => vis.visit_ty(item),
         TyKind::Arrow(_, lhs, rhs, functors) => {
             vis.visit_ty(lhs);
             vis.visit_ty(rhs);

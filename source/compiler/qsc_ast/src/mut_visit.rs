@@ -237,7 +237,7 @@ pub fn walk_ty(vis: &mut impl MutVisitor, ty: &mut Ty) {
     vis.visit_span(&mut ty.span);
 
     match &mut *ty.kind {
-        TyKind::Array(item) => vis.visit_ty(item),
+        TyKind::SizedArray(item, _) | TyKind::Array(item) => vis.visit_ty(item),
         TyKind::Arrow(_, lhs, rhs, functors) => {
             vis.visit_ty(lhs);
             vis.visit_ty(rhs);

@@ -13,13 +13,14 @@ use super::{
 use crate::{
     ErrorKind,
     completion::WordKinds,
+    expr::expr,
     item::throw_away_doc,
     lex::{ClosedBinOp, Delim, TokenKind},
     prim::{ident, parse_or_else, recovering_path},
 };
 use qsc_ast::ast::{
-    CallableKind, ClassConstraint, ClassConstraints, ConstraintParameter, Functor, FunctorExpr,
-    FunctorExprKind, NodeId, SetOp, Ty, TyKind, TypeParameter,
+    CallableKind, ClassConstraint, ClassConstraints, ConstraintParameter, ExprKind, Functor,
+    FunctorExpr, FunctorExprKind, Lit, NodeId, SetOp, Ty, TyKind, TypeParameter,
 };
 
 pub(super) fn ty(s: &mut ParserContext) -> Result<Ty> {
@@ -43,11 +44,22 @@ pub(super) fn recovering_ty(s: &mut ParserContext) -> Result<Ty> {
 
 pub(super) fn array_or_arrow(s: &mut ParserContext<'_>, mut lhs: Ty, lo: u32) -> Result<Ty> {
     loop {
-        if let Some(()) = opt(s, array)? {
-            lhs = Ty {
-                id: NodeId::default(),
-                span: s.span(lo),
-                kind: Box::new(TyKind::Array(Box::new(lhs))),
+        if let Some(arr_size) = opt(s, array)? {
+            match arr_size {
+                None => {
+                    lhs = Ty {
+                        id: NodeId::default(),
+                        span: s.span(lo),
+                        kind: Box::new(TyKind::Array(Box::new(lhs))),
+                    }
+                }
+                Some(size) => {
+                    lhs = Ty {
+                        id: NodeId::default(),
+                        span: s.span(lo),
+                        kind: Box::new(TyKind::SizedArray(Box::new(lhs), size)),
+                    }
+                }
             }
         } else if let Some(kind) = opt(s, arrow)? {
             let output = recovering_ty(s)?;
@@ -122,10 +134,31 @@ fn class_constraints(s: &mut ParserContext) -> Result<ClassConstraints> {
     Ok(ClassConstraints(bounds.into_boxed_slice()))
 }
 
-fn array(s: &mut ParserContext) -> Result<()> {
+fn array(s: &mut ParserContext) -> Result<Option<u32>> {
     token(s, TokenKind::Open(Delim::Bracket))?;
+    if matches!(s.peek().kind, TokenKind::Int(_)) {
+        let e = expr(s)?;
+        if let ExprKind::Lit(l) = e.kind.as_ref() {
+            if let Lit::Int(i) = l.as_ref() {
+                token(s, TokenKind::Close(Delim::Bracket))?;
+                if let Ok(i) = u32::try_from(*i) {
+                    return Ok(Some(i));
+                }
+                return Err(Error::new(ErrorKind::Convert(
+                    "positive integer literal",
+                    "signed integer",
+                    e.span,
+                )));
+            }
+        }
+        return Err(Error::new(ErrorKind::Convert(
+            "integer literal",
+            "expression",
+            e.span,
+        )));
+    }
     token(s, TokenKind::Close(Delim::Bracket))?;
-    Ok(())
+    Ok(None)
 }
 
 fn arrow(s: &mut ParserContext) -> Result<CallableKind> {
