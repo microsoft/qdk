@@ -65,11 +65,7 @@ impl Simulator {
     pub fn new(num_qubits: usize, num_results: usize, noise_config: NoiseConfig) -> Self {
         Self {
             noise_config: noise_config.into(),
-            state: OutcomeSpecificSimulation::new_with_random_outcomes(
-                num_qubits,
-                num_results,
-                num_results,
-            ),
+            state: OutcomeSpecificSimulation::new_with_random_outcomes(num_qubits, num_results),
             loss: vec![false; num_qubits],
             measurements: vec![MeasurementResult::Zero; num_results],
             last_operation_time: vec![0; num_qubits],

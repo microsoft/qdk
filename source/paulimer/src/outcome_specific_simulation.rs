@@ -18,45 +18,29 @@ type SparsePauli = PauliUnitary<IndexSet, u8>;
 pub struct OutcomeSpecificSimulation {
     clifford: CliffordUnitary, // R
     outcome_vector: Vec<bool>,
-    random_outcome_source: Vec<bool>, // vec(p), [j] is true iff vec(p)_j = 1/2
     random_outcome_indicator: Vec<bool>, // vec(p), [j] is true iff vec(p)_j = 1/2
     num_random_bits: usize,
+    use_all_zeros: bool,
 }
 
 impl OutcomeSpecificSimulation {
-    pub fn new(num_qubits: usize, num_outcomes: usize, num_random_bits: usize) -> Self {
+    pub fn new(num_qubits: usize, num_outcomes: usize) -> Self {
         OutcomeSpecificSimulation {
             clifford: CliffordUnitary::identity(num_qubits),
             outcome_vector: Vec::<bool>::with_capacity(num_outcomes),
-            random_outcome_source: Vec::<bool>::with_capacity(num_random_bits),
-            random_outcome_indicator: Vec::<bool>::with_capacity(num_random_bits),
+            random_outcome_indicator: Vec::<bool>::with_capacity(num_outcomes),
             num_random_bits: 0,
+            use_all_zeros: false,
         }
     }
 
-    pub fn new_with_random_outcomes(
-        num_qubits: usize,
-        num_outcomes: usize,
-        num_random_bits: usize,
-    ) -> Self {
-        let mut result = Self::new(num_qubits, num_outcomes, num_random_bits);
-        for _ in 0..num_random_bits {
-            result
-                .random_outcome_source
-                .push(thread_rng().gen::<bool>());
-        }
-        result
+    pub fn new_with_random_outcomes(num_qubits: usize, num_outcomes: usize) -> Self {
+        Self::new(num_qubits, num_outcomes)
     }
 
-    pub fn new_with_zero_outcomes(
-        num_qubits: usize,
-        num_outcomes: usize,
-        num_random_bits: usize,
-    ) -> Self {
-        let mut result = Self::new(num_qubits, num_outcomes, num_random_bits);
-        for _ in 0..num_random_bits {
-            result.random_outcome_source.push(false);
-        }
+    pub fn new_with_zero_outcomes(num_qubits: usize, num_outcomes: usize) -> Self {
+        let mut result = Self::new(num_qubits, num_outcomes);
+        result.use_all_zeros = true;
         result
     }
 }
@@ -64,9 +48,8 @@ impl OutcomeSpecificSimulation {
 pub fn new_outcome_specific_simulation(
     num_qubits: usize,
     num_outcomes: usize,
-    num_random_bits: usize,
 ) -> OutcomeSpecificSimulation {
-    OutcomeSpecificSimulation::new_with_random_outcomes(num_qubits, num_outcomes, num_random_bits)
+    OutcomeSpecificSimulation::new_with_random_outcomes(num_qubits, num_outcomes)
 }
 
 impl OutcomeSpecificSimulation {
@@ -77,11 +60,6 @@ impl OutcomeSpecificSimulation {
     #[must_use]
     pub fn outcome_vector(&self) -> &Vec<bool> {
         &self.outcome_vector
-    }
-
-    #[must_use]
-    pub fn random_outcome_source(&self) -> &Vec<bool> {
-        &self.random_outcome_source
     }
 }
 
@@ -160,9 +138,11 @@ pub fn measure_pauli_with_hint<HintBits: PauliBits, HintPhase: PhaseExponent>(
 }
 
 pub fn allocate_random_bit(simulation: &mut OutcomeSpecificSimulation) {
-    simulation
-        .outcome_vector
-        .push(simulation.random_outcome_source[simulation.num_random_bits]);
+    simulation.outcome_vector.push(if simulation.use_all_zeros {
+        false
+    } else {
+        thread_rng().gen()
+    });
     simulation.random_outcome_indicator.push(true);
     simulation.num_random_bits += 1;
 }
@@ -229,7 +209,7 @@ fn total_parity(outcome_vector: &[bool], outcomes_indicator: &[usize]) -> bool {
 
 #[test]
 fn init_test() {
-    let mut _outcome_specific_simulation = new_outcome_specific_simulation(2, 10, 10);
+    let mut _outcome_specific_simulation = new_outcome_specific_simulation(2, 10);
     // println!("{:?}",outcome_specific_simulation.random_outcome_source())
 }
 
@@ -291,12 +271,8 @@ impl Simulation for OutcomeSpecificSimulation {
         assert!(!is_stabilizer_up_to_sign(self, &sparse_pauli));
     }
 
-    fn with_capacity(num_qubits: usize, num_outcomes: usize, num_random_outcomes: usize) -> Self {
-        OutcomeSpecificSimulation::new_with_random_outcomes(
-            num_qubits,
-            num_outcomes,
-            num_random_outcomes,
-        )
+    fn with_capacity(num_qubits: usize, num_outcomes: usize, _num_random_outcomes: usize) -> Self {
+        OutcomeSpecificSimulation::new_with_random_outcomes(num_qubits, num_outcomes)
     }
 
     fn new() -> Self {
