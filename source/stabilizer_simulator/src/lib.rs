@@ -36,7 +36,7 @@ pub enum Fault {
 pub type QubitID = usize;
 
 /// The result of a mesasurement in the Z-basis.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MeasurementResult {
     Zero,
     One,
@@ -62,16 +62,12 @@ pub struct Simulator {
 impl Simulator {
     /// Creates a new Simulator with `num_qubits` qubits.
     #[must_use]
-    pub fn new(num_qubits: usize, noise_config: NoiseConfig) -> Self {
+    pub fn new(num_qubits: usize, num_results: usize, noise_config: NoiseConfig) -> Self {
         Self {
             noise_config: noise_config.into(),
-            state: OutcomeSpecificSimulation::new_with_random_outcomes(
-                num_qubits,
-                num_qubits * 2,
-                num_qubits * 2,
-            ),
+            state: OutcomeSpecificSimulation::new_with_random_outcomes(num_qubits, num_results),
             loss: vec![false; num_qubits],
-            measurements: Vec::with_capacity(2048),
+            measurements: vec![MeasurementResult::Zero; num_results],
             last_operation_time: vec![0; num_qubits],
             time: 0,
         }
@@ -140,8 +136,8 @@ impl Simulator {
     }
 
     /// MResetZ operation.
-    pub fn mresetz(&mut self, target: QubitID) {
-        self.apply_gate_in_place(&Operation::MResetZ { target });
+    pub fn mresetz(&mut self, target: QubitID, result_id: QubitID) {
+        self.apply_gate_in_place(&Operation::MResetZ { target, result_id });
     }
 
     /// Move operation. The purpose of this operation is modeling
@@ -228,9 +224,9 @@ impl Simulator {
                     self.apply_fault(self.noise_config.mov.gen_operation_fault(), target);
                 }
             }
-            Operation::MResetZ { target } => {
+            Operation::MResetZ { target, result_id } => {
                 self.apply_idle_noise(target);
-                self.record_z_measurement(target);
+                self.record_z_measurement(target, result_id);
                 self.apply_fault(self.noise_config.mresetz.gen_operation_fault(), target);
             }
         }
@@ -258,9 +254,9 @@ impl Simulator {
     }
 
     /// Records a z-measurement on the given `target`.
-    fn record_z_measurement(&mut self, target: QubitID) {
+    fn record_z_measurement(&mut self, target: QubitID, result_id: QubitID) {
         let measurement = self.measure_z(target);
-        self.measurements.push(measurement);
+        self.measurements[result_id] = measurement;
     }
 
     /// Measures a Z observable on the given `target`.

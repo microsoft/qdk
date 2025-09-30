@@ -96,7 +96,12 @@ class Schedule(QirModuleVisitor):
                 and len(gate["qubit_args"]) == 1
                 and len(gate["result_args"]) == 0
             ):
-                if len(self.pending_moves) > 0:
+                if len(self.pending_moves) > 0 and any(
+                    [
+                        gate["qubit_args"][0] == qubit_id(q)
+                        for q, _ in self.pending_moves
+                    ]
+                ):
                     self.flush_pending(instr)
 
                 instr.remove()
@@ -105,7 +110,7 @@ class Schedule(QirModuleVisitor):
                 # Do CZ stuff...
                 # Pick next available interaction zone pair for these qubits. If none, flush the current set and start a fresh set.
                 # Create move instructions to move qubits to interaction zone and save them in pending moves for later insertion.
-                vals_used = get_used_values(instr)
+                (vals_used, _) = get_used_values(instr)
                 if (
                     len(self.measurements) > 0
                     or uses_any_value(vals_used, self.vals_used_in_cz_ops)
@@ -134,7 +139,7 @@ class Schedule(QirModuleVisitor):
                 # Do measurement stuff...
                 # Pick next available measurement zone location for this qubit. If none, flush the current set and start a fresh set.
                 # Create move instructions to move qubit to measurement zone and save them in pending moves for later insertion.
-                vals_used = get_used_values(instr)
+                (vals_used, _) = get_used_values(instr)
                 if (
                     len(self.measurements) == 0
                     or len(self.measurements) >= max_measurements
@@ -144,7 +149,13 @@ class Schedule(QirModuleVisitor):
                 if len(self.single_qubit_ops[gate["qubit_args"][0]]) > 0:
                     # There are still pending single qubits ops for the qubit we want to measure,
                     # so trigger another flush.
+                    temp_meas = self.measurements
+                    self.measurements = []
+                    temp_moves = self.pending_moves
+                    self.pending_moves = []
                     self.flush_pending(instr)
+                    self.measurements = temp_meas
+                    self.pending_moves = temp_moves
                 instr.remove()
                 idx = len(self.measurements)
                 row = idx // self.device.column_count

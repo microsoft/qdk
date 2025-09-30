@@ -295,7 +295,7 @@ def run_qir(
         mod = pyqir.Module.from_bitcode(context, input)
 
     passtoRun = AggregateGatesPass()
-    (gates, required_num_qubits, _) = passtoRun.run(mod)
+    (gates, required_num_qubits, required_num_results) = passtoRun.run(mod)
 
     recorder = OutputRecordingPass()
     recorder.run(mod)
@@ -308,7 +308,9 @@ def run_qir(
     return list(
         map(
             recorder.process_output,
-            run_clifford(gates, required_num_qubits, shots, noise),
+            run_clifford(
+                gates, required_num_qubits, required_num_results, shots, noise
+            ),
         )
     )
 

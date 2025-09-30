@@ -18,7 +18,7 @@ pub enum Operation {
     SX { target: QubitID },
     CZ { control: QubitID, target: QubitID },
     Move { target: QubitID },
-    MResetZ { target: QubitID },
+    MResetZ { target: QubitID, result_id: QubitID },
 }
 
 pub fn id(target: QubitID) -> Operation {
@@ -50,7 +50,10 @@ pub fn cz(control: QubitID, target: QubitID) -> Operation {
 }
 
 pub fn mz(target: QubitID) -> Operation {
-    Operation::MResetZ { target }
+    Operation::MResetZ {
+        target,
+        result_id: target,
+    }
 }
 
 pub fn mov(target: QubitID) -> Operation {

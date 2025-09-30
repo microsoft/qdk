@@ -13,6 +13,7 @@ pub fn run_clifford<'py>(
     py: Python<'py>,
     input: &Bound<'py, PyList>,
     num_qubits: u32,
+    num_results: u32,
     shots: u32,
     noise_config: &Bound<'py, NoiseConfig>,
 ) -> PyResult<PyObject> {
@@ -34,7 +35,7 @@ pub fn run_clifford<'py>(
     let output = (0..shots)
         .collect::<Vec<_>>()
         .par_iter()
-        .map(|_| run_clifford_shot(&instructions, num_qubits, noise))
+        .map(|_| run_clifford_shot(&instructions, num_qubits, num_results, noise))
         .collect::<Vec<_>>();
 
     // convert results to a string with one line per shot
@@ -68,9 +69,10 @@ pub fn run_clifford<'py>(
 fn run_clifford_shot(
     instructions: &Vec<QirInstruction>,
     num_qubits: u32,
+    num_results: u32,
     noise: qdk_simulators::stabilizer_simulator::NoiseConfig,
 ) -> Vec<MeasurementResult> {
-    let mut sim = Simulator::new(num_qubits as usize, noise);
+    let mut sim = Simulator::new(num_qubits as usize, num_results as usize, noise);
     for op in instructions {
         match op {
             QirInstruction::OneQubitGate(id, qubit) => match id {
@@ -89,7 +91,7 @@ fn run_clifford_shot(
             QirInstruction::TwoQubitGate(id, control, target) => match id {
                 QirInstructionId::CZ => sim.cz(*control as usize, *target as usize),
                 QirInstructionId::MResetZ | QirInstructionId::M | QirInstructionId::MZ => {
-                    sim.mresetz(*control as usize);
+                    sim.mresetz(*control as usize, *target as usize);
                 }
                 _ => panic!(
                     "only CZ, M, MZ, and MResetZ are supported in Clifford simulator, got {id:?}"

@@ -39,12 +39,29 @@ def as_qis_gate(instr: Instruction) -> Dict:
 # Returns all values used by the instruction.
 def get_used_values(instr: Instruction):
     vals = []
+    meas_results = []
     if isinstance(instr, Call):
         vals = instr.args
+        if (
+            instr.callee.name == "__quantum__qis__mresetz__body"
+            or instr.callee.name == "__quantum__qis__m__body"
+            or instr.callee.name == "__quantum__qis__mz__body"
+        ):
+            # Measurement uses a result as the second argument
+            meas_results += vals[1:]
+            vals = vals[:1]
+        elif (
+            instr.callee.name == "__quantum__qis__read_result__body"
+            or instr.callee.name == "__quantum__rt__read_result"
+            or instr.callee.name == "__quantum__rt__read_atom_result"
+        ):
+            # Read result uses a result as the first argument
+            meas_results += vals
+            vals = []
     else:
         vals = instr.operands
     vals.append(instr)
-    return vals
+    return (vals, meas_results)
 
 
 # Returns true if any of the used values are in the existing values.
