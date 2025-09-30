@@ -28,7 +28,7 @@ namespace Test {
         }
     }
 
-    internal operation TestSelectPhase(): Unit {
+    internal operation TestSelectPhase() : Unit {
         use addressRegister = Qubit[3];
         use targetRegister = Qubit[4];
 
@@ -55,7 +55,7 @@ namespace Test {
 
         // This test checks that the implementation of unselect
         // doesn't change address register phases and returns target register to |0⟩ state.
-        let equal = CheckOperationsAreEqual(3, selunsel, (addr) => {} );
+        let equal = CheckOperationsAreEqual(3, selunsel, (addr) => {});
         Fact(CheckAllZero(targetRegister), "Target register must be in |0⟩ state after unlookup.");
         Fact(equal, "Select+Unselect should be equivalent to identity up to global phase.");
     }
