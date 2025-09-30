@@ -68,23 +68,6 @@ class Reorder(QirModuleVisitor):
                 # Gather output recording instructions to be placed at the end of the block just before
                 # the terminator.
                 output_recording.append(instr)
-            # elif is_irreversible(instr):
-            #     (used_values, used_results) = get_used_values(instr)
-            #     # Irreversible instructions must be placed in their own step. Only add
-            #     # them to the last step if it is also for irreversible instructions.
-            #     if (
-            #         len(steps) > 0
-            #         and all(is_irreversible(s) for s in steps[-1])
-            #         and not uses_any_value(used_values, values_used_in_step[-1])
-            #         and not uses_any_value(used_results, results_used_in_step[-1])
-            #     ):
-            #         steps[-1].append(instr)
-            #         values_used_in_step[-1].update(used_values)
-            #         results_used_in_step[-1].update(used_results)
-            #     else:
-            #         steps.append([instr])
-            #         values_used_in_step.append(set(used_values))
-            #         results_used_in_step.append(set(used_results))
             else:
                 # Find the last step that contains instructions that the current instruction
                 # depends on. We want to insert the current instruction on the earliest possible
