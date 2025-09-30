@@ -285,7 +285,7 @@ impl Op {
         op._01i = 0.0;
         op._10r = 0.0; // |1⟩⟨0| coefficient
         op._10i = 0.0;
-        op._11r = -FRAC_1_SQRT_2; // |1⟩⟨1| coefficient (real part of e^(-iπ/4))
+        op._11r = FRAC_1_SQRT_2; // |1⟩⟨1| coefficient (real part of e^(-iπ/4))
         op._11i = -FRAC_1_SQRT_2; // |1⟩⟨1| coefficient (imaginary part of e^(-iπ/4))
         op
     }
