@@ -21,7 +21,6 @@ use crate::{
     protocol::{CodeAction, CodeActionKind, TextEdit, WorkspaceEdit},
 };
 
-/// Entry point used by the generic code action provider to gather wrapper refactor actions.
 pub(crate) fn operation_refactors(
     compilation: &Compilation,
     source_name: &str,

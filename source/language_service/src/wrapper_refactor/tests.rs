@@ -1,8 +1,5 @@
 // Copyright (c) Microsoft Corporation.
-// Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
-
-//! Tests for the wrapper refactor code action logic (synchronous style similar to hover tests).
 
 use crate::{code_action, test_utils::compile_project_with_markers_no_cursor};
 use expect_test::expect;
