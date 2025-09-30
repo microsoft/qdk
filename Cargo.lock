@@ -2245,6 +2245,7 @@ dependencies = [
  "pyo3",
  "qdk_simulators",
  "qsc",
+ "rand 0.8.5",
  "rayon",
  "resource_estimator",
  "rustc-hash",

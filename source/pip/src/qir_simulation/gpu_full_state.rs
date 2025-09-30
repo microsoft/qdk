@@ -4,6 +4,8 @@
 use crate::qir_simulation::{QirInstruction, QirInstructionId};
 use pyo3::{IntoPyObjectExt, exceptions::PyValueError, prelude::*, types::PyList};
 use qdk_simulators::shader_types::Op;
+use qsc::PauliNoise;
+use rand::{RngCore, SeedableRng, rngs::StdRng};
 
 #[allow(clippy::too_many_lines)]
 #[pyfunction]
@@ -12,6 +14,8 @@ pub fn run_gpu_full_state<'py>(
     input: &Bound<'py, PyList>,
     num_qubits: u32,
     shots: u32,
+    noise: Option<(f64, f64, f64)>,
+    seed: Option<u64>,
 ) -> PyResult<PyObject> {
     assert!(shots > 0, "must run at least one shot");
 
@@ -27,36 +31,54 @@ pub fn run_gpu_full_state<'py>(
     // map the QirInstructions to GPU sim ops
     let ops = map_instructions(instructions);
 
-    let mut output = qdk_simulators::run_gpu_simulator(num_qubits, ops);
-
-    let mut prev_entry_idx = u32::MAX;
-    let mut count = 0;
-    for result in &output {
-        if result.entry_idx < prev_entry_idx {
-            count += 1;
-            prev_entry_idx = result.entry_idx;
-        }
-    }
-    output.truncate(count);
-
-    // find the number of entries in the output before the entry_idx of the current result is less than the previous
-    let output = get_probabilities(num_qubits, &output);
-
-    // convert results to a string with one line per shot
-    let mut values = Vec::with_capacity(shots as usize);
-
-    for result in output {
-        let buffer = format!("|{bits}⟩: {prob:.6}", bits = result.0, prob = result.1);
-        values.push(buffer);
-    }
+    let noise = match noise {
+        None => None,
+        Some((px, py, pz)) => match PauliNoise::from_probabilities(px, py, pz) {
+            Ok(noise_struct) => Some(noise_struct),
+            Err(error_message) => return Err(PyValueError::new_err(error_message)),
+        },
+    };
 
     let mut array = Vec::with_capacity(shots as usize);
-    for val in values {
-        array.push(
-            val.into_py_any(py).map_err(|e| {
+    let mut rng = StdRng::seed_from_u64(seed.unwrap_or_else(|| rand::thread_rng().next_u64()));
+
+    for _ in 0..shots {
+        let mut output = if let Some(noise) = noise {
+            qdk_simulators::run_gpu_simulator_with_pauli_noise(
+                num_qubits,
+                ops.clone(),
+                noise.distribution,
+                &mut rng,
+            )
+        } else {
+            qdk_simulators::run_gpu_simulator(num_qubits, ops.clone())
+        };
+
+        let mut prev_entry_idx = u32::MAX;
+        let mut count = 0;
+        for result in &output {
+            if result.entry_idx < prev_entry_idx {
+                count += 1;
+                prev_entry_idx = result.entry_idx;
+            }
+        }
+        output.truncate(count);
+
+        // find the number of entries in the output before the entry_idx of the current result is less than the previous
+        let output = get_probabilities(num_qubits, &output);
+
+        // convert results to a string with one line per shot
+        let mut values = vec![];
+
+        for result in output {
+            let buffer = format!("|{bits}⟩: {prob:.6}", bits = result.0, prob = result.1);
+            values.push(buffer);
+        }
+        for val in values {
+            array.push(val.into_py_any(py).map_err(|e| {
                 PyValueError::new_err(format!("failed to create Python string: {e}"))
-            })?,
-        );
+            })?);
+        }
     }
 
     PyList::new(py, array)

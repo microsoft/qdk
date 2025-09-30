@@ -319,6 +319,8 @@ clifford_simulation = run_qir  # alias
 def run_qir_gpu(
     input: Union[str, bytes],
     shots: Optional[int] = 1,
+    noise: Optional[Tuple[float, float, float]] = None,
+    seed: Optional[int] = None,
 ) -> str:
     context = pyqir.Context()
     if isinstance(input, str):
@@ -332,4 +334,4 @@ def run_qir_gpu(
     if shots is None:
         shots = 1
 
-    return run_gpu_full_state(gates, required_num_qubits, shots)
+    return run_gpu_full_state(gates, required_num_qubits, shots, noise, seed)
