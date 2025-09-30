@@ -210,6 +210,39 @@ async fn code_action_wrapper_qubit_and_array_counters() {
 }
 
 #[tokio::test]
+async fn code_action_wrapper_tuple_todo_positioning() {
+    // Tuple includes a qubit, a UDT, and a generic parameter to trigger TODOs plus allocation.
+    let source = "namespace Test { newtype MyT = Int; operation Mixed<'T>(t : (Qubit, MyT, 'T)) : Unit { } }";
+    let wrapper = get_wrapper_text(source, "Mixed").await;
+    // Expect qubit allocation appears before TODO lines.
+    let alloc_index = wrapper
+        .find("use t_q0 = Qubit();")
+        .expect("allocation present");
+    let binding_index = wrapper.find("let t = (").expect("binding present");
+    assert!(
+        alloc_index < binding_index,
+        "Allocation should precede binding"
+    );
+    // TODO lines should appear after allocation and before binding.
+    let todo_udt_index = wrapper
+        .find("TODO: provide value for tuple component of t (UDT MyT)")
+        .expect("UDT TODO present");
+    // Accept Generic parameter
+    let generic_index = wrapper
+        .find("TODO: provide value for tuple component of t (Generic parameter")
+        .expect("Generic TODO present");
+
+    assert!(
+        alloc_index < todo_udt_index && todo_udt_index < binding_index,
+        "UDT TODO should be after allocation and before binding.\n{wrapper}"
+    );
+    assert!(
+        alloc_index < generic_index && generic_index < binding_index,
+        "Generic/Unknown TODO should be after allocation and before binding.\n{wrapper}"
+    );
+}
+
+#[tokio::test]
 async fn code_action_wrapper_default_single_element_tuple() {
     // Single element tuple parameter (type) bound to a name
     let source = "namespace Test { operation Single(t : (Double,)) : Unit { } }";

@@ -243,13 +243,17 @@ fn build_binding_expr(name: &str, ty: &Ty, decls: &mut Vec<String>) -> String {
             // Single binding to a tuple type: synthesize tuple literal with defaults, allocating qubits as needed.
             let mut qubit_counter = 0u32;
             let mut qubit_reg_counter = 0u32;
+            let mut deferred_todos = Vec::new();
             let tuple_expr = build_tuple_literal(
                 name,
                 items,
                 decls,
                 &mut qubit_counter,
                 &mut qubit_reg_counter,
+                &mut deferred_todos,
             );
+            // Place any deferred TODO comments before the binding so they aren't interleaved with qubit allocations.
+            decls.extend(deferred_todos);
             decls.push(format!("let {name} = {tuple_expr};"));
             name.to_string()
         }
@@ -273,6 +277,7 @@ fn build_tuple_literal(
     decls: &mut Vec<String>,
     qubit_counter: &mut u32,
     qubit_reg_counter: &mut u32,
+    deferred_todos: &mut Vec<String>,
 ) -> String {
     if items.is_empty() {
         return "()".to_string();
@@ -294,8 +299,14 @@ fn build_tuple_literal(
             }
             Ty::Tuple(sub) => {
                 // Recurse: nested tuple inside bound tuple; build literal inline.
-                let nested =
-                    build_tuple_literal(base, sub, decls, qubit_counter, qubit_reg_counter);
+                let nested = build_tuple_literal(
+                    base,
+                    sub,
+                    decls,
+                    qubit_counter,
+                    qubit_reg_counter,
+                    deferred_todos,
+                );
                 parts.push(nested);
             }
             _ => {
@@ -304,7 +315,7 @@ fn build_tuple_literal(
                     parts.push(expr);
                 } else {
                     // Can't synthesize; emit comment and use underscore placeholder.
-                    decls.push(format!(
+                    deferred_todos.push(format!(
                         "// TODO: provide value for tuple component of {base} ({comment})"
                     ));
                     parts.push("_".to_string());
