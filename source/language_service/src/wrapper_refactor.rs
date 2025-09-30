@@ -101,7 +101,7 @@ pub(crate) fn operation_refactors(
             let edit_range = Range::from_span(encoding, &source.contents, &insert_span);
 
             code_actions.push(CodeAction {
-                title: format!("Generate wrapper for {original_name}"),
+                title: format!("Generate wrapper with default arguments for {original_name}"),
                 edit: Some(WorkspaceEdit {
                     changes: vec![(
                         source_name.to_string(),
@@ -121,13 +121,14 @@ pub(crate) fn operation_refactors(
 
 // Generate a wrapper name that does not clash with existing items in the same package (simple heuristic).
 fn generate_unique_wrapper_name(package: &qsc::hir::Package, base: &str) -> String {
-    let mut candidate = format!("{base}_Wrapper");
+    // New naming convention: <BaseName>WithDefaults, with numeric suffixes if needed.
+    let mut candidate = format!("{base}WithDefaults");
     let mut counter = 2;
     while package.items.iter().any(|(_, item)| match &item.kind {
         ItemKind::Callable(decl) => decl.name.name.as_ref() == candidate,
         _ => false,
     }) {
-        candidate = format!("{base}_Wrapper{counter}");
+        candidate = format!("{base}WithDefaults{counter}");
         counter += 1;
     }
     candidate

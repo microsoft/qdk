@@ -27,7 +27,7 @@ fn get_wrapper_text(source: &str, op_name: &str) -> String {
     let actions = code_action::get_code_actions(&compilation, "<source>", range, Encoding::Utf8);
     let action = actions
         .iter()
-        .find(|a| a.title == format!("Generate wrapper for {op_name}"))
+        .find(|a| a.title == format!("Generate wrapper with default arguments for {op_name}"))
         .unwrap_or_else(|| {
             panic!(
                 "Expected wrapper action for {op_name}. Available: {:?}",
@@ -47,7 +47,7 @@ fn basic_wrapper() {
         "Op",
     );
     expect![[r#"
-        operation Op_Wrapper() : Unit {
+        operation OpWithDefaults() : Unit {
             // TODO: Fill out the values for the parameters
             let a = 0;
             let b = false;
@@ -65,7 +65,7 @@ fn indentation_nested() {
     let source =
         "namespace Test {\n    // Some preceding code\n    operation Ind(a : Int) : Unit { }\n}";
     let wrapper_text = get_wrapper_text(source, "Ind");
-    assert!(wrapper_text.starts_with("operation Ind_Wrapper()"));
+    assert!(wrapper_text.starts_with("operation IndWithDefaults()"));
     assert!(wrapper_text.contains("        // Call original operation"));
 }
 
@@ -73,7 +73,7 @@ fn indentation_nested() {
 fn indentation_tabs() {
     let source = "namespace Test {\n\toperation Tabbed(a : Int) : Unit { }\n}";
     let wrapper_text = get_wrapper_text(source, "Tabbed");
-    assert!(wrapper_text.starts_with("operation Tabbed_Wrapper()"));
+    assert!(wrapper_text.starts_with("operation TabbedWithDefaults()"));
     assert!(wrapper_text.contains("\t\t// Call original operation"));
 }
 
@@ -81,7 +81,7 @@ fn indentation_tabs() {
 fn default_qubit() {
     let wrapper = get_wrapper_text("namespace Test { operation Q(q : Qubit) : Unit { } }", "Q");
     expect![[r#"
-        operation Q_Wrapper() : Unit {
+        operation QWithDefaults() : Unit {
             // TODO: Fill out the values for the parameters
             use q = Qubit();
 
@@ -100,7 +100,7 @@ fn default_qubit_array() {
         "QA",
     );
     expect![[r#"
-        operation QA_Wrapper() : Unit {
+        operation QAWithDefaults() : Unit {
             // TODO: Fill out the values for the parameters
             use qs = Qubit[1];
 
@@ -119,7 +119,7 @@ fn default_primitives() {
         "Prims",
     );
     expect![[r#"
-        operation Prims_Wrapper() : Unit {
+        operation PrimsWithDefaults() : Unit {
             // TODO: Fill out the values for the parameters
             let a = 0;
             let b = false;
@@ -144,7 +144,7 @@ fn default_udt() {
         "UsesUdt",
     );
     expect![[r#"
-        operation UsesUdt_Wrapper() : Unit {
+        operation UsesUdtWithDefaults() : Unit {
             // TODO: Fill out the values for the parameters
             // TODO: provide value for x (UDT MyT)
 
@@ -163,7 +163,7 @@ fn default_generic() {
         "Generic",
     );
     expect![[r#"
-        operation Generic_Wrapper() : Unit {
+        operation GenericWithDefaults() : Unit {
             // TODO: Fill out the values for the parameters
             // TODO: provide value for x (Generic parameter 'T)
 
@@ -182,7 +182,7 @@ fn default_array_int() {
         "Arr",
     );
     expect![[r#"
-        operation Arr_Wrapper() : Unit {
+        operation ArrWithDefaults() : Unit {
             // TODO: Fill out the values for the parameters
             let arr = [];
 
@@ -201,7 +201,7 @@ fn default_tuple_destructured() {
         "Tup",
     );
     expect![[r#"
-        operation Tup_Wrapper() : Unit {
+        operation TupWithDefaults() : Unit {
             // TODO: Fill out the values for the parameters
             use param_q0 = Qubit();
             let param = (0, false, (0.0, param_q0));
@@ -221,7 +221,7 @@ fn default_tuple_bound() {
         "Tup2",
     );
     expect![[r#"
-        operation Tup2_Wrapper() : Unit {
+        operation Tup2WithDefaults() : Unit {
             // TODO: Fill out the values for the parameters
             use t_q0 = Qubit();
             use t_qs0 = Qubit[1];
@@ -242,7 +242,7 @@ fn qubit_tuple_counter_persistence() {
         "Deep",
     );
     expect![[r#"
-        operation Deep_Wrapper() : Unit {
+        operation DeepWithDefaults() : Unit {
             // TODO: Fill out the values for the parameters
             use t_q0 = Qubit();
             use t_q1 = Qubit();
@@ -270,7 +270,7 @@ fn qubit_and_array_counters() {
         "Mix",
     );
     expect![[r#"
-        operation Mix_Wrapper() : Unit {
+        operation MixWithDefaults() : Unit {
             // TODO: Fill out the values for the parameters
             use t_q0 = Qubit();
             use t_qs0 = Qubit[1];
@@ -296,7 +296,7 @@ fn tuple_todo_positioning() {
         "Mixed",
     );
     expect![[r#"
-        operation Mixed_Wrapper() : Unit {
+        operation MixedWithDefaults() : Unit {
             // TODO: Fill out the values for the parameters
             use t_q0 = Qubit();
             // TODO: provide value for tuple component of t (UDT MyT)
@@ -318,7 +318,7 @@ fn default_single_element_tuple() {
         "Single",
     );
     expect![[r#"
-        operation Single_Wrapper() : Unit {
+        operation SingleWithDefaults() : Unit {
             // TODO: Fill out the values for the parameters
             let t = (0.0,);
 
