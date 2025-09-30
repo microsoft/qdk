@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 use super::{Error, ErrorKind};
+use log::warn;
 use qsc_data_structures::{index_map::IndexMap, span::Span};
 use qsc_hir::{
     hir::{ItemId, PrimField, Res},
@@ -810,6 +811,7 @@ impl Solver {
             }
             (Ty::Udt(_, res1), Ty::Udt(_, res2)) if res1 == res2 => Vec::new(),
             _ => {
+                warn!("failed to unify {} and {}", ty1.display(), ty2.display());
                 self.errors.push(Error(ErrorKind::TyMismatch(
                     ty1.display(),
                     ty2.display(),
@@ -895,7 +897,15 @@ fn substitute_ty(solution: &Solution, ty: &mut Ty) -> bool {
             return false;
         }
         match ty {
-            Ty::Err | Ty::Param { .. } | Ty::Prim(_) | Ty::Udt(_, _) => true,
+            // Ty::Err | Ty::Param { .. } | Ty::Prim(_) | Ty::Udt(_, _) => true,
+            Ty::Err | Ty::Prim(_) | Ty::Udt(_, _) => true,
+            Ty::Param { bounds, .. } => bounds.0.iter_mut().all(|bound| match bound {
+                ClassConstraint::Exp { power: inner }
+                | ClassConstraint::Iterable { item: inner } => {
+                    substitute_ty_recursive(solution, inner, limit - 1)
+                }
+                _ => true,
+            }),
             Ty::Array(item) => substitute_ty_recursive(solution, item, limit - 1),
             Ty::SizedArray(item, _size) => substitute_ty_recursive(solution, item, limit - 1),
             Ty::Arrow(arrow) => {

@@ -17,6 +17,7 @@ qsc_parse = { path = "../qsc_parse" }
 library = { path = "../../../library" }
 rustc-hash = { workspace = true }
 thiserror = { workspace = true }
+log = { workspace = true }
 
 [dev-dependencies]
 expect-test = { workspace = true }

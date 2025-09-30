@@ -1157,6 +1157,7 @@ dependencies = [
  "expect-test",
  "indoc",
  "library",
+ "log",
  "miette",
  "qsc_ast",
  "qsc_data_structures",
