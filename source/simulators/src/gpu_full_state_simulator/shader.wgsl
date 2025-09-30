@@ -45,6 +45,8 @@ struct Op {
     q1: u32,
     q2: u32,
     q3: u32,
+    rzr: f32,
+    rzi: f32,
     _00r: f32,
     _00i: f32,
     _01r: f32,
@@ -77,8 +79,6 @@ struct Op {
     _32i: f32,
     _33r: f32,
     _33i: f32,
-    rzr: f32,
-    rzi: f32,
     angle: f32, // use as last resort when qubits are lost in 2q rotation gates
 }
 
@@ -89,9 +89,11 @@ struct Result {
 
 // ***** END IMPORTANT SECTION *****
 
-const M_SQRT1_2 = 0.70710678118654752440084436210484903; /* 1/sqrt(2) */
-const t_coeff: vec2f = vec2f(M_SQRT1_2, M_SQRT1_2); // 1/sqrt(2) + i*1/sqrt(2)
-const t_adj_coeff = vec2f(M_SQRT1_2, -M_SQRT1_2);
+const FRAC_1_SQRT_2 = 0.70710678118654752440084436210484903; /* 1/sqrt(2) */
+const s_coeff: vec2f = vec2f(0.0, 1.0);
+const s_adj_coeff: vec2f = vec2f(0.0, -1.0);
+const t_coeff: vec2f = vec2f(FRAC_1_SQRT_2, FRAC_1_SQRT_2); // 1/sqrt(2) + i*1/sqrt(2)
+const t_adj_coeff = vec2f(FRAC_1_SQRT_2, -FRAC_1_SQRT_2);
 
 const PROB_THRESHOLD = 0.01;
 
@@ -145,7 +147,7 @@ fn run_statevector_ops(@builtin(global_invocation_id) global_id: vec3<u32>) {
             return;
         }
         case H, SX, SX_ADJ, RX, RY {
-            apply_unitary_1q_op(thread_id);
+            apply_1q_matrix_op(thread_id);
             return;
         }
         case RZ {
@@ -153,19 +155,19 @@ fn run_statevector_ops(@builtin(global_invocation_id) global_id: vec3<u32>) {
             return;
         }
         case S {
-            apply_s_op(thread_id);
+            apply_s_t_op(thread_id, s_coeff);
             return;
         }
         case S_ADJ {
-            apply_s_adj_op(thread_id);
+            apply_s_t_op(thread_id, s_adj_coeff);
             return;
         }
         case T {
-            apply_t_op(thread_id);
+            apply_s_t_op(thread_id, t_coeff);
             return;
         }
         case T_ADJ {
-            apply_t_adj_op(thread_id);
+            apply_s_t_op(thread_id, t_adj_coeff);
             return;
         }
         case CX {
@@ -185,7 +187,7 @@ fn run_statevector_ops(@builtin(global_invocation_id) global_id: vec3<u32>) {
             return;
         }
         case RXX, RYY {
-            apply_rxx_ryy_op(thread_id);
+            apply_2q_matrix_op(thread_id);
             return;
         }
         case CCX {
@@ -194,10 +196,12 @@ fn run_statevector_ops(@builtin(global_invocation_id) global_id: vec3<u32>) {
         }
         case MATRIX {
             apply_1q_matrix_op(thread_id);
+            // need to renormalize
             return;
         }
         case MATRIX_2Q {
             apply_2q_matrix_op(thread_id);
+            // need to renormalize
             return;
         }
         default {
@@ -286,55 +290,7 @@ fn apply_z_op(thread_id: u32) {
     }
 }
 
-fn apply_s_op(thread_id: u32) {
-    const ITERATIONS: i32 = 1 << (MAX_QUBITS_PER_THREAD - 1);
-    const coeff1: vec2f = vec2f(0.0, 1.0);
-
-    let stride: i32 = 1 << op.q1;
-    let thread_start_iteration: i32 = i32(thread_id) * ITERATIONS;
-
-    // Find the start offset based on the thread and stride
-    var offset: i32 = thread_start_iteration % stride + ((thread_start_iteration / stride) * 2 * stride);
-    let iterations: i32 = select(ITERATIONS, (1 << (QUBIT_COUNT - 1)), QUBIT_COUNT < MAX_QUBITS_PER_THREAD);
-
-    for (var i: i32 = 0; i < iterations; i++) {
-        let amp1 = stateVec[offset + stride];
-
-        stateVec[offset + stride] = cplxmul(amp1, coeff1);
-
-        offset += 1;
-        // If we walked past the end of the block, jump to the next stride
-        // The target qubit flips to 1 when we walk past the 0 entries, and
-        // a target qubit value is also the stride size
-        offset += (offset & stride);
-    }
-}
-
-fn apply_s_adj_op(thread_id: u32) {
-    const ITERATIONS: i32 = 1 << (MAX_QUBITS_PER_THREAD - 1);
-    const coeff1 = vec2f(0.0, -1.0);
-
-    let stride: i32 = 1 << op.q1;
-    let thread_start_iteration: i32 = i32(thread_id) * ITERATIONS;
-
-    // Find the start offset based on the thread and stride
-    var offset: i32 = thread_start_iteration % stride + ((thread_start_iteration / stride) * 2 * stride);
-    let iterations: i32 = select(ITERATIONS, (1 << (QUBIT_COUNT - 1)), QUBIT_COUNT < MAX_QUBITS_PER_THREAD);
-
-    for (var i: i32 = 0; i < iterations; i++) {
-        let amp1 = stateVec[offset + stride];
-
-        stateVec[offset + stride] = cplxmul(amp1, coeff1);
-
-        offset += 1;
-        // If we walked past the end of the block, jump to the next stride
-        // The target qubit flips to 1 when we walk past the 0 entries, and
-        // a target qubit value is also the stride size
-        offset += (offset & stride);
-    }
-}
-
-fn apply_t_op(thread_id: u32) {
+fn apply_s_t_op(thread_id: u32, coeff: vec2f) {
     const ITERATIONS: i32 = 1 << (MAX_QUBITS_PER_THREAD - 1);
 
     let stride: i32 = 1 << op.q1;
@@ -347,30 +303,7 @@ fn apply_t_op(thread_id: u32) {
     for (var i: i32 = 0; i < iterations; i++) {
         let amp1 = stateVec[offset + stride];
 
-        stateVec[offset + stride] = cplxmul(amp1, t_coeff);
-
-        offset += 1;
-        // If we walked past the end of the block, jump to the next stride
-        // The target qubit flips to 1 when we walk past the 0 entries, and
-        // a target qubit value is also the stride size
-        offset += (offset & stride);
-    }
-}
-
-fn apply_t_adj_op(thread_id: u32) {
-    const ITERATIONS: i32 = 1 << (MAX_QUBITS_PER_THREAD - 1);
-
-    let stride: i32 = 1 << op.q1;
-    let thread_start_iteration: i32 = i32(thread_id) * ITERATIONS;
-
-    // Find the start offset based on the thread and stride
-    var offset: i32 = thread_start_iteration % stride + ((thread_start_iteration / stride) * 2 * stride);
-    let iterations: i32 = select(ITERATIONS, (1 << (QUBIT_COUNT - 1)), QUBIT_COUNT < MAX_QUBITS_PER_THREAD);
-
-    for (var i: i32 = 0; i < iterations; i++) {
-        let amp1 = stateVec[offset + stride];
-
-        stateVec[offset + stride] = cplxmul(amp1, t_adj_coeff);
+        stateVec[offset + stride] = cplxmul(amp1, coeff);
 
         offset += 1;
         // If we walked past the end of the block, jump to the next stride
@@ -406,50 +339,19 @@ fn apply_t_adj_op(thread_id: u32) {
 /// - offset=1: process states |001⟩ ↔ |011⟩ (indices 1,3)
 /// - offset=4: process states |100⟩ ↔ |110⟩ (indices 4,6)
 /// - offset=5: process states |101⟩ ↔ |111⟩ (indices 5,7)
-fn apply_unitary_1q_op(thread_id: u32) {
-    const ITERATIONS: i32 = 1 << (MAX_QUBITS_PER_THREAD - 1);
-
-    let stride: i32 = 1 << op.q1;
-    let thread_start_iteration: i32 = i32(thread_id) * ITERATIONS;
-
-    let coeff00: vec2f = vec2f(op._00r, op._00i);
-    let coeff01: vec2f = vec2f(op._01r, op._01i);
-    let coeff10: vec2f = vec2f(op._10r, op._10i);
-    let coeff11: vec2f = vec2f(op._11r, op._11i);
-
-    // Find the start offset based on the thread and stride
-    var offset: i32 = thread_start_iteration % stride + ((thread_start_iteration / stride) * 2 * stride);
-    let iterations: i32 = select(ITERATIONS, (1 << (QUBIT_COUNT - 1)), QUBIT_COUNT < MAX_QUBITS_PER_THREAD);
-
-    for (var i: i32 = 0; i < iterations; i++) {
-        let amp0 = stateVec[offset];
-        let amp1 = stateVec[offset + stride];
-
-        stateVec[offset] = cplxmul(amp0, coeff00) + cplxmul(amp1, coeff01);
-        stateVec[offset + stride] = cplxmul(amp0, coeff10) + cplxmul(amp1, coeff11);
-
-        offset += 1;
-        // If we walked past the end of the block, jump to the next stride
-        // The target qubit flips to 1 when we walk past the 0 entries, and
-        // a target qubit value is also the stride size
-        offset += (offset & stride);
-    }
-}
-
-/// Applies a single-qubit matrix operator using the matrix elements stored in the Op struct.
 ///
 /// Unlike unitary operations, matrix operators may not preserve norm, so this operation
 /// should typically be followed by renormalization when used in quantum error models.
 fn apply_1q_matrix_op(thread_id: u32) {
     const ITERATIONS: i32 = 1 << (MAX_QUBITS_PER_THREAD - 1);
 
+    let stride: i32 = 1 << op.q1;
+    let thread_start_iteration: i32 = i32(thread_id) * ITERATIONS;
+
     let coeff00: vec2f = vec2f(op._00r, op._00i);
     let coeff01: vec2f = vec2f(op._01r, op._01i);
     let coeff10: vec2f = vec2f(op._10r, op._10i);
     let coeff11: vec2f = vec2f(op._11r, op._11i);
-
-    let stride: i32 = 1 << op.q1;
-    let thread_start_iteration: i32 = i32(thread_id) * ITERATIONS;
 
     // Find the start offset based on the thread and stride
     var offset: i32 = thread_start_iteration % stride + ((thread_start_iteration / stride) * 2 * stride);
@@ -468,8 +370,6 @@ fn apply_1q_matrix_op(thread_id: u32) {
         // a target qubit value is also the stride size
         offset += (offset & stride);
     }
-
-    // renormalize...
 }
 
 /// Applies a two-qubit matrix operator using the 4x4 matrix elements stored in the Op struct.
@@ -504,8 +404,8 @@ fn apply_2q_matrix_op(thread_id: u32) {
     let coeff32: vec2f = vec2f(op._32r, op._32i); // |11⟩⟨10| = row3[2]
     let coeff33: vec2f = vec2f(op._33r, op._33i); // |11⟩⟨11| = row3[3]
 
-    let iterations: i32 = select(1 << (QUBIT_COUNT - 2), ITERATIONS, QUBIT_COUNT >= MAX_QUBITS_PER_THREAD);
     let start_count: i32 = i32(thread_id) * ITERATIONS;
+    let iterations: i32 = select(1 << (QUBIT_COUNT - 2), ITERATIONS, QUBIT_COUNT >= MAX_QUBITS_PER_THREAD);
     let end_count: i32 = start_count + iterations;
 
     let lowQubit = select(op.q1, op.q2, op.q1 > op.q2);
@@ -540,8 +440,6 @@ fn apply_2q_matrix_op(thread_id: u32) {
         // New |11⟩ = coeff30*|00⟩ + coeff31*|01⟩ + coeff32*|10⟩ + coeff33*|11⟩
         stateVec[offset11] = cplxmul(amp00, coeff30) + cplxmul(amp01, coeff31) + cplxmul(amp10, coeff32) + cplxmul(amp11, coeff33);
     }
-
-    // renormalize...
 }
 
 fn apply_cx_op(thread_id: u32) {
@@ -613,67 +511,6 @@ fn apply_rz_op(thread_id: u32) {
     for (var i: i32 = 0; i < iterations; i++) {
         let amp1 = stateVec[offset + stride];
         stateVec[offset + stride] = cplxmul(amp1, coeff2);
-    }
-}
-
-fn apply_rxx_ryy_op(thread_id: u32) {
-    const ITERATIONS: i32 = 1 << (MAX_QUBITS_PER_THREAD - 2);
-
-    let coeff00 = vec2f(op._00r, op._00i);
-    let coeff01 = vec2f(op._01r, op._01i);
-    let coeff02 = vec2f(op._02r, op._02i);
-    let coeff03 = vec2f(op._03r, op._03i);
-    let coeff10 = vec2f(op._10r, op._10i);
-    let coeff11 = vec2f(op._11r, op._11i);
-    let coeff12 = vec2f(op._12r, op._12i);
-    let coeff13 = vec2f(op._13r, op._13i);
-    let coeff20 = vec2f(op._20r, op._20i);
-    let coeff21 = vec2f(op._21r, op._21i);
-    let coeff22 = vec2f(op._22r, op._22i);
-    let coeff23 = vec2f(op._23r, op._23i);
-    let coeff30 = vec2f(op._30r, op._30i);
-    let coeff31 = vec2f(op._31r, op._31i);
-    let coeff32 = vec2f(op._32r, op._32i);
-    let coeff33 = vec2f(op._33r, op._33i);
-
-    let lowQubit = select(op.q1, op.q2, op.q1 > op.q2);
-    let hiQubit = select(op.q1, op.q2, op.q1 < op.q2);
-
-    let lowBitCount = lowQubit;
-    let midBitCount = hiQubit - lowQubit - 1;
-    let hiBitCount = QUBIT_COUNT - hiQubit - 1;
-
-    let lowMask = (1 << lowBitCount) - 1;
-    let midMask = (1 << (lowBitCount + midBitCount)) - 1 - lowMask;
-    let hiMask = (1 << (lowBitCount + midBitCount + hiBitCount)) - 1 - midMask - lowMask;
-
-    let start_count: i32 = i32(thread_id) * ITERATIONS;
-
-    let iterations: i32 = select(1 << (QUBIT_COUNT - 2), ITERATIONS, QUBIT_COUNT >= MAX_QUBITS_PER_THREAD);
-
-    let end_count: i32 = start_count + iterations;
-
-
-    for (var i: i32 = start_count; i < end_count; i++) {
-        let offset00: i32 = (i & lowMask) | ((i & midMask) << 1) | ((i & hiMask) << 2);
-        let offset01: i32 = offset00 | (1 << hiQubit);
-        let offset10: i32 = offset00 | (1 << lowQubit);
-        let offset11: i32 = offset01 | offset10;
-
-        let amp00 = stateVec[offset00];
-        let amp01 = stateVec[offset01];
-        let amp10 = stateVec[offset10];
-        let amp11 = stateVec[offset11];
-
-        // Apply the full 4x4 matrix transformation using precomputed coefficients
-        // New |00⟩ = coeff00*|00⟩ + coeff01*|01⟩ + coeff02*|10⟩ + coeff03*|11⟩
-        stateVec[offset00] = cplxmul(amp00, coeff00) + cplxmul(amp01, coeff01) + cplxmul(amp10, coeff02) + cplxmul(amp11, coeff03);
-        // New |01⟩ = coeff10*|00⟩ + coeff11*|01⟩ + coeff12*|10⟩ + coeff13*|11⟩
-        stateVec[offset01] = cplxmul(amp00, coeff10) + cplxmul(amp01, coeff11) + cplxmul(amp10, coeff12) + cplxmul(amp11, coeff13);
-        // New |10⟩ = coeff20*|00⟩ + coeff21*|01⟩ + coeff22*|10⟩ + coeff23*|11⟩
-        stateVec[offset10] = cplxmul(amp00, coeff20) + cplxmul(amp01, coeff21) + cplxmul(amp10, coeff22) + cplxmul(amp11, coeff23);
-        // New |11⟩ = coeff30*|00⟩ + coeff31*|01⟩ + coeff32*|10⟩ + coeff33*|11⟩
-        stateVec[offset11] = cplxmul(amp00, coeff30) + cplxmul(amp01, coeff31) + cplxmul(amp10, coeff32) + cplxmul(amp11, coeff33);
     }
 }
 

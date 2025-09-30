@@ -3,6 +3,8 @@
 
 #![allow(unused)]
 
+use std::f32::consts::FRAC_1_SQRT_2;
+
 use bytemuck::{Pod, Zeroable};
 
 pub const MAX_QUBITS_PER_THREAD: u32 = 10;
@@ -48,6 +50,8 @@ pub struct Op {
     pub q1: u32,
     pub q2: u32,
     pub q3: u32, // For ccx
+    pub rzr: f32,
+    pub rzi: f32,
     pub _00r: f32,
     pub _00i: f32,
     pub _01r: f32,
@@ -80,8 +84,6 @@ pub struct Op {
     pub _32i: f32,
     pub _33r: f32,
     pub _33i: f32,
-    pub rzr: f32,
-    pub rzi: f32,
     pub angle: f32,
     pub padding: [u8; OP_PADDING],
 }
@@ -89,16 +91,15 @@ pub struct Op {
 // safety check to make sure Op is the correct size with padding at compile time
 const _: () = assert!(std::mem::size_of::<Op>() == 256);
 
-/// Utility functions for creating 1-qubit gate operations
-#[allow(clippy::pub_underscore_fields, clippy::used_underscore_binding)]
-impl Op {
-    /// Create a new Op with default values
-    fn new_1q_gate(op_id: u32, qubit: u32) -> Self {
+impl Default for Op {
+    fn default() -> Self {
         Self {
-            id: op_id,
-            q1: qubit,
+            id: 0,
+            q1: 0,
             q2: 0,
             q3: 0,
+            rzr: 0.0,
+            rzi: 0.0,
             _00r: 0.0,
             _00i: 0.0,
             _01r: 0.0,
@@ -131,10 +132,20 @@ impl Op {
             _32i: 0.0,
             _33r: 0.0,
             _33i: 0.0,
-            rzr: 0.0,
-            rzi: 0.0,
             angle: 0.0,
             padding: [0; OP_PADDING],
+        }
+    }
+}
+/// Utility functions for creating 1-qubit gate operations
+#[allow(clippy::pub_underscore_fields, clippy::used_underscore_binding)]
+impl Op {
+    /// Create a new Op with default values
+    fn new_1q_gate(op_id: u32, qubit: u32) -> Self {
+        Self {
+            id: op_id,
+            q1: qubit,
+            ..Default::default()
         }
     }
 
@@ -208,14 +219,13 @@ impl Op {
     #[must_use]
     pub fn new_h_gate(qubit: u32) -> Self {
         let mut op = Self::new_1q_gate(ops::H, qubit);
-        let inv_sqrt2 = 1.0 / (2.0_f32).sqrt(); // 1/√2
-        op._00r = inv_sqrt2; // |0⟩⟨0| coefficient
+        op._00r = FRAC_1_SQRT_2; // |0⟩⟨0| coefficient
         op._00i = 0.0;
-        op._01r = inv_sqrt2; // |0⟩⟨1| coefficient
+        op._01r = FRAC_1_SQRT_2; // |0⟩⟨1| coefficient
         op._01i = 0.0;
-        op._10r = inv_sqrt2; // |1⟩⟨0| coefficient
+        op._10r = FRAC_1_SQRT_2; // |1⟩⟨0| coefficient
         op._10i = 0.0;
-        op._11r = -inv_sqrt2; // |1⟩⟨1| coefficient
+        op._11r = -FRAC_1_SQRT_2; // |1⟩⟨1| coefficient
         op._11i = 0.0;
         op
     }
@@ -254,15 +264,14 @@ impl Op {
     #[must_use]
     pub fn new_t_gate(qubit: u32) -> Self {
         let mut op = Self::new_1q_gate(ops::T, qubit);
-        let pi_4 = std::f32::consts::PI / 4.0; // π/4
         op._00r = 1.0; // |0⟩⟨0| coefficient
         op._00i = 0.0;
         op._01r = 0.0; // |0⟩⟨1| coefficient
         op._01i = 0.0;
         op._10r = 0.0; // |1⟩⟨0| coefficient
         op._10i = 0.0;
-        op._11r = pi_4.cos(); // |1⟩⟨1| coefficient (real part of e^(iπ/4))
-        op._11i = pi_4.sin(); // |1⟩⟨1| coefficient (imaginary part of e^(iπ/4))
+        op._11r = FRAC_1_SQRT_2; // |1⟩⟨1| coefficient (real part of e^(iπ/4))
+        op._11i = FRAC_1_SQRT_2; // |1⟩⟨1| coefficient (imaginary part of e^(iπ/4))
         op
     }
 
@@ -270,15 +279,14 @@ impl Op {
     #[must_use]
     pub fn new_t_adj_gate(qubit: u32) -> Self {
         let mut op = Self::new_1q_gate(ops::T_ADJ, qubit);
-        let neg_pi_4 = -std::f32::consts::PI / 4.0; // -π/4
         op._00r = 1.0; // |0⟩⟨0| coefficient
         op._00i = 0.0;
         op._01r = 0.0; // |0⟩⟨1| coefficient
         op._01i = 0.0;
         op._10r = 0.0; // |1⟩⟨0| coefficient
         op._10i = 0.0;
-        op._11r = neg_pi_4.cos(); // |1⟩⟨1| coefficient (real part of e^(-iπ/4))
-        op._11i = neg_pi_4.sin(); // |1⟩⟨1| coefficient (imaginary part of e^(-iπ/4))
+        op._11r = -FRAC_1_SQRT_2; // |1⟩⟨1| coefficient (real part of e^(-iπ/4))
+        op._11i = -FRAC_1_SQRT_2; // |1⟩⟨1| coefficient (imaginary part of e^(-iπ/4))
         op
     }
 
@@ -380,43 +388,7 @@ impl Op {
             id: op_id,
             q1: control,
             q2: target,
-            q3: 0,
-            _00r: 0.0,
-            _00i: 0.0,
-            _01r: 0.0,
-            _01i: 0.0,
-            _02r: 0.0,
-            _02i: 0.0,
-            _03r: 0.0,
-            _03i: 0.0,
-            _10r: 0.0,
-            _10i: 0.0,
-            _11r: 0.0,
-            _11i: 0.0,
-            _12r: 0.0,
-            _12i: 0.0,
-            _13r: 0.0,
-            _13i: 0.0,
-            _20r: 0.0,
-            _20i: 0.0,
-            _21r: 0.0,
-            _21i: 0.0,
-            _22r: 0.0,
-            _22i: 0.0,
-            _23r: 0.0,
-            _23i: 0.0,
-            _30r: 0.0,
-            _30i: 0.0,
-            _31r: 0.0,
-            _31i: 0.0,
-            _32r: 0.0,
-            _32i: 0.0,
-            _33r: 0.0,
-            _33i: 0.0,
-            rzr: 0.0,
-            rzi: 0.0,
-            angle: 0.0,
-            padding: [0; OP_PADDING],
+            ..Default::default()
         }
     }
 
