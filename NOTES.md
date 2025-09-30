@@ -8,13 +8,16 @@
 - PyQIR-based circuit builder
 - A couple of RIR codegen tests (probably unnecessary)
 - compute properties stored in the interpreter to support RIR generation from entrypoint
-- circuit config object plumbed into interpreter & circuit generation
+- Circuit configuration
+  - circuit config object plumbed into interpreter & circuit generation
+  - loop detection, generation method, group scopes, collapse registers settings
 - circuit generation method options (static, eval, simulate)
 - expose static circuit generation in interpreter
 - update all the circuit unit tests in interpreter
 - ascii art update to show boxes (in tests and Python)
 - new test cases for loop, scope grouping, conditionals, custom instrinsics, variable arguments, etc
 - variable arguments for gates
+- source location metadata for gates
 
 ## Not done, but necessary
 
