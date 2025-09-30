@@ -39,6 +39,8 @@ pub mod ops {
     pub const MATRIX_2Q: u32 = 26;
 }
 
+pub(super) const OP_PADDING: usize = 100;
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct Op {
@@ -80,7 +82,8 @@ pub struct Op {
     pub _33i: f32,
     pub rzr: f32,
     pub rzi: f32,
-    pub padding: [u8; 104],
+    pub angle: f32,
+    pub padding: [u8; OP_PADDING],
 }
 
 // safety check to make sure Op is the correct size with padding at compile time
@@ -130,7 +133,8 @@ impl Op {
             _33i: 0.0,
             rzr: 0.0,
             rzi: 0.0,
-            padding: [0; 104],
+            angle: 0.0,
+            padding: [0; OP_PADDING],
         }
     }
 
@@ -411,7 +415,8 @@ impl Op {
             _33i: 0.0,
             rzr: 0.0,
             rzi: 0.0,
-            padding: [0; 104],
+            angle: 0.0,
+            padding: [0; OP_PADDING],
         }
     }
 

@@ -79,6 +79,7 @@ struct Op {
     _33i: f32,
     rzr: f32,
     rzi: f32,
+    angle: f32, // use as last resort when qubits are lost in 2q rotation gates
 }
 
 struct Result {

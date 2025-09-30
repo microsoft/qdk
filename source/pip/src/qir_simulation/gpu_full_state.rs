@@ -49,6 +49,7 @@ pub fn run_gpu_full_state<'py>(
                 ops.clone(),
                 noise.distribution,
                 &mut rng,
+                None,
             )
         } else {
             qdk_simulators::run_gpu_simulator(num_qubits, ops.clone())

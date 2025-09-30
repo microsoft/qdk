@@ -3,7 +3,6 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use qdk_simulators::run_gpu_simulator;
 use qdk_simulators::shader_types::Op;
-use qdk_simulators::shader_types::ops;
 use rand::{Rng, SeedableRng, distributions::Uniform, prelude::Distribution, rngs::StdRng};
 use std::hint::black_box;
 
@@ -25,54 +24,6 @@ fn random_qubit_pair(rng: &mut StdRng) -> (u32, u32) {
     }
 
     (q1, q2)
-}
-
-fn gate_op(id: u32, q1: u32, q2: u32, q3: u32) -> Op {
-    Op {
-        id,
-        q1,
-        q2,
-        q3,
-        _00r: 0.0,
-        _00i: 0.0,
-        _01r: 0.0,
-        _01i: 0.0,
-        _02r: 0.0,
-        _02i: 0.0,
-        _03r: 0.0,
-        _03i: 0.0,
-        _10r: 0.0,
-        _10i: 0.0,
-        _11r: 0.0,
-        _11i: 0.0,
-        _12r: 0.0,
-        _12i: 0.0,
-        _13r: 0.0,
-        _13i: 0.0,
-        _20r: 0.0,
-        _20i: 0.0,
-        _21r: 0.0,
-        _21i: 0.0,
-        _22r: 0.0,
-        _22i: 0.0,
-        _23r: 0.0,
-        _23i: 0.0,
-        _30r: 0.0,
-        _30i: 0.0,
-        _31r: 0.0,
-        _31i: 0.0,
-        _32r: 0.0,
-        _32i: 0.0,
-        _33r: 0.0,
-        _33i: 0.0,
-        rzr: 0.0,
-        rzi: 0.0,
-        padding: [0; 104],
-    }
-}
-
-fn m_every_z() -> Op {
-    gate_op(ops::MEVERYZ, 0, 0, 0)
 }
 
 fn gate(rng: &mut StdRng) -> Op {
@@ -108,7 +59,7 @@ fn random_gates(num_gates: usize) -> Vec<Op> {
     for _ in 0..num_gates {
         gates.push(gate(&mut rng));
     }
-    gates.push(m_every_z());
+    gates.push(Op::new_m_every_z_gate());
 
     gates
 }
@@ -119,7 +70,7 @@ fn gates(num_gates: usize, mut f: impl FnMut(&mut StdRng) -> Op) -> Vec<Op> {
     for _ in 0..num_gates {
         gates.push(f(&mut rng));
     }
-    gates.push(m_every_z());
+    gates.push(Op::new_m_every_z_gate());
 
     gates
 }

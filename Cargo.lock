@@ -1848,6 +1848,7 @@ dependencies = [
  "criterion 0.7.0",
  "expect-test",
  "futures",
+ "num-bigint",
  "quantum-sparse-sim",
  "rand 0.8.5",
  "stabilizer_simulator",

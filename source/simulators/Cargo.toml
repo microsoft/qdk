@@ -15,6 +15,7 @@ bytemuck = { workspace = true }
 futures = { workspace = true }
 wgpu = { workspace = true }
 rand = { workspace = true }
+num-bigint = { workspace = true }
 
 [dev-dependencies]
 expect-test = { workspace = true }

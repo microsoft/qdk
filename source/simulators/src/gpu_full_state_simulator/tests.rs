@@ -90,7 +90,8 @@ fn gate_op(id: u32, q1: u32, q2: u32, q3: u32) -> Op {
         _33i: 0.0,
         rzr: 0.0,
         rzi: 0.0,
-        padding: [0; 104],
+        angle: 0.0,
+        padding: [0; super::shader_types::OP_PADDING],
     }
 }
 
