@@ -28,6 +28,38 @@ namespace Test {
         }
     }
 
+    internal operation TestSelectPhase(): Unit {
+        use addressRegister = Qubit[3];
+        use targetRegister = Qubit[4];
+
+        // Could be random, but fixed for reproducibility
+        let data = [
+            [false, false, false, false],
+            [false, false, true, false],
+            [true, true, false, false],
+            [false, true, false, false],
+            [true, true, true, true],
+            [true, false, false, false],
+            [true, true, true, false],
+            [true, false, true, false],
+        ];
+
+        // Select followed by unselect. This should be equivalent to identity.
+        let selunsel = (addr) => {
+            within {
+                Select(data, addr, targetRegister);
+            } apply {
+                // Do nothing.
+            }
+        };
+
+        // This test checks that the implementation of unselect
+        // doesn't change address register phases and returns target register to |0⟩ state.
+        let equal = CheckOperationsAreEqual(3, selunsel, (addr) => {} );
+        Fact(CheckAllZero(targetRegister), "Target register must be in |0⟩ state after unlookup.");
+        Fact(equal, "Select+Unselect should be equivalent to identity up to global phase.");
+    }
+
     internal operation TestSelectFuzz(rounds : Int) : Unit {
         for _ in 1..rounds {
             let addressBits = DrawRandomInt(2, 6);
