@@ -108,6 +108,16 @@ def transform(
         print(f"PruneUnusedFunctions: {end_time - start_time:.3f} seconds")
         start_time = end_time
 
+    ValidateAllowedIntrinsics().run(module)
+    # ValidateBeginEndParallel().run(module)
+    if check_clifford:
+        ValidateSingleBlock().run(module)
+        ValidateCliffordRzAngles().run(module)
+    if verbose:
+        end_time = time.time()
+        print(f"Validation: {end_time - start_time:.3f} seconds")
+        start_time = end_time
+
     # before = PerQubitOrdering()
     # before.run(module)
 
@@ -133,16 +143,6 @@ def transform(
     #         for instr in after_instrs:
     #             print(f"    {instr}")
     #         raise RuntimeError("Reordering changed the per-qubit instruction order")
-
-    ValidateAllowedIntrinsics().run(module)
-    # ValidateBeginEndParallel().run(module)
-    if check_clifford:
-        ValidateSingleBlock().run(module)
-        ValidateCliffordRzAngles().run(module)
-    if verbose:
-        end_time = time.time()
-        print(f"Validation: {end_time - start_time:.3f} seconds")
-        start_time = end_time
 
     if not skip_scheduling:
         if device is None:
