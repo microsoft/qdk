@@ -358,7 +358,6 @@ operation ConstructPowerProducts(qubits : Qubit[], aux_qubits : Qubit[]) : Qubit
             next_available += 1;
             // Create appropriate set and add it to the result
             AND(power_products[existing_set_index], qubits[qubit_index], next_power_product);
-            Message($"AND({power_products[existing_set_index]}, {qubits[qubit_index]}, {next_power_product})");
             power_products += [next_power_product];
         }
     }
@@ -404,7 +403,6 @@ operation DestructPowerProducts(products : Qubit[]) : Unit {
             if MResetX(products[h + k]) == One {
                 // If we measure 1, qubit representing set k needs to be included in targets.
                 CZ(products[h - 1], products[k]);
-                Message($"CZ({products[h - 1]}, {products[k]})");
             }
         }
         // Done with qubit at index h-1. Go to next original qubit.
@@ -511,7 +509,6 @@ operation ApplyMaskedMultitargetZ(targets : Qubit[], mask : Bool[]) : Unit {
     for i in 0..Length(targets)-1 {
         if mask[i] {
             Z(targets[i]);
-            Message($"Z({targets[i]})");
         }
     }
 }
@@ -525,7 +522,6 @@ operation ApplyMaskedMultitargetCZ(control : Qubit, targets : Qubit[], mask : Bo
     for i in 0..Length(targets)-1 {
         if mask[i] {
             CZ(control, targets[i]);
-            Message($"CZ({control}, {targets[i]})");
         }
     }
 }
