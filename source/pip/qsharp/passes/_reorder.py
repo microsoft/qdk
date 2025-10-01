@@ -112,7 +112,7 @@ class Reorder(QirModuleVisitor):
         # Insert the instructions back into the block in the correct order.
         self.builder.insert_at_end(block)
         for step in steps:
-            for instr in step:  # sorted(step, key=instr_key):
+            for instr in sorted(step, key=instr_key):
                 self.builder.instr(instr)
         # Add output recording instructions and terminator at the end of the block.
         for instr in output_recording:
