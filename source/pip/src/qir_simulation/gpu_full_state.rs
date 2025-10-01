@@ -2,10 +2,32 @@
 // Licensed under the MIT License.
 
 use crate::qir_simulation::{QirInstruction, QirInstructionId};
-use pyo3::{IntoPyObjectExt, exceptions::PyValueError, prelude::*, types::PyList};
+use pyo3::{
+    IntoPyObjectExt,
+    exceptions::{PyOSError, PyRuntimeError, PyValueError},
+    prelude::*,
+    types::PyList,
+};
 use qdk_simulators::shader_types::Op;
 use qsc::PauliNoise;
 use rand::{RngCore, SeedableRng, rngs::StdRng};
+
+/// Checks if a compatible GPU adapter is available on the system.
+///
+/// This function attempts to request a GPU adapter to determine if GPU-accelerated
+/// quantum simulation is supported. It's useful for capability detection before
+/// attempting to run GPU-based simulations.
+///
+/// # Errors
+///
+/// Returns `Err(String)` if:
+/// - No compatible GPU is found
+/// - GPU drivers are missing or not functioning properly
+#[pyfunction]
+pub fn try_create_gpu_adapter() -> PyResult<()> {
+    qdk_simulators::try_create_gpu_adapter().map_err(PyOSError::new_err)?;
+    Ok(())
+}
 
 #[allow(clippy::too_many_lines)]
 #[pyfunction]
@@ -18,6 +40,10 @@ pub fn run_gpu_full_state<'py>(
     seed: Option<u64>,
 ) -> PyResult<PyObject> {
     assert!(shots > 0, "must run at least one shot");
+
+    // check for GPU availability.
+    // This saves us a bunch of work if the GPU is not available.
+    try_create_gpu_adapter()?;
 
     // convert Python list input to Vec<QirInstruction>
     let mut instructions: Vec<QirInstruction> = vec![];
@@ -53,7 +79,8 @@ pub fn run_gpu_full_state<'py>(
             )
         } else {
             qdk_simulators::run_gpu_simulator(num_qubits, ops.clone())
-        };
+        }
+        .map_err(PyRuntimeError::new_err)?;
 
         let mut prev_entry_idx = u32::MAX;
         let mut count = 0;
@@ -146,14 +173,18 @@ fn map_instruction(qir_inst: &QirInstruction) -> Option<qdk_simulators::shader_t
             }
             Op::new_m_every_z_gate()
         }
-        QirInstruction::OneQubitRotationGate(id, angle, qubit) => match id {
-            QirInstructionId::RX => Op::new_rx_gate(*angle as f32, *qubit),
-            QirInstructionId::RY => Op::new_ry_gate(*angle as f32, *qubit),
-            QirInstructionId::RZ => Op::new_rz_gate(*angle as f32, *qubit),
-            _ => {
-                return None;
+        QirInstruction::OneQubitRotationGate(id, angle, qubit) => {
+            #[allow(clippy::cast_possible_truncation)]
+            let angle = *angle as f32;
+            match id {
+                QirInstructionId::RX => Op::new_rx_gate(angle, *qubit),
+                QirInstructionId::RY => Op::new_ry_gate(angle, *qubit),
+                QirInstructionId::RZ => Op::new_rz_gate(angle, *qubit),
+                _ => {
+                    return None;
+                }
             }
-        },
+        }
         QirInstruction::TwoQubitRotationGate(id, angle, qubit1, qubit2) => {
             #[allow(clippy::cast_possible_truncation)]
             let angle = *angle as f32;
@@ -166,42 +197,10 @@ fn map_instruction(qir_inst: &QirInstruction) -> Option<qdk_simulators::shader_t
                 }
             }
         }
-        QirInstruction::ThreeQubitGate(id, c1, c2, target) => match id {
-            QirInstructionId::CCX => unimplemented!("ccx"), //Op::new_ccx_gate(*c1, *c2, *target),
-            _ => {
-                return None;
-            }
-        },
+        QirInstruction::ThreeQubitGate(QirInstructionId::CCX, c1, c2, target) => {
+            unimplemented!("{c1}, {c2}, {target}") //Op::new_ccx_gate(*c1, *c2, *target),
+        }
         _ => return None,
     };
     Some(op)
-}
-
-fn map_ids(qir_id: QirInstructionId) -> u32 {
-    match qir_id {
-        QirInstructionId::H => qdk_simulators::shader_types::ops::H,
-        QirInstructionId::X => qdk_simulators::shader_types::ops::X,
-        QirInstructionId::Y => qdk_simulators::shader_types::ops::Y,
-        QirInstructionId::Z => qdk_simulators::shader_types::ops::Z,
-        QirInstructionId::S => qdk_simulators::shader_types::ops::S,
-        QirInstructionId::SAdj => qdk_simulators::shader_types::ops::S_ADJ,
-        QirInstructionId::SX => qdk_simulators::shader_types::ops::SX,
-        QirInstructionId::SXAdj => qdk_simulators::shader_types::ops::SX_ADJ,
-        QirInstructionId::T => qdk_simulators::shader_types::ops::T,
-        QirInstructionId::TAdj => qdk_simulators::shader_types::ops::T_ADJ,
-        QirInstructionId::CZ => qdk_simulators::shader_types::ops::CZ,
-        QirInstructionId::CNOT | QirInstructionId::CX => qdk_simulators::shader_types::ops::CX,
-        QirInstructionId::CCX => qdk_simulators::shader_types::ops::CCX,
-        QirInstructionId::SWAP => qdk_simulators::shader_types::ops::SWAP,
-        QirInstructionId::RX => qdk_simulators::shader_types::ops::RX,
-        QirInstructionId::RY => qdk_simulators::shader_types::ops::RY,
-        QirInstructionId::RZ => qdk_simulators::shader_types::ops::RZ,
-        QirInstructionId::RXX => qdk_simulators::shader_types::ops::RXX,
-        QirInstructionId::RYY => qdk_simulators::shader_types::ops::RYY,
-        QirInstructionId::RZZ => qdk_simulators::shader_types::ops::RZZ,
-        QirInstructionId::M | QirInstructionId::MZ | QirInstructionId::MResetZ => {
-            qdk_simulators::shader_types::ops::MEVERYZ
-        }
-        _ => panic!("unsupported gate in full state simulator, got {qir_id:?}"),
-    }
 }

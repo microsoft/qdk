@@ -9,7 +9,7 @@ use futures::FutureExt;
 use std::num::NonZeroU64;
 use wgpu::{
     Adapter, BindGroup, BindGroupLayout, Buffer, BufferDescriptor, BufferUsages, ComputePipeline,
-    Device, Limits, Queue, ShaderModule,
+    Device, Limits, Queue, RequestAdapterError, ShaderModule,
 };
 
 const DO_CAPTURE: bool = false;
@@ -38,7 +38,28 @@ struct GpuResources {
 }
 
 impl GpuContext {
-    pub async fn new(qubit_count: i32, ops: Vec<Op>) -> Self {
+    /// Requests a GPU adapter from the system.
+    ///
+    /// This function creates a WebGPU instance and requests an adapter (representing a physical
+    /// GPU or software rendering backend) using default options. The adapter is needed to create
+    /// a logical device for GPU operations.
+    ///
+    /// # Errors
+    ///
+    /// Returns `RequestAdapterError` if no suitable adapter can be found. This can happen if:
+    /// - No compatible GPU is available
+    /// - GPU drivers are not installed or not functioning
+    pub async fn get_adapter() -> std::result::Result<Adapter, RequestAdapterError> {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+        instance
+            .request_adapter(&wgpu::RequestAdapterOptions::default())
+            .await
+    }
+
+    pub async fn new(
+        qubit_count: i32,
+        ops: Vec<Op>,
+    ) -> std::result::Result<Self, RequestAdapterError> {
         // wgpu limits buffers to 1GB, which is 2^30 bytes.
         // As we need 8 bytes (2^3) per complex number, we can only support up to 2^27 state vector entries.
         // See https://github.com/gfx-rs/wgpu/issues/2337#issuecomment-1549935712
@@ -49,12 +70,8 @@ impl GpuContext {
 
         let (entries_per_thread, threads_per_workgroup, workgroup_count) =
             Self::get_params(qubit_count);
-        let mut desc = wgpu::InstanceDescriptor::default();
-        let instance = wgpu::Instance::new(&desc);
-        let adapter: Adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions::default())
-            .await
-            .expect("Failed to create an adapter");
+
+        let adapter: Adapter = Self::get_adapter().await?;
 
         let downlevel_capabilities = adapter.get_downlevel_capabilities();
         if !downlevel_capabilities
@@ -98,7 +115,7 @@ impl GpuContext {
 
         let bind_group_layout = create_bind_group_layout(&device);
 
-        GpuContext {
+        Ok(GpuContext {
             device,
             queue,
             shader_module,
@@ -109,7 +126,7 @@ impl GpuContext {
             entries_per_thread,
             threads_per_workgroup,
             workgroup_count,
-        }
+        })
     }
 
     pub fn get_params(qubit_count: i32) -> (i32, i32, i32) {

@@ -7,18 +7,41 @@ mod tests;
 mod gpu_context;
 pub mod shader_types;
 
-use crate::{gpu_full_state_simulator::shader_types::Op, shader_types::ops};
+use crate::{
+    gpu_full_state_simulator::{gpu_context::GpuContext, shader_types::Op},
+    shader_types::ops,
+};
 
 use num_bigint::BigUint;
 use rand::{Rng, rngs::StdRng};
 
-#[must_use]
-pub fn run_gpu_simulator(qubits: u32, ops: Vec<Op>) -> Vec<shader_types::Result> {
+/// Checks if a compatible GPU adapter is available on the system.
+///
+/// This function attempts to request a GPU adapter to determine if GPU-accelerated
+/// quantum simulation is supported. It's useful for capability detection before
+/// attempting to run GPU-based simulations.
+///
+/// # Errors
+///
+/// Returns `Err(String)` if:
+/// - No compatible GPU is found
+/// - GPU drivers are missing or not functioning properly
+pub fn try_create_gpu_adapter() -> Result<(), String> {
+    let _ = futures::executor::block_on(async {
+        GpuContext::get_adapter().await.map_err(|e| e.to_string())
+    })?;
+    Ok(())
+}
+
+pub fn run_gpu_simulator(qubits: u32, ops: Vec<Op>) -> Result<Vec<shader_types::Result>, String> {
     let qubits = i32::try_from(qubits).expect("num_qubits should fit in u32");
+
     futures::executor::block_on(async {
-        let mut gpu_context = gpu_context::GpuContext::new(qubits, ops).await;
+        let mut gpu_context = gpu_context::GpuContext::new(qubits, ops)
+            .await
+            .map_err(|e| e.to_string())?;
         gpu_context.create_resources();
-        gpu_context.run().await
+        Ok(gpu_context.run().await)
     })
 }
 
@@ -28,25 +51,22 @@ pub fn run_gpu_simulator_with_pauli_noise(
     noise: [f64; 3],
     rng: &mut StdRng,
     loss: Option<f64>,
-) -> Vec<shader_types::Result> {
+) -> Result<Vec<shader_types::Result>, String> {
     let ops = apply_pauli_noise_with_loss(ops, rng, noise, loss);
     run_gpu_simulator(qubits, ops)
 }
 
-#[must_use]
-pub fn time_run_gpu_simulator(qubits: u32, ops: Vec<Op>) -> Vec<shader_types::Result> {
-    let qubits = i32::try_from(qubits).expect("num_qubits should fit in u32");
-
+pub fn time_run_gpu_simulator(
+    qubits: u32,
+    ops: Vec<Op>,
+) -> Result<Vec<shader_types::Result>, String> {
     let now = std::time::Instant::now();
-    let res = futures::executor::block_on(async {
-        let mut gpu_context = gpu_context::GpuContext::new(qubits, ops).await;
-        gpu_context.create_resources();
-        gpu_context.run().await
-    });
+
+    let res = run_gpu_simulator(qubits, ops)?;
 
     eprintln!("GPU elapsed: {:?}", now.elapsed());
 
-    res
+    Ok(res)
 }
 
 #[allow(clippy::too_many_lines)]
