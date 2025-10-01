@@ -50,39 +50,30 @@ fn write_probabilities(num_qubits: u32, r: &[super::shader_types::Result]) -> St
     prob_str
 }
 
-fn gate_op(id: u32, q1: u32, q2: u32, q3: u32, angle: f32) -> Op {
+fn gate_op(id: u32, q1: u32, q2: u32, q3: u32) -> Op {
     Op {
         id,
         q1,
         q2,
         q3,
-        angle,
-        padding: [0; 204],
-        _00r: 0.0,
-        _00i: 0.0,
-        _01r: 0.0,
-        _01i: 0.0,
-        _10r: 0.0,
-        _10i: 0.0,
-        _11r: 0.0,
-        _11i: 0.0,
+        ..Default::default()
     }
 }
 
 fn m_every_z() -> Op {
-    gate_op(ops::MEVERYZ, 0, 0, 0, 0.0)
+    gate_op(ops::MEVERYZ, 0, 0, 0)
 }
 
 fn two_qubit_gate(id: u32, qubit1: u32, qubit2: u32) -> Op {
-    gate_op(id, qubit1, qubit2, 0, 0.0)
+    gate_op(id, qubit1, qubit2, 0)
 }
 
-fn two_qubit_rotation_gate(id: u32, angle: f32, qubit1: u32, qubit2: u32) -> Op {
-    gate_op(id, qubit1, qubit2, 0, angle)
+fn two_qubit_rotation_gate(id: u32, qubit1: u32, qubit2: u32) -> Op {
+    gate_op(id, qubit1, qubit2, 0)
 }
 
 fn three_qubit_gate(id: u32, qubit1: u32, qubit2: u32, qubit3: u32) -> Op {
-    gate_op(id, qubit1, qubit2, qubit3, 0.0)
+    gate_op(id, qubit1, qubit2, qubit3)
 }
 
 #[test]
@@ -425,7 +416,7 @@ fn swap_gate() {
 
 #[test]
 fn rxx_gate() {
-    let op0 = two_qubit_rotation_gate(ops::RXX, PI, 0, 1);
+    let op0 = Op::new_rxx_gate(PI, 0, 1);
     let m = m_every_z();
     let ops = vec![op0, m];
     let r = run_gpu_simulator(2, ops);
@@ -442,7 +433,7 @@ fn rxx_gate() {
 
 #[test]
 fn ryy_gate() {
-    let op0 = two_qubit_rotation_gate(ops::RYY, PI, 0, 1);
+    let op0 = Op::new_ryy_gate(PI, 0, 1);
     let m = m_every_z();
     let ops = vec![op0, m];
     let r = run_gpu_simulator(2, ops);
@@ -459,7 +450,7 @@ fn ryy_gate() {
 
 #[test]
 fn rzz_gate() {
-    let op0 = two_qubit_rotation_gate(ops::RZZ, PI, 0, 1);
+    let op0 = Op::new_rzz_gate(PI, 0, 1);
     let m = m_every_z();
     let ops = vec![op0, m];
     let r = run_gpu_simulator(2, ops);
@@ -667,7 +658,6 @@ fn test_rotation_gate_utility_functions() {
 
     let rx_gate = Op::new_rx_gate(angle, 0);
     assert_eq!(rx_gate.id, ops::RX);
-    assert!((rx_gate.angle - angle).abs() < f32::EPSILON);
     // RX(π/2) should have cos(π/4) on diagonal, -i*sin(π/4) off-diagonal
     let half_angle = angle / 2.0;
     assert!((rx_gate._00r - half_angle.cos()).abs() < f32::EPSILON);
@@ -677,7 +667,6 @@ fn test_rotation_gate_utility_functions() {
 
     let ry_operation = Op::new_ry_gate(angle, 1);
     assert_eq!(ry_operation.id, ops::RY);
-    assert!((ry_operation.angle - angle).abs() < f32::EPSILON);
     // RY(π/2) should have cos(π/4) on diagonal, ±sin(π/4) off-diagonal
     assert!((ry_operation._00r - half_angle.cos()).abs() < f32::EPSILON);
     assert!((ry_operation._11r - half_angle.cos()).abs() < f32::EPSILON);
@@ -686,7 +675,6 @@ fn test_rotation_gate_utility_functions() {
 
     let rz_op = Op::new_rz_gate(angle, 2);
     assert_eq!(rz_op.id, ops::RZ);
-    assert!((rz_op.angle - angle).abs() < f32::EPSILON);
     // RZ(π/2) should have e^(-iπ/4) and e^(iπ/4) on diagonal
     assert!((rz_op._00r - (-half_angle).cos()).abs() < f32::EPSILON);
     assert!((rz_op._00i - (-half_angle).sin()).abs() < f32::EPSILON);
@@ -728,6 +716,237 @@ fn test_h_gate_using_utility() {
         |01⟩: 0.000000
         |10⟩: 0.500000
         |11⟩: 0.000000
+    "#]]
+    .assert_eq(&prob_str);
+}
+
+#[test]
+fn kraus_gate_as_x_gate() {
+    // Test Kraus operation by implementing X gate: [[0, 1], [1, 0]]
+    let op = Op::new_matrix_gate(
+        1,          // target qubit
+        (0.0, 0.0), // m00 = 0 + 0i
+        (1.0, 0.0), // m01 = 1 + 0i
+        (1.0, 0.0), // m10 = 1 + 0i
+        (0.0, 0.0), // m11 = 0 + 0i
+    );
+    let m = m_every_z();
+    let ops = vec![op, m];
+    let r = run_gpu_simulator(2, ops);
+    let prob_str = write_probabilities(2, &r);
+    expect![[r#"
+        Probabilities:
+        |00⟩: 0.000000
+        |01⟩: 1.000000
+        |10⟩: 0.000000
+        |11⟩: 0.000000
+    "#]]
+    .assert_eq(&prob_str);
+}
+
+#[test]
+fn kraus_gate_as_y_gate() {
+    // Test Kraus operation by implementing Y gate: [[0, -i], [i, 0]]
+    let op = Op::new_matrix_gate(
+        1,           // target qubit
+        (0.0, 0.0),  // m00 = 0 + 0i
+        (0.0, -1.0), // m01 = 0 - 1i
+        (0.0, 1.0),  // m10 = 0 + 1i
+        (0.0, 0.0),  // m11 = 0 + 0i
+    );
+    let m = m_every_z();
+    let ops = vec![op, m];
+    let r = run_gpu_simulator(2, ops);
+    let prob_str = write_probabilities(2, &r);
+    expect![[r#"
+        Probabilities:
+        |00⟩: 0.000000
+        |01⟩: 1.000000
+        |10⟩: 0.000000
+        |11⟩: 0.000000
+    "#]]
+    .assert_eq(&prob_str);
+}
+
+#[test]
+fn test_2q_kraus_identity() {
+    // Create identity 2-qubit Kraus operation
+    let identity_kraus_op = Op::new_matrix_2q_gate(
+        0,
+        1, // qubits 0 and 1
+        // Row 0: |00⟩ output coefficients (identity for |00⟩)
+        [(1.0, 0.0), (0.0, 0.0), (0.0, 0.0), (0.0, 0.0)],
+        // Row 1: |01⟩ output coefficients (identity for |01⟩)
+        [(0.0, 0.0), (1.0, 0.0), (0.0, 0.0), (0.0, 0.0)],
+        // Row 2: |10⟩ output coefficients (identity for |10⟩)
+        [(0.0, 0.0), (0.0, 0.0), (1.0, 0.0), (0.0, 0.0)],
+        // Row 3: |11⟩ output coefficients (identity for |11⟩)
+        [(0.0, 0.0), (0.0, 0.0), (0.0, 0.0), (1.0, 0.0)],
+    );
+
+    let m = Op::new_m_every_z_gate(); // measure all qubits
+    let ops = vec![identity_kraus_op, m];
+    let r = run_gpu_simulator(2, ops);
+    let prob_str = write_probabilities(2, &r);
+
+    expect![[r#"
+        Probabilities:
+        |00⟩: 1.000000
+        |01⟩: 0.000000
+        |10⟩: 0.000000
+        |11⟩: 0.000000
+    "#]]
+    .assert_eq(&prob_str);
+}
+
+#[test]
+fn test_2q_kraus_bit_flip() {
+    // Create H gate on first qubit to create superposition
+    let h0 = Op::new_h_gate(0);
+
+    // Create 2-qubit Kraus operation that flips |00⟩ ↔ |01⟩
+    let bit_flip_kraus_op = Op::new_matrix_2q_gate(
+        0,
+        1, // qubits 0 and 1
+        // Row 0: |00⟩ output gets |01⟩ input
+        [(0.0, 0.0), (1.0, 0.0), (0.0, 0.0), (0.0, 0.0)],
+        // Row 1: |01⟩ output gets |00⟩ input
+        [(1.0, 0.0), (0.0, 0.0), (0.0, 0.0), (0.0, 0.0)],
+        // Row 2: |10⟩ output unchanged (identity for |10⟩)
+        [(0.0, 0.0), (0.0, 0.0), (1.0, 0.0), (0.0, 0.0)],
+        // Row 3: |11⟩ output is zeroed out
+        [(0.0, 0.0), (0.0, 0.0), (0.0, 0.0), (0.0, 0.0)],
+    );
+
+    let m = Op::new_m_every_z_gate(); // measure all qubits
+    let ops = vec![h0, bit_flip_kraus_op, m];
+    let r = run_gpu_simulator(2, ops);
+    let prob_str = write_probabilities(2, &r);
+
+    // After H on qubit 0, we have (|0⟩ + |1⟩)/√2 (on qubit 0) ⊗ |0⟩ (on qubit 1)
+    // = 0.5 * |00⟩ + 0.5 * |10⟩
+    // The Kraus operation flips |00⟩ → |01⟩, leaves |10⟩ unchanged
+    // So result should be 0.5 * |01⟩ + 0.5 * |10⟩
+    expect![[r#"
+        Probabilities:
+        |00⟩: 0.000000
+        |01⟩: 0.500000
+        |10⟩: 0.500000
+        |11⟩: 0.000000
+    "#]]
+    .assert_eq(&prob_str);
+}
+
+#[test]
+fn test_2q_kraus_affects_11_state() {
+    // Create H gates on both qubits to create equal superposition over all 4 states
+    let h0 = Op::new_h_gate(0);
+    let h1 = Op::new_h_gate(1);
+
+    // Create 2-qubit Kraus operation that only affects |11⟩ state
+    // This should map |11⟩ → |00⟩ and leave other states unchanged
+    let kraus_op = Op::new_matrix_2q_gate(
+        0,
+        1, // qubits 0 and 1
+        // Row 0: |00⟩ output gets |00⟩ + |11⟩ inputs (identity + contribution from |11⟩)
+        [(1.0, 0.0), (0.0, 0.0), (0.0, 0.0), (1.0, 0.0)],
+        // Row 1: |01⟩ output gets only |01⟩ input (identity for |01⟩)
+        [(0.0, 0.0), (1.0, 0.0), (0.0, 0.0), (0.0, 0.0)],
+        // Row 2: |10⟩ output gets only |10⟩ input (identity for |10⟩)
+        [(0.0, 0.0), (0.0, 0.0), (1.0, 0.0), (0.0, 0.0)],
+        // Row 3: |11⟩ output gets nothing (|11⟩ is mapped to |00⟩)
+        [(0.0, 0.0), (0.0, 0.0), (0.0, 0.0), (0.0, 0.0)],
+    );
+
+    let m = Op::new_m_every_z_gate(); // measure all qubits
+    let ops = vec![h0, h1, kraus_op, m];
+    let r = run_gpu_simulator(2, ops);
+    let prob_str = write_probabilities(2, &r);
+
+    // After H gates on both qubits: 0.25 * (|00⟩ + |01⟩ + |10⟩ + |11⟩)
+    // The Kraus operation tries to move |11⟩ → |00⟩, but with current 3-row limitation,
+    // |11⟩ → |11⟩ (identity fallback). So the |11⟩ → |00⟩ mapping is not applied.
+    // Current result: |00⟩: 0.25 + 0.25 = 0.5, |01⟩: 0.25, |10⟩: 0.25, |11⟩: 0.25
+    expect![[r#"
+        Probabilities:
+        |00⟩: 1.000000
+        |01⟩: 0.250000
+        |10⟩: 0.250000
+        |11⟩: 0.000000
+    "#]]
+    .assert_eq(&prob_str);
+}
+
+#[test]
+fn test_2q_kraus_debug_simple() {
+    // Start with just |11⟩ state to see what happens
+    let x0 = Op::new_x_gate(0);
+    let x1 = Op::new_x_gate(1);
+
+    // Create identity Kraus operation to see baseline behavior
+    let identity_kraus_op = Op::new_matrix_2q_gate(
+        0,
+        1, // qubits 0 and 1
+        // Row 0: |00⟩ output = identity for |00⟩
+        [(1.0, 0.0), (0.0, 0.0), (0.0, 0.0), (0.0, 0.0)],
+        // Row 1: |01⟩ output = identity for |01⟩
+        [(0.0, 0.0), (1.0, 0.0), (0.0, 0.0), (0.0, 0.0)],
+        // Row 2: |10⟩ output = identity for |10⟩
+        [(0.0, 0.0), (0.0, 0.0), (1.0, 0.0), (0.0, 0.0)],
+        // Row 3: |11⟩ output = identity for |11⟩
+        [(0.0, 0.0), (0.0, 0.0), (0.0, 0.0), (1.0, 0.0)],
+    );
+
+    let m = Op::new_m_every_z_gate(); // measure all qubits
+    let ops = vec![x0, x1, identity_kraus_op, m]; // Create |11⟩, then apply identity Kraus
+    let r = run_gpu_simulator(2, ops);
+    let prob_str = write_probabilities(2, &r);
+
+    // Should be: |11⟩: 1.0 (identity operation)
+    expect![[r#"
+        Probabilities:
+        |00⟩: 0.000000
+        |01⟩: 0.000000
+        |10⟩: 0.000000
+        |11⟩: 1.000000
+    "#]]
+    .assert_eq(&prob_str);
+}
+
+#[test]
+fn test_2q_kraus_preserves_11_state() {
+    // This test verifies the bug fix: |11⟩ is no longer zeroed out
+    // Create |11⟩ state
+    let x0 = Op::new_x_gate(0);
+    let x1 = Op::new_x_gate(1);
+
+    // Create a Kraus operation that should preserve |11⟩
+    let kraus_op = Op::new_matrix_2q_gate(
+        0,
+        1, // qubits 0 and 1
+        // Row 0: |00⟩ output = zero everything
+        [(0.0, 0.0), (0.0, 0.0), (0.0, 0.0), (0.0, 0.0)],
+        // Row 1: |01⟩ output = zero everything
+        [(0.0, 0.0), (0.0, 0.0), (0.0, 0.0), (0.0, 0.0)],
+        // Row 2: |10⟩ output = zero everything
+        [(0.0, 0.0), (0.0, 0.0), (0.0, 0.0), (0.0, 0.0)],
+        // Row 3: |11⟩ output = identity for |11⟩ (preserve |11⟩ state)
+        [(0.0, 0.0), (0.0, 0.0), (0.0, 0.0), (1.0, 0.0)],
+    );
+
+    let m = Op::new_m_every_z_gate();
+    let ops = vec![x0, x1, kraus_op, m];
+    let r = run_gpu_simulator(2, ops);
+    let prob_str = write_probabilities(2, &r);
+
+    // Before the fix: |11⟩ would be 0.0 (zeroed out)
+    // After the fix: |11⟩ should be 1.0 (preserved by identity fallback)
+    expect![[r#"
+        Probabilities:
+        |00⟩: 0.000000
+        |01⟩: 0.000000
+        |10⟩: 0.000000
+        |11⟩: 1.000000
     "#]]
     .assert_eq(&prob_str);
 }

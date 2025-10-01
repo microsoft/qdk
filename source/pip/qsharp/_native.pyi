@@ -775,7 +775,11 @@ def run_clifford(
     ...
 
 def run_gpu_full_state(
-    input: List[QirInstruction], nub_qubits: int, shots: int, noise: NoiseConfig
+    input: List[QirInstruction],
+    nub_qubits: int,
+    shots: int,
+    noise: Optional[Tuple[float, float, float]],
+    seed: Optional[int],
 ) -> str:
     """ """
     ...
