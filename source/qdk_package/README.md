@@ -1,37 +1,34 @@
 # qdk
 
-Experimental meta-package for the Quantum Development Kit (QDK) that bundles the existing
-`qsharp` Python package together with optional extras under a single, stable import root: `import qdk`.
-
-The design is intentionally minimal: submodules plus import-time detection of optional components.
+Preview package for the Quantum Development Kit (QDK) that bundles the `qsharp` Python package together with optional extras under a single top level package.
 
 ## Install
 
-Base (always includes `qsharp`):
+To install the core functionality, which include Q\# \& OpenQASM simulation, compilation, and resource estimation support:
 
 ```bash
 pip install qdk
 ```
 
-Jupyter extra (bundles widgets + JupyterLab extension package — provides only the `qdk.widgets` Python surface):
+To include the Jupyter extra, which adds visualizations using Jupyter Widgets in the `qdk.widgets` submodule and syntax highlighting for Jupyter notebooks in the browser:
 
 ```bash
 pip install qdk[jupyter]
 ```
 
-Azure Quantum extra (adds `azure-quantum`):
+To add the Azure Quantum extra, which includes functionality for working with the Azure Quantum service in the `qdk.azure` submodule:
 
 ```bash
 pip install qdk[azure]
 ```
 
-Qiskit extra (adds `qiskit`):
+For Qiskit integration, which exposes Qiskit interop utilities in the `qdk.qiskit` submodule:
 
 ```bash
 pip install qdk[qiskit]
 ```
 
-All extras:
+To easily install all the above extras:
 
 ```bash
 pip install qdk[all]
@@ -46,59 +43,41 @@ result = qsharp.run("{ use q = Qubit(); H(q); return MResetZ(q); }", shots=100)
 print(result)
 ```
 
-Widgets (installed via jupyter extra):
+To use widgets (installed via `qdk[jupyter]` extra):
 
 ```python
-try:
-    from qdk import widgets  # requires: pip install qdk[jupyter]
-    # Use widgets per qsharp-widgets documentation
-except ImportError:
-    widgets = None  # Optional: feature not installed
-```
+from qdk.qsharp import eval, run
+from qdk.widgets import Histogram
 
-Qiskit (if installed):
-
-```python
-try:
-    from qdk import qiskit  # requires: pip install qdk[qiskit]
-    qk = qiskit
-    # Example: qk.transpile(...)
-except ImportError:
-    qk = None
-```
-
-Azure Quantum (if installed):
-
-```python
-try:
-    from qdk import azure  # requires: pip install qdk[azure]
-    # Example: azure.Workspace(...)
-except ImportError:
-    azure = None
+eval("""
+operation BellPair() : Result[] {
+    use qs = Qubit[2];
+    H(qs[0]);CX(qs[0], qs[1]);
+    MResetEachZ(qs)
+}
+""")
+results = run("BellPair()", shots=1000, noise=(0.005, 0.0, 0.0))
+Histogram(results)
 ```
 
 ## Public API Surface
 
 Submodules:
 
-- `qdk.qsharp` – direct passthrough to `qsharp` APIs (import explicitly: `import qdk.qsharp`).
-- `qdk.widgets` – only if `qsharp-widgets` installed (through `qdk[jupyter]`).
-- `qdk.azure` – only if `azure-quantum` installed. Now a package with subpackages:
-  - `qdk.azure.target` → `azure.quantum.target`
-  - `qdk.azure.argument_types` → `azure.quantum.argument_types`
-  - `qdk.azure.job` → `azure.quantum.job`
-    Import style example: `from qdk.azure.job import Job`
-- `qdk.qiskit` – only if `qiskit` extra installed; exposes only QDK interop symbols (no blanket upstream re-export). Import upstream APIs directly from `qiskit`.
-- `qdk.estimator` – shim re-export of `qsharp.estimator` (always present if underlying `qsharp` provides it).
-- `qdk.openqasm` – shim re-export of `qsharp.openqasm` for OpenQASM integration.
+- `qdk.qsharp` – exports the same APIs as the `qsharp` Python package
+- `qdk.openqasm` – exports the same APIs as the `openqasm` submodule of the `qsharp` Python package.
+- `qdk.estimator` – exports the same APIs as the `estimator` submodule of the `qsharp` Python package.
+- `qdk.widgets` – exports the Jupyter widgets available from the `qsharp-widgets` Python package (requires the `qdk[jupyter]` extra to be installed).
+- `qdk.azure` – exports the Python APIs available from the `azure-quantum` Python package (requires the `qdk[azure]` extra to be installed).
+- `qdk.qiskit` – exports the same APIs as the `interop.qiskit` submodule of the `qsharp` Python package (requires the `qdk[qiskit]` extra to be installed).
 
-### Lifted utilities from `qsharp`
+### Top level exports
 
-For convenience, the following helpers and types are also importable directly from the `qdk` root (e.g. `from qdk import code, Result`). Algorithm execution APIs (like `run` / `estimate`) remain under `qdk.qsharp`.
+For convenience, the following helpers and types are also importable directly from the `qdk` root (e.g. `from qdk import code, Result`). Algorithm execution APIs (like `run` / `estimate`) remain under `qdk.qsharp` or `qdk.openqasm`.
 
 | Symbol               | Type     | Origin                      | Description                                                         |
 | -------------------- | -------- | --------------------------- | ------------------------------------------------------------------- |
-| `code`               | module   | `qsharp.code`               | Define inline Q# snippets / code objects.                           |
+| `code`               | module   | `qsharp.code`               | Exposes operations defined in Q\# or OpenQASM                       |
 | `init`               | function | `qsharp.init`               | Initialize/configure the QDK interpreter (target profile, options). |
 | `set_quantum_seed`   | function | `qsharp.set_quantum_seed`   | Deterministic seed for quantum randomness (simulators).             |
 | `set_classical_seed` | function | `qsharp.set_classical_seed` | Deterministic seed for classical host RNG.                          |
@@ -112,42 +91,3 @@ For convenience, the following helpers and types are also importable directly fr
 | `DepolarizingNoise`  | class    | `qsharp.DepolarizingNoise`  | Depolarizing noise model spec.                                      |
 | `BitFlipNoise`       | class    | `qsharp.BitFlipNoise`       | Bit-flip noise model spec.                                          |
 | `PhaseFlipNoise`     | class    | `qsharp.PhaseFlipNoise`     | Phase-flip noise model spec.                                        |
-
-If you need additional items, import them from `qdk.qsharp` directly rather than expanding the root surface.
-
-## Design Notes
-
-- Root re-exports selected utility symbols from `qsharp` (e.g. `code`, `init`, `set_quantum_seed`, types) for convenience; algorithm APIs still live under `qdk.qsharp`.
-- Additional shims (`qdk.estimator`, `qdk.openqasm`) are thin pass-throughs to the corresponding `qsharp` submodules for discoverability.
-- Optional extras are thin pass-through modules/packages; failure messages instruct how to install.
-- `qdk.qiskit` deliberately does not re-export the full upstream Qiskit API—import those from `qiskit` directly.
-- `qdk.azure` is structured as a package so dotted imports like `from qdk.azure.job import Job` work.
-- Tests may stub dependencies in isolation environments.
-
-## Testing
-
-The test suite validates packaging & import contract without requiring the real
-optional dependencies to be installed.
-
-Current approach (kept intentionally lean):
-
-1. Core behavior: ensure the root package exposes only the minimal public API.
-2. A lightweight stub for the upstream `qsharp` package is injected (see `tests/conftest.py`)
-   if the true package is not present, enabling fast iteration when working only on this meta-package.
-3. Optional extras (widgets, azure, qiskit) are tested using synthetic modules created in `tests/mocks.py`:
-   - `mock_widgets()` creates a lightweight `qsharp_widgets` module (with a version attribute). Tests assert the `qdk.widgets` shim imports.
-   - `mock_azure()` creates the nested namespace `azure.quantum` (with a version attribute). Tests assert the `qdk.azure` shim imports.
-   - `mock_qiskit()` creates a `qiskit` module exposing a callable `transpile()` so tests can assert a functional symbol survives re-export.
-4. No network or cloud interactions are performed; all tests operate purely on import mechanics and mocks.
-
-### Running the tests
-
-Install test tooling:
-
-```bash
-python -m pip install pytest
-python -m pytest -q qdk_package/tests
-```
-
-Because mocks are used, failures generally indicate packaging / import logic regressions
-rather than upstream functional issues with the real dependencies.
