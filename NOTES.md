@@ -18,6 +18,11 @@
 - new test cases for loop, scope grouping, conditionals, custom instrinsics, variable arguments, etc
 - variable arguments for gates
 - source location metadata for gates
+- unit tests for scoping groups specifically
+- move Location to a common spot (frontend)
+- partial eval changes to keep track of dbg locations, scopes and inlinedAt information
+- rir changes to contain metadata (locations, scopes and instruciton metadata)
+- 
 
 ## Not done, but necessary
 
