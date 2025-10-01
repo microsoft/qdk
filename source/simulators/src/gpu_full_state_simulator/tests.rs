@@ -81,7 +81,7 @@ fn x_gate() {
     let op = Op::new_x_gate(1);
     let m = m_every_z();
     let ops = vec![op, m];
-    let r = run_gpu_simulator(2, ops);
+    let r = run_gpu_simulator(2, ops).unwrap();
     let prob_str = write_probabilities(2, &r);
     expect![[r#"
         Probabilities:
@@ -98,7 +98,7 @@ fn y_gate() {
     let op = Op::new_y_gate(0);
     let m = m_every_z();
     let ops = vec![op, m];
-    let r = run_gpu_simulator(2, ops);
+    let r = run_gpu_simulator(2, ops).unwrap();
     let prob_str = write_probabilities(2, &r);
     expect![[r#"
         Probabilities:
@@ -115,7 +115,7 @@ fn z_gate() {
     let op = Op::new_z_gate(0);
     let m = m_every_z();
     let ops = vec![op, m];
-    let r = run_gpu_simulator(2, ops);
+    let r = run_gpu_simulator(2, ops).unwrap();
     let prob_str = write_probabilities(2, &r);
     expect![[r#"
         Probabilities:
@@ -133,7 +133,7 @@ fn rx_gate() {
     let op1 = Op::new_rx_gate(2.0 * PI, 1);
     let m = m_every_z();
     let ops = vec![op0, op1, m];
-    let r = run_gpu_simulator(2, ops);
+    let r = run_gpu_simulator(2, ops).unwrap();
     let prob_str = write_probabilities(2, &r);
     expect![[r#"
         Probabilities:
@@ -151,7 +151,7 @@ fn ry_gate() {
     let op1 = Op::new_ry_gate(2.0 * PI, 1);
     let m = m_every_z();
     let ops = vec![op0, op1, m];
-    let r = run_gpu_simulator(2, ops);
+    let r = run_gpu_simulator(2, ops).unwrap();
     let prob_str = write_probabilities(2, &r);
     expect![[r#"
         Probabilities:
@@ -170,7 +170,7 @@ fn rz_gate() {
     let op2 = Op::new_rz_gate(2.0 * PI, 1);
     let m = m_every_z();
     let ops = vec![op0, op1, op2, m];
-    let r = run_gpu_simulator(2, ops);
+    let r = run_gpu_simulator(2, ops).unwrap();
     let prob_str = write_probabilities(2, &r);
     expect![[r#"
         Probabilities:
@@ -187,7 +187,7 @@ fn x_is_self_adj() {
     let op = Op::new_x_gate(0);
     let m = m_every_z();
     let ops = vec![op, op, m];
-    let r = run_gpu_simulator(2, ops);
+    let r = run_gpu_simulator(2, ops).unwrap();
     let prob_str = write_probabilities(2, &r);
     expect![[r#"
         Probabilities:
@@ -204,7 +204,7 @@ fn sx_gate_twice() {
     let op = Op::new_sx_gate(0);
     let m = m_every_z();
     let ops = vec![op, op, m];
-    let r = run_gpu_simulator(2, ops);
+    let r = run_gpu_simulator(2, ops).unwrap();
     let prob_str = write_probabilities(2, &r);
     expect![[r#"
         Probabilities:
@@ -222,7 +222,7 @@ fn sx_sxadj() {
     let op1 = Op::new_sx_adj_gate(0);
     let m = m_every_z();
     let ops = vec![op0, op1, m];
-    let r = run_gpu_simulator(2, ops);
+    let r = run_gpu_simulator(2, ops).unwrap();
     let prob_str = write_probabilities(2, &r);
     expect![[r#"
         Probabilities:
@@ -240,7 +240,7 @@ fn bell() {
     let op1 = Op::new_cx_gate(0, 1);
     let m = m_every_z();
     let ops = vec![op0, op1, m];
-    let r = run_gpu_simulator(2, ops);
+    let r = run_gpu_simulator(2, ops).unwrap();
     let prob_str = write_probabilities(2, &r);
     expect![[r#"
         Probabilities:
@@ -257,7 +257,7 @@ fn h_gate() {
     let op = Op::new_h_gate(0);
     let m = m_every_z();
     let ops = vec![op, m];
-    let r = run_gpu_simulator(2, ops);
+    let r = run_gpu_simulator(2, ops).unwrap();
     let prob_str = write_probabilities(2, &r);
     expect![[r#"
         Probabilities:
@@ -274,7 +274,7 @@ fn s_gate() {
     let op = Op::new_s_gate(0);
     let m = m_every_z();
     let ops = vec![op, m];
-    let r = run_gpu_simulator(2, ops);
+    let r = run_gpu_simulator(2, ops).unwrap();
     let prob_str = write_probabilities(2, &r);
     expect![[r#"
         Probabilities:
@@ -291,7 +291,7 @@ fn s_adj_gate() {
     let op = Op::new_s_adj_gate(0);
     let m = m_every_z();
     let ops = vec![op, m];
-    let r = run_gpu_simulator(2, ops);
+    let r = run_gpu_simulator(2, ops).unwrap();
     let prob_str = write_probabilities(2, &r);
     expect![[r#"
         Probabilities:
@@ -308,7 +308,7 @@ fn t_gate() {
     let op = Op::new_t_gate(0);
     let m = m_every_z();
     let ops = vec![op, m];
-    let r = run_gpu_simulator(2, ops);
+    let r = run_gpu_simulator(2, ops).unwrap();
     let prob_str = write_probabilities(2, &r);
     expect![[r#"
         Probabilities:
@@ -325,7 +325,7 @@ fn t_adj_gate() {
     let op = Op::new_t_adj_gate(0);
     let m = m_every_z();
     let ops = vec![op, m];
-    let r = run_gpu_simulator(2, ops);
+    let r = run_gpu_simulator(2, ops).unwrap();
     let prob_str = write_probabilities(2, &r);
     expect![[r#"
         Probabilities:
@@ -344,7 +344,7 @@ fn s_s_adj() {
     let op2 = Op::new_s_adj_gate(0);
     let m = m_every_z();
     let ops = vec![op0, op1, op2, m];
-    let r = run_gpu_simulator(2, ops);
+    let r = run_gpu_simulator(2, ops).unwrap();
     let prob_str = write_probabilities(2, &r);
     expect![[r#"
         Probabilities:
@@ -365,7 +365,7 @@ fn t_t_t_t() {
     let op4 = Op::new_t_gate(0);
     let m = m_every_z();
     let ops = vec![op0, op1, op2, op3, op4, m];
-    let r = run_gpu_simulator(2, ops);
+    let r = run_gpu_simulator(2, ops).unwrap();
     let prob_str = write_probabilities(2, &r);
     expect![[r#"
         Probabilities:
@@ -384,7 +384,7 @@ fn cz_gate() {
     let op2 = two_qubit_gate(ops::CZ, 0, 1);
     let m = m_every_z();
     let ops = vec![op0, op1, op2, m];
-    let r = run_gpu_simulator(2, ops);
+    let r = run_gpu_simulator(2, ops).unwrap();
     let prob_str = write_probabilities(2, &r);
     expect![[r#"
         Probabilities:
@@ -402,7 +402,7 @@ fn swap_gate() {
     let op1 = two_qubit_gate(ops::SWAP, 0, 1);
     let m = m_every_z();
     let ops = vec![op0, op1, m];
-    let r = run_gpu_simulator(2, ops);
+    let r = run_gpu_simulator(2, ops).unwrap();
     let prob_str = write_probabilities(2, &r);
     expect![[r#"
         Probabilities:
@@ -419,7 +419,7 @@ fn rxx_gate() {
     let op0 = Op::new_rxx_gate(PI, 0, 1);
     let m = m_every_z();
     let ops = vec![op0, m];
-    let r = run_gpu_simulator(2, ops);
+    let r = run_gpu_simulator(2, ops).unwrap();
     let prob_str = write_probabilities(2, &r);
     expect![[r#"
         Probabilities:
@@ -436,7 +436,7 @@ fn ryy_gate() {
     let op0 = Op::new_ryy_gate(PI, 0, 1);
     let m = m_every_z();
     let ops = vec![op0, m];
-    let r = run_gpu_simulator(2, ops);
+    let r = run_gpu_simulator(2, ops).unwrap();
     let prob_str = write_probabilities(2, &r);
     expect![[r#"
         Probabilities:
@@ -453,7 +453,7 @@ fn rzz_gate() {
     let op0 = Op::new_rzz_gate(PI, 0, 1);
     let m = m_every_z();
     let ops = vec![op0, m];
-    let r = run_gpu_simulator(2, ops);
+    let r = run_gpu_simulator(2, ops).unwrap();
     let prob_str = write_probabilities(2, &r);
     expect![[r#"
         Probabilities:
@@ -473,7 +473,7 @@ fn h_on_all() {
         ops.push(Op::new_h_gate(i));
     }
     ops.push(m_every_z());
-    let r = run_gpu_simulator(num_qubits, ops);
+    let r = run_gpu_simulator(num_qubits, ops).unwrap();
 
     let prob_str = write_probabilities(num_qubits, &r);
     expect![[r#"
@@ -504,7 +504,7 @@ fn ccx_gate_1_1_controls() {
         three_qubit_gate(ops::CCX, 0, 1, 2), // CCX with controls 0,1 and target 2
         m_every_z(),
     ];
-    let r = run_gpu_simulator(num_qubits, ops);
+    let r = run_gpu_simulator(num_qubits, ops).unwrap();
     let prob_str = write_probabilities(num_qubits, &r);
     expect![[r#"
         Probabilities:
@@ -534,7 +534,7 @@ fn ccx_gate_1_1_controls_mixed_order() {
         three_qubit_gate(ops::CCX, 0, 2, 1), // CCX with controls 0,1 and target 2
         m_every_z(),
     ];
-    let r = run_gpu_simulator(num_qubits, ops);
+    let r = run_gpu_simulator(num_qubits, ops).unwrap();
     let prob_str = write_probabilities(num_qubits, &r);
     expect![[r#"
         Probabilities:
@@ -564,7 +564,7 @@ fn ccx_gate_1_0_controls() {
         three_qubit_gate(ops::CCX, 0, 1, 2), // CCX with controls 0,1 and target 2
         m_every_z(),
     ];
-    let r = run_gpu_simulator(num_qubits, ops);
+    let r = run_gpu_simulator(num_qubits, ops).unwrap();
     let prob_str = write_probabilities(num_qubits, &r);
     expect![[r#"
         Probabilities:
@@ -594,7 +594,7 @@ fn ccx_gate_0_1_controls() {
         three_qubit_gate(ops::CCX, 0, 1, 2), // CCX with controls 0,1 and target 2
         m_every_z(),
     ];
-    let r = run_gpu_simulator(num_qubits, ops);
+    let r = run_gpu_simulator(num_qubits, ops).unwrap();
     let prob_str = write_probabilities(num_qubits, &r);
     expect![[r#"
         Probabilities:
@@ -688,7 +688,7 @@ fn test_x_gate_using_utility() {
     let op = Op::new_x_gate(1);
     let m = m_every_z();
     let operations = vec![op, m];
-    let r = run_gpu_simulator(2, operations);
+    let r = run_gpu_simulator(2, operations).unwrap();
     let prob_str = write_probabilities(2, &r);
 
     expect![[r#"
@@ -707,7 +707,7 @@ fn test_h_gate_using_utility() {
     let op = Op::new_h_gate(0);
     let m = m_every_z();
     let operations = vec![op, m];
-    let r = run_gpu_simulator(2, operations);
+    let r = run_gpu_simulator(2, operations).unwrap();
     let prob_str = write_probabilities(2, &r);
 
     expect![[r#"
@@ -732,7 +732,7 @@ fn kraus_gate_as_x_gate() {
     );
     let m = m_every_z();
     let ops = vec![op, m];
-    let r = run_gpu_simulator(2, ops);
+    let r = run_gpu_simulator(2, ops).unwrap();
     let prob_str = write_probabilities(2, &r);
     expect![[r#"
         Probabilities:
@@ -756,7 +756,7 @@ fn kraus_gate_as_y_gate() {
     );
     let m = m_every_z();
     let ops = vec![op, m];
-    let r = run_gpu_simulator(2, ops);
+    let r = run_gpu_simulator(2, ops).unwrap();
     let prob_str = write_probabilities(2, &r);
     expect![[r#"
         Probabilities:
@@ -786,7 +786,7 @@ fn test_2q_kraus_identity() {
 
     let m = Op::new_m_every_z_gate(); // measure all qubits
     let ops = vec![identity_kraus_op, m];
-    let r = run_gpu_simulator(2, ops);
+    let r = run_gpu_simulator(2, ops).unwrap();
     let prob_str = write_probabilities(2, &r);
 
     expect![[r#"
@@ -820,7 +820,7 @@ fn test_2q_kraus_bit_flip() {
 
     let m = Op::new_m_every_z_gate(); // measure all qubits
     let ops = vec![h0, bit_flip_kraus_op, m];
-    let r = run_gpu_simulator(2, ops);
+    let r = run_gpu_simulator(2, ops).unwrap();
     let prob_str = write_probabilities(2, &r);
 
     // After H on qubit 0, we have (|0⟩ + |1⟩)/√2 (on qubit 0) ⊗ |0⟩ (on qubit 1)
@@ -860,7 +860,7 @@ fn test_2q_kraus_affects_11_state() {
 
     let m = Op::new_m_every_z_gate(); // measure all qubits
     let ops = vec![h0, h1, kraus_op, m];
-    let r = run_gpu_simulator(2, ops);
+    let r = run_gpu_simulator(2, ops).unwrap();
     let prob_str = write_probabilities(2, &r);
 
     // After H gates on both qubits: 0.25 * (|00⟩ + |01⟩ + |10⟩ + |11⟩)
@@ -899,7 +899,7 @@ fn test_2q_kraus_debug_simple() {
 
     let m = Op::new_m_every_z_gate(); // measure all qubits
     let ops = vec![x0, x1, identity_kraus_op, m]; // Create |11⟩, then apply identity Kraus
-    let r = run_gpu_simulator(2, ops);
+    let r = run_gpu_simulator(2, ops).unwrap();
     let prob_str = write_probabilities(2, &r);
 
     // Should be: |11⟩: 1.0 (identity operation)
@@ -936,7 +936,7 @@ fn test_2q_kraus_preserves_11_state() {
 
     let m = Op::new_m_every_z_gate();
     let ops = vec![x0, x1, kraus_op, m];
-    let r = run_gpu_simulator(2, ops);
+    let r = run_gpu_simulator(2, ops).unwrap();
     let prob_str = write_probabilities(2, &r);
 
     // Before the fix: |11⟩ would be 0.0 (zeroed out)
