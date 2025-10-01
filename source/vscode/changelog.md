@@ -1,5 +1,49 @@
 # QDK Changelog
 
+## v1.21.0
+
+Below are some of the highlights for the 1.21 release of the QDK.
+
+### QDK Python package
+
+With this release we are also publishing a `qdk` package to PyPI (see <https://pypi.org/project/qdk/>). This is still in the 'preview' stage as we lock down the API, but the goal is that going forward the QDK will be installed in Python via `pip install qdk`, with any optional extras needed (e.g. `pip install "qdk[jupyter,azure,qiskit]"` to add the Jupyter Notebooks, Azure Quantum, and Qiskit integration). Once installed, import from the necessary submodules (e.g. `from qdk.openqasm import compile`)
+
+Please give it a try and open an issue if you have any feedback.
+
+### Complex literals
+
+The Q\# language added support for complex literals. For example,
+
+```qsharp
+function GetComplex() : Complex {
+    3. + 4.i
+}
+```
+
+Additionally, Complex values can now be used in arithmetic expressions directly:
+
+```qsharp
+let x = 2.0 + 3.0i;
+let y = x + (4.0 - 5.0i);
+```
+
+## Other notable changes
+
+- Update to latest simulator, new benchmark by @swernli in https://github.com/microsoft/qdk/pull/2690
+- Updated wording in 'complex numbers' kata by @DmitryVasilevsky in https://github.com/microsoft/qdk/pull/2694
+- Fix decomposition for controlled Rxx/Ryy by @swernli in https://github.com/microsoft/qdk/pull/2699
+- Fix panic in RCA when using tuple variables as arguments to a lambda by @swernli in https://github.com/microsoft/qdk/pull/2701
+- Support Complex literals, arithmetic operations by @swernli in https://github.com/microsoft/qdk/pull/2709
+- Fix panic when interpreter has unbound names in Adaptive/Base by @swernli in https://github.com/microsoft/qdk/pull/2691
+- [OpenQASM]: Properly detect zero step in const ranges by @orpuente-MS in https://github.com/microsoft/qdk/pull/2715
+- Short-circuiting expressions produce divergent types that propagate too far by @swernli in https://github.com/microsoft/qdk/pull/2700
+- Initial QDK Python Package by @ScottCarda-MS in https://github.com/microsoft/qdk/pull/2707
+- Extract logical resource counts from a Q# program by @msoeken in https://github.com/microsoft/qdk/pull/2717
+- Fix panic in loop unification pass for short-circuiting expressions by @swernli in https://github.com/microsoft/qdk/pull/2723
+- Support partial evaluation of `IndexRange` calls by @swernli in https://github.com/microsoft/qdk/pull/2727
+
+**Full Changelog**: <https://github.com/microsoft/qdk/compare/v1.20.0...v1.21.0>
+
 ## v1.20.0
 
 Below are some of the highlights for the 1.20 release of the QDK.
