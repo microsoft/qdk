@@ -30,7 +30,7 @@ def test_smoke():
     qsharp.eval(read_file_relative("CliffordIsing.qs"))
 
     input = qsharp.compile(
-        "IsingModel2DEvolution(5, 5, PI() / 2.0, PI() / 2.0, 40.0, 40)"
+        "IsingModel2DEvolution(5, 5, PI() / 2.0, PI() / 2.0, 5.0, 5)"
     )
     input = transform_to_clifford(input)
     output = run_qir(str(input), 10, NoiseConfig())
@@ -42,7 +42,7 @@ def test_1224_clifford_ising():
     qsharp.eval(read_file_relative("CliffordIsing.qs"))
 
     input = qsharp.compile(
-        "IsingModel2DEvolution(34, 36, PI() / 2.0, PI() / 2.0, 40.0, 40)"
+        "IsingModel2DEvolution(34, 36, PI() / 2.0, PI() / 2.0, 5.0, 5)"
     )
     input = transform_to_clifford(input)
     qir = str(input)

@@ -774,6 +774,22 @@ def run_clifford(
     """ """
     ...
 
+def try_create_gpu_adapter():
+    """
+    Checks if a compatible GPU adapter is available on the system.
+
+    This function attempts to request a GPU adapter to determine if GPU-accelerated
+    quantum simulation is supported. It's useful for capability detection before
+    attempting to run GPU-based simulations.
+
+    # Errors
+
+    Returns `Err(String)` if:
+    - No compatible GPU is found
+    - GPU drivers are missing or not functioning properly
+    """
+    pass
+
 def run_gpu_full_state(
     input: List[QirInstruction],
     nub_qubits: int,
