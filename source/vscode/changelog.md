@@ -20,7 +20,12 @@ function GetComplex() : Complex {
 }
 ```
 
-This can be used in arithmetic expressions (e.g., `(2.0 + 3.0i) * (4.0 + 5.0i)`) and passed to and from Python.
+Additionally, Complex values can now be used in arithmetic expressions directly:
+
+```qsharp
+let x = 2.0 + 3.0i;
+let y = x + (4.0 - 5.0i);
+```
 
 ## Other notable changes
 
