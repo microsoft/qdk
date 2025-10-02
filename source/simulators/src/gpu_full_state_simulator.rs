@@ -27,15 +27,11 @@ use rand::{Rng, rngs::StdRng};
 /// - No compatible GPU is found
 /// - GPU drivers are missing or not functioning properly
 pub fn try_create_gpu_adapter() -> Result<(), String> {
-    let _ = futures::executor::block_on(async {
-        GpuContext::get_adapter().await.map_err(|e| e.to_string())
-    })?;
+    let _ = futures::executor::block_on(async { GpuContext::get_adapter().await })?;
     Ok(())
 }
 
 pub fn run_gpu_simulator(qubits: u32, ops: Vec<Op>) -> Result<Vec<shader_types::Result>, String> {
-    let qubits = i32::try_from(qubits).expect("num_qubits should fit in u32");
-
     futures::executor::block_on(async {
         let mut gpu_context = gpu_context::GpuContext::new(qubits, ops)
             .await

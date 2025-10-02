@@ -6,7 +6,7 @@
 use super::shader_types::{Op, Result};
 
 use futures::FutureExt;
-use std::num::NonZeroU64;
+use std::{cmp, num::NonZeroU64};
 use wgpu::{
     Adapter, BindGroup, BindGroupLayout, Buffer, BufferDescriptor, BufferUsages, ComputePipeline,
     Device, Limits, Queue, RequestAdapterError, ShaderModule,
@@ -20,11 +20,11 @@ pub struct GpuContext {
     shader_module: ShaderModule,
     bind_group_layout: BindGroupLayout,
     ops: Vec<Op>,
-    qubit_count: i32,
+    qubit_count: u32,
     resources: Option<GpuResources>,
-    entries_per_thread: i32,
-    threads_per_workgroup: i32,
-    workgroup_count: i32,
+    entries_per_thread: u32,
+    threads_per_workgroup: u32,
+    workgroup_count: u32,
 }
 
 struct GpuResources {
@@ -49,27 +49,17 @@ impl GpuContext {
     /// Returns `RequestAdapterError` if no suitable adapter can be found. This can happen if:
     /// - No compatible GPU is available
     /// - GPU drivers are not installed or not functioning
-    pub async fn get_adapter() -> std::result::Result<Adapter, RequestAdapterError> {
+    pub async fn get_adapter() -> std::result::Result<Adapter, String> {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
         instance
             .request_adapter(&wgpu::RequestAdapterOptions::default())
             .await
+            .map_err(|e| e.to_string())
     }
 
-    pub async fn new(
-        qubit_count: i32,
-        ops: Vec<Op>,
-    ) -> std::result::Result<Self, RequestAdapterError> {
-        // wgpu limits buffers to 1GB, which is 2^30 bytes.
-        // As we need 8 bytes (2^3) per complex number, we can only support up to 2^27 state vector entries.
-        // See https://github.com/gfx-rs/wgpu/issues/2337#issuecomment-1549935712
-        assert!(
-            (1..=27).contains(&qubit_count),
-            "Qubit count out of range: {qubit_count}",
-        );
-
+    pub async fn new(qubit_count: u32, ops: Vec<Op>) -> std::result::Result<Self, String> {
         let (entries_per_thread, threads_per_workgroup, workgroup_count) =
-            Self::get_params(qubit_count);
+            Self::get_params(qubit_count)?;
 
         let adapter: Adapter = Self::get_adapter().await?;
 
@@ -78,7 +68,7 @@ impl GpuContext {
             .flags
             .contains(wgpu::DownlevelFlags::COMPUTE_SHADERS)
         {
-            panic!("Adapter does not support compute shaders");
+            return Err("Adapter does not support compute shaders".to_string());
         }
 
         let buffer_needed: u32 = if qubit_count < 17 {
@@ -86,6 +76,21 @@ impl GpuContext {
         } else {
             (1u32 << qubit_count) * 8 // 8 bytes per complex number for larger circuits
         };
+
+        // Get the adapter's actual limits
+        let adapter_limits = adapter.limits();
+        let state_vector_size = get_state_vector_size(qubit_count);
+        if state_vector_size > adapter_limits.max_buffer_size {
+            return Err(format!(
+                "State vector size {} exceeds adapter max buffer size {} for this system. Try reducing the qubit count.",
+                state_vector_size, adapter_limits.max_buffer_size
+            ));
+        }
+
+        // If we set the max buffer size too small
+        // the other buffers may not fit. We may want this to be the max
+        // of `Limits::default()::max_buffer_size` and the buffer we need.
+        let state_vector_size = cmp::max(state_vector_size, u64::from(buffer_needed));
 
         let (device, queue): (Device, Queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
@@ -95,6 +100,7 @@ impl GpuContext {
                     max_compute_workgroup_size_x: 32,
                     max_compute_workgroups_per_dimension: 65535,
                     max_storage_buffer_binding_size: buffer_needed,
+                    max_buffer_size: state_vector_size,
                     ..Default::default()
                 },
                 // required_limits: wgpu::Limits::downlevel_defaults(),
@@ -102,7 +108,7 @@ impl GpuContext {
                 trace: wgpu::Trace::Off,
             })
             .await
-            .expect("failed to create device");
+            .map_err(|e| e.to_string())?;
 
         if DO_CAPTURE {
             unsafe {
@@ -129,34 +135,34 @@ impl GpuContext {
         })
     }
 
-    pub fn get_params(qubit_count: i32) -> (i32, i32, i32) {
+    pub fn get_params(qubit_count: u32) -> std::result::Result<(u32, u32, u32), String> {
         // Figure out how many threads and threadgroups to use based on the qubit count.
-        const MAX_QUBITS_PER_THREAD: i32 = 10;
-        const MAX_QUBITS_PER_THREADGROUP: i32 = 12;
+        const MAX_QUBITS_PER_THREAD: u32 = 10;
+        const MAX_QUBITS_PER_THREADGROUP: u32 = 12;
 
         if qubit_count < MAX_QUBITS_PER_THREAD {
             // All qubits fit in one thread
-            return (
+            return Ok((
                 1 << qubit_count, // Output states to process per thread
                 1,                // Threads per workgroup
                 1,                // Workgroup count
-            );
+            ));
         } else if qubit_count <= MAX_QUBITS_PER_THREADGROUP {
             // All qubits fit in one threadgroup
-            return (
+            return Ok((
                 1 << MAX_QUBITS_PER_THREAD,
                 1 << (qubit_count - MAX_QUBITS_PER_THREAD),
                 1,
-            );
+            ));
         } else if qubit_count <= 30 {
             // Then add more threadgroups
-            return (
+            return Ok((
                 1 << MAX_QUBITS_PER_THREAD,
                 1 << (MAX_QUBITS_PER_THREADGROUP - MAX_QUBITS_PER_THREAD),
                 1 << (qubit_count - MAX_QUBITS_PER_THREADGROUP),
-            );
+            ));
         }
-        panic!("Qubit count too high: {}", qubit_count);
+        Err(format!("Qubit count too high: {qubit_count}"))
     }
 
     pub fn create_resources(&mut self) {
@@ -166,13 +172,13 @@ impl GpuContext {
             256,
             "Op struct must be 256 bytes for WebGPU dynamic buffer alignment"
         );
-        let state_vector_entries: u64 = 2u64.pow(self.qubit_count as u32);
-        let result_buffer_size_bytes: u64 =
-            std::mem::size_of::<Result>() as u64 * state_vector_entries;
+
+        let state_vector_size = get_state_vector_size(self.qubit_count);
+        let result_buffer_size_bytes: u64 = get_result_vector_size(self.qubit_count);
 
         let state_vector_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("StateVector Buffer"),
-            size: state_vector_entries * 2 * std::mem::size_of::<f32>() as u64, // 2 floats per complex entry
+            size: state_vector_size,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -384,6 +390,18 @@ impl GpuContext {
     }
 }
 
+fn get_state_vector_size(qubit_count: u32) -> u64 {
+    let state_vector_entries: u64 = 2u64.pow(qubit_count);
+    let state_vector_size: u64 = state_vector_entries * 2 * std::mem::size_of::<f32>() as u64;
+    state_vector_size
+}
+
+fn get_result_vector_size(qubit_count: u32) -> u64 {
+    let state_vector_entries: u64 = 2u64.pow(qubit_count);
+    let state_vector_size: u64 = std::mem::size_of::<Result>() as u64 * state_vector_entries;
+    state_vector_size
+}
+
 fn create_bind_group_layout(device: &Device) -> BindGroupLayout {
     let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("StateVector bind group layout"),
@@ -438,8 +456,8 @@ fn create_bind_group_layout(device: &Device) -> BindGroupLayout {
     bind_group_layout
 }
 
-pub fn create_ops_buffers(ops: &Vec<Op>, device: &Device) -> (Buffer, Buffer) {
-    let buffer_size: u64 = (ops.len() * std::mem::size_of::<Op>()) as u64;
+pub fn create_ops_buffers(ops: &[Op], device: &Device) -> (Buffer, Buffer) {
+    let buffer_size: u64 = std::mem::size_of_val(ops) as u64;
 
     let ops_upload_buffer = device.create_buffer(&BufferDescriptor {
         label: Some("Ops Upload Buffer"),
