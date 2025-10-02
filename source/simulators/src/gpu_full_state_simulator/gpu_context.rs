@@ -6,7 +6,7 @@
 use super::shader_types::{Op, Result};
 
 use futures::FutureExt;
-use std::{cmp, num::NonZeroU64};
+use std::{cmp::max, num::NonZeroU64};
 use wgpu::{
     Adapter, BindGroup, BindGroupLayout, Buffer, BufferDescriptor, BufferUsages, ComputePipeline,
     Device, Limits, Queue, RequestAdapterError, ShaderModule,
@@ -79,31 +79,14 @@ impl GpuContext {
 
         // Get the adapter's actual limits
         let adapter_limits = adapter.limits();
-        let state_vector_size = get_state_vector_size(qubit_count);
-        if state_vector_size > adapter_limits.max_buffer_size {
-            return Err(format!(
-                "State vector size {} exceeds adapter max buffer size {} for this system. Try reducing the qubit count.",
-                state_vector_size, adapter_limits.max_buffer_size
-            ));
-        }
 
-        // If we set the max buffer size too small
-        // the other buffers may not fit. We may want this to be the max
-        // of `Limits::default()::max_buffer_size` and the buffer we need.
-        let state_vector_size = cmp::max(state_vector_size, u64::from(buffer_needed));
+        let required_limits = get_required_limits(qubit_count, &ops, &adapter_limits)?;
 
         let (device, queue): (Device, Queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: None,
                 required_features: wgpu::Features::empty(),
-                required_limits: Limits {
-                    max_compute_workgroup_size_x: 32,
-                    max_compute_workgroups_per_dimension: 65535,
-                    max_storage_buffer_binding_size: buffer_needed,
-                    max_buffer_size: state_vector_size,
-                    ..Default::default()
-                },
-                // required_limits: wgpu::Limits::downlevel_defaults(),
+                required_limits,
                 memory_hints: wgpu::MemoryHints::Performance,
                 trace: wgpu::Trace::Off,
             })
@@ -173,8 +156,8 @@ impl GpuContext {
             "Op struct must be 256 bytes for WebGPU dynamic buffer alignment"
         );
 
-        let state_vector_size = get_state_vector_size(self.qubit_count);
-        let result_buffer_size_bytes: u64 = get_result_vector_size(self.qubit_count);
+        let state_vector_size = get_state_vector_buffer_size(self.qubit_count);
+        let result_buffer_size_bytes: u64 = get_result_vector_buffer_size(self.qubit_count);
 
         let state_vector_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("StateVector Buffer"),
@@ -221,7 +204,7 @@ impl GpuContext {
                     resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                         buffer: &ops_buffer,
                         offset: 0,
-                        size: Some(NonZeroU64::new(256).unwrap()),
+                        size: Some(NonZeroU64::new(256).expect("Failed to create NonZeroU64")),
                     }),
                 },
                 wgpu::BindGroupEntry {
@@ -390,20 +373,8 @@ impl GpuContext {
     }
 }
 
-fn get_state_vector_size(qubit_count: u32) -> u64 {
-    let state_vector_entries: u64 = 2u64.pow(qubit_count);
-    let state_vector_size: u64 = state_vector_entries * 2 * std::mem::size_of::<f32>() as u64;
-    state_vector_size
-}
-
-fn get_result_vector_size(qubit_count: u32) -> u64 {
-    let state_vector_entries: u64 = 2u64.pow(qubit_count);
-    let state_vector_size: u64 = std::mem::size_of::<Result>() as u64 * state_vector_entries;
-    state_vector_size
-}
-
 fn create_bind_group_layout(device: &Device) -> BindGroupLayout {
-    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("StateVector bind group layout"),
         entries: &[
             wgpu::BindGroupLayoutEntry {
@@ -425,7 +396,9 @@ fn create_bind_group_layout(device: &Device) -> BindGroupLayout {
                     ty: wgpu::BufferBindingType::Storage { read_only: true },
                     has_dynamic_offset: true,
                     // Specify the per-op slice size so dynamic offsets are allowed
-                    min_binding_size: Some(NonZeroU64::new(256).unwrap()),
+                    min_binding_size: Some(
+                        NonZeroU64::new(256).expect("Failed to create NonZeroU64"),
+                    ),
                 },
                 count: None,
             },
@@ -452,12 +425,11 @@ fn create_bind_group_layout(device: &Device) -> BindGroupLayout {
                 count: None,
             },
         ],
-    });
-    bind_group_layout
+    })
 }
 
 pub fn create_ops_buffers(ops: &[Op], device: &Device) -> (Buffer, Buffer) {
-    let buffer_size: u64 = std::mem::size_of_val(ops) as u64;
+    let buffer_size: u64 = get_ops_buffer_size(ops);
 
     let ops_upload_buffer = device.create_buffer(&BufferDescriptor {
         label: Some("Ops Upload Buffer"),
@@ -482,4 +454,98 @@ pub fn create_ops_buffers(ops: &[Op], device: &Device) -> (Buffer, Buffer) {
     });
 
     (ops_upload_buffer, ops_buffer)
+}
+
+fn get_required_limits(
+    qubit_count: u32,
+    ops: &[Op],
+    adapter_limits: &Limits,
+) -> std::result::Result<Limits, String> {
+    let state_vector_size: u64 = get_state_vector_buffer_size(qubit_count);
+    let result_vector_size: u64 = get_result_vector_buffer_size(qubit_count);
+    let ops_buffer_size: u64 = get_ops_buffer_size(ops);
+
+    if state_vector_size > adapter_limits.max_buffer_size {
+        return Err(format!(
+            "State vector size {} exceeds adapter max buffer size {} for this system. Try reducing the qubit count.",
+            state_vector_size, adapter_limits.max_buffer_size
+        ));
+    }
+
+    if result_vector_size > adapter_limits.max_buffer_size {
+        return Err(format!(
+            "Result vector size {} exceeds adapter max buffer size {} for this system. Try reducing the qubit count.",
+            result_vector_size, adapter_limits.max_buffer_size
+        ));
+    }
+
+    if ops_buffer_size > adapter_limits.max_buffer_size {
+        return Err(format!(
+            "Ops buffer size {} exceeds adapter max buffer size {} for this system. Try reducing the operations count.",
+            ops_buffer_size, adapter_limits.max_buffer_size
+        ));
+    }
+
+    if state_vector_size > adapter_limits.max_storage_buffer_binding_size.into() {
+        return Err(format!(
+            "State vector size {} exceeds adapter max storage buffer size {} for this system. Try reducing the qubit count.",
+            state_vector_size, adapter_limits.max_storage_buffer_binding_size
+        ));
+    }
+
+    if result_vector_size > adapter_limits.max_storage_buffer_binding_size.into() {
+        return Err(format!(
+            "Result vector size {} exceeds adapter max storage buffer size {} for this system. Try reducing the qubit count.",
+            result_vector_size, adapter_limits.max_storage_buffer_binding_size
+        ));
+    }
+
+    if ops_buffer_size > adapter_limits.max_storage_buffer_binding_size.into() {
+        return Err(format!(
+            "Ops buffer size {} exceeds adapter max storage buffer size {} for this system. Try reducing the operations count.",
+            ops_buffer_size, adapter_limits.max_storage_buffer_binding_size
+        ));
+    }
+
+    let default_limits = Limits::default();
+
+    // Get the size of the largest buffer we need
+    let max_required_buffer_size = max(state_vector_size, max(result_vector_size, ops_buffer_size));
+
+    // storage buffer binding size is a u32 and we can't exceed that. Use max of required and default to be safe.
+    // but if we exceed the domain of u32, return an error.
+    // This may be redundant with previous checks, but better safe than sorry.
+    let max_storage_buffer_binding_size = max(
+        default_limits.max_storage_buffer_binding_size,
+        max_required_buffer_size
+            .try_into()
+            .map_err(|e: std::num::TryFromIntError| e.to_string())?,
+    );
+
+    let max_buffer_size = max(default_limits.max_buffer_size, max_required_buffer_size);
+
+    Ok(Limits {
+        max_compute_workgroup_size_x: 32,
+        max_compute_workgroups_per_dimension: 65535,
+        max_storage_buffer_binding_size,
+        max_buffer_size,
+        ..Default::default()
+    })
+}
+
+fn get_state_vector_buffer_size(qubit_count: u32) -> u64 {
+    let state_vector_entries: u64 = 2u64.pow(qubit_count);
+    let state_vector_size: u64 = state_vector_entries * 2 * std::mem::size_of::<f32>() as u64;
+    state_vector_size
+}
+
+fn get_result_vector_buffer_size(qubit_count: u32) -> u64 {
+    let state_vector_entries: u64 = 2u64.pow(qubit_count);
+    let state_vector_size: u64 = std::mem::size_of::<Result>() as u64 * state_vector_entries;
+    state_vector_size
+}
+
+fn get_ops_buffer_size(ops: &[Op]) -> u64 {
+    let buffer_size: u64 = std::mem::size_of_val(ops) as u64;
+    buffer_size
 }
