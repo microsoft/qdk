@@ -403,3 +403,9 @@ class PruneUnusedFunctions(QirModuleVisitor):
             # This function is used in a call, so remove it from the list of
             # functions to drop.
             self.funcs_to_drop.remove(call.callee)
+
+
+class PruneInitializeCalls(QirModuleVisitor):
+    def _on_call_instr(self, call):
+        if call.callee.name == "__quantum__rt__initialize":
+            call.erase()
