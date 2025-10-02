@@ -123,29 +123,32 @@ impl GpuContext {
         const MAX_QUBITS_PER_THREAD: u32 = 10;
         const MAX_QUBITS_PER_THREADGROUP: u32 = 12;
 
+        if !(1..=27).contains(&qubit_count) {
+            return Err(format!("Qubit count out of range: {qubit_count}"));
+        }
+
         if qubit_count < MAX_QUBITS_PER_THREAD {
             // All qubits fit in one thread
-            return Ok((
+            Ok((
                 1 << qubit_count, // Output states to process per thread
                 1,                // Threads per workgroup
                 1,                // Workgroup count
-            ));
+            ))
         } else if qubit_count <= MAX_QUBITS_PER_THREADGROUP {
             // All qubits fit in one threadgroup
-            return Ok((
+            Ok((
                 1 << MAX_QUBITS_PER_THREAD,
                 1 << (qubit_count - MAX_QUBITS_PER_THREAD),
                 1,
-            ));
-        } else if qubit_count <= 30 {
+            ))
+        } else {
             // Then add more threadgroups
-            return Ok((
+            Ok((
                 1 << MAX_QUBITS_PER_THREAD,
                 1 << (MAX_QUBITS_PER_THREADGROUP - MAX_QUBITS_PER_THREAD),
                 1 << (qubit_count - MAX_QUBITS_PER_THREADGROUP),
-            ));
+            ))
         }
-        Err(format!("Qubit count too high: {qubit_count}"))
     }
 
     pub fn create_resources(&mut self) {
