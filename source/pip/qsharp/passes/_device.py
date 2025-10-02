@@ -197,6 +197,11 @@ class AC1000(Device):
             self,
         )
 
+    def capture_trace(self, qir: str | QirInputData) -> dict:
+        # Compile and capture the trace in one step.
+        self.compile(qir)
+        return self.get_trace(qir)
+
     def simulate(
         self,
         qir: str | QirInputData,
