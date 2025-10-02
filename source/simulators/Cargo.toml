@@ -10,17 +10,18 @@ repository.workspace = true
 
 [dependencies]
 quantum-sparse-sim = { workspace = true }
-stabilizer_simulator = { path = "../stabilizer_simulator" }
 bytemuck = { workspace = true }
 futures = { workspace = true }
 wgpu = { workspace = true }
 rand = { workspace = true }
 num-bigint = { workspace = true }
+smallvec = { workspace = true }
+paulimer = { path = "../paulimer" }
 
 [dev-dependencies]
 expect-test = { workspace = true }
 criterion = { workspace = true}
-rand = { workspace = true }
+
 
 [lints]
 workspace = true
@@ -28,10 +29,20 @@ workspace = true
 [lib]
 doctest = false
 
-[profile.bench]
-debug = true
-strip = false
-lto = true
+[target.'cfg(target_os="linux")'.dev-dependencies]
+iai-callgrind = { workspace = true }
+
+[[bench]]
+name = "sim_time"
+harness = false
+
+[[bench]]
+name = "sim_time_noisy"
+harness = false
+
+[[bench]]
+name = "sim_mem"
+harness = false
 
 [[bench]]
 name = "gpu"

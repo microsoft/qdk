@@ -5,15 +5,10 @@
 mod tests;
 
 mod gpu_context;
+pub mod pauli_noise;
 pub mod shader_types;
 
-use crate::{
-    gpu_full_state_simulator::{gpu_context::GpuContext, shader_types::Op},
-    shader_types::ops,
-};
-
-use num_bigint::BigUint;
-use rand::{Rng, rngs::StdRng};
+use crate::gpu_full_state_simulator::{gpu_context::GpuContext, shader_types::Op};
 
 /// Checks if a compatible GPU adapter is available on the system.
 ///

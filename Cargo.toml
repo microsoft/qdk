@@ -109,3 +109,9 @@ codegen-units = 1
 
 [profile.release.package.fuzz]
 codegen-units = 16
+
+[profile.bench]
+debug = true
+strip = false
+lto = "fat"
+codegen-units = 1
