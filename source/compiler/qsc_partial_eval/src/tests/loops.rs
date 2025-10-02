@@ -484,9 +484,16 @@ fn result_array_index_range_in_for_loop() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
+                    name: __quantum__rt__initialize
+                    call_type: Regular
+                    input_type:
+                        [0]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 2: Callable:
                     name: __quantum__qis__mresetz__body
                     call_type: Measurement
                     input_type:
@@ -494,14 +501,14 @@ fn result_array_index_range_in_for_loop() {
                         [1]: Result
                     output_type: <VOID>
                     body: <NONE>
-                Callable 2: Callable:
-                    name: __quantum__qis__read_result__body
+                Callable 3: Callable:
+                    name: __quantum__rt__read_result
                     call_type: Readout
                     input_type:
                         [0]: Result
                     output_type: Boolean
                     body: <NONE>
-                Callable 3: Callable:
+                Callable 4: Callable:
                     name: __quantum__rt__int_record_output
                     call_type: OutputRecording
                     input_type:
@@ -511,22 +518,23 @@ fn result_array_index_range_in_for_loop() {
                     body: <NONE>
             blocks:
                 Block 0: Block:
+                    Call id(1), args( Pointer, )
                     Variable(0, Integer) = Store Integer(0)
                     Variable(0, Integer) = Store Integer(1)
                     Variable(0, Integer) = Store Integer(2)
                     Variable(1, Integer) = Store Integer(0)
-                    Call id(1), args( Qubit(0), Result(0), )
+                    Call id(2), args( Qubit(0), Result(0), )
                     Variable(1, Integer) = Store Integer(1)
-                    Call id(1), args( Qubit(1), Result(1), )
+                    Call id(2), args( Qubit(1), Result(1), )
                     Variable(1, Integer) = Store Integer(2)
                     Variable(2, Integer) = Store Integer(0)
                     Variable(3, Integer) = Store Integer(0)
-                    Variable(4, Boolean) = Call id(2), args( Result(0), )
+                    Variable(4, Boolean) = Call id(3), args( Result(0), )
                     Variable(5, Boolean) = Store Variable(4, Boolean)
                     Branch Variable(5, Boolean), 2, 1
                 Block 1: Block:
                     Variable(3, Integer) = Store Integer(1)
-                    Variable(6, Boolean) = Call id(2), args( Result(1), )
+                    Variable(6, Boolean) = Call id(3), args( Result(1), )
                     Variable(7, Boolean) = Store Variable(6, Boolean)
                     Branch Variable(7, Boolean), 4, 3
                 Block 2: Block:
@@ -538,7 +546,7 @@ fn result_array_index_range_in_for_loop() {
                     Variable(10, Integer) = Store Integer(0)
                     Variable(10, Integer) = Store Integer(1)
                     Variable(10, Integer) = Store Integer(2)
-                    Call id(3), args( Variable(9, Integer), Pointer, )
+                    Call id(4), args( Variable(9, Integer), Tag(0, 3), )
                     Return
                 Block 4: Block:
                     Variable(8, Integer) = Add Variable(2, Integer), Integer(1)
@@ -547,5 +555,8 @@ fn result_array_index_range_in_for_loop() {
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 2
-            num_results: 2"#]].assert_eq(&program.to_string());
+            num_results: 2
+            tags:
+                [0]: 0_i
+    "#]].assert_eq(&program.to_string());
 }

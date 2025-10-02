@@ -1060,9 +1060,16 @@ fn result_array_index_range_returns_length_as_end() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
+                    name: __quantum__rt__initialize
+                    call_type: Regular
+                    input_type:
+                        [0]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 2: Callable:
                     name: __quantum__qis__mresetz__body
                     call_type: Measurement
                     input_type:
@@ -1070,7 +1077,7 @@ fn result_array_index_range_returns_length_as_end() {
                         [1]: Result
                     output_type: <VOID>
                     body: <NONE>
-                Callable 2: Callable:
+                Callable 3: Callable:
                     name: __quantum__rt__int_record_output
                     call_type: OutputRecording
                     input_type:
@@ -1080,21 +1087,25 @@ fn result_array_index_range_returns_length_as_end() {
                     body: <NONE>
             blocks:
                 Block 0: Block:
+                    Call id(1), args( Pointer, )
                     Variable(0, Integer) = Store Integer(0)
                     Variable(0, Integer) = Store Integer(1)
                     Variable(0, Integer) = Store Integer(2)
                     Variable(1, Integer) = Store Integer(0)
-                    Call id(1), args( Qubit(0), Result(0), )
+                    Call id(2), args( Qubit(0), Result(0), )
                     Variable(1, Integer) = Store Integer(1)
-                    Call id(1), args( Qubit(1), Result(1), )
+                    Call id(2), args( Qubit(1), Result(1), )
                     Variable(1, Integer) = Store Integer(2)
                     Variable(2, Integer) = Store Integer(0)
                     Variable(2, Integer) = Store Integer(1)
                     Variable(2, Integer) = Store Integer(2)
-                    Call id(2), args( Integer(1), Pointer, )
+                    Call id(3), args( Integer(1), Tag(0, 3), )
                     Return
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 2
-            num_results: 2"#]].assert_eq(&program.to_string());
+            num_results: 2
+            tags:
+                [0]: 0_i
+    "#]].assert_eq(&program.to_string());
 }
