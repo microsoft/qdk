@@ -760,7 +760,7 @@ fn get_module_metadata(program: &rir::Program) -> String {
                     // Use `5` as the flag to signify "Append" mode. See https://llvm.org/docs/LangRef.html#module-flags-metadata
                     writeln!(
                         flags,
-                        "!{index} = !{{i32 5, !\"float_computations\", !{{!\"f64\"}}}}",
+                        "!{index} = !{{i32 5, !\"float_computations\", !{{!\"double\"}}}}",
                     )
                     .expect("writing to string should succeed");
                     index += 1;

@@ -208,7 +208,7 @@ fn profile_pragma_compiles_with_adaptive_rif() -> miette::Result<(), Vec<Report>
         !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
         !3 = !{i32 1, !"dynamic_result_management", i1 false}
         !4 = !{i32 5, !"int_computations", !{!"i64"}}
-        !5 = !{i32 5, !"float_computations", !{!"f64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
     "#]]
     .assert_eq(&qsharp);
     Ok(())

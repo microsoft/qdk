@@ -191,4 +191,4 @@ attributes #1 = { "irreversible" }
 !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
 !3 = !{i32 1, !"dynamic_result_management", i1 false}
 !4 = !{i32 5, !"int_computations", !{!"i64"}}
-!5 = !{i32 5, !"float_computations", !{!"f64"}}
+!5 = !{i32 5, !"float_computations", !{!"double"}}

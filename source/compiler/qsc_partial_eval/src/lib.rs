@@ -3280,10 +3280,6 @@ impl<'a> PartialEvaluator<'a> {
         };
         let new_tag_root = format!("{tag_root}t");
         let tuple_record_callable_id = self.get_tuple_record_callable();
-        // let idx = self.program.tags.len();
-        // let tag = format!("{idx}_{new_tag_root}");
-        // let len = tag.len();
-        // self.program.tags.push(tag);
         instrs.push(Instruction::Call(
             tuple_record_callable_id,
             vec![
