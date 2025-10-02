@@ -119,11 +119,12 @@ impl GpuContext {
     }
 
     pub fn get_params(qubit_count: u32) -> std::result::Result<(u32, u32, u32), String> {
+        const MAX_QUBITS_SUPPORTED: u32 = 27;
         // Figure out how many threads and threadgroups to use based on the qubit count.
         const MAX_QUBITS_PER_THREAD: u32 = 10;
         const MAX_QUBITS_PER_THREADGROUP: u32 = 12;
 
-        if !(1..=27).contains(&qubit_count) {
+        if !(1..=MAX_QUBITS_SUPPORTED).contains(&qubit_count) {
             return Err(format!("Qubit count out of range: {qubit_count}"));
         }
 
