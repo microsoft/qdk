@@ -584,15 +584,21 @@ def test_adaptive_ri_qir_can_be_generated() -> None:
         %Result = type opaque
         %Qubit = type opaque
 
-        define void @ENTRYPOINT__main() #0 {
+        @empty_tag = internal constant [1 x i8] c"\\00"
+        @0 = internal constant [4 x i8] c"0_r\\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
         block_0:
+          call void @__quantum__rt__initialize(i8* null)
           call void @__quantum__qis__rz__body(double 2.0, %Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__rz__body(double 0.0, %Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__rz__body(double 1.0, %Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)
-          ret void
+          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          ret i64 0
         }
+
+        declare void @__quantum__rt__initialize(i8*)
 
         declare void @__quantum__qis__rz__body(double, %Qubit*)
 
@@ -611,7 +617,7 @@ def test_adaptive_ri_qir_can_be_generated() -> None:
         !1 = !{i32 7, !"qir_minor_version", i32 0}
         !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
         !3 = !{i32 1, !"dynamic_result_management", i1 false}
-        !4 = !{i32 1, !"int_computations", !"i64"}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
         """
     )
 
@@ -642,15 +648,21 @@ def test_base_qir_can_be_generated() -> None:
         %Result = type opaque
         %Qubit = type opaque
 
-        define void @ENTRYPOINT__main() #0 {
+        @empty_tag = internal constant [1 x i8] c"\\00"
+        @0 = internal constant [4 x i8] c"0_r\\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
         block_0:
+          call void @__quantum__rt__initialize(i8* null)
           call void @__quantum__qis__rz__body(double 2.0, %Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__rz__body(double 0.0, %Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__rz__body(double 1.0, %Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)
-          ret void
+          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          ret i64 0
         }
+
+        declare void @__quantum__rt__initialize(i8*)
 
         declare void @__quantum__qis__rz__body(double, %Qubit*)
 

@@ -31,22 +31,22 @@ fn non_classical_entry_point_with_classical_implicit_return() {
         &program,
         output_recording_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__rt__bool_record_output
-            call_type: OutputRecording
-            input_type:
-                [0]: Boolean
-                [1]: Pointer
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
-        Block:
-            Call id(1), args( Bool(true), Pointer, )
-            Return"#]],
+            Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Bool(true), Tag(0, 3), )
+                Return"#]],
     );
 }
 
@@ -67,11 +67,10 @@ fn non_classical_entry_point_with_non_classical_implicit_return() {
         mresetz_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Regular
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -81,11 +80,11 @@ fn non_classical_entry_point_with_non_classical_implicit_return() {
         output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__result_record_output
-                call_type: OutputRecording
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
                 input_type:
-                    [0]: Result
-                    [1]: Pointer
+                    [0]: Qubit
+                    [1]: Result
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -94,8 +93,9 @@ fn non_classical_entry_point_with_non_classical_implicit_return() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), )
-                Call id(2), args( Result(0), Pointer, )
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Call id(3), args( Result(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -116,22 +116,22 @@ fn non_classical_entry_point_with_classical_explicit_return() {
         &program,
         output_recording_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__rt__bool_record_output
-            call_type: OutputRecording
-            input_type:
-                [0]: Boolean
-                [1]: Pointer
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
-        Block:
-            Call id(1), args( Bool(false), Pointer, )
-            Return"#]],
+            Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Bool(false), Tag(0, 3), )
+                Return"#]],
     );
 }
 
@@ -152,11 +152,10 @@ fn non_classical_entry_point_with_non_classical_explicit_return() {
         mresetz_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Regular
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -166,11 +165,11 @@ fn non_classical_entry_point_with_non_classical_explicit_return() {
         output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__result_record_output
-                call_type: OutputRecording
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
                 input_type:
-                    [0]: Result
-                    [1]: Pointer
+                    [0]: Qubit
+                    [1]: Result
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -179,8 +178,9 @@ fn non_classical_entry_point_with_non_classical_explicit_return() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), )
-                Call id(2), args( Result(0), Pointer, )
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Call id(3), args( Result(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -205,36 +205,36 @@ fn non_classical_entry_point_with_classical_inline_early_return_halts_evaluation
         &program,
         op_a_callable_id,
         &expect![[r#"
-        Callable:
-            name: OpA
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_recording_callable_id = CallableId(2);
     assert_callable(
         &program,
         output_recording_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__rt__tuple_record_output
-            call_type: OutputRecording
-            input_type:
-                [0]: Integer
-                [1]: Pointer
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: OpA
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
-        Block:
-            Call id(1), args( Qubit(0), )
-            Call id(2), args( Integer(0), Pointer, )
-            Return"#]],
+            Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), )
+                Call id(3), args( Integer(0), EmptyTag, )
+                Return"#]],
     );
 }
 
@@ -256,11 +256,10 @@ fn non_classical_entry_point_with_non_classical_inline_early_return_halts_evalua
         mresetz_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Regular
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -270,11 +269,11 @@ fn non_classical_entry_point_with_non_classical_inline_early_return_halts_evalua
         output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__result_record_output
-                call_type: OutputRecording
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
                 input_type:
-                    [0]: Result
-                    [1]: Pointer
+                    [0]: Qubit
+                    [1]: Result
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -283,8 +282,9 @@ fn non_classical_entry_point_with_non_classical_inline_early_return_halts_evalua
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), )
-                Call id(2), args( Result(0), Pointer, )
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Call id(3), args( Result(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -313,13 +313,13 @@ fn non_classical_entry_point_with_classical_early_return_within_classical_branch
         &program,
         op_a_callable_id,
         &expect![[r#"
-        Callable:
-            name: OpA
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_recording_callable_id = CallableId(2);
     assert_callable(
@@ -327,11 +327,10 @@ fn non_classical_entry_point_with_classical_early_return_within_classical_branch
         output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__bool_record_output
-                call_type: OutputRecording
+                name: OpA
+                call_type: Regular
                 input_type:
-                    [0]: Boolean
-                    [1]: Pointer
+                    [0]: Qubit
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -340,8 +339,9 @@ fn non_classical_entry_point_with_classical_early_return_within_classical_branch
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), )
-                Call id(2), args( Bool(true), Pointer, )
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), )
+                Call id(3), args( Bool(true), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -423,11 +423,10 @@ fn non_classical_entry_point_with_early_return_after_branching_halts_evaluation(
         mresetz_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Regular
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -436,52 +435,53 @@ fn non_classical_entry_point_with_early_return_after_branching_halts_evaluation(
         &program,
         read_result_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let op_a_callable_id = CallableId(3);
     assert_callable(
         &program,
         op_a_callable_id,
         &expect![[r#"
-        Callable:
-            name: OpA
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     let op_b_callable_id = CallableId(4);
     assert_callable(
         &program,
         op_b_callable_id,
         &expect![[r#"
-        Callable:
-            name: OpB
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: OpA
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let op_c_callable_id = CallableId(5);
     assert_callable(
         &program,
         op_c_callable_id,
         &expect![[r#"
-        Callable:
-            name: OpC
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: OpB
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_recording_callable_id = CallableId(6);
     assert_callable(
@@ -489,11 +489,10 @@ fn non_classical_entry_point_with_early_return_after_branching_halts_evaluation(
         output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__tuple_record_output
-                call_type: OutputRecording
+                name: OpC
+                call_type: Regular
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
+                    [0]: Qubit
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -502,19 +501,20 @@ fn non_classical_entry_point_with_early_return_after_branching_halts_evaluation(
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(2), args( Result(0), )
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(0, Boolean) = Call id(3), args( Result(0), )
                 Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
-                Call id(5), args( Qubit(1), )
-                Call id(6), args( Integer(0), Pointer, )
+                Call id(6), args( Qubit(1), )
+                Call id(7), args( Integer(0), EmptyTag, )
                 Return
             Block 2:Block:
-                Call id(3), args( Qubit(1), )
+                Call id(4), args( Qubit(1), )
                 Jump(1)
             Block 3:Block:
-                Call id(4), args( Qubit(1), )
+                Call id(5), args( Qubit(1), )
                 Jump(1)"#]],
     );
 }
@@ -548,11 +548,10 @@ fn operation_with_early_return_within_dynamic_branch_halts_evaluation_at_the_cal
         mresetz_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Regular
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -561,39 +560,40 @@ fn operation_with_early_return_within_dynamic_branch_halts_evaluation_at_the_cal
         &program,
         read_result_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let op_a_callable_id = CallableId(3);
     assert_callable(
         &program,
         op_a_callable_id,
         &expect![[r#"
-        Callable:
-            name: OpA
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     let op_b_callable_id = CallableId(4);
     assert_callable(
         &program,
         op_b_callable_id,
         &expect![[r#"
-        Callable:
-            name: OpB
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: OpA
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_recording_callable_id = CallableId(5);
     assert_callable(
@@ -601,11 +601,10 @@ fn operation_with_early_return_within_dynamic_branch_halts_evaluation_at_the_cal
         output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__tuple_record_output
-                call_type: OutputRecording
+                name: OpB
+                call_type: Regular
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
+                    [0]: Qubit
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -614,16 +613,17 @@ fn operation_with_early_return_within_dynamic_branch_halts_evaluation_at_the_cal
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(2), args( Result(0), )
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(0, Boolean) = Call id(3), args( Result(0), )
                 Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
                 Branch Variable(1, Boolean), 2, 1
             Block 1:Block:
-                Call id(4), args( Qubit(0), )
-                Call id(5), args( Integer(0), Pointer, )
+                Call id(5), args( Qubit(0), )
+                Call id(6), args( Integer(0), EmptyTag, )
                 Return
             Block 2:Block:
-                Call id(3), args( Qubit(0), )
+                Call id(4), args( Qubit(0), )
                 Jump(1)"#]],
     );
 }
@@ -655,37 +655,38 @@ fn default_qubit_management_releases_qubits_when_they_are_out_of_scope_with_impl
         &program,
         op_a_callable_id,
         &expect![[r#"
-        Callable:
-            name: OpA
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let op_b_callable_id = CallableId(2);
     assert_callable(
         &program,
         op_b_callable_id,
         &expect![[r#"
-        Callable:
-            name: OpB
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: OpA
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
-        Block:
-            Call id(1), args( Qubit(0), )
-            Call id(2), args( Qubit(1), )
-            Call id(1), args( Qubit(1), )
-            Call id(3), args( Integer(0), Pointer, )
-            Return"#]],
+            Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), )
+                Call id(3), args( Qubit(1), )
+                Call id(2), args( Qubit(1), )
+                Call id(4), args( Integer(0), EmptyTag, )
+                Return"#]],
     );
     assert_eq!(program.num_qubits, 2);
     assert_eq!(program.num_results, 0);
@@ -719,37 +720,38 @@ fn default_qubit_management_releases_qubits_when_they_are_out_of_scope_with_expl
         &program,
         op_a_callable_id,
         &expect![[r#"
-        Callable:
-            name: OpA
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let op_b_callable_id = CallableId(2);
     assert_callable(
         &program,
         op_b_callable_id,
         &expect![[r#"
-        Callable:
-            name: OpB
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: OpA
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
-        Block:
-            Call id(1), args( Qubit(0), )
-            Call id(2), args( Qubit(1), )
-            Call id(1), args( Qubit(1), )
-            Call id(3), args( Integer(0), Pointer, )
-            Return"#]],
+            Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), )
+                Call id(3), args( Qubit(1), )
+                Call id(2), args( Qubit(1), )
+                Call id(4), args( Integer(0), EmptyTag, )
+                Return"#]],
     );
     assert_eq!(program.num_qubits, 2);
     assert_eq!(program.num_results, 0);
@@ -785,37 +787,38 @@ fn default_qubit_management_releases_qubits_when_they_are_out_of_scope_with_expl
         &program,
         op_a_callable_id,
         &expect![[r#"
-        Callable:
-            name: OpA
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let op_b_callable_id = CallableId(2);
     assert_callable(
         &program,
         op_b_callable_id,
         &expect![[r#"
-        Callable:
-            name: OpB
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: OpA
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
-        Block:
-            Call id(1), args( Qubit(0), )
-            Call id(2), args( Qubit(1), )
-            Call id(1), args( Qubit(1), )
-            Call id(3), args( Integer(0), Pointer, )
-            Return"#]],
+            Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), )
+                Call id(3), args( Qubit(1), )
+                Call id(2), args( Qubit(1), )
+                Call id(4), args( Integer(0), EmptyTag, )
+                Return"#]],
     );
     assert_eq!(program.num_qubits, 2);
     assert_eq!(program.num_results, 0);
