@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+pub mod pauli_noise;
 pub use quantum_sparse_sim::QuantumSim;
 
 pub mod stabilizer_simulator {
