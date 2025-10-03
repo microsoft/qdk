@@ -329,3 +329,30 @@ fn default_single_element_tuple() {
     "#]]
     .assert_eq(&wrapper);
 }
+
+#[test]
+fn no_code_action_for_lambdas_() {
+    let source = "namespace Test { operation Named(x : Int) : Unit { let l = (y) => { x + y }; let e = (y) => { x + y }; l(2); } }";
+    let (compilation, _targets) =
+        compile_project_with_markers_no_cursor(&[("<source>", source)], false);
+    let range = Range {
+        start: Position { line: 0, column: 0 },
+        end: Position {
+            line: 0,
+            column: u32::try_from(source.len()).expect("len fits"),
+        },
+    };
+    let actions = code_action::get_code_actions(&compilation, "<source>", range, Encoding::Utf8);
+    let titles = actions
+        .iter()
+        .filter_map(|a| {
+            if a.title.contains("Generate wrapper") {
+                Some(a.title.clone())
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    expect!["Generate wrapper with default arguments for Named"].assert_eq(&titles);
+}
