@@ -26,27 +26,27 @@ fn qubit_ids_are_correct_for_allocate_use_release_one_qubit() {
     });
     expect![[r#"
         Callable:
+            name: __quantum__rt__initialize
+            call_type: Regular
+            input_type:
+                [0]: Pointer
+            output_type: <VOID>
+            body: <NONE>"#]]
+    .assert_eq(&program.get_callable(CallableId(1)).to_string());
+    expect![[r#"
+        Callable:
             name: op
             call_type: Regular
             input_type:
                 [0]: Qubit
             output_type: <VOID>
             body: <NONE>"#]]
-    .assert_eq(&program.get_callable(CallableId(1)).to_string());
-    expect![[r#"
-        Callable:
-            name: __quantum__rt__tuple_record_output
-            call_type: OutputRecording
-            input_type:
-                [0]: Integer
-                [1]: Pointer
-            output_type: <VOID>
-            body: <NONE>"#]]
     .assert_eq(&program.get_callable(CallableId(2)).to_string());
     expect![[r#"
         Block:
-            Call id(1), args( Qubit(0), )
-            Call id(2), args( Integer(0), Pointer, )
+            Call id(1), args( Pointer, )
+            Call id(2), args( Qubit(0), )
+            Call id(3), args( Integer(0), EmptyTag, )
             Return"#]]
     .assert_eq(&program.get_block(BlockId(0)).to_string());
 }
@@ -77,37 +77,37 @@ fn qubit_ids_are_correct_for_allocate_use_release_multiple_qubits() {
         &program,
         op_callable_id,
         &expect![[r#"
-        Callable:
-            name: op
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let tuple_callable_id = CallableId(2);
     assert_callable(
         &program,
         tuple_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__rt__tuple_record_output
-            call_type: OutputRecording
-            input_type:
-                [0]: Integer
-                [1]: Pointer
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: op
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), )
-                Call id(1), args( Qubit(1), )
-                Call id(1), args( Qubit(2), )
-                Call id(2), args( Integer(0), Pointer, )
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), )
+                Call id(2), args( Qubit(1), )
+                Call id(2), args( Qubit(2), )
+                Call id(3), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
     assert_eq!(program.num_qubits, 3);
@@ -140,37 +140,37 @@ fn qubit_ids_are_correct_for_allocate_use_release_one_qubit_multiple_times() {
         &program,
         op_callable_id,
         &expect![[r#"
-        Callable:
-            name: op
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let tuple_callable_id = CallableId(2);
     assert_callable(
         &program,
         tuple_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__rt__tuple_record_output
-            call_type: OutputRecording
-            input_type:
-                [0]: Integer
-                [1]: Pointer
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: op
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), )
-                Call id(1), args( Qubit(0), )
-                Call id(1), args( Qubit(0), )
-                Call id(2), args( Integer(0), Pointer, )
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), )
+                Call id(2), args( Qubit(0), )
+                Call id(2), args( Qubit(0), )
+                Call id(3), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
     assert_eq!(program.num_qubits, 1);
@@ -209,39 +209,39 @@ fn qubit_ids_are_correct_for_allocate_use_release_multiple_qubits_interleaved() 
         &program,
         op_callable_id,
         &expect![[r#"
-        Callable:
-            name: op
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let tuple_callable_id = CallableId(2);
     assert_callable(
         &program,
         tuple_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__rt__tuple_record_output
-            call_type: OutputRecording
-            input_type:
-                [0]: Integer
-                [1]: Pointer
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: op
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), )
-                Call id(1), args( Qubit(1), )
-                Call id(1), args( Qubit(2), )
-                Call id(1), args( Qubit(2), )
-                Call id(1), args( Qubit(3), )
-                Call id(2), args( Integer(0), Pointer, )
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), )
+                Call id(2), args( Qubit(1), )
+                Call id(2), args( Qubit(2), )
+                Call id(2), args( Qubit(2), )
+                Call id(2), args( Qubit(3), )
+                Call id(3), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
     assert_eq!(program.num_qubits, 4);
@@ -270,10 +270,10 @@ fn qubit_array_allocation_and_access() {
         op_callable_id,
         &expect![[r#"
             Callable:
-                name: Op
+                name: __quantum__rt__initialize
                 call_type: Regular
                 input_type:
-                    [0]: Qubit
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -282,32 +282,32 @@ fn qubit_array_allocation_and_access() {
         &program,
         tuple_record_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__rt__tuple_record_output
-            call_type: OutputRecording
-            input_type:
-                [0]: Integer
-                [1]: Pointer
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: Op
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
+                Call id(1), args( Pointer, )
                 Variable(0, Integer) = Store Integer(0)
                 Variable(0, Integer) = Store Integer(1)
                 Variable(0, Integer) = Store Integer(2)
                 Variable(0, Integer) = Store Integer(3)
-                Call id(1), args( Qubit(0), )
-                Call id(1), args( Qubit(1), )
-                Call id(1), args( Qubit(2), )
+                Call id(2), args( Qubit(0), )
+                Call id(2), args( Qubit(1), )
+                Call id(2), args( Qubit(2), )
                 Variable(1, Integer) = Store Integer(0)
                 Variable(1, Integer) = Store Integer(1)
                 Variable(1, Integer) = Store Integer(2)
                 Variable(1, Integer) = Store Integer(3)
-                Call id(2), args( Integer(0), Pointer, )
+                Call id(3), args( Integer(0), EmptyTag, )
                 Return"#]],
     );
     assert_eq!(program.num_qubits, 3);

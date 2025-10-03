@@ -594,3 +594,119 @@ fn convert_repeat_nested() {
                         ctl-adj: <none>"#]],
     );
 }
+
+#[test]
+fn convert_treats_for_loop_with_short_circuit_expression_explicit_int() {
+    check(
+        indoc! {r#"
+        function Main() : Unit {
+            let x = for i : Int in fail "" {};
+        }
+        "#},
+        &expect![[r#"
+            Package:
+                Item 0 [0-65] (Public):
+                    Namespace (Ident 14 [0-65] "test"): Item 1
+                Item 1 [0-65] (Internal):
+                    Parent: 0
+                    Callable 0 [0-65] (function):
+                        name: Ident 1 [9-13] "Main"
+                        input: Pat 2 [13-15] [Type Unit]: Unit
+                        output: Unit
+                        functors: empty set
+                        body: SpecDecl 3 [0-65]: Impl:
+                            Block 4 [23-65] [Type Unit]:
+                                Stmt 5 [29-63]: Local (Immutable):
+                                    Pat 6 [33-34] [Type Unit]: Bind: Ident 7 [33-34] "x"
+                                    Expr 41 [37-62] [Type Unit]: Expr Block: Block 42 [37-62] [Type Unit]:
+                                        Stmt 16 [0-0]: Local (Immutable):
+                                            Pat 17 [52-59] [Type Unit]: Bind: Ident 15 [52-59] "@array_id_15"
+                                            Expr 11 [52-59] [Type Unit]: Fail: Expr 12 [57-59] [Type String]: String:
+                                                Lit: ""
+                                        Stmt 22 [0-0]: Local (Immutable):
+                                            Pat 23 [52-59] [Type Int]: Bind: Ident 19 [52-59] "@len_id_19"
+                                            Expr 20 [52-59] [Type Int]: Call:
+                                                Expr 18 [52-59] [Type (Int[] -> Int)]: Var:
+                                                    res: Item 1 (Package 0)
+                                                    generics:
+                                                        Int
+                                                Expr 21 [52-59] [Type Unit]: Var: Local 15
+                                        Stmt 26 [52-59]: Local (Mutable):
+                                            Pat 27 [52-59] [Type Int]: Bind: Ident 24 [52-59] "@index_id_24"
+                                            Expr 25 [52-59] [Type Int]: Lit: Int(0)
+                                        Stmt 39 [0-0]: Expr: Expr 40 [37-62] [Type Unit]: While:
+                                            Expr 36 [52-59] [Type Bool]: BinOp (Lt):
+                                                Expr 37 [52-59] [Type Int]: Var: Local 24
+                                                Expr 38 [52-59] [Type Int]: Var: Local 19
+                                            Block 13 [60-62] [Type Unit]:
+                                                Stmt 28 [41-48]: Local (Immutable):
+                                                    Pat 9 [41-48] [Type Int]: Bind: Ident 10 [41-42] "i"
+                                                    Expr 29 [52-59] [Type Int]: Index:
+                                                        Expr 30 [52-59] [Type Unit]: Var: Local 15
+                                                        Expr 31 [52-59] [Type Int]: Var: Local 24
+                                                Stmt 33 [52-59]: Semi: Expr 34 [52-59] [Type Unit]: AssignOp (Add):
+                                                    Expr 35 [52-59] [Type Int]: Var: Local 24
+                                                    Expr 32 [52-59] [Type Int]: Lit: Int(1)
+                        adj: <none>
+                        ctl: <none>
+                        ctl-adj: <none>"#]],
+    );
+}
+
+#[test]
+fn convert_treats_for_loop_with_short_circuit_expression_explicit_non_int() {
+    check(
+        indoc! {r#"
+        function Main() : Unit {
+            let x = for i : String in fail "" {};
+        }
+        "#},
+        &expect![[r#"
+            Package:
+                Item 0 [0-68] (Public):
+                    Namespace (Ident 14 [0-68] "test"): Item 1
+                Item 1 [0-68] (Internal):
+                    Parent: 0
+                    Callable 0 [0-68] (function):
+                        name: Ident 1 [9-13] "Main"
+                        input: Pat 2 [13-15] [Type Unit]: Unit
+                        output: Unit
+                        functors: empty set
+                        body: SpecDecl 3 [0-68]: Impl:
+                            Block 4 [23-68] [Type Unit]:
+                                Stmt 5 [29-66]: Local (Immutable):
+                                    Pat 6 [33-34] [Type Unit]: Bind: Ident 7 [33-34] "x"
+                                    Expr 41 [37-65] [Type Unit]: Expr Block: Block 42 [37-65] [Type Unit]:
+                                        Stmt 16 [0-0]: Local (Immutable):
+                                            Pat 17 [55-62] [Type Unit]: Bind: Ident 15 [55-62] "@array_id_15"
+                                            Expr 11 [55-62] [Type Unit]: Fail: Expr 12 [60-62] [Type String]: String:
+                                                Lit: ""
+                                        Stmt 22 [0-0]: Local (Immutable):
+                                            Pat 23 [55-62] [Type Int]: Bind: Ident 19 [55-62] "@len_id_19"
+                                            Expr 20 [55-62] [Type Int]: Call:
+                                                Expr 18 [55-62] [Type (String[] -> Int)]: Var:
+                                                    res: Item 1 (Package 0)
+                                                    generics:
+                                                        String
+                                                Expr 21 [55-62] [Type Unit]: Var: Local 15
+                                        Stmt 26 [55-62]: Local (Mutable):
+                                            Pat 27 [55-62] [Type Int]: Bind: Ident 24 [55-62] "@index_id_24"
+                                            Expr 25 [55-62] [Type Int]: Lit: Int(0)
+                                        Stmt 39 [0-0]: Expr: Expr 40 [37-65] [Type Unit]: While:
+                                            Expr 36 [55-62] [Type Bool]: BinOp (Lt):
+                                                Expr 37 [55-62] [Type Int]: Var: Local 24
+                                                Expr 38 [55-62] [Type Int]: Var: Local 19
+                                            Block 13 [63-65] [Type Unit]:
+                                                Stmt 28 [41-51]: Local (Immutable):
+                                                    Pat 9 [41-51] [Type String]: Bind: Ident 10 [41-42] "i"
+                                                    Expr 29 [55-62] [Type String]: Index:
+                                                        Expr 30 [55-62] [Type Unit]: Var: Local 15
+                                                        Expr 31 [55-62] [Type Int]: Var: Local 24
+                                                Stmt 33 [55-62]: Semi: Expr 34 [55-62] [Type Unit]: AssignOp (Add):
+                                                    Expr 35 [55-62] [Type Int]: Var: Local 24
+                                                    Expr 32 [55-62] [Type Int]: Lit: Int(1)
+                        adj: <none>
+                        ctl: <none>
+                        ctl-adj: <none>"#]],
+    );
+}

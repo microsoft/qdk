@@ -4,5 +4,5 @@ METADATA	output_labeling_schema
 METADATA	qir_profiles	adaptive_profile
 METADATA	required_num_qubits	1
 METADATA	required_num_results	1
-OUTPUT	RESULT	0
+OUTPUT	RESULT	0	0_r
 END	0

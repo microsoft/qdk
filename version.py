@@ -8,7 +8,7 @@ import re
 import sys
 
 # To be updated every time we start a new major.minor version.
-major_minor = "1.20"
+major_minor = "1.21"
 
 root_dir = os.path.dirname(os.path.abspath(__file__))
 source_dir = os.path.join(root_dir, "source")

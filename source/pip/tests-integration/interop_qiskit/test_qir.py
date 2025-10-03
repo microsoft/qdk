@@ -230,5 +230,5 @@ def test_qir_re_output_single_unit_tuple() -> None:
 
     res = backend.qir(circuit, output_semantics=output_semantics)
     assert res is not None
-    call = "call void @__quantum__rt__tuple_record_output(i64 0, i8* null)"
+    call = "call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))"
     assert call in res
