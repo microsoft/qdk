@@ -70,13 +70,13 @@ pub fn run_gpu_full_state<'py>(
 
     for _ in 0..shots {
         let mut output = if let Some(noise) = noise {
-            qdk_simulators::run_gpu_simulator_with_pauli_noise(
-                num_qubits,
+            let ops = qdk_simulators::pauli_noise::apply_pauli_noise_with_loss(
                 ops.clone(),
-                noise.distribution,
                 &mut rng,
+                noise.distribution,
                 None,
-            )
+            );
+            qdk_simulators::run_gpu_simulator(num_qubits, ops)
         } else {
             qdk_simulators::run_gpu_simulator(num_qubits, ops.clone())
         }

@@ -1,8 +1,25 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::Fault;
 use rand::Rng;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Fault {
+    /// No fault occurred.
+    None,
+    /// A Pauli-X fault.
+    X,
+    /// A Pauli-Y fault.
+    Y,
+    /// A Pauli-Z fault.
+    Z,
+    /// A gradual dephasing fault. Qubits are always slowly
+    /// rotating along the Z-axis with an unknown rate,
+    /// eventually resulting in an `S` gate.
+    S,
+    /// The qubit was lost.
+    Loss,
+}
 
 /// Noise description for each operation.
 ///
@@ -134,7 +151,7 @@ impl NoiseTable {
     };
 }
 
-/// A cumulative representation of the NoiseTable to make
+/// A cumulative representation of the `NoiseTable` to make
 /// computation more efficient.
 ///
 /// This is the internal format used by the simulator.

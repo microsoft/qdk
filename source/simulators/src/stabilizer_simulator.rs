@@ -3,10 +3,8 @@
 
 //! This crate implements a stabilizer simulator for the QDK.
 
-pub mod noise_config;
 pub mod operation;
 
-use noise_config::{CumulativeNoiseConfig, NoiseConfig};
 use operation::Operation;
 use paulimer::{
     Simulation, UnitaryOp,
@@ -15,22 +13,7 @@ use paulimer::{
 };
 use std::fmt::Write;
 
-pub enum Fault {
-    /// No fault occurred.
-    None,
-    /// A Pauli-X fault.
-    X,
-    /// A Pauli-Y fault.
-    Y,
-    /// A Pauli-Z fault.
-    Z,
-    /// A gradual dephasing fault. Qubits are always slowly
-    /// rotating along the Z-axis with an unknown rate,
-    /// eventually resulting in an `S` gate.
-    S,
-    /// The qubit was lost.
-    Loss,
-}
+use crate::noise_config::{CumulativeNoiseConfig, Fault, NoiseConfig};
 
 /// A qubit ID.
 pub type QubitID = usize;
@@ -135,7 +118,7 @@ impl Simulator {
         self.apply_gate_in_place(&Operation::CZ { control, target });
     }
 
-    /// MResetZ operation.
+    /// `MResetZ` operation.
     pub fn mresetz(&mut self, target: QubitID, result_id: QubitID) {
         self.apply_gate_in_place(&Operation::MResetZ { target, result_id });
     }
@@ -299,15 +282,9 @@ impl Simulator {
         let mut buffer = String::new();
         for m in &self.measurements {
             match m {
-                crate::MeasurementResult::Zero => {
-                    write!(&mut buffer, "0").expect("write should succeed")
-                }
-                crate::MeasurementResult::One => {
-                    write!(&mut buffer, "1").expect("write should succeed")
-                }
-                crate::MeasurementResult::Loss => {
-                    write!(&mut buffer, "L").expect("write should succeed")
-                }
+                MeasurementResult::Zero => write!(&mut buffer, "0").expect("write should succeed"),
+                MeasurementResult::One => write!(&mut buffer, "1").expect("write should succeed"),
+                MeasurementResult::Loss => write!(&mut buffer, "L").expect("write should succeed"),
             }
         }
         buffer

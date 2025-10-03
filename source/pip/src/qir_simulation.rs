@@ -89,16 +89,13 @@ pub struct NoiseConfig {
 impl NoiseConfig {
     #[new]
     fn new(py: Python) -> PyResult<Self> {
-        bind_noise_config(
-            py,
-            qdk_simulators::stabilizer_simulator::NoiseConfig::NOISELESS,
-        )
+        bind_noise_config(py, qdk_simulators::noise_config::NoiseConfig::NOISELESS)
     }
 }
 
 fn bind_noise_config(
     py: Python,
-    value: qdk_simulators::stabilizer_simulator::NoiseConfig,
+    value: qdk_simulators::noise_config::NoiseConfig,
 ) -> PyResult<NoiseConfig> {
     Ok(NoiseConfig {
         x: Py::new(py, NoiseTable::from(value.x))?,
@@ -118,9 +115,9 @@ fn bind_noise_config(
 fn unbind_noise_config(
     py: Python,
     value: &Bound<NoiseConfig>,
-) -> qdk_simulators::stabilizer_simulator::NoiseConfig {
+) -> qdk_simulators::noise_config::NoiseConfig {
     let value = value.borrow();
-    qdk_simulators::stabilizer_simulator::NoiseConfig {
+    qdk_simulators::noise_config::NoiseConfig {
         x: from_noise_table_ref(&value.x.borrow(py)),
         y: from_noise_table_ref(&value.y.borrow(py)),
         z: from_noise_table_ref(&value.z.borrow(py)),
@@ -150,9 +147,9 @@ impl IdleNoiseParams {
     }
 }
 
-impl From<IdleNoiseParams> for qdk_simulators::stabilizer_simulator::IdleNoiseParams {
+impl From<IdleNoiseParams> for qdk_simulators::noise_config::IdleNoiseParams {
     fn from(value: IdleNoiseParams) -> Self {
-        qdk_simulators::stabilizer_simulator::IdleNoiseParams {
+        qdk_simulators::noise_config::IdleNoiseParams {
             s_probability: value.s_probability,
         }
     }
@@ -160,14 +157,14 @@ impl From<IdleNoiseParams> for qdk_simulators::stabilizer_simulator::IdleNoisePa
 
 fn from_idle_noise_params_ref(
     value: &PyRef<'_, IdleNoiseParams>,
-) -> qdk_simulators::stabilizer_simulator::IdleNoiseParams {
-    qdk_simulators::stabilizer_simulator::IdleNoiseParams {
+) -> qdk_simulators::noise_config::IdleNoiseParams {
+    qdk_simulators::noise_config::IdleNoiseParams {
         s_probability: value.s_probability,
     }
 }
 
-impl From<qdk_simulators::stabilizer_simulator::IdleNoiseParams> for IdleNoiseParams {
-    fn from(value: qdk_simulators::stabilizer_simulator::IdleNoiseParams) -> Self {
+impl From<qdk_simulators::noise_config::IdleNoiseParams> for IdleNoiseParams {
+    fn from(value: qdk_simulators::noise_config::IdleNoiseParams) -> Self {
         IdleNoiseParams {
             s_probability: value.s_probability,
         }
@@ -200,9 +197,9 @@ impl NoiseTable {
     }
 }
 
-impl From<NoiseTable> for qdk_simulators::stabilizer_simulator::NoiseTable {
+impl From<NoiseTable> for qdk_simulators::noise_config::NoiseTable {
     fn from(value: NoiseTable) -> Self {
-        qdk_simulators::stabilizer_simulator::NoiseTable {
+        qdk_simulators::noise_config::NoiseTable {
             x: value.x,
             y: value.y,
             z: value.z,
@@ -211,10 +208,8 @@ impl From<NoiseTable> for qdk_simulators::stabilizer_simulator::NoiseTable {
     }
 }
 
-fn from_noise_table_ref(
-    value: &PyRef<'_, NoiseTable>,
-) -> qdk_simulators::stabilizer_simulator::NoiseTable {
-    qdk_simulators::stabilizer_simulator::NoiseTable {
+fn from_noise_table_ref(value: &PyRef<'_, NoiseTable>) -> qdk_simulators::noise_config::NoiseTable {
+    qdk_simulators::noise_config::NoiseTable {
         x: value.x,
         y: value.y,
         z: value.z,
@@ -222,8 +217,8 @@ fn from_noise_table_ref(
     }
 }
 
-impl From<qdk_simulators::stabilizer_simulator::NoiseTable> for NoiseTable {
-    fn from(value: qdk_simulators::stabilizer_simulator::NoiseTable) -> Self {
+impl From<qdk_simulators::noise_config::NoiseTable> for NoiseTable {
+    fn from(value: qdk_simulators::noise_config::NoiseTable) -> Self {
         NoiseTable {
             x: value.x,
             y: value.y,

@@ -1848,10 +1848,12 @@ dependencies = [
  "criterion 0.7.0",
  "expect-test",
  "futures",
+ "iai-callgrind",
  "num-bigint",
+ "paulimer",
  "quantum-sparse-sim",
  "rand 0.8.5",
- "stabilizer_simulator",
+ "smallvec",
  "wgpu",
 ]
 
@@ -2720,18 +2722,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eda41003dc44290527a59b13432d4a0379379fa074b70174882adfbdfd917844"
 dependencies = [
  "bitflags 2.9.4",
-]
-
-[[package]]
-name = "stabilizer_simulator"
-version = "0.1.0"
-dependencies = [
- "criterion 0.7.0",
- "expect-test",
- "iai-callgrind",
- "paulimer",
- "rand 0.8.5",
- "smallvec",
 ]
 
 [[package]]
