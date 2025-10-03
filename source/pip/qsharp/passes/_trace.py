@@ -3,6 +3,7 @@
 
 from pyqir import Module, Context, QirModuleVisitor, qubit_id, required_num_qubits
 from ._device import Device
+from ._validate import ValidateSingleBlock
 from .._qsharp import QirInputData
 
 
@@ -23,6 +24,7 @@ def trace(
     if device is None:
         device = Device.ac1k()
     module = Module.from_ir(Context(), str(qir))
+    ValidateSingleBlock().run(module)
     tracer = Trace(device)
     tracer.run(module)
     return tracer.trace

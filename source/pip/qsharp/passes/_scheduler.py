@@ -165,7 +165,12 @@ class Schedule(QirModuleVisitor):
                 self.vals_used_in_measurements.update(vals_used)
                 self.pending_moves.append((instr.args[0], loc))
             else:
-                self.flush_pending(instr)
+                while (
+                    any(len(q_ops) > 0 for q_ops in self.single_qubit_ops)
+                    or any(len(row) > 0 for row in self.cz_ops_by_row)
+                    or len(self.measurements) > 0
+                ):
+                    self.flush_pending(instr)
 
     def flush_pending(self, insert_before: Instruction):
         self.builder.insert_before(insert_before)

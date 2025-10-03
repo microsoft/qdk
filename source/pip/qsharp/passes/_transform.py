@@ -9,7 +9,11 @@ from ._decomp import (
     DecomposeSingleRotationToRz,
     DecomposeSingleQubitToRzSX,
 )
-from ._optimize import OptimizeSingleQubitGates, PruneUnusedFunctions
+from ._optimize import (
+    OptimizeSingleQubitGates,
+    PruneUnusedFunctions,
+    PruneInitializeCalls,
+)
 from ._reorder import Reorder, PerQubitOrdering
 from ._device import Device, Zone, ZoneType
 from ._scheduler import Schedule
@@ -102,6 +106,7 @@ def transform(
         print(f"OptimizeSingleQubitGates: {end_time - start_time:.3f} seconds")
         start_time = end_time
 
+    PruneInitializeCalls().run(module)
     PruneUnusedFunctions().run(module)
     if verbose:
         end_time = time.time()
