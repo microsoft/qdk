@@ -2,12 +2,13 @@
 // Licensed under the MIT License.
 
 use crate::test_utils::compile_notebook_with_markers;
-use crate::{code_action, test_utils::compile_with_markers};
+use crate::{code_action, test_utils::compile_project_with_markers_no_cursor};
 use expect_test::expect;
 use qsc::line_column::{Encoding, Position, Range};
 
 fn get_wrapper_text(source: &str, op_name: &str) -> String {
-    let (compilation, _, _) = compile_with_markers(source, false);
+    let (compilation, _targets) =
+        compile_project_with_markers_no_cursor(&[("<source>", source)], false);
     let newline_count = u32::try_from(source.matches('\n').count()).expect("count fits");
     let end = if newline_count == 0 {
         Position {
@@ -373,7 +374,8 @@ fn default_single_element_tuple() {
 #[test]
 fn no_code_action_for_lambdas_() {
     let source = "namespace Test { operation Named(x : Int) : Unit { let l = (y) => { x + y }; let e = (y) => { x + y }; l(2); } }";
-    let (compilation, _, _) = compile_with_markers(source, false);
+    let (compilation, _targets) =
+        compile_project_with_markers_no_cursor(&[("<source>", source)], false);
     let range = Range {
         start: Position { line: 0, column: 0 },
         end: Position {
