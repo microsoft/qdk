@@ -15,7 +15,7 @@ from ._optimize import (
     PruneInitializeCalls,
 )
 from ._reorder import Reorder, PerQubitOrdering
-from ._device import Device, Zone, ZoneType
+from ._device import Device, AC1000
 from ._scheduler import Schedule
 from ._validate import (
     ValidateAllowedIntrinsics,
@@ -151,7 +151,7 @@ def transform(
 
     if not skip_scheduling:
         if device is None:
-            device = Device.ac1k()
+            device = AC1000()
         Schedule(device).run(module)
 
         # scheduled_ops = PerQubitOrdering()
