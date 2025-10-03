@@ -318,7 +318,7 @@ def decode_results(results, basis: str = "Z"):
     for res in results:
         corrected_logical_results.append([])
         for shot in res:
-            if any([preselect != qsharp.Result.Zero for preselect in shot[0]]):
+            if any([preselect == qsharp.Result.One for preselect in shot[0]]):
                 corrected_logical_results[-1] += ["PREselect"]
                 continue
             recovery = "IIIIIIIIIIII"
