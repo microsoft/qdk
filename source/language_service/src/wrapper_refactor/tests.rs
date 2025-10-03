@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use crate::test_utils::compile_notebook_with_markers;
 use crate::{code_action, test_utils::compile_with_markers};
 use expect_test::expect;
 use qsc::line_column::{Encoding, Position, Range};
@@ -409,4 +410,28 @@ fn preserves_crlf_newlines() {
         !wrapper.contains('\n') || wrapper.contains("\r\n"),
         "Found bare LF without CR"
     );
+}
+
+#[test]
+fn notebook_cell_wrapper_action() {
+    let source = "operation Op(a : Int, b : Bool) : Unit {↘ }";
+    let cells = [("cell1", source)];
+    let (compilation, cell_uri, _, _) = compile_notebook_with_markers(&cells);
+    let range = Range {
+        start: Position { line: 0, column: 0 },
+        end: Position {
+            line: 0,
+            column: u32::try_from(source.len()).expect("len fits"),
+        },
+    };
+    let actions = code_action::get_code_actions(&compilation, &cell_uri, range, Encoding::Utf8);
+    let wrapper = actions
+        .iter()
+        .find(|a| a.title == "Generate wrapper with default arguments for Op")
+        .unwrap_or_else(|| panic!("Expected wrapper action in notebook cell. Got: {actions:?}"));
+    let edit = wrapper.edit.as_ref().expect("expected edit");
+    assert_eq!(edit.changes.len(), 1, "Expected single file change");
+    let (edit_file, edits) = &edit.changes[0];
+    assert_eq!(edit_file, &cell_uri, "Edit applied to wrong notebook cell");
+    assert_eq!(edits.len(), 1, "Expected single text edit");
 }
