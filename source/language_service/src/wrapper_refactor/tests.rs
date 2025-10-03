@@ -34,9 +34,49 @@ fn get_wrapper_text(source: &str, op_name: &str) -> String {
                 actions.iter().map(|a| &a.title).collect::<Vec<_>>()
             )
         });
-    action.edit.as_ref().expect("expected edit").changes[0].1[0]
-        .new_text
-        .clone()
+    // --- Range validation ---
+    let edit = action.edit.as_ref().expect("expected edit");
+    assert_eq!(edit.changes.len(), 1, "Expected a single file change");
+    let (file, edits) = &edit.changes[0];
+    assert_eq!(file, "<source>", "Unexpected file in edit change");
+    assert_eq!(edits.len(), 1, "Expected exactly one text edit");
+    let text_edit = &edits[0];
+    let edit_range = text_edit.range;
+    // The wrapper insertion should be a zero-length insertion immediately before the operation declaration.
+    assert_eq!(
+        edit_range.start, edit_range.end,
+        "Wrapper edit should be an insertion (zero-length range)"
+    );
+    if let Some(op_start_byte) = source.find(&format!("operation {op_name}")) {
+        // Compute expected (line, column) for op_start_byte.
+        let mut line: usize = 0;
+        let mut col: usize = 0;
+        let mut counted: usize = 0;
+        for part in source.split_inclusive('\n') {
+            let part_len = part.len();
+            if counted + part_len > op_start_byte {
+                // op starts in this line
+                let line_start_index = op_start_byte - counted;
+                col = part[..line_start_index].chars().count();
+                break;
+            }
+            counted += part_len;
+            line += 1;
+        }
+        assert_eq!(
+            edit_range.start.line as usize, line,
+            "Edit start line mismatch (expected {line}, got {})",
+            edit_range.start.line
+        );
+        assert_eq!(
+            edit_range.start.column as usize, col,
+            "Edit start column mismatch (expected {col}, got {})",
+            edit_range.start.column
+        );
+    } else {
+        panic!("Could not locate operation {op_name} in source to validate range");
+    }
+    text_edit.new_text.clone()
 }
 
 #[test]
