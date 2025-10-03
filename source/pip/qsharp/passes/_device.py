@@ -37,18 +37,6 @@ class Device:
     Represents a quantum device with specific layout expressed as zones.
     """
 
-    @staticmethod
-    def ac1k():
-        return Device(
-            36,
-            [
-                Zone("Register 1", 17, ZoneType.REG),
-                Zone("Interaction Zone", 4, ZoneType.INTER),
-                Zone("Register 2", 17, ZoneType.REG),
-                Zone("Measurement Zone", 4, ZoneType.MEAS),
-            ],
-        )
-
     def __init__(self, column_count: int, zones: list[Zone]):
         self.column_count = column_count
         self.zones = zones
@@ -223,6 +211,3 @@ class AC1000(Device):
             )
 
         raise ValueError(f"Simulation type {type} is not supported")
-
-
-AC1K = Device.ac1k().as_dict()
