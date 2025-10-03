@@ -1,7 +1,6 @@
 # Helper to build 'correctness' histogram
 
 from qdk import Result
-from qdk.widgets import Histogram
 
 
 def expect_zeros_histogram(output):
@@ -26,4 +25,4 @@ def expect_zeros_histogram(output):
         else:
             results.append("Correct")
 
-    return Histogram(results)
+    return results
