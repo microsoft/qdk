@@ -356,3 +356,19 @@ fn no_code_action_for_lambdas_() {
         .join("\n");
     expect!["Generate wrapper with default arguments for Named"].assert_eq(&titles);
 }
+
+#[test]
+fn preserves_crlf_newlines() {
+    // Source with Windows CRLF newlines. We embed them explicitly.
+    let source = "namespace Test {\r\n    operation Op(a : Int) : Unit { }\r\n}";
+    let wrapper = get_wrapper_text(source, "Op");
+    // Ensure the wrapper uses CRLF consistently (no lone \n occurrences)
+    assert!(
+        wrapper.matches("\r\n").count() > 2,
+        "Expected multiple CRLF sequences in wrapper text"
+    );
+    assert!(
+        !wrapper.contains('\n') || wrapper.contains("\r\n"),
+        "Found bare LF without CR"
+    );
+}

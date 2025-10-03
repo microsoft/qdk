@@ -91,9 +91,10 @@ pub(crate) fn operation_refactors(
             // We intentionally do NOT prefix the first line with `indent` because the insertion point
             // inherits the existing line's leading whitespace. We DO append `{indent}` after the blank line
             // so that the original operation keeps its indentation after the inserted block.
+            let newline = detect_newline(&source.contents, local_lo as usize);
             let wrapper_text = format!(
-                "operation {wrapper_name}() : {return_ty} {{\n{}\n{indent}}}\n\n{indent}",
-                &body_lines.join("\n")
+                "operation {wrapper_name}() : {return_ty} {{{newline}{}{newline}{indent}}}{newline}{newline}{indent}",
+                body_lines.join(newline)
             );
 
             // Insert immediately above the original operation: use zero-length span at item.span.lo
@@ -297,4 +298,29 @@ fn line_indentation(contents: &str, offset: u32) -> String {
         .chars()
         .take_while(|c| *c == ' ' || *c == '\t')
         .collect()
+}
+
+// Detect the newline sequence to use when inserting text. Preference order:
+// 1. The last newline sequence before the target offset.
+// 2. The first newline sequence in the file (if none before offset).
+// 3. Fallback to '\n'. Supports '\n' and '\r\n'.
+fn detect_newline(contents: &str, op_offset: usize) -> &'static str {
+    // Helper to examine a position of a '\n' and decide if it's part of a CRLF pair.
+    let classify = |idx: usize| {
+        if idx > 0 && contents.as_bytes()[idx - 1] == b'\r' {
+            "\r\n"
+        } else {
+            "\n"
+        }
+    };
+
+    if op_offset <= contents.len() {
+        if let Some(prev_nl) = contents[..op_offset].rfind('\n') {
+            return classify(prev_nl);
+        }
+    }
+    if let Some(first_nl) = contents.find('\n') {
+        return classify(first_nl);
+    }
+    "\n"
 }
