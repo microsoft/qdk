@@ -12,6 +12,7 @@ use qsc::{
 use crate::{
     compilation::Compilation,
     protocol::{CodeAction, CodeActionKind, TextEdit, WorkspaceEdit},
+    wrapper_refactor,
 };
 
 pub(crate) fn get_code_actions(
@@ -20,9 +21,18 @@ pub(crate) fn get_code_actions(
     range: Range,
     position_encoding: Encoding,
 ) -> Vec<CodeAction> {
-    // Compute quick_fixes and other code_actions, and then merge them together
+    // Compute quick fixes (lint-based) and refactor actions and merge.
     let span = compilation.source_range_to_package_span(source_name, range, position_encoding);
-    quick_fixes(compilation, source_name, span, position_encoding)
+    let mut actions = quick_fixes(compilation, source_name, span, position_encoding);
+    // Add operation refactor actions (wrapper generation, etc.). Additional refactor providers
+    // should be added here, each returning their own Vec<CodeAction>.
+    actions.extend(wrapper_refactor::operation_refactors(
+        compilation,
+        source_name,
+        span,
+        position_encoding,
+    ));
+    actions
 }
 
 fn quick_fixes(
