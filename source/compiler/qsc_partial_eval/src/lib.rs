@@ -1307,7 +1307,7 @@ impl<'a> PartialEvaluator<'a> {
         rhs_expr_id: ExprId,
         bin_op_expr_span: PackageSpan, // For diagnostic purposes only.
     ) -> Result<EvalControlFlow, Error> {
-        // Consider optimization of array in-place operations instead of re-using the general binary operation
+        // Consider optimization of array in-place operations instead of reusing the general binary operation
         // evaluation.
         let lhs_expr = self.get_expr(lhs_expr_id);
         let lhs_expr_package_span = self.get_expr_package_span(lhs_expr_id);
@@ -1705,7 +1705,7 @@ impl<'a> PartialEvaluator<'a> {
 
         let callable_id = self.get_or_insert_callable(callable);
 
-        // Resove the call arguments, create the call instruction and insert it to the current block.
+        // Resolve the call arguments, create the call instruction and insert it to the current block.
         let (args, ctls_arg) = self
             .resolve_args(
                 (store_item_id.package, callable_decl.input).into(),

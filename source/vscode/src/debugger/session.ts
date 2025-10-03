@@ -943,7 +943,7 @@ export class QscDebugSession extends LoggingDebugSession {
   }
 
   /**
-   * Attemps to resolve a DebugProtocol.Source.path to a URI.
+   * Attempts to resolve a DebugProtocol.Source.path to a URI.
    *
    * In Debug Protocol requests, the VS Code debug adapter client
    * will strip file URIs to just the filesystem path part.
@@ -956,7 +956,7 @@ export class QscDebugSession extends LoggingDebugSession {
    * which one it is based on the input alone (the syntax is ambiguous).
    * But we do have a set of *known* filesystem paths that we
    * constructed at initialization, and we can use that to resolve
-   * any known fileystem paths back to the original URI.
+   * any known filesystem paths back to the original URI.
    *
    * Filesystem paths we don't know about *won't* be resolved,
    * and that's ok in this use case.

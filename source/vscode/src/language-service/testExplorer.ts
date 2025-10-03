@@ -190,7 +190,7 @@ export function startTestDiscovery(
         // so it should be the full path to the test item, not including the "friendly name" (since that isn't in the callable expr),
         // if and only if it is a "leaf" (an actual test case)
         // note that leaves are test cases and internal nodes are not test cases
-        // in teh above example, TestSuite would have the id `FriendlyName.TestSuite`, and Test1 would have the id `TestSuite.Test1`
+        // in the above example, TestSuite would have the id `FriendlyName.TestSuite`, and Test1 would have the id `TestSuite.Test1`
         const id =
           i === parts.length - 1
             ? callableName

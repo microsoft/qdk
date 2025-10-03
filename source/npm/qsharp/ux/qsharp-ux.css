@@ -675,7 +675,7 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   padding: 4px;
 }
 
-/* This rule adds the little triange pointer at the top */
+/* This rule adds the little triangle pointer at the top */
 .qs-scatterChart-tooltip::after,
 .qs-scatterChart-selectedInfo::after {
   content: "";

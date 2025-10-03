@@ -123,7 +123,7 @@ impl Expr {
             }
             ExprKind::SizeofCall(_) => {
                 // We only lower SizeofCall expressions that should be evaluated
-                // at runtime. The ones that can be const evaluated are hanlded
+                // at runtime. The ones that can be const evaluated are handled
                 // in [`Lowerer::lower_sizeof_call_expr`].
                 None
             }

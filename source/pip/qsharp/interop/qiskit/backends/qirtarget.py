@@ -135,7 +135,7 @@ class QirTarget(Target):
         return self._num_qubits
 
     # NOTE: The follow property setter intentionally shadows the property on the parent class to allow it to be set, which
-    # maintains compatiblity with Qiskit versions before 1.3.0 where the property was settable.
+    # maintains compatibility with Qiskit versions before 1.3.0 where the property was settable.
     @num_qubits.setter
     def num_qubits(self, value):
         self._num_qubits = value

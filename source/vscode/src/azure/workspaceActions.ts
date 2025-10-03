@@ -201,7 +201,7 @@ async function getWorkspaceWithConnectionString(
     } catch (e: any) {
       log.debug("Workspace connection error", e);
       // e.g. check for 401 (invalid key), 404 (invalid workspace), failed network requests (invalid endpoint), etc.
-      let errorText = "An unexpected error occured";
+      let errorText = "An unexpected error occurred";
       const message: string | undefined = e.message;
       if (message?.includes("status 401")) {
         errorText =

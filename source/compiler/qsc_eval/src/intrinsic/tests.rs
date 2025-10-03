@@ -215,7 +215,7 @@ fn check_intrinsic_output(file: &str, expr: &str, expect: &Expect) {
     let mut out = GenericReceiver::new(&mut stdout);
     match check_intrinsic(file, expr, &mut out) {
         Ok(..) => expect.assert_eq(
-            &String::from_utf8(stdout).expect("content should be convertable to string"),
+            &String::from_utf8(stdout).expect("content should be convertible to string"),
         ),
         Err(e) => expect.assert_eq(&e.to_string()),
     }

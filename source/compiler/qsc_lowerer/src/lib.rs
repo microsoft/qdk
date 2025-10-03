@@ -464,7 +464,7 @@ impl Lowerer {
             hir::ExprKind::Assign(lhs, rhs) => {
                 let idx = self.exec_graph.len();
                 let lhs = self.lower_expr(lhs);
-                // The left-hand side of an assigment is not really an expression to be executed,
+                // The left-hand side of an assignment is not really an expression to be executed,
                 // so remove any added nodes from the execution graph.
                 self.exec_graph.drain(idx..);
                 fir::ExprKind::Assign(lhs, self.lower_expr(rhs))
@@ -521,7 +521,7 @@ impl Lowerer {
                 let idx = self.exec_graph.len();
                 let container = self.lower_expr(container);
                 // The left-hand side of an array index assignment is not really an expression to be
-                // executed, so remove any added nodes from the exection graph.
+                // executed, so remove any added nodes from the execution graph.
                 self.exec_graph.drain(idx..);
                 fir::ExprKind::AssignIndex(container, index, replace)
             }

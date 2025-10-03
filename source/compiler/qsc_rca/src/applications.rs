@@ -118,7 +118,7 @@ impl GeneratorSetsBuilder {
         let current_application_instance = self.current_application_instance;
         self.flattened_application_instances()
             .nth(current_application_instance)
-            .expect("nth application instace does not exist")
+            .expect("nth application instance does not exist")
     }
 
     pub fn get_current_application_instance_mut(&mut self) -> &mut ApplicationInstance {
@@ -275,7 +275,7 @@ impl GeneratorSetsBuilder {
             let compute_properties = application_instance.close();
             ParamApplicationComputeProperties::Element(compute_properties)
         } else if variants.len() == DYNAMIC_ARRAY_PARAM_VARIANTS {
-            // IMPORTANT: the poisition of each application instance in the variants vector has a specific meaning, so
+            // IMPORTANT: the position of each application instance in the variants vector has a specific meaning, so
             // we need the order of pops is consequential.
             let dynamic_content_dynamic_size_application_instance = variants
                 .pop()
