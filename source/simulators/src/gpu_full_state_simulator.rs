@@ -36,6 +36,18 @@ pub fn run_gpu_simulator(qubits: u32, ops: Vec<Op>) -> Result<Vec<shader_types::
     })
 }
 
+pub fn run_gpu_shot(qubits: u32, ops: Vec<Op>) -> Result<shader_types::Result, String> {
+    let mut results = run_gpu_simulator(qubits, ops)?;
+    if results.is_empty() {
+        return Err(format!(
+            "expected > 0 results from GPU simulator, got {}",
+            results.len()
+        ));
+    }
+    // The sampled result is always in index 0
+    Ok(results.remove(0))
+}
+
 pub fn time_run_gpu_simulator(
     qubits: u32,
     ops: Vec<Op>,

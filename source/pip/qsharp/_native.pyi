@@ -792,10 +792,20 @@ def try_create_gpu_adapter():
 
 def run_gpu_full_state(
     input: List[QirInstruction],
-    nub_qubits: int,
+    num_qubits: int,
     shots: int,
     noise: Optional[Tuple[float, float, float]],
     seed: Optional[int],
 ) -> str:
+    """ """
+    ...
+
+def run_gpu_shot(
+    input: List[QirInstruction],
+    num_qubits: int,
+    num_results: int,
+    noise: NoiseConfig,
+    seed: Optional[int],
+) -> Tuple[str, float]:
     """ """
     ...
