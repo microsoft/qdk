@@ -488,41 +488,21 @@ operation ApplyPhasingViaZandCZ(products1 : Qubit[], products2 : Qubit[], mask :
     Fact(Length(mask) == Length(products2) + 1, "Mask row count must match products2 length.");
     Fact(Length(mask[0]) == Length(products1) + 1, "Mask column count must match products1 length.");
 
-    // products1[0] doesn't include any qbits from the first half, so we need to apply Z instead of CZ.
-    ApplyMaskedMultitargetZ(products2, Rest(ColumnAt(0, mask)));
+    // ColumnAt(0, mask) doesn't correspond to any qubits from the first half,
+    // so we can apply Z (rather than CZ) based on mask values.
+    ApplyPauliFromBitString(PauliZ, true, Rest(ColumnAt(0, mask)), products2);
 
-    // products2[0] doesn't include any qubits from the second half, so we need to apply Z instead of CZ.
-    ApplyMaskedMultitargetZ(products1, Rest(mask[0]));
+    // mask[0] row doesn't correspond to any qubits from the second half,
+    // so we can apply Z (rather than CZ) based on mask values.
+    ApplyPauliFromBitString(PauliZ, true, Rest(mask[0]), products1);
 
-    // From the second row on, take control from the first half and apply multi-target CZ gates.
+    // From the second row on, take control from the first half and apply
+    // masked multi-target CZ gates via Controlled ApplyPauliFromBitString.
     for row in 0..Length(products1)-1 {
-        ApplyMaskedMultitargetCZ(products1[row], products2, Rest(ColumnAt(row + 1, mask)));
-    }
-}
-
-/// # Summary
-/// Applies classically controlled Z gates to multiple targets
-/// based on a mask. If mask[i] is true, Z(targets[i]) is applied.
-operation ApplyMaskedMultitargetZ(targets : Qubit[], mask : Bool[]) : Unit {
-    Fact(Length(mask) == Length(targets), "Mask length must match targets length.");
-
-    for i in 0..Length(targets)-1 {
-        if mask[i] {
-            Z(targets[i]);
-        }
-    }
-}
-
-/// # Summary
-/// Applies quantum and classically controlled Z gates to multiple targets
-/// based on a mask. If mask[i] is true, CZ(control, targets[i]) is applied.
-operation ApplyMaskedMultitargetCZ(control : Qubit, targets : Qubit[], mask : Bool[]) : Unit {
-    Fact(Length(mask) == Length(targets), "Mask length must match targets length.");
-
-    for i in 0..Length(targets)-1 {
-        if mask[i] {
-            CZ(control, targets[i]);
-        }
+        Controlled ApplyPauliFromBitString(
+            [products1[row]],
+            (PauliZ, true, Rest(ColumnAt(row + 1, mask)), products2)
+        );
     }
 }
 
