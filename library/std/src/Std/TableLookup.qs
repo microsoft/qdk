@@ -1,18 +1,14 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-
-import
-    Std.Math.Lg,
-    Std.Math.Ceiling,
-    Std.Math.MinI,
-    Std.Math.MaxI,
-    Std.Math.Floor,
-    Std.Diagnostics.Fact,
-    Std.Convert.IntAsDouble,
-    Std.Arrays.*,
-    Std.ResourceEstimation.BeginEstimateCaching,
-    Std.ResourceEstimation.EndEstimateCaching;
+import Std.Arrays.*;
+import Std.Convert.IntAsDouble;
+import Std.Convert.ResultArrayAsBoolArray;
+import Std.Diagnostics.Fact;
+import Std.Math.*;
+import Std.Logical.Xor;
+import Std.ResourceEstimation.BeginEstimateCaching;
+import Std.ResourceEstimation.EndEstimateCaching;
 
 /// # Summary
 /// Performs table lookup using a SELECT network
@@ -37,7 +33,7 @@ import
 /// The implementation of the SELECT network is based on unary encoding as
 /// presented in [1].  The recursive implementation of that algorithm is
 /// presented in [3].  The adjoint variant is optimized using a
-/// measurement-based unlookup operation [3]. The controlled adjoint variant
+/// measurement-based unlookup operation [4]. The controlled adjoint variant
 /// is not optimized using this technique.
 ///
 /// # References
@@ -48,6 +44,9 @@ import
 ///    "Windowed arithmetic"
 /// 3. [arXiv:2211.01133](https://arxiv.org/abs/2211.01133)
 ///    "Space-time optimized table lookup"
+/// 4. [arXiv:2505.15917](https://arxiv.org/abs/2505.15917)
+///    "How to factor 2048 bit RSA integers with less than a million noisy qubits"
+///    by Craig Gidney, May 2025.
 operation Select(
     data : Bool[][],
     address : Qubit[],
@@ -73,7 +72,7 @@ operation Select(
         }
     }
     adjoint (...) {
-        Unlookup(Select, data, address, target);
+        Unlookup(data, address, target);
     }
 
     controlled (ctls, ...) {
@@ -166,92 +165,6 @@ operation WriteMemoryContents(
     ApplyPauliFromBitString(PauliX, true, value, target);
 }
 
-/// # References
-/// - [arXiv:1905.07682](https://arxiv.org/abs/1905.07682)
-///   "Windowed arithmetic"
-operation Unlookup(
-    lookup : (Bool[][], Qubit[], Qubit[]) => Unit,
-    data : Bool[][],
-    select : Qubit[],
-    target : Qubit[]
-) : Unit {
-    // No measurement-based uncomputation when there is only one address
-    if Length(data) == 1 {
-        WriteMemoryContents(Head(data), target);
-    } else {
-        let numBits = Length(target);
-        let numAddressBits = Length(select);
-
-        let l = MinI(Floor(Lg(IntAsDouble(numBits))), numAddressBits - 1);
-        Fact(
-            l < numAddressBits,
-            $"l = {l} must be smaller than {numAddressBits}"
-        );
-
-        let res = Mapped(r -> r == One, ForEach(MResetX, target));
-
-        let dataFixup = Chunks(2^l, Padded(-2^numAddressBits, false, Mapped(MustBeFixed(res, _), data)));
-
-        let numAddressBitsFixup = numAddressBits - l;
-
-        let selectParts = Partitioned([l], select);
-        let targetFixup = target[...2^l - 1];
-
-        within {
-            EncodeUnary(selectParts[0], targetFixup);
-            ApplyToEachA(H, targetFixup);
-        } apply {
-            lookup(dataFixup, selectParts[1], targetFixup);
-        }
-    }
-}
-
-// Checks whether specific bit string `data` must be fixed for a given
-// measurement result `result`.
-//
-// Returns true if the number of indices for which both result and data are
-// `true` is odd.
-function MustBeFixed(result : Bool[], data : Bool[]) : Bool {
-    mutable state = false;
-    for i in IndexRange(result) {
-        set state = state != (result[i] and data[i]);
-    }
-    state
-}
-
-// Computes unary encoding of value in `input` into `target`
-//
-// Assumptions:
-//    - `target` is zero-initialized
-//    - length of `input` is n
-//    - length of `target` is 2^n
-operation EncodeUnary(
-    input : Qubit[],
-    target : Qubit[]
-) : Unit is Adj {
-    Fact(
-        Length(target) == 2^Length(input),
-        $"target register should be of length {2^Length(input)}, but is {Length(target)}"
-    );
-
-    X(Head(target));
-
-    for i in IndexRange(input) {
-        if i == 0 {
-            CNOT(input[i], target[1]);
-            CNOT(target[1], target[0]);
-        } else {
-            // targets are the first and second 2^i qubits of the target register
-            let split = Partitioned([2^i, 2^i], target);
-            for j in IndexRange(split[0]) {
-                AND(input[i], split[0][j], split[1][j]);
-                CNOT(split[1][j], split[0][j]);
-            }
-        }
-    }
-
-}
-
 newtype AndChain = (
     NGarbageQubits : Int,
     Apply : Qubit[] => Unit is Adj
@@ -281,6 +194,315 @@ operation AndChainOperation(ctls : Qubit[], helper : Qubit[], target : Qubit) : 
         for idx in IndexRange(tgts) {
             AND(ctls1[idx], ctls2[idx], tgts[idx]);
         }
+    }
+}
+
+/// # Summary
+/// Performs measurement-based adjoint Select to reset and disentangle target
+/// qubits from address qubits. This operation undoes a quantum lookup
+/// operation by measuring the target and applying phase corrections
+/// to the address register.
+///
+/// # Description
+/// This operation implements the "unlookup" step (adjoint Select), which
+/// uncomputes ancilla qubits after a quantum lookup operation. Target qubits are
+/// measured and results of measurements are used to correct phases of the
+/// address register.
+///
+/// This operation is typically used after a `Select` operation to clean up the target
+/// register while preserving the superposition state of the address register. The
+/// measurement-based approach allows efficient uncomputation without requiring the
+/// inverse of the original lookup circuit.
+///
+/// The phase corrections are computed using parity checks between the measurement
+/// outcomes and the original data, then applied via the `PhaseLookup` operation.
+///
+/// # Input
+/// ## data
+/// 2D boolean array where `data[i]` contains the data that was stored at address `i`.
+/// Each `data[i]` should be a boolean array of the same length as the target register.
+///
+/// ## address
+/// Quantum register that was used to address the data during the Select operation.
+/// This register may be entangled with the target and needs to be disentangled.
+///
+/// ## target
+/// Quantum register that received the looked-up data and needs to be uncomputed.
+/// Will be measured and reset during the uncomputation process.
+operation Unlookup(
+    data : Bool[][],
+    address : Qubit[],
+    target : Qubit[]
+) : Unit {
+    if Length(data) == 1 {
+        // Just invert appropriate target qubits.
+        // No need for measurement-based uncomputation.
+        WriteMemoryContents(data[0], target);
+    } else {
+        // Check that address size is enough to address all data entries
+        let addressBitsNeeded = BitSizeI(Length(data) - 1);
+        Fact(Length(address) >= addressBitsNeeded, $"Address size {Length(address)} must be at least {addressBitsNeeded}.");
+
+        // Measure target register in X basis
+        let measurements = ResultArrayAsBoolArray(ForEach(MResetX, target));
+        // Get phasing data via parity checks
+        let phaseData = Mapped(MustBeFixed(measurements, _), data);
+        // Pad phase data at the end to cover the entire address space
+        let phaseData = Padded(-2^addressBitsNeeded, false, phaseData);
+
+        // Apply phase lookup to correct phases in the address register
+        PhaseLookup(address, phaseData);
+    }
+}
+
+// Checks whether specific bit string `data` must be fixed for a given
+// measurement result `result`.
+//
+// Returns true if the number of indices for which both result and data are
+// `true` is odd.
+function MustBeFixed(result : Bool[], data : Bool[]) : Bool {
+    mutable state = false;
+    for i in IndexRange(result) {
+        set state = state != (result[i] and data[i]);
+    }
+    state
+}
+
+/// # Summary
+/// Invert phases of `qs` basis states according to the provided boolean array.
+/// If `data[i]` is `true`, the phase of |i⟩ gets is inverted (multiplied by -1).
+/// Qubit register `qs` is expected to be in little-endian order.
+///
+/// # Description
+/// This operation implements phase lookup using power products and address split.
+/// It is a Q# implementation of the "phaseup" operation from the referenced paper.
+/// This operation assumes that `Length(data)` matches `2^Length(qs)`.
+///
+/// # Input
+/// ## qs
+/// Qubit register whose basis states will have their phases inverted.
+///
+/// ## data
+/// Boolean array indicating which basis states to invert. If `data[i]` is `true`,
+/// the phase of |i⟩ gets inverted (multiplied by -1).
+///
+/// # Reference
+/// 1. [arXiv:2505.15917](https://arxiv.org/abs/2505.15917)
+///    "How to factor 2048 bit RSA integers with less than a million noisy qubits"
+///    by Craig Gidney, May 2025.
+operation PhaseLookup(qs : Qubit[], data : Bool[]) : Unit {
+    let n = Length(qs);
+    let m = 2^n;
+    Fact(n >= 1, "Qubit register must be at least 1.");
+    Fact(Length(data) == m, "Data length must match 2^Length(qs).");
+    let n1 = n >>> 1; // Number of qubits in the first half
+    let n2 = n - n1; // Number of qubits in the second half
+    let h1 = qs[...n1-1]; // Note that h1 will be empty if n == 1.
+    let h2 = qs[n1...];
+    let m1 = 1 <<< n1;
+    let m2 = 1 <<< n2;
+    Fact(m1 * m2 == m, "Length of halves must match total length.");
+
+    // Allocate auxilliary qubits
+    use aux_qubits1 = Qubit[2^n1 - n1 - 1];
+    use aux_qubits2 = Qubit[2^n2 - n2 - 1];
+
+    // Construct power products for both halves
+    let products1 = ConstructPowerProducts(h1, aux_qubits1);
+    let products2 = ConstructPowerProducts(h2, aux_qubits2);
+
+    // Convert data from minterm to monomial basis using Fast Möbius Transform
+    // and chunk it into a matrix
+    let mask_as_matrix = Chunks(m1, FastMobiusTransform(data));
+
+    // Apply phasing within each half and between halves
+    ApplyPhasingViaZandCZ(products1, products2, mask_as_matrix);
+
+    // Undo power products of both halves
+    DestructPowerProducts(products1);
+    DestructPowerProducts(products2);
+}
+
+/// # Summary
+/// Constructs power products - AND-ed subsets of qubits from the input register `qs`.
+/// `2^Length(qs) - 1` qubits corresponding to non-empty subsets of `qs` are placed into the result array.
+///
+/// # Description
+/// Resulting subsets correspond to an integer index that runs from `1` to `(2^Length(qs))-1`.
+/// (Since the empty set (index 0) is not included in the result, actual array indexes should be shifted.)
+/// Indexes are treated as bitmasks indicating if a particular qubit is included.
+/// Bitmasks `2^i` includes only qubit `qs[i]`, which is placed into the resulting array at that index minus 1.
+/// Bitmasks with more than one bit set correspond to subsets with multiple qubits from `qs`.
+/// Qubits for these masks are taken from aux_qubits register and their value is set using AND gates.
+/// Note:
+///     1. Empty set is not included in the result.
+///     2. For sets that only contain one qubit, the input qubits are reused.
+///
+/// # Alt summary
+/// Takes a register of qubits and returns "power products" - qubits corresponding to all non-empty subsets
+/// of the qubits from the input register: each power product qubit state is a result of AND operation
+/// for the qubits in corresponding subset.
+operation ConstructPowerProducts(qubits : Qubit[], aux_qubits : Qubit[]) : Qubit[] {
+    // Start with empty array - no dummy qubit for empty set
+    mutable power_products = [];
+    // Index to take next free qubit from aux_qubits array.
+    mutable next_available = 0;
+    // Consider every index in the input qubit register
+    for qubit_index in 0..Length(qubits)-1 {
+        // First, add the set that consists of only one qubit at index qubit_index.
+        power_products += qubits[qubit_index..qubit_index];
+        // Then, construct and add sets that include this new qubit as the last one.
+        for existing_set_index in 0..Length(power_products)-2 {
+            // Take the next qubit for the new set
+            let next_power_product = aux_qubits[next_available];
+            next_available += 1;
+            // Create appropriate set and add it to the result
+            AND(power_products[existing_set_index], qubits[qubit_index], next_power_product);
+            power_products += [next_power_product];
+        }
+    }
+    Fact(next_available == Length(aux_qubits), "All auxilliary qubits should be used.");
+    return power_products;
+}
+
+/// # Summary
+/// Undo construction of power products done by `ConstructPowerProducts`
+/// Pass array returned by `ConstructPowerProducts` to this function
+/// to reset auxiliary qubits used to hold power products back to |0> state.
+///
+/// # Description
+/// `products` array has no qubit that corresponds to an empty product (=1).
+/// All entries at indexes `2^i - 1` contain original qubits.
+/// Qubits from `2^i - 1` to `2^(i+1) - 2` represent power products that
+/// end in original qubit at `2^i - 1`.
+/// To undo power products this function goes over original qubits backwards.
+/// Then measures out qubits from `2^i - 1` to `2^(i+1) - 2` in X basis,
+/// targeting corresponding qubits from 0 to `2^i - 2` in CZ gates if necessary.
+operation DestructPowerProducts(products : Qubit[]) : Unit {
+    let len = Length(products);
+    if len <= 1 {
+        // Nothing to undo - this was one of the source qubits.
+        return ();
+    }
+    // For no-dummy version, length is 2^n - 1, so we need to work with 2^n
+    let extended_len = len + 1;
+    Fact((extended_len &&& (extended_len-1)) == 0, "Length + 1 of a qubit register should be a power of 2");
+
+    // At index h-1 a source qubit is located (shifted by 1 compared to original version).
+    // To the right are all power products ending in it.
+    // We are going backwards over all original qubits.
+    mutable h = extended_len / 2;
+    // If h is 1 we have nothing else to undo.
+    while h > 1 {
+        // Go over all sets that end in original qubit currently at index h-1.
+        // NOTE: k starts from 0 since there's no dummy qubit.
+        // NOTE: The order of targets here doesn't matter.
+        for k in 0..h-2 {
+            // Measure and reset the qubit that represents the set (h-1) | k.
+            // In the no-dummy version, this is at index h-1+k+1 = h+k
+            if MResetX(products[h + k]) == One {
+                // If we measure 1, qubit representing set k needs to be included in targets.
+                CZ(products[h - 1], products[k]);
+            }
+        }
+        // Done with qubit at index h-1. Go to next original qubit.
+        h = h / 2;
+    }
+}
+
+/// # Summary
+/// Computes the Fast Möbius Transform of a boolean array over GF(2).
+/// Also known as the Walsh-Hadamard Transform or subset sum transform.
+///
+/// # Description
+/// This transform converts minterm coefficients to monomial coefficients.
+/// For each position i in the result, it computes the XOR (sum over GF(2)) of all
+/// input elements at positions that are subsets of i (when i is interpreted as a bitmask).
+///
+/// This is equivalent to multiplying the input vector by a triangular matrix
+/// where entry (i,j) is 1 if j is a subset of i (as bitmasks), and 0 otherwise.
+///
+/// # Input
+/// ## qs
+/// Boolean array of minterm coefficients of length 2^n for some integer n ≥ 0.
+///
+/// # Output
+/// Boolean array of the same length as input containing monomial coefficients.
+///
+/// # Remarks
+/// This function is the classical preprocessing step for quantum phase lookup operations,
+/// converting phase data from standard basis coefficients to power product coefficients.
+/// The transformation is its own inverse when applied twice.
+function FastMobiusTransform(qs : Bool[]) : Bool[] {
+    let len = Length(qs);
+    Fact((len &&& (len-1)) == 0, "Length of a qubit register should be a power of 2");
+    let n = BitSizeI(len)-1;
+
+    mutable result = qs;
+    // For each bit position (from least to most significant)
+    for i in 0..n-1 {
+        let step = 2^i;
+        // For each pair of positions that differ only in that bit
+        for j in 0..step * 2..len-1 {
+            for k in 0..step-1 {
+                // XOR the "upper" position with the "lower" position
+                result[j + k + step] = Xor(result[j + k + step], result[j + k]);
+            }
+        }
+    }
+    return result;
+}
+
+/// # Summary
+/// Applies phase corrections using Z and CZ gates based on power product coefficients.
+/// This is the core quantum operation in the address-split phase lookup algorithm.
+///
+/// # Description
+/// This operation applies conditional phase flips based on a 2D mask that represents
+/// power product coefficients after Fast Möbius Transform. The algorithm treats the
+/// input qubits as split into two halves, with separate power products for each half.
+///
+/// The phase correction is applied as follows:
+/// 1. Apply Z gates to products2 based on products1[0] (for products from first half only)
+/// 2. Apply Z gates to products1 based on products2[0] (for products from second half only)
+/// 3. Apply CZ gates between corresponding products from both halves
+///
+/// # Input
+/// ## products1
+/// Power product qubits from the first half of the address register.
+///
+/// ## products2
+/// Power product qubits from the second half of the address register.
+///
+/// ## mask
+/// 2D boolean array containing power product coefficients.
+/// - `mask[i][j]` indicates whether to apply phase correction for the product
+///   of subset i from second half and subset j from first half
+///
+/// # Remarks
+/// The mask is obtained by applying Fast Möbius Transform to phase data
+/// and reshaping into a 2D matrix. This allows efficient quantum evaluation of
+/// the phase function using O(2^(n/2)) quantum resources instead of O(2^n).
+operation ApplyPhasingViaZandCZ(products1 : Qubit[], products2 : Qubit[], mask : Bool[][]) : Unit {
+    Fact(Length(mask) > 0, "Mask must be a non-empty array.");
+    Fact(Length(mask) == Length(products2) + 1, "Mask row count must match products2 length.");
+    Fact(Length(mask[0]) == Length(products1) + 1, "Mask column count must match products1 length.");
+
+    // ColumnAt(0, mask) doesn't correspond to any qubits from the first half,
+    // so we can apply Z (rather than CZ) based on mask values.
+    ApplyPauliFromBitString(PauliZ, true, Rest(ColumnAt(0, mask)), products2);
+
+    // mask[0] row doesn't correspond to any qubits from the second half,
+    // so we can apply Z (rather than CZ) based on mask values.
+    ApplyPauliFromBitString(PauliZ, true, Rest(mask[0]), products1);
+
+    // From the second row on, take control from the first half and apply
+    // masked multi-target CZ gates via Controlled ApplyPauliFromBitString.
+    for row in 0..Length(products1)-1 {
+        Controlled ApplyPauliFromBitString(
+            [products1[row]],
+            (PauliZ, true, Rest(ColumnAt(row + 1, mask)), products2)
+        );
     }
 }
 
