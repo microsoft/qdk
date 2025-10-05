@@ -1,10 +1,13 @@
 namespace Kata {
-    function PowersOfI(n : Int) : Int {
-        // If n is divisible by 4
-        if n % 4 == 0 {
+    function EvenPowersOfI(n : Int) : Int {
+        // Check remainder when n is divided by 4
+        let remainder = Std.Math.ModulusI(n, 4);
+        if remainder == 0 {
             return 1;
-        } else {
+        } elif remainder == 2 {
             return -1;
+        } else {
+            fail "n must be even.";
         }
     }
 }

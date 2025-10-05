@@ -40,6 +40,6 @@ Here is the complete pattern that arises when raising $i$ to non-negative powers
 </table>
 
 > `%` is the Q# modulo operator which returns the remainder of a division. For example, `7%2` gives $1$, because $1$ is the remainder of dividing $7$ by $2$.  
-> We can use this operator to determine if the exponent $n$ is divisible by $4$.
+> We can use this operator to determine the remainder when the exponent $n$ is divided by $4$.
 
 @[solution]({"id": "complex_arithmetic__powers_of_i_solution", "codePath": "Solution.qs"})
