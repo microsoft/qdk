@@ -2,12 +2,13 @@
 # Licensed under the MIT License.
 
 from pathlib import Path
-import time
-import sys
+import pyqir
 
 import qsharp
 from qsharp._simulation import run_qir, NoiseConfig
-from qsharp.passes import transform_to_clifford
+from qsharp._device._atom import AC1000
+from qsharp._device._atom._decomp import DecomposeRzAnglesToCliffordGates
+from qsharp._device._atom._validate import ValidateSingleBlock
 from qsharp import TargetProfile, Result
 
 current_file_path = Path(__file__)
@@ -15,6 +16,14 @@ current_file_path = Path(__file__)
 current_dir = current_file_path.parent
 
 # Tests for the Q# noisy simulator.
+
+
+def transform_to_clifford(input) -> str:
+    native_qir = AC1000().compile(input)
+    module = pyqir.Module.from_ir(pyqir.Context(), str(native_qir))
+    ValidateSingleBlock().run(module)
+    DecomposeRzAnglesToCliffordGates().run(module)
+    return str(module)
 
 
 def read_file(file_name: str) -> str:
@@ -33,7 +42,7 @@ def test_smoke():
         "IsingModel2DEvolution(5, 5, PI() / 2.0, PI() / 2.0, 5.0, 5)"
     )
     input = transform_to_clifford(input)
-    output = run_qir(str(input), 10, NoiseConfig())
+    output = run_qir(input, 10, NoiseConfig())
     print(output)
 
 
@@ -44,8 +53,7 @@ def test_1224_clifford_ising():
     input = qsharp.compile(
         "IsingModel2DEvolution(34, 36, PI() / 2.0, PI() / 2.0, 5.0, 5)"
     )
-    input = transform_to_clifford(input)
-    qir = str(input)
+    qir = transform_to_clifford(input)
 
     output = run_qir(qir, 1, NoiseConfig())
 
