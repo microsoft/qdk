@@ -27,14 +27,26 @@ pub enum Fault {
 /// written.
 #[derive(Clone, Copy, Debug)]
 pub struct NoiseConfig {
+    pub i: NoiseTable,
     pub x: NoiseTable,
     pub y: NoiseTable,
     pub z: NoiseTable,
     pub h: NoiseTable,
     pub s: NoiseTable,
     pub s_adj: NoiseTable,
+    pub t: NoiseTable,
+    pub t_adj: NoiseTable,
     pub sx: NoiseTable,
+    pub sx_adj: NoiseTable,
+    pub rx: NoiseTable,
+    pub ry: NoiseTable,
+    pub rz: NoiseTable,
+    pub cx: NoiseTable,
     pub cz: NoiseTable,
+    pub rxx: NoiseTable,
+    pub ryy: NoiseTable,
+    pub rzz: NoiseTable,
+    pub swap: NoiseTable,
     pub mov: NoiseTable,
     pub mresetz: NoiseTable,
     pub idle: IdleNoiseParams,
@@ -42,14 +54,26 @@ pub struct NoiseConfig {
 
 impl NoiseConfig {
     pub const NOISELESS: Self = Self {
+        i: NoiseTable::NOISELESS,
         x: NoiseTable::NOISELESS,
         y: NoiseTable::NOISELESS,
         z: NoiseTable::NOISELESS,
         h: NoiseTable::NOISELESS,
         s: NoiseTable::NOISELESS,
         s_adj: NoiseTable::NOISELESS,
+        t: NoiseTable::NOISELESS,
+        t_adj: NoiseTable::NOISELESS,
         sx: NoiseTable::NOISELESS,
+        sx_adj: NoiseTable::NOISELESS,
+        rx: NoiseTable::NOISELESS,
+        ry: NoiseTable::NOISELESS,
+        rz: NoiseTable::NOISELESS,
+        cx: NoiseTable::NOISELESS,
         cz: NoiseTable::NOISELESS,
+        rxx: NoiseTable::NOISELESS,
+        ryy: NoiseTable::NOISELESS,
+        rzz: NoiseTable::NOISELESS,
+        swap: NoiseTable::NOISELESS,
         mov: NoiseTable::NOISELESS,
         mresetz: NoiseTable::NOISELESS,
         idle: IdleNoiseParams::NOISELESS,
@@ -82,14 +106,26 @@ impl IdleNoiseParams {
 ///
 /// This is the internal format used by the simulator.
 pub(crate) struct CumulativeNoiseConfig {
+    pub i: CumulativeNoiseTable,
     pub x: CumulativeNoiseTable,
     pub y: CumulativeNoiseTable,
     pub z: CumulativeNoiseTable,
     pub h: CumulativeNoiseTable,
     pub s: CumulativeNoiseTable,
     pub s_adj: CumulativeNoiseTable,
+    pub t: CumulativeNoiseTable,
+    pub t_adj: CumulativeNoiseTable,
     pub sx: CumulativeNoiseTable,
+    pub sx_adj: CumulativeNoiseTable,
+    pub rx: CumulativeNoiseTable,
+    pub ry: CumulativeNoiseTable,
+    pub rz: CumulativeNoiseTable,
+    pub cx: CumulativeNoiseTable,
     pub cz: CumulativeNoiseTable,
+    pub rxx: CumulativeNoiseTable,
+    pub ryy: CumulativeNoiseTable,
+    pub rzz: CumulativeNoiseTable,
+    pub swap: CumulativeNoiseTable,
     pub mov: CumulativeNoiseTable,
     pub mresetz: CumulativeNoiseTable,
     pub idle: IdleNoiseParams,
@@ -98,14 +134,26 @@ pub(crate) struct CumulativeNoiseConfig {
 impl From<NoiseConfig> for CumulativeNoiseConfig {
     fn from(value: NoiseConfig) -> Self {
         Self {
+            i: value.i.into(),
             x: value.x.into(),
             y: value.y.into(),
             z: value.z.into(),
             h: value.h.into(),
             s: value.s.into(),
             s_adj: value.s_adj.into(),
+            t: value.t.into(),
+            t_adj: value.t_adj.into(),
             sx: value.sx.into(),
+            sx_adj: value.sx_adj.into(),
+            rx: value.rx.into(),
+            ry: value.ry.into(),
+            rz: value.rz.into(),
+            cx: value.cx.into(),
             cz: value.cz.into(),
+            rxx: value.rxx.into(),
+            ryy: value.ryy.into(),
+            rzz: value.rzz.into(),
+            swap: value.swap.into(),
             mov: value.mov.into(),
             mresetz: value.mresetz.into(),
             idle: value.idle,
@@ -118,6 +166,16 @@ impl CumulativeNoiseConfig {
     /// `X`, `Y`, `Z`, `S` based on the provided noise table.
     pub fn gen_idle_fault(&self, idle_steps: u32) -> Fault {
         let sample: f32 = rand::rngs::ThreadRng::default().gen_range(0.0..1.0);
+        if sample < self.idle.s_probability(idle_steps) {
+            Fault::S
+        } else {
+            Fault::None
+        }
+    }
+
+    /// Samples a float in the range [0, 1] and picks one of the faults
+    /// `X`, `Y`, `Z`, `S` based on the provided noise table.
+    pub fn gen_idle_fault_with_sample(&self, idle_steps: u32, sample: f32) -> Fault {
         if sample < self.idle.s_probability(idle_steps) {
             Fault::S
         } else {
@@ -155,6 +213,7 @@ impl NoiseTable {
 /// computation more efficient.
 ///
 /// This is the internal format used by the simulator.
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct CumulativeNoiseTable {
     x: f32,
     y: f32,
@@ -192,6 +251,23 @@ impl CumulativeNoiseTable {
         } else if sample < self.y {
             Fault::Y
         } else if sample < self.z {
+            Fault::Z
+        } else {
+            Fault::None
+        }
+    }
+
+    /// Samples a float in the range [0, 1] and picks one of the faults
+    /// `X`, `Y`, `Z`, `Loss` based on the provided noise table.
+    pub fn gen_operation_fault_with_samples(&self, loss_sample: f32, pauli_sample: f32) -> Fault {
+        if loss_sample < self.loss {
+            return Fault::Loss;
+        }
+        if pauli_sample < self.x {
+            Fault::X
+        } else if pauli_sample < self.y {
+            Fault::Y
+        } else if pauli_sample < self.z {
             Fault::Z
         } else {
             Fault::None

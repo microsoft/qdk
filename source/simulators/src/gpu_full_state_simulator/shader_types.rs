@@ -10,36 +10,120 @@ use bytemuck::{Pod, Zeroable};
 pub const MAX_QUBITS_PER_THREAD: u32 = 10;
 pub const MAX_QUBITS_PER_WORKGROUP: u32 = 12;
 
-// Could use an enum, but this avoids some boilerplate
+#[repr(u32)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub enum OpID {
+    Id = 0,
+    Reset = 1,
+    X = 2,
+    Y = 3,
+    Z = 4,
+    H = 5,
+    S = 6,
+    SAdj = 7,
+    T = 8,
+    TAdj = 9,
+    Sx = 10,
+    SxAdj = 11,
+    Rx = 12,
+    Ry = 13,
+    Rz = 14,
+    Cx = 15,
+    Cz = 16,
+    Rxx = 17,
+    Ryy = 18,
+    Rzz = 19,
+    Ccx = 20,
+    Mz = 21,
+    MResetZ = 22,
+    MEveryZ = 23,
+    Swap = 24,
+    Matrix = 25,
+    Matrix2Q = 26,
+    SAMPLE = 27, // Take a probabilistic sample of all qubits
+}
+
+impl OpID {
+    #[must_use]
+    pub const fn as_u32(self) -> u32 {
+        self as u32
+    }
+}
+
+impl From<OpID> for u32 {
+    fn from(op_id: OpID) -> Self {
+        op_id as u32
+    }
+}
+
+impl TryFrom<u32> for OpID {
+    type Error = u32;
+
+    fn try_from(value: u32) -> core::result::Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Id),
+            1 => Ok(Self::Reset),
+            2 => Ok(Self::X),
+            3 => Ok(Self::Y),
+            4 => Ok(Self::Z),
+            5 => Ok(Self::H),
+            6 => Ok(Self::S),
+            7 => Ok(Self::SAdj),
+            8 => Ok(Self::T),
+            9 => Ok(Self::TAdj),
+            10 => Ok(Self::Sx),
+            11 => Ok(Self::SxAdj),
+            12 => Ok(Self::Rx),
+            13 => Ok(Self::Ry),
+            14 => Ok(Self::Rz),
+            15 => Ok(Self::Cx),
+            16 => Ok(Self::Cz),
+            17 => Ok(Self::Rxx),
+            18 => Ok(Self::Ryy),
+            19 => Ok(Self::Rzz),
+            20 => Ok(Self::Ccx),
+            21 => Ok(Self::Mz),
+            22 => Ok(Self::MResetZ),
+            23 => Ok(Self::MEveryZ),
+            24 => Ok(Self::Swap),
+            25 => Ok(Self::Matrix),
+            26 => Ok(Self::Matrix2Q),
+            27 => Ok(Self::SAMPLE),
+            invalid => Err(invalid),
+        }
+    }
+}
+
+// Operation identifiers used by the GPU shader.
 pub mod ops {
-    pub const ID: u32 = 0;
-    pub const RESET: u32 = 1;
-    pub const X: u32 = 2;
-    pub const Y: u32 = 3;
-    pub const Z: u32 = 4;
-    pub const H: u32 = 5;
-    pub const S: u32 = 6;
-    pub const S_ADJ: u32 = 7;
-    pub const T: u32 = 8;
-    pub const T_ADJ: u32 = 9;
-    pub const SX: u32 = 10;
-    pub const SX_ADJ: u32 = 11;
-    pub const RX: u32 = 12;
-    pub const RY: u32 = 13;
-    pub const RZ: u32 = 14;
-    pub const CX: u32 = 15;
-    pub const CZ: u32 = 16;
-    pub const RXX: u32 = 17;
-    pub const RYY: u32 = 18;
-    pub const RZZ: u32 = 19;
-    pub const CCX: u32 = 20;
-    pub const MZ: u32 = 21;
-    pub const MRESETZ: u32 = 22;
-    pub const MEVERYZ: u32 = 23; // Implicit at end of circuit (for now)
-    pub const SWAP: u32 = 24;
-    pub const MATRIX: u32 = 25;
-    pub const MATRIX_2Q: u32 = 26;
-    pub const SAMPLE: u32 = 27; // Take a probabilistic sample of all qubits
+    pub const ID: u32 = super::OpID::Id.as_u32();
+    pub const RESET: u32 = super::OpID::Reset.as_u32();
+    pub const X: u32 = super::OpID::X.as_u32();
+    pub const Y: u32 = super::OpID::Y.as_u32();
+    pub const Z: u32 = super::OpID::Z.as_u32();
+    pub const H: u32 = super::OpID::H.as_u32();
+    pub const S: u32 = super::OpID::S.as_u32();
+    pub const S_ADJ: u32 = super::OpID::SAdj.as_u32();
+    pub const T: u32 = super::OpID::T.as_u32();
+    pub const T_ADJ: u32 = super::OpID::TAdj.as_u32();
+    pub const SX: u32 = super::OpID::Sx.as_u32();
+    pub const SX_ADJ: u32 = super::OpID::SxAdj.as_u32();
+    pub const RX: u32 = super::OpID::Rx.as_u32();
+    pub const RY: u32 = super::OpID::Ry.as_u32();
+    pub const RZ: u32 = super::OpID::Rz.as_u32();
+    pub const CX: u32 = super::OpID::Cx.as_u32();
+    pub const CZ: u32 = super::OpID::Cz.as_u32();
+    pub const RXX: u32 = super::OpID::Rxx.as_u32();
+    pub const RYY: u32 = super::OpID::Ryy.as_u32();
+    pub const RZZ: u32 = super::OpID::Rzz.as_u32();
+    pub const CCX: u32 = super::OpID::Ccx.as_u32();
+    pub const MZ: u32 = super::OpID::Mz.as_u32();
+    pub const MRESETZ: u32 = super::OpID::MResetZ.as_u32();
+    pub const MEVERYZ: u32 = super::OpID::MEveryZ.as_u32(); // Implicit at end of circuit (for now)
+    pub const SWAP: u32 = super::OpID::Swap.as_u32();
+    pub const MATRIX: u32 = super::OpID::Matrix.as_u32();
+    pub const MATRIX_2Q: u32 = super::OpID::Matrix2Q.as_u32();
+    pub const SAMPLE: u32 = super::OpID::SAMPLE.as_u32(); // Take a probabilistic sample of all qubits
 }
 
 pub(super) const OP_PADDING: usize = 100;

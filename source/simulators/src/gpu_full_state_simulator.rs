@@ -6,6 +6,9 @@ mod tests;
 
 mod gpu_context;
 pub mod pauli_noise;
+
+pub mod per_gate_pauli_noise;
+
 pub mod shader_types;
 
 use crate::gpu_full_state_simulator::{gpu_context::GpuContext, shader_types::Op};

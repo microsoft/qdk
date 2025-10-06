@@ -72,6 +72,7 @@ pub fn run_gpu_shot<'py>(
         .map_err(|e| PyValueError::new_err(format!("failed to create Python result tuple {e}")))
 }
 
+#[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_lines)]
 #[pyfunction]
 pub fn run_gpu_full_state<'py>(
@@ -79,7 +80,9 @@ pub fn run_gpu_full_state<'py>(
     input: &Bound<'py, PyList>,
     num_qubits: u32,
     shots: u32,
-    noise: Option<(f64, f64, f64)>,
+    pauli_noise: Option<(f64, f64, f64)>,
+    loss: Option<f64>,
+    noise_config: Option<&Bound<'py, NoiseConfig>>,
     seed: Option<u64>,
 ) -> PyResult<PyObject> {
     assert!(shots > 0, "must run at least one shot");
@@ -100,7 +103,7 @@ pub fn run_gpu_full_state<'py>(
     // map the QirInstructions to GPU sim ops
     let ops = map_instructions(instructions, false, 0.0);
 
-    let noise = match noise {
+    let noise = match pauli_noise {
         None => None,
         Some((px, py, pz)) => match PauliNoise::from_probabilities(px, py, pz) {
             Ok(noise_struct) => Some(noise_struct),
@@ -112,16 +115,26 @@ pub fn run_gpu_full_state<'py>(
     let mut rng = StdRng::seed_from_u64(seed.unwrap_or_else(|| rand::thread_rng().next_u64()));
 
     for _ in 0..shots {
-        let mut output = if let Some(noise) = noise {
-            let ops = qdk_simulators::pauli_noise::apply_pauli_noise_with_loss(
+        let mut output = if noise.is_none() && noise_config.is_none() && loss.is_none() {
+            qdk_simulators::run_gpu_simulator(num_qubits, ops.clone())
+        } else if let Some(noise_config) = noise_config {
+            let noise = unbind_noise_config(py, noise_config);
+            let ops = qdk_simulators::per_gate_pauli_noise::apply_per_gate_noise(
                 ops.clone(),
+                num_qubits,
                 &mut rng,
-                noise.distribution,
-                None,
+                noise,
             );
             qdk_simulators::run_gpu_simulator(num_qubits, ops)
         } else {
-            qdk_simulators::run_gpu_simulator(num_qubits, ops.clone())
+            let distribution = noise.map_or_else(|| [0.0; 3], |n| n.distribution);
+            let ops = qdk_simulators::pauli_noise::apply_pauli_noise_with_loss(
+                ops.clone(),
+                &mut rng,
+                distribution,
+                loss,
+            );
+            qdk_simulators::run_gpu_simulator(num_qubits, ops)
         }
         .map_err(PyRuntimeError::new_err)?;
 

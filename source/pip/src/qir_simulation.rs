@@ -1,7 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use pyo3::{Bound, FromPyObject, Py, PyRef, PyResult, Python, pyclass, pymethods};
+use pyo3::{
+    Bound, FromPyObject, Py, PyRef, PyResult, Python, exceptions::PyValueError, pyclass, pymethods,
+};
 
 pub(crate) mod clifford;
 pub(crate) mod gpu_full_state;
@@ -62,6 +64,8 @@ pub enum QirInstruction {
 #[pyclass(module = "qsharp._native")]
 pub struct NoiseConfig {
     #[pyo3(get)]
+    pub i: Py<NoiseTable>,
+    #[pyo3(get)]
     pub x: Py<NoiseTable>,
     #[pyo3(get)]
     pub y: Py<NoiseTable>,
@@ -74,9 +78,31 @@ pub struct NoiseConfig {
     #[pyo3(get)]
     pub s_adj: Py<NoiseTable>,
     #[pyo3(get)]
+    pub t: Py<NoiseTable>,
+    #[pyo3(get)]
+    pub t_adj: Py<NoiseTable>,
+    #[pyo3(get)]
     pub sx: Py<NoiseTable>,
     #[pyo3(get)]
+    pub sx_adj: Py<NoiseTable>,
+    #[pyo3(get)]
+    pub rx: Py<NoiseTable>,
+    #[pyo3(get)]
+    pub ry: Py<NoiseTable>,
+    #[pyo3(get)]
+    pub rz: Py<NoiseTable>,
+    #[pyo3(get)]
+    pub cx: Py<NoiseTable>,
+    #[pyo3(get)]
     pub cz: Py<NoiseTable>,
+    #[pyo3(get)]
+    pub rxx: Py<NoiseTable>,
+    #[pyo3(get)]
+    pub ryy: Py<NoiseTable>,
+    #[pyo3(get)]
+    pub rzz: Py<NoiseTable>,
+    #[pyo3(get)]
+    pub swap: Py<NoiseTable>,
     #[pyo3(get)]
     pub mov: Py<NoiseTable>,
     #[pyo3(get)]
@@ -98,14 +124,26 @@ fn bind_noise_config(
     value: qdk_simulators::noise_config::NoiseConfig,
 ) -> PyResult<NoiseConfig> {
     Ok(NoiseConfig {
+        i: Py::new(py, NoiseTable::from(value.i))?,
         x: Py::new(py, NoiseTable::from(value.x))?,
         y: Py::new(py, NoiseTable::from(value.y))?,
         z: Py::new(py, NoiseTable::from(value.z))?,
         h: Py::new(py, NoiseTable::from(value.h))?,
         s: Py::new(py, NoiseTable::from(value.s))?,
         s_adj: Py::new(py, NoiseTable::from(value.s_adj))?,
+        t: Py::new(py, NoiseTable::from(value.t))?,
+        t_adj: Py::new(py, NoiseTable::from(value.t_adj))?,
         sx: Py::new(py, NoiseTable::from(value.sx))?,
+        sx_adj: Py::new(py, NoiseTable::from(value.sx_adj))?,
+        rx: Py::new(py, NoiseTable::from(value.rx))?,
+        ry: Py::new(py, NoiseTable::from(value.ry))?,
+        rz: Py::new(py, NoiseTable::from(value.rz))?,
+        cx: Py::new(py, NoiseTable::from(value.cx))?,
         cz: Py::new(py, NoiseTable::from(value.cz))?,
+        rxx: Py::new(py, NoiseTable::from(value.rxx))?,
+        ryy: Py::new(py, NoiseTable::from(value.ryy))?,
+        rzz: Py::new(py, NoiseTable::from(value.rzz))?,
+        swap: Py::new(py, NoiseTable::from(value.swap))?,
         mov: Py::new(py, NoiseTable::from(value.mov))?,
         mresetz: Py::new(py, NoiseTable::from(value.mresetz))?,
         idle: Py::new(py, IdleNoiseParams::from(value.idle))?,
@@ -118,14 +156,26 @@ fn unbind_noise_config(
 ) -> qdk_simulators::noise_config::NoiseConfig {
     let value = value.borrow();
     qdk_simulators::noise_config::NoiseConfig {
+        i: from_noise_table_ref(&value.i.borrow(py)),
         x: from_noise_table_ref(&value.x.borrow(py)),
         y: from_noise_table_ref(&value.y.borrow(py)),
         z: from_noise_table_ref(&value.z.borrow(py)),
         h: from_noise_table_ref(&value.h.borrow(py)),
         s: from_noise_table_ref(&value.s.borrow(py)),
         s_adj: from_noise_table_ref(&value.s_adj.borrow(py)),
+        t: from_noise_table_ref(&value.t.borrow(py)),
+        t_adj: from_noise_table_ref(&value.t_adj.borrow(py)),
         sx: from_noise_table_ref(&value.sx.borrow(py)),
+        sx_adj: from_noise_table_ref(&value.sx_adj.borrow(py)),
+        rx: from_noise_table_ref(&value.rx.borrow(py)),
+        ry: from_noise_table_ref(&value.ry.borrow(py)),
+        rz: from_noise_table_ref(&value.rz.borrow(py)),
+        cx: from_noise_table_ref(&value.cx.borrow(py)),
         cz: from_noise_table_ref(&value.cz.borrow(py)),
+        rxx: from_noise_table_ref(&value.rxx.borrow(py)),
+        ryy: from_noise_table_ref(&value.ryy.borrow(py)),
+        rzz: from_noise_table_ref(&value.rzz.borrow(py)),
+        swap: from_noise_table_ref(&value.swap.borrow(py)),
         mov: from_noise_table_ref(&value.mov.borrow(py)),
         mresetz: from_noise_table_ref(&value.mresetz.borrow(py)),
         idle: from_idle_noise_params_ref(&value.idle.borrow(py)),
@@ -194,6 +244,54 @@ impl NoiseTable {
             z: 0.0,
             loss: 0.0,
         }
+    }
+
+    ///
+    /// The depolarizing noise to use in simulation.
+    ///
+    pub fn set_depolarizing(&mut self, value: f32) -> PyResult<()> {
+        self.validate_propability(value)?;
+        self.x = value / 3.0;
+        self.y = value / 3.0;
+        self.z = value / 3.0;
+        Ok(())
+    }
+
+    ///
+    /// The bit flip noise to use in simulation.
+    ///
+    pub fn set_bitflip(&mut self, value: f32) -> PyResult<()> {
+        self.validate_propability(value)?;
+        self.x = value;
+        self.y = 0.0;
+        self.z = 0.0;
+        Ok(())
+    }
+
+    ///
+    /// The phase flip noise to use in simulation.
+    ///
+    pub fn set_phaseflip(&mut self, value: f32) -> PyResult<()> {
+        self.validate_propability(value)?;
+        self.x = 0.0;
+        self.y = 0.0;
+        self.z = value;
+        Ok(())
+    }
+
+    #[allow(clippy::unused_self)]
+    fn validate_propability(&self, value: f32) -> PyResult<()> {
+        if value < 0.0 {
+            return Err(PyValueError::new_err(
+                "Pauli noise probabilities must be non-negative.",
+            ));
+        }
+        if value > 1.0 {
+            return Err(PyValueError::new_err(
+                "The sum of Pauli noise probabilities must be at most 1.",
+            ));
+        }
+        Ok(())
     }
 }
 
