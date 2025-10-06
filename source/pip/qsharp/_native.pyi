@@ -751,6 +751,21 @@ class NoiseTable:
     z: float
     loss: float
 
+    def set_depolarizing(self, value: float):
+        """
+        The depolarizing noise to use in simulation.
+        """
+
+    def set_bitflip(self, value: float):
+        """
+        The bit flip noise to use in simulation.
+        """
+
+    def set_phaseflip(self, value: float):
+        """
+        The phase flip noise to use in simulation.
+        """
+
 class NoiseConfig:
     x: NoiseTable
     y: NoiseTable
@@ -758,8 +773,19 @@ class NoiseConfig:
     h: NoiseTable
     s: NoiseTable
     s_adj: NoiseTable
+    t: NoiseTable
+    t_adj: NoiseTable
     sx: NoiseTable
+    sx_adj: NoiseTable
+    rx: NoiseTable
+    ry: NoiseTable
+    rz: NoiseTable
+    cx: NoiseTable
     cz: NoiseTable
+    rxx: NoiseTable
+    ryy: NoiseTable
+    rzz: NoiseTable
+    swap: NoiseTable
     mov: NoiseTable
     mresetz: NoiseTable
     idle: IdleNoiseParams
@@ -794,7 +820,9 @@ def run_gpu_full_state(
     input: List[QirInstruction],
     num_qubits: int,
     shots: int,
-    noise: Optional[Tuple[float, float, float]],
+    pauli_noise: Optional[Tuple[float, float, float]],
+    loss: Optional[float],
+    noise_config: Optional[NoiseConfig],
     seed: Optional[int],
 ) -> str:
     """ """

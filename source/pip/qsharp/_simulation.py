@@ -322,7 +322,8 @@ clifford_simulation = run_qir  # alias
 def run_qir_gpu(
     input: Union[str, bytes],
     shots: Optional[int] = 1,
-    noise: Optional[Tuple[float, float, float]] = None,
+    noise: Optional[Union[Tuple[float, float, float], NoiseConfig]] = None,
+    loss: Optional[float] = None,
     seed: Optional[int] = None,
 ) -> str:
     context = pyqir.Context()
@@ -336,8 +337,19 @@ def run_qir_gpu(
 
     if shots is None:
         shots = 1
+    pauli_noise = None
+    noise_config = None
+    if isinstance(noise, NoiseConfig):
+        noise_config = noise
+        if loss is not None:
+            raise ValueError("loss can only be set when applying simple Pauli noise")
 
-    return run_gpu_full_state(gates, required_num_qubits, shots, noise, seed)
+    if isinstance(noise, tuple):
+        pauli_noise = noise
+
+    return run_gpu_full_state(
+        gates, required_num_qubits, shots, pauli_noise, loss, noise_config, seed
+    )
 
 
 def run_shot_gpu(

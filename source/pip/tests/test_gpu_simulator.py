@@ -23,7 +23,7 @@ from qsharp import BitFlipNoise
 import qsharp
 from qsharp import TargetProfile
 
-from qsharp._simulation import run_qir_gpu, run_shot_gpu
+from qsharp._simulation import run_qir_gpu, run_shot_gpu, NoiseConfig
 
 current_file_path = Path(__file__)
 # Get the directory of the current file
@@ -109,3 +109,22 @@ operation BellTest() : Result[] {
     # Verify probabilities are all about 0.5
     for r, p in results:
         assert abs(p - 0.5) < 0.00001
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_smoke_noise_config():
+    qsharp.init(target_profile=TargetProfile.Base)
+    qsharp.eval(read_file_relative("CliffordIsing.qs"))
+
+    input = qsharp.compile(
+        "IsingModel2DEvolution(5, 5, PI() / 2.0, PI() / 2.0, 4.0, 4)"
+    )
+
+    noise = NoiseConfig()
+    noise.rz.set_bitflip(0.1)
+    noise.rz.loss = 0.03
+    noise.rzz.set_depolarizing(0.1)
+    noise.rzz.loss = 0.03
+
+    output = run_qir_gpu(str(input), shots=3, noise=noise, seed=None)
+    print(output)
