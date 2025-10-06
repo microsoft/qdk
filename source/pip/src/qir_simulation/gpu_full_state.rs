@@ -1,16 +1,16 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::qir_simulation::{QirInstruction, QirInstructionId};
+use crate::qir_simulation::{NoiseConfig, QirInstruction, QirInstructionId, unbind_noise_config};
 use pyo3::{
     IntoPyObjectExt,
     exceptions::{PyOSError, PyRuntimeError, PyValueError},
     prelude::*,
     types::PyList,
 };
-use qdk_simulators::shader_types::Op;
+use qdk_simulators::shader_types::{self, Op};
 use qsc::PauliNoise;
-use rand::{RngCore, SeedableRng, rngs::StdRng};
+use rand::{Rng, RngCore, SeedableRng, rngs::StdRng};
 
 /// Checks if a compatible GPU adapter is available on the system.
 ///
@@ -27,6 +27,49 @@ use rand::{RngCore, SeedableRng, rngs::StdRng};
 pub fn try_create_gpu_adapter() -> PyResult<()> {
     qdk_simulators::try_create_gpu_adapter().map_err(PyOSError::new_err)?;
     Ok(())
+}
+
+#[pyfunction]
+pub fn run_gpu_shot<'py>(
+    py: Python<'py>,
+    input: &Bound<'py, PyList>,
+    num_qubits: u32,
+    _num_results: u32,
+    noise_config: &Bound<'py, NoiseConfig>,
+    seed: Option<u64>,
+) -> PyResult<PyObject> {
+    try_create_gpu_adapter()?;
+
+    let mut instructions: Vec<QirInstruction> = vec![];
+    for item in input.iter() {
+        let item = <QirInstruction as FromPyObject>::extract_bound(&item).map_err(|e| {
+            PyValueError::new_err(format!("expected QirInstruction, got {item:?}: {e}"))
+        })?;
+        instructions.push(item);
+    }
+
+    // TODO: Wire up noise
+    let _noise = unbind_noise_config(py, noise_config);
+    let mut rng = StdRng::seed_from_u64(seed.unwrap_or_else(|| rand::thread_rng().next_u64()));
+
+    // map the QirInstructions to GPU sim ops
+    let ops = map_instructions(
+        instructions,
+        true, /* sample the state vector at the end */
+        rng.gen_range(0.0..1.0),
+    );
+
+    let output: shader_types::Result =
+        qdk_simulators::run_gpu_shot(num_qubits, ops).map_err(PyRuntimeError::new_err)?;
+
+    // Convert the u32 entry_idx to a bit string of length num_qubits
+    let mut bits = format!("{:0width$b}", output.entry_idx, width = num_qubits as usize);
+    bits = bits.chars().rev().collect(); // Reverse the string
+
+    // Return a Python tuple of (bitstring, probability)
+    (bits, output.probability)
+        .into_py_any(py)
+        .map_err(|e| PyValueError::new_err(format!("failed to create Python result tuple {e}")))
 }
 
 #[allow(clippy::too_many_lines)]
@@ -55,7 +98,7 @@ pub fn run_gpu_full_state<'py>(
     }
 
     // map the QirInstructions to GPU sim ops
-    let ops = map_instructions(instructions);
+    let ops = map_instructions(instructions, false, 0.0);
 
     let noise = match noise {
         None => None,
@@ -132,7 +175,7 @@ fn get_probabilities(
     formatted
 }
 
-fn map_instructions(qir_inst: Vec<QirInstruction>) -> Vec<Op> {
+fn map_instructions(qir_inst: Vec<QirInstruction>, sample: bool, rng_val: f32) -> Vec<Op> {
     let mut ops = Vec::with_capacity(qir_inst.len());
     for inst in qir_inst {
         let op = map_instruction(&inst);
@@ -141,7 +184,11 @@ fn map_instructions(qir_inst: Vec<QirInstruction>) -> Vec<Op> {
         }
     }
     // Add measurements at the end for all qubits
-    ops.push(Op::new_m_every_z_gate());
+    if sample {
+        ops.push(Op::new_sample_gate(rng_val));
+    } else {
+        ops.push(Op::new_m_every_z_gate());
+    }
     ops
 }
 
@@ -160,18 +207,24 @@ fn map_instruction(qir_inst: &QirInstruction) -> Option<qdk_simulators::shader_t
             QirInstructionId::T => Op::new_t_gate(*qubit),
             QirInstructionId::TAdj => Op::new_t_adj_gate(*qubit),
             _ => {
-                return None;
+                panic!("unsupported one-qubit gate: {id:?} on qubit {qubit}");
             }
         },
-        QirInstruction::TwoQubitGate(id, _control, _target) => {
+        QirInstruction::TwoQubitGate(id, control, target) => {
             if matches!(
                 id,
                 QirInstructionId::M | QirInstructionId::MZ | QirInstructionId::MResetZ
             ) {
-                // measurement gates are not supported in the full state simulator
+                // measurement gates are not supported in the full state simulator yet
                 return None;
             }
-            Op::new_m_every_z_gate()
+            match id {
+                QirInstructionId::CX => Op::new_cx_gate(*control, *target),
+                QirInstructionId::CZ => Op::new_cz_gate(*control, *target),
+                _ => {
+                    panic!("unsupported two-qubit gate: {id:?} on qubits {control}, {target}");
+                }
+            }
         }
         QirInstruction::OneQubitRotationGate(id, angle, qubit) => {
             #[allow(clippy::cast_possible_truncation)]
@@ -181,7 +234,7 @@ fn map_instruction(qir_inst: &QirInstruction) -> Option<qdk_simulators::shader_t
                 QirInstructionId::RY => Op::new_ry_gate(angle, *qubit),
                 QirInstructionId::RZ => Op::new_rz_gate(angle, *qubit),
                 _ => {
-                    return None;
+                    panic!("unsupported one-qubit rotation gate: {id:?} on qubit {qubit}");
                 }
             }
         }
@@ -193,14 +246,20 @@ fn map_instruction(qir_inst: &QirInstruction) -> Option<qdk_simulators::shader_t
                 QirInstructionId::RYY => Op::new_ryy_gate(angle, *qubit1, *qubit2),
                 QirInstructionId::RZZ => Op::new_rzz_gate(angle, *qubit1, *qubit2),
                 _ => {
-                    return None;
+                    panic!(
+                        "unsupported two-qubit rotation gate: {id:?} on qubits {qubit1}, {qubit2}"
+                    );
                 }
             }
         }
         QirInstruction::ThreeQubitGate(QirInstructionId::CCX, c1, c2, target) => {
             unimplemented!("{c1}, {c2}, {target}") //Op::new_ccx_gate(*c1, *c2, *target),
         }
-        _ => return None,
+        QirInstruction::OutputRecording(_, _, _) => {
+            // Ignore for now
+            return None;
+        }
+        _ => panic!("unsupported instruction: {qir_inst:?}"),
     };
     Some(op)
 }

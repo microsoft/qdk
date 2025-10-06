@@ -39,6 +39,7 @@ pub mod ops {
     pub const SWAP: u32 = 24;
     pub const MATRIX: u32 = 25;
     pub const MATRIX_2Q: u32 = 26;
+    pub const SAMPLE: u32 = 27; // Take a probabilistic sample of all qubits
 }
 
 pub(super) const OP_PADDING: usize = 100;
@@ -152,6 +153,14 @@ impl Op {
     #[must_use]
     pub fn new_m_every_z_gate() -> Self {
         let mut op = Self::new_1q_gate(ops::MEVERYZ, 0);
+        op
+    }
+
+    #[must_use]
+    pub fn new_sample_gate(rand_value: f32) -> Self {
+        let mut op = Self::new_1q_gate(ops::SAMPLE, 0);
+        // Store the random value in the angle field
+        op.angle = rand_value;
         op
     }
 

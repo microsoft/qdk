@@ -39,6 +39,7 @@ const MEVERYZ: u32 = 23;
 const SWAP: u32    = 24;
 const MATRIX: u32   = 25;
 const MATRIX_2Q: u32 = 26;
+const SAMPLE: u32  = 27; // Take a probabilistic sample of all qubits
 
 struct Op {
     op_id: u32,
@@ -122,12 +123,7 @@ fn run_statevector_ops(@builtin(global_invocation_id) global_id: vec3<u32>) {
     // This will end up being a linear id of all the threads run total (including across workgroups).
     let thread_id = global_id.x + global_id.y * WORKGROUP_SIZE_X;
 
-    // For the last op, the first thread should scan the probabilities and write the results.
-    if (op.op_id == MEVERYZ) {
-        scan_probabilities(thread_id);
-        return;
-    }
-    // TODO: MZ and MRESETZ (assume base profile with all measurements at the end of the circuit for now)
+    // TODO: MZ and MRESETZ
 
     switch op.op_id {
         case ID {
@@ -202,6 +198,14 @@ fn run_statevector_ops(@builtin(global_invocation_id) global_id: vec3<u32>) {
         case MATRIX_2Q {
             apply_2q_matrix_op(thread_id);
             // need to renormalize
+            return;
+        }
+        case MEVERYZ {
+            scan_probabilities(thread_id);
+            return;
+        }
+        case SAMPLE {
+            sample_state(thread_id);
             return;
         }
         default {
@@ -611,6 +615,33 @@ fn scan_probabilities(thread_id: u32) {
             }
             results[curr_idx].entry_idx = i;
             results[curr_idx].probability = prob;
+        }
+    }
+}
+
+fn sample_state(thread_id: u32) {
+    // For now, just walk the entire state vector on the first thread until the random threshold is met.
+    // TODO: Figure out a way to safely parallelize this when it could be running on multiple workgroups
+    // across multiple GPU cores.
+    if thread_id != 0u {
+        return;
+    }
+
+    // Threadshold will be >= 0 and < 1.
+    // It should never pick an index where the probability is 0.
+
+    let rand_threshold = op.angle; // Use angle field to pass in random threshold between 0 and 1
+    var cumulative_prob: f32 = 0.0;
+
+    for (var i: u32 = 0u; i < (1u << QUBIT_COUNT); i++) {
+        let entry = stateVec[i];
+        let prob = entry.x * entry.x + entry.y * entry.y;
+        cumulative_prob += prob;
+        if cumulative_prob > rand_threshold {
+            // Found the sampled state
+            results[0].entry_idx = i;
+            results[0].probability = prob;
+            return;
         }
     }
 }
