@@ -106,12 +106,6 @@ impl EvaluationContext {
         })
     }
 
-    pub fn get_current_user_scope(&self) -> Option<&Scope> {
-        self.scopes.iter().rev().find(|scope| {
-            scope.package_id != PackageId::CORE && scope.package_id != PackageId::from(1)
-        })
-    }
-
     pub fn is_current_scope_user_scope(&self) -> bool {
         let scope = self.get_current_scope();
         scope.package_id != PackageId::CORE && scope.package_id != PackageId::from(1)

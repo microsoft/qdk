@@ -641,6 +641,7 @@ impl<'a> Context<'a> {
                     let Some(scheme) = self.globals.get(item) else {
                         return converge(Ty::Err);
                     };
+                    eprintln!("Instantiating {} at {:?}", item, expr.span);
                     let (ty, args) = self.inferrer.instantiate(scheme, expr.span);
                     self.table.generics.insert(expr.id, args);
                     converge(Ty::Arrow(Rc::new(ty)))

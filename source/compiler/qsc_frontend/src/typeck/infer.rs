@@ -14,7 +14,7 @@ use qsc_hir::{
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::{
     cell::RefCell,
-    collections::{BTreeSet, VecDeque, hash_map::Entry},
+    collections::{VecDeque, hash_map::Entry},
     fmt::Debug,
     rc::Rc,
 };
@@ -328,6 +328,7 @@ impl ArgTy {
 
     /// Applies the argument type to a parameter type, generating constraints and errors.
     fn apply(&self, param: &Ty, span: Span) -> App {
+        // debug!("applying {} to {}", self.to_ty().display(), param.display());
         match (self, param) {
             // If `arg` is a hole, then it doesn't matter what the param is,
             // because the hole can be anything.
@@ -479,20 +480,6 @@ impl Inferrer {
         self.constraints.push_back(Constraint::Class(class, span));
     }
 
-    /// Returns a unique type variable with specified constraints.
-    fn constrained_ty(
-        &mut self,
-        meta: TySource,
-        with_constraints: impl Fn(Ty) -> Box<[Constraint]>,
-    ) -> Ty {
-        let fresh = self.next_ty;
-        self.next_ty = fresh.successor();
-        self.ty_metadata.insert(fresh, meta);
-        let constraints = with_constraints(Ty::Infer(fresh));
-        self.constraints.extend(constraints);
-        Ty::Infer(fresh)
-    }
-
     /// Returns a unique unconstrained type variable.
     pub(super) fn fresh_ty(&mut self, meta: TySource) -> Ty {
         let fresh = self.next_ty;
@@ -510,18 +497,14 @@ impl Inferrer {
 
     /// Instantiates the type scheme.
     pub(super) fn instantiate(&mut self, scheme: &Scheme, span: Span) -> (Arrow, Vec<GenericArg>) {
-        let args: Vec<_> = scheme
-            .params()
+        let params = scheme.params();
+
+        let args: Vec<GenericArg> = params
             .iter()
             .map(|param| match param {
-                TypeParameter::Ty { bounds, .. } => {
-                    GenericArg::Ty(self.constrained_ty(TySource::not_divergent(span), |ty| {
-                        bounds
-                            .0
-                            .iter()
-                            .map(|x| into_constraint(ty.clone(), x, span))
-                            .collect()
-                    }))
+                TypeParameter::Ty { .. } => {
+                    let fresh = self.fresh_ty(TySource::not_divergent(span));
+                    GenericArg::Ty(fresh)
                 }
                 TypeParameter::Functor(expected) => {
                     let actual = self.fresh_functor();
@@ -534,6 +517,26 @@ impl Inferrer {
                 }
             })
             .collect();
+
+        for (i, param) in params.iter().enumerate() {
+            match param {
+                TypeParameter::Ty { bounds, .. } => {
+                    let GenericArg::Ty(ty) = &args[i] else {
+                        panic!("param should have been mapped to generic ty arg");
+                    };
+
+                    let instantiated_bounds = bounds.instantiate(&args);
+
+                    let constraints: Vec<Constraint> = instantiated_bounds
+                        .map(|class_constraint| {
+                            into_constraint(ty.clone(), &class_constraint, span)
+                        })
+                        .collect();
+                    self.constraints.extend(constraints);
+                }
+                TypeParameter::Functor(_) => {}
+            }
+        }
 
         let ty = scheme
             .instantiate(&args)
@@ -766,33 +769,48 @@ impl Solver {
                     bounds: bounds1,
                 },
                 Ty::Param {
-                    name: _name2,
+                    name: name2,
                     id: id2,
                     bounds: bounds2,
                 },
-            ) if id1 == id2 => {
-                // concat the two sets of bounds
-                #[allow(
-                    clippy::mutable_key_type,
-                    reason = "the BTreeSet is temporary and not used across mutations of the types"
-                )]
-                let bounds: BTreeSet<ClassConstraint> = bounds1
-                    .0
-                    .iter()
-                    .chain(bounds2.0.iter())
-                    .map(Clone::clone)
-                    .collect();
-
-                let merged_ty = Ty::Param {
-                    name: name1.clone(),
-                    id: *id1,
-                    bounds: qsc_hir::ty::ClassConstraints(bounds.clone().into_iter().collect()),
-                };
-                bounds
-                    .into_iter()
-                    .map(|x| into_constraint(merged_ty.clone(), &x, span))
-                    .collect()
+            ) => {
+                if id1 == id2 {
+                    // Same type parameter
+                    assert_eq!(bounds1, bounds2);
+                    assert_eq!(name1, name2);
+                } else {
+                    // TODO: idk why this should have to be the case
+                    self.errors.push(Error(ErrorKind::TyMismatch(
+                        ty1.display(),
+                        ty2.display(),
+                        span,
+                    )));
+                }
+                Vec::new()
             }
+            // (
+            //     Ty::Param {
+            //         name: param_name,
+            //         id: param_id,
+            //         bounds,
+            //     },
+            //     ty,
+            // )
+            // | (
+            //     ty,
+            //     Ty::Param {
+            //         name: param_name,
+            //         id: param_id,
+            //         bounds,
+            //     },
+            // ) => {
+            //     // Apply the bounds of the type parameter to the other type.
+            //     bounds
+            //         .0
+            //         .iter()
+            //         .map(|x| into_constraint(ty.clone(), x, span))
+            //         .collect()
+            // }
             (Ty::Prim(prim1), Ty::Prim(prim2)) if prim1 == prim2 => Vec::new(),
             (Ty::Tuple(items1), Ty::Tuple(items2)) => {
                 if items1.len() != items2.len() {
@@ -1053,7 +1071,13 @@ fn check_call(callee: Ty, input: &ArgTy, output: Ty, span: Span) -> (Vec<Constra
     // generate constraints for the arg ty that correspond to any class constraints specified in
     // the parameters
 
+    // eprintln!(
+    //     "input: {:?} param: {}",
+    //     input,
+    //     arrow.input.borrow().display()
+    // );
     let mut app = input.apply(&arrow.input.borrow(), span);
+    // eprintln!("app: {:?} holes: {:?}", app.constraints, app.holes);
     let expected = if app.holes.len() > 1 {
         Ty::Arrow(Rc::new(Arrow {
             kind: arrow.kind,
@@ -1410,19 +1434,13 @@ fn check_iterable(container: Ty, item: Ty, span: Span) -> (Vec<Constraint>, Vec<
         ),
         Ty::Param { bounds, .. } => {
             let constraints = bounds
-                .0
-                .into_iter()
-                .filter_map(|bound| {
-                    if let ClassConstraint::Iterable { item: bound_item } = bound {
-                        Some(Constraint::Eq {
-                            expected: bound_item,
-                            actual: item.clone(),
-                            span,
-                        })
-                    } else {
-                        None
-                    }
+                .iterable_item()
+                .map(|bound_item| Constraint::Eq {
+                    expected: bound_item.clone(),
+                    actual: item.clone(),
+                    span,
                 })
+                .into_iter()
                 .collect::<Vec<_>>();
             if !constraints.is_empty() {
                 return (constraints, Vec::new());

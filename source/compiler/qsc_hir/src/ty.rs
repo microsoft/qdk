@@ -58,15 +58,58 @@ pub struct ClassConstraints(pub Box<[ClassConstraint]>);
 
 impl ClassConstraints {
     #[must_use]
-    pub fn contains_iterable_bound(&self) -> bool {
-        self.0
+    pub fn concat(&self, other: &Self) -> Self {
+        // dedup and concat
+        let mut combined = self
+            .0
             .iter()
-            .any(|bound| matches!(bound, ClassConstraint::Iterable { .. }))
+            .chain(other.0.iter())
+            .cloned()
+            .collect::<Vec<_>>();
+        combined.sort();
+        combined.dedup();
+        Self(combined.into())
+    }
+
+    #[must_use]
+    pub fn iterable_item(&self) -> Option<&Ty> {
+        self.0.iter().find_map(|bound| {
+            if let ClassConstraint::Iterable { item: bound_item } = bound {
+                Some(bound_item)
+            } else {
+                None
+            }
+        })
     }
 
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
+    }
+
+    pub fn instantiate(&self, args: &[GenericArg]) -> impl Iterator<Item = ClassConstraint> {
+        self.0.iter().map(|bound| {
+            match bound {
+                ClassConstraint::Exp {
+                    power: Ty::Param { id, .. },
+                } => {
+                    let real = &args[usize::from(*id)];
+                    if let GenericArg::Ty(ty) = real {
+                        return ClassConstraint::Exp { power: ty.clone() };
+                    }
+                }
+                ClassConstraint::Iterable {
+                    item: Ty::Param { id, .. },
+                } => {
+                    let real = &args[usize::from(*id)];
+                    if let GenericArg::Ty(ty) = real {
+                        return ClassConstraint::Iterable { item: ty.clone() };
+                    }
+                }
+                _ => {}
+            }
+            bound.clone()
+        })
     }
 }
 
@@ -295,6 +338,7 @@ impl Scheme {
     ///
     /// Returns an error if the given arguments do not match the scheme parameters.
     pub fn instantiate(&self, args: &[GenericArg]) -> Result<Arrow, InstantiationError> {
+        eprintln!("Instantiating scheme with args: {args:?}");
         if args.len() == self.params.len() {
             let args: FxHashMap<_, _> = self
                 .params
@@ -303,7 +347,7 @@ impl Scheme {
                 .map(|(ix, _)| ParamId::from(ix))
                 .zip(args)
                 .collect();
-            instantiate_arrow_ty(|name| args.get(name).copied(), &self.ty)
+            instantiate_arrow_ty(|id| args.get(id).copied(), &self.ty)
         } else {
             Err(InstantiationError::Arity)
         }
@@ -348,8 +392,11 @@ fn instantiate_arrow_ty<'a>(
     arg: impl Fn(&ParamId) -> Option<&'a GenericArg> + Copy,
     arrow: &Arrow,
 ) -> Result<Arrow, InstantiationError> {
+    eprintln!("Instantiating arrow: {arrow}");
     let input = instantiate_ty(arg, &arrow.input.borrow())?;
     let output = instantiate_ty(arg, &arrow.output.borrow())?;
+    eprintln!("Instantiated input: {input}");
+    eprintln!("Instantiated output: {output}");
     let functors = if let FunctorSet::Param(param, _) = *arrow.functors.borrow() {
         match arg(&param) {
             Some(GenericArg::Functor(functor_arg)) => *functor_arg,

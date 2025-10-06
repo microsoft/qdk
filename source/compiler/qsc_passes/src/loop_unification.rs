@@ -142,6 +142,13 @@ impl LoopUni<'_> {
 
         let item_ty = match &array_id.ty {
             Ty::Array(inner) => (**inner).clone(),
+            Ty::Param { name, id, bounds } => {
+                if let Some(item) = bounds.iterable_item() {
+                    item.clone()
+                } else {
+                    panic!("The type parameter {name}#{id} should have an Iterable bound");
+                }
+            }
             // If the type is not array, this is likely the special case where a short-circuiting expression is the iterable
             // and the type is thus unknown. In that case, we can just use the type of the iteration variable pattern.
             _ => iter.ty.clone(),
@@ -358,6 +365,9 @@ impl MutVisitor for LoopUni<'_> {
                         // The type checking would only allow unit in here in the case where the iterable expression is
                         // short-circuiting (an explicit `fail` or `return`), so treat this as if it were an array
                         // of the type defined by the iteration variable.
+                        *expr = self.visit_for_array(iter, iterable, block, expr.span);
+                    }
+                    Ty::Param { ref bounds, .. } if bounds.iterable_item().is_some() => {
                         *expr = self.visit_for_array(iter, iterable, block, expr.span);
                     }
                     a => {

@@ -52,6 +52,42 @@ fn exp() {
 }
 
 #[test]
+fn exp_generic() {
+    check(
+        r#"
+        namespace A {
+            function Main() : Unit {
+                let x = Foo(2, 3);
+            }
+            function Foo<'I, 'T: Exp['I]>(a: 'T, b: 'I) : 'I {
+                a ^ b;
+                b
+            }
+        }
+        "#,
+        "",
+        &expect![[r##"
+            #6 48-50 "()" : Unit
+            #10 58-108 "{\n                let x = Foo(2, 3);\n            }" : Unit
+            #12 80-81 "x" : Int
+            #14 84-93 "Foo(2, 3)" : Int
+            #15 84-87 "Foo" : ((Int, Int) -> Int)
+            #18 87-93 "(2, 3)" : (Int, Int)
+            #19 88-89 "2" : Int
+            #20 91-92 "3" : Int
+            #29 150-164 "(a: 'T, b: 'I)" : (Param<"'T": 1>, Param<"'I": 0>)
+            #30 151-156 "a: 'T" : Param<"'T": 1>
+            #34 158-163 "b: 'I" : Param<"'I": 0>
+            #40 170-226 "{\n                a ^ b;\n                b\n            }" : Param<"'I": 0>
+            #42 188-193 "a ^ b" : Param<"'T": 1>
+            #43 188-189 "a" : Param<"'T": 1>
+            #46 192-193 "b" : Param<"'I": 0>
+            #50 211-212 "b" : Param<"'I": 0>
+        "##]],
+    );
+}
+
+#[test]
 fn exp_fail() {
     check(
         r#"
@@ -116,12 +152,11 @@ fn extra_arg_to_exp() {
 }
 
 #[test]
-fn example_should_fail() {
+fn eq_different_type_params() {
     check(
         r#"
         namespace A {
             function Foo<'T: Eq, 'O: Eq>(a: 'T, b: 'O) : Bool {
-            // should fail because we can't compare two different types
                 a == b
             }
         }
@@ -131,17 +166,85 @@ fn example_should_fail() {
             #10 63-77 "(a: 'T, b: 'O)" : (Param<"'T": 0>, Param<"'O": 1>)
             #11 64-69 "a: 'T" : Param<"'T": 0>
             #15 71-76 "b: 'O" : Param<"'O": 1>
-            #22 85-195 "{\n            // should fail because we can't compare two different types\n                a == b\n            }" : Bool
-            #24 175-181 "a == b" : Bool
-            #25 175-176 "a" : Param<"'T": 0>
-            #28 180-181 "b" : Param<"'O": 1>
-            Error(Type(Error(TyMismatch("'T", "'O", Span { lo: 180, hi: 181 }))))
+            #22 85-123 "{\n                a == b\n            }" : Bool
+            #24 103-109 "a == b" : Bool
+            #25 103-104 "a" : Param<"'T": 0>
+            #28 108-109 "b" : Param<"'O": 1>
+            Error(Type(Error(TyMismatch("'T", "'O", Span { lo: 108, hi: 109 }))))
         "##]],
     );
 }
 
-// This test ensures that we show a pretty error for polymorphism bounds that are not supported
-// yet.
+#[test]
+fn incompatible_type_params() {
+    check(
+        r#"
+        namespace A {
+            function Bar() : Bool {
+                Foo(1, true)
+            }
+
+            function Foo<'T: Eq, 'O: Eq>(a: 'T, b: 'O) : Bool {
+                a == b
+            }
+        }
+        "#,
+        "",
+        &expect![[r##"
+            #6 47-49 "()" : Unit
+            #10 57-101 "{\n                Foo(1, true)\n            }" : Bool
+            #12 75-87 "Foo(1, true)" : Bool
+            #13 75-78 "Foo" : ((Int, Bool) -> Bool)
+            #16 78-87 "(1, true)" : (Int, Bool)
+            #17 79-80 "1" : Int
+            #18 82-86 "true" : Bool
+            #26 143-157 "(a: 'T, b: 'O)" : (Param<"'T": 0>, Param<"'O": 1>)
+            #27 144-149 "a: 'T" : Param<"'T": 0>
+            #31 151-156 "b: 'O" : Param<"'O": 1>
+            #38 165-203 "{\n                a == b\n            }" : Bool
+            #40 183-189 "a == b" : Bool
+            #41 183-184 "a" : Param<"'T": 0>
+            #44 188-189 "b" : Param<"'O": 1>
+            Error(Type(Error(TyMismatch("'T", "'O", Span { lo: 188, hi: 189 }))))
+        "##]],
+    );
+}
+
+#[test]
+fn compatible_type_params() {
+    check(
+        r#"
+        namespace A {
+            function Bar() : Bool {
+                Foo(1, 2)
+            }
+
+            function Foo<'T: Eq, 'O: Eq>(a: 'T, b: 'O) : Bool {
+                a == b
+            }
+        }
+        "#,
+        "",
+        &expect![[r##"
+            #6 47-49 "()" : Unit
+            #10 57-98 "{\n                Foo(1, 2)\n            }" : Bool
+            #12 75-84 "Foo(1, 2)" : Bool
+            #13 75-78 "Foo" : ((Int, Int) -> Bool)
+            #16 78-84 "(1, 2)" : (Int, Int)
+            #17 79-80 "1" : Int
+            #18 82-83 "2" : Int
+            #26 140-154 "(a: 'T, b: 'O)" : (Param<"'T": 0>, Param<"'O": 1>)
+            #27 141-146 "a: 'T" : Param<"'T": 0>
+            #31 148-153 "b: 'O" : Param<"'O": 1>
+            #38 162-200 "{\n                a == b\n            }" : Bool
+            #40 180-186 "a == b" : Bool
+            #41 180-181 "a" : Param<"'T": 0>
+            #44 185-186 "b" : Param<"'O": 1>
+            Error(Type(Error(TyMismatch("'T", "'O", Span { lo: 185, hi: 186 }))))
+        "##]],
+    );
+}
+
 #[test]
 fn iter() {
     check(
@@ -177,7 +280,51 @@ fn iter() {
             #48 246-254 "([true])" : Bool[]
             #49 247-253 "[true]" : Bool[]
             #50 248-252 "true" : Bool
-            Error(Type(Error(UnrecognizedClass { span: Span { lo: 112, hi: 113 }, name: "Iterable" })))
+        "##]],
+    );
+}
+
+#[test]
+fn generic_iter() {
+    check(
+        r#"
+        namespace A {
+            operation Main() : Unit {
+                let a: Int[3] = [1,2,3];
+                let f = First(a);
+            }
+
+            function First<'I, 'T: Iterable['I]>(x: 'T) : 'I {
+                for i in x {
+                    return i;
+                }
+            }
+        }
+    "#,
+        "",
+        &expect![[r##"
+            #6 49-51 "()" : Unit
+            #10 59-149 "{\n                let a: Int[3] = [1,2,3];\n                let f = First(a);\n            }" : Unit
+            #12 81-90 "a: Int[3]" : Int[3]
+            #18 93-100 "[1,2,3]" : Int[]
+            #19 94-95 "1" : Int
+            #20 96-97 "2" : Int
+            #21 98-99 "3" : Int
+            #23 122-123 "f" : Int
+            #25 126-134 "First(a)" : Int
+            #26 126-131 "First" : (Int[3] -> Int)
+            #29 131-134 "(a)" : Int[3]
+            #30 132-133 "a" : Int[3]
+            #41 199-206 "(x: 'T)" : Param<"'T": 1>
+            #42 200-205 "x: 'T" : Param<"'T": 1>
+            #48 212-304 "{\n                for i in x {\n                    return i;\n                }\n            }" : Param<"'I": 0>
+            #50 230-290 "for i in x {\n                    return i;\n                }" : Unit
+            #51 234-235 "i" : Param<"'I": 0>
+            #53 239-240 "x" : Param<"'T": 1>
+            #56 241-290 "{\n                    return i;\n                }" : Unit
+            #58 263-271 "return i" : Unit
+            #59 270-271 "i" : Param<"'I": 0>
+            Error(Type(Error(TyMismatch("Int[3]", "Int[]", Span { lo: 93, hi: 100 }))))
         "##]],
     );
 }
