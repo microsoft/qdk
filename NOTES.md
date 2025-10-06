@@ -36,7 +36,8 @@
   - formatting conditionals (if a = |0> etc)
   - basic binary operations formatting (half baked support) and two-result conditionals
   - mapping variables to result dependencies, feeding into control results
-  -
+  - identifying control/target qubits for known intrinsics (QIS)
+
 
 ## Not done, but necessary
 
@@ -51,6 +52,7 @@
   - fallback for complex conditionals
 - handle maxOperations limit gracefully
 - some javascript testing for diagrams
+- figure out / test control/adjoint calls
 
 ## Things to call out in the spec
 
