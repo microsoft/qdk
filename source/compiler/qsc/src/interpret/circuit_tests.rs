@@ -1572,6 +1572,426 @@ fn nested_ifs() {
 }
 
 #[test]
+fn foooo() {
+    let circ = circuit(
+        r"operation Main() : Unit {
+    use m = Qubit();
+    use t = Qubit();
+    // Skip preparation
+    Teleport(m, t);
+}
+operation Teleport(message : Qubit, target : Qubit) : Unit {
+    use auxiliary = Qubit();
+    H(auxiliary);
+    CNOT(auxiliary, target);
+    CNOT(message, auxiliary);
+    H(message);
+    if M(auxiliary) == One {
+        X(target);
+    }
+    if M(message) == One {
+        Z(target);
+    }
+    Reset(auxiliary);
+    Reset(message);
+    Reset(target);
+}
+
+",
+        CircuitEntryPoint::EntryPoint,
+        Config {
+            loop_detection: false,
+            group_scopes: false,
+            generation_method: GenerationMethod::Static,
+            collapse_qubit_registers: false,
+            ..Default::default()
+        },
+    )
+    .expect("circuit generation should succeed");
+
+    expect![[r#"
+        Circuit {
+            qubits: [
+                Qubit {
+                    id: 0,
+                    num_results: 1,
+                },
+                Qubit {
+                    id: 1,
+                    num_results: 0,
+                },
+                Qubit {
+                    id: 2,
+                    num_results: 1,
+                },
+            ],
+            component_grid: [
+                ComponentColumn {
+                    components: [
+                        Unitary(
+                            Unitary {
+                                gate: "H",
+                                args: [
+                                    "metadata={\n\"source\": \"test.qs\",\n\"span\": {\"start\": {\"line\": 8, \"character\": 4}, \"end\": {\"line\": 8, \"character\": 16}}}",
+                                ],
+                                children: [],
+                                targets: [
+                                    Register {
+                                        qubit: 2,
+                                        result: None,
+                                    },
+                                ],
+                                controls: [],
+                                is_adjoint: false,
+                            },
+                        ),
+                    ],
+                },
+                ComponentColumn {
+                    components: [
+                        Unitary(
+                            Unitary {
+                                gate: "X",
+                                args: [
+                                    "metadata={\n\"source\": \"test.qs\",\n\"span\": {\"start\": {\"line\": 9, \"character\": 4}, \"end\": {\"line\": 9, \"character\": 27}}}",
+                                ],
+                                children: [],
+                                targets: [
+                                    Register {
+                                        qubit: 1,
+                                        result: None,
+                                    },
+                                ],
+                                controls: [
+                                    Register {
+                                        qubit: 2,
+                                        result: None,
+                                    },
+                                ],
+                                is_adjoint: false,
+                            },
+                        ),
+                    ],
+                },
+                ComponentColumn {
+                    components: [
+                        Unitary(
+                            Unitary {
+                                gate: "X",
+                                args: [
+                                    "metadata={\n\"source\": \"test.qs\",\n\"span\": {\"start\": {\"line\": 10, \"character\": 4}, \"end\": {\"line\": 10, \"character\": 28}}}",
+                                ],
+                                children: [],
+                                targets: [
+                                    Register {
+                                        qubit: 2,
+                                        result: None,
+                                    },
+                                ],
+                                controls: [
+                                    Register {
+                                        qubit: 0,
+                                        result: None,
+                                    },
+                                ],
+                                is_adjoint: false,
+                            },
+                        ),
+                    ],
+                },
+                ComponentColumn {
+                    components: [
+                        Unitary(
+                            Unitary {
+                                gate: "H",
+                                args: [
+                                    "metadata={\n\"source\": \"test.qs\",\n\"span\": {\"start\": {\"line\": 11, \"character\": 4}, \"end\": {\"line\": 11, \"character\": 14}}}",
+                                ],
+                                children: [],
+                                targets: [
+                                    Register {
+                                        qubit: 0,
+                                        result: None,
+                                    },
+                                ],
+                                controls: [],
+                                is_adjoint: false,
+                            },
+                        ),
+                        Measurement(
+                            Measurement {
+                                gate: "M",
+                                args: [
+                                    "metadata={\n\"source\": \"test.qs\",\n\"span\": {\"start\": {\"line\": 12, \"character\": 7}, \"end\": {\"line\": 12, \"character\": 19}}}",
+                                ],
+                                children: [],
+                                qubits: [
+                                    Register {
+                                        qubit: 2,
+                                        result: None,
+                                    },
+                                ],
+                                results: [
+                                    Register {
+                                        qubit: 2,
+                                        result: Some(
+                                            0,
+                                        ),
+                                    },
+                                ],
+                            },
+                        ),
+                    ],
+                },
+                ComponentColumn {
+                    components: [
+                        Unitary(
+                            Unitary {
+                                gate: "check ",
+                                args: [
+                                    "c_0 = |1〉",
+                                    "metadata={\n\"source\": \"test.qs\",\n\"span\": {\"start\": {\"line\": 13, \"character\": 8}, \"end\": {\"line\": 13, \"character\": 17}}}",
+                                ],
+                                children: [
+                                    ComponentColumn {
+                                        components: [
+                                            Unitary(
+                                                Unitary {
+                                                    gate: "true",
+                                                    args: [],
+                                                    children: [
+                                                        ComponentColumn {
+                                                            components: [
+                                                                Unitary(
+                                                                    Unitary {
+                                                                        gate: "X",
+                                                                        args: [
+                                                                            "metadata={\n\"source\": \"test.qs\",\n\"span\": {\"start\": {\"line\": 13, \"character\": 8}, \"end\": {\"line\": 13, \"character\": 17}}}",
+                                                                        ],
+                                                                        children: [],
+                                                                        targets: [
+                                                                            Register {
+                                                                                qubit: 1,
+                                                                                result: None,
+                                                                            },
+                                                                        ],
+                                                                        controls: [
+                                                                            Register {
+                                                                                qubit: 2,
+                                                                                result: Some(
+                                                                                    0,
+                                                                                ),
+                                                                            },
+                                                                        ],
+                                                                        is_adjoint: false,
+                                                                    },
+                                                                ),
+                                                            ],
+                                                        },
+                                                    ],
+                                                    targets: [
+                                                        Register {
+                                                            qubit: 1,
+                                                            result: None,
+                                                        },
+                                                    ],
+                                                    controls: [
+                                                        Register {
+                                                            qubit: 2,
+                                                            result: Some(
+                                                                0,
+                                                            ),
+                                                        },
+                                                    ],
+                                                    is_adjoint: false,
+                                                },
+                                            ),
+                                        ],
+                                    },
+                                ],
+                                targets: [
+                                    Register {
+                                        qubit: 1,
+                                        result: None,
+                                    },
+                                ],
+                                controls: [
+                                    Register {
+                                        qubit: 2,
+                                        result: Some(
+                                            0,
+                                        ),
+                                    },
+                                ],
+                                is_adjoint: false,
+                            },
+                        ),
+                        Measurement(
+                            Measurement {
+                                gate: "M",
+                                args: [
+                                    "metadata={\n\"source\": \"test.qs\",\n\"span\": {\"start\": {\"line\": 15, \"character\": 7}, \"end\": {\"line\": 15, \"character\": 17}}}",
+                                ],
+                                children: [],
+                                qubits: [
+                                    Register {
+                                        qubit: 0,
+                                        result: None,
+                                    },
+                                ],
+                                results: [
+                                    Register {
+                                        qubit: 0,
+                                        result: Some(
+                                            0,
+                                        ),
+                                    },
+                                ],
+                            },
+                        ),
+                    ],
+                },
+                ComponentColumn {
+                    components: [
+                        Unitary(
+                            Unitary {
+                                gate: "check ",
+                                args: [
+                                    "c_1 = |1〉",
+                                    "metadata={\n\"source\": \"test.qs\",\n\"span\": {\"start\": {\"line\": 16, \"character\": 8}, \"end\": {\"line\": 16, \"character\": 17}}}",
+                                ],
+                                children: [
+                                    ComponentColumn {
+                                        components: [
+                                            Unitary(
+                                                Unitary {
+                                                    gate: "true",
+                                                    args: [],
+                                                    children: [
+                                                        ComponentColumn {
+                                                            components: [
+                                                                Unitary(
+                                                                    Unitary {
+                                                                        gate: "Z",
+                                                                        args: [
+                                                                            "metadata={\n\"source\": \"test.qs\",\n\"span\": {\"start\": {\"line\": 16, \"character\": 8}, \"end\": {\"line\": 16, \"character\": 17}}}",
+                                                                        ],
+                                                                        children: [],
+                                                                        targets: [
+                                                                            Register {
+                                                                                qubit: 1,
+                                                                                result: None,
+                                                                            },
+                                                                        ],
+                                                                        controls: [
+                                                                            Register {
+                                                                                qubit: 0,
+                                                                                result: Some(
+                                                                                    0,
+                                                                                ),
+                                                                            },
+                                                                        ],
+                                                                        is_adjoint: false,
+                                                                    },
+                                                                ),
+                                                            ],
+                                                        },
+                                                    ],
+                                                    targets: [
+                                                        Register {
+                                                            qubit: 1,
+                                                            result: None,
+                                                        },
+                                                    ],
+                                                    controls: [
+                                                        Register {
+                                                            qubit: 0,
+                                                            result: Some(
+                                                                0,
+                                                            ),
+                                                        },
+                                                    ],
+                                                    is_adjoint: false,
+                                                },
+                                            ),
+                                        ],
+                                    },
+                                ],
+                                targets: [
+                                    Register {
+                                        qubit: 1,
+                                        result: None,
+                                    },
+                                ],
+                                controls: [
+                                    Register {
+                                        qubit: 0,
+                                        result: Some(
+                                            0,
+                                        ),
+                                    },
+                                ],
+                                is_adjoint: false,
+                            },
+                        ),
+                        Ket(
+                            Ket {
+                                gate: "0",
+                                args: [
+                                    "metadata={\n\"source\": \"test.qs\",\n\"span\": {\"start\": {\"line\": 18, \"character\": 4}, \"end\": {\"line\": 18, \"character\": 20}}}",
+                                ],
+                                children: [],
+                                targets: [
+                                    Register {
+                                        qubit: 2,
+                                        result: None,
+                                    },
+                                ],
+                            },
+                        ),
+                        Ket(
+                            Ket {
+                                gate: "0",
+                                args: [
+                                    "metadata={\n\"source\": \"test.qs\",\n\"span\": {\"start\": {\"line\": 19, \"character\": 4}, \"end\": {\"line\": 19, \"character\": 18}}}",
+                                ],
+                                children: [],
+                                targets: [
+                                    Register {
+                                        qubit: 0,
+                                        result: None,
+                                    },
+                                ],
+                            },
+                        ),
+                    ],
+                },
+                ComponentColumn {
+                    components: [
+                        Ket(
+                            Ket {
+                                gate: "0",
+                                args: [
+                                    "metadata={\n\"source\": \"test.qs\",\n\"span\": {\"start\": {\"line\": 20, \"character\": 4}, \"end\": {\"line\": 20, \"character\": 17}}}",
+                                ],
+                                children: [],
+                                targets: [
+                                    Register {
+                                        qubit: 1,
+                                        result: None,
+                                    },
+                                ],
+                            },
+                        ),
+                    ],
+                },
+            ],
+        }
+    "#]]
+    .assert_debug_eq(&circ);
+}
+
+#[test]
 fn multiple_possible_float_values_in_unitary_arg() {
     let circ = circuit(
         r"
