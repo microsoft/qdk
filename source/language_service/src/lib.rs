@@ -20,7 +20,6 @@ mod state;
 mod test_utils;
 #[cfg(test)]
 mod tests;
-pub mod wrapper_refactor;
 
 use compilation::Compilation;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};

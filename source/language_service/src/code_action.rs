@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+mod wrapper_refactor;
+
 use miette::Diagnostic;
 use qsc::{
     Span,
@@ -12,7 +14,6 @@ use qsc::{
 use crate::{
     compilation::Compilation,
     protocol::{CodeAction, CodeActionKind, TextEdit, WorkspaceEdit},
-    wrapper_refactor,
 };
 
 pub(crate) fn get_code_actions(
