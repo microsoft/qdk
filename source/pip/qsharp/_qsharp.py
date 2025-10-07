@@ -59,7 +59,7 @@ def lower_python_obj(obj: object, visited: Optional[Set[object]] = None) -> Any:
     if isinstance(obj, tuple):
         return tuple(lower_python_obj(elt, visited) for elt in obj)
 
-    # Recusive case: Dict
+    # Recursive case: Dict
     if isinstance(obj, dict):
         return {name: lower_python_obj(val, visited) for name, val in obj.items()}
 
@@ -480,10 +480,10 @@ def eval(
 
 # Helper function that knows how to create a function that invokes a callable. This will be
 # used by the underlying native code to create functions for callables on the fly that know
-# how to get the currently intitialized global interpreter instance.
+# how to get the currently initialized global interpreter instance.
 def _make_callable(callable: GlobalCallable, namespace: List[str], callable_name: str):
     module = code
-    # Create a name that will be used to collect the hierachy of namespace identifiers if they exist and use that
+    # Create a name that will be used to collect the hierarchy of namespace identifiers if they exist and use that
     # to register created modules with the system.
     accumulated_namespace = "qsharp.code"
     accumulated_namespace += "."
@@ -579,7 +579,7 @@ def make_class_rec(qsharp_type: TypeIR) -> type:
             elif prim_kind == PrimitiveKind.Result:
                 ty = Result
             else:
-                raise QSharpError(f"unknown primtive {prim_kind}")
+                raise QSharpError(f"unknown primitive {prim_kind}")
         elif kind == TypeKind.Tuple:
             # Special case Value::UNIT maps to None.
             if not field[1].unwrap_tuple():
@@ -608,7 +608,7 @@ def _make_class(qsharp_type: TypeIR, namespace: List[str], class_name: str):
     """
 
     module = code
-    # Create a name that will be used to collect the hierachy of namespace identifiers if they exist and use that
+    # Create a name that will be used to collect the hierarchy of namespace identifiers if they exist and use that
     # to register created modules with the system.
     accumulated_namespace = "qsharp.code"
     accumulated_namespace += "."

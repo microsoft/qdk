@@ -165,7 +165,7 @@ fn spec_case_3() -> miette::Result<(), Vec<Report>> {
         include "stdgates.inc";
         qubit q;
         bit[2] b;
-        // int(b) orginally, but we don't support that yet
+        // int(b) originally, but we don't support that yet
         switch (b) {
         case 0b00 {
             h q;

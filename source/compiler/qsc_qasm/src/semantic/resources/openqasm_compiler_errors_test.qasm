@@ -55,13 +55,13 @@ def mut_subroutine_static(mutable array[int[8], 2, 3] arr_arg) {
 
 }
 
-// curretly blocked by type checker
+// currently blocked by type checker
 // unimplemented
 //bit[2] creg1;
 //bit[10] creg2;
 //let concatenated_creg = creg1 ++ creg2;
 
-// curretly blocked by type checker
+// currently blocked by type checker
 // unimplemented
 //qubit[2] one;
 //qubit[10] two;

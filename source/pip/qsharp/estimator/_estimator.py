@@ -376,7 +376,7 @@ class EstimatorConstraints(AutoValidatingParams):
     def post_validation(self, result):
         if self.max_duration is not None and self.max_physical_qubits is not None:
             raise LookupError(
-                "Both duration and number of physical qubits constraints are provided, but only one is allowe at a time."
+                "Both duration and number of physical qubits constraints are provided, but only one is allowed at a time."
             )
 
 

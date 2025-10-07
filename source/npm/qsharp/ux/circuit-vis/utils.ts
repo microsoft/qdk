@@ -117,7 +117,7 @@ const _getStringWidth = (
 /**
  * Find targets of an operation's children by recursively walking
  * through all of its children's controls and targets.
- * Note that this intensionally ignores the direct targets of the
+ * Note that this intentionally ignores the direct targets of the
  * operation itself.
  *
  * Example:

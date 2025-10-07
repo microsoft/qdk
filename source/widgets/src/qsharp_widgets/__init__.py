@@ -73,7 +73,7 @@ class EstimatesPanel(anywidget.AnyWidget):
 
     def __init__(self, estimates, colors=None, runNames=None):
         """
-        This function generates the whole estimates panel with the summary results table, ther space-time chart, the space chart and the details report.
+        This function generates the whole estimates panel with the summary results table, the space-time chart, the space chart and the details report.
 
         Parameters:
         - estimates: data for all the tables and diagrams.

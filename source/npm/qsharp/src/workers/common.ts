@@ -432,7 +432,7 @@ function createDispatcher<
 
         logAndPost({
           // If this happens then the wasm code likely threw an exception/panicked rather than
-          // completing gracefully and fullfilling the promise. Communicate to the client
+          // completing gracefully and fulfilling the promise. Communicate to the client
           // that there was an error and it should reject the current request
           messageType: "response",
           type: req.type,

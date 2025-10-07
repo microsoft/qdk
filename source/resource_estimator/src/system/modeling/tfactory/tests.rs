@@ -269,7 +269,7 @@ fn test_default_t_factory() {
     let physical_qubit = PhysicalQubit::default();
     let ftp = surface_code_gate_based();
     let logical_qubit = LogicalPatch::new(&ftp, 15, Rc::new(physical_qubit))
-        .expect("logical qubit contruction should succeed");
+        .expect("logical qubit construction should succeed");
     let tfactory = default_t_factory(&logical_qubit);
 
     assert_eq!(tfactory.num_rounds(), 1);

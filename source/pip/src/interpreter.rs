@@ -1071,7 +1071,7 @@ impl Output {
 }
 
 #[pyclass]
-/// Captured simlation state dump.
+/// Captured simulation state dump.
 pub(crate) struct StateDumpData(pub(crate) DisplayableState);
 
 #[pymethods]

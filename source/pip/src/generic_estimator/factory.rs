@@ -59,7 +59,7 @@ enum FactoryImplementation<'py> {
 ///         ...
 /// ```
 ///
-/// A factory object is simply a Phython dictionary, which _must_ contain
+/// A factory object is simply a Python dictionary, which _must_ contain
 /// entries for `"physical_qubits"` and `"duration"` (in nano seconds).  It may
 /// also contain `"num_output_states"`, which defaults to 1 if not specified. It
 /// may contain other entries, which will be included in the serialized resource
@@ -67,7 +67,7 @@ enum FactoryImplementation<'py> {
 ///
 /// ## Creating factories based on multiple rounds of distillation
 ///
-/// To create factories based on mulitple rounds of distillation, the class must
+/// To create factories based on multiple rounds of distillation, the class must
 /// implement the function `distillation_units`, which returns a list of
 /// distillation unit objects (described below). Further, such a class may
 /// provide local variables `gate_error`, `max_rounds` and `max_extra_rounds`
@@ -101,7 +101,7 @@ enum FactoryImplementation<'py> {
 /// `"code_parameter"`, and `"num_output_states"` are optional and default to
 /// `"distillation-unit"`, `None`, and `1`.  The fields for `"physical_qubits"`
 /// and `"runtime"` must be callable (e.g., using a Python lambda) with the
-/// 0-based round index as only paramter.  The fields for `"output_error_rate"`
+/// 0-based round index as only parameter.  The fields for `"output_error_rate"`
 /// and `"failure_probability"` also must be callable with the input error rate
 /// (of the previous round or initial gate error rate) as the only parameter.
 pub struct PythonFactoryBuilder<'py> {

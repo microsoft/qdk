@@ -13,7 +13,7 @@ pub use code_with_threshold_and_distance::{
 /// This trait models one quantum error correction code that encodes k logical
 /// qubits using n physical qubits.  The physical qubits are of type
 /// `Self::Qubit`.  Each code is parameterized by assignments to parameters of
-/// type `Self::Parameter`.  Implementors of this trait need to specify values
+/// type `Self::Parameter`.  Implementers of this trait need to specify values
 /// for k, n, the logical cycle time, and the logical error rate, given an
 /// assignment to the code parameter.
 ///
@@ -176,7 +176,7 @@ pub trait ErrorCorrection {
 
     /// Returns an iterator of all possible code parameters
     ///
-    /// Implementors of this method should sort the code parameters such that
+    /// Implementers of this method should sort the code parameters such that
     /// the least costly parameters appear first.  Least costly may be defined
     /// in terms of physical qubits, the logical cycle time, or a combination of
     /// both.
