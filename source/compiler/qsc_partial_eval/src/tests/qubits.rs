@@ -27,7 +27,7 @@ fn qubit_ids_are_correct_for_allocate_use_release_one_qubit() {
     expect![[r#"
         Callable:
             name: __quantum__rt__initialize
-            call_type: Regular
+            call_type: Initialize
             input_type:
                 [0]: Pointer
             output_type: <VOID>
@@ -45,9 +45,9 @@ fn qubit_ids_are_correct_for_allocate_use_release_one_qubit() {
     expect![[r#"
         Block:
             Call id(1), args( Pointer, )
-            Call id(2), args( Qubit(0), )
-            Call id(3), args( Integer(0), EmptyTag, )
-            Return"#]]
+            Call id(2), args( Qubit(0), ) !dbg dbg_location=2
+            Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+            Return !dbg dbg_location=0"#]]
     .assert_eq(&program.get_block(BlockId(0)).to_string());
 }
 
@@ -79,7 +79,7 @@ fn qubit_ids_are_correct_for_allocate_use_release_multiple_qubits() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -104,11 +104,11 @@ fn qubit_ids_are_correct_for_allocate_use_release_multiple_qubits() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), )
-                Call id(2), args( Qubit(1), )
-                Call id(2), args( Qubit(2), )
-                Call id(3), args( Integer(0), EmptyTag, )
-                Return"#]],
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=4
+                Call id(2), args( Qubit(1), ) !dbg dbg_location=5
+                Call id(2), args( Qubit(2), ) !dbg dbg_location=6
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
     assert_eq!(program.num_qubits, 3);
     assert_eq!(program.num_results, 0);
@@ -142,7 +142,7 @@ fn qubit_ids_are_correct_for_allocate_use_release_one_qubit_multiple_times() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -167,11 +167,11 @@ fn qubit_ids_are_correct_for_allocate_use_release_one_qubit_multiple_times() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), )
-                Call id(2), args( Qubit(0), )
-                Call id(2), args( Qubit(0), )
-                Call id(3), args( Integer(0), EmptyTag, )
-                Return"#]],
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=2
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=5
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=8
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
     assert_eq!(program.num_qubits, 1);
     assert_eq!(program.num_results, 0);
@@ -211,7 +211,7 @@ fn qubit_ids_are_correct_for_allocate_use_release_multiple_qubits_interleaved() 
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -236,13 +236,13 @@ fn qubit_ids_are_correct_for_allocate_use_release_multiple_qubits_interleaved() 
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), )
-                Call id(2), args( Qubit(1), )
-                Call id(2), args( Qubit(2), )
-                Call id(2), args( Qubit(2), )
-                Call id(2), args( Qubit(3), )
-                Call id(3), args( Integer(0), EmptyTag, )
-                Return"#]],
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=2
+                Call id(2), args( Qubit(1), ) !dbg dbg_location=4
+                Call id(2), args( Qubit(2), ) !dbg dbg_location=6
+                Call id(2), args( Qubit(2), ) !dbg dbg_location=10
+                Call id(2), args( Qubit(3), ) !dbg dbg_location=11
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
     assert_eq!(program.num_qubits, 4);
     assert_eq!(program.num_results, 0);
@@ -271,7 +271,7 @@ fn qubit_array_allocation_and_access() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -296,19 +296,19 @@ fn qubit_array_allocation_and_access() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Integer) = Store Integer(0)
-                Variable(0, Integer) = Store Integer(1)
-                Variable(0, Integer) = Store Integer(2)
-                Variable(0, Integer) = Store Integer(3)
-                Call id(2), args( Qubit(0), )
-                Call id(2), args( Qubit(1), )
-                Call id(2), args( Qubit(2), )
-                Variable(1, Integer) = Store Integer(0)
-                Variable(1, Integer) = Store Integer(1)
-                Variable(1, Integer) = Store Integer(2)
-                Variable(1, Integer) = Store Integer(3)
-                Call id(3), args( Integer(0), EmptyTag, )
-                Return"#]],
+                Variable(0, Integer) = Store Integer(0) !dbg
+                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=2
+                Variable(0, Integer) = Store Integer(2) !dbg dbg_location=3
+                Variable(0, Integer) = Store Integer(3) !dbg dbg_location=4
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=5
+                Call id(2), args( Qubit(1), ) !dbg dbg_location=6
+                Call id(2), args( Qubit(2), ) !dbg dbg_location=7
+                Variable(1, Integer) = Store Integer(0) !dbg
+                Variable(1, Integer) = Store Integer(1) !dbg dbg_location=9
+                Variable(1, Integer) = Store Integer(2) !dbg dbg_location=10
+                Variable(1, Integer) = Store Integer(3) !dbg dbg_location=11
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
     assert_eq!(program.num_qubits, 3);
     assert_eq!(program.num_results, 0);

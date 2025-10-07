@@ -10,6 +10,7 @@ use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
+use qsc::circuit::GenerationMethod;
 use qsc::hir::PackageId;
 use qsc::interpret::output::Receiver;
 use qsc::interpret::{CircuitEntryPoint, Interpreter, into_errors};
@@ -594,9 +595,15 @@ pub(crate) fn circuit_qasm_program(
         .set_entry_expr(&entry_expr)
         .map_err(|errors| map_entry_compilation_errors(errors, &signature))?;
 
+    // TODO: backcompat, for now
+    let generation_method = GenerationMethod::ClassicalEval;
+
     match interpreter.circuit(
         CircuitEntryPoint::EntryExpr(entry_expr),
-        qsc::circuit::Config::default(),
+        qsc::circuit::Config {
+            generation_method,
+            ..Default::default()
+        },
     ) {
         Ok(circuit) => crate::interpreter::Circuit(circuit).into_py_any(py),
         Err(errors) => Err(QSharpError::new_err(format_errors(errors))),

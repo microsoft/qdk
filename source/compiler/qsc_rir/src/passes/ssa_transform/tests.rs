@@ -115,6 +115,9 @@ fn ssa_transform_removes_store_in_single_block_program() {
                 capabilities: Base
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]]
     .assert_eq(&program.to_string());
@@ -146,6 +149,9 @@ fn ssa_transform_removes_store_in_single_block_program() {
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]]
     .assert_eq(&program.to_string());
@@ -271,6 +277,9 @@ fn ssa_transform_removes_multiple_stores_in_single_block_program() {
                 capabilities: Base
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]]
     .assert_eq(&program.to_string());
@@ -304,6 +313,9 @@ fn ssa_transform_removes_multiple_stores_in_single_block_program() {
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]]
     .assert_eq(&program.to_string());
@@ -438,6 +450,9 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks() {
                 capabilities: Base
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]]
     .assert_eq(&program.to_string());
@@ -477,6 +492,9 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks() {
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]]
     .assert_eq(&program.to_string());
@@ -584,6 +602,9 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks_without_i
                 capabilities: Base
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]]
     .assert_eq(&program.to_string());
@@ -621,6 +642,9 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks_without_i
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]]
     .assert_eq(&program.to_string());
@@ -777,6 +801,9 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage() {
                 capabilities: Base
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]]
     .assert_eq(&program.to_string());
@@ -817,6 +844,9 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage() {
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]].assert_eq(&program.to_string());
 }
@@ -947,6 +977,9 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage_in_one_branch() {
                 capabilities: Base
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]]
     .assert_eq(&program.to_string());
@@ -986,6 +1019,9 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage_in_one_branch() {
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]].assert_eq(&program.to_string());
 }
@@ -1200,6 +1236,9 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
                 capabilities: Base
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]]
     .assert_eq(&program.to_string());
@@ -1249,6 +1288,9 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]].assert_eq(&program.to_string());
 }
@@ -1426,6 +1468,9 @@ fn ssa_transform_inserts_phi_for_multiple_stored_values() {
                 capabilities: Base
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]]
     .assert_eq(&program.to_string());
@@ -1468,6 +1513,9 @@ fn ssa_transform_inserts_phi_for_multiple_stored_values() {
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]].assert_eq(&program.to_string());
 }
@@ -1750,6 +1798,9 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
                 capabilities: Base
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]]
     .assert_eq(&program.to_string());
@@ -1801,6 +1852,9 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]].assert_eq(&program.to_string());
 }
@@ -2042,6 +2096,9 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
                 capabilities: Base
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]]
     .assert_eq(&program.to_string());
@@ -2092,6 +2149,9 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]].assert_eq(&program.to_string());
 }
@@ -2223,6 +2283,9 @@ fn ssa_transform_propagates_updates_from_multiple_predecessors_to_later_single_s
                 capabilities: Base
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]]
     .assert_eq(&program.to_string());
@@ -2262,6 +2325,9 @@ fn ssa_transform_propagates_updates_from_multiple_predecessors_to_later_single_s
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]].assert_eq(&program.to_string());
 }
@@ -2353,6 +2419,9 @@ fn ssa_transform_maps_store_instrs_that_use_values_from_other_store_instrs() {
                 capabilities: Base
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]]
     .assert_eq(&program.to_string());
@@ -2384,6 +2453,9 @@ fn ssa_transform_maps_store_instrs_that_use_values_from_other_store_instrs() {
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]].assert_eq(&program.to_string());
 }
@@ -2506,6 +2578,9 @@ fn ssa_transform_maps_store_with_variable_from_store_in_conditional_to_phi_node(
                 capabilities: Base
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]]
     .assert_eq(&program.to_string());
@@ -2542,6 +2617,9 @@ fn ssa_transform_maps_store_with_variable_from_store_in_conditional_to_phi_node(
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]].assert_eq(&program.to_string());
 }
@@ -2666,6 +2744,9 @@ fn ssa_transform_allows_point_in_time_copy_of_dynamic_variable() {
                 capabilities: Base
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]]
     .assert_eq(&program.to_string());
@@ -2699,6 +2780,9 @@ fn ssa_transform_allows_point_in_time_copy_of_dynamic_variable() {
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]].assert_eq(&program.to_string());
 }
@@ -2870,6 +2954,9 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
                 capabilities: Base
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]]
     .assert_eq(&program.to_string());
@@ -2920,6 +3007,9 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]]
     .assert_eq(&program.to_string());

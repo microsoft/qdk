@@ -57,6 +57,9 @@ fn remap_block_ids_no_changes() {
                 capabilities: Base
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]]
     .assert_eq(&program.to_string());
@@ -83,6 +86,9 @@ fn remap_block_ids_no_changes() {
                 capabilities: Base
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]]
     .assert_eq(&program.to_string());
@@ -133,6 +139,9 @@ fn remap_block_ids_out_of_order_no_branches() {
                 capabilities: Base
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]]
     .assert_eq(&program.to_string());
@@ -159,6 +168,9 @@ fn remap_block_ids_out_of_order_no_branches() {
                 capabilities: Base
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]]
     .assert_eq(&program.to_string());
@@ -222,6 +234,9 @@ fn remap_block_ids_out_of_order_with_one_branch() {
                 capabilities: Base
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]]
     .assert_eq(&program.to_string());
@@ -251,6 +266,9 @@ fn remap_block_ids_out_of_order_with_one_branch() {
                 capabilities: Base
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]]
     .assert_eq(&program.to_string());
@@ -309,6 +327,9 @@ fn remap_block_ids_simple_loop() {
                 capabilities: Base
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]]
     .assert_eq(&program.to_string());
@@ -336,6 +357,9 @@ fn remap_block_ids_simple_loop() {
                 capabilities: Base
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]]
     .assert_eq(&program.to_string());
@@ -381,6 +405,9 @@ fn remap_block_ids_infinite_loop() {
                 capabilities: Base
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]]
     .assert_eq(&program.to_string());
@@ -406,6 +433,9 @@ fn remap_block_ids_infinite_loop() {
                 capabilities: Base
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]]
     .assert_eq(&program.to_string());
@@ -472,6 +502,9 @@ fn remap_block_ids_nested_branching_loops() {
                 capabilities: Base
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]]
     .assert_eq(&program.to_string());
@@ -499,6 +532,9 @@ fn remap_block_ids_nested_branching_loops() {
                 capabilities: Base
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]]
     .assert_eq(&program.to_string());
@@ -604,6 +640,9 @@ fn remap_block_ids_ensures_acyclic_program_gets_topological_ordering() {
                 capabilities: Base
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]]
     .assert_eq(&program.to_string());
@@ -643,6 +682,9 @@ fn remap_block_ids_ensures_acyclic_program_gets_topological_ordering() {
                 capabilities: Base
             num_qubits: 0
             num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
             tags:
     "#]]
     .assert_eq(&program.to_string());

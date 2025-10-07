@@ -44,7 +44,7 @@ fn program(instructions: Vec<Instruction>) -> (Vec<DbgLocation>, Vec<DbgMetadata
                 if scope_index.is_none() {
                     scopes.push(DbgMetadataScope::SubProgram {
                         name: Rc::from(loc.scope.as_str()),
-                        span: MetadataPackageSpan {
+                        location: MetadataPackageSpan {
                             package: 2,
                             span: Span {
                                 lo: loc.offset,
@@ -58,9 +58,9 @@ fn program(instructions: Vec<Instruction>) -> (Vec<DbgLocation>, Vec<DbgMetadata
                 // use existing location if it exists
                 // (we could do this more efficiently with a map)
                 let location_index = locations.iter().position(|l: &DbgLocation| {
-                    l.span.package == 2
-                        && l.span.span.lo == loc.offset
-                        && l.span.span.hi == loc.offset + 1
+                    l.location.package == 2
+                        && l.location.span.lo == loc.offset
+                        && l.location.span.hi == loc.offset + 1
                         && l.scope == scope_index
                 });
                 if location_index.is_some() {
@@ -69,7 +69,7 @@ fn program(instructions: Vec<Instruction>) -> (Vec<DbgLocation>, Vec<DbgMetadata
                 }
 
                 locations.push(DbgLocation {
-                    span: MetadataPackageSpan {
+                    location: MetadataPackageSpan {
                         package: 2,
                         span: Span {
                             lo: loc.offset,

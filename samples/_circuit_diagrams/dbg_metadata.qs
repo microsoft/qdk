@@ -1,5 +1,3 @@
-
-
 operation Main() : Unit {
     use q = Qubit();
     Foo(q);
@@ -7,7 +5,7 @@ operation Main() : Unit {
     Bar(q);
 }
 
-operation Bar(q: Qubit) : Unit {
+operation Bar(q : Qubit) : Unit {
     Foo(q);
     for _ in 1..2 {
         X(q);
@@ -15,6 +13,6 @@ operation Bar(q: Qubit) : Unit {
     }
 }
 
-operation Foo(q: Qubit) : Unit {
+operation Foo(q : Qubit) : Unit {
     H(q);
 }

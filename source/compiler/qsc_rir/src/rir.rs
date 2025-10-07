@@ -125,17 +125,17 @@ impl Display for Program {
         write!(indent, "\nnum_qubits: {}", self.num_qubits)?;
         write!(indent, "\nnum_results: {}", self.num_results)?;
         write!(indent, "\ndbg_metadata_scopes:")?;
-        write!(indent, " [")?;
+        indent = set_indentation(indent, 2);
         for (index, scope) in self.dbg_metadata_scopes.iter().enumerate() {
-            write!(indent, "\n[{index}]: {scope:?}")?;
+            write!(indent, "\n[{index}]: {scope}")?;
         }
-        write!(indent, "\n]")?;
+        indent = set_indentation(indent, 1);
         write!(indent, "\ndbg_locations:")?;
-        write!(indent, " [")?;
+        indent = set_indentation(indent, 2);
         for (index, location) in self.dbg_locations.iter().enumerate() {
-            write!(indent, "\n[{index}]: {location:?}")?;
+            write!(indent, "\n[{index}]: {location}")?;
         }
-        write!(indent, "\n]")?;
+        indent = set_indentation(indent, 1);
         writeln!(indent, "\ntags:")?;
         indent = set_indentation(indent, 2);
         for (idx, tag) in self.tags.iter().enumerate() {
@@ -151,7 +151,7 @@ impl Program {
         let mut s = Self::default();
         s.dbg_metadata_scopes.push(DbgMetadataScope::SubProgram {
             name: "entry".into(),
-            span: MetadataPackageSpan {
+            location: MetadataPackageSpan {
                 package: 0, // TODO: wrong, obviously
                 span: Span::default(),
             },
@@ -261,18 +261,40 @@ pub enum DbgMetadataScope {
     /// Corresponds to a callable.
     SubProgram {
         name: Rc<str>,
-        span: MetadataPackageSpan,
+        location: MetadataPackageSpan,
     },
     // TODO: LexicalBlockFile
 }
 
+impl Display for DbgMetadataScope {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            DbgMetadataScope::SubProgram { name, location } => {
+                write!(f, "SubProgram name={name} location=({location})")?;
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct DbgLocation {
-    pub span: MetadataPackageSpan,
+    pub location: MetadataPackageSpan,
     /// Index into the `dbg_metadata_scopes` vector in the `Program`.
     pub scope: usize,
     /// Index into the `dbg_locations` vector in the `Program`
     pub inlined_at: Option<usize>,
+}
+
+impl Display for DbgLocation {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, " scope={}", self.scope)?;
+        write!(f, "location=({})", self.location)?;
+        if let Some(inlined_at) = self.inlined_at {
+            write!(f, " inlined_at={inlined_at}")?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -295,7 +317,7 @@ pub struct InstructionMetadata {
 
 impl Display for InstructionMetadata {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "!dbg ")?;
+        write!(f, "!dbg")?;
 
         if let Some(dbg_location) = self.dbg_location {
             write!(f, " dbg_location={dbg_location}")?;
@@ -403,6 +425,7 @@ impl Display for Callable {
 /// The type of callable.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CallableType {
+    Initialize,
     Measurement,
     Reset,
     Readout,
@@ -413,6 +436,7 @@ pub enum CallableType {
 impl Display for CallableType {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match &self {
+            Self::Initialize => write!(f, "Initialize")?,
             Self::Measurement => write!(f, "Measurement")?,
             Self::Readout => write!(f, "Readout")?,
             Self::OutputRecording => write!(f, "OutputRecording")?,

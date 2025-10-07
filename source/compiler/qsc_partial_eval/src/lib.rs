@@ -2035,7 +2035,7 @@ impl<'a> PartialEvaluator<'a> {
                     };
                     let scope = DbgMetadataScope::SubProgram {
                         name,
-                        span: into_metadata_package_span(PackageSpan {
+                        location: into_metadata_package_span(PackageSpan {
                             package: map_fir_package_to_hir(self.get_current_package_id()),
                             span,
                         }),
@@ -2058,7 +2058,7 @@ impl<'a> PartialEvaluator<'a> {
             .and_then(|s| s.current_distinct_dbg_location);
 
         let new_location = DbgLocation {
-            span: into_metadata_package_span(PackageSpan {
+            location: into_metadata_package_span(PackageSpan {
                 package: map_fir_package_to_hir(self.get_current_package_id()),
                 span: current_expr.span,
             }),

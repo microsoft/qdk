@@ -29,6 +29,7 @@ use pyo3::{
 };
 use qsc::{
     LanguageFeatures, PackageType, SourceMap,
+    circuit::GenerationMethod,
     error::WithSource,
     fir::{self},
     hir::ty::{Prim, Ty},
@@ -764,10 +765,16 @@ impl Interpreter {
             }
         };
 
-        match self
-            .interpreter
-            .circuit(entrypoint, qsc::circuit::Config::default())
-        {
+        // TODO: backcompat, for now
+        let generation_method = GenerationMethod::ClassicalEval;
+
+        match self.interpreter.circuit(
+            entrypoint,
+            qsc::circuit::Config {
+                generation_method,
+                ..Default::default()
+            },
+        ) {
             Ok(circuit) => Circuit(circuit).into_py_any(py),
             Err(errors) => Err(QSharpError::new_err(format_errors(errors))),
         }

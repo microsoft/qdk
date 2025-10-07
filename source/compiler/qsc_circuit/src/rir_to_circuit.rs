@@ -4,7 +4,10 @@
 #[cfg(test)]
 mod tests;
 
-use std::fmt::{Display, Write};
+use std::{
+    fmt::{Display, Write},
+    vec,
+};
 
 use crate::{
     Circuit, ComponentColumn, Config, Error, GenerationMethod, Ket, Measurement, Operation, Qubit,
@@ -461,9 +464,19 @@ fn make_group_op(
     targets: &[usize],
     control_results: &[(usize, usize)],
 ) -> Op {
+    let children = operations
+        .iter()
+        .map(|o| {
+            let mut o = o.clone();
+            o.control_results.extend(control_results.iter().copied());
+            o.control_results.sort_unstable();
+            o.control_results.dedup();
+            o
+        })
+        .collect();
     Op {
         kind: OperationKind::Group {
-            children: operations.to_vec(),
+            children,
             scope_stack: None,
             metadata: None,
             instruction_stack: None,
@@ -648,7 +661,7 @@ fn fill_in_dbg_metadata(
                 .as_ref()
                 .and_then(|metadata| instruction_logical_stack(dbg_info, metadata))
                 .and_then(|s| s.0.last().copied())
-                .map(|l| dbg_info.dbg_locations[l].span.clone()),
+                .map(|l| dbg_info.dbg_locations[l].location.clone()),
             OperationKind::Group {
                 children: _,
                 scope_stack: _,
@@ -658,7 +671,7 @@ fn fill_in_dbg_metadata(
                 .as_ref()
                 .and_then(|metadata| instruction_logical_stack(dbg_info, metadata))
                 .and_then(|s| s.0.last().copied())
-                .map(|l| dbg_info.dbg_locations[l].span.clone())
+                .map(|l| dbg_info.dbg_locations[l].location.clone())
                 .or(metadata.as_ref().map(|md| md.location.clone())),
         };
 
@@ -955,10 +968,7 @@ fn instruction_logical_stack(
         location_stack.retain(|location| {
             let scope = &dbg_info.dbg_metadata_scopes[dbg_info.dbg_locations[*location].scope];
             match scope {
-                DbgMetadataScope::SubProgram {
-                    name: _,
-                    span: location,
-                } => {
+                DbgMetadataScope::SubProgram { name: _, location } => {
                     let package_id =
                         usize::try_from(location.package).expect("package id should fit in usize");
                     package_id != usize::from(PackageId::CORE)
@@ -982,7 +992,7 @@ fn loc_name(dbg_info: &DbgInfo, location: DbgLocationId) -> (String, u32) {
     let dbg_location = &dbg_info.dbg_locations[location];
     let scope_id: DbgScopeId = dbg_location.scope;
     let scope_name = scope_name(dbg_info.dbg_metadata_scopes, scope_id);
-    let offset = dbg_location.span.span.lo;
+    let offset = dbg_location.location.span.lo;
 
     (scope_name, offset)
 }
@@ -991,7 +1001,7 @@ fn scope_name(dbg_metadata_scopes: &[DbgMetadataScope], scope_id: usize) -> Stri
     let scope = &dbg_metadata_scopes[scope_id];
 
     match scope {
-        DbgMetadataScope::SubProgram { name, span: _ } => name.to_string(),
+        DbgMetadataScope::SubProgram { name, location: _ } => name.to_string(),
     }
 }
 
@@ -1110,7 +1120,7 @@ fn fmt_loc(dbg_info: &DbgInfo, location: usize) -> String {
 fn make_scope_metadata(dbg_info: &DbgInfo, scope_stack: &ScopeStack) -> GroupMetadata {
     let scope_location = &dbg_info.dbg_metadata_scopes[scope_stack.scope];
     let scope_location = match scope_location {
-        DbgMetadataScope::SubProgram { span, .. } => span,
+        DbgMetadataScope::SubProgram { location: span, .. } => span,
     };
 
     GroupMetadata {
@@ -1431,7 +1441,7 @@ fn extend_block_with_branch_instruction(
     let metadata = instruction_metadata.as_ref().map(|md| GroupMetadata {
         location: md
             .dbg_location
-            .map(|l| dbg_info.dbg_locations[l].span.clone())
+            .map(|l| dbg_info.dbg_locations[l].location.clone())
             .unwrap_or_default(),
     });
     eprintln!("setting instruction stack for branch: {instruction_metadata:?}");
@@ -2011,7 +2021,7 @@ fn map_callable_to_operations(
         }
         CallableType::Reset => map_reset_call_into_operations(state, callable, operands, metadata)?,
         CallableType::Readout => match callable.name.as_str() {
-            "__quantum__qis__read_result__body" => {
+            "__quantum__rt__read_result" => {
                 for operand in operands {
                     match operand {
                         Operand::Literal(Literal::Result(r)) => {
@@ -2034,7 +2044,7 @@ fn map_callable_to_operations(
                 )));
             }
         },
-        CallableType::OutputRecording => {
+        CallableType::OutputRecording | CallableType::Initialize => {
             vec![]
         }
         CallableType::Regular => {

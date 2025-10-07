@@ -40,7 +40,7 @@ fn call_to_single_qubit_unitary_with_two_calls_to_the_same_intrinsic() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -52,10 +52,10 @@ fn call_to_single_qubit_unitary_with_two_calls_to_the_same_intrinsic() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), )
-                Call id(2), args( Qubit(0), )
-                Call id(3), args( Integer(0), EmptyTag, )
-                Return"#]],
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=3
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=4
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
     expect![[r#"
         [
@@ -201,7 +201,7 @@ fn call_to_single_qubit_unitary_with_calls_to_different_intrinsics() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -225,10 +225,10 @@ fn call_to_single_qubit_unitary_with_calls_to_different_intrinsics() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), )
-                Call id(3), args( Qubit(0), )
-                Call id(4), args( Integer(0), EmptyTag, )
-                Return"#]],
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=3
+                Call id(3), args( Qubit(0), ) !dbg dbg_location=4
+                Call id(4), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -255,7 +255,7 @@ fn call_to_two_qubit_unitary() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -267,10 +267,10 @@ fn call_to_two_qubit_unitary() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Qubit(1), )
-                Call id(2), args( Qubit(1), Qubit(0), )
-                Call id(3), args( Integer(0), EmptyTag, )
-                Return"#]],
+                Call id(2), args( Qubit(0), Qubit(1), ) !dbg dbg_location=4
+                Call id(2), args( Qubit(1), Qubit(0), ) !dbg dbg_location=5
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -299,7 +299,7 @@ fn call_to_unitary_that_receives_double_and_qubit() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -324,10 +324,10 @@ fn call_to_unitary_that_receives_double_and_qubit() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Double(1), Qubit(0), )
-                Call id(3), args( Qubit(0), Double(1), )
-                Call id(4), args( Integer(0), EmptyTag, )
-                Return"#]],
+                Call id(2), args( Double(1), Qubit(0), ) !dbg dbg_location=3
+                Call id(3), args( Qubit(0), Double(1), ) !dbg dbg_location=4
+                Call id(4), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -359,7 +359,7 @@ fn calls_to_unitary_that_conditionally_calls_intrinsic_with_classical_bool() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -397,10 +397,10 @@ fn calls_to_unitary_that_conditionally_calls_intrinsic_with_classical_bool() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), )
-                Call id(3), args( Qubit(0), )
-                Call id(4), args( Integer(0), EmptyTag, )
-                Return"#]],
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=3
+                Call id(3), args( Qubit(0), ) !dbg dbg_location=5
+                Call id(4), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -432,7 +432,7 @@ fn calls_to_unitary_that_conditionally_calls_intrinsic_with_dynamic_bool() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -497,19 +497,19 @@ fn calls_to_unitary_that_conditionally_calls_intrinsic_with_dynamic_bool() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Store Variable(0, Boolean)
-                Branch Variable(1, Boolean), 2, 3
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=3
+                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=3
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=6
             Block 1:Block:
-                Call id(6), args( Integer(0), EmptyTag, )
-                Return
+                Call id(6), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 2:Block:
-                Call id(4), args( Qubit(1), )
-                Jump(1)
+                Call id(4), args( Qubit(1), ) !dbg dbg_location=5
+                Jump(1) !dbg dbg_location=5
             Block 3:Block:
-                Call id(5), args( Qubit(1), )
-                Jump(1)"#]],
+                Call id(5), args( Qubit(1), ) !dbg dbg_location=6
+                Jump(1) !dbg dbg_location=6"#]],
     );
 }
 
@@ -536,7 +536,7 @@ fn call_to_unitary_rotation_unitary_with_computation() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -548,10 +548,10 @@ fn call_to_unitary_rotation_unitary_with_computation() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Double(4), Qubit(0), )
-                Call id(2), args( Double(6), Qubit(0), )
-                Call id(3), args( Integer(0), EmptyTag, )
-                Return"#]],
+                Call id(2), args( Double(4), Qubit(0), ) !dbg dbg_location=3
+                Call id(2), args( Double(6), Qubit(0), ) !dbg dbg_location=5
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -576,7 +576,7 @@ fn call_to_operation_that_returns_measurement_result() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -602,9 +602,9 @@ fn call_to_operation_that_returns_measurement_result() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Call id(3), args( Result(0), Tag(0, 3), )
-                Return"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Call id(3), args( Result(0), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -630,7 +630,7 @@ fn call_to_operation_that_returns_dynamic_bool() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -669,12 +669,12 @@ fn call_to_operation_that_returns_dynamic_bool() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
-                Variable(2, Boolean) = Store Variable(1, Boolean)
-                Call id(4), args( Variable(2, Boolean), Tag(0, 3), )
-                Return"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=3
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=3
+                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=2
+                Call id(4), args( Variable(2, Boolean), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -706,7 +706,7 @@ fn call_to_boolean_function_using_result_literal_as_argument_yields_constant() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -731,9 +731,9 @@ fn call_to_boolean_function_using_result_literal_as_argument_yields_constant() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), )
-                Call id(3), args( Integer(0), EmptyTag, )
-                Return"#]],
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=2
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -764,7 +764,7 @@ fn call_to_boolean_function_using_dynamic_result_as_argument_generates_branches(
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -816,16 +816,16 @@ fn call_to_boolean_function_using_dynamic_result_as_argument_generates_branches(
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Store Variable(0, Boolean)
-                Branch Variable(1, Boolean), 2, 1
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg
+                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg
+                Branch Variable(1, Boolean), 2, 1 !dbg dbg_location=5
             Block 1:Block:
-                Call id(5), args( Integer(0), EmptyTag, )
-                Return
+                Call id(5), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 2:Block:
-                Call id(4), args( Qubit(1), )
-                Jump(1)"#]],
+                Call id(4), args( Qubit(1), ) !dbg dbg_location=5
+                Jump(1) !dbg dbg_location=5"#]],
     );
 }
 
@@ -858,7 +858,7 @@ fn call_to_unitary_operation_with_one_qubit_argument_using_one_control_qubit() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -897,10 +897,10 @@ fn call_to_unitary_operation_with_one_qubit_argument_using_one_control_qubit() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(1), )
-                Call id(3), args( Qubit(0), Qubit(1), )
-                Call id(4), args( Integer(0), EmptyTag, )
-                Return"#]],
+                Call id(2), args( Qubit(1), ) !dbg dbg_location=4
+                Call id(3), args( Qubit(0), Qubit(1), ) !dbg dbg_location=6
+                Call id(4), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -933,7 +933,7 @@ fn call_to_unitary_operation_with_one_qubit_argument_using_mutiple_control_qubit
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -973,10 +973,10 @@ fn call_to_unitary_operation_with_one_qubit_argument_using_mutiple_control_qubit
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(2), )
-                Call id(3), args( Qubit(0), Qubit(1), Qubit(2), )
-                Call id(4), args( Integer(0), EmptyTag, )
-                Return"#]],
+                Call id(2), args( Qubit(2), ) !dbg dbg_location=5
+                Call id(3), args( Qubit(0), Qubit(1), Qubit(2), ) !dbg dbg_location=7
+                Call id(4), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -1009,7 +1009,7 @@ fn call_to_unitary_operation_with_two_qubit_arguments_using_one_control_qubit() 
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -1050,10 +1050,10 @@ fn call_to_unitary_operation_with_two_qubit_arguments_using_one_control_qubit() 
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(1), Qubit(2), )
-                Call id(3), args( Qubit(0), Qubit(1), Qubit(2), )
-                Call id(4), args( Integer(0), EmptyTag, )
-                Return"#]],
+                Call id(2), args( Qubit(1), Qubit(2), ) !dbg dbg_location=5
+                Call id(3), args( Qubit(0), Qubit(1), Qubit(2), ) !dbg dbg_location=7
+                Call id(4), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -1097,7 +1097,7 @@ fn call_to_unitary_operation_using_multiple_controlled_functors() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -1164,12 +1164,12 @@ fn call_to_unitary_operation_using_multiple_controlled_functors() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), )
-                Call id(3), args( Qubit(1), Qubit(0), )
-                Call id(4), args( Qubit(1), Qubit(2), Qubit(0), )
-                Call id(5), args( Qubit(3), )
-                Call id(6), args( Integer(0), EmptyTag, )
-                Return"#]],
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=6
+                Call id(3), args( Qubit(1), Qubit(0), ) !dbg dbg_location=8
+                Call id(4), args( Qubit(1), Qubit(2), Qubit(0), ) !dbg dbg_location=10
+                Call id(5), args( Qubit(3), ) !dbg dbg_location=12
+                Call id(6), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -1193,7 +1193,7 @@ fn call_to_closue_with_no_bound_locals() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -1205,9 +1205,9 @@ fn call_to_closue_with_no_bound_locals() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), )
-                Call id(3), args( Integer(0), EmptyTag, )
-                Return"#]],
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=4
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -1231,7 +1231,7 @@ fn call_to_closue_with_one_bound_local() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -1243,9 +1243,9 @@ fn call_to_closue_with_one_bound_local() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Double(1), Qubit(0), )
-                Call id(3), args( Integer(0), EmptyTag, )
-                Return"#]],
+                Call id(2), args( Double(1), Qubit(0), ) !dbg dbg_location=4
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -1269,7 +1269,7 @@ fn call_to_closue_with_two_bound_locals() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -1281,9 +1281,9 @@ fn call_to_closue_with_two_bound_locals() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Double(1), Qubit(0), )
-                Call id(3), args( Integer(0), EmptyTag, )
-                Return"#]],
+                Call id(2), args( Double(1), Qubit(0), ) !dbg dbg_location=5
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -1307,7 +1307,7 @@ fn call_to_closue_with_one_bound_local_two_unbound() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -1319,9 +1319,9 @@ fn call_to_closue_with_one_bound_local_two_unbound() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Double(1), Qubit(0), )
-                Call id(3), args( Integer(0), EmptyTag, )
-                Return"#]],
+                Call id(2), args( Double(1), Qubit(0), ) !dbg dbg_location=5
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -1350,9 +1350,9 @@ fn call_to_unresolved_callee_with_classical_arg_allowed() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Double(1), Qubit(0), )
-                Call id(3), args( Integer(0), EmptyTag, )
-                Return"#]],
+                Call id(2), args( Double(1), Qubit(0), ) !dbg dbg_location=4
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -1463,10 +1463,10 @@ fn call_to_unresolved_callee_with_static_arg_and_entry_return_value_succeeds() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Double(1), Qubit(0), )
-                Call id(3), args( Qubit(0), Result(0), )
-                Call id(4), args( Result(0), Tag(0, 3), )
-                Return"#]],
+                Call id(2), args( Double(1), Qubit(0), ) !dbg dbg_location=4
+                Call id(3), args( Qubit(0), Result(0), ) !dbg dbg_location=6
+                Call id(4), args( Result(0), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -1496,12 +1496,12 @@ fn call_to_recursive_callable_succeeds() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), )
-                Call id(2), args( Qubit(0), )
-                Call id(2), args( Qubit(0), )
-                Call id(3), args( Qubit(0), Result(0), )
-                Call id(4), args( Result(0), Tag(0, 3), )
-                Return"#]],
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=4
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=7
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=10
+                Call id(3), args( Qubit(0), Result(0), ) !dbg dbg_location=13
+                Call id(4), args( Result(0), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
