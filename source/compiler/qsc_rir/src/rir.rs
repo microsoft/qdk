@@ -17,6 +17,7 @@ pub struct Program {
     pub config: Config,
     pub num_qubits: u32,
     pub num_results: u32,
+    pub tags: Vec<String>,
     pub dbg_metadata_scopes: Vec<DbgMetadataScope>,
     pub dbg_locations: Vec<DbgLocation>,
 }
@@ -135,6 +136,11 @@ impl Display for Program {
             write!(indent, "\n[{index}]: {location:?}")?;
         }
         write!(indent, "\n]")?;
+        writeln!(indent, "\ntags:")?;
+        indent = set_indentation(indent, 2);
+        for (idx, tag) in self.tags.iter().enumerate() {
+            writeln!(indent, "[{idx}]: {tag}")?;
+        }
         Ok(())
     }
 }
@@ -807,7 +813,7 @@ impl Operand {
                 Literal::Bool(_) => Ty::Boolean,
                 Literal::Integer(_) => Ty::Integer,
                 Literal::Double(_) => Ty::Double,
-                Literal::Pointer => Ty::Pointer,
+                Literal::Pointer | Literal::Tag(..) | Literal::EmptyTag => Ty::Pointer,
             },
             Operand::Variable(var) => var.ty,
         }
@@ -821,6 +827,8 @@ pub enum Literal {
     Bool(bool),
     Integer(i64),
     Double(f64),
+    Tag(usize, usize),
+    EmptyTag,
     Pointer,
 }
 
@@ -832,6 +840,8 @@ impl Display for Literal {
             Self::Bool(b) => write!(f, "Bool({b})")?,
             Self::Integer(i) => write!(f, "Integer({i})")?,
             Self::Double(d) => write!(f, "Double({d})")?,
+            Self::Tag(idx, len) => write!(f, "Tag({idx}, {len})")?,
+            Self::EmptyTag => write!(f, "EmptyTag")?,
             Self::Pointer => write!(f, "Pointer")?,
         }
         Ok(())
@@ -879,6 +889,14 @@ impl PartialEq for Literal {
                     false
                 }
             }
+            Self::Tag(self_tag_idx, self_tag_len) => {
+                if let Self::Tag(other_tag_idx, other_tag_len) = other {
+                    self_tag_idx == other_tag_idx && self_tag_len == other_tag_len
+                } else {
+                    false
+                }
+            }
+            Self::EmptyTag => *other == Self::EmptyTag,
         }
     }
 }

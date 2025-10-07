@@ -160,7 +160,7 @@ pub struct QasmCompiler {
     /// The output semantics to follow when compiling to Q# AST.
     /// The program type to compile to.
     pub config: CompilerConfig,
-    /// The compiled statments accumulated during compilation.
+    /// The compiled statements accumulated during compilation.
     pub stmts: Vec<qsast::Stmt>,
     pub symbols: SymbolTable,
     pub errors: Vec<WithSource<crate::Error>>,

@@ -31,7 +31,7 @@ pub fn run_lints(
 }
 
 /// This function is used by our unit tests, to make sure lints aren't duplicated under
-/// normal circunstances. The `run_lints` functions deduplicates the lints to take care
+/// normal circumstances. The `run_lints` functions deduplicates the lints to take care
 /// of a few special cases where the same expression (referring to the same span in the
 /// source code) appears referenced in multiple places in the HIR.
 pub(crate) fn run_lints_without_deduplication(
@@ -225,7 +225,7 @@ impl Diagnostic for Lint {
 }
 
 /// A lint level. This defines if a lint will be treated as a warning or an error,
-/// and if the lint level can be overriden by the user.
+/// and if the lint level can be overridden by the user.
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum LintLevel {
@@ -234,11 +234,11 @@ pub enum LintLevel {
     Allow,
     /// The lint will be treated as a warning.
     Warn,
-    /// The lint will be treated as a warning and cannot be overriden by the user.
+    /// The lint will be treated as a warning and cannot be overridden by the user.
     ForceWarn,
     /// The lint will be treated as an error.
     Error,
-    /// The lint will be treated as an error and cannot be overriden by the user.
+    /// The lint will be treated as an error and cannot be overridden by the user.
     ForceError,
 }
 

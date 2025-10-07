@@ -14,7 +14,7 @@
 /// specializations (`Adj + Ctl`).
 operation DoNothing() : Unit is Adj + Ctl {}
 
-/// Here, the specializations hvae been explicitly defined.
+/// Here, the specializations have been explicitly defined.
 /// In the following example, the declaration for an operation SWAP,
 /// which exchanges the state of two qubits q1 and q2, declares an
 /// explicit specialization for its adjoint version and its controlled

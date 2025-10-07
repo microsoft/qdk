@@ -498,7 +498,7 @@ impl Lowerer {
         // rxx, ryy, rzz;
 
         // Remaining gates that are not in the qasm std library, but are standard gates in Qiskit
-        // that Qiskit wont emit correctly.
+        // that Qiskit won't emit correctly.
         // dcx, ecr, r, rzx, cs, csdg, sxdg, csx, cu1, cu3, rccx, c3sqrtx, c3x, rc3x, xx_minus_yy, xx_plus_yy, ccz;
         let gates = FxHashMap::from_iter([
             ("rxx", gate_symbol("rxx", 1, 2)),
@@ -1447,7 +1447,7 @@ impl Lowerer {
     /// The "boxable" stmts were taken from the reference parser at
     /// <https://github.com/openqasm/openqasm/blob/main/source/openqasm/openqasm3/ast.py>.
     /// Search for the definition of `Box` there, and then for all the classes
-    /// inhereting from `QuantumStatement`.
+    /// inheriting from `QuantumStatement`.
     fn lower_box(&mut self, stmt: &syntax::BoxStmt) -> semantic::StmtKind {
         self.symbols.push_scope(ScopeKind::Block);
         let stmts = stmt
@@ -1810,7 +1810,7 @@ impl Lowerer {
                 }
                 all_cases_return
             }
-            // We don't know if the iterable of the loop is empty at compiletime.
+            // We don't know if the iterable of the loop is empty at compile time.
             // We take a best effort approach and check if the body always returns.
             semantic::StmtKind::For(stmt) => Self::stmt_always_returns(&stmt.body),
             semantic::StmtKind::WhileLoop(stmt) => Self::stmt_always_returns(&stmt.body),
@@ -2171,7 +2171,7 @@ impl Lowerer {
         // The behavior of `sizeof` changes depending on the type of the first argument, the array.
         match &first_arg.ty {
             // If the first argument is an array  or an static reference. We can compute the length
-            // of the requested dimension at lowering time, and the ouput is of type `const uint`.
+            // of the requested dimension at lowering time, and the output is of type `const uint`.
             Type::Array(ArrayType { base_ty: _, dims })
             | Type::StaticArrayRef(StaticArrayRefType {
                 base_ty: _,
@@ -2198,7 +2198,7 @@ impl Lowerer {
                 Expr::uint(i64::from(dims_vec[second_arg]), expr.span)
             }
             // If the first argument is a dynamic reference. We can only compute the length
-            // of the requested dimension at runtime, and the ouput is of type `uint`.
+            // of the requested dimension at runtime, and the output is of type `uint`.
             Type::DynArrayRef(ref_ty) => {
                 let array_dims = ref_ty.dims;
                 let kind = semantic::ExprKind::SizeofCall(semantic::SizeofCallExpr {
@@ -2251,7 +2251,7 @@ impl Lowerer {
                 (params_ty.clone(), (**return_ty).clone())
             }
             Type::Gate(..) => {
-                // The parser thinks that the gate call is a function call due to mising qubits.
+                // The parser thinks that the gate call is a function call due to missing qubits.
                 // We provide a better error message for gates that are called like functions.
                 self.push_semantic_error(SemanticErrorKind::GateCalledLikeFunc(
                     symbol.ty.to_string(),
@@ -2356,7 +2356,7 @@ impl Lowerer {
 
         // 3. Check that the gate_name actually refers to a gate in the symbol table
         //    and get its symbol_id & symbol. Make sure to use the name that could've
-        //    been overriden by the Q# name and the span of the original name.
+        //    been overridden by the Q# name and the span of the original name.
         if self.symbols.get_symbol_by_name(&name).is_err() {
             if let Some(include) = self.get_include_file_defining_standard_gate(&name) {
                 // The symbol is not defined, but the name is a standard gate name
@@ -4846,7 +4846,7 @@ impl Lowerer {
                 } else {
                     Expr::bin_op(
                         semantic::BinOp::Sub,
-                        // Instead of building two nested bin_ops, we just substract 1 from width.
+                        // Instead of building two nested bin_ops, we just subtract 1 from width.
                         Expr::int(width - 1, expr.span),
                         expr,
                     )

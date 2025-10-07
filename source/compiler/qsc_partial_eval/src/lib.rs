@@ -30,16 +30,16 @@ use qsc_eval::{
 use qsc_fir::{
     fir::{
         self, BinOp, Block, BlockId, CallableDecl, CallableImpl, ExecGraph, Expr, ExprId, ExprKind,
-        Global, Ident, LocalVarId, Mutability, PackageId, PackageStore, PackageStoreLookup, Pat,
-        PatId, PatKind, Res, SpecDecl, SpecImpl, Stmt, StmtId, StmtKind, StoreBlockId, StoreExprId,
-        StoreItemId, StorePatId, StoreStmtId, UnOp,
+        Field, Global, Ident, LocalVarId, Mutability, PackageId, PackageStore, PackageStoreLookup,
+        Pat, PatId, PatKind, PrimField, Res, SpecDecl, SpecImpl, Stmt, StmtId, StmtKind,
+        StoreBlockId, StoreExprId, StoreItemId, StorePatId, StoreStmtId, UnOp,
     },
     ty::{Prim, Ty},
 };
 use qsc_lowerer::map_fir_package_to_hir;
 use qsc_rca::{
     ComputeKind, ComputePropertiesLookup, ItemComputeProperties, PackageStoreComputeProperties,
-    QuantumProperties, RuntimeFeatureFlags,
+    QuantumProperties, RuntimeFeatureFlags, RuntimeKind, ValueKind,
     errors::{
         Error as CapabilityError, generate_errors_from_runtime_features,
         get_missing_runtime_features,
@@ -47,7 +47,7 @@ use qsc_rca::{
 };
 use qsc_rir::rir::{DbgLocation, DbgMetadataScope, InstructionMetadata, MetadataPackageSpan};
 pub use qsc_rir::{
-    builder,
+    builder::{self, initialize_decl},
     rir::{
         self, Callable, CallableId, CallableType, ConditionCode, FcmpConditionCode, Instruction,
         Literal, Operand, Program, VariableId,
@@ -228,12 +228,25 @@ impl<'a> PartialEvaluator<'a> {
         let entry_point = rir::Callable {
             name: "main".into(),
             input_type: Vec::new(),
-            output_type: None,
+            output_type: Some(rir::Ty::Integer),
             body: Some(entry_block_id),
             call_type: CallableType::Regular,
         };
         program.callables.insert(entry_point_id, entry_point);
         program.entry = entry_point_id;
+
+        // Add the required call to the initialization function.
+        let init_func = initialize_decl();
+        let init_id = resource_manager.next_callable();
+        program.callables.insert(init_id, init_func);
+        program
+            .get_block_mut(entry_block_id)
+            .0
+            .push(Instruction::Call(
+                init_id,
+                vec![Operand::Literal(Literal::Pointer)],
+                None,
+            ));
 
         // Initialize the evaluation context and create a new partial evaluator.
         let context = EvaluationContext::new(
@@ -423,7 +436,7 @@ impl<'a> PartialEvaluator<'a> {
         output_span: PackageSpan,
     ) -> Result<Program, Error> {
         let output_recording: Vec<Instruction> = self
-            .generate_output_recording_instructions(ret_val, output_ty)
+            .generate_output_recording_instructions(ret_val, output_ty, "")
             .map_err(|()| Error::OutputResultLiteral(output_span))?;
 
         // Insert the return expression and return the generated program.
@@ -1223,10 +1236,7 @@ impl<'a> PartialEvaluator<'a> {
                 "using a dynamic value in a fail statement is invalid".to_string(),
                 expr_package_span,
             )),
-            ExprKind::Field(_, _) => Err(Error::Unexpected(
-                "accessing a field of a dynamic user-defined type is invalid".to_string(),
-                expr_package_span,
-            )),
+            ExprKind::Field(expr_id, field) => self.eval_expr_field(*expr_id, field.clone()),
             ExprKind::Hole => Err(Error::Unexpected(
                 "hole expressions are not expected during partial evaluation".to_string(),
                 expr_package_span,
@@ -1353,7 +1363,7 @@ impl<'a> PartialEvaluator<'a> {
         rhs_expr_id: ExprId,
         bin_op_expr_span: PackageSpan, // For diagnostic purposes only.
     ) -> Result<EvalControlFlow, Error> {
-        // Consider optimization of array in-place operations instead of re-using the general binary operation
+        // Consider optimization of array in-place operations instead of reusing the general binary operation
         // evaluation.
         let lhs_expr = self.get_expr(lhs_expr_id);
         let lhs_expr_package_span = self.get_expr_package_span(lhs_expr_id);
@@ -1768,7 +1778,7 @@ impl<'a> PartialEvaluator<'a> {
 
         let callable_id = self.get_or_insert_callable(callable);
 
-        // Resove the call arguments, create the call instruction and insert it to the current block.
+        // Resolve the call arguments, create the call instruction and insert it to the current block.
         let (args, ctls_arg) = self
             .resolve_args(
                 (store_item_id.package, callable_decl.input).into(),
@@ -2125,6 +2135,47 @@ impl<'a> PartialEvaluator<'a> {
         Ok(EvalControlFlow::Continue(value))
     }
 
+    fn eval_expr_field(
+        &mut self,
+        record_id: ExprId,
+        field: Field,
+    ) -> Result<EvalControlFlow, Error> {
+        let control_flow = self.try_eval_expr(record_id)?;
+        let EvalControlFlow::Continue(record) = control_flow else {
+            return Err(Error::Unexpected(
+                "embedded return in field access expression".to_string(),
+                self.get_expr_package_span(record_id),
+            ));
+        };
+
+        let field_value = match (record, field) {
+            (Value::Range(inner), Field::Prim(PrimField::Start)) => Value::Int(
+                inner
+                    .start
+                    .expect("range access should be validated by compiler"),
+            ),
+            (Value::Range(inner), Field::Prim(PrimField::Step)) => Value::Int(inner.step),
+            (Value::Range(inner), Field::Prim(PrimField::End)) => Value::Int(
+                inner
+                    .end
+                    .expect("range access should be validated by compiler"),
+            ),
+            (mut record, Field::Path(path)) => {
+                for index in path.indices {
+                    let Value::Tuple(items, _) = record else {
+                        panic!("invalid tuple access");
+                    };
+                    record = items[index].clone();
+                }
+                record
+            }
+            (ref value, ref field) => {
+                panic!("invalid field access. value: {value:?}, field: {field:?}")
+            }
+        };
+        Ok(EvalControlFlow::Continue(field_value))
+    }
+
     fn eval_expr_return(&mut self, expr_id: ExprId) -> Result<EvalControlFlow, Error> {
         let control_flow = self.try_eval_expr(expr_id)?;
         Ok(EvalControlFlow::Return(control_flow.into_value()))
@@ -2305,16 +2356,18 @@ impl<'a> PartialEvaluator<'a> {
         condition_expr_id: ExprId,
         body_block_id: BlockId,
     ) -> Result<EvalControlFlow, Error> {
-        // Verify assumptions.
+        // Verify assumptions: the condition expression must either classical (such that it can be fully evaluated) or
+        // quantum but statically known at runtime (such that it can be partially evaluated to a known value).
         assert!(
-            self.is_classical_expr(condition_expr_id),
+            matches!(
+                self.get_expr_compute_kind(condition_expr_id),
+                ComputeKind::Classical
+                    | ComputeKind::Quantum(QuantumProperties {
+                        runtime_features: _,
+                        value_kind: ValueKind::Element(RuntimeKind::Static),
+                    })
+            ),
             "loop conditions must be purely classical"
-        );
-        let body_block = self.get_block(body_block_id);
-        assert_eq!(
-            body_block.ty,
-            Ty::UNIT,
-            "the type of a loop block is expected to be Unit"
         );
 
         // Evaluate the block until the loop condition is false.
@@ -3319,19 +3372,20 @@ impl<'a> PartialEvaluator<'a> {
         &mut self,
         ret_val: Value,
         ty: &Ty,
+        tag_root: &str,
     ) -> Result<Vec<Instruction>, ()> {
         let mut instrs = Vec::new();
 
         match ret_val {
             Value::Result(val::Result::Val(_)) => return Err(()),
 
-            Value::Array(vals) => self.record_array(ty, &mut instrs, &vals)?,
-            Value::Tuple(vals, _) => self.record_tuple(ty, &mut instrs, &vals)?,
-            Value::Result(res) => self.record_result(&mut instrs, res),
-            Value::Var(var) => self.record_variable(ty, &mut instrs, var),
-            Value::Bool(val) => self.record_bool(&mut instrs, val),
-            Value::Int(val) => self.record_int(&mut instrs, val),
-            Value::Double(val) => self.record_double(&mut instrs, val),
+            Value::Array(vals) => self.record_array(ty, &mut instrs, &vals, tag_root)?,
+            Value::Tuple(vals, _) => self.record_tuple(ty, &mut instrs, &vals, tag_root)?,
+            Value::Result(res) => self.record_result(&mut instrs, res, tag_root),
+            Value::Var(var) => self.record_variable(ty, &mut instrs, var, tag_root),
+            Value::Bool(val) => self.record_bool(&mut instrs, val, tag_root),
+            Value::Int(val) => self.record_int(&mut instrs, val, tag_root),
+            Value::Double(val) => self.record_double(&mut instrs, val, tag_root),
 
             Value::BigInt(_)
             | Value::Closure(_)
@@ -3345,61 +3399,87 @@ impl<'a> PartialEvaluator<'a> {
         Ok(instrs)
     }
 
-    fn record_int(&mut self, instrs: &mut Vec<Instruction>, val: i64) {
+    fn record_int(&mut self, instrs: &mut Vec<Instruction>, val: i64, tag_root: &str) {
+        let idx = self.program.tags.len();
+        let tag = format!("{idx}_{tag_root}i");
+        let len = tag.len();
+        self.program.tags.push(tag);
         let int_record_callable_id = self.get_int_record_callable();
         instrs.push(Instruction::Call(
             int_record_callable_id,
             vec![
                 Operand::Literal(Literal::Integer(val)),
-                Operand::Literal(Literal::Pointer),
+                Operand::Literal(Literal::Tag(idx, len)),
             ],
             None,
         ));
     }
 
-    fn record_double(&mut self, instrs: &mut Vec<Instruction>, val: f64) {
+    fn record_double(&mut self, instrs: &mut Vec<Instruction>, val: f64, tag_root: &str) {
+        let idx = self.program.tags.len();
+        let tag = format!("{idx}_{tag_root}d");
+        let len = tag.len();
+        self.program.tags.push(tag);
         let double_record_callable_id = self.get_double_record_callable();
         instrs.push(Instruction::Call(
             double_record_callable_id,
             vec![
                 Operand::Literal(Literal::Double(val)),
-                Operand::Literal(Literal::Pointer),
+                Operand::Literal(Literal::Tag(idx, len)),
             ],
             None,
         ));
     }
 
-    fn record_bool(&mut self, instrs: &mut Vec<Instruction>, val: bool) {
+    fn record_bool(&mut self, instrs: &mut Vec<Instruction>, val: bool, tag_root: &str) {
+        let idx = self.program.tags.len();
+        let tag = format!("{idx}_{tag_root}b");
+        let len = tag.len();
+        self.program.tags.push(tag);
         let bool_record_callable_id = self.get_bool_record_callable();
         instrs.push(Instruction::Call(
             bool_record_callable_id,
             vec![
                 Operand::Literal(Literal::Bool(val)),
-                Operand::Literal(Literal::Pointer),
+                Operand::Literal(Literal::Tag(idx, len)),
             ],
             None,
         ));
     }
 
-    fn record_variable(&mut self, ty: &Ty, instrs: &mut Vec<Instruction>, var: Var) {
-        let record_callable_id = match ty {
-            Ty::Prim(Prim::Bool) => self.get_bool_record_callable(),
-            Ty::Prim(Prim::Int) => self.get_int_record_callable(),
-            Ty::Prim(Prim::Double) => self.get_double_record_callable(),
+    fn record_variable(
+        &mut self,
+        ty: &Ty,
+        instrs: &mut Vec<Instruction>,
+        var: Var,
+        tag_root: &str,
+    ) {
+        let idx = self.program.tags.len();
+        let (record_callable_id, tag_ty) = match ty {
+            Ty::Prim(Prim::Bool) => (self.get_bool_record_callable(), "b"),
+            Ty::Prim(Prim::Int) => (self.get_int_record_callable(), "i"),
+            Ty::Prim(Prim::Double) => (self.get_double_record_callable(), "d"),
             _ => panic!("unsupported variable type in output recording"),
         };
+        let tag = format!("{idx}_{tag_root}{tag_ty}");
+        let len = tag.len();
+        self.program.tags.push(tag);
         instrs.push(Instruction::Call(
             record_callable_id,
             vec![
                 Operand::Variable(map_eval_var_to_rir_var(var)),
-                Operand::Literal(Literal::Pointer),
+                Operand::Literal(Literal::Tag(idx, len)),
             ],
             None,
         ));
     }
 
-    fn record_result(&mut self, instrs: &mut Vec<Instruction>, res: val::Result) {
+    fn record_result(&mut self, instrs: &mut Vec<Instruction>, res: val::Result, tag_root: &str) {
+        let idx = self.program.tags.len();
         let result_record_callable_id = self.get_result_record_callable();
+        let tag = format!("{idx}_{tag_root}r");
+        let len = tag.len();
+        self.program.tags.push(tag);
         instrs.push(Instruction::Call(
             result_record_callable_id,
             vec![
@@ -3408,7 +3488,7 @@ impl<'a> PartialEvaluator<'a> {
                         .try_into()
                         .expect("result id should fit into u32"),
                 )),
-                Operand::Literal(Literal::Pointer),
+                Operand::Literal(Literal::Tag(idx, len)),
             ],
             None,
         ));
@@ -3419,10 +3499,12 @@ impl<'a> PartialEvaluator<'a> {
         ty: &Ty,
         instrs: &mut Vec<Instruction>,
         vals: &Rc<[Value]>,
+        tag_root: &str,
     ) -> Result<(), ()> {
         let Ty::Tuple(elem_tys) = ty else {
             panic!("expected tuple type for tuple value");
         };
+        let new_tag_root = format!("{tag_root}t");
         let tuple_record_callable_id = self.get_tuple_record_callable();
         instrs.push(Instruction::Call(
             tuple_record_callable_id,
@@ -3432,12 +3514,17 @@ impl<'a> PartialEvaluator<'a> {
                         .try_into()
                         .expect("tuple length should fit into u32"),
                 )),
-                Operand::Literal(Literal::Pointer),
+                Operand::Literal(Literal::EmptyTag),
             ],
             None,
         ));
-        for (val, elem_ty) in vals.iter().zip(elem_tys.iter()) {
-            instrs.extend(self.generate_output_recording_instructions(val.clone(), elem_ty)?);
+        for (idx, (val, elem_ty)) in vals.iter().zip(elem_tys.iter()).enumerate() {
+            let new_tag_root = format!("{new_tag_root}{idx}");
+            instrs.extend(self.generate_output_recording_instructions(
+                val.clone(),
+                elem_ty,
+                &new_tag_root,
+            )?);
         }
 
         Ok(())
@@ -3448,10 +3535,16 @@ impl<'a> PartialEvaluator<'a> {
         ty: &Ty,
         instrs: &mut Vec<Instruction>,
         vals: &Rc<Vec<Value>>,
+        tag_root: &str,
     ) -> Result<(), ()> {
         let Ty::Array(elem_ty) = ty else {
             panic!("expected array type for array value");
         };
+        let new_tag_root = format!("{tag_root}a");
+        // let idx = self.program.tags.len();
+        // let tag = format!("{idx}_{new_tag_root}");
+        // let len = tag.len();
+        // self.program.tags.push(tag);
         let array_record_callable_id = self.get_array_record_callable();
         instrs.push(Instruction::Call(
             array_record_callable_id,
@@ -3461,12 +3554,17 @@ impl<'a> PartialEvaluator<'a> {
                         .try_into()
                         .expect("array length should fit into u32"),
                 )),
-                Operand::Literal(Literal::Pointer),
+                Operand::Literal(Literal::EmptyTag),
             ],
             None,
         ));
-        for val in vals.iter() {
-            instrs.extend(self.generate_output_recording_instructions(val.clone(), elem_ty)?);
+        for (idx, val) in vals.iter().enumerate() {
+            let new_tag_root = format!("{new_tag_root}{idx}");
+            instrs.extend(self.generate_output_recording_instructions(
+                val.clone(),
+                elem_ty,
+                &new_tag_root,
+            )?);
         }
 
         Ok(())

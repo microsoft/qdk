@@ -222,7 +222,7 @@ pub enum SemanticErrorKind {
     #[error("return statements on a non-void subroutine should have a target expression")]
     #[diagnostic(code("Qasm.Lowerer.MissingTargetExpressionInReturnStmt"))]
     MissingTargetExpressionInReturnStmt(#[label] Span),
-    #[error("control counts must be postitive integers")]
+    #[error("control counts must be positive integers")]
     #[diagnostic(code("Qasm.Lowerer.NegativeControlCount"))]
     NegativeControlCount(#[label] Span),
     #[error("non-void def should always return")]

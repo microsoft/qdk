@@ -35,13 +35,13 @@ fn if_expression_with_true_condition() {
         &program,
         op_a_callable_id,
         &expect![[r#"
-        Callable:
-            name: opA
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_blocks(
         &program,
@@ -104,13 +104,13 @@ fn if_else_expression_with_true_condition() {
         &program,
         op_a_callable_id,
         &expect![[r#"
-        Callable:
-            name: opA
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_blocks(
         &program,
@@ -147,13 +147,13 @@ fn if_else_expression_with_false_condition() {
         &program,
         op_b_callable_id,
         &expect![[r#"
-        Callable:
-            name: opB
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_blocks(
         &program,
@@ -193,13 +193,13 @@ fn if_elif_else_expression_with_true_elif_condition() {
         &program,
         op_b_callable_id,
         &expect![[r#"
-        Callable:
-            name: opB
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_blocks(
         &program,
@@ -236,40 +236,40 @@ fn if_expression_with_dynamic_condition() {
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let read_result_callable_id = CallableId(2);
     assert_callable(
         &program,
         read_result_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let op_a_callable_id = CallableId(3);
     assert_callable(
         &program,
         op_a_callable_id,
         &expect![[r#"
-        Callable:
-            name: opA
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
 
     assert_blocks(
@@ -317,53 +317,53 @@ fn if_else_expression_with_dynamic_condition() {
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let read_result_callable_id = CallableId(2);
     assert_callable(
         &program,
         read_result_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let op_a_callable_id = CallableId(3);
     assert_callable(
         &program,
         op_a_callable_id,
         &expect![[r#"
-        Callable:
-            name: opA
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     let op_b_callable_id = CallableId(4);
     assert_callable(
         &program,
         op_b_callable_id,
         &expect![[r#"
-        Callable:
-            name: opB
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: opA
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
 
     assert_blocks(
@@ -418,66 +418,66 @@ fn if_elif_else_expression_with_dynamic_condition() {
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let read_result_callable_id = CallableId(2);
     assert_callable(
         &program,
         read_result_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let op_a_callable_id = CallableId(3);
     assert_callable(
         &program,
         op_a_callable_id,
         &expect![[r#"
-        Callable:
-            name: opA
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     let op_b_callable_id = CallableId(4);
     assert_callable(
         &program,
         op_b_callable_id,
         &expect![[r#"
-        Callable:
-            name: opB
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: opA
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let op_c_callable_id = CallableId(5);
     assert_callable(
         &program,
         op_c_callable_id,
         &expect![[r#"
-        Callable:
-            name: opC
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: opB
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
 
     assert_blocks(
@@ -537,40 +537,40 @@ fn if_expression_with_dynamic_condition_and_nested_if_expression_with_true_condi
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let read_result_callable_id = CallableId(2);
     assert_callable(
         &program,
         read_result_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let op_a_callable_id = CallableId(3);
     assert_callable(
         &program,
         op_a_callable_id,
         &expect![[r#"
-        Callable:
-            name: opA
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
 
     assert_blocks(
@@ -617,27 +617,27 @@ fn if_expression_with_dynamic_condition_and_nested_if_expression_with_false_cond
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let read_result_callable_id = CallableId(2);
     assert_callable(
         &program,
         read_result_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
 
     assert_blocks(
@@ -686,53 +686,53 @@ fn if_else_expression_with_dynamic_condition_and_nested_if_expression_with_true_
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let read_result_callable_id = CallableId(2);
     assert_callable(
         &program,
         read_result_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let op_a_callable_id = CallableId(3);
     assert_callable(
         &program,
         op_a_callable_id,
         &expect![[r#"
-        Callable:
-            name: opA
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     let op_b_callable_id = CallableId(4);
     assert_callable(
         &program,
         op_b_callable_id,
         &expect![[r#"
-        Callable:
-            name: opB
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: opA
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
 
     assert_blocks(
@@ -785,40 +785,40 @@ fn if_else_expression_with_dynamic_condition_and_nested_if_expression_with_false
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let read_result_callable_id = CallableId(2);
     assert_callable(
         &program,
         read_result_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let op_a_callable_id = CallableId(3);
     assert_callable(
         &program,
         op_a_callable_id,
         &expect![[r#"
-        Callable:
-            name: opA
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
 
     assert_blocks(
@@ -868,40 +868,40 @@ fn if_expression_with_dynamic_condition_and_nested_if_expression_with_dynamic_co
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let read_result_callable_id = CallableId(2);
     assert_callable(
         &program,
         read_result_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let op_a_callable_id = CallableId(3);
     assert_callable(
         &program,
         op_a_callable_id,
         &expect![[r#"
-        Callable:
-            name: opA
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
 
     assert_blocks(
@@ -968,79 +968,79 @@ fn doubly_nested_if_else_expressions_with_dynamic_conditions() {
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let read_result_callable_id = CallableId(2);
     assert_callable(
         &program,
         read_result_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let op_a_callable_id = CallableId(3);
     assert_callable(
         &program,
         op_a_callable_id,
         &expect![[r#"
-        Callable:
-            name: opA
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     let op_b_callable_id = CallableId(4);
     assert_callable(
         &program,
         op_b_callable_id,
         &expect![[r#"
-        Callable:
-            name: opB
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: opA
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let op_c_callable_id = CallableId(5);
     assert_callable(
         &program,
         op_c_callable_id,
         &expect![[r#"
-        Callable:
-            name: opC
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: opB
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let op_d_callable_id = CallableId(6);
     assert_callable(
         &program,
         op_d_callable_id,
         &expect![[r#"
-        Callable:
-            name: opD
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: opC
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
 
     assert_blocks(
@@ -1109,53 +1109,53 @@ fn if_expression_with_dynamic_condition_and_subsequent_call_to_operation() {
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let read_result_callable_id = CallableId(2);
     assert_callable(
         &program,
         read_result_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let op_a_callable_id = CallableId(3);
     assert_callable(
         &program,
         op_a_callable_id,
         &expect![[r#"
-        Callable:
-            name: opA
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     let op_b_callable_id = CallableId(4);
     assert_callable(
         &program,
         op_b_callable_id,
         &expect![[r#"
-        Callable:
-            name: opB
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: opA
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
 
     assert_blocks(
@@ -1206,66 +1206,66 @@ fn if_else_expression_with_dynamic_condition_and_subsequent_call_to_operation() 
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let read_result_callable_id = CallableId(2);
     assert_callable(
         &program,
         read_result_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let op_a_callable_id = CallableId(3);
     assert_callable(
         &program,
         op_a_callable_id,
         &expect![[r#"
-        Callable:
-            name: opA
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     let op_b_callable_id = CallableId(4);
     assert_callable(
         &program,
         op_b_callable_id,
         &expect![[r#"
-        Callable:
-            name: opB
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: opA
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let op_c_callable_id = CallableId(5);
     assert_callable(
         &program,
         op_c_callable_id,
         &expect![[r#"
-        Callable:
-            name: opC
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: opB
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
 
     assert_blocks(
@@ -1336,27 +1336,27 @@ fn if_expression_with_classical_operand_from_hybrid_results_array_comparing_to_l
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let x_callable_id = CallableId(2);
     assert_callable(
         &program,
         x_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__x__body
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let record_array_callable_id = CallableId(3);
     assert_callable(
@@ -1364,11 +1364,10 @@ fn if_expression_with_classical_operand_from_hybrid_results_array_comparing_to_l
         record_array_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__array_record_output
-                call_type: OutputRecording
+                name: __quantum__qis__x__body
+                call_type: Regular
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
+                    [0]: Qubit
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -1378,10 +1377,10 @@ fn if_expression_with_classical_operand_from_hybrid_results_array_comparing_to_l
         record_result_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__result_record_output
+                name: __quantum__rt__array_record_output
                 call_type: OutputRecording
                 input_type:
-                    [0]: Result
+                    [0]: Integer
                     [1]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
@@ -1425,27 +1424,27 @@ fn if_expression_with_classical_operand_from_hybrid_results_array_comparing_to_l
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let x_callable_id = CallableId(2);
     assert_callable(
         &program,
         x_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__x__body
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let record_array_callable_id = CallableId(3);
     assert_callable(
@@ -1453,11 +1452,10 @@ fn if_expression_with_classical_operand_from_hybrid_results_array_comparing_to_l
         record_array_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__array_record_output
-                call_type: OutputRecording
+                name: __quantum__qis__x__body
+                call_type: Regular
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
+                    [0]: Qubit
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -1467,10 +1465,10 @@ fn if_expression_with_classical_operand_from_hybrid_results_array_comparing_to_l
         record_result_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__result_record_output
+                name: __quantum__rt__array_record_output
                 call_type: OutputRecording
                 input_type:
-                    [0]: Result
+                    [0]: Integer
                     [1]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
@@ -1514,14 +1512,13 @@ fn if_expression_with_dynamic_operand_from_hybrid_results_array() {
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let read_result_callable_id = CallableId(2);
     assert_callable(
@@ -1529,17 +1526,31 @@ fn if_expression_with_dynamic_operand_from_hybrid_results_array() {
         read_result_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__read_result__body
-                call_type: Readout
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
                 input_type:
-                    [0]: Result
-                output_type: Boolean
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
                 body: <NONE>"#]],
     );
     let x_callable_id = CallableId(3);
     assert_callable(
         &program,
         x_callable_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
+    );
+    let record_array_callable_id = CallableId(4);
+    assert_callable(
+        &program,
+        record_array_callable_id,
         &expect![[r#"
             Callable:
                 name: __quantum__qis__x__body
@@ -1549,30 +1560,16 @@ fn if_expression_with_dynamic_operand_from_hybrid_results_array() {
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
-    let record_array_callable_id = CallableId(4);
-    assert_callable(
-        &program,
-        record_array_callable_id,
-        &expect![[r#"
-            Callable:
-                name: __quantum__rt__array_record_output
-                call_type: OutputRecording
-                input_type:
-                    [0]: Integer
-                    [1]: Pointer
-                output_type: <VOID>
-                body: <NONE>"#]],
-    );
     let record_result_callable_id = CallableId(5);
     assert_callable(
         &program,
         record_result_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__result_record_output
+                name: __quantum__rt__array_record_output
                 call_type: OutputRecording
                 input_type:
-                    [0]: Result
+                    [0]: Integer
                     [1]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
@@ -1622,14 +1619,13 @@ fn if_expression_with_classical_operand_from_hybrid_booleans_array() {
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let read_result_callable_id = CallableId(2);
     assert_callable(
@@ -1637,17 +1633,31 @@ fn if_expression_with_classical_operand_from_hybrid_booleans_array() {
         read_result_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__read_result__body
-                call_type: Readout
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
                 input_type:
-                    [0]: Result
-                output_type: Boolean
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
                 body: <NONE>"#]],
     );
     let x_callable_id = CallableId(3);
     assert_callable(
         &program,
         x_callable_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
+    );
+    let record_array_callable_id = CallableId(4);
+    assert_callable(
+        &program,
+        record_array_callable_id,
         &expect![[r#"
             Callable:
                 name: __quantum__qis__x__body
@@ -1657,30 +1667,16 @@ fn if_expression_with_classical_operand_from_hybrid_booleans_array() {
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
-    let record_array_callable_id = CallableId(4);
-    assert_callable(
-        &program,
-        record_array_callable_id,
-        &expect![[r#"
-            Callable:
-                name: __quantum__rt__array_record_output
-                call_type: OutputRecording
-                input_type:
-                    [0]: Integer
-                    [1]: Pointer
-                output_type: <VOID>
-                body: <NONE>"#]],
-    );
     let record_bool_callable_id = CallableId(5);
     assert_callable(
         &program,
         record_bool_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__bool_record_output
+                name: __quantum__rt__array_record_output
                 call_type: OutputRecording
                 input_type:
-                    [0]: Boolean
+                    [0]: Integer
                     [1]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
@@ -1728,14 +1724,13 @@ fn if_expression_with_dynamic_operand_from_hybrid_booleans_array() {
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let read_result_callable_id = CallableId(2);
     assert_callable(
@@ -1743,17 +1738,31 @@ fn if_expression_with_dynamic_operand_from_hybrid_booleans_array() {
         read_result_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__read_result__body
-                call_type: Readout
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
                 input_type:
-                    [0]: Result
-                output_type: Boolean
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
                 body: <NONE>"#]],
     );
     let x_callable_id = CallableId(3);
     assert_callable(
         &program,
         x_callable_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
+    );
+    let record_array_callable_id = CallableId(4);
+    assert_callable(
+        &program,
+        record_array_callable_id,
         &expect![[r#"
             Callable:
                 name: __quantum__qis__x__body
@@ -1763,30 +1772,16 @@ fn if_expression_with_dynamic_operand_from_hybrid_booleans_array() {
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
-    let record_array_callable_id = CallableId(4);
-    assert_callable(
-        &program,
-        record_array_callable_id,
-        &expect![[r#"
-            Callable:
-                name: __quantum__rt__array_record_output
-                call_type: OutputRecording
-                input_type:
-                    [0]: Integer
-                    [1]: Pointer
-                output_type: <VOID>
-                body: <NONE>"#]],
-    );
     let record_bool_callable_id = CallableId(5);
     assert_callable(
         &program,
         record_bool_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__bool_record_output
+                name: __quantum__rt__array_record_output
                 call_type: OutputRecording
                 input_type:
-                    [0]: Boolean
+                    [0]: Integer
                     [1]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
@@ -1838,14 +1833,13 @@ fn if_expression_with_classical_operand_from_hybrid_integers_array() {
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let read_result_callable_id = CallableId(2);
     assert_callable(
@@ -1853,17 +1847,31 @@ fn if_expression_with_classical_operand_from_hybrid_integers_array() {
         read_result_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__read_result__body
-                call_type: Readout
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
                 input_type:
-                    [0]: Result
-                output_type: Boolean
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
                 body: <NONE>"#]],
     );
     let x_callable_id = CallableId(3);
     assert_callable(
         &program,
         x_callable_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
+    );
+    let record_array_callable_id = CallableId(4);
+    assert_callable(
+        &program,
+        record_array_callable_id,
         &expect![[r#"
             Callable:
                 name: __quantum__qis__x__body
@@ -1873,27 +1881,13 @@ fn if_expression_with_classical_operand_from_hybrid_integers_array() {
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
-    let record_array_callable_id = CallableId(4);
-    assert_callable(
-        &program,
-        record_array_callable_id,
-        &expect![[r#"
-            Callable:
-                name: __quantum__rt__array_record_output
-                call_type: OutputRecording
-                input_type:
-                    [0]: Integer
-                    [1]: Pointer
-                output_type: <VOID>
-                body: <NONE>"#]],
-    );
     let record_int_callable_id = CallableId(5);
     assert_callable(
         &program,
         record_int_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__int_record_output
+                name: __quantum__rt__array_record_output
                 call_type: OutputRecording
                 input_type:
                     [0]: Integer
@@ -1960,14 +1954,13 @@ fn if_expression_with_dynamic_operand_from_hybrid_integers_array() {
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let read_result_callable_id = CallableId(2);
     assert_callable(
@@ -1975,17 +1968,31 @@ fn if_expression_with_dynamic_operand_from_hybrid_integers_array() {
         read_result_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__read_result__body
-                call_type: Readout
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
                 input_type:
-                    [0]: Result
-                output_type: Boolean
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
                 body: <NONE>"#]],
     );
     let x_callable_id = CallableId(3);
     assert_callable(
         &program,
         x_callable_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
+    );
+    let record_array_callable_id = CallableId(4);
+    assert_callable(
+        &program,
+        record_array_callable_id,
         &expect![[r#"
             Callable:
                 name: __quantum__qis__x__body
@@ -1995,27 +2002,13 @@ fn if_expression_with_dynamic_operand_from_hybrid_integers_array() {
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
-    let record_array_callable_id = CallableId(4);
-    assert_callable(
-        &program,
-        record_array_callable_id,
-        &expect![[r#"
-            Callable:
-                name: __quantum__rt__array_record_output
-                call_type: OutputRecording
-                input_type:
-                    [0]: Integer
-                    [1]: Pointer
-                output_type: <VOID>
-                body: <NONE>"#]],
-    );
     let record_int_callable_id = CallableId(5);
     assert_callable(
         &program,
         record_int_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__int_record_output
+                name: __quantum__rt__array_record_output
                 call_type: OutputRecording
                 input_type:
                     [0]: Integer
@@ -2087,14 +2080,13 @@ fn if_expression_with_classical_operand_from_hybrid_doubles_array() {
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let read_result_callable_id = CallableId(2);
     assert_callable(
@@ -2102,17 +2094,31 @@ fn if_expression_with_classical_operand_from_hybrid_doubles_array() {
         read_result_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__read_result__body
-                call_type: Readout
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
                 input_type:
-                    [0]: Result
-                output_type: Boolean
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
                 body: <NONE>"#]],
     );
     let x_callable_id = CallableId(3);
     assert_callable(
         &program,
         x_callable_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
+    );
+    let record_array_callable_id = CallableId(4);
+    assert_callable(
+        &program,
+        record_array_callable_id,
         &expect![[r#"
             Callable:
                 name: __quantum__qis__x__body
@@ -2122,30 +2128,16 @@ fn if_expression_with_classical_operand_from_hybrid_doubles_array() {
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
-    let record_array_callable_id = CallableId(4);
-    assert_callable(
-        &program,
-        record_array_callable_id,
-        &expect![[r#"
-            Callable:
-                name: __quantum__rt__array_record_output
-                call_type: OutputRecording
-                input_type:
-                    [0]: Integer
-                    [1]: Pointer
-                output_type: <VOID>
-                body: <NONE>"#]],
-    );
     let record_int_callable_id = CallableId(5);
     assert_callable(
         &program,
         record_int_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__double_record_output
+                name: __quantum__rt__array_record_output
                 call_type: OutputRecording
                 input_type:
-                    [0]: Double
+                    [0]: Integer
                     [1]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
@@ -2209,14 +2201,13 @@ fn if_expression_with_dynamic_operand_from_hybrid_doubles_array() {
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let read_result_callable_id = CallableId(2);
     assert_callable(
@@ -2224,17 +2215,31 @@ fn if_expression_with_dynamic_operand_from_hybrid_doubles_array() {
         read_result_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__read_result__body
-                call_type: Readout
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
                 input_type:
-                    [0]: Result
-                output_type: Boolean
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
                 body: <NONE>"#]],
     );
     let x_callable_id = CallableId(3);
     assert_callable(
         &program,
         x_callable_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
+    );
+    let record_array_callable_id = CallableId(4);
+    assert_callable(
+        &program,
+        record_array_callable_id,
         &expect![[r#"
             Callable:
                 name: __quantum__qis__x__body
@@ -2244,30 +2249,16 @@ fn if_expression_with_dynamic_operand_from_hybrid_doubles_array() {
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
-    let record_array_callable_id = CallableId(4);
-    assert_callable(
-        &program,
-        record_array_callable_id,
-        &expect![[r#"
-            Callable:
-                name: __quantum__rt__array_record_output
-                call_type: OutputRecording
-                input_type:
-                    [0]: Integer
-                    [1]: Pointer
-                output_type: <VOID>
-                body: <NONE>"#]],
-    );
     let record_int_callable_id = CallableId(5);
     assert_callable(
         &program,
         record_int_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__double_record_output
+                name: __quantum__rt__array_record_output
                 call_type: OutputRecording
                 input_type:
-                    [0]: Double
+                    [0]: Integer
                     [1]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],

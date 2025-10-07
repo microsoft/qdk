@@ -118,7 +118,7 @@ fn estimate_single<L: Overhead + LayoutReportData + PartitioningOverhead + Seria
                 || job_params.constraints().max_physical_qubits.is_some()
                 || job_params.constraints().max_t_factories.is_some()
             {
-                // We can technically handle those scenarios but do not see a practial use case for it.
+                // We can technically handle those scenarios but do not see a practical use case for it.
                 return Err(error::Error::InvalidInput(
                     error::InvalidInput::ConstraintsProvidedForFrontierEstimation,
                 ));

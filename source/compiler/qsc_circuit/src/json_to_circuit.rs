@@ -160,7 +160,7 @@ fn map_register_field(field: Option<&Value>) -> Vec<Value> {
                             register.insert("result".to_string(), c_id.clone());
                         }
                         // Note: if "qId" is missing, the json deserialization later on
-                        // will fail and produce the approprate error
+                        // will fail and produce the appropriate error
                         if let Some(q_id) = item.get("qId") {
                             register.insert("qubit".to_string(), q_id.clone());
                         }

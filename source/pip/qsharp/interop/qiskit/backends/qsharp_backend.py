@@ -174,7 +174,7 @@ class QSharpBackend(BackendBase):
             }
             job_results.append(job_result)
 
-        # All of theses fields are required by the Result object
+        # All of these fields are required by the Result object
         result_dict = {
             "results": job_results,
             "qobj_id": str(uuid4()),

@@ -298,7 +298,7 @@ def _on_exit():
     telemetry_thread.join(timeout=3)
 
 
-# Mark the telemetry thread as a deamon thread, else it will keep the process alive when the main thread exits
+# Mark the telemetry thread as a daemon thread, else it will keep the process alive when the main thread exits
 if TELEMETRY_ENABLED:
     telemetry_thread = Thread(target=_telemetry_thread_start, daemon=True)
     telemetry_thread.start()

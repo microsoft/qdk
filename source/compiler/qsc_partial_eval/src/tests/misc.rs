@@ -35,31 +35,32 @@ fn unitary_call_within_an_if_with_classical_condition_within_a_for_loop() {
         &program,
         op_callable_id,
         &expect![[r#"
-        Callable:
-            name: op
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Variable(0, Integer) = Store Integer(0) !dbg package_id=2 span=[165-169] scope=1 scope_package_id=2 scope_span=[154-248] callable=Main
-                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[0-0] scope=3 scope_package_id=2 scope_span=[200-238] discriminator=1 callable=Main
-                Variable(0, Integer) = Store Integer(1) !dbg package_id=2 span=[165-169] scope=2 scope_package_id=2 scope_span=[170-248] discriminator=1 callable=Main
-                Variable(0, Integer) = Store Integer(2) !dbg package_id=2 span=[165-169] scope=2 scope_package_id=2 scope_span=[170-248] discriminator=2 callable=Main
-                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[0-0] scope=3 scope_package_id=2 scope_span=[200-238] discriminator=3 callable=Main
-                Variable(0, Integer) = Store Integer(3) !dbg package_id=2 span=[165-169] scope=2 scope_package_id=2 scope_span=[170-248] discriminator=3 callable=Main
-                Variable(0, Integer) = Store Integer(4) !dbg package_id=2 span=[165-169] scope=2 scope_package_id=2 scope_span=[170-248] discriminator=4 callable=Main
-                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[0-0] scope=3 scope_package_id=2 scope_span=[200-238] discriminator=5 callable=Main
-                Variable(0, Integer) = Store Integer(5) !dbg package_id=2 span=[165-169] scope=2 scope_package_id=2 scope_span=[170-248] discriminator=5 callable=Main
-                Variable(0, Integer) = Store Integer(6) !dbg package_id=2 span=[165-169] scope=2 scope_package_id=2 scope_span=[170-248] discriminator=6 callable=Main
-                Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[105-109]
-                Return !dbg package_id=2 span=[105-109]"#]],
+                Call id(1), args( Pointer, )
+                Variable(0, Integer) = Store Integer(0)
+                Call id(2), args( Qubit(0), )
+                Variable(0, Integer) = Store Integer(1)
+                Variable(0, Integer) = Store Integer(2)
+                Call id(2), args( Qubit(0), )
+                Variable(0, Integer) = Store Integer(3)
+                Variable(0, Integer) = Store Integer(4)
+                Call id(2), args( Qubit(0), )
+                Variable(0, Integer) = Store Integer(5)
+                Variable(0, Integer) = Store Integer(6)
+                Call id(3), args( Integer(0), EmptyTag, )
+                Return"#]],
     );
 }
 
@@ -89,31 +90,32 @@ fn unitary_call_within_an_if_with_classical_condition_within_a_while_loop() {
         &program,
         op_callable_id,
         &expect![[r#"
-        Callable:
-            name: op
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Variable(0, Integer) = Store Integer(0) !dbg package_id=2 span=[162-165] scope=0 scope_package_id=2 scope_span=[119-304] callable=Main
-                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[0-0] scope=2 scope_package_id=2 scope_span=[224-262] discriminator=1 callable=Main
-                Variable(0, Integer) = Store Integer(1) !dbg package_id=2 span=[279-282] scope=1 scope_package_id=2 scope_span=[194-298] discriminator=1 callable=Main
-                Variable(0, Integer) = Store Integer(2) !dbg package_id=2 span=[279-282] scope=1 scope_package_id=2 scope_span=[194-298] discriminator=2 callable=Main
-                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[0-0] scope=2 scope_package_id=2 scope_span=[224-262] discriminator=3 callable=Main
-                Variable(0, Integer) = Store Integer(3) !dbg package_id=2 span=[279-282] scope=1 scope_package_id=2 scope_span=[194-298] discriminator=3 callable=Main
-                Variable(0, Integer) = Store Integer(4) !dbg package_id=2 span=[279-282] scope=1 scope_package_id=2 scope_span=[194-298] discriminator=4 callable=Main
-                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[0-0] scope=2 scope_package_id=2 scope_span=[224-262] discriminator=5 callable=Main
-                Variable(0, Integer) = Store Integer(5) !dbg package_id=2 span=[279-282] scope=1 scope_package_id=2 scope_span=[194-298] discriminator=5 callable=Main
-                Variable(0, Integer) = Store Integer(6) !dbg package_id=2 span=[279-282] scope=1 scope_package_id=2 scope_span=[194-298] discriminator=6 callable=Main
-                Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[105-109]
-                Return !dbg package_id=2 span=[105-109]"#]],
+                Call id(1), args( Pointer, )
+                Variable(0, Integer) = Store Integer(0)
+                Call id(2), args( Qubit(0), )
+                Variable(0, Integer) = Store Integer(1)
+                Variable(0, Integer) = Store Integer(2)
+                Call id(2), args( Qubit(0), )
+                Variable(0, Integer) = Store Integer(3)
+                Variable(0, Integer) = Store Integer(4)
+                Call id(2), args( Qubit(0), )
+                Variable(0, Integer) = Store Integer(5)
+                Variable(0, Integer) = Store Integer(6)
+                Call id(3), args( Integer(0), EmptyTag, )
+                Return"#]],
     );
 }
 
@@ -143,38 +145,39 @@ fn unitary_call_within_an_if_with_classical_condition_within_a_repeat_until_loop
         &program,
         op_callable_id,
         &expect![[r#"
-        Callable:
-            name: op
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Variable(0, Integer) = Store Integer(0) !dbg package_id=2 span=[162-165] scope=0 scope_package_id=2 scope_span=[119-311] callable=Main
-                Variable(1, Boolean) = Store Bool(true) !dbg package_id=2 span=[297-304] scope=1 scope_package_id=2 scope_span=[179-304] callable=Main
-                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[0-0] scope=3 scope_package_id=2 scope_span=[216-254] discriminator=1 callable=Main
-                Variable(0, Integer) = Store Integer(1) !dbg package_id=2 span=[271-274] scope=2 scope_package_id=2 scope_span=[186-290] discriminator=1 callable=Main
-                Variable(1, Boolean) = Store Bool(true) !dbg package_id=2 span=[297-304] scope=2 scope_package_id=2 scope_span=[186-290] discriminator=1 callable=Main
-                Variable(0, Integer) = Store Integer(2) !dbg package_id=2 span=[271-274] scope=2 scope_package_id=2 scope_span=[186-290] discriminator=2 callable=Main
-                Variable(1, Boolean) = Store Bool(true) !dbg package_id=2 span=[297-304] scope=2 scope_package_id=2 scope_span=[186-290] discriminator=2 callable=Main
-                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[0-0] scope=3 scope_package_id=2 scope_span=[216-254] discriminator=3 callable=Main
-                Variable(0, Integer) = Store Integer(3) !dbg package_id=2 span=[271-274] scope=2 scope_package_id=2 scope_span=[186-290] discriminator=3 callable=Main
-                Variable(1, Boolean) = Store Bool(true) !dbg package_id=2 span=[297-304] scope=2 scope_package_id=2 scope_span=[186-290] discriminator=3 callable=Main
-                Variable(0, Integer) = Store Integer(4) !dbg package_id=2 span=[271-274] scope=2 scope_package_id=2 scope_span=[186-290] discriminator=4 callable=Main
-                Variable(1, Boolean) = Store Bool(true) !dbg package_id=2 span=[297-304] scope=2 scope_package_id=2 scope_span=[186-290] discriminator=4 callable=Main
-                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[0-0] scope=3 scope_package_id=2 scope_span=[216-254] discriminator=5 callable=Main
-                Variable(0, Integer) = Store Integer(5) !dbg package_id=2 span=[271-274] scope=2 scope_package_id=2 scope_span=[186-290] discriminator=5 callable=Main
-                Variable(1, Boolean) = Store Bool(true) !dbg package_id=2 span=[297-304] scope=2 scope_package_id=2 scope_span=[186-290] discriminator=5 callable=Main
-                Variable(0, Integer) = Store Integer(6) !dbg package_id=2 span=[271-274] scope=2 scope_package_id=2 scope_span=[186-290] discriminator=6 callable=Main
-                Variable(1, Boolean) = Store Bool(false) !dbg package_id=2 span=[297-304] scope=2 scope_package_id=2 scope_span=[186-290] discriminator=6 callable=Main
-                Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[105-109]
-                Return !dbg package_id=2 span=[105-109]"#]],
+                Call id(1), args( Pointer, )
+                Variable(0, Integer) = Store Integer(0)
+                Variable(1, Boolean) = Store Bool(true)
+                Call id(2), args( Qubit(0), )
+                Variable(0, Integer) = Store Integer(1)
+                Variable(1, Boolean) = Store Bool(true)
+                Variable(0, Integer) = Store Integer(2)
+                Variable(1, Boolean) = Store Bool(true)
+                Call id(2), args( Qubit(0), )
+                Variable(0, Integer) = Store Integer(3)
+                Variable(1, Boolean) = Store Bool(true)
+                Variable(0, Integer) = Store Integer(4)
+                Variable(1, Boolean) = Store Bool(true)
+                Call id(2), args( Qubit(0), )
+                Variable(0, Integer) = Store Integer(5)
+                Variable(1, Boolean) = Store Bool(true)
+                Variable(0, Integer) = Store Integer(6)
+                Variable(1, Boolean) = Store Bool(false)
+                Call id(3), args( Integer(0), EmptyTag, )
+                Return"#]],
     );
 }
 
@@ -200,15 +203,16 @@ fn boolean_assign_and_update_with_classical_value_within_an_if_with_dynamic_cond
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Variable(0, Boolean) = Store Bool(true) !dbg package_id=2 span=[111-112] scope=0 scope_package_id=2 scope_span=[64-219] callable=Main
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[132-146] scope=0 scope_package_id=2 scope_span=[64-219] callable=Main
-                Variable(1, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[132-153] scope=0 scope_package_id=2 scope_span=[64-219] callable=Main
-                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg package_id=2 span=[132-153] scope=0 scope_package_id=2 scope_span=[64-219] callable=Main
-                Branch Variable(2, Boolean), 2, 1 !dbg package_id=2 span=[132-153] scope=0 scope_package_id=2 scope_span=[64-219] callable=Main
+                Call id(1), args( Pointer, )
+                Variable(0, Boolean) = Store Bool(true)
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(1, Boolean) = Call id(3), args( Result(0), )
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Branch Variable(2, Boolean), 2, 1
             Block 1:Block:
-                Variable(3, Boolean) = Store Variable(0, Boolean) !dbg package_id=2 span=[211-212] scope=2 scope_package_id=2 scope_span=[204-212] callable=Main
-                Call id(3), args( Variable(3, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(3, Boolean) = Store Variable(0, Boolean)
+                Call id(4), args( Variable(3, Boolean), Tag(0, 3), )
+                Return
             Block 2:Block:
                 Variable(0, Boolean) = Store Bool(false) !dbg package_id=2 span=[172-173] scope=1 scope_package_id=2 scope_span=[154-195] callable=Main
                 Jump(1) !dbg package_id=2 span=[154-195] scope=0 scope_package_id=2 scope_span=[64-219] callable=Main"#]],
@@ -237,15 +241,16 @@ fn integer_assign_and_update_with_classical_value_within_an_if_with_dynamic_cond
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Variable(0, Integer) = Store Integer(1) !dbg package_id=2 span=[110-111] scope=0 scope_package_id=2 scope_span=[63-217] callable=Main
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[128-142] scope=0 scope_package_id=2 scope_span=[63-217] callable=Main
-                Variable(1, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[128-149] scope=0 scope_package_id=2 scope_span=[63-217] callable=Main
-                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg package_id=2 span=[128-149] scope=0 scope_package_id=2 scope_span=[63-217] callable=Main
-                Branch Variable(2, Boolean), 2, 1 !dbg package_id=2 span=[128-149] scope=0 scope_package_id=2 scope_span=[63-217] callable=Main
+                Call id(1), args( Pointer, )
+                Variable(0, Integer) = Store Integer(1)
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(1, Boolean) = Call id(3), args( Result(0), )
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Branch Variable(2, Boolean), 2, 1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(0, Integer) !dbg package_id=2 span=[209-210] scope=2 scope_package_id=2 scope_span=[202-210] callable=Main
-                Call id(3), args( Variable(3, Integer), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(3, Integer) = Store Variable(0, Integer)
+                Call id(4), args( Variable(3, Integer), Tag(0, 3), )
+                Return
             Block 2:Block:
                 Variable(0, Integer) = Store Integer(5) !dbg package_id=2 span=[168-169] scope=1 scope_package_id=2 scope_span=[150-193] callable=Main
                 Jump(1) !dbg package_id=2 span=[150-193] scope=0 scope_package_id=2 scope_span=[63-217] callable=Main"#]],
@@ -277,11 +282,10 @@ fn integer_assign_with_hybrid_value_within_an_if_with_dynamic_condition() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Regular
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -290,13 +294,14 @@ fn integer_assign_with_hybrid_value_within_an_if_with_dynamic_condition() {
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
@@ -304,12 +309,11 @@ fn integer_assign_with_hybrid_value_within_an_if_with_dynamic_condition() {
         output_record_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__int_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_blocks(
@@ -317,26 +321,27 @@ fn integer_assign_with_hybrid_value_within_an_if_with_dynamic_condition() {
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Variable(0, Integer) = Store Integer(0) !dbg package_id=2 span=[110-111] scope=0 scope_package_id=2 scope_span=[63-274] callable=Main
-                Variable(1, Integer) = Store Integer(0) !dbg package_id=2 span=[139-143] scope=1 scope_package_id=2 scope_span=[125-250] callable=Main
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[161-175] scope=2 scope_package_id=2 scope_span=[143-250] discriminator=1 callable=Main
-                Variable(2, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[161-182] scope=2 scope_package_id=2 scope_span=[143-250] discriminator=1 callable=Main
-                Variable(3, Boolean) = Store Variable(2, Boolean) !dbg package_id=2 span=[161-182] scope=2 scope_package_id=2 scope_span=[143-250] discriminator=1 callable=Main
-                Branch Variable(3, Boolean), 2, 1 !dbg package_id=2 span=[161-182] scope=2 scope_package_id=2 scope_span=[143-250] discriminator=1 callable=Main
+                Call id(1), args( Pointer, )
+                Variable(0, Integer) = Store Integer(0)
+                Variable(1, Integer) = Store Integer(0)
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(2, Boolean) = Call id(3), args( Result(0), )
+                Variable(3, Boolean) = Store Variable(2, Boolean)
+                Branch Variable(3, Boolean), 2, 1
             Block 1:Block:
-                Variable(1, Integer) = Store Integer(1) !dbg package_id=2 span=[139-143] scope=2 scope_package_id=2 scope_span=[143-250] discriminator=1 callable=Main
-                Call id(1), args( Qubit(0), Result(1), ) !dbg package_id=2 span=[161-175] scope=2 scope_package_id=2 scope_span=[143-250] discriminator=2 callable=Main
-                Variable(4, Boolean) = Call id(2), args( Result(1), ) !dbg package_id=2 span=[161-182] scope=2 scope_package_id=2 scope_span=[143-250] discriminator=2 callable=Main
-                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg package_id=2 span=[161-182] scope=2 scope_package_id=2 scope_span=[143-250] discriminator=2 callable=Main
-                Branch Variable(5, Boolean), 4, 3 !dbg package_id=2 span=[161-182] scope=2 scope_package_id=2 scope_span=[143-250] discriminator=2 callable=Main
+                Variable(1, Integer) = Store Integer(1)
+                Call id(2), args( Qubit(0), Result(1), )
+                Variable(4, Boolean) = Call id(3), args( Result(1), )
+                Variable(5, Boolean) = Store Variable(4, Boolean)
+                Branch Variable(5, Boolean), 4, 3
             Block 2:Block:
                 Variable(0, Integer) = Store Integer(1) !dbg package_id=2 span=[206-207] scope=3 scope_package_id=2 scope_span=[184-240] discriminator=1 callable=Main
                 Jump(1) !dbg package_id=2 span=[184-240] scope=2 scope_package_id=2 scope_span=[143-250] discriminator=1 callable=Main
             Block 3:Block:
-                Variable(1, Integer) = Store Integer(2) !dbg package_id=2 span=[139-143] scope=2 scope_package_id=2 scope_span=[143-250] discriminator=2 callable=Main
-                Variable(7, Integer) = Store Variable(0, Integer) !dbg package_id=2 span=[266-267] scope=4 scope_package_id=2 scope_span=[259-267] callable=Main
-                Call id(3), args( Variable(7, Integer), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(1, Integer) = Store Integer(2)
+                Variable(7, Integer) = Store Variable(0, Integer)
+                Call id(4), args( Variable(7, Integer), Tag(0, 3), )
+                Return
             Block 4:Block:
                 Variable(6, Integer) = BitwiseOr Variable(0, Integer), Integer(2) !dbg package_id=2 span=[202-225] scope=3 scope_package_id=2 scope_span=[184-240] discriminator=2 callable=Main
                 Variable(0, Integer) = Store Variable(6, Integer) !dbg package_id=2 span=[206-207] scope=3 scope_package_id=2 scope_span=[184-240] discriminator=2 callable=Main
@@ -374,10 +379,10 @@ fn large_loop_with_inner_if_completes_eval_and_transform() {
         BlockId(395),
         &expect![[r#"
             Block:
-                Variable(1, Integer) = Store Integer(100) !dbg package_id=2 span=[132-137] scope=2 scope_package_id=2 scope_span=[138-276] discriminator=100 callable=Main
-                Variable(400, Integer) = Store Variable(0, Integer) !dbg package_id=2 span=[292-293] scope=5 scope_package_id=2 scope_span=[285-293] callable=Main
-                Call id(3), args( Variable(400, Integer), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Variable(1, Integer) = Store Integer(100)
+                Variable(400, Integer) = Store Variable(0, Integer)
+                Call id(4), args( Variable(400, Integer), Tag(0, 3), )
+                Return"#]],
     );
 }
 
@@ -407,53 +412,53 @@ fn if_else_expression_with_dynamic_logical_and_condition() {
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let read_result_callable_id = CallableId(2);
     assert_callable(
         &program,
         read_result_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let op_a_callable_id = CallableId(3);
     assert_callable(
         &program,
         op_a_callable_id,
         &expect![[r#"
-        Callable:
-            name: opA
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     let op_b_callable_id = CallableId(4);
     assert_callable(
         &program,
         op_b_callable_id,
         &expect![[r#"
-        Callable:
-            name: opB
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: opA
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
 
     assert_blocks(
@@ -461,28 +466,29 @@ fn if_else_expression_with_dynamic_logical_and_condition() {
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[245-256] scope=0 scope_package_id=2 scope_span=[176-363] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[245-263] scope=0 scope_package_id=2 scope_span=[176-363] callable=Main
-                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg package_id=2 span=[245-263] scope=0 scope_package_id=2 scope_span=[176-363] callable=Main
-                Variable(2, Boolean) = Store Bool(false) !dbg package_id=2 span=[268-286] scope=0 scope_package_id=2 scope_span=[176-363] callable=Main
-                Branch Variable(1, Boolean), 2, 1 !dbg package_id=2 span=[268-286] scope=0 scope_package_id=2 scope_span=[176-363] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(0, Boolean) = Call id(3), args( Result(0), )
+                Variable(1, Boolean) = Store Variable(0, Boolean)
+                Variable(2, Boolean) = Store Bool(false)
+                Branch Variable(1, Boolean), 2, 1
             Block 1:Block:
                 Branch Variable(2, Boolean), 4, 5 !dbg package_id=2 span=[245-286] scope=0 scope_package_id=2 scope_span=[176-363] callable=Main
             Block 2:Block:
-                Call id(1), args( Qubit(1), Result(1), ) !dbg package_id=2 span=[268-279] scope=0 scope_package_id=2 scope_span=[176-363] callable=Main
-                Variable(3, Boolean) = Call id(2), args( Result(1), ) !dbg package_id=2 span=[268-286] scope=0 scope_package_id=2 scope_span=[176-363] callable=Main
-                Variable(4, Boolean) = Store Variable(3, Boolean) !dbg package_id=2 span=[268-286] scope=0 scope_package_id=2 scope_span=[176-363] callable=Main
-                Variable(2, Boolean) = Store Variable(4, Boolean) !dbg package_id=2 span=[268-286] scope=0 scope_package_id=2 scope_span=[176-363] callable=Main
-                Jump(1) !dbg package_id=2 span=[268-286] scope=0 scope_package_id=2 scope_span=[176-363] callable=Main
+                Call id(2), args( Qubit(1), Result(1), )
+                Variable(3, Boolean) = Call id(3), args( Result(1), )
+                Variable(4, Boolean) = Store Variable(3, Boolean)
+                Variable(2, Boolean) = Store Variable(4, Boolean)
+                Jump(1)
             Block 3:Block:
-                Call id(5), args( Integer(0), Pointer, ) !dbg package_id=2 span=[162-166]
-                Return !dbg package_id=2 span=[162-166]
+                Call id(6), args( Integer(0), EmptyTag, )
+                Return
             Block 4:Block:
-                Call id(3), args( Qubit(2), ) !dbg package_id=2 span=[0-0] scope=1 scope_package_id=2 scope_span=[287-319] callable=Main
-                Jump(3) !dbg package_id=2 span=[287-319] scope=0 scope_package_id=2 scope_span=[176-363] callable=Main
+                Call id(4), args( Qubit(2), )
+                Jump(3)
             Block 5:Block:
-                Call id(4), args( Qubit(2), ) !dbg package_id=2 span=[0-0] scope=2 scope_package_id=2 scope_span=[325-357] callable=Main
-                Jump(3) !dbg package_id=2 span=[320-357] scope=0 scope_package_id=2 scope_span=[176-363] callable=Main"#]],
+                Call id(5), args( Qubit(2), )
+                Jump(3)"#]],
     );
 }
 
@@ -512,53 +518,53 @@ fn if_else_expression_with_dynamic_logical_or_condition() {
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let read_result_callable_id = CallableId(2);
     assert_callable(
         &program,
         read_result_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let op_a_callable_id = CallableId(3);
     assert_callable(
         &program,
         op_a_callable_id,
         &expect![[r#"
-        Callable:
-            name: opA
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     let op_b_callable_id = CallableId(4);
     assert_callable(
         &program,
         op_b_callable_id,
         &expect![[r#"
-        Callable:
-            name: opB
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: opA
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
 
     assert_blocks(
@@ -566,28 +572,29 @@ fn if_else_expression_with_dynamic_logical_or_condition() {
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[245-256] scope=0 scope_package_id=2 scope_span=[176-362] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[245-263] scope=0 scope_package_id=2 scope_span=[176-362] callable=Main
-                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg package_id=2 span=[245-263] scope=0 scope_package_id=2 scope_span=[176-362] callable=Main
-                Variable(2, Boolean) = Store Bool(true) !dbg package_id=2 span=[267-285] scope=0 scope_package_id=2 scope_span=[176-362] callable=Main
-                Branch Variable(1, Boolean), 1, 2 !dbg package_id=2 span=[267-285] scope=0 scope_package_id=2 scope_span=[176-362] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(0, Boolean) = Call id(3), args( Result(0), )
+                Variable(1, Boolean) = Store Variable(0, Boolean)
+                Variable(2, Boolean) = Store Bool(true)
+                Branch Variable(1, Boolean), 1, 2
             Block 1:Block:
                 Branch Variable(2, Boolean), 4, 5 !dbg package_id=2 span=[245-285] scope=0 scope_package_id=2 scope_span=[176-362] callable=Main
             Block 2:Block:
-                Call id(1), args( Qubit(1), Result(1), ) !dbg package_id=2 span=[267-278] scope=0 scope_package_id=2 scope_span=[176-362] callable=Main
-                Variable(3, Boolean) = Call id(2), args( Result(1), ) !dbg package_id=2 span=[267-285] scope=0 scope_package_id=2 scope_span=[176-362] callable=Main
-                Variable(4, Boolean) = Store Variable(3, Boolean) !dbg package_id=2 span=[267-285] scope=0 scope_package_id=2 scope_span=[176-362] callable=Main
-                Variable(2, Boolean) = Store Variable(4, Boolean) !dbg package_id=2 span=[267-285] scope=0 scope_package_id=2 scope_span=[176-362] callable=Main
-                Jump(1) !dbg package_id=2 span=[267-285] scope=0 scope_package_id=2 scope_span=[176-362] callable=Main
+                Call id(2), args( Qubit(1), Result(1), )
+                Variable(3, Boolean) = Call id(3), args( Result(1), )
+                Variable(4, Boolean) = Store Variable(3, Boolean)
+                Variable(2, Boolean) = Store Variable(4, Boolean)
+                Jump(1)
             Block 3:Block:
-                Call id(5), args( Integer(0), Pointer, ) !dbg package_id=2 span=[162-166]
-                Return !dbg package_id=2 span=[162-166]
+                Call id(6), args( Integer(0), EmptyTag, )
+                Return
             Block 4:Block:
-                Call id(3), args( Qubit(2), ) !dbg package_id=2 span=[0-0] scope=1 scope_package_id=2 scope_span=[286-318] callable=Main
-                Jump(3) !dbg package_id=2 span=[286-318] scope=0 scope_package_id=2 scope_span=[176-362] callable=Main
+                Call id(4), args( Qubit(2), )
+                Jump(3)
             Block 5:Block:
-                Call id(4), args( Qubit(2), ) !dbg package_id=2 span=[0-0] scope=2 scope_package_id=2 scope_span=[324-356] callable=Main
-                Jump(3) !dbg package_id=2 span=[319-356] scope=0 scope_package_id=2 scope_span=[176-362] callable=Main"#]],
+                Call id(5), args( Qubit(2), )
+                Jump(3)"#]],
     );
 }
 

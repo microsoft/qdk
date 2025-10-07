@@ -684,7 +684,7 @@ class TypeKind(Enum):
 
 class PrimitiveKind(Enum):
     """
-    A Q# primtive.
+    A Q# primitive.
     """
 
     Bool: int

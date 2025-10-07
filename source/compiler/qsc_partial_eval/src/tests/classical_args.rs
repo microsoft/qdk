@@ -22,22 +22,23 @@ fn call_to_intrinsic_operation_using_double_literal() {
         &program,
         op_callable_id,
         &expect![[r#"
-        Callable:
-            name: op
-            call_type: Regular
-            input_type:
-                [0]: Double
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Double(1), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[120-144] callable=Main
-                Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[106-110]
-                Return !dbg package_id=2 span=[106-110]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Double(1), )
+                Call id(3), args( Integer(0), EmptyTag, )
+                Return"#]],
     );
 }
 
@@ -60,24 +61,25 @@ fn calls_to_intrinsic_operation_using_inline_expressions() {
         &program,
         op_callable_id,
         &expect![[r#"
-        Callable:
-            name: op
-            call_type: Regular
-            input_type:
-                [0]: Double
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Double(0), ) !dbg package_id=2 span=[0-0] scope=1 scope_package_id=2 scope_span=[159-260] callable=Main
-                Call id(1), args( Double(1), ) !dbg package_id=2 span=[0-0] scope=1 scope_package_id=2 scope_span=[159-260] callable=Main
-                Call id(1), args( Double(1), ) !dbg package_id=2 span=[0-0] scope=1 scope_package_id=2 scope_span=[159-260] callable=Main
-                Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[145-149]
-                Return !dbg package_id=2 span=[145-149]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Double(0), )
+                Call id(2), args( Double(1), )
+                Call id(2), args( Double(1), )
+                Call id(3), args( Integer(0), EmptyTag, )
+                Return"#]],
     );
 }
 
@@ -103,25 +105,26 @@ fn calls_to_intrinsic_operation_using_variables() {
         &program,
         op_callable_id,
         &expect![[r#"
-        Callable:
-            name: op
-            call_type: Regular
-            input_type:
-                [0]: Double
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Double(2), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[120-308] callable=Main
-                Variable(0, Double) = Store Double(4) !dbg package_id=2 span=[221-225] scope=0 scope_package_id=2 scope_span=[120-308] callable=Main
-                Call id(1), args( Double(4), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[120-308] callable=Main
-                Variable(0, Double) = Store Double(8) !dbg package_id=2 span=[268-272] scope=0 scope_package_id=2 scope_span=[120-308] callable=Main
-                Call id(1), args( Double(8), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[120-308] callable=Main
-                Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[106-110]
-                Return !dbg package_id=2 span=[106-110]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Double(2), )
+                Variable(0, Double) = Store Double(4)
+                Call id(2), args( Double(4), )
+                Variable(0, Double) = Store Double(8)
+                Call id(2), args( Double(8), )
+                Call id(3), args( Integer(0), EmptyTag, )
+                Return"#]],
     );
 }

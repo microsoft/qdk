@@ -2302,7 +2302,7 @@ fn xqpe() {
     "#]].assert_eq(&circ.to_string());
 }
 
-/// Tests that invoke circuit generation throught the debugger.
+/// Tests that invoke circuit generation through the debugger.
 mod debugger_stepping {
     use super::Debugger;
     use crate::target::Profile;

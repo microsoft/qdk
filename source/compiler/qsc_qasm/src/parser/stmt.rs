@@ -1555,7 +1555,7 @@ fn parse_many_boxable_stmt(s: &mut ParserContext) -> Result<List<Stmt>> {
 ///  8. `Ident q;`
 ///
 /// (1) is a quantum-gate-call, (2) is a binary operation, (3) is a function call, and
-/// (4) is an identifer. We don't know for sure until we see the what is beyond the gate
+/// (4) is an identifier. We don't know for sure until we see the what is beyond the gate
 /// name and its potential classical parameters.
 ///
 /// Therefore, we parse the gate name and its potential parameters using the expr parser.

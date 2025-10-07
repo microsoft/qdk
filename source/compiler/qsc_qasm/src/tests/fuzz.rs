@@ -45,7 +45,7 @@ fn fuzz_2297_def() {
 }
 
 /// We also had an issue where, in the same conditions as `fuzz_2297`,
-/// a missing identifier in a comma separated list of formal paremeters
+/// a missing identifier in a comma separated list of formal parameters
 /// would generate an empty string Identifier and forward it to Q#,
 /// which yields an invalid Q# AST.
 #[test]

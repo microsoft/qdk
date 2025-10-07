@@ -227,7 +227,7 @@ impl std::fmt::Display for IOKind {
 }
 
 /// A scope is a collection of symbols and a kind. The kind determines semantic
-/// rules for compliation as shadowing and decl rules vary by scope kind.
+/// rules for compilation as shadowing and decl rules vary by scope kind.
 #[derive(Debug, Clone)]
 pub(crate) struct Scope {
     /// A map from symbol name to symbol ID.

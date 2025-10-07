@@ -31,14 +31,13 @@ fn array_with_dynamic_content() {
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let array_output_recording_callable_id = CallableId(2);
     assert_callable(
@@ -46,11 +45,11 @@ fn array_with_dynamic_content() {
         array_output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__array_record_output
-                call_type: OutputRecording
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
+                    [0]: Qubit
+                    [1]: Result
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -60,10 +59,10 @@ fn array_with_dynamic_content() {
         result_output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__result_record_output
+                name: __quantum__rt__array_record_output
                 call_type: OutputRecording
                 input_type:
-                    [0]: Result
+                    [0]: Integer
                     [1]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
@@ -99,14 +98,13 @@ fn array_with_hybrid_content() {
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let array_output_recording_callable_id = CallableId(2);
     assert_callable(
@@ -114,11 +112,12 @@ fn array_with_hybrid_content() {
         array_output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__read_result__body
-                call_type: Readout
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
                 input_type:
-                    [0]: Result
-                output_type: Boolean
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
                 body: <NONE>"#]],
     );
     let boolean_output_recording_callable_id = CallableId(3);
@@ -127,12 +126,11 @@ fn array_with_hybrid_content() {
         boolean_output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__array_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_block_instructions(
@@ -166,14 +164,13 @@ fn array_repeat_with_dynamic_content() {
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let array_output_recording_callable_id = CallableId(2);
     assert_callable(
@@ -181,11 +178,11 @@ fn array_repeat_with_dynamic_content() {
         array_output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__array_record_output
-                call_type: OutputRecording
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
+                    [0]: Qubit
+                    [1]: Result
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -195,10 +192,10 @@ fn array_repeat_with_dynamic_content() {
         result_output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__result_record_output
+                name: __quantum__rt__array_record_output
                 call_type: OutputRecording
                 input_type:
-                    [0]: Result
+                    [0]: Integer
                     [1]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
@@ -234,11 +231,10 @@ fn result_array_value_at_index() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Regular
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -248,11 +244,11 @@ fn result_array_value_at_index() {
         result_output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__result_record_output
-                call_type: OutputRecording
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
                 input_type:
-                    [0]: Result
-                    [1]: Pointer
+                    [0]: Qubit
+                    [1]: Result
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -330,11 +326,10 @@ fn result_array_slice_with_explicit_range() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Regular
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -344,11 +339,11 @@ fn result_array_slice_with_explicit_range() {
         array_output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__array_record_output
-                call_type: OutputRecording
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
+                    [0]: Qubit
+                    [1]: Result
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -358,10 +353,10 @@ fn result_array_slice_with_explicit_range() {
         result_output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__result_record_output
+                name: __quantum__rt__array_record_output
                 call_type: OutputRecording
                 input_type:
-                    [0]: Result
+                    [0]: Integer
                     [1]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
@@ -402,11 +397,10 @@ fn result_array_slice_with_open_start_range() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Regular
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -416,11 +410,11 @@ fn result_array_slice_with_open_start_range() {
         array_output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__array_record_output
-                call_type: OutputRecording
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
+                    [0]: Qubit
+                    [1]: Result
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -430,10 +424,10 @@ fn result_array_slice_with_open_start_range() {
         result_output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__result_record_output
+                name: __quantum__rt__array_record_output
                 call_type: OutputRecording
                 input_type:
-                    [0]: Result
+                    [0]: Integer
                     [1]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
@@ -471,11 +465,10 @@ fn result_array_slice_with_open_ended_range() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Regular
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -485,11 +478,11 @@ fn result_array_slice_with_open_ended_range() {
         array_output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__array_record_output
-                call_type: OutputRecording
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
+                    [0]: Qubit
+                    [1]: Result
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -499,10 +492,10 @@ fn result_array_slice_with_open_ended_range() {
         result_output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__result_record_output
+                name: __quantum__rt__array_record_output
                 call_type: OutputRecording
                 input_type:
-                    [0]: Result
+                    [0]: Integer
                     [1]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
@@ -540,11 +533,10 @@ fn result_array_slice_with_open_two_step_range() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Regular
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -554,11 +546,11 @@ fn result_array_slice_with_open_two_step_range() {
         array_output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__array_record_output
-                call_type: OutputRecording
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
+                    [0]: Qubit
+                    [1]: Result
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -568,10 +560,10 @@ fn result_array_slice_with_open_two_step_range() {
         result_output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__result_record_output
+                name: __quantum__rt__array_record_output
                 call_type: OutputRecording
                 input_type:
-                    [0]: Result
+                    [0]: Integer
                     [1]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
@@ -632,11 +624,10 @@ fn result_array_copy_and_update_with_single_index() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Regular
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -646,11 +637,11 @@ fn result_array_copy_and_update_with_single_index() {
         array_output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__array_record_output
-                call_type: OutputRecording
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
+                    [0]: Qubit
+                    [1]: Result
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -660,10 +651,10 @@ fn result_array_copy_and_update_with_single_index() {
         result_output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__result_record_output
+                name: __quantum__rt__array_record_output
                 call_type: OutputRecording
                 input_type:
-                    [0]: Result
+                    [0]: Integer
                     [1]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
@@ -744,11 +735,10 @@ fn result_array_copy_and_update_with_explicit_range() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Regular
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -758,11 +748,11 @@ fn result_array_copy_and_update_with_explicit_range() {
         array_output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__array_record_output
-                call_type: OutputRecording
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
+                    [0]: Qubit
+                    [1]: Result
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -772,10 +762,10 @@ fn result_array_copy_and_update_with_explicit_range() {
         result_output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__result_record_output
+                name: __quantum__rt__array_record_output
                 call_type: OutputRecording
                 input_type:
-                    [0]: Result
+                    [0]: Integer
                     [1]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
@@ -821,11 +811,10 @@ fn result_array_copy_and_update_with_open_start_range() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Regular
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -835,11 +824,11 @@ fn result_array_copy_and_update_with_open_start_range() {
         array_output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__array_record_output
-                call_type: OutputRecording
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
+                    [0]: Qubit
+                    [1]: Result
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -849,10 +838,10 @@ fn result_array_copy_and_update_with_open_start_range() {
         result_output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__result_record_output
+                name: __quantum__rt__array_record_output
                 call_type: OutputRecording
                 input_type:
-                    [0]: Result
+                    [0]: Integer
                     [1]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
@@ -893,11 +882,10 @@ fn result_array_copy_and_update_with_open_ended_range() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Regular
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -907,11 +895,11 @@ fn result_array_copy_and_update_with_open_ended_range() {
         array_output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__array_record_output
-                call_type: OutputRecording
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
+                    [0]: Qubit
+                    [1]: Result
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -921,10 +909,10 @@ fn result_array_copy_and_update_with_open_ended_range() {
         result_output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__result_record_output
+                name: __quantum__rt__array_record_output
                 call_type: OutputRecording
                 input_type:
-                    [0]: Result
+                    [0]: Integer
                     [1]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
@@ -965,11 +953,10 @@ fn result_array_copy_and_update_with_open_two_step_range() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Regular
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -979,11 +966,11 @@ fn result_array_copy_and_update_with_open_two_step_range() {
         array_output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__array_record_output
-                call_type: OutputRecording
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
+                    [0]: Qubit
+                    [1]: Result
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -993,10 +980,10 @@ fn result_array_copy_and_update_with_open_two_step_range() {
         result_output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__result_record_output
+                name: __quantum__rt__array_record_output
                 call_type: OutputRecording
                 input_type:
-                    [0]: Result
+                    [0]: Integer
                     [1]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
@@ -1037,4 +1024,74 @@ fn result_array_copy_and_update_with_out_of_bounds_range_raises_error() {
             r#"EvaluationFailed("index out of range: 3", PackageSpan { package: PackageId(2), span: Span { lo: 209, hi: 213 } })"#
         ]],
     );
+}
+
+#[test]
+fn result_array_index_range_returns_length_as_end() {
+    let program = get_rir_program(indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                use qs = Qubit[2];
+                let results = MResetEachZ(qs);
+                Std.Arrays.IndexRange(results).End
+            }
+        }
+    "#});
+    expect![[r#"
+        Program:
+            entry: 0
+            callables:
+                Callable 0: Callable:
+                    name: main
+                    call_type: Regular
+                    input_type: <VOID>
+                    output_type: Integer
+                    body: 0
+                Callable 1: Callable:
+                    name: __quantum__rt__initialize
+                    call_type: Regular
+                    input_type:
+                        [0]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 2: Callable:
+                    name: __quantum__qis__mresetz__body
+                    call_type: Measurement
+                    input_type:
+                        [0]: Qubit
+                        [1]: Result
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 3: Callable:
+                    name: __quantum__rt__int_record_output
+                    call_type: OutputRecording
+                    input_type:
+                        [0]: Integer
+                        [1]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+            blocks:
+                Block 0: Block:
+                    Call id(1), args( Pointer, )
+                    Variable(0, Integer) = Store Integer(0)
+                    Variable(0, Integer) = Store Integer(1)
+                    Variable(0, Integer) = Store Integer(2)
+                    Variable(1, Integer) = Store Integer(0)
+                    Call id(2), args( Qubit(0), Result(0), )
+                    Variable(1, Integer) = Store Integer(1)
+                    Call id(2), args( Qubit(1), Result(1), )
+                    Variable(1, Integer) = Store Integer(2)
+                    Variable(2, Integer) = Store Integer(0)
+                    Variable(2, Integer) = Store Integer(1)
+                    Variable(2, Integer) = Store Integer(2)
+                    Call id(3), args( Integer(1), Tag(0, 3), )
+                    Return
+            config: Config:
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
+            num_qubits: 2
+            num_results: 2
+            tags:
+                [0]: 0_i
+    "#]].assert_eq(&program.to_string());
 }

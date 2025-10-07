@@ -94,7 +94,7 @@ pub fn python_dict_to_json_map(value: &Bound<'_, PyDict>) -> Option<Map<String, 
 }
 
 /// A wrapper around a Python instance that can be serialized in order to embed
-/// its value into thre returned resource estimates.
+/// its value into the returned resource estimates.
 #[derive(Clone, Debug)]
 pub struct SerializableBound<'py>(pub Bound<'py, PyAny>);
 
