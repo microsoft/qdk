@@ -13,6 +13,7 @@ use crate::{
     typeck::{self, Checker, Table},
 };
 
+use log::debug;
 use miette::{Diagnostic, Report};
 use preprocess::TrackedName;
 use qsc_ast::{
@@ -645,6 +646,10 @@ fn next_offset(last_source: Option<&Source>) -> u32 {
 fn assert_no_errors(sources: &SourceMap, errors: &mut Vec<Error>) {
     if !errors.is_empty() {
         for error in errors.drain(..) {
+            debug!(
+                "{:?}",
+                Report::new(WithSource::from_map(sources, error.clone()))
+            );
             eprintln!("{:?}", Report::new(WithSource::from_map(sources, error)));
         }
 

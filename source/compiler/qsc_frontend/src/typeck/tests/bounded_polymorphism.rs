@@ -276,9 +276,9 @@ fn iter() {
             #40 217-269 "{\n                let x = Foo([true]);\n            }" : Unit
             #42 239-240 "x" : Bool
             #44 243-254 "Foo([true])" : Bool
-            #45 243-246 "Foo" : (Bool[] -> Bool)
-            #48 246-254 "([true])" : Bool[]
-            #49 247-253 "[true]" : Bool[]
+            #45 243-246 "Foo" : (Bool[1] -> Bool)
+            #48 246-254 "([true])" : Bool[1]
+            #49 247-253 "[true]" : Bool[1]
             #50 248-252 "true" : Bool
         "##]],
     );
@@ -306,7 +306,7 @@ fn generic_iter() {
             #6 49-51 "()" : Unit
             #10 59-149 "{\n                let a: Int[3] = [1,2,3];\n                let f = First(a);\n            }" : Unit
             #12 81-90 "a: Int[3]" : Int[3]
-            #18 93-100 "[1,2,3]" : Int[]
+            #18 93-100 "[1,2,3]" : Int[3]
             #19 94-95 "1" : Int
             #20 96-97 "2" : Int
             #21 98-99 "3" : Int
@@ -324,7 +324,131 @@ fn generic_iter() {
             #56 241-290 "{\n                    return i;\n                }" : Unit
             #58 263-271 "return i" : Unit
             #59 270-271 "i" : Param<"'I": 0>
-            Error(Type(Error(TyMismatch("Int[3]", "Int[]", Span { lo: 93, hi: 100 }))))
+        "##]],
+    );
+}
+
+#[test]
+fn less_interesting_generic() {
+    check(
+        r#"
+        namespace A {
+            operation Main() : Unit {
+                let a: Int[] = [];
+                let f = IterableToArray(a);
+            }
+
+            function IterableToArray<'I>(x: 'I[]) : 'I[] {
+                let random = x;
+                let first = x[0];
+                mutable arr = [first, size = 3];
+                for i in 0..2 {
+                    set arr[i] = first;
+                }
+                arr
+            }
+        }
+    "#,
+        "",
+        &expect![[r##"
+            #6 49-51 "()" : Unit
+            #10 59-153 "{\n                let a: Int[] = [];\n                let f = IterableToArray(a);\n            }" : Unit
+            #12 81-89 "a: Int[]" : Int[]
+            #18 92-94 "[]" : Int[]
+            #20 116-117 "f" : Int[]
+            #22 120-138 "IterableToArray(a)" : Int[]
+            #23 120-135 "IterableToArray" : (Int[] -> Int[])
+            #26 135-138 "(a)" : Int[]
+            #27 136-137 "a" : Int[]
+            #34 195-204 "(x: 'I[])" : Param<"'I": 0>[]
+            #35 196-203 "x: 'I[]" : Param<"'I": 0>[]
+            #43 212-452 "{\n                let random = x;\n                let first = x[0];\n                mutable arr = [first, size = 3];\n                for i in 0..2 {\n                    set arr[i] = first;\n                }\n                arr\n            }" : Param<"'I": 0>[]
+            #45 234-240 "random" : Param<"'I": 0>[]
+            #47 243-244 "x" : Param<"'I": 0>[]
+            #51 266-271 "first" : Param<"'I": 0>
+            #53 274-278 "x[0]" : Param<"'I": 0>
+            #54 274-275 "x" : Param<"'I": 0>[]
+            #57 276-277 "0" : Int
+            #59 304-307 "arr" : Param<"'I": 0>[]
+            #61 310-327 "[first, size = 3]" : Param<"'I": 0>[]
+            #62 311-316 "first" : Param<"'I": 0>
+            #65 325-326 "3" : Int
+            #67 345-418 "for i in 0..2 {\n                    set arr[i] = first;\n                }" : Unit
+            #68 349-350 "i" : Int
+            #70 354-358 "0..2" : Range
+            #71 354-355 "0" : Int
+            #72 357-358 "2" : Int
+            #73 359-418 "{\n                    set arr[i] = first;\n                }" : Unit
+            #75 381-399 "set arr[i] = first" : Unit
+            #76 385-391 "arr[i]" : Param<"'I": 0>
+            #77 385-388 "arr" : Param<"'I": 0>[]
+            #80 389-390 "i" : Int
+            #83 394-399 "first" : Param<"'I": 0>
+            #87 435-438 "arr" : Param<"'I": 0>[]
+        "##]],
+    );
+}
+
+#[test]
+fn iter_to_array() {
+    check(
+        r#"
+        namespace A {
+            operation Main() : Unit {
+                let a: Int[3] = [1,2,3];
+                let f = IterableToArray(a);
+            }
+
+            function IterableToArray<'I, 'T: Iterable['I]>(x: 'T) : 'I[] {
+                let random = x;
+                let first = x[0];
+                mutable arr = [first, size = 3];
+                for i in 0..2 {
+                    set arr[i] = first;
+                }
+                arr
+            }
+        }
+    "#,
+        "",
+        &expect![[r##"
+            #6 49-51 "()" : Unit
+            #10 59-159 "{\n                let a: Int[3] = [1,2,3];\n                let f = IterableToArray(a);\n            }" : Unit
+            #12 81-90 "a: Int[3]" : Int[3]
+            #18 93-100 "[1,2,3]" : Int[3]
+            #19 94-95 "1" : Int
+            #20 96-97 "2" : Int
+            #21 98-99 "3" : Int
+            #23 122-123 "f" : Int[]
+            #25 126-144 "IterableToArray(a)" : Int[]
+            #26 126-141 "IterableToArray" : (Int[3] -> Int[])
+            #29 141-144 "(a)" : Int[3]
+            #30 142-143 "a" : Int[3]
+            #41 219-226 "(x: 'T)" : Param<"'T": 1>
+            #42 220-225 "x: 'T" : Param<"'T": 1>
+            #49 234-474 "{\n                let random = x;\n                let first = x[0];\n                mutable arr = [first, size = 3];\n                for i in 0..2 {\n                    set arr[i] = first;\n                }\n                arr\n            }" : Param<"'I": 0>[]
+            #51 256-262 "random" : Param<"'T": 1>
+            #53 265-266 "x" : Param<"'T": 1>
+            #57 288-293 "first" : Param<"'I": 0>
+            #59 296-300 "x[0]" : Param<"'I": 0>
+            #60 296-297 "x" : Param<"'T": 1>
+            #63 298-299 "0" : Int
+            #65 326-329 "arr" : Param<"'I": 0>[]
+            #67 332-349 "[first, size = 3]" : Param<"'I": 0>[]
+            #68 333-338 "first" : Param<"'I": 0>
+            #71 347-348 "3" : Int
+            #73 367-440 "for i in 0..2 {\n                    set arr[i] = first;\n                }" : Unit
+            #74 371-372 "i" : Int
+            #76 376-380 "0..2" : Range
+            #77 376-377 "0" : Int
+            #78 379-380 "2" : Int
+            #79 381-440 "{\n                    set arr[i] = first;\n                }" : Unit
+            #81 403-421 "set arr[i] = first" : Unit
+            #82 407-413 "arr[i]" : Param<"'I": 0>
+            #83 407-410 "arr" : Param<"'I": 0>[]
+            #86 411-412 "i" : Int
+            #89 416-421 "first" : Param<"'I": 0>
+            #93 457-460 "arr" : Param<"'I": 0>[]
         "##]],
     );
 }

@@ -224,6 +224,7 @@ impl<'a> Context<'a> {
 
     #[allow(clippy::too_many_lines)]
     fn infer_expr(&mut self, expr: &Expr) -> Partial<Ty> {
+        eprintln!("Inferring expr at {}: {}", expr.span, expr.kind);
         let ty = match &*expr.kind {
             ExprKind::Array(items) => match items.split_first() {
                 Some((first, rest)) => {
@@ -235,7 +236,11 @@ impl<'a> Context<'a> {
                         diverges = diverges || item.diverges;
                         self.inferrer.eq(span, first.ty.clone(), item.ty);
                     }
-                    converge(Ty::Array(Box::new(first.ty))).diverge_if(diverges)
+                    converge(Ty::SizedArray(
+                        Box::new(first.ty),
+                        u32::try_from(items.len()).expect("array length should fit in u32"),
+                    ))
+                    .diverge_if(diverges)
                 }
                 None => converge(Ty::Array(Box::new(
                     self.inferrer.fresh_ty(TySource::not_divergent(expr.span)),
@@ -376,6 +381,7 @@ impl<'a> Context<'a> {
                 }
             }
             ExprKind::Index(container, index) => {
+                eprintln!("  Inferring index expr at {}: {}", expr.span, expr.kind);
                 let container_span = container.span;
                 let container = self.infer_expr(container);
                 let index = self.infer_expr(index);
@@ -383,11 +389,18 @@ impl<'a> Context<'a> {
                 let container_item_ty = self
                     .inferrer
                     .fresh_ty(TySource::not_divergent(container_span));
-                self.inferrer.eq(
+                self.inferrer.class(
                     container_span,
-                    container.ty.clone(),
-                    Ty::Array(Box::new(container_item_ty)),
+                    Class::Iterable {
+                        container: container.ty.clone(),
+                        item: container_item_ty,
+                    },
                 );
+                // self.inferrer.eq(
+                //     container_span,
+                //     container.ty.clone(),
+                //     Ty::Array(Box::new(container_item_ty)),
+                // );
                 self.inferrer.class(
                     expr.span,
                     Class::HasIndex {

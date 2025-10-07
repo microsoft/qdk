@@ -338,7 +338,7 @@ impl Scheme {
     ///
     /// Returns an error if the given arguments do not match the scheme parameters.
     pub fn instantiate(&self, args: &[GenericArg]) -> Result<Arrow, InstantiationError> {
-        eprintln!("Instantiating scheme with args: {args:?}");
+        // eprintln!("Instantiating scheme with args: {args:?}");
         if args.len() == self.params.len() {
             let args: FxHashMap<_, _> = self
                 .params
@@ -392,11 +392,11 @@ fn instantiate_arrow_ty<'a>(
     arg: impl Fn(&ParamId) -> Option<&'a GenericArg> + Copy,
     arrow: &Arrow,
 ) -> Result<Arrow, InstantiationError> {
-    eprintln!("Instantiating arrow: {arrow}");
+    // eprintln!("Instantiating arrow: {arrow}");
     let input = instantiate_ty(arg, &arrow.input.borrow())?;
     let output = instantiate_ty(arg, &arrow.output.borrow())?;
-    eprintln!("Instantiated input: {input}");
-    eprintln!("Instantiated output: {output}");
+    // eprintln!("Instantiated input: {input}");
+    // eprintln!("Instantiated output: {output}");
     let functors = if let FunctorSet::Param(param, _) = *arrow.functors.borrow() {
         match arg(&param) {
             Some(GenericArg::Functor(functor_arg)) => *functor_arg,

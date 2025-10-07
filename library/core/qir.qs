@@ -16,7 +16,7 @@ namespace QIR.Runtime {
         }
         mutable qs = [];
         for _ in 0..size - 1 {
-            set qs += [__quantum__rt__qubit_allocate()];
+            set qs += IterableToArray([__quantum__rt__qubit_allocate()]);
         }
         qs
     }

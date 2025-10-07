@@ -58,6 +58,7 @@ function buildRust() {
 
   // Dev build takes ~3-4 seconds on rebuild after some Rust changes. (Non-dev builds take ~15-20 seconds)
   // Build only web and not node targets to half time.
+
   const result = spawnSync(
     "python",
     [
@@ -70,6 +71,12 @@ function buildRust() {
     ],
     { cwd: thisDir, shell: true },
   );
+
+  if (result.status !== 0) {
+    console.error("Error during wasm build: ", result.stderr.toString());
+    return;
+  }
+
   console.log("wasm build done ", result.stderr.toString());
 
   // The below copies the .wasm file from the npm dir to VS Code and playground projects
@@ -81,28 +88,20 @@ function buildRust() {
 // Minor delay to ensure all changes flush to disk before starting a build if
 // saving multiple files close together (e.g. a formatter running over a directory)
 // or saving the same file multiple times (e.g. format-on-save)
-const buildDelayMs = 100;
-let buildPending = false;
+const rustBuildDelayMs = 100;
+let rustBuildPending = false;
 function onRustChange() {
-  if (buildPending) return; // Already queued
-  buildPending = true;
+  if (rustBuildPending) return; // Already queued
+  rustBuildPending = true;
   setTimeout(() => {
     // The build task runs sychronously, so we can clear the timeout handle and
     // run the build knowing that nothing will interleave with those operations
-    if (buildPending) {
-      buildPending = false;
+    if (rustBuildPending) {
+      rustBuildPending = false;
       buildRust();
     }
-  }, buildDelayMs);
+  }, rustBuildDelayMs);
 }
-
-// Do an initial build
-onRustChange();
-
-// Then watch the Rust directories for code changes
-[coreDir, libsDir, vslsDir, wasmDir].forEach((dir) =>
-  subscribe(dir, onRustChange),
-);
 
 let katasBuildPending = false;
 function onKatasAndSamplesChange() {
@@ -115,7 +114,7 @@ function onKatasAndSamplesChange() {
       katasBuildPending = false;
       buildKatasAndSamples();
     }
-  }, buildDelayMs);
+  }, rustBuildDelayMs);
 }
 
 function buildKatasAndSamples() {
@@ -128,14 +127,6 @@ function buildKatasAndSamples() {
 
   console.log("Katas and samples recompiled!", result.stderr.toString());
 }
-
-// Do an initial build
-onKatasAndSamplesChange();
-
-// Watch the katas directories for code changes
-[katasDir, samplesDir].forEach((dir) =>
-  subscribe(dir, onKatasAndSamplesChange),
-);
 
 /**
  *
@@ -158,6 +149,22 @@ function runWatcher(dir, name, watchTask = "tsc:watch") {
     console.log(`tsc:watch for ${name} exited with: `, code),
   );
 }
+
+// Do an initial Rust build
+onRustChange();
+
+// Then watch the Rust directories for code changes
+[coreDir, libsDir, vslsDir, wasmDir].forEach((dir) =>
+  subscribe(dir, onRustChange),
+);
+
+// Do an initial build of the Katas
+onKatasAndSamplesChange();
+
+// Watch the katas directories for code changes
+[katasDir, samplesDir].forEach((dir) =>
+  subscribe(dir, onKatasAndSamplesChange),
+);
 
 // Build the npm project in watch mode
 runWatcher(npmDir, "npm");

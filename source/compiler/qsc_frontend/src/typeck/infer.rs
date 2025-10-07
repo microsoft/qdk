@@ -457,6 +457,7 @@ pub(super) struct Inferrer {
 
 impl Inferrer {
     pub(super) fn new() -> Self {
+        eprintln!("\nCreating new inferrer\n");
         Self {
             solver: Solver::new(),
             constraints: VecDeque::new(),
@@ -468,6 +469,22 @@ impl Inferrer {
 
     /// Introduces an equality constraint between the expected and actual types.
     pub(super) fn eq(&mut self, span: Span, expected: Ty, actual: Ty) {
+        eprintln!(
+            "adding eq constraint: {} == {} len={}",
+            expected.display(),
+            actual.display(),
+            self.constraints.len()
+        );
+        if let Ty::Infer(id) = &expected {
+            if let Some(TySource::NotDivergent { span: _ }) = self.ty_metadata.get(*id) {
+                eprintln!("  {id} from {span}");
+            }
+        }
+        if let Ty::Infer(id) = &actual {
+            if let Some(TySource::NotDivergent { span: _ }) = self.ty_metadata.get(*id) {
+                eprintln!("  {id} from {span}");
+            }
+        }
         self.constraints.push_back(Constraint::Eq {
             expected,
             actual,
@@ -485,6 +502,7 @@ impl Inferrer {
         let fresh = self.next_ty;
         self.next_ty = fresh.successor();
         self.ty_metadata.insert(fresh, meta);
+        eprintln!("fresh ty {fresh} meta: {:?}", self.ty_metadata.get(fresh));
         Ty::Infer(fresh)
     }
 
@@ -647,6 +665,7 @@ impl Solver {
         class: Class,
         span: Span,
     ) -> Vec<Constraint> {
+        eprintln!("solving class constraint: {class:?}");
         // true if a dependency of this class constraint is currently unknown, meaning we
         // have to come back to it later.
         // false if we know everything we need to know and this is solved
@@ -714,6 +733,7 @@ impl Solver {
     }
 
     fn unify(&mut self, ty1: &Ty, ty2: &Ty, span: Span) -> Vec<Constraint> {
+        eprintln!("unifying {} and {}", ty1.display(), ty2.display());
         match (ty1, ty2) {
             (Ty::Err, _)
             | (_, Ty::Err)
@@ -788,29 +808,14 @@ impl Solver {
                 }
                 Vec::new()
             }
-            // (
-            //     Ty::Param {
-            //         name: param_name,
-            //         id: param_id,
-            //         bounds,
-            //     },
-            //     ty,
-            // )
-            // | (
-            //     ty,
-            //     Ty::Param {
-            //         name: param_name,
-            //         id: param_id,
-            //         bounds,
-            //     },
-            // ) => {
-            //     // Apply the bounds of the type parameter to the other type.
-            //     bounds
-            //         .0
-            //         .iter()
-            //         .map(|x| into_constraint(ty.clone(), x, span))
-            //         .collect()
-            // }
+            (Ty::Param { bounds, .. }, ty) | (ty, Ty::Param { bounds, .. }) => {
+                // Apply the bounds of the type parameter to the other type.
+                bounds
+                    .0
+                    .iter()
+                    .map(|x| into_constraint(ty.clone(), x, span))
+                    .collect()
+            }
             (Ty::Prim(prim1), Ty::Prim(prim2)) if prim1 == prim2 => Vec::new(),
             (Ty::Tuple(items1), Ty::Tuple(items2)) => {
                 if items1.len() != items2.len() {
@@ -841,6 +846,7 @@ impl Solver {
     }
 
     fn bind_ty(&mut self, infer: InferTyId, ty: Ty, span: Span) -> Vec<Constraint> {
+        eprintln!("binding {infer} to {ty}");
         if ty.size() > MAX_TY_SIZE {
             self.errors
                 .push(Error(ErrorKind::TySizeLimitExceeded(ty.display(), span)));
@@ -1071,13 +1077,13 @@ fn check_call(callee: Ty, input: &ArgTy, output: Ty, span: Span) -> (Vec<Constra
     // generate constraints for the arg ty that correspond to any class constraints specified in
     // the parameters
 
-    // eprintln!(
-    //     "input: {:?} param: {}",
-    //     input,
-    //     arrow.input.borrow().display()
-    // );
+    eprintln!(
+        "input: {:?} param: {}",
+        input,
+        arrow.input.borrow().display()
+    );
     let mut app = input.apply(&arrow.input.borrow(), span);
-    // eprintln!("app: {:?} holes: {:?}", app.constraints, app.holes);
+    eprintln!("app: {:?} holes: {:?}", app.constraints, app.holes);
     let expected = if app.holes.len() > 1 {
         Ty::Arrow(Rc::new(Arrow {
             kind: arrow.kind,
@@ -1372,8 +1378,9 @@ fn check_has_index(
     item: Ty,
     span: Span,
 ) -> (Vec<Constraint>, Vec<Error>) {
+    eprintln!("check_has_index: container={container} index={index} item={item}");
     match (container, index) {
-        (Ty::Array(container_item), Ty::Prim(Prim::Int)) => (
+        (Ty::Array(container_item) | Ty::SizedArray(container_item, _), Ty::Prim(Prim::Int)) => (
             vec![Constraint::Eq {
                 expected: *container_item,
                 actual: item,
@@ -1382,7 +1389,7 @@ fn check_has_index(
             Vec::new(),
         ),
         (
-            container @ Ty::Array(_),
+            container @ (Ty::Array(_) | Ty::SizedArray(_, _)),
             Ty::Prim(Prim::Range | Prim::RangeFrom | Prim::RangeTo | Prim::RangeFull),
         ) => (
             vec![Constraint::Eq {
@@ -1392,6 +1399,51 @@ fn check_has_index(
             }],
             Vec::new(),
         ),
+        (
+            ref container @ Ty::Param { ref bounds, .. },
+            index @ Ty::Prim(Prim::Range | Prim::RangeFrom | Prim::RangeTo | Prim::RangeFull),
+        ) => {
+            if bounds.iterable_item().is_some() {
+                (
+                    vec![Constraint::Eq {
+                        expected: container.clone(),
+                        actual: item,
+                        span,
+                    }],
+                    Vec::new(),
+                )
+            } else {
+                (
+                    Vec::new(),
+                    vec![Error(ErrorKind::MissingClassHasIndex(
+                        container.display(),
+                        index.display(),
+                        span,
+                    ))],
+                )
+            }
+        }
+        (ref container @ Ty::Param { ref bounds, .. }, index @ Ty::Prim(Prim::Int)) => {
+            if let Some(container_item) = bounds.iterable_item() {
+                (
+                    vec![Constraint::Eq {
+                        expected: container_item.clone(),
+                        actual: item,
+                        span,
+                    }],
+                    Vec::new(),
+                )
+            } else {
+                (
+                    Vec::new(),
+                    vec![Error(ErrorKind::MissingClassHasIndex(
+                        container.display(),
+                        index.display(),
+                        span,
+                    ))],
+                )
+            }
+        }
         (container, index) => (
             Vec::new(),
             vec![Error(ErrorKind::MissingClassHasIndex(

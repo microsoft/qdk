@@ -7,7 +7,6 @@ use qsc_eval::{
     val::{Result, Value},
 };
 use qsc_fir::fir::{ExprId, LocalItemId, LocalVarId, PackageId};
-use qsc_lowerer::map_fir_package_to_hir;
 use qsc_rca::{RuntimeKind, ValueKind};
 use qsc_rir::rir::{BlockId, Literal, VariableId};
 use rustc_hash::FxHashMap;
@@ -96,16 +95,6 @@ impl EvaluationContext {
             .any(Scope::is_currently_evaluating_branch)
     }
 
-    pub fn get_current_user_caller(&self) -> Option<PackageSpan> {
-        // Yeah, stdlib id is hardcoded that's terrible etc.
-        self.scopes.iter().rev().find_map(|scope| {
-            scope.caller_expr_span.filter(|s| {
-                s.package != map_fir_package_to_hir(PackageId::CORE)
-                    && s.package != map_fir_package_to_hir(PackageId::from(1))
-            })
-        })
-    }
-
     pub fn is_current_scope_user_scope(&self) -> bool {
         let scope = self.get_current_scope();
         scope.package_id != PackageId::CORE && scope.package_id != PackageId::from(1)
@@ -142,7 +131,7 @@ pub struct Scope {
     pub current_distinct_dbg_location: Option<usize>,
     /// The current expression being evaluated, if any.
     pub current_expr: Option<ExprId>,
-    caller_expr_span: Option<PackageSpan>,
+    _caller_expr_span: Option<PackageSpan>,
 }
 
 impl Scope {
@@ -202,7 +191,7 @@ impl Scope {
             active_block_count: 1,
             hybrid_vars,
             static_vars: FxHashMap::default(),
-            caller_expr_span,
+            _caller_expr_span: caller_expr_span,
             current_distinct_dbg_location: None,
             current_expr: None,
         }

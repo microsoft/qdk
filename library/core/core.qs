@@ -16,7 +16,7 @@ namespace Std.Core {
     /// ```qsharp
     /// Message($"{ Length([0, 0, 0]) }"); // Prints 3
     /// ```
-    function Length<'T>(a : 'T[]) : Int {
+    function Length<'T, 'I : Iterable['T]>(a : 'I) : Int {
         body intrinsic;
     }
 
@@ -51,10 +51,23 @@ namespace Std.Core {
 
         mutable output = [];
         for _ in 1..length {
-            set output += [value];
+            set output += IterableToArray([value]);
         }
 
         output
+    }
+
+    function IterableToArray<'I, 'T : Iterable['I] > (x : 'T) : 'I[] {
+        let len = Length(x);
+        if len == 0 {
+            return [];
+        }
+        let first = x[0];
+        mutable arr = [first, size = len];
+        for i in 0..len - 1 {
+            set arr[i] = first;
+        }
+        arr
     }
 
     /// # Summary
@@ -71,5 +84,4 @@ namespace Std.Core {
     /// ```
     struct Complex { Real : Double, Imag : Double }
 
-    export Length, Repeated, Complex;
-}
+    export Length, Repeated, Complex, IterableToArray; }
