@@ -13,7 +13,7 @@ use qsc_partial_eval::rir::{
 #[allow(clippy::needless_pass_by_value)]
 fn check(instructions: Vec<Instruction>, expect: Expect) {
     let (locations, scopes, ops) = program(instructions);
-    let grouped = group_operations(&locations, &scopes, ops.to_vec());
+    let grouped = group_operations(&locations, &scopes, ops.clone());
 
     expect.assert_eq(&fmt_ops(&locations, &scopes, &grouped));
 }
