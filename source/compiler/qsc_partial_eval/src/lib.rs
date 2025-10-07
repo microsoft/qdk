@@ -45,7 +45,10 @@ use qsc_rca::{
         get_missing_runtime_features,
     },
 };
-use qsc_rir::rir::{DbgLocation, DbgMetadataScope, InstructionMetadata, MetadataPackageSpan};
+use qsc_rir::rir::{
+    DbgLocation, DbgMetadataScope, InstructionMetadata, InstructionWithMetadata,
+    MetadataPackageSpan,
+};
 pub use qsc_rir::{
     builder::{self, initialize_decl},
     rir::{
@@ -242,11 +245,14 @@ impl<'a> PartialEvaluator<'a> {
         program
             .get_block_mut(entry_block_id)
             .0
-            .push(Instruction::Call(
-                init_id,
-                vec![Operand::Literal(Literal::Pointer)],
-                None,
-            ));
+            .push(InstructionWithMetadata {
+                instruction: Instruction::Call(
+                    init_id,
+                    vec![Operand::Literal(Literal::Pointer)],
+                    None,
+                ),
+                metadata: None,
+            });
 
         // Initialize the evaluation context and create a new partial evaluator.
         let context = EvaluationContext::new(

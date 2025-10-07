@@ -174,7 +174,7 @@ export class Sqore {
           op.dataAttributes != null &&
           Object.prototype.hasOwnProperty.call(op.dataAttributes, "location")
         ) {
-          const location: string = op.dataAttributes["location"];
+          // const location: string = op.dataAttributes["location"];
           // this.expandOperation(op.children, location);
 
           op.conditionalRender = ConditionalRender.AsGroup;

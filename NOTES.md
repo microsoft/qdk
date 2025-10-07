@@ -76,8 +76,7 @@
 - source code links - what will happen on quantum os shell??
 - what do we do when Unrestricted is hardcoded as target profile?
 
-- 
-
+-
 
 ## Things to call out in the spec
 
