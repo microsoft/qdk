@@ -13,7 +13,9 @@ use std::{
 use crate::{
     Circuit, ComponentColumn, Config, Error, GenerationMethod, Ket, Measurement, Operation,
     Register, Unitary, group_qubits, operation_list_to_grid,
-    rir_to_circuit::tracer::{BuilderV2, GateInputs, RegisterMap, Tracer, qubit_register},
+    rir_to_circuit::tracer::{
+        BlockBuilder, FixedQubitRegisterMap, GateInputs, RegisterMap, Tracer,
+    },
 };
 use log::{debug, warn};
 use qsc_data_structures::{index_map::IndexMap, line_column::Encoding};
@@ -185,7 +187,7 @@ pub fn make_circuit(
     };
     assert!(config.generation_method == GenerationMethod::Static);
     let mut program_map = ProgramMap::new();
-    let mut register_map = RegisterMap::new(program.num_qubits);
+    let mut register_map = FixedQubitRegisterMap::new(program.num_qubits);
     let callables = &program.callables;
 
     let mut i = 0;
@@ -217,7 +219,7 @@ pub fn make_circuit(
     for (id, block) in program.blocks.iter() {
         let block_operations = operations_in_block(
             &mut program_map,
-            &mut register_map,
+            &register_map,
             &dbg_info,
             callables,
             block,
@@ -226,7 +228,7 @@ pub fn make_circuit(
         program_map.blocks.insert(id, block_operations);
     }
 
-    expand_branches(&mut program_map, &mut register_map, program)?;
+    expand_branches(&mut program_map, &register_map, program)?;
 
     let entry_block = program
         .callables
@@ -274,7 +276,7 @@ pub fn make_circuit(
 
 /// true result means done
 fn expand_branches_vars(
-    register_map: &mut RegisterMap,
+    register_map: &mut FixedQubitRegisterMap,
     program: &Program,
     state: &mut ProgramMap,
 ) -> Result<bool, Error> {
@@ -344,7 +346,7 @@ fn expand_branches_vars(
 // None means more work to be done
 fn expand_branch_vars(
     state: &mut ProgramMap,
-    register_map: &mut RegisterMap,
+    register_map: &mut FixedQubitRegisterMap,
     curent_block_id: BlockId,
     branch: &Branch,
 ) -> Result<Option<ExpandedBranchBlock>, Error> {
@@ -376,7 +378,7 @@ fn expand_branch_vars(
         targets: true_targets,
     } = branch_block.true_block;
 
-    let control_results = into_result_registers(register_map, results);
+    let control_results = register_map.result_registers(results);
     let true_container = make_group_op("true", &true_operations, &true_targets, &control_results);
 
     let false_container = branch_block.false_block.map(
@@ -448,19 +450,6 @@ fn expand_branch_vars(
     }))
 }
 
-fn into_result_registers(register_map: &mut RegisterMap, results: Vec<u32>) -> Vec<(usize, usize)> {
-    results
-        .into_iter()
-        .map(|r| register_map.result_register(r))
-        .map(|r| {
-            (
-                r.qubit,
-                r.result.expect("result register must have result idx"),
-            )
-        })
-        .collect::<Vec<_>>()
-}
-
 fn make_group_op(
     label: &str,
     operations: &[Op],
@@ -497,7 +486,7 @@ fn make_group_op(
 fn process_block_vars(
     dbg_info: &DbgInfo,
     state: &mut ProgramMap,
-    register_map: &mut RegisterMap,
+    register_map: &mut FixedQubitRegisterMap,
     callables: &IndexMap<qsc_partial_eval::CallableId, Callable>,
     block: &BlockWithMetadata,
 ) -> Result<CircuitBlock, Error> {
@@ -543,7 +532,7 @@ fn process_block_vars(
 /// and an operation is added to the block that represents the branch logic (i.e., a unitary operation with two children, one for the true branch and one for the false branch).
 fn expand_branches(
     state: &mut ProgramMap,
-    register_map: &mut RegisterMap,
+    register_map: &FixedQubitRegisterMap,
     program: &Program,
 ) -> Result<(), Error> {
     for (block_id, _) in program.blocks.iter() {
@@ -721,7 +710,7 @@ struct ExpandedBranchBlock {
 
 fn expand_branch(
     state: &mut ProgramMap,
-    register_map: &mut RegisterMap,
+    register_map: &FixedQubitRegisterMap,
     curent_block_id: BlockId,
     branch: &Branch,
 ) -> Result<ExpandedBranchBlock, Error> {
@@ -754,7 +743,7 @@ fn expand_branch(
         targets: true_targets,
     } = branch_block.true_block;
 
-    let control_results = into_result_registers(register_map, results);
+    let control_results = register_map.result_registers(results);
     let true_container = make_group_op("true", &true_operations, &true_targets, &control_results);
 
     let false_container = branch_block.false_block.map(
@@ -835,7 +824,7 @@ struct CircuitBlock {
 
 fn operations_in_block(
     state: &mut ProgramMap,
-    register_map: &mut RegisterMap,
+    register_map: &FixedQubitRegisterMap,
     dbg_info: &DbgInfo,
     callables: &IndexMap<qsc_partial_eval::CallableId, Callable>,
     block: &BlockWithMetadata,
@@ -846,7 +835,7 @@ fn operations_in_block(
     let mut phis = vec![];
     let mut done = false;
 
-    let mut builder = BuilderV2::new(register_map);
+    let mut builder = BlockBuilder::new(register_map);
     for instruction in &block.0 {
         if done {
             return Err(Error::UnsupportedFeature(
@@ -1268,7 +1257,7 @@ enum Terminator {
 fn get_operations_for_instruction_vars_only(
     dbg_info: &DbgInfo,
     state: &mut ProgramMap,
-    register_map: &mut RegisterMap,
+    register_map: &mut FixedQubitRegisterMap,
     callables: &IndexMap<qsc_partial_eval::CallableId, Callable>,
     phis: &mut Vec<(Variable, Vec<(Expr, BlockId)>)>,
     done: &mut bool,
@@ -1277,7 +1266,7 @@ fn get_operations_for_instruction_vars_only(
     let mut terminator = None;
     match &instruction.instruction {
         Instruction::Call(callable_id, operands, var) => {
-            on_callable_vars_only(
+            process_callable_variables(
                 state,
                 register_map,
                 callables.get(*callable_id).expect("callable should exist"),
@@ -1357,7 +1346,7 @@ fn get_operations_for_instruction_vars_only(
 }
 
 fn get_operations_for_instruction(
-    circuit_builder: &mut BuilderV2,
+    circuit_builder: &mut BlockBuilder,
     dbg_info: &DbgInfo,
     state: &mut ProgramMap,
     callables: &IndexMap<qsc_partial_eval::CallableId, Callable>,
@@ -1998,16 +1987,17 @@ impl ProgramMap {
     }
 }
 
-fn on_callable_vars_only(
+fn process_callable_variables(
     state: &mut ProgramMap,
-    register_map: &mut RegisterMap,
+    register_map: &mut FixedQubitRegisterMap,
     callable: &Callable,
     operands: &Vec<Operand>,
     var: Option<Variable>,
 ) -> Result<(), Error> {
     match callable.call_type {
         CallableType::Measurement => {
-            gather_measurement_operands(register_map, operands)?;
+            let (qubit, result) = gather_measurement_operands_inner(operands)?;
+            register_map.link_result_to_qubit(qubit, result);
         }
         CallableType::Readout => match callable.name.as_str() {
             "__quantum__rt__read_result" => {
@@ -2054,7 +2044,7 @@ fn on_callable_vars_only(
 }
 
 fn trace_call(
-    builder: &mut BuilderV2,
+    builder: &mut BlockBuilder,
     state: &mut ProgramMap,
     callable: &Callable,
     operands: &[Operand],
@@ -2069,7 +2059,7 @@ fn trace_call(
 }
 
 fn trace_gate(
-    builder: &mut BuilderV2<'_>,
+    builder: &mut BlockBuilder,
     state: &mut ProgramMap,
     callable: &Callable,
     operands: &[Operand],
@@ -2106,7 +2096,7 @@ fn trace_gate(
 
 fn trace_reset(
     state: &mut ProgramMap,
-    builder: &mut BuilderV2,
+    builder: &mut BlockBuilder,
     callable: &Callable,
     operands: &[Operand],
     metadata: Option<&InstructionMetadata>,
@@ -2141,7 +2131,7 @@ fn trace_reset(
 }
 
 fn trace_measurement(
-    builder: &mut BuilderV2,
+    builder: &mut BlockBuilder,
     callable: &Callable,
     operands: &[Operand],
     metadata: Option<&InstructionMetadata>,
@@ -2277,17 +2267,6 @@ fn callable_spec<'a>(callable: &'a Callable, operands: &[Operand]) -> Result<Gat
         }
     };
     Ok(gate_spec)
-}
-
-fn gather_measurement_operands(
-    register_map: &mut RegisterMap,
-    operands: &[Operand],
-) -> Result<(Vec<Register>, Vec<Register>), Error> {
-    let (qubit, result) = gather_measurement_operands_inner(operands)?;
-    register_map.link_result_to_qubit(qubit, result);
-    let result_register = register_map.result_register(result);
-
-    Ok((vec![qubit_register(qubit)], vec![result_register]))
 }
 
 fn gather_measurement_operands_inner(operands: &[Operand]) -> Result<(u32, u32), Error> {

@@ -9,13 +9,13 @@ use crate::{
     rir_to_circuit::{Op, OperationKind},
 };
 
-pub(crate) struct BuilderV2<'a> {
+pub(crate) struct BlockBuilder<'a> {
     operations: Vec<Op>,
-    register_map: &'a RegisterMap,
+    register_map: &'a FixedQubitRegisterMap,
 }
 
-impl<'a> BuilderV2<'a> {
-    pub fn new(register_map: &'a RegisterMap) -> Self {
+impl<'a> BlockBuilder<'a> {
+    pub fn new(register_map: &'a FixedQubitRegisterMap) -> Self {
         Self {
             operations: Vec::new(),
             register_map,
@@ -31,15 +31,14 @@ impl<'a> BuilderV2<'a> {
     }
 }
 
-// TODO: this eventually gets split into register map _builder_ and read-only register map
-pub(crate) struct RegisterMap {
+pub(crate) struct FixedQubitRegisterMap {
     /// result id -> qubit id
     results: IndexMap<usize, u32>,
     /// qubit decl, result idx -> result id
     qubits: Vec<(Qubit, Vec<u32>)>,
 }
 
-impl RegisterMap {
+impl FixedQubitRegisterMap {
     pub(crate) fn new(num_qubits: u32) -> Self {
         Self {
             qubits: (0..num_qubits)
@@ -55,59 +54,6 @@ impl RegisterMap {
                 .collect::<Vec<_>>(),
             results: IndexMap::default(),
         }
-    }
-
-    pub(crate) fn result_register(&mut self, result_id: u32) -> Register {
-        let qubit_id = self
-            .results
-            .get(usize::try_from(result_id).expect("result id should fit into usize"))
-            .copied()
-            .expect("result should be linked to a qubit");
-
-        let qubit_result_idx = self.link_result_to_qubit(qubit_id, result_id);
-
-        Register {
-            qubit: usize::try_from(qubit_id).expect("qubit id should fit in usize"),
-            result: Some(qubit_result_idx),
-        }
-    }
-
-    pub(crate) fn result_register_read_only(&self, result_id: u32) -> Register {
-        let qubit_id = self
-            .results
-            .get(usize::try_from(result_id).expect("result id should fit into usize"))
-            .copied()
-            .expect("result should be linked to a qubit");
-
-        let qubit_result_idx = self.result_idx_for_qubit(qubit_id, result_id);
-
-        Register {
-            qubit: usize::try_from(qubit_id).expect("qubit id should fit in usize"),
-            result: Some(qubit_result_idx),
-        }
-    }
-
-    pub fn result_idx_for_qubit(&self, qubit_id: u32, result_id: u32) -> usize {
-        let q = *self
-            .results
-            .get(
-                result_id
-                    .try_into()
-                    .expect("result id should fit into usize"),
-            )
-            .expect("result should be linked to a qubit");
-        assert_eq!(q, qubit_id, "result should be linked to the correct qubit");
-
-        let result_ids_for_qubit =
-            &self.qubits[usize::try_from(qubit_id).expect("qubit id should fit in usize")].1;
-
-        let qubit_result_idx = result_ids_for_qubit
-            .iter()
-            .enumerate()
-            .find(|(_, qubit_r)| **qubit_r == result_id)
-            .map(|(a, _)| a);
-
-        qubit_result_idx.expect("result should be linked to the qubit")
     }
 
     pub fn link_result_to_qubit(&mut self, qubit_id: u32, result_id: u32) -> usize {
@@ -130,8 +76,68 @@ impl RegisterMap {
             result_ids_for_qubit.len() - 1
         })
     }
+}
 
-    pub fn into_qubits(self) -> Vec<Qubit> {
+pub(crate) trait RegisterMap {
+    fn result_register(&self, result_id: u32) -> Register;
+    fn result_idx_for_qubit(&self, qubit_id: u32, result_id: u32) -> usize;
+    fn result_registers(&self, results: Vec<u32>) -> Vec<(usize, usize)>;
+    fn into_qubits(self) -> Vec<Qubit>;
+}
+
+impl RegisterMap for FixedQubitRegisterMap {
+    fn result_register(&self, result_id: u32) -> Register {
+        let qubit_id = self
+            .results
+            .get(usize::try_from(result_id).expect("result id should fit into usize"))
+            .copied()
+            .expect("result should be linked to a qubit");
+
+        let qubit_result_idx = self.result_idx_for_qubit(qubit_id, result_id);
+
+        Register {
+            qubit: usize::try_from(qubit_id).expect("qubit id should fit in usize"),
+            result: Some(qubit_result_idx),
+        }
+    }
+
+    fn result_idx_for_qubit(&self, qubit_id: u32, result_id: u32) -> usize {
+        let q = *self
+            .results
+            .get(
+                result_id
+                    .try_into()
+                    .expect("result id should fit into usize"),
+            )
+            .expect("result should be linked to a qubit");
+        assert_eq!(q, qubit_id, "result should be linked to the correct qubit");
+
+        let result_ids_for_qubit =
+            &self.qubits[usize::try_from(qubit_id).expect("qubit id should fit in usize")].1;
+
+        let qubit_result_idx = result_ids_for_qubit
+            .iter()
+            .enumerate()
+            .find(|(_, qubit_r)| **qubit_r == result_id)
+            .map(|(a, _)| a);
+
+        qubit_result_idx.expect("result should be linked to the qubit")
+    }
+
+    fn result_registers(&self, results: Vec<u32>) -> Vec<(usize, usize)> {
+        results
+            .into_iter()
+            .map(|r| self.result_register(r))
+            .map(|r| {
+                (
+                    r.qubit,
+                    r.result.expect("result register must have result idx"),
+                )
+            })
+            .collect::<Vec<_>>()
+    }
+
+    fn into_qubits(self) -> Vec<Qubit> {
         self.qubits
             .into_iter()
             .map(|(q, results)| Qubit {
@@ -142,7 +148,7 @@ impl RegisterMap {
     }
 }
 
-impl Tracer for BuilderV2<'_> {
+impl Tracer for BlockBuilder<'_> {
     type ResultType = u32;
     type QubitType = u32;
 
@@ -168,7 +174,7 @@ impl Tracer for BuilderV2<'_> {
         let control_results = control_results
             .iter()
             .filter_map(|reg| {
-                let reg = self.register_map.result_register_read_only(*reg);
+                let reg = self.register_map.result_register(*reg);
                 reg.result.map(|r| (reg.qubit, r))
             })
             .collect();
@@ -199,7 +205,7 @@ impl Tracer for BuilderV2<'_> {
         // Qubit-result mappings should have been established already
         let qubits = vec![usize::try_from(qubit).expect("qubit id should fit in usize")];
         self.register_map.result_idx_for_qubit(qubit, result);
-        let result_registers = [self.register_map.result_register_read_only(result)];
+        let result_registers = [self.register_map.result_register(result)];
 
         self.push(Op {
             kind: OperationKind::Measurement { metadata },
@@ -230,7 +236,7 @@ impl Tracer for BuilderV2<'_> {
         // Qubit-result mappings should have been established already
         let qubits = vec![usize::try_from(qubit).expect("qubit id should fit in usize")];
         self.register_map.result_idx_for_qubit(qubit, result);
-        let result_registers = [self.register_map.result_register_read_only(result)];
+        let result_registers = [self.register_map.result_register(result)];
 
         self.push(Op {
             kind: OperationKind::Measurement {
@@ -330,12 +336,4 @@ pub(crate) trait Tracer {
     // fn qubit_allocate(&mut self) -> Self::QubitType;
     // fn qubit_release(&mut self, q: Self::QubitType) -> bool;
     // fn qubit_swap_id(&mut self, q0: Self::QubitType, q1: Self::QubitType);
-}
-
-// TODO: this will eventually become private to this module
-pub(crate) fn qubit_register(qubit_id: u32) -> Register {
-    Register {
-        qubit: usize::try_from(qubit_id).expect("qubit id should fit in usize"),
-        result: None,
-    }
 }
