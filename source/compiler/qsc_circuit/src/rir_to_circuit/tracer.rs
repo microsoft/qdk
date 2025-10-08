@@ -11,12 +11,11 @@ use crate::{
 
 pub(crate) struct BuilderV2<'a> {
     operations: Vec<Op>,
-    // TODO: this eventually becomes private
-    pub(crate) register_map: &'a mut RegisterMap,
+    register_map: &'a RegisterMap,
 }
 
 impl<'a> BuilderV2<'a> {
-    pub fn new(register_map: &'a mut RegisterMap) -> Self {
+    pub fn new(register_map: &'a RegisterMap) -> Self {
         Self {
             operations: Vec::new(),
             register_map,
