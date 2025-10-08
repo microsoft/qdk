@@ -13,7 +13,7 @@ use std::{
 use crate::{
     Circuit, ComponentColumn, Config, Error, GenerationMethod, Ket, Measurement, Operation,
     Register, Unitary, group_qubits, operation_list_to_grid,
-    rir_to_circuit::tracer::{BuilderV2, RegisterMap, Tracer, qubit_register},
+    rir_to_circuit::tracer::{BuilderV2, GateInputs, RegisterMap, Tracer, qubit_register},
 };
 use log::{debug, warn};
 use qsc_data_structures::{index_map::IndexMap, line_column::Encoding};
@@ -2092,9 +2092,11 @@ fn trace_gate(
         builder.gate(
             gate,
             is_adjoint,
-            target_qubits,
-            control_qubits,
-            control_results,
+            GateInputs {
+                target_qubits,
+                control_qubits,
+                control_results,
+            },
             args,
             metadata.cloned(),
         );
@@ -2165,109 +2167,84 @@ struct GateSpec<'a> {
     is_adjoint: bool,
 }
 
+impl<'a> GateSpec<'a> {
+    fn single_qubit_gate(name: &'a str) -> Self {
+        Self {
+            name,
+            operand_types: vec![OperandType::Target],
+            is_adjoint: false,
+        }
+    }
+
+    fn single_qubit_gate_adjoint(name: &'a str) -> Self {
+        Self {
+            name,
+            operand_types: vec![OperandType::Target],
+            is_adjoint: true,
+        }
+    }
+
+    fn rotation_gate(name: &'a str) -> Self {
+        Self {
+            name,
+            operand_types: vec![OperandType::Arg, OperandType::Target],
+            is_adjoint: false,
+        }
+    }
+
+    fn controlled_gate(name: &'a str, num_controls: usize) -> Self {
+        let mut operand_types = vec![];
+        for _ in 0..num_controls {
+            operand_types.push(OperandType::Control);
+        }
+        operand_types.push(OperandType::Target);
+        Self {
+            name,
+            operand_types,
+            is_adjoint: false,
+        }
+    }
+
+    fn two_qubit_gate(name: &'a str) -> Self {
+        Self {
+            name,
+            operand_types: vec![OperandType::Target, OperandType::Target],
+            is_adjoint: false,
+        }
+    }
+
+    fn two_qubit_rotation_gate(name: &'a str) -> Self {
+        Self {
+            name,
+            operand_types: vec![OperandType::Arg, OperandType::Target, OperandType::Target],
+            is_adjoint: false,
+        }
+    }
+}
+
 fn callable_spec<'a>(callable: &'a Callable, operands: &[Operand]) -> Result<GateSpec<'a>, Error> {
     let gate_spec = match callable.name.as_str() {
         // single-qubit gates
-        "__quantum__qis__x__body" => GateSpec {
-            name: "X",
-            operand_types: vec![OperandType::Target],
-            is_adjoint: false,
-        },
-        "__quantum__qis__y__body" => GateSpec {
-            name: "Y",
-            operand_types: vec![OperandType::Target],
-            is_adjoint: false,
-        },
-        "__quantum__qis__z__body" => GateSpec {
-            name: "Z",
-            operand_types: vec![OperandType::Target],
-            is_adjoint: false,
-        },
-        "__quantum__qis__s__body" => GateSpec {
-            name: "S",
-            operand_types: vec![OperandType::Target],
-            is_adjoint: false,
-        },
-        "__quantum__qis__s__adj" => GateSpec {
-            name: "S",
-            operand_types: vec![OperandType::Target],
-            is_adjoint: true,
-        },
-        "__quantum__qis__t__body" => GateSpec {
-            name: "T",
-            operand_types: vec![OperandType::Target],
-            is_adjoint: false,
-        },
-        "__quantum__qis__t__adj" => GateSpec {
-            name: "T",
-            operand_types: vec![OperandType::Target],
-            is_adjoint: true,
-        },
-        "__quantum__qis__h__body" => GateSpec {
-            name: "H",
-            operand_types: vec![OperandType::Target],
-            is_adjoint: false,
-        },
-        "__quantum__qis__rx__body" => GateSpec {
-            name: "Rx",
-            operand_types: vec![OperandType::Arg, OperandType::Target],
-            is_adjoint: false,
-        },
-        "__quantum__qis__ry__body" => GateSpec {
-            name: "Ry",
-            operand_types: vec![OperandType::Arg, OperandType::Target],
-            is_adjoint: false,
-        },
-        "__quantum__qis__rz__body" => GateSpec {
-            name: "Rz",
-            operand_types: vec![OperandType::Arg, OperandType::Target],
-            is_adjoint: false,
-        },
+        "__quantum__qis__x__body" => GateSpec::single_qubit_gate("X"),
+        "__quantum__qis__y__body" => GateSpec::single_qubit_gate("Y"),
+        "__quantum__qis__z__body" => GateSpec::single_qubit_gate("Z"),
+        "__quantum__qis__s__body" => GateSpec::single_qubit_gate("S"),
+        "__quantum__qis__s__adj" => GateSpec::single_qubit_gate_adjoint("S"),
+        "__quantum__qis__t__body" => GateSpec::single_qubit_gate("T"),
+        "__quantum__qis__t__adj" => GateSpec::single_qubit_gate_adjoint("T"),
+        "__quantum__qis__h__body" => GateSpec::single_qubit_gate("H"),
+        "__quantum__qis__rx__body" => GateSpec::rotation_gate("Rx"),
+        "__quantum__qis__ry__body" => GateSpec::rotation_gate("Ry"),
+        "__quantum__qis__rz__body" => GateSpec::rotation_gate("Rz"),
         // multi-qubit gates
-        "__quantum__qis__cx__body" => GateSpec {
-            name: "X",
-            operand_types: vec![OperandType::Control, OperandType::Target],
-            is_adjoint: false,
-        },
-        "__quantum__qis__cy__body" => GateSpec {
-            name: "Y",
-            operand_types: vec![OperandType::Control, OperandType::Target],
-            is_adjoint: false,
-        },
-        "__quantum__qis__cz__body" => GateSpec {
-            name: "Z",
-            operand_types: vec![OperandType::Control, OperandType::Target],
-            is_adjoint: false,
-        },
-        "__quantum__qis__ccx__body" => GateSpec {
-            name: "X",
-            operand_types: vec![
-                OperandType::Control,
-                OperandType::Control,
-                OperandType::Target,
-            ],
-            is_adjoint: false,
-        },
-        "__quantum__qis__rxx__body" => GateSpec {
-            name: "Rxx",
-            operand_types: vec![OperandType::Arg, OperandType::Target, OperandType::Target],
-            is_adjoint: false,
-        },
-        "__quantum__qis__ryy__body" => GateSpec {
-            name: "Ryy",
-            operand_types: vec![OperandType::Arg, OperandType::Target, OperandType::Target],
-            is_adjoint: false,
-        },
-        "__quantum__qis__rzz__body" => GateSpec {
-            name: "Rzz",
-            operand_types: vec![OperandType::Arg, OperandType::Target, OperandType::Target],
-            is_adjoint: false,
-        },
-        "__quantum__qis__swap__body" => GateSpec {
-            name: "SWAP",
-            operand_types: vec![OperandType::Target, OperandType::Target],
-            is_adjoint: false,
-        },
+        "__quantum__qis__cx__body" => GateSpec::controlled_gate("X", 1),
+        "__quantum__qis__cy__body" => GateSpec::controlled_gate("Y", 1),
+        "__quantum__qis__cz__body" => GateSpec::controlled_gate("Z", 1),
+        "__quantum__qis__ccx__body" => GateSpec::controlled_gate("X", 2),
+        "__quantum__qis__rxx__body" => GateSpec::two_qubit_rotation_gate("Rxx"),
+        "__quantum__qis__ryy__body" => GateSpec::two_qubit_rotation_gate("Ryy"),
+        "__quantum__qis__rzz__body" => GateSpec::two_qubit_rotation_gate("Rzz"),
+        "__quantum__qis__swap__body" => GateSpec::two_qubit_gate("SWAP"),
         custom => {
             let mut operand_types = vec![];
             for o in operands {
