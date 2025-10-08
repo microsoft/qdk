@@ -9,16 +9,14 @@ use crate::{
     rir_to_circuit::{Op, OperationKind},
 };
 
-pub(crate) struct BlockBuilder<'a> {
+pub(crate) struct BlockBuilder {
     operations: Vec<Op>,
-    register_map: &'a FixedQubitRegisterMap,
 }
 
-impl<'a> BlockBuilder<'a> {
-    pub fn new(register_map: &'a FixedQubitRegisterMap) -> Self {
+impl BlockBuilder {
+    pub fn new() -> Self {
         Self {
             operations: Vec::new(),
-            register_map,
         }
     }
 
@@ -148,12 +146,13 @@ impl RegisterMap for FixedQubitRegisterMap {
     }
 }
 
-impl Tracer for BlockBuilder<'_> {
+impl Tracer for BlockBuilder {
     type ResultType = u32;
     type QubitType = u32;
 
-    fn gate(
+    fn gate<T: RegisterMap>(
         &mut self,
+        register_map: &T,
         name: &str,
         is_adjoint: bool,
         inputs: GateInputs,
@@ -174,7 +173,7 @@ impl Tracer for BlockBuilder<'_> {
         let control_results = control_results
             .iter()
             .filter_map(|reg| {
-                let reg = self.register_map.result_register(*reg);
+                let reg = register_map.result_register(*reg);
                 reg.result.map(|r| (reg.qubit, r))
             })
             .collect();
@@ -196,16 +195,17 @@ impl Tracer for BlockBuilder<'_> {
         });
     }
 
-    fn m(
+    fn m<T: RegisterMap>(
         &mut self,
+        register_map: &T,
         qubit: Self::QubitType,
         result: Self::ResultType,
         metadata: Option<InstructionMetadata>,
     ) {
         // Qubit-result mappings should have been established already
         let qubits = vec![usize::try_from(qubit).expect("qubit id should fit in usize")];
-        self.register_map.result_idx_for_qubit(qubit, result);
-        let result_registers = [self.register_map.result_register(result)];
+        register_map.result_idx_for_qubit(qubit, result);
+        let result_registers = [register_map.result_register(result)];
 
         self.push(Op {
             kind: OperationKind::Measurement { metadata },
@@ -227,16 +227,17 @@ impl Tracer for BlockBuilder<'_> {
         });
     }
 
-    fn mresetz(
+    fn mresetz<T: RegisterMap>(
         &mut self,
+        register_map: &T,
         qubit: Self::QubitType,
         result: Self::ResultType,
         metadata: Option<InstructionMetadata>,
     ) {
         // Qubit-result mappings should have been established already
         let qubits = vec![usize::try_from(qubit).expect("qubit id should fit in usize")];
-        self.register_map.result_idx_for_qubit(qubit, result);
-        let result_registers = [self.register_map.result_register(result)];
+        register_map.result_idx_for_qubit(qubit, result);
+        let result_registers = [register_map.result_register(result)];
 
         self.push(Op {
             kind: OperationKind::Measurement {
@@ -271,7 +272,12 @@ impl Tracer for BlockBuilder<'_> {
         });
     }
 
-    fn reset(&mut self, qubit: Self::QubitType, metadata: Option<InstructionMetadata>) {
+    fn reset<T: RegisterMap>(
+        &mut self,
+        _register_map: &T,
+        qubit: Self::QubitType,
+        metadata: Option<InstructionMetadata>,
+    ) {
         self.push(Op {
             kind: OperationKind::Ket { metadata },
             label: "0".to_string(),
@@ -313,8 +319,9 @@ pub(crate) trait Tracer {
     type ResultType;
     type QubitType;
 
-    fn gate(
+    fn gate<T: RegisterMap>(
         &mut self,
+        register_map: &T,
         name: &str,
         is_adjoint: bool,
         inputs: GateInputs,
@@ -322,14 +329,28 @@ pub(crate) trait Tracer {
         metadata: Option<InstructionMetadata>,
     );
 
-    fn m(&mut self, q: Self::QubitType, r: Self::ResultType, metadata: Option<InstructionMetadata>);
-    fn mresetz(
+    fn m<T: RegisterMap>(
         &mut self,
+        register_map: &T,
         q: Self::QubitType,
         r: Self::ResultType,
         metadata: Option<InstructionMetadata>,
     );
-    fn reset(&mut self, q: Self::QubitType, metadata: Option<InstructionMetadata>);
+
+    fn mresetz<T: RegisterMap>(
+        &mut self,
+        register_map: &T,
+        q: Self::QubitType,
+        r: Self::ResultType,
+        metadata: Option<InstructionMetadata>,
+    );
+
+    fn reset<T: RegisterMap>(
+        &mut self,
+        register_map: &T,
+        q: Self::QubitType,
+        metadata: Option<InstructionMetadata>,
+    );
 
     // Results only get associated with qubits when a measurement occurs
     // fn result_allocate(&mut self) -> Self::ResultType;

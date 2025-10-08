@@ -3,7 +3,7 @@
 
 #[cfg(test)]
 mod tests;
-mod tracer;
+pub(crate) mod tracer;
 
 use std::{
     fmt::{Display, Write},
@@ -43,7 +43,7 @@ struct Branch {
 }
 
 #[derive(Clone, Debug)]
-struct Op {
+pub(crate) struct Op {
     kind: OperationKind,
     label: String,
     target_qubits: Vec<usize>,
@@ -835,7 +835,7 @@ fn operations_in_block(
     let mut phis = vec![];
     let mut done = false;
 
-    let mut builder = BlockBuilder::new(register_map);
+    let mut builder = BlockBuilder::new();
     for instruction in &block.0 {
         if done {
             return Err(Error::UnsupportedFeature(
@@ -843,9 +843,12 @@ fn operations_in_block(
             ));
         }
         let new_terminator = get_operations_for_instruction(
-            &mut builder,
-            dbg_info,
             state,
+            BuilderWithRegisterMap {
+                builder: &mut builder,
+                register_map,
+            },
+            dbg_info,
             callables,
             &mut phis,
             &mut done,
@@ -1345,10 +1348,15 @@ fn get_operations_for_instruction_vars_only(
     Ok(terminator)
 }
 
+struct BuilderWithRegisterMap<'a> {
+    builder: &'a mut BlockBuilder,
+    register_map: &'a FixedQubitRegisterMap,
+}
+
 fn get_operations_for_instruction(
-    circuit_builder: &mut BlockBuilder,
-    dbg_info: &DbgInfo,
     state: &mut ProgramMap,
+    mut builder_ctx: BuilderWithRegisterMap,
+    dbg_info: &DbgInfo,
     callables: &IndexMap<qsc_partial_eval::CallableId, Callable>,
     phis: &mut Vec<(Variable, Vec<(Expr, BlockId)>)>,
     done: &mut bool,
@@ -1358,8 +1366,8 @@ fn get_operations_for_instruction(
     match &instruction.instruction {
         Instruction::Call(callable_id, operands, _) => {
             trace_call(
-                circuit_builder,
                 state,
+                &mut builder_ctx,
                 callables.get(*callable_id).expect("callable should exist"),
                 operands,
                 instruction.metadata.as_ref(),
@@ -2044,23 +2052,23 @@ fn process_callable_variables(
 }
 
 fn trace_call(
-    builder: &mut BlockBuilder,
     state: &mut ProgramMap,
+    builder_ctx: &mut BuilderWithRegisterMap,
     callable: &Callable,
     operands: &[Operand],
     metadata: Option<&InstructionMetadata>,
 ) -> Result<(), Error> {
     match callable.call_type {
-        CallableType::Measurement => trace_measurement(builder, callable, operands, metadata),
-        CallableType::Reset => trace_reset(state, builder, callable, operands, metadata),
-        CallableType::Regular => trace_gate(builder, state, callable, operands, metadata),
+        CallableType::Measurement => trace_measurement(builder_ctx, callable, operands, metadata),
+        CallableType::Reset => trace_reset(state, builder_ctx, callable, operands, metadata),
+        CallableType::Regular => trace_gate(state, builder_ctx, callable, operands, metadata),
         CallableType::Readout | CallableType::OutputRecording | CallableType::Initialize => Ok(()),
     }
 }
 
 fn trace_gate(
-    builder: &mut BlockBuilder,
     state: &mut ProgramMap,
+    builder_ctx: &mut BuilderWithRegisterMap,
     callable: &Callable,
     operands: &[Operand],
     metadata: Option<&InstructionMetadata>,
@@ -2079,7 +2087,8 @@ fn trace_gate(
         // Alternative might be to include these anyway, across the entire state,
         // or annotated in the circuit in some way.
     } else {
-        builder.gate(
+        builder_ctx.builder.gate(
+            builder_ctx.register_map,
             gate,
             is_adjoint,
             GateInputs {
@@ -2096,7 +2105,7 @@ fn trace_gate(
 
 fn trace_reset(
     state: &mut ProgramMap,
-    builder: &mut BlockBuilder,
+    builder_ctx: &mut BuilderWithRegisterMap,
     callable: &Callable,
     operands: &[Operand],
     metadata: Option<&InstructionMetadata>,
@@ -2119,7 +2128,9 @@ fn trace_reset(
             );
 
             let qubit = target_qubits[0];
-            builder.reset(qubit, metadata.cloned());
+            builder_ctx
+                .builder
+                .reset(builder_ctx.register_map, qubit, metadata.cloned());
         }
         name => {
             return Err(Error::UnsupportedFeature(format!(
@@ -2131,7 +2142,7 @@ fn trace_reset(
 }
 
 fn trace_measurement(
-    builder: &mut BlockBuilder,
+    builder_ctx: &mut BuilderWithRegisterMap,
     callable: &Callable,
     operands: &[Operand],
     metadata: Option<&InstructionMetadata>,
@@ -2140,10 +2151,14 @@ fn trace_measurement(
 
     match callable.name.as_str() {
         "__quantum__qis__mresetz__body" => {
-            builder.mresetz(qubit, result, metadata.cloned());
+            builder_ctx
+                .builder
+                .mresetz(builder_ctx.register_map, qubit, result, metadata.cloned());
         }
         "__quantum__qis__m__body" => {
-            builder.m(qubit, result, metadata.cloned());
+            builder_ctx
+                .builder
+                .m(builder_ctx.register_map, qubit, result, metadata.cloned());
         }
         name => panic!("unknown measurement callable: {name}"),
     }

@@ -7,6 +7,7 @@ mod tests;
 use crate::{
     Config,
     circuit::{Circuit, Ket, Measurement, Operation, Register, Unitary, operation_list_to_grid},
+    rir_to_circuit::tracer::BlockBuilder,
 };
 use num_bigint::BigUint;
 use num_complex::Complex;
@@ -20,6 +21,7 @@ pub struct Builder {
     operations: Vec<Operation>,
     config: Config,
     remapper: Remapper,
+    block_builder: BlockBuilder,
 }
 
 impl Backend for Builder {
@@ -221,6 +223,7 @@ impl Builder {
             operations: vec![],
             config,
             remapper: Remapper::default(),
+            block_builder: BlockBuilder::new(),
         }
     }
 
