@@ -5,7 +5,7 @@ use qsc_data_structures::index_map::IndexMap;
 use qsc_partial_eval::rir::InstructionMetadata;
 
 use crate::{
-    Qubit, Register,
+    Qubit,
     rir_to_circuit::{Op, OperationKind},
 };
 
@@ -37,7 +37,7 @@ pub(crate) struct FixedQubitRegisterMap {
 }
 
 impl FixedQubitRegisterMap {
-    pub(crate) fn new(num_qubits: u32) -> Self {
+    pub fn new(num_qubits: u32) -> Self {
         Self {
             qubits: (0..num_qubits)
                 .map(|id| {
@@ -74,29 +74,15 @@ impl FixedQubitRegisterMap {
             result_ids_for_qubit.len() - 1
         })
     }
-}
 
-pub(crate) trait RegisterMap {
-    fn result_register(&self, result_id: u32) -> Register;
-    fn result_idx_for_qubit(&self, qubit_id: u32, result_id: u32) -> usize;
-    fn result_registers(&self, results: Vec<u32>) -> Vec<(usize, usize)>;
-    fn into_qubits(self) -> Vec<Qubit>;
-}
-
-impl RegisterMap for FixedQubitRegisterMap {
-    fn result_register(&self, result_id: u32) -> Register {
-        let qubit_id = self
-            .results
-            .get(usize::try_from(result_id).expect("result id should fit into usize"))
-            .copied()
-            .expect("result should be linked to a qubit");
-
-        let qubit_result_idx = self.result_idx_for_qubit(qubit_id, result_id);
-
-        Register {
-            qubit: usize::try_from(qubit_id).expect("qubit id should fit in usize"),
-            result: Some(qubit_result_idx),
-        }
+    pub fn into_qubits(self) -> Vec<Qubit> {
+        self.qubits
+            .into_iter()
+            .map(|(q, results)| Qubit {
+                id: q.id,
+                num_results: results.len(),
+            })
+            .collect()
     }
 
     fn result_idx_for_qubit(&self, qubit_id: u32, result_id: u32) -> usize {
@@ -121,28 +107,55 @@ impl RegisterMap for FixedQubitRegisterMap {
 
         qubit_result_idx.expect("result should be linked to the qubit")
     }
+}
 
-    fn result_registers(&self, results: Vec<u32>) -> Vec<(usize, usize)> {
-        results
-            .into_iter()
-            .map(|r| self.result_register(r))
-            .map(|r| {
-                (
-                    r.qubit,
-                    r.result.expect("result register must have result idx"),
-                )
-            })
-            .collect::<Vec<_>>()
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) struct ResultRegister(pub usize, pub usize);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) struct QubitRegister(pub usize);
+
+impl From<usize> for QubitRegister {
+    fn from(value: usize) -> Self {
+        QubitRegister(value)
+    }
+}
+
+impl From<QubitRegister> for usize {
+    fn from(value: QubitRegister) -> Self {
+        value.0
+    }
+}
+
+pub(crate) trait RegisterMap {
+    type ResultType;
+    type QubitType;
+
+    fn qubit_register(&self, qubit_id: Self::QubitType) -> QubitRegister;
+    fn result_register(&self, result_id: Self::ResultType) -> ResultRegister;
+}
+
+impl RegisterMap for FixedQubitRegisterMap {
+    type QubitType = u32;
+    type ResultType = u32;
+
+    fn qubit_register(&self, qubit_id: Self::QubitType) -> QubitRegister {
+        QubitRegister(usize::try_from(qubit_id).expect("qubit id should fit in usize"))
     }
 
-    fn into_qubits(self) -> Vec<Qubit> {
-        self.qubits
-            .into_iter()
-            .map(|(q, results)| Qubit {
-                id: q.id,
-                num_results: results.len(),
-            })
-            .collect()
+    fn result_register(&self, result_id: u32) -> ResultRegister {
+        let qubit_id = self
+            .results
+            .get(usize::try_from(result_id).expect("result id should fit into usize"))
+            .copied()
+            .expect("result should be linked to a qubit");
+
+        let qubit_result_idx = self.result_idx_for_qubit(qubit_id, result_id);
+
+        ResultRegister(
+            usize::try_from(qubit_id).expect("qubit id should fit in usize"),
+            qubit_result_idx,
+        )
     }
 }
 
@@ -150,7 +163,7 @@ impl Tracer for BlockBuilder {
     type ResultType = u32;
     type QubitType = u32;
 
-    fn gate<T: RegisterMap>(
+    fn gate<T>(
         &mut self,
         register_map: &T,
         name: &str,
@@ -158,7 +171,9 @@ impl Tracer for BlockBuilder {
         inputs: GateInputs,
         args: Vec<String>,
         metadata: Option<InstructionMetadata>,
-    ) {
+    ) where
+        T: RegisterMap<ResultType = u32, QubitType = u32>,
+    {
         let GateInputs {
             target_qubits,
             control_qubits,
@@ -167,20 +182,17 @@ impl Tracer for BlockBuilder {
 
         let target_qubits = target_qubits
             .iter()
-            .map(|q| usize::try_from(*q).expect("qubit index should fit into usize"))
+            .map(|q| register_map.qubit_register(*q))
             .collect();
 
         let control_results = control_results
             .iter()
-            .filter_map(|reg| {
-                let reg = register_map.result_register(*reg);
-                reg.result.map(|r| (reg.qubit, r))
-            })
+            .map(|reg| register_map.result_register(*reg))
             .collect();
 
         let control_qubits = control_qubits
             .iter()
-            .map(|q| usize::try_from(*q).expect("qubit index should fit into usize"))
+            .map(|q| register_map.qubit_register(*q))
             .collect();
 
         self.push(Op {
@@ -195,49 +207,43 @@ impl Tracer for BlockBuilder {
         });
     }
 
-    fn m<T: RegisterMap>(
+    fn m<T>(
         &mut self,
         register_map: &T,
         qubit: Self::QubitType,
         result: Self::ResultType,
         metadata: Option<InstructionMetadata>,
-    ) {
+    ) where
+        T: RegisterMap<ResultType = Self::ResultType, QubitType = Self::QubitType>,
+    {
         // Qubit-result mappings should have been established already
-        let qubits = vec![usize::try_from(qubit).expect("qubit id should fit in usize")];
-        register_map.result_idx_for_qubit(qubit, result);
-        let result_registers = [register_map.result_register(result)];
+        let qubits = vec![register_map.qubit_register(qubit)];
+        let results = vec![register_map.result_register(result)];
 
         self.push(Op {
             kind: OperationKind::Measurement { metadata },
             label: "M".to_string(),
             target_qubits: vec![],
             control_qubits: qubits,
-            target_results: result_registers
-                .iter()
-                .map(|r| {
-                    (
-                        r.qubit,
-                        r.result.expect("result register must have result idx"),
-                    )
-                })
-                .collect(),
+            target_results: results,
             control_results: vec![],
             is_adjoint: false,
             args: vec![],
         });
     }
 
-    fn mresetz<T: RegisterMap>(
+    fn mresetz<T>(
         &mut self,
         register_map: &T,
         qubit: Self::QubitType,
         result: Self::ResultType,
         metadata: Option<InstructionMetadata>,
-    ) {
+    ) where
+        T: RegisterMap<ResultType = Self::ResultType, QubitType = Self::QubitType>,
+    {
         // Qubit-result mappings should have been established already
-        let qubits = vec![usize::try_from(qubit).expect("qubit id should fit in usize")];
-        register_map.result_idx_for_qubit(qubit, result);
-        let result_registers = [register_map.result_register(result)];
+        let qubits = vec![register_map.qubit_register(qubit)];
+        let result_registers = vec![register_map.result_register(result)];
 
         self.push(Op {
             kind: OperationKind::Measurement {
@@ -246,15 +252,7 @@ impl Tracer for BlockBuilder {
             label: "MResetZ".to_string(),
             target_qubits: vec![],
             control_qubits: qubits.clone(),
-            target_results: result_registers
-                .iter()
-                .map(|r| {
-                    (
-                        r.qubit,
-                        r.result.expect("result register must have result idx"),
-                    )
-                })
-                .collect(),
+            target_results: result_registers,
             control_results: vec![],
             is_adjoint: false,
             args: vec![],
@@ -272,16 +270,18 @@ impl Tracer for BlockBuilder {
         });
     }
 
-    fn reset<T: RegisterMap>(
+    fn reset<T>(
         &mut self,
-        _register_map: &T,
+        register_map: &T,
         qubit: Self::QubitType,
         metadata: Option<InstructionMetadata>,
-    ) {
+    ) where
+        T: RegisterMap<ResultType = Self::ResultType, QubitType = Self::QubitType>,
+    {
         self.push(Op {
             kind: OperationKind::Ket { metadata },
             label: "0".to_string(),
-            target_qubits: vec![usize::try_from(qubit).expect("qubit id should fit in usize")],
+            target_qubits: vec![register_map.qubit_register(qubit)],
             control_qubits: vec![],
             target_results: vec![],
             control_results: vec![],
@@ -319,7 +319,7 @@ pub(crate) trait Tracer {
     type ResultType;
     type QubitType;
 
-    fn gate<T: RegisterMap>(
+    fn gate<T>(
         &mut self,
         register_map: &T,
         name: &str,
@@ -327,30 +327,34 @@ pub(crate) trait Tracer {
         inputs: GateInputs,
         args: Vec<String>,
         metadata: Option<InstructionMetadata>,
-    );
+    ) where
+        T: RegisterMap<ResultType = Self::ResultType, QubitType = Self::QubitType>;
 
-    fn m<T: RegisterMap>(
+    fn m<T>(
         &mut self,
         register_map: &T,
         q: Self::QubitType,
         r: Self::ResultType,
         metadata: Option<InstructionMetadata>,
-    );
+    ) where
+        T: RegisterMap<ResultType = Self::ResultType, QubitType = Self::QubitType>;
 
-    fn mresetz<T: RegisterMap>(
+    fn mresetz<T>(
         &mut self,
         register_map: &T,
         q: Self::QubitType,
         r: Self::ResultType,
         metadata: Option<InstructionMetadata>,
-    );
+    ) where
+        T: RegisterMap<ResultType = Self::ResultType, QubitType = Self::QubitType>;
 
-    fn reset<T: RegisterMap>(
+    fn reset<T>(
         &mut self,
         register_map: &T,
         q: Self::QubitType,
         metadata: Option<InstructionMetadata>,
-    );
+    ) where
+        T: RegisterMap<ResultType = Self::ResultType, QubitType = Self::QubitType>;
 
     // Results only get associated with qubits when a measurement occurs
     // fn result_allocate(&mut self) -> Self::ResultType;

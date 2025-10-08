@@ -7,7 +7,7 @@ mod tests;
 use crate::{
     Config,
     circuit::{Circuit, Ket, Measurement, Operation, Register, Unitary, operation_list_to_grid},
-    rir_to_circuit::tracer::BlockBuilder,
+    rir_to_circuit::tracer::{BlockBuilder, QubitRegister, RegisterMap, ResultRegister},
 };
 use num_bigint::BigUint;
 use num_complex::Complex;
@@ -60,7 +60,7 @@ impl Backend for Builder {
     fn m(&mut self, q: usize) -> Self::ResultType {
         let mapped_q = self.map(q);
         // In the Circuit schema, result id is per-qubit
-        let res_id = self.num_measurements_for_qubit(mapped_q);
+        let res_id = self.remapper.num_measurements_for_qubit(mapped_q);
         let id = self.remapper.m(q);
 
         self.push_gate(measurement_gate(mapped_q.0, res_id));
@@ -70,7 +70,7 @@ impl Backend for Builder {
     fn mresetz(&mut self, q: usize) -> Self::ResultType {
         let mapped_q = self.map(q);
         // In the Circuit schema, result id is per-qubit
-        let res_id = self.num_measurements_for_qubit(mapped_q);
+        let res_id = self.remapper.num_measurements_for_qubit(mapped_q);
         // We don't actually need the Remapper since we're not
         // remapping any qubits, but it's handy for keeping track of measurements
         let id = self.remapper.m(q);
@@ -239,7 +239,7 @@ impl Builder {
         self.finish_circuit(&operations)
     }
 
-    fn map(&mut self, qubit: usize) -> WireId {
+    fn map(&mut self, qubit: usize) -> QubitRegister {
         self.remapper.map(qubit)
     }
 
@@ -252,25 +252,8 @@ impl Builder {
         self.operations.push(gate);
     }
 
-    fn num_measurements_for_qubit(&self, qubit: WireId) -> usize {
-        self.remapper
-            .qubit_measurement_counts
-            .get(qubit)
-            .copied()
-            .unwrap_or_default()
-    }
-
     fn finish_circuit(&self, operations: &[Operation]) -> Circuit {
-        let mut qubits = vec![];
-
-        // add qubit declarations
-        for i in 0..self.remapper.num_qubits() {
-            let num_measurements = self.num_measurements_for_qubit(WireId(i));
-            qubits.push(crate::circuit::Qubit {
-                id: i,
-                num_results: num_measurements,
-            });
-        }
+        let qubits = self.remapper.to_qubits();
 
         Circuit {
             component_grid: operation_list_to_grid(
@@ -285,7 +268,7 @@ impl Builder {
     /// Splits the qubit arguments from classical arguments so that the qubits
     /// can be treated as the targets for custom gates.
     /// The classical arguments get formatted into a comma-separated list.
-    fn split_qubit_args(&mut self, arg: Value) -> (Vec<WireId>, String) {
+    fn split_qubit_args(&mut self, arg: Value) -> (Vec<QubitRegister>, String) {
         let arg = if let Value::Tuple(vals, _) = arg {
             vals
         } else {
@@ -299,7 +282,12 @@ impl Builder {
     }
 
     /// Pushes all qubit values into `qubits`, and formats all classical values into `classical_args`.
-    fn push_val(&mut self, arg: &Value, qubits: &mut Vec<WireId>, classical_args: &mut String) {
+    fn push_val(
+        &mut self,
+        arg: &Value,
+        qubits: &mut Vec<QubitRegister>,
+        classical_args: &mut String,
+    ) {
         match arg {
             Value::Array(vals) => {
                 self.push_list::<'[', ']'>(vals, qubits, classical_args);
@@ -323,7 +311,7 @@ impl Builder {
     fn push_list<const OPEN: char, const CLOSE: char>(
         &mut self,
         vals: &[Value],
-        qubits: &mut Vec<WireId>,
+        qubits: &mut Vec<QubitRegister>,
         classical_args: &mut String,
     ) {
         classical_args.push(OPEN);
@@ -338,7 +326,12 @@ impl Builder {
 
     /// Pushes all qubit values into `qubits`, and formats all
     /// classical values into `classical_args` as comma-separated values.
-    fn push_vals(&mut self, vals: &[Value], qubits: &mut Vec<WireId>, classical_args: &mut String) {
+    fn push_vals(
+        &mut self,
+        vals: &[Value],
+        qubits: &mut Vec<QubitRegister>,
+        classical_args: &mut String,
+    ) {
         let mut any = false;
         for v in vals {
             let start = classical_args.len();
@@ -366,17 +359,28 @@ impl Builder {
 /// Note that even though qubit reset & reuse is disallowed,
 /// qubit ids are still reused for new allocations.
 /// Measurements are tracked and deferred.
-#[derive(Default)]
 struct Remapper {
-    next_meas_id: usize,
-    next_qubit_id: usize,
-    next_qubit_wire_id: WireId,
-    qubit_map: IndexMap<usize, WireId>,
-    qubit_measurement_counts: IndexMap<WireId, usize>,
+    next_meas_id: usize,  // ResultType
+    next_qubit_id: usize, // QubitType
+    next_qubit_wire_id: QubitRegister,
+    qubit_map: IndexMap<usize, QubitRegister>, // QubitType -> QubitRegister
+    qubit_measurements: IndexMap<QubitRegister, Vec<usize>>, // QubitRegister -> Vec<ResultType>
+}
+
+impl Default for Remapper {
+    fn default() -> Self {
+        Self {
+            next_meas_id: 0,
+            next_qubit_id: 0,
+            next_qubit_wire_id: QubitRegister(0),
+            qubit_map: IndexMap::new(),
+            qubit_measurements: IndexMap::new(),
+        }
+    }
 }
 
 impl Remapper {
-    fn map(&mut self, qubit: usize) -> WireId {
+    fn map(&mut self, qubit: usize) -> QubitRegister {
         if let Some(mapped) = self.qubit_map.get(qubit) {
             *mapped
         } else {
@@ -390,10 +394,10 @@ impl Remapper {
     fn m(&mut self, q: usize) -> usize {
         let mapped_q = self.map(q);
         let id = self.get_meas_id();
-        match self.qubit_measurement_counts.get_mut(mapped_q) {
-            Some(count) => *count += 1,
+        match self.qubit_measurements.get_mut(mapped_q) {
+            Some(v) => v.push(id),
             None => {
-                self.qubit_measurement_counts.insert(mapped_q, 1);
+                self.qubit_measurements.insert(mapped_q, vec![id]);
             }
         }
         id
@@ -428,24 +432,52 @@ impl Remapper {
         self.next_meas_id += 1;
         id
     }
-}
 
-#[derive(Copy, Clone, Default)]
-struct WireId(pub usize);
+    fn num_measurements_for_qubit(&self, qubit: QubitRegister) -> usize {
+        self.qubit_measurements
+            .get(qubit)
+            .map(Vec::len)
+            .unwrap_or_default()
+    }
 
-impl From<usize> for WireId {
-    fn from(id: usize) -> Self {
-        WireId(id)
+    fn to_qubits(&self) -> Vec<crate::Qubit> {
+        let mut qubits = vec![];
+
+        // add qubit declarations
+        for i in 0..self.num_qubits() {
+            let num_measurements = self.num_measurements_for_qubit(QubitRegister(i));
+            qubits.push(crate::circuit::Qubit {
+                id: i,
+                num_results: num_measurements,
+            });
+        }
+        qubits
     }
 }
 
-impl From<WireId> for usize {
-    fn from(id: WireId) -> Self {
-        id.0
+impl RegisterMap for Remapper {
+    type ResultType = usize;
+    type QubitType = usize;
+
+    fn qubit_register(&self, qubit_id: Self::QubitType) -> QubitRegister {
+        self.qubit_map
+            .get(qubit_id)
+            .expect("qubit should already be mapped")
+            .to_owned()
+    }
+
+    fn result_register(&self, result_id: Self::ResultType) -> ResultRegister {
+        self.qubit_measurements
+            .iter()
+            .find_map(|(QubitRegister(qubit_register), results)| {
+                let r_idx = results.iter().position(|&r| r == result_id);
+                r_idx.map(|r_idx| ResultRegister(qubit_register, r_idx))
+            })
+            .expect("result should already be mapped")
     }
 }
 
-fn gate<const N: usize>(name: &str, targets: [WireId; N]) -> Operation {
+fn gate<const N: usize>(name: &str, targets: [QubitRegister; N]) -> Operation {
     Operation::Unitary(Unitary {
         gate: name.into(),
         args: vec![],
@@ -456,7 +488,7 @@ fn gate<const N: usize>(name: &str, targets: [WireId; N]) -> Operation {
     })
 }
 
-fn adjoint_gate<const N: usize>(name: &str, targets: [WireId; N]) -> Operation {
+fn adjoint_gate<const N: usize>(name: &str, targets: [QubitRegister; N]) -> Operation {
     Operation::Unitary(Unitary {
         gate: name.into(),
         args: vec![],
@@ -469,8 +501,8 @@ fn adjoint_gate<const N: usize>(name: &str, targets: [WireId; N]) -> Operation {
 
 fn controlled_gate<const M: usize, const N: usize>(
     name: &str,
-    controls: [WireId; M],
-    targets: [WireId; N],
+    controls: [QubitRegister; M],
+    targets: [QubitRegister; N],
 ) -> Operation {
     Operation::Unitary(Unitary {
         gate: name.into(),
@@ -492,7 +524,7 @@ fn measurement_gate(qubit: usize, result: usize) -> Operation {
     })
 }
 
-fn ket_gate<const N: usize>(name: &str, targets: [WireId; N]) -> Operation {
+fn ket_gate<const N: usize>(name: &str, targets: [QubitRegister; N]) -> Operation {
     Operation::Ket(Ket {
         gate: name.into(),
         args: vec![],
@@ -501,7 +533,7 @@ fn ket_gate<const N: usize>(name: &str, targets: [WireId; N]) -> Operation {
     })
 }
 
-fn rotation_gate<const N: usize>(name: &str, theta: f64, targets: [WireId; N]) -> Operation {
+fn rotation_gate<const N: usize>(name: &str, theta: f64, targets: [QubitRegister; N]) -> Operation {
     Operation::Unitary(Unitary {
         gate: name.into(),
         args: vec![format!("{theta:.4}")],
@@ -512,7 +544,7 @@ fn rotation_gate<const N: usize>(name: &str, theta: f64, targets: [WireId; N]) -
     })
 }
 
-fn custom_gate(name: &str, targets: &[WireId], args: Vec<String>) -> Operation {
+fn custom_gate(name: &str, targets: &[QubitRegister], args: Vec<String>) -> Operation {
     Operation::Unitary(Unitary {
         gate: name.into(),
         args,

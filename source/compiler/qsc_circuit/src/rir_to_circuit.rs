@@ -14,7 +14,8 @@ use crate::{
     Circuit, ComponentColumn, Config, Error, GenerationMethod, Ket, Measurement, Operation,
     Register, Unitary, group_qubits, operation_list_to_grid,
     rir_to_circuit::tracer::{
-        BlockBuilder, FixedQubitRegisterMap, GateInputs, RegisterMap, Tracer,
+        BlockBuilder, FixedQubitRegisterMap, GateInputs, QubitRegister, RegisterMap,
+        ResultRegister, Tracer,
     },
 };
 use log::{debug, warn};
@@ -31,8 +32,6 @@ use qsc_partial_eval::{
 };
 use rustc_hash::FxHashSet;
 
-type ResultId = (usize, usize);
-
 #[derive(Clone, Debug)]
 struct Branch {
     condition: Variable,
@@ -46,10 +45,10 @@ struct Branch {
 pub(crate) struct Op {
     kind: OperationKind,
     label: String,
-    target_qubits: Vec<usize>,
-    control_qubits: Vec<usize>,
-    target_results: Vec<ResultId>,
-    control_results: Vec<ResultId>,
+    target_qubits: Vec<QubitRegister>,
+    control_qubits: Vec<QubitRegister>,
+    target_results: Vec<ResultRegister>,
+    control_results: Vec<ResultRegister>,
     is_adjoint: bool,
     args: Vec<String>,
 }
@@ -113,25 +112,35 @@ impl From<Op> for Operation {
             .target_qubits
             .into_iter()
             .map(|q| Register {
-                qubit: q,
+                qubit: q.0,
                 result: None,
             })
-            .chain(value.target_results.into_iter().map(|(q, r)| Register {
-                qubit: q,
-                result: Some(r),
-            }))
+            .chain(
+                value
+                    .target_results
+                    .into_iter()
+                    .map(|ResultRegister(q, r)| Register {
+                        qubit: q,
+                        result: Some(r),
+                    }),
+            )
             .collect();
         let controls = value
             .control_qubits
             .into_iter()
             .map(|q| Register {
-                qubit: q,
+                qubit: q.0,
                 result: None,
             })
-            .chain(value.control_results.into_iter().map(|(q, r)| Register {
-                qubit: q,
-                result: Some(r),
-            }))
+            .chain(
+                value
+                    .control_results
+                    .into_iter()
+                    .map(|ResultRegister(q, r)| Register {
+                        qubit: q,
+                        result: Some(r),
+                    }),
+            )
             .collect();
 
         match value.kind {
@@ -378,7 +387,10 @@ fn expand_branch_vars(
         targets: true_targets,
     } = branch_block.true_block;
 
-    let control_results = register_map.result_registers(results);
+    let control_results = results
+        .iter()
+        .map(|r| register_map.result_register(*r))
+        .collect::<Vec<_>>();
     let true_container = make_group_op("true", &true_operations, &true_targets, &control_results);
 
     let false_container = branch_block.false_block.map(
@@ -453,8 +465,8 @@ fn expand_branch_vars(
 fn make_group_op(
     label: &str,
     operations: &[Op],
-    targets: &[usize],
-    control_results: &[(usize, usize)],
+    targets: &[QubitRegister],
+    control_results: &[ResultRegister],
 ) -> Op {
     let children = operations
         .iter()
@@ -743,7 +755,10 @@ fn expand_branch(
         targets: true_targets,
     } = branch_block.true_block;
 
-    let control_results = register_map.result_registers(results);
+    let control_results = results
+        .iter()
+        .map(|r| register_map.result_register(*r))
+        .collect::<Vec<_>>();
     let true_container = make_group_op("true", &true_operations, &true_targets, &control_results);
 
     let false_container = branch_block.false_block.map(
@@ -908,7 +923,7 @@ fn add_op(
 ) {
     match instruction_stack {
         Some(instruction_stack) => {
-            let qubits: FxHashSet<usize> = op
+            let qubits: FxHashSet<QubitRegister> = op
                 .control_qubits
                 .iter()
                 .chain(&op.target_qubits)
@@ -916,7 +931,7 @@ fn add_op(
                 .collect();
 
             let target_qubits = qubits.into_iter().collect();
-            let results: FxHashSet<(usize, usize)> = op
+            let results: FxHashSet<ResultRegister> = op
                 .control_results
                 .iter()
                 .chain(&op.target_results)
@@ -1041,9 +1056,16 @@ fn fmt_ops(
                 _ => String::new(),
             };
             if stack_and_children.is_empty() {
-                format!("({name}, q={:?})", op.target_qubits)
+                format!(
+                    "({name}, q={:?})",
+                    op.target_qubits.iter().map(|q| q.0).collect::<Vec<_>>()
+                )
             } else {
-                format!("({name}, q={:?}, {})", op.target_qubits, stack_and_children)
+                format!(
+                    "({name}, q={:?}, {})",
+                    op.target_qubits.iter().map(|q| q.0).collect::<Vec<_>>(),
+                    stack_and_children
+                )
             }
         })
         .collect();
@@ -1082,9 +1104,16 @@ fn fmt_ops_with_trailing_comma(dbg_info: &DbgInfo, ops: &[Op]) -> String {
                 _ => String::new(),
             };
             if stack_and_children.is_empty() {
-                format!("({name}, q={:?})", op.target_qubits)
+                format!(
+                    "({name}, q={:?})",
+                    op.target_qubits.iter().map(|q| q.0).collect::<Vec<_>>()
+                )
             } else {
-                format!("({name}, q={:?}), {}", op.target_qubits, stack_and_children)
+                format!(
+                    "({name}, q={:?}), {}",
+                    op.target_qubits.iter().map(|q| q.0).collect::<Vec<_>>(),
+                    stack_and_children
+                )
             }
         })
         .collect();
@@ -1125,8 +1154,8 @@ fn add_scoped_op(
     dbg_info: &DbgInfo,
     op: Op,
     instruction_stack: &InstructionStack,
-    target_qubits: Vec<usize>,
-    target_results: Vec<(usize, usize)>,
+    target_qubits: Vec<QubitRegister>,
+    target_results: Vec<ResultRegister>,
 ) {
     let full_instruction_stack = concat_stacks(
         dbg_info.dbg_locations,
@@ -1597,7 +1626,7 @@ fn eq_expr(expr_left: Expr, expr_right: Expr) -> Result<BoolExpr, Error> {
 #[derive(Clone, Debug)]
 struct ConditionalBlock {
     operations: Vec<Op>,
-    targets: Vec<usize>,
+    targets: Vec<QubitRegister>,
 }
 
 #[derive(Clone, Debug)]
@@ -1725,10 +1754,10 @@ fn expand_real_branch_block(operations: &Vec<Op>) -> Result<ConditionalBlock, Er
     for op in operations {
         real_ops.push(op.clone());
         for q in op.target_qubits.iter().chain(&op.control_qubits) {
-            seen.insert((*q, None));
+            seen.insert((q.0, None));
         }
-        for r in op.target_results.iter().chain(&op.control_results) {
-            seen.insert((r.0, Some(r.1)));
+        for ResultRegister(q, r) in op.target_results.iter().chain(&op.control_results) {
+            seen.insert((*q, Some(r)));
         }
     }
     // TODO: actually test measurements in branches
@@ -1740,7 +1769,7 @@ fn expand_real_branch_block(operations: &Vec<Op>) -> Result<ConditionalBlock, Er
     // }
 
     // TODO: everything is a target. Don't know how else we would do this.
-    let target_qubits = seen.into_iter().map(|(q, _)| q).collect();
+    let target_qubits = seen.into_iter().map(|(q, _)| QubitRegister(q)).collect();
     Ok(ConditionalBlock {
         operations: real_ops,
         targets: target_qubits,
