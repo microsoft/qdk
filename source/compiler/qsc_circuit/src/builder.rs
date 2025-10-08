@@ -7,7 +7,9 @@ mod tests;
 use crate::{
     Config,
     circuit::{Circuit, Ket, Measurement, Operation, Register, Unitary, operation_list_to_grid},
-    rir_to_circuit::tracer::{BlockBuilder, QubitRegister, RegisterMap, ResultRegister},
+    rir_to_circuit::tracer::{
+        BlockBuilder, GateInputs, QubitRegister, RegisterMap, ResultRegister, Tracer,
+    },
 };
 use num_bigint::BigUint;
 use num_complex::Complex;
@@ -21,44 +23,60 @@ pub struct Builder {
     operations: Vec<Operation>,
     config: Config,
     remapper: Remapper,
-    block_builder: BlockBuilder,
 }
 
 impl Backend for Builder {
     type ResultType = usize;
 
     fn ccx(&mut self, ctl0: usize, ctl1: usize, q: usize) {
-        let ctl0 = self.map(ctl0);
-        let ctl1 = self.map(ctl1);
-        let q = self.map(q);
+        let ctl0 = self.qubit_register(ctl0);
+        let ctl1 = self.qubit_register(ctl1);
+        let q = self.qubit_register(q);
         self.push_gate(controlled_gate("X", [ctl0, ctl1], [q]));
     }
 
     fn cx(&mut self, ctl: usize, q: usize) {
-        let ctl = self.map(ctl);
-        let q = self.map(q);
+        let ctl = self.qubit_register(ctl);
+        let q = self.qubit_register(q);
         self.push_gate(controlled_gate("X", [ctl], [q]));
     }
 
     fn cy(&mut self, ctl: usize, q: usize) {
-        let ctl = self.map(ctl);
-        let q = self.map(q);
+        let ctl = self.qubit_register(ctl);
+        let q = self.qubit_register(q);
         self.push_gate(controlled_gate("Y", [ctl], [q]));
     }
 
     fn cz(&mut self, ctl: usize, q: usize) {
-        let ctl = self.map(ctl);
-        let q = self.map(q);
+        let ctl = self.qubit_register(ctl);
+        let q = self.qubit_register(q);
         self.push_gate(controlled_gate("Z", [ctl], [q]));
     }
 
     fn h(&mut self, q: usize) {
-        let q = self.map(q);
-        self.push_gate(gate("H", [q]));
+        let mut builder = BlockBuilder::new();
+        builder.gate(
+            &self.remapper,
+            "H",
+            false,
+            GateInputs {
+                target_qubits: vec![q],
+                control_qubits: vec![],
+                control_results: vec![],
+            },
+            vec![],
+            None,
+        );
+        let ops = builder.into_operations();
+        for op in ops {
+            self.push_gate(op.into());
+        }
+        // let q = self.qubit_register(q);
+        // self.push_gate(gate("H", [q]));
     }
 
     fn m(&mut self, q: usize) -> Self::ResultType {
-        let mapped_q = self.map(q);
+        let mapped_q = self.qubit_register(q);
         // In the Circuit schema, result id is per-qubit
         let res_id = self.remapper.num_measurements_for_qubit(mapped_q);
         let id = self.remapper.m(q);
@@ -68,7 +86,7 @@ impl Backend for Builder {
     }
 
     fn mresetz(&mut self, q: usize) -> Self::ResultType {
-        let mapped_q = self.map(q);
+        let mapped_q = self.qubit_register(q);
         // In the Circuit schema, result id is per-qubit
         let res_id = self.remapper.num_measurements_for_qubit(mapped_q);
         // We don't actually need the Remapper since we're not
@@ -84,86 +102,86 @@ impl Backend for Builder {
     }
 
     fn reset(&mut self, q: usize) {
-        let mapped_q = self.map(q);
+        let mapped_q = self.qubit_register(q);
         self.push_gate(ket_gate("0", [mapped_q]));
     }
 
     fn rx(&mut self, theta: f64, q: usize) {
-        let q = self.map(q);
+        let q = self.qubit_register(q);
         self.push_gate(rotation_gate("Rx", theta, [q]));
     }
 
     fn rxx(&mut self, theta: f64, q0: usize, q1: usize) {
-        let q0 = self.map(q0);
-        let q1 = self.map(q1);
+        let q0 = self.qubit_register(q0);
+        let q1 = self.qubit_register(q1);
         self.push_gate(rotation_gate("Rxx", theta, [q0, q1]));
     }
 
     fn ry(&mut self, theta: f64, q: usize) {
-        let q = self.map(q);
+        let q = self.qubit_register(q);
         self.push_gate(rotation_gate("Ry", theta, [q]));
     }
 
     fn ryy(&mut self, theta: f64, q0: usize, q1: usize) {
-        let q0 = self.map(q0);
-        let q1 = self.map(q1);
+        let q0 = self.qubit_register(q0);
+        let q1 = self.qubit_register(q1);
         self.push_gate(rotation_gate("Ryy", theta, [q0, q1]));
     }
 
     fn rz(&mut self, theta: f64, q: usize) {
-        let q = self.map(q);
+        let q = self.qubit_register(q);
         self.push_gate(rotation_gate("Rz", theta, [q]));
     }
 
     fn rzz(&mut self, theta: f64, q0: usize, q1: usize) {
-        let q0 = self.map(q0);
-        let q1 = self.map(q1);
+        let q0 = self.qubit_register(q0);
+        let q1 = self.qubit_register(q1);
         self.push_gate(rotation_gate("Rzz", theta, [q0, q1]));
     }
 
     fn sadj(&mut self, q: usize) {
-        let q = self.map(q);
+        let q = self.qubit_register(q);
         self.push_gate(adjoint_gate("S", [q]));
     }
 
     fn s(&mut self, q: usize) {
-        let q = self.map(q);
+        let q = self.qubit_register(q);
         self.push_gate(gate("S", [q]));
     }
 
     fn sx(&mut self, q: usize) {
-        let q = self.map(q);
+        let q = self.qubit_register(q);
         self.push_gate(gate("SX", [q]));
     }
 
     fn swap(&mut self, q0: usize, q1: usize) {
-        let q0 = self.map(q0);
-        let q1 = self.map(q1);
+        let q0 = self.qubit_register(q0);
+        let q1 = self.qubit_register(q1);
         self.push_gate(gate("SWAP", [q0, q1]));
     }
 
     fn tadj(&mut self, q: usize) {
-        let q = self.map(q);
+        let q = self.qubit_register(q);
         self.push_gate(adjoint_gate("T", [q]));
     }
 
     fn t(&mut self, q: usize) {
-        let q = self.map(q);
+        let q = self.qubit_register(q);
         self.push_gate(gate("T", [q]));
     }
 
     fn x(&mut self, q: usize) {
-        let q = self.map(q);
+        let q = self.qubit_register(q);
         self.push_gate(gate("X", [q]));
     }
 
     fn y(&mut self, q: usize) {
-        let q = self.map(q);
+        let q = self.qubit_register(q);
         self.push_gate(gate("Y", [q]));
     }
 
     fn z(&mut self, q: usize) {
-        let q = self.map(q);
+        let q = self.qubit_register(q);
         self.push_gate(gate("Z", [q]));
     }
 
@@ -223,7 +241,6 @@ impl Builder {
             operations: vec![],
             config,
             remapper: Remapper::default(),
-            block_builder: BlockBuilder::new(),
         }
     }
 
@@ -239,8 +256,8 @@ impl Builder {
         self.finish_circuit(&operations)
     }
 
-    fn map(&mut self, qubit: usize) -> QubitRegister {
-        self.remapper.map(qubit)
+    fn qubit_register(&self, qubit: usize) -> QubitRegister {
+        self.remapper.qubit_register(qubit)
     }
 
     fn push_gate(&mut self, gate: Operation) {
@@ -296,7 +313,7 @@ impl Builder {
                 self.push_list::<'(', ')'>(vals, qubits, classical_args);
             }
             Value::Qubit(q) => {
-                qubits.push(self.map(q.deref().0));
+                qubits.push(self.qubit_register(q.deref().0));
             }
             v => {
                 let _ = write!(classical_args, "{v}");
@@ -380,19 +397,15 @@ impl Default for Remapper {
 }
 
 impl Remapper {
-    fn map(&mut self, qubit: usize) -> QubitRegister {
-        if let Some(mapped) = self.qubit_map.get(qubit) {
-            *mapped
-        } else {
-            let mapped = self.next_qubit_wire_id;
-            self.next_qubit_wire_id.0 += 1;
-            self.qubit_map.insert(qubit, mapped);
-            mapped
-        }
+    fn new_qubit_register(&mut self, qubit: usize) -> QubitRegister {
+        let mapped = self.next_qubit_wire_id;
+        self.next_qubit_wire_id.0 += 1;
+        self.qubit_map.insert(qubit, mapped);
+        mapped
     }
 
     fn m(&mut self, q: usize) -> usize {
-        let mapped_q = self.map(q);
+        let mapped_q = self.qubit_register(q);
         let id = self.get_meas_id();
         match self.qubit_measurements.get_mut(mapped_q) {
             Some(v) => v.push(id),
@@ -406,7 +419,7 @@ impl Remapper {
     fn qubit_allocate(&mut self) -> usize {
         let id = self.next_qubit_id;
         self.next_qubit_id += 1;
-        let _ = self.map(id);
+        let _ = self.new_qubit_register(id);
         id
     }
 
@@ -415,8 +428,8 @@ impl Remapper {
     }
 
     fn swap(&mut self, q0: usize, q1: usize) {
-        let q0_mapped = self.map(q0);
-        let q1_mapped = self.map(q1);
+        let q0_mapped = self.qubit_register(q0);
+        let q1_mapped = self.qubit_register(q1);
         self.qubit_map.insert(q0, q1_mapped);
         self.qubit_map.insert(q1, q0_mapped);
     }
