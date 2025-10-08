@@ -27,7 +27,44 @@ fn interpreter(code: &str, profile: Profile) -> Interpreter {
     .expect("interpreter creation should succeed")
 }
 
-fn circuit(code: &str, entry: CircuitEntryPoint, config: Config) -> Result<Circuit, Vec<Error>> {
+fn circuit_both_ways(code: &str, entry: CircuitEntryPoint) -> String {
+    let eval_config = Config {
+        generation_method: GenerationMethod::ClassicalEval,
+        ..Default::default()
+    };
+    let static_config = Config {
+        generation_method: GenerationMethod::Static,
+        ..Default::default()
+    };
+
+    let eval_circ = circuit(code, entry.clone(), eval_config);
+    let static_circ = circuit(code, entry, static_config);
+
+    format!("Eval:\n{eval_circ}\nStatic:\n{static_circ}")
+}
+
+fn circuit_both_ways_with_config(code: &str, entry: CircuitEntryPoint, config: Config) -> String {
+    assert_eq!(
+        config.generation_method,
+        Config::default().generation_method,
+        "will overwrite provided generation method, are you sure you want to pass in a non-default?"
+    );
+
+    let eval_config = Config {
+        generation_method: GenerationMethod::ClassicalEval,
+        ..config
+    };
+    let static_config = Config {
+        generation_method: GenerationMethod::Static,
+        ..config
+    };
+
+    let eval_circ = circuit(code, entry.clone(), eval_config);
+    let static_circ = circuit(code, entry, static_config);
+    format!("Eval:\n{eval_circ}\nStatic:\n{static_circ}")
+}
+
+fn circuit(code: &str, entry: CircuitEntryPoint, config: Config) -> Circuit {
     let profile = if config.generation_method == GenerationMethod::Static {
         Profile::AdaptiveRIF
     } else {
@@ -36,7 +73,45 @@ fn circuit(code: &str, entry: CircuitEntryPoint, config: Config) -> Result<Circu
     circuit_with_profile(code, entry, config, profile)
 }
 
+fn circuit_err(code: &str, entry: CircuitEntryPoint, config: Config) -> Vec<Error> {
+    let profile = if config.generation_method == GenerationMethod::Static {
+        Profile::AdaptiveRIF
+    } else {
+        Profile::Unrestricted
+    };
+    circuit_inner(code, entry, config, profile).expect_err("circuit generation should fail")
+}
+
+fn circuit_with_profile_both_ways(
+    code: &str,
+    entry: CircuitEntryPoint,
+    profile: Profile,
+) -> String {
+    let eval_config = Config {
+        generation_method: GenerationMethod::ClassicalEval,
+        ..Default::default()
+    };
+    let static_config = Config {
+        generation_method: GenerationMethod::Static,
+        ..Default::default()
+    };
+
+    let eval_circ = circuit_with_profile(code, entry.clone(), eval_config, profile);
+    let static_circ = circuit_with_profile(code, entry, static_config, profile);
+
+    format!("Eval:\n{eval_circ}\nStatic:\n{static_circ}")
+}
+
 fn circuit_with_profile(
+    code: &str,
+    entry: CircuitEntryPoint,
+    config: Config,
+    profile: Profile,
+) -> Circuit {
+    circuit_inner(code, entry, config, profile).expect("circuit generation should succeed")
+}
+
+fn circuit_inner(
     code: &str,
     entry: CircuitEntryPoint,
     config: Config,
@@ -49,7 +124,7 @@ fn circuit_with_profile(
 
 #[test]
 fn empty() {
-    let circ = circuit(
+    let circ = circuit_both_ways(
         r#"
             namespace Test {
                 @EntryPoint()
@@ -59,16 +134,19 @@ fn empty() {
             }
         "#,
         CircuitEntryPoint::EntryPoint,
-        Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
 
-    expect![].assert_eq(&circ.to_string());
+    expect![[r#"
+        Eval:
+
+        Static:
+    "#]]
+    .assert_eq(&circ);
 }
 
 #[test]
 fn one_gate() {
-    let circ = circuit(
+    let circ = circuit_both_ways(
         r"
             namespace Test {
                 @EntryPoint()
@@ -79,19 +157,21 @@ fn one_gate() {
             }
         ",
         CircuitEntryPoint::EntryPoint,
-        Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
+        Eval:
+        q_0    ── H ──
+
+        Static:
         q_0    ─ [[ ─── [Main] ──── H ─── ]] ──
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
 fn measure_same_qubit_twice() {
-    let circ = circuit(
+    let circ = circuit_both_ways(
         r"
             namespace Test {
                 @EntryPoint()
@@ -105,21 +185,25 @@ fn measure_same_qubit_twice() {
             }
         ",
         CircuitEntryPoint::EntryPoint,
-        Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
+        Eval:
+        q_0    ── H ──── M ──── M ──
+                         ╘══════╪═══
+                                ╘═══
+
+        Static:
         q_0    ─ [[ ─── [Main] ──── H ──── M ──── M ─── ]] ──
                ═ [[ ═══ [Main] ══          ╘══════╪════ ]] ══
                ═ [[ ═══ [Main] ══                 ╘════ ]] ══
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
 fn toffoli() {
-    let circ = circuit(
+    let circ = circuit_both_ways(
         r"
             namespace Test {
                 @EntryPoint()
@@ -130,23 +214,27 @@ fn toffoli() {
             }
         ",
         CircuitEntryPoint::EntryPoint,
-        Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
+        Eval:
+        q_0    ── ● ──
+        q_1    ── ● ──
+        q_2    ── X ──
+
+        Static:
         q_0    ─ [[ ─── [Main] ──── ● ─── ]] ──
                            ┆        │
         q_1    ─ [[ ─── [Main] ──── ● ─── ]] ──
                            ┆        │
         q_2    ─ [[ ─── [Main] ──── X ─── ]] ──
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
 fn rotation_gate() {
-    let circ = circuit(
+    let circ = circuit_both_ways(
         r"
             namespace Test {
                 @EntryPoint()
@@ -157,19 +245,21 @@ fn rotation_gate() {
             }
         ",
         CircuitEntryPoint::EntryPoint,
-        Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
+        Eval:
+        q_0    ─ Rx(1.5708) ──
+
+        Static:
         q_0    ─ [[ ─── [Main] ─── Rx(1.5708) ─── ]] ──
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
 fn classical_for_loop() {
-    let circ = circuit(
+    let circ = circuit_both_ways_with_config(
         r"
             namespace Test {
                 @EntryPoint()
@@ -187,18 +277,21 @@ fn classical_for_loop() {
             group_scopes: true,
             ..Default::default()
         },
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
+        Eval:
+        q_0    ─ [[ ──── [X(×6)] ──── X ─── [[ ──── [X(×5)] ──── X ──── X ──── X ──── X ──── X ─── ]] ─── ]] ──
+
+        Static:
         q_0    ─ [[ ─── [Main] ─── [[ ──── [X(×6)] ──── X ─── [[ ──── [X(×5)] ──── X ──── X ──── X ──── X ──── X ─── ]] ─── ]] ─── ]] ──
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
 fn for_loop_in_function_call() {
-    let circ = circuit(
+    let circ = circuit_both_ways_with_config(
         r"
             namespace Test {
                 @EntryPoint()
@@ -223,20 +316,24 @@ fn for_loop_in_function_call() {
             group_scopes: true,
             ..Default::default()
         },
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
+        Eval:
+        q_0    ─ [[ ──── [X(×6)] ──── X ─── [[ ──── [X(×5)] ──── X ──── X ──── X ──── X ──── X ─── ]] ─── ]] ──
+        q_1    ─ [[ ──── [X(×6)] ──── X ─── [[ ──── [X(×5)] ──── X ──── X ──── X ──── X ──── X ─── ]] ─── ]] ──
+
+        Static:
         q_0    ─ [[ ─── [Main] ─── [[ ──── [X(×6)] ──── X ────── [[ ─────── [X(×5)] ──── X ─────── X ─────── X ──── X ──── X ─── ]] ─── ]] ──────────────────────── ]] ──
                            ┆
         q_1    ─ [[ ─── [Main] ─── [[ ───── [Foo] ──── [[ ──── [X(×6)] ─────── X ────── [[ ──── [X(×5)] ──── X ──── X ──── X ──── X ──── X ─── ]] ─── ]] ─── ]] ─── ]] ──
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
 fn nested_callables() {
-    let circ = circuit(
+    let circ = circuit_both_ways(
         r"
             namespace Test {
                 @EntryPoint()
@@ -256,20 +353,22 @@ fn nested_callables() {
             }
         ",
         CircuitEntryPoint::EntryPoint,
-        Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
+        Eval:
+        q_0    ── X ──── Y ──── X ──── Y ──── X ──── Y ──
+
+        Static:
         q_0    ─ [[ ─── [Main] ─── [[ ─── [Foo] ── [[ ─── [Bar] ─── X ──── Y ─── ]] ─── ]] ─── [[ ─── [Bar] ─── X ──── Y ─── ]] ─── [[ ─── [Bar] ─── X ──── Y ─── ]] ─── ]] ──
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
 fn nested_callables_with_measurement() {
     // TODO: we should be able to do measurements
-    let circ = circuit(
+    let circ = circuit_both_ways(
         r"
             namespace Test {
                 @EntryPoint()
@@ -289,21 +388,25 @@ fn nested_callables_with_measurement() {
             }
         ",
         CircuitEntryPoint::EntryPoint,
-        Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
+        Eval:
+        q_0    ── X ──── Y ──── M ──── |0〉 ──── X ──── Y ──── M ──── |0〉 ──
+                                ╘═════════════════════════════╪════════════
+                                                              ╘════════════
+
+        Static:
         q_0    ─ [[ ─── [Main] ─── [[ ─── [Foo] ── [[ ─── [Bar] ─── X ──── Y ──── M ──── |0〉 ─── ]] ─── ]] ─── [[ ─── [Bar] ─── X ──── Y ──── M ──── |0〉 ─── ]] ─── ]] ──
                ═ [[ ═══ [Main] ═══ [[ ═══ [Foo] ══ [[ ═══ [Bar] ═                 ╘═════════════ ]] ═══ ]] ═════════════┆═════════════════════╪════════════════════ ]] ══
                ═ [[ ═══ [Main] ══                                                                            ═ [[ ═══ [Bar] ═                 ╘═════════════ ]] ═══ ]] ══
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
 fn callables_nested_and_sibling() {
-    let circ = circuit(
+    let circ = circuit_both_ways(
         r"
             operation Main() : Unit {
                 use q = Qubit();
@@ -325,11 +428,13 @@ fn callables_nested_and_sibling() {
             }
             ",
         CircuitEntryPoint::EntryPoint,
-        Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
+        Eval:
+        q_0    ── H ──── H ──── H ──── X ──── Y ──── X ──── Y ──
+
+        Static:
         q_0    ─ [[ ─── [Main] ─── [[ ─── [Foo] ─── H ─── ]] ─── [[ ─── [Foo] ─── H ─── ]] ─── [[ ─── [Bar] ── [[ ─── [Foo] ─── H ─── ]] ──── X ──── Y ──── X ──── Y ─── ]] ─── ]] ──
     "#]]
     .assert_eq(&circ.to_string());
@@ -337,7 +442,7 @@ fn callables_nested_and_sibling() {
 
 #[test]
 fn classical_for_loop_loop_detection() {
-    let circ = circuit(
+    let circ = circuit_both_ways_with_config(
         r"
             namespace Test {
                 @EntryPoint()
@@ -354,18 +459,21 @@ fn classical_for_loop_loop_detection() {
             loop_detection: true,
             ..Default::default()
         },
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
+        Eval:
+        q_0    ─ [[ ──── [X(×6)] ──── X ─── [[ ──── [X(×5)] ──── X ──── X ──── X ──── X ──── X ─── ]] ─── ]] ──
+
+        Static:
         q_0    ─ [[ ─── [Main] ─── [[ ──── [X(×6)] ──── X ─── [[ ──── [X(×5)] ──── X ──── X ──── X ──── X ──── X ─── ]] ─── ]] ─── ]] ──
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
 fn m_base_profile() {
-    let circ = circuit_with_profile(
+    let circ = circuit_with_profile_both_ways(
         r"
             namespace Test {
                 import Std.Measurement.*;
@@ -378,21 +486,24 @@ fn m_base_profile() {
             }
         ",
         CircuitEntryPoint::EntryPoint,
-        Config::default(),
         Profile::Base,
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
+        Eval:
+        q_0    ── H ──── M ──
+                         ╘═══
+
+        Static:
         q_0    ─ [[ ─── [Main] ──── H ──── M ─── ]] ──
                ═ [[ ═══ [Main] ══          ╘════ ]] ══
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
 fn m_default_profile() {
-    let circ = circuit(
+    let circ = circuit_both_ways(
         r"
             namespace Test {
                 import Std.Measurement.*;
@@ -405,11 +516,14 @@ fn m_default_profile() {
             }
         ",
         CircuitEntryPoint::EntryPoint,
-        Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
+        Eval:
+        q_0    ── H ──── M ──
+                         ╘═══
+
+        Static:
         q_0    ─ [[ ─── [Main] ──── H ──── M ─── ]] ──
                ═ [[ ═══ [Main] ══          ╘════ ]] ══
     "#]]
@@ -418,7 +532,7 @@ fn m_default_profile() {
 
 #[test]
 fn mresetz_default_profile() {
-    let circ = circuit(
+    let circ = circuit_both_ways(
         r"
             namespace Test {
                 import Std.Measurement.*;
@@ -431,20 +545,23 @@ fn mresetz_default_profile() {
             }
         ",
         CircuitEntryPoint::EntryPoint,
-        Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
+        Eval:
+        q_0    ── H ──── M ──── |0〉 ──
+                         ╘════════════
+
+        Static:
         q_0    ─ [[ ─── [Main] ──── H ──── M ──── |0〉 ─── ]] ──
                ═ [[ ═══ [Main] ══          ╘═════════════ ]] ══
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
 fn mresetz_base_profile() {
-    let circ = circuit_with_profile(
+    let circ = circuit_with_profile_both_ways(
         r"
             namespace Test {
                 import Std.Measurement.*;
@@ -457,17 +574,20 @@ fn mresetz_base_profile() {
             }
         ",
         CircuitEntryPoint::EntryPoint,
-        Config::default(),
         Profile::Base,
-    )
-    .expect("circuit generation should succeed");
+    );
 
     // code gen in Base turns the MResetZ into an M
     expect![[r#"
+        Eval:
+        q_0    ── H ──── M ──── |0〉 ──
+                         ╘════════════
+
+        Static:
         q_0    ─ [[ ─── [Main] ──── H ──── M ─── ]] ──
                ═ [[ ═══ [Main] ══          ╘════ ]] ══
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
@@ -581,8 +701,7 @@ fn result_comparison_to_literal() {
         ",
         CircuitEntryPoint::EntryPoint,
         Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
         q_0    ─ [[ ─── [Main] ──── H ──── M ─── [[ ──── [check (c_0 = |1〉)] ─── [[ ─── [true] ──── X ─── ]] ─── ]] ──── |0〉 ─── ]] ──
@@ -612,8 +731,7 @@ fn result_comparison_to_literal_zero() {
         ",
         CircuitEntryPoint::EntryPoint,
         Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
         q_0    ─ [[ ─── [Main] ──── H ──── M ─── [[ ──── [check (c_0 = |0〉)] ─── [[ ─── [true] ──── X ─── ]] ─── ]] ──── |0〉 ─── ]] ──
@@ -644,8 +762,7 @@ fn else_block_only() {
         ",
         CircuitEntryPoint::EntryPoint,
         Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
         q_0    ─ [[ ─── [Main] ──── H ──── M ─── [[ ──── [check (c_0 = |0〉)] ─── [[ ─── [false] ─── X ─── ]] ─── ]] ──── |0〉 ─── ]] ──
@@ -678,8 +795,7 @@ fn result_comparison_to_result() {
         ",
         CircuitEntryPoint::EntryPoint,
         Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
         q_0    ─ [[ ─── [Main] ──── H ──── M ─── [[ ───── [check (c_0c_1 = |00〉 or c_0c_1 = |11〉)] ───── [[ ─── [true] ──── X ─── ]] ─── ]] ──── |0〉 ─── ]] ──
@@ -692,8 +808,7 @@ fn result_comparison_to_result() {
 
 #[test]
 fn loop_and_scope() {
-    // TODO: something is weird with this one
-    let circ = circuit(
+    let circ = circuit_both_ways_with_config(
         r"
             namespace Test {
             operation Main() : Unit {
@@ -738,15 +853,20 @@ fn loop_and_scope() {
             group_scopes: true,
             ..Default::default()
         },
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
+        Eval:
+        q_0    ─ [[ ─── [H X X(×10)] ──── H ──── X ──── ● ─── [[ ──── [H(×9)] ──── H ──── X ──── ● ──── H ──── X ──── ● ──── H ──── X ──── ● ──── H ──── X ──── ● ──── H ──── X ──── ● ──── H ──── X ──── ● ──── H ──── X ──── ● ──── H ──── X ──── ● ──── H ──── X ──── ● ─── ]] ─── ]] ─── [[ ──── [H X X...(×10)] ──── X ─────────── X ─── [[ ──── [H(×9)] ──── X ─────────── X ──── X ─────────── X ──── X ─────────── X ──── X ─────────── X ──── X ─────────── X ──── X ─────────── X ──── X ─────────── X ──── X ─────────── X ──── X ─────────── X ─── ]] ─── ]] ─── [[ ─── [H Z X(×10)] ──── H ──── Z ──── ● ─── [[ ──── [H(×9)] ──── H ──── Z ──── ● ──── H ──── Z ──── ● ──── H ──── Z ──── ● ──── H ──── Z ──── ● ──── H ──── Z ──── ● ──── H ──── Z ──── ● ──── H ──── Z ──── ● ──── H ──── Z ──── ● ──── H ──── Z ──── ● ─── ]] ─── ]] ──── |0〉 ──
+                              ┆                         │                ┆                       │                    │                    │                    │                    │                    │                    │                    │                    │                                  ┆                           │                ┆                       │                    │                    │                    │                    │                    │                    │                    │                    │                                ┆                         │                ┆                       │                    │                    │                    │                    │                    │                    │                    │                    │
+        q_1    ─ [[ ─── [H X X(×10)] ────────────────── X ─── [[ ──── [H(×9)] ────────────────── X ────────────────── X ────────────────── X ────────────────── X ────────────────── X ────────────────── X ────────────────── X ────────────────── X ────────────────── X ─── ]] ─── ]] ─── [[ ──── [H X X...(×10)] ──── H ──── X ──── ● ─── [[ ──── [H(×9)] ──── H ──── X ──── ● ──── H ──── X ──── ● ──── H ──── X ──── ● ──── H ──── X ──── ● ──── H ──── X ──── ● ──── H ──── X ──── ● ──── H ──── X ──── ● ──── H ──── X ──── ● ──── H ──── X ──── ● ─── ]] ─── ]] ─── [[ ─── [H Z X(×10)] ────────────────── X ─── [[ ──── [H(×9)] ────────────────── X ────────────────── X ────────────────── X ────────────────── X ────────────────── X ────────────────── X ────────────────── X ────────────────── X ────────────────── X ─── ]] ─── ]] ──── |0〉 ──
+
+        Static:
         q_0    ─ [[ ─── [Main] ─── [[ ─── [PrepareSomething] ─── [[ ─── [H X X(×10)] ──── H ──── X ──── ● ─── [[ ──── [H(×9)] ──── H ──── X ──── ● ──── H ──── X ──── ● ──── H ──── X ──── ● ──── H ──── X ──── ● ──── H ──── X ──── ● ──── H ──── X ──── ● ──── H ──── X ──── ● ──── H ──── X ──── ● ──── H ──── X ──── ● ─── ]] ─── ]] ─── ]] ─── [[ ─── [DoSomethingElse] ── [[ ──── [H X X...(×10)] ──── X ─────────── X ─── [[ ──── [H(×9)] ──── X ─────────── X ──── X ─────────── X ──── X ─────────── X ──── X ─────────── X ──── X ─────────── X ──── X ─────────── X ──── X ─────────── X ──── X ─────────── X ──── X ─────────── X ─── ]] ─── ]] ─── ]] ─── [[ ─── [DoSomethingDifferent] ─── [[ ─── [H Z X(×10)] ──── H ──── Z ──── ● ─── [[ ──── [H(×9)] ──── H ──── Z ──── ● ──── H ──── Z ──── ● ──── H ──── Z ──── ● ──── H ──── Z ──── ● ──── H ──── Z ──── ● ──── H ──── Z ──── ● ──── H ──── Z ──── ● ──── H ──── Z ──── ● ──── H ──── Z ──── ● ─── ]] ─── ]] ─── ]] ──── |0〉 ─── ]] ──
                            ┆                       ┆                          ┆                         │                ┆                       │                    │                    │                    │                    │                    │                    │                    │                    │                                         ┆                           ┆                           │                ┆                       │                    │                    │                    │                    │                    │                    │                    │                    │                                            ┆                            ┆                         │                ┆                       │                    │                    │                    │                    │                    │                    │                    │                    │
         q_1    ─ [[ ─── [Main] ─── [[ ─── [PrepareSomething] ─── [[ ─── [H X X(×10)] ────────────────── X ─── [[ ──── [H(×9)] ────────────────── X ────────────────── X ────────────────── X ────────────────── X ────────────────── X ────────────────── X ────────────────── X ────────────────── X ────────────────── X ─── ]] ─── ]] ─── ]] ─── [[ ─── [DoSomethingElse] ── [[ ──── [H X X...(×10)] ──── H ──── X ──── ● ─── [[ ──── [H(×9)] ──── H ──── X ──── ● ──── H ──── X ──── ● ──── H ──── X ──── ● ──── H ──── X ──── ● ──── H ──── X ──── ● ──── H ──── X ──── ● ──── H ──── X ──── ● ──── H ──── X ──── ● ──── H ──── X ──── ● ─── ]] ─── ]] ─── ]] ─── [[ ─── [DoSomethingDifferent] ─── [[ ─── [H Z X(×10)] ────────────────── X ─── [[ ──── [H(×9)] ────────────────── X ────────────────── X ────────────────── X ────────────────── X ────────────────── X ────────────────── X ────────────────── X ────────────────── X ────────────────── X ─── ]] ─── ]] ─── ]] ──── |0〉 ─── ]] ──
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
@@ -774,8 +894,7 @@ fn result_comparison_empty_block() {
         ",
         CircuitEntryPoint::EntryPoint,
         Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
         q_0    ─ [[ ─── [Main] ──── H ──── M ──── |0〉 ─── ]] ──
@@ -788,7 +907,7 @@ fn result_comparison_empty_block() {
 
 #[test]
 fn custom_intrinsic() {
-    let circ = circuit(
+    let circ = circuit_both_ways(
         r"
     namespace Test {
         operation foo(q: Qubit): Unit {
@@ -802,19 +921,21 @@ fn custom_intrinsic() {
         }
     }",
         CircuitEntryPoint::EntryPoint,
-        Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
+        Eval:
+        q_0    ─ foo ─
+
+        Static:
         q_0    ─ [[ ─── [Main] ─── foo ── ]] ──
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
 fn custom_intrinsic_classical_arg() {
-    let circ = circuit(
+    let circ = circuit_both_ways(
         r"
     namespace Test {
         operation foo(n: Int): Unit {
@@ -829,21 +950,23 @@ fn custom_intrinsic_classical_arg() {
         }
     }",
         CircuitEntryPoint::EntryPoint,
-        Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
 
     // A custom intrinsic that doesn't take qubits just doesn't
     // show up on the circuit.
     expect![[r#"
+        Eval:
+        q_0    ── X ──
+
+        Static:
         q_0    ─ [[ ─── [Main] ──── X ─── ]] ──
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
 fn custom_intrinsic_one_classical_arg() {
-    let circ = circuit(
+    let circ = circuit_both_ways(
         r"
     namespace Test {
         operation foo(n: Int, q: Qubit): Unit {
@@ -858,14 +981,16 @@ fn custom_intrinsic_one_classical_arg() {
         }
     }",
         CircuitEntryPoint::EntryPoint,
-        Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
+        Eval:
+        q_0    ── X ─── foo(4) ──
+
+        Static:
         q_0    ─ [[ ─── [Main] ──── X ─── foo(4) ─── ]] ──
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
@@ -898,11 +1023,7 @@ fn custom_intrinsic_mixed_args_classical_eval() {
                 ..Default::default()
             }
         },
-    )
-    .expect("circuit generation should succeed");
-
-    // This intrinsic never gets codegenned, so it's missing from the
-    // circuit too.
+    );
 
     expect![[r#"
         q_0    ─ AccountForEstimatesInternal([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], 1) ──
@@ -953,8 +1074,7 @@ fn custom_intrinsic_mixed_args_static() {
     }",
         CircuitEntryPoint::EntryPoint,
         Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
 
     // This intrinsic never gets codegenned, so it's missing from the
     // circuit too.
@@ -992,8 +1112,7 @@ fn custom_intrinsic_apply_idle_noise_classical_eval() {
             generation_method: GenerationMethod::ClassicalEval,
             ..Default::default()
         },
-    )
-    .expect("circuit generation should succeed");
+    );
 
     // These intrinsics never get codegenned, so they're missing from the
     // circuit too.
@@ -1018,8 +1137,7 @@ fn custom_intrinsic_apply_idle_noise_static() {
     }",
         CircuitEntryPoint::EntryPoint,
         Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
 
     // These intrinsics never get codegenned, so they're missing from the
     // circuit too.
@@ -1031,7 +1149,7 @@ fn custom_intrinsic_apply_idle_noise_static() {
 
 #[test]
 fn operation_with_qubits() {
-    let circ = circuit(
+    let circ = circuit_both_ways(
         r"
         namespace Test {
             @EntryPoint()
@@ -1045,11 +1163,16 @@ fn operation_with_qubits() {
 
         }",
         CircuitEntryPoint::Operation("Test.Test".into()),
-        Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
+        Eval:
+        q_0    ── H ──── ● ──── M ──
+                         │      ╘═══
+        q_1    ───────── X ──── M ──
+                                ╘═══
+
+        Static:
         q_0    ─ [[ ─── [Test] ──── H ──── ● ──── M ─── ]] ──
                ═ [[ ═══ [Test] ══          │      ╘════ ]] ══
         q_1    ─ [[ ─── [Test] ─────────── X ──── M ─── ]] ──
@@ -1060,7 +1183,7 @@ fn operation_with_qubits() {
 
 #[test]
 fn operation_with_qubit_arrays() {
-    let circ = circuit(
+    let circ = circuit_both_ways(
         r"
         namespace Test {
             @EntryPoint()
@@ -1088,11 +1211,29 @@ fn operation_with_qubit_arrays() {
             }
         }",
         CircuitEntryPoint::Operation("Test.Test".into()),
-        Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
+        Eval:
+        q_0    ── H ──── M ──
+                         ╘═══
+        q_1    ── H ──── M ──
+                         ╘═══
+        q_2    ── X ─────────
+        q_3    ── X ─────────
+        q_4    ── X ─────────
+        q_5    ── X ─────────
+        q_6    ── Y ─────────
+        q_7    ── Y ─────────
+        q_8    ── Y ─────────
+        q_9    ── Y ─────────
+        q_10   ── Y ─────────
+        q_11   ── Y ─────────
+        q_12   ── Y ─────────
+        q_13   ── Y ─────────
+        q_14   ── X ─────────
+
+        Static:
         q_0    ─ [[ ─── [Test] ──── H ──── M ─── ]] ──
                ═ [[ ═══ [Test] ══          ╘════ ]] ══
         q_1    ─ [[ ─── [Test] ──── H ──── M ─── ]] ──
@@ -1123,12 +1264,12 @@ fn operation_with_qubit_arrays() {
                            ┆
         q_14   ─ [[ ─── [Test] ──── X ────────── ]] ──
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
 fn adjoint_operation() {
-    let circ = circuit(
+    let circ = circuit_both_ways(
         r"
         namespace Test {
             @EntryPoint()
@@ -1151,11 +1292,13 @@ fn adjoint_operation() {
 
         }",
         CircuitEntryPoint::Operation("Adjoint Test.Foo".into()),
-        Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
+        Eval:
+        q_0    ── Y ──
+
+        Static:
         q_0    ─ [[ ─── [Foo] ─── Y ─── ]] ──
     "#]]
     .assert_eq(&circ.to_string());
@@ -1163,18 +1306,20 @@ fn adjoint_operation() {
 
 #[test]
 fn lambda() {
-    let circ = circuit(
+    let circ = circuit_both_ways(
         r"
         namespace Test {
             @EntryPoint()
             operation Main() : Result[] { [] }
         }",
         CircuitEntryPoint::Operation("q => H(q)".into()),
-        Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
+        Eval:
+        q_0    ── H ──
+
+        Static:
         q_0    ─ [[ ─── [<lambda>] ──── H ─── ]] ──
     "#]]
     .assert_eq(&circ.to_string());
@@ -1182,7 +1327,7 @@ fn lambda() {
 
 #[test]
 fn controlled_operation() {
-    let circ_err = circuit(
+    let circ_err = circuit_err(
         r"
         namespace Test {
             @EntryPoint()
@@ -1211,8 +1356,7 @@ fn controlled_operation() {
         }",
         CircuitEntryPoint::Operation("Controlled Test.SWAP".into()),
         Config::default(),
-    )
-    .expect_err("circuit generation should fail");
+    );
 
     // Controlled operations are not supported at the moment.
     // We don't generate an accurate call signature with the tuple arguments.
@@ -1228,7 +1372,7 @@ fn controlled_operation() {
 
 #[test]
 fn internal_operation() {
-    let circ = circuit(
+    let circ = circuit_both_ways(
         r"
         namespace Test {
             @EntryPoint()
@@ -1241,11 +1385,16 @@ fn internal_operation() {
             }
         }",
         CircuitEntryPoint::Operation("Test.Test".into()),
-        Config::default(),
-    )
-    .expect("circuit generation should not fail");
+    );
 
     expect![[r#"
+        Eval:
+        q_0    ── H ──── ● ──── M ──
+                         │      ╘═══
+        q_1    ───────── X ──── M ──
+                                ╘═══
+
+        Static:
         q_0    ─ [[ ─── [Test] ──── H ──── ● ──── M ─── ]] ──
                ═ [[ ═══ [Test] ══          │      ╘════ ]] ══
         q_1    ─ [[ ─── [Test] ─────────── X ──── M ─── ]] ──
@@ -1256,7 +1405,7 @@ fn internal_operation() {
 
 #[test]
 fn operation_with_non_qubit_args() {
-    let circ_err = circuit(
+    let circ_err = circuit_err(
         r"
         namespace Test {
             @EntryPoint()
@@ -1268,8 +1417,7 @@ fn operation_with_non_qubit_args() {
         }",
         CircuitEntryPoint::Operation("Test.Test".into()),
         Config::default(),
-    )
-    .expect_err("circuit generation should fail");
+    );
 
     expect![[r"
         [
@@ -1283,7 +1431,7 @@ fn operation_with_non_qubit_args() {
 
 #[test]
 fn operation_with_long_gates_properly_aligned() {
-    let circ = circuit(
+    let circ = circuit_both_ways(
         r"
             namespace Test {
                 import Std.Measurement.*;
@@ -1320,11 +1468,19 @@ fn operation_with_long_gates_properly_aligned() {
             }
         ",
         CircuitEntryPoint::EntryPoint,
-        Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
+        Eval:
+        q_0    ── H ────────────────────────────────────── ● ──────── M ────────────────────────────────── ● ─────────
+                                                           │          ╘════════════════════════════════════╪══════════
+        q_1    ── H ──────── X ─────── Ry(1.0000) ──────── X ───────────────────────────── Rxx(1.0000) ────┼───── M ──
+                                                                                                ┆          │      ╘═══
+        q_2    ── H ─── Rx(1.0000) ──────── H ─────── Rx(1.0000) ──── H ─── Rx(1.0000) ─────────┆──────────┼──────────
+        q_3    ─────────────────────────────────────────────────────────────────────────── Rxx(1.0000) ─── X ──── M ──
+                                                                                                                  ╘═══
+
+        Static:
         q_0    ─ [[ ─── [Main] ──── H ────────────────────────────────────── ● ──────── M ────────────────────────────────── ● ────────── ]] ──
                ═ [[ ═══ [Main] ══                                            │          ╘════════════════════════════════════╪═══════════ ]] ══
         q_1    ─ [[ ─── [Main] ──── H ──────── X ─────── Ry(1.0000) ──────── X ───────────────────────────── Rxx(1.0000) ────┼───── M ─── ]] ──
@@ -1339,7 +1495,7 @@ fn operation_with_long_gates_properly_aligned() {
 
 #[test]
 fn operation_with_subsequent_qubits_gets_horizontal_lines() {
-    let circ = circuit(
+    let circ = circuit_both_ways(
         r"
             namespace Test {
                 import Std.Measurement.*;
@@ -1357,11 +1513,18 @@ fn operation_with_subsequent_qubits_gets_horizontal_lines() {
             }
         ",
         CircuitEntryPoint::EntryPoint,
-        Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
+        Eval:
+        q_0    ─ Rxx(1.0000) ─
+                      ┆
+        q_1    ─ Rxx(1.0000) ─
+        q_2    ─ Rxx(1.0000) ─
+                      ┆
+        q_3    ─ Rxx(1.0000) ─
+
+        Static:
         q_0    ─ [[ ─── [Main] ─── Rxx(1.0000) ── ]] ──
                            ┆            ┆
         q_1    ─ [[ ─── [Main] ─── Rxx(1.0000) ── ]] ──
@@ -1391,8 +1554,7 @@ fn operation_with_subsequent_qubits_no_double_rows() {
         ",
         CircuitEntryPoint::EntryPoint,
         Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
         q_0    ─ [[ ─── [Main] ─── Rxx(1.0000) ── Rxx(1.0000) ── ]] ──
@@ -1425,8 +1587,7 @@ fn operation_with_subsequent_qubits_no_added_rows() {
         ",
         CircuitEntryPoint::EntryPoint,
         Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
         q_0    ─ [[ ─── [Main] ─── Rxx(1.0000) ─── M ─── ]] ──
@@ -1465,8 +1626,7 @@ fn if_else() {
         ",
         CircuitEntryPoint::EntryPoint,
         Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
         q_0    ─ [[ ─── [Main] ──── H ──── M ───────────────────────────────────────────────────────────────────────────────────────────────────────────────── ]] ──
@@ -1510,8 +1670,7 @@ fn sequential_ifs() {
         ",
         CircuitEntryPoint::EntryPoint,
         Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
         q_0    ─ [[ ─── [Main] ──── H ──── M ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── ]] ──
@@ -1526,7 +1685,7 @@ fn sequential_ifs() {
 
 #[test]
 fn nested_ifs() {
-    let circ_err = circuit(
+    let circ_err = circuit_err(
         r"
             namespace Test {
                 import Std.Measurement.*;
@@ -1556,8 +1715,7 @@ fn nested_ifs() {
         ",
         CircuitEntryPoint::EntryPoint,
         Config::default(),
-    )
-    .expect_err("circuit generation should fail");
+    );
 
     expect![[r#"
         [
@@ -1596,8 +1754,7 @@ fn multiple_possible_float_values_in_unitary_arg() {
         ",
         CircuitEntryPoint::EntryPoint,
         Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
         q_0    ─ [[ ─── [Main] ──── H ──── M ───────────────────────────────────── ]] ──
@@ -1609,7 +1766,7 @@ fn multiple_possible_float_values_in_unitary_arg() {
 }
 
 #[test]
-fn panic_in_register_grouping() {
+fn register_grouping() {
     let circ = circuit(
         r#"
             operation Main() : Unit {
@@ -1629,8 +1786,7 @@ fn panic_in_register_grouping() {
                 ..Default::default()
             }
         },
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
         q_0    ─ [[ ─── [Main (q[0, 1])] ─── H (q[0]) ─── X (q[0]) ─── CX (q[0, 1]) ─── H (q[0]) ─── X (q[0]) ─── CX (q[0, 1]) ─── H (q[0]) ─── X (q[0]) ─── CX (q[0, 1]) ─── H (q[0]) ─── X (q[0]) ─── CX (q[0, 1]) ─── H (q[0]) ─── X (q[0]) ─── CX (q[0, 1]) ─── H (q[0]) ─── X (q[0]) ─── CX (q[0, 1]) ─── H (q[0]) ─── X (q[0]) ─── CX (q[0, 1]) ─── H (q[0]) ─── X (q[0]) ─── CX (q[0, 1]) ─── H (q[0]) ─── X (q[0]) ─── CX (q[0, 1]) ─── H (q[0]) ─── X (q[0]) ─── CX (q[0, 1]) ─── ]] ──
@@ -1661,8 +1817,7 @@ fn custom_intrinsic_variable_arg() {
         ",
         CircuitEntryPoint::EntryPoint,
         Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
         q_0    ─ [[ ─── [Main] ──── H ──── M ─── foo(function of: (c_0)) ── ]] ──
@@ -1701,8 +1856,7 @@ fn branch_on_dynamic_double() {
         ",
         CircuitEntryPoint::EntryPoint,
         Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
         q_0    ─ [[ ─── [Main] ──── H ──── M ───────────────────────────────────── ]] ──
@@ -1746,8 +1900,7 @@ fn branch_on_dynamic_bool() {
         ",
         CircuitEntryPoint::EntryPoint,
         Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
         q_0    ─ [[ ─── [Main] ──── H ──── M ───────────────────────────────────────────────────────────────────────────────────────── ]] ──
@@ -1809,8 +1962,7 @@ fn teleportation() {
         "#,
         CircuitEntryPoint::EntryPoint,
         Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
         q_0    ─ [[ ─── [Main] ──────── H ──────── ● ──── X ──── M ──── |0〉 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── ]] ──
@@ -1829,8 +1981,7 @@ fn dot_product_phase_estimation() {
         DOT_PRODUCT_PHASE_ESTIMATION,
         CircuitEntryPoint::EntryPoint,
         Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
     expect![[r#"
         q_0    ─ [[ ─── [Main] ─── [[ ─── [PerformMeasurements] ── [[ ─── [QuantumInnerProduct] ── [[ ─── [IterativePhaseEstimation] ─── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(0.2244) ──── X ─── Rz(-0.2244) ─── X ──── H ──── S ─── S' ──── H ─── Rz(0.3142) ──── X ─── Rz(-0.3142) ─── X ──── H ──── S ─── ]] ─── [[ ─── [GOracle] ───────── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(-0.3142) ─── X ─── Rz(0.3142) ──── X ──── H ──── S ─── S' ──── H ─── Rz(-0.2244) ─── X ─── Rz(0.2244) ──── X ──── H ──── S ─── ]] ──── X ──── H ──── X ──── H ──── X ─── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(0.2244) ──── X ─── Rz(-0.2244) ─── X ──── H ──── S ─── S' ──── H ─── Rz(0.3142) ──── X ─── Rz(-0.3142) ─── X ──── H ──── S ─── ]] ─── ]] ─── [[ ─── [GOracle] ───────── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(-0.3142) ─── X ─── Rz(0.3142) ──── X ──── H ──── S ─── S' ──── H ─── Rz(-0.2244) ─── X ─── Rz(0.2244) ──── X ──── H ──── S ─── ]] ──── X ──── H ──── X ──── H ──── X ─── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(0.2244) ──── X ─── Rz(-0.2244) ─── X ──── H ──── S ─── S' ──── H ─── Rz(0.3142) ──── X ─── Rz(-0.3142) ─── X ──── H ──── S ─── ]] ─── ]] ─── [[ ─── [GOracle] ───────── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(-0.3142) ─── X ─── Rz(0.3142) ──── X ──── H ──── S ─── S' ──── H ─── Rz(-0.2244) ─── X ─── Rz(0.2244) ──── X ──── H ──── S ─── ]] ──── X ──── H ──── X ──── H ──── X ─── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(0.2244) ──── X ─── Rz(-0.2244) ─── X ──── H ──── S ─── S' ──── H ─── Rz(0.3142) ──── X ─── Rz(-0.3142) ─── X ──── H ──── S ─── ]] ─── ]] ─── [[ ─── [GOracle] ───────── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(-0.3142) ─── X ─── Rz(0.3142) ──── X ──── H ──── S ─── S' ──── H ─── Rz(-0.2244) ─── X ─── Rz(0.2244) ──── X ──── H ──── S ─── ]] ──── X ──── H ──── X ──── H ──── X ─── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(0.2244) ──── X ─── Rz(-0.2244) ─── X ──── H ──── S ─── S' ──── H ─── Rz(0.3142) ──── X ─── Rz(-0.3142) ─── X ──── H ──── S ─── ]] ─── ]] ─── [[ ─── [GOracle] ───────── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(-0.3142) ─── X ─── Rz(0.3142) ──── X ──── H ──── S ─── S' ──── H ─── Rz(-0.2244) ─── X ─── Rz(0.2244) ──── X ──── H ──── S ─── ]] ──── X ──── H ──── X ──── H ──── X ─── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(0.2244) ──── X ─── Rz(-0.2244) ─── X ──── H ──── S ─── S' ──── H ─── Rz(0.3142) ──── X ─── Rz(-0.3142) ─── X ──── H ──── S ─── ]] ─── ]] ─── [[ ─── [GOracle] ───────── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(-0.3142) ─── X ─── Rz(0.3142) ──── X ──── H ──── S ─── S' ──── H ─── Rz(-0.2244) ─── X ─── Rz(0.2244) ──── X ──── H ──── S ─── ]] ──── X ──── H ──── X ──── H ──── X ─── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(0.2244) ──── X ─── Rz(-0.2244) ─── X ──── H ──── S ─── S' ──── H ─── Rz(0.3142) ──── X ─── Rz(-0.3142) ─── X ──── H ──── S ─── ]] ─── ]] ─── [[ ─── [GOracle] ───────── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(-0.3142) ─── X ─── Rz(0.3142) ──── X ──── H ──── S ─── S' ──── H ─── Rz(-0.2244) ─── X ─── Rz(0.2244) ──── X ──── H ──── S ─── ]] ──── X ──── H ──── X ──── H ──── X ─── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(0.2244) ──── X ─── Rz(-0.2244) ─── X ──── H ──── S ─── S' ──── H ─── Rz(0.3142) ──── X ─── Rz(-0.3142) ─── X ──── H ──── S ─── ]] ─── ]] ─── [[ ─── [GOracle] ───────── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(-0.3142) ─── X ─── Rz(0.3142) ──── X ──── H ──── S ─── S' ──── H ─── Rz(-0.2244) ─── X ─── Rz(0.2244) ──── X ──── H ──── S ─── ]] ──── X ──── H ──── X ──── H ──── X ─── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(0.2244) ──── X ─── Rz(-0.2244) ─── X ──── H ──── S ─── S' ──── H ─── Rz(0.3142) ──── X ─── Rz(-0.3142) ─── X ──── H ──── S ─── ]] ─── ]] ─── [[ ─── [GOracle] ───────── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(-0.3142) ─── X ─── Rz(0.3142) ──── X ──── H ──── S ─── S' ──── H ─── Rz(-0.2244) ─── X ─── Rz(0.2244) ──── X ──── H ──── S ─── ]] ──── X ──── H ──── X ──── H ──── X ─── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(0.2244) ──── X ─── Rz(-0.2244) ─── X ──── H ──── S ─── S' ──── H ─── Rz(0.3142) ──── X ─── Rz(-0.3142) ─── X ──── H ──── S ─── ]] ─── ]] ─── [[ ─── [GOracle] ───────── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(-0.3142) ─── X ─── Rz(0.3142) ──── X ──── H ──── S ─── S' ──── H ─── Rz(-0.2244) ─── X ─── Rz(0.2244) ──── X ──── H ──── S ─── ]] ──── X ──── H ──── X ──── H ──── X ─── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(0.2244) ──── X ─── Rz(-0.2244) ─── X ──── H ──── S ─── S' ──── H ─── Rz(0.3142) ──── X ─── Rz(-0.3142) ─── X ──── H ──── S ─── ]] ─── ]] ─── [[ ─── [GOracle] ───────── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(-0.3142) ─── X ─── Rz(0.3142) ──── X ──── H ──── S ─── S' ──── H ─── Rz(-0.2244) ─── X ─── Rz(0.2244) ──── X ──── H ──── S ─── ]] ──── X ──── H ──── X ──── H ──── X ─── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(0.2244) ──── X ─── Rz(-0.2244) ─── X ──── H ──── S ─── S' ──── H ─── Rz(0.3142) ──── X ─── Rz(-0.3142) ─── X ──── H ──── S ─── ]] ─── ]] ─── [[ ─── [GOracle] ───────── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(-0.3142) ─── X ─── Rz(0.3142) ──── X ──── H ──── S ─── S' ──── H ─── Rz(-0.2244) ─── X ─── Rz(0.2244) ──── X ──── H ──── S ─── ]] ──── X ──── H ──── X ──── H ──── X ─── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(0.2244) ──── X ─── Rz(-0.2244) ─── X ──── H ──── S ─── S' ──── H ─── Rz(0.3142) ──── X ─── Rz(-0.3142) ─── X ──── H ──── S ─── ]] ─── ]] ─── [[ ─── [GOracle] ───────── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(-0.3142) ─── X ─── Rz(0.3142) ──── X ──── H ──── S ─── S' ──── H ─── Rz(-0.2244) ─── X ─── Rz(0.2244) ──── X ──── H ──── S ─── ]] ──── X ──── H ──── X ──── H ──── X ─── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(0.2244) ──── X ─── Rz(-0.2244) ─── X ──── H ──── S ─── S' ──── H ─── Rz(0.3142) ──── X ─── Rz(-0.3142) ─── X ──── H ──── S ─── ]] ─── ]] ─── [[ ─── [GOracle] ───────── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(-0.3142) ─── X ─── Rz(0.3142) ──── X ──── H ──── S ─── S' ──── H ─── Rz(-0.2244) ─── X ─── Rz(0.2244) ──── X ──── H ──── S ─── ]] ──── X ──── H ──── X ──── H ──── X ─── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(0.2244) ──── X ─── Rz(-0.2244) ─── X ──── H ──── S ─── S' ──── H ─── Rz(0.3142) ──── X ─── Rz(-0.3142) ─── X ──── H ──── S ─── ]] ─── ]] ─── [[ ─── [GOracle] ───────── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(-0.3142) ─── X ─── Rz(0.3142) ──── X ──── H ──── S ─── S' ──── H ─── Rz(-0.2244) ─── X ─── Rz(0.2244) ──── X ──── H ──── S ─── ]] ──── X ──── H ──── X ──── H ──── X ─── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(0.2244) ──── X ─── Rz(-0.2244) ─── X ──── H ──── S ─── S' ──── H ─── Rz(0.3142) ──── X ─── Rz(-0.3142) ─── X ──── H ──── S ─── ]] ─── ]] ─── [[ ─── [GOracle] ───────── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(-0.3142) ─── X ─── Rz(0.3142) ──── X ──── H ──── S ─── S' ──── H ─── Rz(-0.2244) ─── X ─── Rz(0.2244) ──── X ──── H ──── S ─── ]] ──── X ──── H ──── X ──── H ──── X ─── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(0.2244) ──── X ─── Rz(-0.2244) ─── X ──── H ──── S ─── S' ──── H ─── Rz(0.3142) ──── X ─── Rz(-0.3142) ─── X ──── H ──── S ─── ]] ─── ]] ──────────────────────────────────────────────────────────────────────────────────────────────────────────────── [[ ─── [GOracle] ───────── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(-0.3142) ─── X ─── Rz(0.3142) ──── X ──── H ──── S ─── S' ──── H ─── Rz(-0.2244) ─── X ─── Rz(0.2244) ──── X ──── H ──── S ─── ]] ──── X ──── H ──── X ──── H ──── X ─── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(0.2244) ──── X ─── Rz(-0.2244) ─── X ──── H ──── S ─── S' ──── H ─── Rz(0.3142) ──── X ─── Rz(-0.3142) ─── X ──── H ──── S ─── ]] ─── ]] ─── [[ ─── [GOracle] ───────── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(-0.3142) ─── X ─── Rz(0.3142) ──── X ──── H ──── S ─── S' ──── H ─── Rz(-0.2244) ─── X ─── Rz(0.2244) ──── X ──── H ──── S ─── ]] ──── X ──── H ──── X ──── H ──── X ─── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(0.2244) ──── X ─── Rz(-0.2244) ─── X ──── H ──── S ─── S' ──── H ─── Rz(0.3142) ──── X ─── Rz(-0.3142) ─── X ──── H ──── S ─── ]] ─── ]] ─── [[ ─── [GOracle] ───────── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(-0.3142) ─── X ─── Rz(0.3142) ──── X ──── H ──── S ─── S' ──── H ─── Rz(-0.2244) ─── X ─── Rz(0.2244) ──── X ──── H ──── S ─── ]] ──── X ──── H ──── X ──── H ──── X ─── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(0.2244) ──── X ─── Rz(-0.2244) ─── X ──── H ──── S ─── S' ──── H ─── Rz(0.3142) ──── X ─── Rz(-0.3142) ─── X ──── H ──── S ─── ]] ─── ]] ─── [[ ─── [GOracle] ───────── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(-0.3142) ─── X ─── Rz(0.3142) ──── X ──── H ──── S ─── S' ──── H ─── Rz(-0.2244) ─── X ─── Rz(0.2244) ──── X ──── H ──── S ─── ]] ──── X ──── H ──── X ──── H ──── X ─── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(0.2244) ──── X ─── Rz(-0.2244) ─── X ──── H ──── S ─── S' ──── H ─── Rz(0.3142) ──── X ─── Rz(-0.3142) ─── X ──── H ──── S ─── ]] ─── ]] ─── [[ ─── [GOracle] ───────── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(-0.3142) ─── X ─── Rz(0.3142) ──── X ──── H ──── S ─── S' ──── H ─── Rz(-0.2244) ─── X ─── Rz(0.2244) ──── X ──── H ──── S ─── ]] ──── X ──── H ──── X ──── H ──── X ─── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(0.2244) ──── X ─── Rz(-0.2244) ─── X ──── H ──── S ─── S' ──── H ─── Rz(0.3142) ──── X ─── Rz(-0.3142) ─── X ──── H ──── S ─── ]] ─── ]] ─── [[ ─── [GOracle] ───────── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(-0.3142) ─── X ─── Rz(0.3142) ──── X ──── H ──── S ─── S' ──── H ─── Rz(-0.2244) ─── X ─── Rz(0.2244) ──── X ──── H ──── S ─── ]] ──── X ──── H ──── X ──── H ──── X ─── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(0.2244) ──── X ─── Rz(-0.2244) ─── X ──── H ──── S ─── S' ──── H ─── Rz(0.3142) ──── X ─── Rz(-0.3142) ─── X ──── H ──── S ─── ]] ─── ]] ─── [[ ─── [GOracle] ───────── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(-0.3142) ─── X ─── Rz(0.3142) ──── X ──── H ──── S ─── S' ──── H ─── Rz(-0.2244) ─── X ─── Rz(0.2244) ──── X ──── H ──── S ─── ]] ──── X ──── H ──── X ──── H ──── X ─── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(0.2244) ──── X ─── Rz(-0.2244) ─── X ──── H ──── S ─── S' ──── H ─── Rz(0.3142) ──── X ─── Rz(-0.3142) ─── X ──── H ──── S ─── ]] ─── ]] ─── [[ ─── [GOracle] ───────── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(-0.3142) ─── X ─── Rz(0.3142) ──── X ──── H ──── S ─── S' ──── H ─── Rz(-0.2244) ─── X ─── Rz(0.2244) ──── X ──── H ──── S ─── ]] ──── X ──── H ──── X ──── H ──── X ─── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(0.2244) ──── X ─── Rz(-0.2244) ─── X ──── H ──── S ─── S' ──── H ─── Rz(0.3142) ──── X ─── Rz(-0.3142) ─── X ──── H ──── S ─── ]] ─── ]] ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── [[ ─── [GOracle] ───────── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(-0.3142) ─── X ─── Rz(0.3142) ──── X ──── H ──── S ─── S' ──── H ─── Rz(-0.2244) ─── X ─── Rz(0.2244) ──── X ──── H ──── S ─── ]] ──── X ──── H ──── X ──── H ──── X ─── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(0.2244) ──── X ─── Rz(-0.2244) ─── X ──── H ──── S ─── S' ──── H ─── Rz(0.3142) ──── X ─── Rz(-0.3142) ─── X ──── H ──── S ─── ]] ─── ]] ─── [[ ─── [GOracle] ───────── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(-0.3142) ─── X ─── Rz(0.3142) ──── X ──── H ──── S ─── S' ──── H ─── Rz(-0.2244) ─── X ─── Rz(0.2244) ──── X ──── H ──── S ─── ]] ──── X ──── H ──── X ──── H ──── X ─── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(0.2244) ──── X ─── Rz(-0.2244) ─── X ──── H ──── S ─── S' ──── H ─── Rz(0.3142) ──── X ─── Rz(-0.3142) ─── X ──── H ──── S ─── ]] ─── ]] ─── [[ ─── [GOracle] ───────── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(-0.3142) ─── X ─── Rz(0.3142) ──── X ──── H ──── S ─── S' ──── H ─── Rz(-0.2244) ─── X ─── Rz(0.2244) ──── X ──── H ──── S ─── ]] ──── X ──── H ──── X ──── H ──── X ─── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(0.2244) ──── X ─── Rz(-0.2244) ─── X ──── H ──── S ─── S' ──── H ─── Rz(0.3142) ──── X ─── Rz(-0.3142) ─── X ──── H ──── S ─── ]] ─── ]] ─── [[ ─── [GOracle] ───────── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(-0.3142) ─── X ─── Rz(0.3142) ──── X ──── H ──── S ─── S' ──── H ─── Rz(-0.2244) ─── X ─── Rz(0.2244) ──── X ──── H ──── S ─── ]] ──── X ──── H ──── X ──── H ──── X ─── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(0.2244) ──── X ─── Rz(-0.2244) ─── X ──── H ──── S ─── S' ──── H ─── Rz(0.3142) ──── X ─── Rz(-0.3142) ─── X ──── H ──── S ─── ]] ─── ]] ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── [[ ─── [GOracle] ───────── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(-0.3142) ─── X ─── Rz(0.3142) ──── X ──── H ──── S ─── S' ──── H ─── Rz(-0.2244) ─── X ─── Rz(0.2244) ──── X ──── H ──── S ─── ]] ──── X ──── H ──── X ──── H ──── X ─── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(0.2244) ──── X ─── Rz(-0.2244) ─── X ──── H ──── S ─── S' ──── H ─── Rz(0.3142) ──── X ─── Rz(-0.3142) ─── X ──── H ──── S ─── ]] ─── ]] ─── [[ ─── [GOracle] ───────── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(-0.3142) ─── X ─── Rz(0.3142) ──── X ──── H ──── S ─── S' ──── H ─── Rz(-0.2244) ─── X ─── Rz(0.2244) ──── X ──── H ──── S ─── ]] ──── X ──── H ──── X ──── H ──── X ─── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(0.2244) ──── X ─── Rz(-0.2244) ─── X ──── H ──── S ─── S' ──── H ─── Rz(0.3142) ──── X ─── Rz(-0.3142) ─── X ──── H ──── S ─── ]] ─── ]] ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── [[ ─── [GOracle] ───────── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(-0.3142) ─── X ─── Rz(0.3142) ──── X ──── H ──── S ─── S' ──── H ─── Rz(-0.2244) ─── X ─── Rz(0.2244) ──── X ──── H ──── S ─── ]] ──── X ──── H ──── X ──── H ──── X ─── [[ ─── [StateInitialisation] ── S' ──── H ─── Rz(0.2244) ──── X ─── Rz(-0.2244) ─── X ──── H ──── S ─── S' ──── H ─── Rz(0.3142) ──── X ─── Rz(-0.3142) ─── X ──── H ──── S ─── ]] ─── ]] ────────────────────────── ]] ──── |0〉 ─── ]] ─── ]] ─── ]] ──
                            ┆                        ┆                               ┆                                  ┆                                  ┆                                            │                     │                                                 │                     │                                     ┆                                ┆                                            │                     │                                                 │                     │                                         │                                    ┆                                            │                     │                                                 │                     │                                            ┆                                ┆                                            │                     │                                                 │                     │                                         │                                    ┆                                            │                     │                                                 │                     │                                            ┆                                ┆                                            │                     │                                                 │                     │                                         │                                    ┆                                            │                     │                                                 │                     │                                            ┆                                ┆                                            │                     │                                                 │                     │                                         │                                    ┆                                            │                     │                                                 │                     │                                            ┆                                ┆                                            │                     │                                                 │                     │                                         │                                    ┆                                            │                     │                                                 │                     │                                            ┆                                ┆                                            │                     │                                                 │                     │                                         │                                    ┆                                            │                     │                                                 │                     │                                            ┆                                ┆                                            │                     │                                                 │                     │                                         │                                    ┆                                            │                     │                                                 │                     │                                            ┆                                ┆                                            │                     │                                                 │                     │                                         │                                    ┆                                            │                     │                                                 │                     │                                            ┆                                ┆                                            │                     │                                                 │                     │                                         │                                    ┆                                            │                     │                                                 │                     │                                            ┆                                ┆                                            │                     │                                                 │                     │                                         │                                    ┆                                            │                     │                                                 │                     │                                            ┆                                ┆                                            │                     │                                                 │                     │                                         │                                    ┆                                            │                     │                                                 │                     │                                            ┆                                ┆                                            │                     │                                                 │                     │                                         │                                    ┆                                            │                     │                                                 │                     │                                            ┆                                ┆                                            │                     │                                                 │                     │                                         │                                    ┆                                            │                     │                                                 │                     │                                            ┆                                ┆                                            │                     │                                                 │                     │                                         │                                    ┆                                            │                     │                                                 │                     │                                            ┆                                ┆                                            │                     │                                                 │                     │                                         │                                    ┆                                            │                     │                                                 │                     │                                            ┆                                ┆                                            │                     │                                                 │                     │                                         │                                    ┆                                            │                     │                                                 │                     │                                                                                                                                                         ┆                                ┆                                            │                     │                                                 │                     │                                         │                                    ┆                                            │                     │                                                 │                     │                                            ┆                                ┆                                            │                     │                                                 │                     │                                         │                                    ┆                                            │                     │                                                 │                     │                                            ┆                                ┆                                            │                     │                                                 │                     │                                         │                                    ┆                                            │                     │                                                 │                     │                                            ┆                                ┆                                            │                     │                                                 │                     │                                         │                                    ┆                                            │                     │                                                 │                     │                                            ┆                                ┆                                            │                     │                                                 │                     │                                         │                                    ┆                                            │                     │                                                 │                     │                                            ┆                                ┆                                            │                     │                                                 │                     │                                         │                                    ┆                                            │                     │                                                 │                     │                                            ┆                                ┆                                            │                     │                                                 │                     │                                         │                                    ┆                                            │                     │                                                 │                     │                                            ┆                                ┆                                            │                     │                                                 │                     │                                         │                                    ┆                                            │                     │                                                 │                     │                                                                                                                                                                                                                                        ┆                                ┆                                            │                     │                                                 │                     │                                         │                                    ┆                                            │                     │                                                 │                     │                                            ┆                                ┆                                            │                     │                                                 │                     │                                         │                                    ┆                                            │                     │                                                 │                     │                                            ┆                                ┆                                            │                     │                                                 │                     │                                         │                                    ┆                                            │                     │                                                 │                     │                                            ┆                                ┆                                            │                     │                                                 │                     │                                         │                                    ┆                                            │                     │                                                 │                     │                                                                                                                                                                                                                                                                                                                       ┆                                ┆                                            │                     │                                                 │                     │                                         │                                    ┆                                            │                     │                                                 │                     │                                            ┆                                ┆                                            │                     │                                                 │                     │                                         │                                    ┆                                            │                     │                                                 │                     │                                                                                                                                                                                                                                                                                                                                                                                                      ┆                                ┆                                            │                     │                                                 │                     │                                         │                                    ┆                                            │                     │                                                 │                     │
@@ -1995,8 +2146,7 @@ fn dynamics_small() {
         DYNAMICS_SMALL,
         CircuitEntryPoint::EntryPoint,
         Config::default(),
-    )
-    .expect("circuit generation should succeed");
+    );
     expect![[r#"
         q_0    ─ [[ ─── [Main] ─── [[ ─── [IsingModel2DSim] ── [[ ─── [ApplyAllX] ── [[ ─── [<lambda>] ─── Rx(0.3730) ─── ]] ─── ]] ─────────────────────────────────────────────────── [[ ─── [ApplyDoubleZ] ─── Rzz(0.7461) ── ]] ─── [[ ─── [ApplyDoubleZ] ─── Rzz(0.7461) ── ]] ─── [[ ─── [ApplyAllX] ── [[ ─── [<lambda>] ─── Rx(0.7461) ─── ]] ─── ]] ─────────────────────────────────────────────────── [[ ─── [ApplyDoubleZ] ─── Rzz(0.7461) ── ]] ─── [[ ─── [ApplyDoubleZ] ─── Rzz(0.7461) ── ]] ─── [[ ─── [ApplyAllX] ── [[ ─── [<lambda>] ─── Rx(-0.2191) ── ]] ─── ]] ─────────────────────────────────────────────────── [[ ─── [ApplyDoubleZ] ─── Rzz(0.5922) ── ]] ─── [[ ─── [ApplyDoubleZ] ─── Rzz(0.5922) ── ]] ─── [[ ─── [ApplyAllX] ── [[ ─── [<lambda>] ─── Rx(-0.2191) ── ]] ─── ]] ─────────────────────────────────────────────────── [[ ─── [ApplyDoubleZ] ─── Rzz(0.7461) ── ]] ─── [[ ─── [ApplyDoubleZ] ─── Rzz(0.7461) ── ]] ─── [[ ─── [ApplyAllX] ── [[ ─── [<lambda>] ─── Rx(0.7461) ─── ]] ─── ]] ─────────────────────────────────────────────────── [[ ─── [ApplyDoubleZ] ─── Rzz(0.7461) ── ]] ─── [[ ─── [ApplyDoubleZ] ─── Rzz(0.7461) ── ]] ─── [[ ─── [ApplyAllX] ── [[ ─── [<lambda>] ─── Rx(0.7461) ─── ]] ─── ]] ─────────────────────────────────────────────────── [[ ─── [ApplyDoubleZ] ─── Rzz(0.7461) ── ]] ─── [[ ─── [ApplyDoubleZ] ─── Rzz(0.7461) ── ]] ─── [[ ─── [ApplyAllX] ── [[ ─── [<lambda>] ─── Rx(0.7461) ─── ]] ─── ]] ─────────────────────────────────────────────────── [[ ─── [ApplyDoubleZ] ─── Rzz(0.7461) ── ]] ─── [[ ─── [ApplyDoubleZ] ─── Rzz(0.7461) ── ]] ─── [[ ─── [ApplyAllX] ── [[ ─── [<lambda>] ─── Rx(-0.2191) ── ]] ─── ]] ─────────────────────────────────────────────────── [[ ─── [ApplyDoubleZ] ─── Rzz(0.5922) ── ]] ─── [[ ─── [ApplyDoubleZ] ─── Rzz(0.5922) ── ]] ─── [[ ─── [ApplyAllX] ── [[ ─── [<lambda>] ─── Rx(-0.2191) ── ]] ─── ]] ─────────────────────────────────────────────────── [[ ─── [ApplyDoubleZ] ─── Rzz(0.7461) ── ]] ─── [[ ─── [ApplyDoubleZ] ─── Rzz(0.7461) ── ]] ─── [[ ─── [ApplyAllX] ── [[ ─── [<lambda>] ─── Rx(0.7461) ─── ]] ─── ]] ─────────────────────────────────────────────────── [[ ─── [ApplyDoubleZ] ─── Rzz(0.7461) ── ]] ─── [[ ─── [ApplyDoubleZ] ─── Rzz(0.7461) ── ]] ─── [[ ─── [ApplyAllX] ── [[ ─── [<lambda>] ─── Rx(0.3730) ─── ]] ─── ]] ─── ]] ─── ]] ──
                            ┆                      ┆                        ┆                     ┆                                                                                                    ┆                ┆                              ┆                ┆                            ┆                     ┆                                                                                                    ┆                ┆                              ┆                ┆                            ┆                     ┆                                                                                                    ┆                ┆                              ┆                ┆                            ┆                     ┆                                                                                                    ┆                ┆                              ┆                ┆                            ┆                     ┆                                                                                                    ┆                ┆                              ┆                ┆                            ┆                     ┆                                                                                                    ┆                ┆                              ┆                ┆                            ┆                     ┆                                                                                                    ┆                ┆                              ┆                ┆                            ┆                     ┆                                                                                                    ┆                ┆                              ┆                ┆                            ┆                     ┆                                                                                                    ┆                ┆                              ┆                ┆                            ┆                     ┆                                                                                                    ┆                ┆                              ┆                ┆                            ┆                     ┆
@@ -2288,8 +2438,7 @@ const XQPE: &str = r#"
 
 #[test]
 fn xqpe() {
-    let circ = circuit(XQPE, CircuitEntryPoint::EntryPoint, Config::default())
-        .expect("circuit generation should succeed");
+    let circ = circuit(XQPE, CircuitEntryPoint::EntryPoint, Config::default());
     expect![[r#"
         q_0    ─ [[ ─── [Main] ─── [[ ─── [IQPEMSB] ─── H ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── [[ ─── [ControlledEvolution] ──────────────────────────────── ● ─────────────────── ● ──────────────────────────────────────── ● ─────────────────── ● ──────────────────────────────────────── ● ─────────────────── ● ──────────────────────────────────────── ● ─────────────────── ● ──────────────────────────────────────── ● ─────────────────── ● ──────────────────────────────────────── ● ─────────────────── ● ──────────────────────────────────────── ● ─────────────────── ● ──────────────────────────────────────── ● ─────────────────── ● ──────────────────────────────────────── ● ─────────────────── ● ──────────────────────────────────────── ● ─────────────────── ● ──────────────────────────────────────── ● ─────────────────── ● ──────────────────────────────────────── ● ─────────────────── ● ──────────────────────────────────────── ● ─────────────────── ● ──────────────────────────────────────── ● ─────────────────── ● ──────────────────────────────────────── ● ─────────────────── ● ──────────────────────────────────────── ● ─────────────────── ● ────────── ]] ───── H ───── M ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── |0〉 ──── H ─── [[ ─── [check (function of: (c_0))] ─── [[ ─── [true] ─── Rz(function of: (c_0)) ─── ]] ─── ]] ─── [[ ─── [ControlledEvolution] ──────────────────────────────── ● ─────────────────── ● ──────────────────────────────────────── ● ─────────────────── ● ──────────────────────────────────────── ● ─────────────────── ● ──────────────────────────────────────── ● ─────────────────── ● ──────────────────────────────────────── ● ─────────────────── ● ──────────────────────────────────────── ● ─────────────────── ● ──────────────────────────────────────── ● ─────────────────── ● ──────────────────────────────────────── ● ─────────────────── ● ────────── ]] ───── H ───── M ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── |0〉 ──── H ─── [[ ─── [check (function of: (c_0, c_1))] ── [[ ─── [true] ─── Rz(function of: (c_0, c_1)) ── ]] ─── ]] ─── [[ ─── [ControlledEvolution] ──────────────────────────────── ● ─────────────────── ● ──────────────────────────────────────── ● ─────────────────── ● ──────────────────────────────────────── ● ─────────────────── ● ──────────────────────────────────────── ● ─────────────────── ● ────────── ]] ───── H ───── M ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── |0〉 ──── H ─── [[ ─── [check (function of: (c_0, c_1, c_2))] ─── [[ ─── [true] ─── Rz(function of: (c_0, c_1, c_2)) ─── ]] ─── ]] ─── [[ ─── [ControlledEvolution] ──────────────────────────────── ● ─────────────────── ● ──────────────────────────────────────── ● ─────────────────── ● ────────── ]] ───── H ───── M ──── |0〉 ─── ]] ─── ]] ──
                ═ [[ ═══ [Main] ═══ [[ ═══ [IQPEMSB] ═                                                                                                                                                                             ┆                                            │                     │                                          │                     │                                          │                     │                                          │                     │                                          │                     │                                          │                     │                                          │                     │                                          │                     │                                          │                     │                                          │                     │                                          │                     │                                          │                     │                                          │                     │                                          │                     │                                          │                     │                                          │                     │                             ╘════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════ ● ══════════════════════════ ● ════════════════ ● ═════════════════════════════════════════════┆════════════════════════════════════════════╪═════════════════════╪══════════════════════════════════════════╪═════════════════════╪══════════════════════════════════════════╪═════════════════════╪══════════════════════════════════════════╪═════════════════════╪══════════════════════════════════════════╪═════════════════════╪══════════════════════════════════════════╪═════════════════════╪══════════════════════════════════════════╪═════════════════════╪══════════════════════════════════════════╪═════════════════════╪═════════════════════════════╪══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════ ● ════════════════════════════ ● ══════════════════ ● ═══════════════════════════════════════════════┆════════════════════════════════════════════╪═════════════════════╪══════════════════════════════════════════╪═════════════════════╪══════════════════════════════════════════╪═════════════════════╪══════════════════════════════════════════╪═════════════════════╪═════════════════════════════╪═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════ ● ═══════════════════════════════ ● ═════════════════════ ● ══════════════════════════════════════════════════┆════════════════════════════════════════════╪═════════════════════╪══════════════════════════════════════════╪═════════════════════╪═════════════════════════════╪═════════════ ]] ═══ ]] ══

@@ -1354,6 +1354,7 @@ fn sim_circuit_backend(config: CircuitConfig) -> BackendChain<SparseSim, Circuit
     BackendChain::new(SparseSim::new(), CircuitBuilder::new(config))
 }
 
+#[derive(Debug, Clone)]
 /// Describes the entry point for circuit generation.
 pub enum CircuitEntryPoint {
     /// An operation. This must be a callable name or a lambda
