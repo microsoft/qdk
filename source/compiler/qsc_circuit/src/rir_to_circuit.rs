@@ -224,6 +224,8 @@ pub fn make_circuit(
         }
     }
 
+    let mut ops_remaining = config.max_operations;
+
     // Do it all again, with all variables properly resolved
     for (id, block) in program.blocks.iter() {
         let block_operations = operations_in_block(
@@ -232,8 +234,11 @@ pub fn make_circuit(
             &dbg_info,
             callables,
             block,
-            config.group_scopes,
+            ops_remaining,
         )?;
+
+        ops_remaining = ops_remaining.saturating_sub(block_operations.operations.len());
+
         program_map.blocks.insert(id, block_operations);
     }
 
@@ -843,14 +848,14 @@ fn operations_in_block(
     dbg_info: &DbgInfo,
     callables: &IndexMap<qsc_partial_eval::CallableId, Callable>,
     block: &BlockWithMetadata,
-    _group_scopes: bool,
+    ops_remaining: usize,
 ) -> Result<CircuitBlock, Error> {
     // TODO: use get_block_successors from utils
     let mut terminator = None;
     let mut phis = vec![];
     let mut done = false;
 
-    let mut builder = BlockBuilder::new();
+    let mut builder = BlockBuilder::new(ops_remaining);
     for instruction in &block.0 {
         if done {
             return Err(Error::UnsupportedFeature(

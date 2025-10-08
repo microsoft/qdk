@@ -10,18 +10,32 @@ use crate::{
 };
 
 pub(crate) struct BlockBuilder {
+    max_ops: usize,
+    max_ops_exceeded: bool,
     operations: Vec<Op>,
 }
 
 impl BlockBuilder {
-    pub fn new() -> Self {
+    pub(crate) fn new(max_operations: usize) -> Self {
         Self {
-            operations: Vec::new(),
+            max_ops: max_operations,
+            max_ops_exceeded: false,
+            operations: vec![],
         }
     }
 
     pub fn push(&mut self, op: Op) {
+        if self.max_ops_exceeded || self.operations.len() >= self.max_ops {
+            // Stop adding gates and leave the circuit as is
+            self.max_ops_exceeded = true;
+            return;
+        }
+
         self.operations.push(op);
+    }
+
+    pub fn operations(&self) -> &Vec<Op> {
+        &self.operations
     }
 
     pub fn into_operations(self) -> Vec<Op> {
