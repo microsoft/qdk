@@ -194,28 +194,28 @@ pub fn make_circuit(
         dbg_metadata_scopes: &program.dbg_metadata_scopes,
     };
     assert!(config.generation_method == GenerationMethod::Static);
-    let mut program_map = ProgramMap::new();
     let mut register_map = FixedQubitRegisterMap::new(
         usize::try_from(program.num_qubits).expect("number of qubits should fit in usize"),
     );
     let callables = &program.callables;
 
+    let mut variables: IndexMap<VariableId, Expr> = IndexMap::default();
     let mut i = 0;
     let mut done = false;
     while !done {
+        let mut blocks: IndexMap<BlockId, CircuitBlock> = IndexMap::default();
         for (id, block) in program.blocks.iter() {
             let block_operations = process_block_vars(
                 &dbg_info,
-                &mut program_map,
+                &mut variables,
                 &mut register_map,
                 callables,
                 block,
             )?;
-            program_map.blocks.insert(id, block_operations);
+            blocks.insert(id, block_operations);
         }
 
-        done = expand_branches_vars(&mut register_map, program, &mut program_map)?;
-        program_map.blocks.clear();
+        done = expand_branches_for_vars(&mut register_map, program, &mut variables, &blocks)?;
         i += 1;
         if i > 100 {
             warn!("make_circuit: too many iterations expanding branches, giving up");
@@ -224,6 +224,11 @@ pub fn make_circuit(
             ));
         }
     }
+
+    let mut program_map = ProgramMap {
+        variables,
+        blocks: IndexMap::default(),
+    };
 
     let mut ops_remaining = config.max_operations;
 
@@ -291,48 +296,30 @@ pub fn make_circuit(
 }
 
 /// true result means done
-fn expand_branches_vars(
+fn expand_branches_for_vars(
     register_map: &mut FixedQubitRegisterMap,
     program: &Program,
-    state: &mut ProgramMap,
+    variables: &mut IndexMap<VariableId, Expr>,
+    blocks: &IndexMap<BlockId, CircuitBlock>,
 ) -> Result<bool, Error> {
     let mut done = true;
     for (block_id, _) in program.blocks.iter() {
         // TODO: we can just iterate over state.blocks here
-        let mut circuit_block = state
-            .blocks
-            .get(block_id)
-            .expect("block should exist")
-            .clone();
+        let mut circuit_block = blocks.get(block_id).expect("block should exist").clone();
 
         if let Some(Terminator::Conditional(branch)) = circuit_block
             .terminator
             .take_if(|t| matches!(t, Terminator::Conditional(_)))
         {
-            let expanded_branch = expand_branch_vars(state, register_map, block_id, &branch)?;
+            let expanded_branch =
+                expand_branch_vars(variables, blocks, register_map, block_id, &branch)?;
 
             if let Some(expanded_branch) = expanded_branch {
-                let add = match &expanded_branch.grouped_operation.kind {
-                    OperationKind::Group { children, .. } => !children.is_empty(),
-                    _ => false,
-                };
-                if add {
-                    // don't add operations for empty branches
-                    circuit_block
-                        .operations
-                        .push(expanded_branch.grouped_operation);
-                }
-                circuit_block.terminator = Some(Terminator::Unconditional(
-                    expanded_branch.unconditional_successor,
-                ));
-
-                let condition_expr = state
-                    .expr_for_variable(branch.condition.variable_id)?
-                    .clone();
+                let condition_expr =
+                    expr_for_variable(variables, branch.condition.variable_id)?.clone();
                 // Find the successor and see if it has any phi nodes
                 for successor in expanded_branch.successors_to_check_for_phis {
-                    let successor_block = state
-                        .blocks
+                    let successor_block = blocks
                         .get(successor.block_id)
                         .expect("successor block should exist");
 
@@ -343,7 +330,7 @@ fn expand_branches_vars(
                     )?;
                     if let Some(phi_vars) = phi_vars {
                         for (var, expr) in phi_vars {
-                            state.store_expr_in_variable(var, expr)?;
+                            store_expr_in_variable(variables, var, expr)?;
                         }
                     } else {
                         done = false;
@@ -354,19 +341,25 @@ fn expand_branches_vars(
             }
         }
 
-        state.blocks.insert(block_id, circuit_block);
+        // blocks.insert(block_id, circuit_block);
     }
     Ok(done)
 }
 
+// TODO: this could be represented by a circuit block, maybe. Consider.
+struct ExpandedBranchBlockVarsOnly {
+    successors_to_check_for_phis: Vec<Successor>,
+}
+
 // None means more work to be done
 fn expand_branch_vars(
-    state: &mut ProgramMap,
+    variables: &IndexMap<VariableId, Expr>,
+    blocks: &IndexMap<BlockId, CircuitBlock>,
     register_map: &mut FixedQubitRegisterMap,
     curent_block_id: BlockId,
     branch: &Branch,
-) -> Result<Option<ExpandedBranchBlock>, Error> {
-    let cond_expr = state.expr_for_variable(branch.condition.variable_id)?;
+) -> Result<Option<ExpandedBranchBlockVarsOnly>, Error> {
+    let cond_expr = expr_for_variable(variables, branch.condition.variable_id)?;
     if cond_expr.is_unresolved() {
         return Ok(None);
     }
@@ -383,7 +376,7 @@ fn expand_branch_vars(
     }
 
     let branch_block = make_simple_branch_block(
-        state,
+        blocks,
         cond_expr,
         curent_block_id,
         branch.true_block,
@@ -398,7 +391,7 @@ fn expand_branch_vars(
         .iter()
         .map(|r| register_map.result_register(*r))
         .collect::<Vec<_>>();
-    let true_container = make_group_op("true", &true_operations, &true_targets, &control_results);
+    let true_container = make_group_op_vars_only(&true_operations, &control_results);
 
     let false_container = branch_block.false_block.map(
         |ConditionalBlock {
@@ -406,19 +399,24 @@ fn expand_branch_vars(
              targets: false_targets,
          }| {
             (
-                make_group_op("false", &false_operations, &false_targets, &control_results),
+                make_group_op_vars_only(&false_operations, &control_results),
                 false_targets,
             )
         },
     );
 
-    let true_container = if true_container.has_children() {
-        Some(true_container)
-    } else {
+    let true_container = if true_container.children.is_empty() {
         None
+    } else {
+        Some(true_container)
     };
-    let false_container =
-        false_container.and_then(|f| if f.0.has_children() { Some(f) } else { None });
+    let false_container = false_container.and_then(|f| {
+        if f.0.children.is_empty() {
+            None
+        } else {
+            Some(f)
+        }
+    });
 
     let mut children = vec![];
     let mut target_qubits = vec![];
@@ -438,27 +436,7 @@ fn expand_branch_vars(
     target_qubits.dedup();
     // TODO: target results for container? measurements in branches?
 
-    let args = vec![branch_block.cond_expr.to_string().clone()];
-    let label = "check ".to_string();
-
-    Ok(Some(ExpandedBranchBlock {
-        _condition: branch.condition,
-        grouped_operation: Op {
-            kind: OperationKind::Group {
-                children: children.into_iter().collect(),
-                scope_stack: None,
-                metadata: branch.metadata.clone(),
-                instruction_stack: branch.cond_expr_instruction_metadata.clone(),
-            },
-            label,
-            target_qubits,
-            control_qubits: vec![],
-            target_results: vec![],
-            control_results: control_results.clone(),
-            is_adjoint: false,
-            args,
-        },
-        unconditional_successor: branch_block.unconditional_successor.block_id,
+    Ok(Some(ExpandedBranchBlockVarsOnly {
         successors_to_check_for_phis: [
             branch_block.unconditional_successor,
             branch_block.true_successor,
@@ -467,6 +445,26 @@ fn expand_branch_vars(
         .chain(branch_block.false_successor)
         .collect(),
     }))
+}
+
+struct VarsOnlyGroupOp {
+    children: Vec<()>,
+}
+
+fn make_group_op_vars_only(
+    operations: &[Op],
+    control_results: &[ResultRegister],
+) -> VarsOnlyGroupOp {
+    let children = operations
+        .iter()
+        .map(|o| {
+            let mut o = o.clone();
+            o.control_results.extend(control_results.iter().copied());
+            o.control_results.sort_unstable();
+            o.control_results.dedup();
+        })
+        .collect();
+    VarsOnlyGroupOp { children }
 }
 
 fn make_group_op(
@@ -504,7 +502,7 @@ fn make_group_op(
 
 fn process_block_vars(
     dbg_info: &DbgInfo,
-    state: &mut ProgramMap,
+    variables: &mut IndexMap<VariableId, Expr>,
     register_map: &mut FixedQubitRegisterMap,
     callables: &IndexMap<qsc_partial_eval::CallableId, Callable>,
     block: &BlockWithMetadata,
@@ -522,7 +520,7 @@ fn process_block_vars(
         }
         let new_terminator = get_operations_for_instruction_vars_only(
             dbg_info,
-            state,
+            variables,
             register_map,
             callables,
             &mut phis,
@@ -721,9 +719,7 @@ fn fill_in_dbg_metadata(
 
 // TODO: this could be represented by a circuit block, maybe. Consider.
 struct ExpandedBranchBlock {
-    _condition: Variable,
     grouped_operation: Op,
-    successors_to_check_for_phis: Vec<Successor>,
     unconditional_successor: BlockId,
 }
 
@@ -733,7 +729,7 @@ fn expand_branch(
     curent_block_id: BlockId,
     branch: &Branch,
 ) -> Result<ExpandedBranchBlock, Error> {
-    let cond_expr = state.expr_for_variable(branch.condition.variable_id)?;
+    let cond_expr = expr_for_variable(&state.variables, branch.condition.variable_id)?;
     let results = cond_expr.linked_results();
 
     if let Expr::Bool(BoolExpr::LiteralBool(_)) = cond_expr {
@@ -750,7 +746,7 @@ fn expand_branch(
     }
 
     let branch_block = make_simple_branch_block(
-        state,
+        &state.blocks,
         cond_expr,
         curent_block_id,
         branch.true_block,
@@ -810,7 +806,6 @@ fn expand_branch(
     let label = "check ".to_string();
 
     Ok(ExpandedBranchBlock {
-        _condition: branch.condition,
         grouped_operation: Op {
             kind: OperationKind::Group {
                 children: children.into_iter().collect(),
@@ -827,13 +822,6 @@ fn expand_branch(
             args,
         },
         unconditional_successor: branch_block.unconditional_successor.block_id,
-        successors_to_check_for_phis: [
-            branch_block.unconditional_successor,
-            branch_block.true_successor,
-        ]
-        .into_iter()
-        .chain(branch_block.false_successor)
-        .collect(),
     })
 }
 
@@ -1295,7 +1283,7 @@ enum Terminator {
 
 fn get_operations_for_instruction_vars_only(
     dbg_info: &DbgInfo,
-    state: &mut ProgramMap,
+    variables: &mut IndexMap<VariableId, Expr>,
     register_map: &mut FixedQubitRegisterMap,
     callables: &IndexMap<qsc_partial_eval::CallableId, Callable>,
     phis: &mut Vec<(Variable, Vec<(Expr, BlockId)>)>,
@@ -1306,7 +1294,7 @@ fn get_operations_for_instruction_vars_only(
     match &instruction.instruction {
         Instruction::Call(callable_id, operands, var) => {
             process_callable_variables(
-                state,
+                variables,
                 register_map,
                 callables.get(*callable_id).expect("callable should exist"),
                 operands,
@@ -1315,7 +1303,7 @@ fn get_operations_for_instruction_vars_only(
         }
         Instruction::Fcmp(condition_code, operand, operand1, variable) => {
             extend_block_with_fcmp_instruction(
-                state,
+                variables,
                 *condition_code,
                 operand,
                 operand1,
@@ -1324,7 +1312,7 @@ fn get_operations_for_instruction_vars_only(
         }
         Instruction::Icmp(condition_code, operand, operand1, variable) => {
             extend_block_with_icmp_instruction(
-                state,
+                variables,
                 *condition_code,
                 operand,
                 operand1,
@@ -1350,7 +1338,7 @@ fn get_operations_for_instruction_vars_only(
             *done = true;
         }
         Instruction::Phi(pres, variable) => {
-            extend_block_with_phi_instruction(state, phis, pres, *variable)?;
+            extend_block_with_phi_instruction(variables, phis, pres, *variable)?;
         }
         Instruction::Add(operand, operand1, variable)
         | Instruction::Sub(operand, operand1, variable)
@@ -1368,7 +1356,7 @@ fn get_operations_for_instruction_vars_only(
         | Instruction::BitwiseAnd(operand, operand1, variable)
         | Instruction::BitwiseOr(operand, operand1, variable)
         | Instruction::BitwiseXor(operand, operand1, variable) => {
-            extend_block_with_binop_instruction(state, operand, operand1, *variable)?;
+            extend_block_with_binop_instruction(variables, operand, operand1, *variable)?;
         }
         instruction @ (Instruction::LogicalNot(..) | Instruction::BitwiseNot(..)) => {
             // Leave the variable unassigned, if it's used in anything that's going to be shown in the circuit, we'll raise an error then
@@ -1411,7 +1399,7 @@ fn get_operations_for_instruction(
         }
         Instruction::Fcmp(condition_code, operand, operand1, variable) => {
             extend_block_with_fcmp_instruction(
-                state,
+                &mut state.variables,
                 *condition_code,
                 operand,
                 operand1,
@@ -1420,7 +1408,7 @@ fn get_operations_for_instruction(
         }
         Instruction::Icmp(condition_code, operand, operand1, variable) => {
             extend_block_with_icmp_instruction(
-                state,
+                &mut state.variables,
                 *condition_code,
                 operand,
                 operand1,
@@ -1446,7 +1434,7 @@ fn get_operations_for_instruction(
             *done = true;
         }
         Instruction::Phi(pres, variable) => {
-            extend_block_with_phi_instruction(state, phis, pres, *variable)?;
+            extend_block_with_phi_instruction(&mut state.variables, phis, pres, *variable)?;
         }
         Instruction::Add(operand, operand1, variable)
         | Instruction::Sub(operand, operand1, variable)
@@ -1464,7 +1452,12 @@ fn get_operations_for_instruction(
         | Instruction::BitwiseAnd(operand, operand1, variable)
         | Instruction::BitwiseOr(operand, operand1, variable)
         | Instruction::BitwiseXor(operand, operand1, variable) => {
-            extend_block_with_binop_instruction(state, operand, operand1, *variable)?;
+            extend_block_with_binop_instruction(
+                &mut state.variables,
+                operand,
+                operand1,
+                *variable,
+            )?;
         }
         instruction @ (Instruction::LogicalNot(..) | Instruction::BitwiseNot(..)) => {
             // Leave the variable unassigned, if it's used in anything that's going to be shown in the circuit, we'll raise an error then
@@ -1481,25 +1474,25 @@ fn get_operations_for_instruction(
 }
 
 fn extend_block_with_binop_instruction(
-    state: &mut ProgramMap,
+    variables: &mut IndexMap<VariableId, Expr>,
     operand: &Operand,
     operand1: &Operand,
     variable: Variable,
 ) -> Result<(), Error> {
-    let expr_left = expr_from_operand(state, operand)?;
-    let expr_right = expr_from_operand(state, operand1)?;
+    let expr_left = expr_from_operand(variables, operand)?;
+    let expr_right = expr_from_operand(variables, operand1)?;
     let expr = Expr::Rich(RichExpr::FunctionOf(
         [expr_left, expr_right]
             .into_iter()
             .flat_map(|e| e.flat_exprs())
             .collect(),
     ));
-    state.store_expr_in_variable(variable, expr)?;
+    store_expr_in_variable(variables, variable, expr)?;
     Ok(())
 }
 
 fn extend_block_with_phi_instruction(
-    state: &mut ProgramMap,
+    variables: &mut IndexMap<VariableId, Expr>,
     phis: &mut Vec<(Variable, Vec<(Expr, BlockId)>)>,
     pres: &Vec<(Operand, BlockId)>,
     variable: Variable,
@@ -1507,13 +1500,13 @@ fn extend_block_with_phi_instruction(
     let mut exprs = vec![];
     let mut this_phis = vec![];
     for (var, label) in pres {
-        let expr = expr_from_operand(state, var)?;
+        let expr = expr_from_operand(variables, var)?;
         this_phis.push((expr.clone(), *label));
         exprs.push(expr);
     }
     phis.push((variable, this_phis));
 
-    state.store_variable_placeholder(variable);
+    store_variable_placeholder(variables, variable);
 
     Ok(())
 }
@@ -1566,7 +1559,7 @@ fn extend_block_with_branch_instruction(
 }
 
 fn extend_block_with_icmp_instruction(
-    state: &mut ProgramMap,
+    variables: &mut IndexMap<VariableId, Expr>,
     condition_code: ConditionCode,
     operand: &Operand,
     operand1: &Operand,
@@ -1574,10 +1567,10 @@ fn extend_block_with_icmp_instruction(
 ) -> Result<(), Error> {
     match condition_code {
         ConditionCode::Eq => {
-            let expr_left = expr_from_operand(state, operand)?;
-            let expr_right = expr_from_operand(state, operand1)?;
+            let expr_left = expr_from_operand(variables, operand)?;
+            let expr_right = expr_from_operand(variables, operand1)?;
             let expr = eq_expr(expr_left, expr_right)?;
-            state.store_expr_in_variable(variable, Expr::Bool(expr))
+            store_expr_in_variable(variables, variable, Expr::Bool(expr))
         }
         condition_code => Err(Error::UnsupportedFeature(format!(
             "unsupported condition code in icmp: {condition_code:?}"
@@ -1586,20 +1579,20 @@ fn extend_block_with_icmp_instruction(
 }
 
 fn extend_block_with_fcmp_instruction(
-    state: &mut ProgramMap,
+    variables: &mut IndexMap<VariableId, Expr>,
     condition_code: FcmpConditionCode,
     operand: &Operand,
     operand1: &Operand,
     variable: Variable,
 ) -> Result<(), Error> {
-    let expr_left = expr_from_operand(state, operand)?;
-    let expr_right = expr_from_operand(state, operand1)?;
+    let expr_left = expr_from_operand(variables, operand)?;
+    let expr_right = expr_from_operand(variables, operand1)?;
     let expr = match condition_code {
         FcmpConditionCode::False => BoolExpr::LiteralBool(false),
         FcmpConditionCode::True => BoolExpr::LiteralBool(true),
         cmp => BoolExpr::BinOp(expr_left.into(), expr_right.into(), cmp.to_string()),
     };
-    state.store_expr_in_variable(variable, Expr::Bool(expr))?;
+    store_expr_in_variable(variables, variable, Expr::Bool(expr))?;
     Ok(())
 }
 
@@ -1654,7 +1647,7 @@ struct BranchBlock {
 
 /// Can only handle basic branches
 fn make_simple_branch_block(
-    state: &ProgramMap,
+    blocks: &IndexMap<BlockId, CircuitBlock>,
     cond_expr: &Expr,
     current_block_id: BlockId,
     true_block_id: BlockId,
@@ -1664,15 +1657,12 @@ fn make_simple_branch_block(
         operations: true_operations,
         terminator: true_terminator,
         ..
-    } = state.blocks.get(true_block_id).expect("block should exist");
+    } = blocks.get(true_block_id).expect("block should exist");
     let CircuitBlock {
         operations: false_operations,
         terminator: false_terminator,
         ..
-    } = state
-        .blocks
-        .get(false_block_id)
-        .expect("block should exist");
+    } = blocks.get(false_block_id).expect("block should exist");
 
     let true_successor = match true_terminator {
         Some(Terminator::Unconditional(s)) => Some(*s),
@@ -1783,7 +1773,10 @@ fn expand_real_branch_block(operations: &Vec<Op>) -> Result<ConditionalBlock, Er
     })
 }
 
-fn expr_from_operand(state: &ProgramMap, operand: &Operand) -> Result<Expr, Error> {
+fn expr_from_operand(
+    variables: &IndexMap<VariableId, Expr>,
+    operand: &Operand,
+) -> Result<Expr, Error> {
     match operand {
         Operand::Literal(literal) => match literal {
             Literal::Result(r) => Ok(Expr::Bool(BoolExpr::Result(
@@ -1796,7 +1789,7 @@ fn expr_from_operand(state: &ProgramMap, operand: &Operand) -> Result<Expr, Erro
                 "unsupported literal operand: {literal:?}"
             ))),
         },
-        Operand::Variable(variable) => state.expr_for_variable(variable.variable_id).cloned(),
+        Operand::Variable(variable) => expr_for_variable(variables, variable.variable_id).cloned(),
     }
 }
 
@@ -1984,57 +1977,52 @@ impl Display for BoolExpr {
     }
 }
 
-impl ProgramMap {
-    fn new() -> Self {
-        Self {
-            variables: IndexMap::new(),
-            blocks: IndexMap::new(),
-        }
-    }
-
-    fn expr_for_variable(&self, variable_id: VariableId) -> Result<&Expr, Error> {
-        let expr = self.variables.get(variable_id);
-        Ok(expr.unwrap_or_else(|| {
-            panic!("variable {variable_id:?} is not linked to a result or expression")
-        }))
-    }
-
-    fn store_expr_in_variable(&mut self, var: Variable, expr: Expr) -> Result<(), Error> {
-        let variable_id = var.variable_id;
-        if let Some(old_value) = self.variables.get(variable_id) {
-            if old_value.is_unresolved() {
-                // allow overwriting unresolved variables
-                debug!("note: variable {variable_id:?} was unresolved, now storing {expr:?}");
-            } else if old_value != &expr {
-                panic!(
-                    "variable {variable_id:?} already stored {old_value:?}, cannot store {expr:?}"
-                );
-            }
-        }
-        if let Expr::Bool(condition_expr) = &expr {
-            if let Ty::Boolean = var.ty {
-            } else {
-                return Err(Error::UnsupportedFeature(format!(
-                    "variable {variable_id:?} has type {var_ty:?} but is being assigned a condition expression: {condition_expr:?}",
-                    var_ty = var.ty,
-                )));
-            }
-        }
-
-        self.variables.insert(variable_id, expr);
-        Ok(())
-    }
-
-    fn store_variable_placeholder(&mut self, variable: Variable) {
-        if self.variables.get(variable.variable_id).is_none() {
-            self.variables
-                .insert(variable.variable_id, Expr::Unresolved(variable.variable_id));
-        }
+fn store_variable_placeholder(variables: &mut IndexMap<VariableId, Expr>, variable: Variable) {
+    if variables.get(variable.variable_id).is_none() {
+        variables.insert(variable.variable_id, Expr::Unresolved(variable.variable_id));
     }
 }
 
+fn expr_for_variable(
+    variables: &IndexMap<VariableId, Expr>,
+    variable_id: VariableId,
+) -> Result<&Expr, Error> {
+    let expr = variables.get(variable_id);
+    Ok(expr.unwrap_or_else(|| {
+        panic!("variable {variable_id:?} is not linked to a result or expression")
+    }))
+}
+
+fn store_expr_in_variable(
+    variables: &mut IndexMap<VariableId, Expr>,
+    var: Variable,
+    expr: Expr,
+) -> Result<(), Error> {
+    let variable_id = var.variable_id;
+    if let Some(old_value) = variables.get(variable_id) {
+        if old_value.is_unresolved() {
+            // allow overwriting unresolved variables
+            debug!("note: variable {variable_id:?} was unresolved, now storing {expr:?}");
+        } else if old_value != &expr {
+            panic!("variable {variable_id:?} already stored {old_value:?}, cannot store {expr:?}");
+        }
+    }
+    if let Expr::Bool(condition_expr) = &expr {
+        if let Ty::Boolean = var.ty {
+        } else {
+            return Err(Error::UnsupportedFeature(format!(
+                "variable {variable_id:?} has type {var_ty:?} but is being assigned a condition expression: {condition_expr:?}",
+                var_ty = var.ty,
+            )));
+        }
+    }
+
+    variables.insert(variable_id, expr);
+    Ok(())
+}
+
 fn process_callable_variables(
-    state: &mut ProgramMap,
+    variables: &mut IndexMap<VariableId, Expr>,
     register_map: &mut FixedQubitRegisterMap,
     callable: &Callable,
     operands: &Vec<Operand>,
@@ -2052,7 +2040,8 @@ fn process_callable_variables(
                         Operand::Literal(Literal::Result(r)) => {
                             let var =
                                 var.expect("read_result must have a variable to store the result");
-                            state.store_expr_in_variable(
+                            store_expr_in_variable(
+                                variables,
                                 var,
                                 Expr::Bool(BoolExpr::Result(
                                     usize::try_from(*r).expect("result id should fit in usize"),
@@ -2078,14 +2067,14 @@ fn process_callable_variables(
                 let result_expr = Expr::Rich(RichExpr::FunctionOf(
                     operands
                         .iter()
-                        .map(|o| expr_from_operand(state, o))
+                        .map(|o| expr_from_operand(variables, o))
                         .collect::<Result<Vec<_>, _>>()?
                         .into_iter()
                         .flat_map(|e| e.flat_exprs())
                         .collect(),
                 ));
 
-                state.store_expr_in_variable(var, result_expr)?;
+                store_expr_in_variable(variables, var, result_expr)?;
             }
         }
         CallableType::Reset | CallableType::OutputRecording | CallableType::Initialize => {}
@@ -2445,7 +2434,7 @@ fn match_operands(
             },
             o @ Operand::Variable(var) => {
                 if let &OperandType::Arg = operand_type {
-                    let expr = state.expr_for_variable(var.variable_id)?.clone();
+                    let expr = expr_for_variable(&state.variables, var.variable_id)?.clone();
                     // Add classical controls if this expr is dependent on a result
                     let results = expr.linked_results();
                     for r in results {
