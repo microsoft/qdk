@@ -5,15 +5,15 @@
 mod tests;
 
 use crate::{
-    Config,
+    Config, Qubit,
     circuit::{Circuit, Operation, operation_list_to_grid},
     rir_to_circuit::tracer::{
-        BlockBuilder, GateInputs, QubitRegister, RegisterMap, ResultRegister, Tracer,
+        BlockBuilder, GateInputs, QubitRegister, RegisterMap, ResultRegister,
     },
 };
 use qsc_data_structures::index_map::IndexMap;
 use qsc_eval::{
-    backend::TracingBackend,
+    backend::Tracer,
     val::{self, Value},
 };
 use std::{fmt::Write, mem::replace, rc::Rc};
@@ -25,7 +25,7 @@ pub struct Builder {
     tracer: BlockBuilder,
 }
 
-impl TracingBackend for Builder {
+impl Tracer for Builder {
     fn gate(
         &mut self,
         name: &str,
@@ -72,13 +72,8 @@ impl TracingBackend for Builder {
     }
 
     fn qubit_allocate(&mut self, q: usize) {
-        self.remapper.new_qubit_register(q);
+        self.remapper.map_qubit(q);
     }
-
-    // fn qubit_release(&mut self, q: usize) -> bool {
-    //     self.remapper.qubit_release(q);
-    //     true
-    // }
 
     fn qubit_swap_id(&mut self, q0: usize, q1: usize) {
         self.remapper.swap(q0, q1);
@@ -106,58 +101,6 @@ impl TracingBackend for Builder {
             },
             None,
         );
-    }
-}
-
-impl Tracer for Builder {
-    fn gate<ResultType: Copy, QubitType: Copy, T>(
-        &mut self,
-        register_map: &T,
-        name: &str,
-        is_adjoint: bool,
-        inputs: GateInputs<QubitType, ResultType>,
-        args: Vec<String>,
-        metadata: Option<qsc_partial_eval::rir::InstructionMetadata>,
-    ) where
-        T: RegisterMap<ResultType = ResultType, QubitType = QubitType>,
-    {
-        self.tracer
-            .gate(register_map, name, is_adjoint, inputs, args, metadata);
-    }
-
-    fn m<ResultType: Copy, QubitType: Copy, T>(
-        &mut self,
-        register_map: &T,
-        q: QubitType,
-        r: ResultType,
-        metadata: Option<qsc_partial_eval::rir::InstructionMetadata>,
-    ) where
-        T: RegisterMap<ResultType = ResultType, QubitType = QubitType>,
-    {
-        self.tracer.m(register_map, q, r, metadata);
-    }
-
-    fn mresetz<ResultType: Copy, QubitType: Copy, T>(
-        &mut self,
-        register_map: &T,
-        q: QubitType,
-        r: ResultType,
-        metadata: Option<qsc_partial_eval::rir::InstructionMetadata>,
-    ) where
-        T: RegisterMap<ResultType = ResultType, QubitType = QubitType>,
-    {
-        self.tracer.mresetz(register_map, q, r, metadata);
-    }
-
-    fn reset<ResultType: Copy, QubitType: Copy, T>(
-        &mut self,
-        register_map: &T,
-        q: QubitType,
-        metadata: Option<qsc_partial_eval::rir::InstructionMetadata>,
-    ) where
-        T: RegisterMap<ResultType = ResultType, QubitType = QubitType>,
-    {
-        self.tracer.reset(register_map, q, metadata);
     }
 }
 
@@ -291,9 +234,8 @@ impl Builder {
 /// Note that even though qubit reset & reuse is disallowed,
 /// qubit ids are still reused for new allocations.
 /// Measurements are tracked and deferred.
-struct Remapper {
+pub(crate) struct Remapper {
     next_meas_id: usize, // ResultType
-    // next_qubit_id: usize, // QubitType
     next_qubit_wire_id: QubitRegister,
     qubit_map: IndexMap<usize, QubitRegister>, // QubitType -> QubitRegister
     qubit_measurements: IndexMap<QubitRegister, Vec<usize>>, // QubitRegister -> Vec<ResultType>
@@ -303,7 +245,6 @@ impl Default for Remapper {
     fn default() -> Self {
         Self {
             next_meas_id: 0,
-            // next_qubit_id: 0,
             next_qubit_wire_id: QubitRegister(0),
             qubit_map: IndexMap::new(),
             qubit_measurements: IndexMap::new(),
@@ -312,20 +253,22 @@ impl Default for Remapper {
 }
 
 impl Remapper {
-    fn new_qubit_register(&mut self, qubit: usize) -> QubitRegister {
+    pub fn map_qubit(&mut self, qubit: usize) {
         let mapped = self.next_qubit_wire_id;
         self.next_qubit_wire_id.0 += 1;
         self.qubit_map.insert(qubit, mapped);
-        mapped
     }
 
-    fn link_result_to_qubit(&mut self, q: usize, r: usize) {
+    pub fn link_result_to_qubit(&mut self, q: usize, r: usize) {
         let mapped_q = self.qubit_register(q);
-        match self.qubit_measurements.get_mut(mapped_q) {
-            Some(v) => v.push(r),
-            None => {
-                self.qubit_measurements.insert(mapped_q, vec![r]);
-            }
+        let v = if let Some(v) = self.qubit_measurements.get_mut(mapped_q) {
+            v
+        } else {
+            self.qubit_measurements.insert(mapped_q, vec![]);
+            self.qubit_measurements.get_mut(mapped_q).expect("")
+        };
+        if !v.contains(&r) {
+            v.push(r);
         }
     }
 
@@ -334,10 +277,6 @@ impl Remapper {
         self.next_meas_id += 1;
         id
     }
-
-    // fn qubit_release(&mut self, _q: usize) {
-    //     // self.next_qubit_id -= 1;
-    // }
 
     fn swap(&mut self, q0: usize, q1: usize) {
         let q0_mapped = self.qubit_register(q0);
@@ -358,13 +297,28 @@ impl Remapper {
             .unwrap_or_default()
     }
 
-    fn to_qubits(&self) -> Vec<crate::Qubit> {
+    pub fn into_qubits(self) -> Vec<Qubit> {
         let mut qubits = vec![];
 
         // add qubit declarations
         for i in 0..self.num_qubits() {
             let num_measurements = self.num_measurements_for_qubit(QubitRegister(i));
-            qubits.push(crate::circuit::Qubit {
+            qubits.push(Qubit {
+                id: i,
+                num_results: num_measurements,
+            });
+        }
+
+        qubits
+    }
+
+    fn to_qubits(&self) -> Vec<Qubit> {
+        let mut qubits = vec![];
+
+        // add qubit declarations
+        for i in 0..self.num_qubits() {
+            let num_measurements = self.num_measurements_for_qubit(QubitRegister(i));
+            qubits.push(Qubit {
                 id: i,
                 num_results: num_measurements,
             });

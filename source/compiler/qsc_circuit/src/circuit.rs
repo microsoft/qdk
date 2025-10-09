@@ -415,8 +415,8 @@ const CLASSICAL_WIRE_CROSS: [char; 3] = ['═', '╪', '═']; // "═══╪�
 const CLASSICAL_WIRE_START: [char; 3] = [' ', '╘', '═']; // "   ╘═══"
 const QUBIT_WIRE_DASHED_CROSS: [char; 3] = ['─', '┆', '─']; // "───┆───"
 const CLASSICAL_WIRE_DASHED_CROSS: [char; 3] = ['═', '┆', '═']; // "═══┆═══"
-const VERTICAL_DASHED: [char; 3] = [' ', '┆', ' ']; // "   │   "
-const VERTICAL: [char; 3] = [' ', '│', ' ']; // "   ┆   "
+const VERTICAL_DASHED: [char; 3] = [' ', '┆', ' ']; // "   ┆   "
+const VERTICAL: [char; 3] = [' ', '│', ' ']; // "   │   "
 const BLANK: [char; 3] = [' ', ' ', ' ']; // "       "
 
 /// "q_0  "

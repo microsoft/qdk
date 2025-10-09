@@ -35,7 +35,7 @@ use qsc_data_structures::{
 };
 use qsc_eval::{
     Env, ErrorBehavior, State, VariableInfo,
-    backend::{Backend, DummySimBackend, SparseSim, TraceAndSim, TracingBackend},
+    backend::{Backend, DummySimBackend, SparseSim, TraceAndSim, Tracer},
     output::Receiver,
 };
 pub use qsc_eval::{
@@ -1199,7 +1199,7 @@ impl Interpreter {
         &mut self,
         entry_expr: Option<String>,
         sim: &mut impl Backend,
-        tracer: &mut impl TracingBackend,
+        tracer: &mut impl Tracer,
     ) -> std::result::Result<(), Vec<Error>> {
         let mut sink = std::io::sink();
         let mut out = GenericReceiver::new(&mut sink);

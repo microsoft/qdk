@@ -881,11 +881,11 @@ impl Backend for OptionalBackend<'_> {
 
 pub struct TraceAndSim<'a> {
     backend: OptionalBackend<'a>,
-    tracer: Option<&'a mut dyn TracingBackend>,
+    tracer: Option<&'a mut dyn Tracer>,
 }
 
 impl<'a> TraceAndSim<'a> {
-    pub fn new(backend: &'a mut dyn Backend, tracer: &'a mut dyn TracingBackend) -> Self {
+    pub fn new(backend: &'a mut dyn Backend, tracer: &'a mut dyn Tracer) -> Self {
         Self {
             backend: OptionalBackend::Some(backend),
             tracer: Some(tracer),
@@ -899,7 +899,7 @@ impl<'a> TraceAndSim<'a> {
         }
     }
 
-    pub fn new_no_sim(tracer: &'a mut dyn TracingBackend) -> Self {
+    pub fn new_no_sim(tracer: &'a mut dyn Tracer) -> Self {
         Self {
             backend: OptionalBackend::None(DummySimBackend::default()),
             tracer: Some(tracer),
@@ -1218,13 +1218,8 @@ impl Backend for DummySimBackend {
     }
 }
 
-pub trait TracingBackend {
-    // tricky qubit management things
-    fn m(&mut self, q: usize, r: &val::Result);
-    fn mresetz(&mut self, q: usize, r: &val::Result);
+pub trait Tracer {
     fn qubit_allocate(&mut self, q: usize);
-    fn qubit_swap_id(&mut self, _q0: usize, _q1: usize);
-
     fn gate(
         &mut self,
         name: &str,
@@ -1234,7 +1229,9 @@ pub trait TracingBackend {
         control_results: Vec<usize>,
         args: Vec<String>,
     );
-    fn reset(&mut self, _q: usize);
-
-    fn custom_intrinsic(&mut self, _name: &str, _arg: Value);
+    fn m(&mut self, q: usize, r: &val::Result);
+    fn mresetz(&mut self, q: usize, r: &val::Result);
+    fn reset(&mut self, q: usize);
+    fn qubit_swap_id(&mut self, q0: usize, q1: usize);
+    fn custom_intrinsic(&mut self, name: &str, arg: Value);
 }

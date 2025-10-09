@@ -14,8 +14,7 @@ use crate::{
     Circuit, ComponentColumn, Config, Error, GenerationMethod, Ket, Measurement, Operation,
     Register, Unitary, group_qubits, operation_list_to_grid,
     rir_to_circuit::tracer::{
-        BlockBuilder, FixedQubitRegisterMap, GateInputs, QubitRegister, RegisterMap,
-        ResultRegister, Tracer,
+        BlockBuilder, FixedQubitRegisterMap, GateInputs, QubitRegister, RegisterMap, ResultRegister,
     },
 };
 use log::{debug, warn};
@@ -196,7 +195,9 @@ pub fn make_circuit(
     };
     assert!(config.generation_method == GenerationMethod::Static);
     let mut program_map = ProgramMap::new();
-    let mut register_map = FixedQubitRegisterMap::new(program.num_qubits);
+    let mut register_map = FixedQubitRegisterMap::new(
+        usize::try_from(program.num_qubits).expect("number of qubits should fit in usize"),
+    );
     let callables = &program.callables;
 
     let mut i = 0;
@@ -269,6 +270,7 @@ pub fn make_circuit(
     };
 
     let qubits = register_map.into_qubits();
+
     fill_in_dbg_metadata(&dbg_info, &mut operations, package_store, position_encoding)?;
     let operations = operations.into_iter().map(Into::into).collect();
 
@@ -1784,7 +1786,9 @@ fn expand_real_branch_block(operations: &Vec<Op>) -> Result<ConditionalBlock, Er
 fn expr_from_operand(state: &ProgramMap, operand: &Operand) -> Result<Expr, Error> {
     match operand {
         Operand::Literal(literal) => match literal {
-            Literal::Result(r) => Ok(Expr::Bool(BoolExpr::Result(*r))),
+            Literal::Result(r) => Ok(Expr::Bool(BoolExpr::Result(
+                usize::try_from(*r).expect("result id should fit in usize"),
+            ))),
             Literal::Bool(b) => Ok(Expr::Bool(BoolExpr::LiteralBool(*b))),
             Literal::Integer(i) => Ok(Expr::Rich(RichExpr::Literal(i.to_string()))),
             Literal::Double(d) => Ok(Expr::Rich(RichExpr::Literal(d.to_string()))),
@@ -1812,10 +1816,10 @@ enum Expr {
 
 #[derive(Debug, Clone, PartialEq)]
 enum BoolExpr {
-    Result(u32),
-    NotResult(u32),
+    Result(usize),
+    NotResult(usize),
     TwoResultCondition {
-        results: (u32, u32),
+        results: (usize, usize),
         // 00, 01, 10, 11
         filter: (bool, bool, bool, bool),
     },
@@ -1871,7 +1875,7 @@ impl Expr {
         }
     }
 
-    fn linked_results(&self) -> Vec<u32> {
+    fn linked_results(&self) -> Vec<usize> {
         match self {
             Expr::Rich(rich_expr) => match rich_expr {
                 RichExpr::Literal(_) => vec![],
@@ -2048,7 +2052,12 @@ fn process_callable_variables(
                         Operand::Literal(Literal::Result(r)) => {
                             let var =
                                 var.expect("read_result must have a variable to store the result");
-                            state.store_expr_in_variable(var, Expr::Bool(BoolExpr::Result(*r)))?;
+                            state.store_expr_in_variable(
+                                var,
+                                Expr::Bool(BoolExpr::Result(
+                                    usize::try_from(*r).expect("result id should fit in usize"),
+                                )),
+                            )?;
                         }
                         operand => {
                             return Err(Error::UnsupportedFeature(format!(
@@ -2318,7 +2327,7 @@ fn callable_spec<'a>(callable: &'a Callable, operands: &[Operand]) -> Result<Gat
     Ok(gate_spec)
 }
 
-fn gather_measurement_operands_inner(operands: &[Operand]) -> Result<(u32, u32), Error> {
+fn gather_measurement_operands_inner(operands: &[Operand]) -> Result<(usize, usize), Error> {
     let mut qubits = operands.iter().filter_map(|o| match o {
         Operand::Literal(Literal::Qubit(q)) => Some(q),
         _ => None,
@@ -2336,7 +2345,9 @@ fn gather_measurement_operands_inner(operands: &[Operand]) -> Result<(u32, u32),
     }
 
     let mut results = operands.iter().filter_map(|o| match o {
-        Operand::Literal(Literal::Result(r)) => Some(r),
+        Operand::Literal(Literal::Result(r)) => {
+            Some(usize::try_from(*r).expect("result id should fit in usize"))
+        }
         _ => None,
     });
     let result = results.next();
@@ -2357,7 +2368,10 @@ fn gather_measurement_operands_inner(operands: &[Operand]) -> Result<(u32, u32),
         ));
     }
 
-    Ok((*qubit, *result))
+    Ok((
+        usize::try_from(*qubit).expect("qubit id should fit in usize"),
+        result,
+    ))
 }
 
 enum OperandType {
@@ -2366,7 +2380,7 @@ enum OperandType {
     Arg,
 }
 
-type Operands = (Vec<u32>, Vec<u32>, Vec<u32>, Vec<String>);
+type Operands = (Vec<usize>, Vec<usize>, Vec<usize>, Vec<String>);
 
 fn match_operands(
     state: &mut ProgramMap,
@@ -2395,7 +2409,8 @@ fn match_operands(
                             ));
                         }
                     };
-                    qubit_operands_array.push(*q);
+                    qubit_operands_array
+                        .push(usize::try_from(*q).expect("qubit id should fit in usize"));
                 }
                 Literal::Result(_r) => {
                     return Err(Error::UnsupportedFeature(
