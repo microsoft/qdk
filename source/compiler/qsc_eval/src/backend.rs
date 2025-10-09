@@ -17,8 +17,6 @@ mod noise_tests;
 /// The trait that must be implemented by a quantum backend, whose functions will be invoked when
 /// quantum intrinsics are called.
 pub trait Backend {
-    type ResultType;
-
     fn ccx(&mut self, _ctl0: usize, _ctl1: usize, _q: usize) {
         unimplemented!("ccx gate");
     }
@@ -34,10 +32,10 @@ pub trait Backend {
     fn h(&mut self, _q: usize) {
         unimplemented!("h gate");
     }
-    fn m(&mut self, _q: usize) -> Self::ResultType {
+    fn m(&mut self, _q: usize) -> val::Result {
         unimplemented!("m operation");
     }
-    fn mresetz(&mut self, _q: usize) -> Self::ResultType {
+    fn mresetz(&mut self, _q: usize) -> val::Result {
         unimplemented!("mresetz operation");
     }
     fn reset(&mut self, _q: usize) {
@@ -223,8 +221,6 @@ impl SparseSim {
 }
 
 impl Backend for SparseSim {
-    type ResultType = val::Result;
-
     fn ccx(&mut self, ctl0: usize, ctl1: usize, q: usize) {
         match (
             self.is_qubit_lost(ctl0),
@@ -284,7 +280,7 @@ impl Backend for SparseSim {
         self.apply_noise(q);
     }
 
-    fn m(&mut self, q: usize) -> Self::ResultType {
+    fn m(&mut self, q: usize) -> val::Result {
         self.apply_noise(q);
         if self.is_qubit_lost(q) {
             // If the qubit is lost, we cannot measure it.
@@ -296,7 +292,7 @@ impl Backend for SparseSim {
         val::Result::Val(self.sim.measure(q))
     }
 
-    fn mresetz(&mut self, q: usize) -> Self::ResultType {
+    fn mresetz(&mut self, q: usize) -> val::Result {
         self.apply_noise(q); // Applying noise before measurement
         if self.is_qubit_lost(q) {
             // If the qubit is lost, we cannot measure it.
@@ -681,7 +677,7 @@ pub struct Chain<T1, T2> {
 impl<T1, T2> Chain<T1, T2>
 where
     T1: Backend,
-    T2: TracingBackend<T1::ResultType>,
+    T2: TracingBackend,
 {
     pub fn new(primary: T1, chained: T2) -> Chain<T1, T2> {
         Chain {
@@ -694,10 +690,8 @@ where
 impl<T1, T2> Backend for Chain<T1, T2>
 where
     T1: Backend,
-    T2: TracingBackend<T1::ResultType>,
+    T2: TracingBackend,
 {
-    type ResultType = T1::ResultType;
-
     fn ccx(&mut self, ctl0: usize, ctl1: usize, q: usize) {
         self.tracer.ccx(ctl0, ctl1, q);
         self.main.ccx(ctl0, ctl1, q);
@@ -723,13 +717,13 @@ where
         self.main.h(q);
     }
 
-    fn m(&mut self, q: usize) -> Self::ResultType {
+    fn m(&mut self, q: usize) -> val::Result {
         let r = self.main.m(q);
         self.tracer.m(q, &r);
         r
     }
 
-    fn mresetz(&mut self, q: usize) -> Self::ResultType {
+    fn mresetz(&mut self, q: usize) -> val::Result {
         let r = self.main.mresetz(q);
         self.tracer.mresetz(q, &r);
         r
@@ -857,22 +851,20 @@ pub struct DummySimBackend {
 }
 
 impl Backend for DummySimBackend {
-    type ResultType = usize;
-
     fn ccx(&mut self, _ctl0: usize, _ctl1: usize, _q: usize) {}
     fn cx(&mut self, _ctl: usize, _q: usize) {}
     fn cy(&mut self, _ctl: usize, _q: usize) {}
     fn cz(&mut self, _ctl: usize, _q: usize) {}
     fn h(&mut self, _q: usize) {}
-    fn m(&mut self, _q: usize) -> Self::ResultType {
+    fn m(&mut self, _q: usize) -> val::Result {
         let id = self.next_result_id;
         self.next_result_id += 1;
-        id
+        id.into()
     }
-    fn mresetz(&mut self, _q: usize) -> Self::ResultType {
+    fn mresetz(&mut self, _q: usize) -> val::Result {
         let id = self.next_result_id;
         self.next_result_id += 1;
-        id
+        id.into()
     }
     fn reset(&mut self, _q: usize) {}
     fn rx(&mut self, _theta: f64, _q: usize) {}
@@ -918,10 +910,10 @@ impl Backend for DummySimBackend {
     }
 }
 
-pub trait TracingBackend<R> {
+pub trait TracingBackend {
     // tricky qubit management things
-    fn m(&mut self, q: usize, r: &R);
-    fn mresetz(&mut self, q: usize, r: &R);
+    fn m(&mut self, q: usize, r: &val::Result);
+    fn mresetz(&mut self, q: usize, r: &val::Result);
     fn qubit_allocate(&mut self, q: usize);
     fn qubit_swap_id(&mut self, _q0: usize, _q1: usize);
 
@@ -952,14 +944,14 @@ pub trait TracingBackend<R> {
 
 /// A dummy tracing backend that does nothing.
 pub struct DummyTracingBackend;
-impl<R> TracingBackend<R> for DummyTracingBackend {
+impl TracingBackend for DummyTracingBackend {
     fn ccx(&mut self, _ctl0: usize, _ctl1: usize, _q: usize) {}
     fn cx(&mut self, _ctl: usize, _q: usize) {}
     fn cy(&mut self, _ctl: usize, _q: usize) {}
     fn cz(&mut self, _ctl: usize, _q: usize) {}
     fn h(&mut self, _q: usize) {}
-    fn m(&mut self, _q: usize, _r: &R) {}
-    fn mresetz(&mut self, _q: usize, _r: &R) {}
+    fn m(&mut self, _q: usize, _r: &val::Result) {}
+    fn mresetz(&mut self, _q: usize, _r: &val::Result) {}
     fn reset(&mut self, _q: usize) {}
     fn rx(&mut self, _theta: f64, _q: usize) {}
     fn rxx(&mut self, _theta: f64, _q0: usize, _q1: usize) {}

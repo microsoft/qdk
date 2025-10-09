@@ -19,7 +19,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use std::convert::TryFrom;
 
 #[allow(clippy::too_many_lines)]
-pub(crate) fn call<R: Into<val::Result>, B: Backend<ResultType = R>, T: TracingBackend<R>>(
+pub(crate) fn call<B: Backend, T: TracingBackend>(
     name: &str,
     name_span: PackageSpan,
     arg: Value,
@@ -336,7 +336,7 @@ pub(crate) fn call<R: Into<val::Result>, B: Backend<ResultType = R>, T: TracingB
                 .0;
             let result = sim.m(q);
             tracer.m(q, &result);
-            Ok(Value::Result(result.into()))
+            Ok(Value::Result(result))
         }
         "__quantum__qis__mresetz__body" => {
             let q = arg
@@ -346,7 +346,7 @@ pub(crate) fn call<R: Into<val::Result>, B: Backend<ResultType = R>, T: TracingB
                 .0;
             let result = sim.mresetz(q);
             tracer.mresetz(q, &result);
-            Ok(Value::Result(result.into()))
+            Ok(Value::Result(result))
         }
         "__quantum__rt__read_loss" => Ok(Value::Bool(arg == Value::Result(val::Result::Loss))),
         _ => {

@@ -39,7 +39,6 @@ use qsc_eval::{
         Backend, DummySimBackend, DummyTracingBackend, SparseSim, TraceAndSim, TracingBackend,
     },
     output::Receiver,
-    val,
 };
 pub use qsc_eval::{
     StepAction, StepResult,
@@ -691,11 +690,7 @@ impl Interpreter {
 
     /// Executes the entry expression until the end of execution, using the given simulator backend
     /// and a new instance of the environment.
-    pub fn eval_entry_with_sim<
-        R: Into<val::Result>,
-        B: Backend<ResultType = R>,
-        T: TracingBackend<R>,
-    >(
+    pub fn eval_entry_with_sim<B: Backend, T: TracingBackend>(
         &mut self,
         trace_and_sim: &mut TraceAndSim<B, T>,
         receiver: &mut impl Receiver,
@@ -1156,10 +1151,10 @@ impl Interpreter {
 
     /// Runs the given entry expression on the given simulator with a new instance of the environment
     /// but using the current compilation.
-    pub fn run_with_sim<R: Into<val::Result>>(
+    pub fn run_with_sim(
         &mut self,
-        sim: &mut impl Backend<ResultType = R>,
-        tracer: &mut impl TracingBackend<R>,
+        sim: &mut impl Backend,
+        tracer: &mut impl TracingBackend,
         receiver: &mut impl Receiver,
         expr: Option<&str>,
     ) -> InterpretResult {
@@ -1188,11 +1183,11 @@ impl Interpreter {
         )
     }
 
-    fn run_with_sim_no_output<R: Into<val::Result>>(
+    fn run_with_sim_no_output(
         &mut self,
         entry_expr: Option<String>,
-        sim: &mut impl Backend<ResultType = R>,
-        tracer: &mut impl TracingBackend<R>,
+        sim: &mut impl Backend,
+        tracer: &mut impl TracingBackend,
     ) -> std::result::Result<(), Vec<Error>> {
         let mut sink = std::io::sink();
         let mut out = GenericReceiver::new(&mut sink);
@@ -1227,10 +1222,10 @@ impl Interpreter {
 
     /// Invokes the given callable with the given arguments on the given simulator with a new instance of the environment
     /// but using the current compilation.
-    pub fn invoke_with_sim<R: Into<val::Result>>(
+    pub fn invoke_with_sim(
         &mut self,
-        sim: &mut impl Backend<ResultType = R>,
-        tracer: &mut impl TracingBackend<R>,
+        sim: &mut impl Backend,
+        tracer: &mut impl TracingBackend,
         receiver: &mut impl Receiver,
         callable: Value,
         args: Value,
@@ -1564,15 +1559,15 @@ impl Debugger {
 
 /// Wrapper function for `qsc_eval::eval` that handles error conversion.
 #[allow(clippy::too_many_arguments)]
-fn eval<R: Into<val::Result>>(
+fn eval(
     package: PackageId,
     classical_seed: Option<u64>,
     exec_graph: ExecGraph,
     package_store: &PackageStore,
     fir_store: &fir::PackageStore,
     env: &mut Env,
-    sim: &mut impl Backend<ResultType = R>,
-    tracer: &mut impl TracingBackend<R>,
+    sim: &mut impl Backend,
+    tracer: &mut impl TracingBackend,
     receiver: &mut impl Receiver,
 ) -> InterpretResult {
     qsc_eval::eval(

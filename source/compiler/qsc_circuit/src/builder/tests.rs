@@ -16,7 +16,7 @@ fn exceed_max_operations() {
         collapse_qubit_registers: false,
     });
 
-    let tracer: &mut dyn TracingBackend<usize> = &mut builder;
+    let tracer: &mut dyn TracingBackend = &mut builder;
     tracer.qubit_allocate(0);
 
     tracer.x(0);
@@ -44,11 +44,11 @@ fn exceed_max_operations_deferred_measurements() {
     });
 
     // TODO: ugh...
-    let tracer: &mut dyn TracingBackend<usize> = &mut builder;
+    let tracer: &mut dyn TracingBackend = &mut builder;
     tracer.qubit_allocate(0);
 
     tracer.x(0);
-    tracer.m(0, &0);
+    tracer.m(0, &(0.into()));
     tracer.x(0);
 
     let circuit = builder.finish();

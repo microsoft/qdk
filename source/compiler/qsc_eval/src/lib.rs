@@ -284,7 +284,7 @@ pub fn exec_graph_section(graph: &ExecGraph, range: ops::Range<usize>) -> ExecGr
 /// # Panics
 /// On internal error where no result is returned.
 #[allow(clippy::needless_pass_by_value)]
-pub fn eval<R: Into<val::Result>, B: Backend<ResultType = R>, T: TracingBackend<R>>(
+pub fn eval<B: Backend, T: TracingBackend>(
     package: PackageId,
     seed: Option<u64>,
     exec_graph: ExecGraph,
@@ -314,7 +314,7 @@ pub fn eval<R: Into<val::Result>, B: Backend<ResultType = R>, T: TracingBackend<
 /// # Panics
 /// On internal error where no result is returned.
 #[allow(clippy::too_many_arguments)]
-pub fn invoke<R: Into<val::Result>, B: Backend<ResultType = R>, T: TracingBackend<R>>(
+pub fn invoke<B: Backend, T: TracingBackend>(
     package: PackageId,
     seed: Option<u64>,
     globals: &impl PackageStoreLookup,
@@ -729,7 +729,7 @@ impl State {
     /// When returning a value in the middle of execution.
     #[allow(clippy::too_many_lines)]
     #[allow(clippy::needless_pass_by_value)]
-    pub fn eval<R: Into<val::Result>, B: Backend<ResultType = R>, T: TracingBackend<R>>(
+    pub fn eval<B: Backend, T: TracingBackend>(
         &mut self,
         globals: &impl PackageStoreLookup,
         env: &mut Env,
@@ -923,7 +923,7 @@ impl State {
     }
 
     #[allow(clippy::similar_names)]
-    fn eval_expr<R: Into<val::Result>, B: Backend<ResultType = R>, T: TracingBackend<R>>(
+    fn eval_expr<B: Backend, T: TracingBackend>(
         &mut self,
         env: &mut Env,
         trace_and_sim: &mut TraceAndSim<B, T>,
@@ -1163,7 +1163,7 @@ impl State {
     }
 
     #[allow(clippy::needless_pass_by_value)]
-    fn eval_call<R: Into<val::Result>, B: Backend<ResultType = R>, T: TracingBackend<R>>(
+    fn eval_call<B: Backend, T: TracingBackend>(
         &mut self,
         env: &mut Env,
         trace_and_sim: &mut TraceAndSim<B, T>,
@@ -1262,7 +1262,7 @@ impl State {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn eval_intrinsic<R: Into<val::Result>, B: Backend<ResultType = R>, T: TracingBackend<R>>(
+    fn eval_intrinsic<B: Backend, T: TracingBackend>(
         &mut self,
         env: &mut Env,
         callee_id: StoreItemId,

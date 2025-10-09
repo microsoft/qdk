@@ -57,6 +57,7 @@ pub use qsc_eval::{
         fmt_basis_state_label, fmt_complex, format_state_id, get_matrix_latex, get_phase,
         get_state_latex,
     },
+    val::Result as BackendResult,
 };
 
 pub mod linter {

@@ -7,7 +7,6 @@ use crate::{
     debug::Frame,
     exec_graph_section,
     output::{GenericReceiver, Receiver},
-    val,
 };
 use expect_test::{Expect, expect};
 use indoc::indoc;
@@ -24,7 +23,7 @@ use qsc_passes::{PackageType, run_core_passes, run_default_passes};
 /// Returns the first error encountered during execution.
 pub(super) fn eval_graph(
     graph: ExecGraph,
-    sim: &mut impl Backend<ResultType = impl Into<val::Result>>,
+    sim: &mut impl Backend,
     globals: &impl PackageStoreLookup,
     package: PackageId,
     env: &mut Env,
