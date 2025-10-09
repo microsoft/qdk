@@ -8,7 +8,7 @@ import sys
 import qsharp
 from qsharp._simulation import run_qir, NoiseConfig
 from qsharp.passes import transform_to_clifford
-from qsharp import TargetProfile
+from qsharp import TargetProfile, Result
 
 current_file_path = Path(__file__)
 # Get the directory of the current file
@@ -59,3 +59,35 @@ def test_million():
     ir = qsharp.compile("Main()")
     output = run_qir(str(ir), 1, NoiseConfig())
     print(output)
+
+
+def test_s_noise_inherits_from_rz():
+    qsharp.init(target_profile=TargetProfile.Base)
+    qsharp.eval("operation Main() : Result { use q = Qubit(); S(q); MResetZ(q) }")
+    ir = qsharp.compile("Main()")
+    noise = NoiseConfig()
+    noise.rz.x = 1.0
+    output = run_qir(str(ir), 1, noise)
+    assert output == [Result.One]
+
+
+def test_z_noise_inherits_from_rz():
+    qsharp.init(target_profile=TargetProfile.Base)
+    qsharp.eval("operation Main() : Result { use q = Qubit(); Z(q); MResetZ(q) }")
+    ir = qsharp.compile("Main()")
+    noise = NoiseConfig()
+    noise.rz.x = 1.0
+    output = run_qir(str(ir), 1, noise)
+    assert output == [Result.One]
+
+
+def test_s_adj_noise_inherits_from_rz():
+    qsharp.init(target_profile=TargetProfile.Base)
+    qsharp.eval(
+        "operation Main() : Result { use q = Qubit(); Adjoint S(q); MResetZ(q) }"
+    )
+    ir = qsharp.compile("Main()")
+    noise = NoiseConfig()
+    noise.rz.x = 1.0
+    output = run_qir(str(ir), 1, noise)
+    assert output == [Result.One]

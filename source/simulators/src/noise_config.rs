@@ -207,6 +207,11 @@ impl NoiseTable {
         z: 0.0,
         loss: 0.0,
     };
+
+    #[must_use]
+    pub fn is_noiseless(&self) -> bool {
+        self.x == 0.0 && self.y == 0.0 && self.z == 0.0 && self.loss == 0.0
+    }
 }
 
 /// A cumulative representation of the `NoiseTable` to make
