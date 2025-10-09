@@ -26,7 +26,7 @@ pub use system::estimate_physical_resources_from_json;
 use counts::LogicalCounter;
 use miette::Diagnostic;
 use qsc::{
-    DummyTracingBackend,
+    TraceAndSim,
     interpret::{self, GenericReceiver, Interpreter, Value},
 };
 use system::estimate_physical_resources;
@@ -44,11 +44,10 @@ pub enum Error {
 
 pub fn estimate_entry(interpreter: &mut Interpreter, params: &str) -> Result<String, Vec<Error>> {
     let mut counter = LogicalCounter::default();
-    let mut tracer = DummyTracingBackend {};
     let mut stdout = std::io::sink();
     let mut out = GenericReceiver::new(&mut stdout);
     interpreter
-        .eval_entry_with_sim(&mut (&mut counter, &mut tracer), &mut out)
+        .eval_entry_with_sim(&mut TraceAndSim::new_no_trace(&mut counter), &mut out)
         .map_err(|e| e.into_iter().map(Error::Interpreter).collect::<Vec<_>>())?;
     estimate_physical_resources(counter.logical_resources(), params)
         .map_err(|e| vec![Error::Estimation(e)])
@@ -60,11 +59,14 @@ pub fn estimate_expr(
     params: &str,
 ) -> Result<String, Vec<Error>> {
     let mut counter = LogicalCounter::default();
-    let mut tracer = DummyTracingBackend {};
     let mut stdout = std::io::sink();
     let mut out = GenericReceiver::new(&mut stdout);
     interpreter
-        .run_with_sim(&mut counter, &mut tracer, &mut out, Some(expr))
+        .run_with_sim(
+            &mut TraceAndSim::new_no_trace(&mut counter),
+            &mut out,
+            Some(expr),
+        )
         .map_err(|e| e.into_iter().map(Error::Interpreter).collect::<Vec<_>>())?;
     estimate_physical_resources(counter.logical_resources(), params)
         .map_err(|e| vec![Error::Estimation(e)])
@@ -81,8 +83,7 @@ pub fn estimate_call(
     let mut out = GenericReceiver::new(&mut stdout);
     interpreter
         .invoke_with_sim(
-            &mut counter,
-            &mut DummyTracingBackend {},
+            &mut TraceAndSim::new_no_trace(&mut counter),
             &mut out,
             callable,
             args,
@@ -101,8 +102,7 @@ pub fn logical_counts_expr(
     let mut out = GenericReceiver::new(&mut stdout);
     interpreter
         .run_with_sim(
-            &mut counter,
-            &mut DummyTracingBackend {},
+            &mut TraceAndSim::new_no_trace(&mut counter),
             &mut out,
             Some(expr),
         )
@@ -120,8 +120,7 @@ pub fn logical_counts_call(
     let mut out = GenericReceiver::new(&mut stdout);
     interpreter
         .invoke_with_sim(
-            &mut counter,
-            &mut DummyTracingBackend {},
+            &mut TraceAndSim::new_no_trace(&mut counter),
             &mut out,
             callable,
             args,

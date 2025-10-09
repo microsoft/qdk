@@ -26,77 +26,25 @@ pub struct Builder {
 }
 
 impl TracingBackend for Builder {
-    fn ccx(&mut self, ctl0: usize, ctl1: usize, q: usize) {
+    fn gate(
+        &mut self,
+        name: &str,
+        is_adjoint: bool,
+        target_qubits: Vec<usize>,
+        control_qubits: Vec<usize>,
+        control_results: Vec<usize>,
+        args: Vec<String>,
+    ) {
         self.tracer.gate(
             &self.remapper,
-            "X",
-            false,
+            name,
+            is_adjoint,
             GateInputs {
-                target_qubits: vec![q],
-                control_qubits: vec![ctl0, ctl1],
-                control_results: vec![],
+                target_qubits,
+                control_qubits,
+                control_results,
             },
-            vec![],
-            None,
-        );
-    }
-
-    fn cx(&mut self, ctl: usize, q: usize) {
-        self.tracer.gate(
-            &self.remapper,
-            "X",
-            false,
-            GateInputs {
-                target_qubits: vec![q],
-                control_qubits: vec![ctl],
-                control_results: vec![],
-            },
-            vec![],
-            None,
-        );
-    }
-
-    fn cy(&mut self, ctl: usize, q: usize) {
-        self.tracer.gate(
-            &self.remapper,
-            "Y",
-            false,
-            GateInputs {
-                target_qubits: vec![q],
-                control_qubits: vec![ctl],
-                control_results: vec![],
-            },
-            vec![],
-            None,
-        );
-    }
-
-    fn cz(&mut self, ctl: usize, q: usize) {
-        self.tracer.gate(
-            &self.remapper,
-            "Z",
-            false,
-            GateInputs {
-                target_qubits: vec![q],
-                control_qubits: vec![ctl],
-                control_results: vec![],
-            },
-            vec![],
-            None,
-        );
-    }
-
-    fn h(&mut self, q: usize) {
-        self.tracer.gate(
-            &self.remapper,
-            "H",
-            false,
-            GateInputs {
-                target_qubits: vec![q],
-                control_qubits: vec![],
-                control_results: vec![],
-            },
-            vec![],
+            args,
             None,
         );
     }
@@ -121,231 +69,6 @@ impl TracingBackend for Builder {
 
     fn reset(&mut self, q: usize) {
         self.tracer.reset(&self.remapper, q, None);
-    }
-
-    fn rx(&mut self, theta: f64, q: usize) {
-        self.tracer.gate(
-            &self.remapper,
-            "Rx",
-            false,
-            GateInputs {
-                target_qubits: vec![q],
-                control_qubits: vec![],
-                control_results: vec![],
-            },
-            vec![format!("{theta:.4}")],
-            None,
-        );
-    }
-
-    fn rxx(&mut self, theta: f64, q0: usize, q1: usize) {
-        self.tracer.gate(
-            &self.remapper,
-            "Rxx",
-            false,
-            GateInputs {
-                target_qubits: vec![q0, q1],
-                control_qubits: vec![],
-                control_results: vec![],
-            },
-            vec![format!("{theta:.4}")],
-            None,
-        );
-    }
-
-    fn ry(&mut self, theta: f64, q: usize) {
-        self.tracer.gate(
-            &self.remapper,
-            "Ry",
-            false,
-            GateInputs {
-                target_qubits: vec![q],
-                control_qubits: vec![],
-                control_results: vec![],
-            },
-            vec![format!("{theta:.4}")],
-            None,
-        );
-    }
-
-    fn ryy(&mut self, theta: f64, q0: usize, q1: usize) {
-        self.tracer.gate(
-            &self.remapper,
-            "Ryy",
-            false,
-            GateInputs {
-                target_qubits: vec![q0, q1],
-                control_qubits: vec![],
-                control_results: vec![],
-            },
-            vec![format!("{theta:.4}")],
-            None,
-        );
-    }
-
-    fn rz(&mut self, theta: f64, q: usize) {
-        self.tracer.gate(
-            &self.remapper,
-            "Rz",
-            false,
-            GateInputs {
-                target_qubits: vec![q],
-                control_qubits: vec![],
-                control_results: vec![],
-            },
-            vec![format!("{theta:.4}")],
-            None,
-        );
-    }
-
-    fn rzz(&mut self, theta: f64, q0: usize, q1: usize) {
-        self.tracer.gate(
-            &self.remapper,
-            "Rzz",
-            false,
-            GateInputs {
-                target_qubits: vec![q0, q1],
-                control_qubits: vec![],
-                control_results: vec![],
-            },
-            vec![format!("{theta:.4}")],
-            None,
-        );
-    }
-
-    fn sadj(&mut self, q: usize) {
-        self.tracer.gate(
-            &self.remapper,
-            "S",
-            true,
-            GateInputs {
-                target_qubits: vec![q],
-                control_qubits: vec![],
-                control_results: vec![],
-            },
-            vec![],
-            None,
-        );
-    }
-
-    fn s(&mut self, q: usize) {
-        self.tracer.gate(
-            &self.remapper,
-            "S",
-            false,
-            GateInputs {
-                target_qubits: vec![q],
-                control_qubits: vec![],
-                control_results: vec![],
-            },
-            vec![],
-            None,
-        );
-    }
-
-    fn sx(&mut self, q: usize) {
-        self.tracer.gate(
-            &self.remapper,
-            "SX",
-            false,
-            GateInputs {
-                target_qubits: vec![q],
-                control_qubits: vec![],
-                control_results: vec![],
-            },
-            vec![],
-            None,
-        );
-    }
-
-    fn swap(&mut self, q0: usize, q1: usize) {
-        self.tracer.gate(
-            &self.remapper,
-            "SWAP",
-            false,
-            GateInputs {
-                target_qubits: vec![q0, q1],
-                control_qubits: vec![],
-                control_results: vec![],
-            },
-            vec![],
-            None,
-        );
-    }
-
-    fn tadj(&mut self, q: usize) {
-        self.tracer.gate(
-            &self.remapper,
-            "T",
-            true,
-            GateInputs {
-                target_qubits: vec![q],
-                control_qubits: vec![],
-                control_results: vec![],
-            },
-            vec![],
-            None,
-        );
-    }
-
-    fn t(&mut self, q: usize) {
-        self.tracer.gate(
-            &self.remapper,
-            "T",
-            false,
-            GateInputs {
-                target_qubits: vec![q],
-                control_qubits: vec![],
-                control_results: vec![],
-            },
-            vec![],
-            None,
-        );
-    }
-
-    fn x(&mut self, q: usize) {
-        self.tracer.gate(
-            &self.remapper,
-            "X",
-            false,
-            GateInputs {
-                target_qubits: vec![q],
-                control_qubits: vec![],
-                control_results: vec![],
-            },
-            vec![],
-            None,
-        );
-    }
-
-    fn y(&mut self, q: usize) {
-        self.tracer.gate(
-            &self.remapper,
-            "Y",
-            false,
-            GateInputs {
-                target_qubits: vec![q],
-                control_qubits: vec![],
-                control_results: vec![],
-            },
-            vec![],
-            None,
-        );
-    }
-
-    fn z(&mut self, q: usize) {
-        self.tracer.gate(
-            &self.remapper,
-            "Z",
-            false,
-            GateInputs {
-                target_qubits: vec![q],
-                control_qubits: vec![],
-                control_results: vec![],
-            },
-            vec![],
-            None,
-        );
     }
 
     fn qubit_allocate(&mut self, q: usize) {
@@ -383,6 +106,58 @@ impl TracingBackend for Builder {
             },
             None,
         );
+    }
+}
+
+impl Tracer for Builder {
+    fn gate<ResultType: Copy, QubitType: Copy, T>(
+        &mut self,
+        register_map: &T,
+        name: &str,
+        is_adjoint: bool,
+        inputs: GateInputs<QubitType, ResultType>,
+        args: Vec<String>,
+        metadata: Option<qsc_partial_eval::rir::InstructionMetadata>,
+    ) where
+        T: RegisterMap<ResultType = ResultType, QubitType = QubitType>,
+    {
+        self.tracer
+            .gate(register_map, name, is_adjoint, inputs, args, metadata);
+    }
+
+    fn m<ResultType: Copy, QubitType: Copy, T>(
+        &mut self,
+        register_map: &T,
+        q: QubitType,
+        r: ResultType,
+        metadata: Option<qsc_partial_eval::rir::InstructionMetadata>,
+    ) where
+        T: RegisterMap<ResultType = ResultType, QubitType = QubitType>,
+    {
+        self.tracer.m(register_map, q, r, metadata);
+    }
+
+    fn mresetz<ResultType: Copy, QubitType: Copy, T>(
+        &mut self,
+        register_map: &T,
+        q: QubitType,
+        r: ResultType,
+        metadata: Option<qsc_partial_eval::rir::InstructionMetadata>,
+    ) where
+        T: RegisterMap<ResultType = ResultType, QubitType = QubitType>,
+    {
+        self.tracer.mresetz(register_map, q, r, metadata);
+    }
+
+    fn reset<ResultType: Copy, QubitType: Copy, T>(
+        &mut self,
+        register_map: &T,
+        q: QubitType,
+        metadata: Option<qsc_partial_eval::rir::InstructionMetadata>,
+    ) where
+        T: RegisterMap<ResultType = ResultType, QubitType = QubitType>,
+    {
+        self.tracer.reset(register_map, q, metadata);
     }
 }
 

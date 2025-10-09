@@ -15,10 +15,6 @@ operation Main() : (Result, Result) {
     // Create Bell pair by calling `PrepareBellPair` operation defined below.
     PrepareBellPair(q1, q2);
 
-    Relabel([q1, q2], [q2, q1]);
-
-    PrepareBellPair(q1, q2);
-
     // Show the state of qubits using the `DumpMachine` function.
     Std.Diagnostics.DumpMachine();
 

@@ -35,9 +35,7 @@ use qsc_data_structures::{
 };
 use qsc_eval::{
     Env, ErrorBehavior, State, VariableInfo,
-    backend::{
-        Backend, DummySimBackend, DummyTracingBackend, SparseSim, TraceAndSim, TracingBackend,
-    },
+    backend::{Backend, DummySimBackend, SparseSim, TraceAndSim, TracingBackend},
     output::Receiver,
 };
 pub use qsc_eval::{
@@ -682,23 +680,22 @@ impl Interpreter {
             self.compiler.package_store(),
             &self.fir_store,
             &mut Env::default(),
-            &mut self.sim,
-            &mut self.tracer,
+            &mut TraceAndSim::new(&mut self.sim, &mut self.tracer),
             receiver,
         )
     }
 
     /// Executes the entry expression until the end of execution, using the given simulator backend
     /// and a new instance of the environment.
-    pub fn eval_entry_with_sim<B: Backend, T: TracingBackend>(
+    pub fn eval_entry_with_sim(
         &mut self,
-        trace_and_sim: &mut TraceAndSim<B, T>,
+        trace_and_sim: &mut TraceAndSim,
         receiver: &mut impl Receiver,
     ) -> InterpretResult {
         let graph = self.get_entry_exec_graph()?;
         self.expr_graph = Some(graph.clone());
         if self.quantum_seed.is_some() {
-            trace_and_sim.0.set_seed(self.quantum_seed);
+            trace_and_sim.set_seed(self.quantum_seed);
         }
         eval(
             self.source_package,
@@ -707,8 +704,7 @@ impl Interpreter {
             self.compiler.package_store(),
             &self.fir_store,
             &mut Env::default(),
-            trace_and_sim.0,
-            trace_and_sim.1,
+            trace_and_sim,
             receiver,
         )
     }
@@ -789,8 +785,7 @@ impl Interpreter {
             self.compiler.package_store(),
             &self.fir_store,
             &mut self.env,
-            &mut self.sim,
-            &mut self.tracer,
+            &mut TraceAndSim::new(&mut self.sim, &mut self.tracer),
             receiver,
         )
     }
@@ -807,7 +802,7 @@ impl Interpreter {
             self.classical_seed,
             &self.fir_store,
             &mut self.env,
-            &mut (&mut self.sim, &mut self.tracer),
+            &mut TraceAndSim::new(&mut self.sim, &mut self.tracer),
             receiver,
             callable,
             args,
@@ -836,11 +831,16 @@ impl Interpreter {
             Some(noise) => SparseSim::new_with_noise(&noise),
             None => SparseSim::new(),
         };
-        let mut tracer = DummyTracingBackend {};
+
         if let Some(loss) = qubit_loss {
             sim.set_loss(loss);
         }
-        self.invoke_with_sim(&mut sim, &mut tracer, receiver, callable, args)
+        self.invoke_with_sim(
+            &mut TraceAndSim::new_no_trace(&mut sim),
+            receiver,
+            callable,
+            args,
+        )
     }
 
     /// Runs the given entry expression on a new instance of the environment and simulator,
@@ -860,8 +860,7 @@ impl Interpreter {
             sim.set_loss(loss);
         }
 
-        let mut tracer = DummyTracingBackend {};
-        self.run_with_sim(&mut sim, &mut tracer, receiver, expr)
+        self.run_with_sim(&mut TraceAndSim::new_no_trace(&mut sim), receiver, expr)
     }
 
     /// Gets the current quantum state of the simulator.
@@ -1002,7 +1001,12 @@ impl Interpreter {
                     let mut sink = std::io::sink();
                     let mut out = GenericReceiver::new(&mut sink);
 
-                    self.invoke_with_sim(&mut sim, &mut tracer, &mut out, callable, args)?;
+                    self.invoke_with_sim(
+                        &mut TraceAndSim::new(&mut sim, &mut tracer),
+                        &mut out,
+                        callable,
+                        args,
+                    )?;
                 }
                 None => self.run_with_sim_no_output(entry_expr, &mut sim, &mut tracer)?,
             }
@@ -1017,7 +1021,12 @@ impl Interpreter {
                     let mut sink = std::io::sink();
                     let mut out = GenericReceiver::new(&mut sink);
 
-                    self.invoke_with_sim(&mut sim, &mut tracer, &mut out, callable, args)?;
+                    self.invoke_with_sim(
+                        &mut TraceAndSim::new(&mut sim, &mut tracer),
+                        &mut out,
+                        callable,
+                        args,
+                    )?;
                 }
                 None => self.run_with_sim_no_output(entry_expr, &mut sim, &mut tracer)?,
             }
@@ -1047,7 +1056,12 @@ impl Interpreter {
             let mut sink = std::io::sink();
             let mut out = GenericReceiver::new(&mut sink);
 
-            self.invoke_with_sim(&mut sim, &mut tracer, &mut out, callable, args)?;
+            self.invoke_with_sim(
+                &mut TraceAndSim::new(&mut sim, &mut tracer),
+                &mut out,
+                callable,
+                args,
+            )?;
             Ok(tracer.finish())
         } else {
             self.static_circuit_entrypoint(entry_expr, config)
@@ -1153,8 +1167,7 @@ impl Interpreter {
     /// but using the current compilation.
     pub fn run_with_sim(
         &mut self,
-        sim: &mut impl Backend,
-        tracer: &mut impl TracingBackend,
+        trace_and_sim: &mut TraceAndSim,
         receiver: &mut impl Receiver,
         expr: Option<&str>,
     ) -> InterpretResult {
@@ -1167,7 +1180,7 @@ impl Interpreter {
         };
 
         if self.quantum_seed.is_some() {
-            sim.set_seed(self.quantum_seed);
+            trace_and_sim.set_seed(self.quantum_seed);
         }
 
         eval(
@@ -1177,8 +1190,7 @@ impl Interpreter {
             self.compiler.package_store(),
             &self.fir_store,
             &mut Env::default(),
-            sim,
-            tracer,
+            trace_and_sim,
             receiver,
         )
     }
@@ -1212,8 +1224,7 @@ impl Interpreter {
             self.compiler.package_store(),
             &self.fir_store,
             &mut Env::default(),
-            sim,
-            tracer,
+            &mut TraceAndSim::new(sim, tracer),
             &mut out,
         )?;
 
@@ -1224,8 +1235,7 @@ impl Interpreter {
     /// but using the current compilation.
     pub fn invoke_with_sim(
         &mut self,
-        sim: &mut impl Backend,
-        tracer: &mut impl TracingBackend,
+        trace_and_sim: &mut TraceAndSim,
         receiver: &mut impl Receiver,
         callable: Value,
         args: Value,
@@ -1235,7 +1245,7 @@ impl Interpreter {
             self.classical_seed,
             &self.fir_store,
             &mut Env::default(),
-            &mut (sim, tracer),
+            trace_and_sim,
             receiver,
             callable,
             args,
@@ -1457,7 +1467,7 @@ impl Debugger {
             .eval(
                 &self.interpreter.fir_store,
                 &mut self.interpreter.env,
-                &mut (&mut self.interpreter.sim, &mut self.interpreter.tracer),
+                &mut TraceAndSim::new(&mut self.interpreter.sim, &mut self.interpreter.tracer),
                 receiver,
                 breakpoints,
                 step,
@@ -1566,8 +1576,7 @@ fn eval(
     package_store: &PackageStore,
     fir_store: &fir::PackageStore,
     env: &mut Env,
-    sim: &mut impl Backend,
-    tracer: &mut impl TracingBackend,
+    trace_and_sim: &mut TraceAndSim,
     receiver: &mut impl Receiver,
 ) -> InterpretResult {
     qsc_eval::eval(
@@ -1576,7 +1585,7 @@ fn eval(
         exec_graph,
         fir_store,
         env,
-        &mut (sim, tracer),
+        trace_and_sim,
         receiver,
     )
     .map_err(|(error, call_stack)| eval_error(package_store, fir_store, call_stack, error))

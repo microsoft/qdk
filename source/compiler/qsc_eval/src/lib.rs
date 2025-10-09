@@ -26,11 +26,10 @@ pub mod output;
 pub mod state;
 pub mod val;
 
-use crate::backend::{TraceAndSim, TracingBackend};
+use crate::backend::TraceAndSim;
 use crate::val::{
     Value, index_array, make_range, slice_array, update_index_range, update_index_single,
 };
-use backend::Backend;
 use core::panic;
 use debug::{CallStack, Frame};
 pub use error::PackageSpan;
@@ -284,13 +283,13 @@ pub fn exec_graph_section(graph: &ExecGraph, range: ops::Range<usize>) -> ExecGr
 /// # Panics
 /// On internal error where no result is returned.
 #[allow(clippy::needless_pass_by_value)]
-pub fn eval<B: Backend, T: TracingBackend>(
+pub fn eval(
     package: PackageId,
     seed: Option<u64>,
     exec_graph: ExecGraph,
     globals: &impl PackageStoreLookup,
     env: &mut Env,
-    trace_and_sim: &mut TraceAndSim<B, T>,
+    trace_and_sim: &mut TraceAndSim,
     receiver: &mut impl Receiver,
 ) -> Result<Value, (Error, Vec<Frame>)> {
     let mut state = State::new(package, exec_graph, seed, ErrorBehavior::FailOnError);
@@ -314,12 +313,12 @@ pub fn eval<B: Backend, T: TracingBackend>(
 /// # Panics
 /// On internal error where no result is returned.
 #[allow(clippy::too_many_arguments)]
-pub fn invoke<B: Backend, T: TracingBackend>(
+pub fn invoke(
     package: PackageId,
     seed: Option<u64>,
     globals: &impl PackageStoreLookup,
     env: &mut Env,
-    trace_and_sim: &mut TraceAndSim<B, T>,
+    trace_and_sim: &mut TraceAndSim,
     receiver: &mut impl Receiver,
     callable: Value,
     args: Value,
@@ -728,12 +727,11 @@ impl State {
     /// # Panics
     /// When returning a value in the middle of execution.
     #[allow(clippy::too_many_lines)]
-    #[allow(clippy::needless_pass_by_value)]
-    pub fn eval<B: Backend, T: TracingBackend>(
+    pub fn eval(
         &mut self,
         globals: &impl PackageStoreLookup,
         env: &mut Env,
-        trace_and_sim: &mut TraceAndSim<B, T>,
+        trace_and_sim: &mut TraceAndSim,
         out: &mut impl Receiver,
         breakpoints: &[StmtId],
         step: StepAction,
@@ -923,10 +921,10 @@ impl State {
     }
 
     #[allow(clippy::similar_names)]
-    fn eval_expr<B: Backend, T: TracingBackend>(
+    fn eval_expr(
         &mut self,
         env: &mut Env,
-        trace_and_sim: &mut TraceAndSim<B, T>,
+        trace_and_sim: &mut TraceAndSim,
         globals: &impl PackageStoreLookup,
         out: &mut impl Receiver,
         expr: ExprId,
@@ -1163,10 +1161,10 @@ impl State {
     }
 
     #[allow(clippy::needless_pass_by_value)]
-    fn eval_call<B: Backend, T: TracingBackend>(
+    fn eval_call(
         &mut self,
         env: &mut Env,
-        trace_and_sim: &mut TraceAndSim<B, T>,
+        trace_and_sim: &mut TraceAndSim,
         globals: &impl PackageStoreLookup,
         callable_span: Span,
         arg_span: Span,
@@ -1262,19 +1260,18 @@ impl State {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn eval_intrinsic<B: Backend, T: TracingBackend>(
+    fn eval_intrinsic(
         &mut self,
         env: &mut Env,
         callee_id: StoreItemId,
         functor: FunctorApp,
         callee: &fir::CallableDecl,
-        trace_and_sim: &mut TraceAndSim<B, T>,
+        sim: &mut TraceAndSim,
         callee_span: PackageSpan,
         arg: Value,
         arg_span: PackageSpan,
         out: &mut impl Receiver,
     ) -> Result<(), Error> {
-        let (sim, tracer) = trace_and_sim;
         self.push_frame(Vec::new().into(), callee_id, functor);
         self.current_span = callee_span.span;
         self.increment_call_count(callee_id, functor);
@@ -1282,7 +1279,6 @@ impl State {
         let val = match name.as_ref() {
             "__quantum__rt__qubit_allocate" => {
                 let q = sim.qubit_allocate();
-                tracer.qubit_allocate(q);
                 let q = Rc::new(Qubit(q));
                 env.track_qubit(Rc::clone(&q));
                 if let Some(counter) = &mut self.qubit_counter {
@@ -1308,7 +1304,7 @@ impl State {
                     callee_span,
                     arg,
                     arg_span,
-                    trace_and_sim,
+                    sim,
                     &mut self.rng.borrow_mut(),
                     out,
                 )?;

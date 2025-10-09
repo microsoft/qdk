@@ -19,7 +19,7 @@ use qsc_data_structures::{functors::FunctorApp, span::Span, target::TargetCapabi
 use qsc_eval::{
     self, Error as EvalError, ErrorBehavior, PackageSpan, State, StepAction, StepResult, Variable,
     are_ctls_unique,
-    backend::DummyTracingBackend,
+    backend::TraceAndSim,
     exec_graph_section,
     intrinsic::qubit_relabel,
     output::GenericReceiver,
@@ -1151,11 +1151,10 @@ impl<'a> PartialEvaluator<'a> {
             None,
             ErrorBehavior::FailOnError,
         );
-        let mut tracer = DummyTracingBackend {};
         let classical_result = state.eval(
             self.package_store,
             &mut scope.env,
-            &mut (&mut self.backend, &mut tracer),
+            &mut TraceAndSim::new_no_trace(&mut self.backend),
             &mut GenericReceiver::new(&mut std::io::sink()),
             &[],
             StepAction::Continue,

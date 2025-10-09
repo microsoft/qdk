@@ -6,7 +6,7 @@ use std::convert::Into;
 use expect_test::{Expect, expect};
 use indoc::indoc;
 use qsc::{
-    DummyTracingBackend, LanguageFeatures, PackageType, SourceMap, TargetCapabilityFlags,
+    LanguageFeatures, PackageType, SourceMap, TargetCapabilityFlags, TraceAndSim,
     interpret::{GenericReceiver, Interpreter},
     target::Profile,
 };
@@ -26,11 +26,10 @@ fn verify_logical_counts(source: &str, entry: Option<&str>, expect: &Expect) {
     )
     .expect("compilation should succeed");
     let mut counter = LogicalCounter::default();
-    let mut tracer = DummyTracingBackend {};
     let mut stdout = std::io::sink();
     let mut out = GenericReceiver::new(&mut stdout);
     interpreter
-        .eval_entry_with_sim(&mut (&mut counter, &mut tracer), &mut out)
+        .eval_entry_with_sim(&mut TraceAndSim::new_no_trace(&mut counter), &mut out)
         .expect("evaluation should succeed");
     expect.assert_debug_eq(&counter.logical_resources());
 }

@@ -19,9 +19,9 @@ fn exceed_max_operations() {
     let tracer: &mut dyn TracingBackend = &mut builder;
     tracer.qubit_allocate(0);
 
-    tracer.x(0);
-    tracer.x(0);
-    tracer.x(0);
+    tracer.gate("X", false, vec![0], vec![], vec![], vec![]);
+    tracer.gate("X", false, vec![0], vec![], vec![], vec![]);
+    tracer.gate("X", false, vec![0], vec![], vec![], vec![]);
 
     let circuit = builder.finish();
 
@@ -47,9 +47,9 @@ fn exceed_max_operations_deferred_measurements() {
     let tracer: &mut dyn TracingBackend = &mut builder;
     tracer.qubit_allocate(0);
 
-    tracer.x(0);
+    tracer.gate("X", false, vec![0], vec![], vec![], vec![]);
     tracer.m(0, &(0.into()));
-    tracer.x(0);
+    tracer.gate("X", false, vec![0], vec![], vec![], vec![]);
 
     let circuit = builder.finish();
 

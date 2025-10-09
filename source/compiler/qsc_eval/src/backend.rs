@@ -662,185 +662,493 @@ fn unwrap_matrix_as_array2(matrix: Value, qubits: &[usize]) -> Array2<Complex<f6
     })
 }
 
-pub type TraceAndSim<'a, B, T> = (&'a mut B, &'a mut T);
-
-/// Simple struct that chains two backends together so that the chained
-/// backend is called before the main backend.
-/// For any intrinsics that return a value,
-/// the value returned by the chained backend is ignored.
-/// The value returned by the main backend is returned.
-pub struct Chain<T1, T2> {
-    pub main: T1,
-    pub tracer: T2,
+enum OptionalBackend<'a> {
+    None(DummySimBackend),
+    Some(&'a mut dyn Backend),
 }
 
-impl<T1, T2> Chain<T1, T2>
-where
-    T1: Backend,
-    T2: TracingBackend,
-{
-    pub fn new(primary: T1, chained: T2) -> Chain<T1, T2> {
-        Chain {
-            main: primary,
-            tracer: chained,
+impl Backend for OptionalBackend<'_> {
+    fn ccx(&mut self, ctl0: usize, ctl1: usize, q: usize) {
+        match self {
+            OptionalBackend::None(b) => b.ccx(ctl0, ctl1, q),
+            OptionalBackend::Some(b) => b.ccx(ctl0, ctl1, q),
+        }
+    }
+
+    fn cx(&mut self, ctl: usize, q: usize) {
+        match self {
+            OptionalBackend::None(b) => b.cx(ctl, q),
+            OptionalBackend::Some(b) => b.cx(ctl, q),
+        }
+    }
+
+    fn cy(&mut self, ctl: usize, q: usize) {
+        match self {
+            OptionalBackend::None(b) => b.cy(ctl, q),
+            OptionalBackend::Some(b) => b.cy(ctl, q),
+        }
+    }
+
+    fn cz(&mut self, ctl: usize, q: usize) {
+        match self {
+            OptionalBackend::None(b) => b.cz(ctl, q),
+            OptionalBackend::Some(b) => b.cz(ctl, q),
+        }
+    }
+
+    fn h(&mut self, q: usize) {
+        match self {
+            OptionalBackend::None(b) => b.h(q),
+            OptionalBackend::Some(b) => b.h(q),
+        }
+    }
+
+    fn m(&mut self, q: usize) -> val::Result {
+        match self {
+            OptionalBackend::None(b) => b.m(q),
+            OptionalBackend::Some(b) => b.m(q),
+        }
+    }
+
+    fn mresetz(&mut self, q: usize) -> val::Result {
+        match self {
+            OptionalBackend::None(b) => b.mresetz(q),
+            OptionalBackend::Some(b) => b.mresetz(q),
+        }
+    }
+
+    fn reset(&mut self, q: usize) {
+        match self {
+            OptionalBackend::None(b) => b.reset(q),
+            OptionalBackend::Some(b) => b.reset(q),
+        }
+    }
+
+    fn rx(&mut self, theta: f64, q: usize) {
+        match self {
+            OptionalBackend::None(b) => b.rx(theta, q),
+            OptionalBackend::Some(b) => b.rx(theta, q),
+        }
+    }
+
+    fn rxx(&mut self, theta: f64, q0: usize, q1: usize) {
+        match self {
+            OptionalBackend::None(b) => b.rxx(theta, q0, q1),
+            OptionalBackend::Some(b) => b.rxx(theta, q0, q1),
+        }
+    }
+
+    fn ry(&mut self, theta: f64, q: usize) {
+        match self {
+            OptionalBackend::None(b) => b.ry(theta, q),
+            OptionalBackend::Some(b) => b.ry(theta, q),
+        }
+    }
+
+    fn ryy(&mut self, theta: f64, q0: usize, q1: usize) {
+        match self {
+            OptionalBackend::None(b) => b.ryy(theta, q0, q1),
+            OptionalBackend::Some(b) => b.ryy(theta, q0, q1),
+        }
+    }
+
+    fn rz(&mut self, theta: f64, q: usize) {
+        match self {
+            OptionalBackend::None(b) => b.rz(theta, q),
+            OptionalBackend::Some(b) => b.rz(theta, q),
+        }
+    }
+
+    fn rzz(&mut self, theta: f64, q0: usize, q1: usize) {
+        match self {
+            OptionalBackend::None(b) => b.rzz(theta, q0, q1),
+            OptionalBackend::Some(b) => b.rzz(theta, q0, q1),
+        }
+    }
+
+    fn sadj(&mut self, q: usize) {
+        match self {
+            OptionalBackend::None(b) => b.sadj(q),
+            OptionalBackend::Some(b) => b.sadj(q),
+        }
+    }
+
+    fn s(&mut self, q: usize) {
+        match self {
+            OptionalBackend::None(b) => b.s(q),
+            OptionalBackend::Some(b) => b.s(q),
+        }
+    }
+
+    fn sx(&mut self, q: usize) {
+        match self {
+            OptionalBackend::None(b) => b.sx(q),
+            OptionalBackend::Some(b) => b.sx(q),
+        }
+    }
+
+    fn swap(&mut self, q0: usize, q1: usize) {
+        match self {
+            OptionalBackend::None(b) => b.swap(q0, q1),
+            OptionalBackend::Some(b) => b.swap(q0, q1),
+        }
+    }
+
+    fn tadj(&mut self, q: usize) {
+        match self {
+            OptionalBackend::None(b) => b.tadj(q),
+            OptionalBackend::Some(b) => b.tadj(q),
+        }
+    }
+
+    fn t(&mut self, q: usize) {
+        match self {
+            OptionalBackend::None(b) => b.t(q),
+            OptionalBackend::Some(b) => b.t(q),
+        }
+    }
+
+    fn x(&mut self, q: usize) {
+        match self {
+            OptionalBackend::None(b) => b.x(q),
+            OptionalBackend::Some(b) => b.x(q),
+        }
+    }
+
+    fn y(&mut self, q: usize) {
+        match self {
+            OptionalBackend::None(b) => b.y(q),
+            OptionalBackend::Some(b) => b.y(q),
+        }
+    }
+
+    fn z(&mut self, q: usize) {
+        match self {
+            OptionalBackend::None(b) => b.z(q),
+            OptionalBackend::Some(b) => b.z(q),
+        }
+    }
+
+    fn qubit_allocate(&mut self) -> usize {
+        match self {
+            OptionalBackend::None(b) => b.qubit_allocate(),
+            OptionalBackend::Some(b) => b.qubit_allocate(),
+        }
+    }
+
+    fn qubit_release(&mut self, q: usize) -> bool {
+        match self {
+            OptionalBackend::None(b) => b.qubit_release(q),
+            OptionalBackend::Some(b) => b.qubit_release(q),
+        }
+    }
+
+    fn qubit_swap_id(&mut self, q0: usize, q1: usize) {
+        match self {
+            OptionalBackend::None(b) => b.qubit_swap_id(q0, q1),
+            OptionalBackend::Some(b) => b.qubit_swap_id(q0, q1),
+        }
+    }
+
+    fn capture_quantum_state(&mut self) -> (Vec<(BigUint, Complex<f64>)>, usize) {
+        match self {
+            OptionalBackend::None(b) => b.capture_quantum_state(),
+            OptionalBackend::Some(b) => b.capture_quantum_state(),
+        }
+    }
+
+    fn qubit_is_zero(&mut self, q: usize) -> bool {
+        match self {
+            OptionalBackend::None(b) => b.qubit_is_zero(q),
+            OptionalBackend::Some(b) => b.qubit_is_zero(q),
+        }
+    }
+
+    fn custom_intrinsic(&mut self, name: &str, arg: Value) -> Option<Result<Value, String>> {
+        match self {
+            OptionalBackend::None(b) => b.custom_intrinsic(name, arg),
+            OptionalBackend::Some(b) => b.custom_intrinsic(name, arg),
+        }
+    }
+
+    fn set_seed(&mut self, seed: Option<u64>) {
+        match self {
+            OptionalBackend::None(b) => b.set_seed(seed),
+            OptionalBackend::Some(b) => b.set_seed(seed),
         }
     }
 }
 
-impl<T1, T2> Backend for Chain<T1, T2>
-where
-    T1: Backend,
-    T2: TracingBackend,
-{
-    fn ccx(&mut self, ctl0: usize, ctl1: usize, q: usize) {
-        self.tracer.ccx(ctl0, ctl1, q);
-        self.main.ccx(ctl0, ctl1, q);
+pub struct TraceAndSim<'a> {
+    backend: OptionalBackend<'a>,
+    tracer: Option<&'a mut dyn TracingBackend>,
+}
+
+impl<'a> TraceAndSim<'a> {
+    pub fn new(backend: &'a mut dyn Backend, tracer: &'a mut dyn TracingBackend) -> Self {
+        Self {
+            backend: OptionalBackend::Some(backend),
+            tracer: Some(tracer),
+        }
     }
 
-    fn cx(&mut self, ctl: usize, q: usize) {
-        self.tracer.cx(ctl, q);
-        self.main.cx(ctl, q);
+    pub fn new_no_trace(backend: &'a mut dyn Backend) -> Self {
+        Self {
+            backend: OptionalBackend::Some(backend),
+            tracer: None,
+        }
     }
 
-    fn cy(&mut self, ctl: usize, q: usize) {
-        self.tracer.cy(ctl, q);
-        self.main.cy(ctl, q);
+    pub fn new_no_sim(tracer: &'a mut dyn TracingBackend) -> Self {
+        Self {
+            backend: OptionalBackend::None(DummySimBackend::default()),
+            tracer: Some(tracer),
+        }
     }
 
-    fn cz(&mut self, ctl: usize, q: usize) {
-        self.tracer.cz(ctl, q);
-        self.main.cz(ctl, q);
+    pub fn ccx(&mut self, ctl0: usize, ctl1: usize, q: usize) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate("X", false, vec![q], vec![ctl0, ctl1], vec![], vec![]);
+        }
+        self.backend.ccx(ctl0, ctl1, q);
     }
 
-    fn h(&mut self, q: usize) {
-        self.tracer.h(q);
-        self.main.h(q);
+    pub fn cx(&mut self, ctl: usize, q: usize) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate("X", false, vec![q], vec![ctl], vec![], vec![]);
+        }
+        self.backend.cx(ctl, q);
     }
 
-    fn m(&mut self, q: usize) -> val::Result {
-        let r = self.main.m(q);
-        self.tracer.m(q, &r);
+    pub fn cy(&mut self, ctl: usize, q: usize) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate("Y", false, vec![q], vec![ctl], vec![], vec![]);
+        }
+        self.backend.cy(ctl, q);
+    }
+
+    pub fn cz(&mut self, ctl: usize, q: usize) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate("Z", false, vec![q], vec![ctl], vec![], vec![]);
+        }
+        self.backend.cz(ctl, q);
+    }
+
+    pub fn h(&mut self, q: usize) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate("H", false, vec![q], vec![], vec![], vec![]);
+        }
+        self.backend.h(q);
+    }
+
+    pub fn m(&mut self, q: usize) -> val::Result {
+        let r = self.backend.m(q);
+        if let Some(tracer) = &mut self.tracer {
+            tracer.m(q, &r);
+        }
         r
     }
 
-    fn mresetz(&mut self, q: usize) -> val::Result {
-        let r = self.main.mresetz(q);
-        self.tracer.mresetz(q, &r);
+    pub fn mresetz(&mut self, q: usize) -> val::Result {
+        let r = self.backend.mresetz(q);
+        if let Some(tracer) = &mut self.tracer {
+            tracer.mresetz(q, &r);
+        }
         r
     }
 
-    fn reset(&mut self, q: usize) {
-        self.tracer.reset(q);
-        self.main.reset(q);
+    pub fn reset(&mut self, q: usize) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.reset(q);
+        }
+        self.backend.reset(q);
     }
 
-    fn rx(&mut self, theta: f64, q: usize) {
-        self.tracer.rx(theta, q);
-        self.main.rx(theta, q);
+    pub fn rx(&mut self, theta: f64, q: usize) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate(
+                "Rx",
+                false,
+                vec![q],
+                vec![],
+                vec![],
+                vec![format!("{theta:.4}")],
+            );
+        }
+        self.backend.rx(theta, q);
     }
 
-    fn rxx(&mut self, theta: f64, q0: usize, q1: usize) {
-        self.tracer.rxx(theta, q0, q1);
-        self.main.rxx(theta, q0, q1);
+    pub fn rxx(&mut self, theta: f64, q0: usize, q1: usize) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate(
+                "Rxx",
+                false,
+                vec![q0, q1],
+                vec![],
+                vec![],
+                vec![format!("{theta:.4}")],
+            );
+        }
+        self.backend.rxx(theta, q0, q1);
     }
 
-    fn ry(&mut self, theta: f64, q: usize) {
-        self.tracer.ry(theta, q);
-        self.main.ry(theta, q);
+    pub fn ry(&mut self, theta: f64, q: usize) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate(
+                "Ry",
+                false,
+                vec![q],
+                vec![],
+                vec![],
+                vec![format!("{theta:.4}")],
+            );
+        }
+        self.backend.ry(theta, q);
     }
 
-    fn ryy(&mut self, theta: f64, q0: usize, q1: usize) {
-        self.tracer.ryy(theta, q0, q1);
-        self.main.ryy(theta, q0, q1);
+    pub fn ryy(&mut self, theta: f64, q0: usize, q1: usize) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate(
+                "Ryy",
+                false,
+                vec![q0, q1],
+                vec![],
+                vec![],
+                vec![format!("{theta:.4}")],
+            );
+        }
+        self.backend.ryy(theta, q0, q1);
     }
 
-    fn rz(&mut self, theta: f64, q: usize) {
-        self.tracer.rz(theta, q);
-        self.main.rz(theta, q);
+    pub fn rz(&mut self, theta: f64, q: usize) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate(
+                "Rz",
+                false,
+                vec![q],
+                vec![],
+                vec![],
+                vec![format!("{theta:.4}")],
+            );
+        }
+        self.backend.rz(theta, q);
     }
 
-    fn rzz(&mut self, theta: f64, q0: usize, q1: usize) {
-        self.tracer.rzz(theta, q0, q1);
-        self.main.rzz(theta, q0, q1);
+    pub fn rzz(&mut self, theta: f64, q0: usize, q1: usize) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate(
+                "Rzz",
+                false,
+                vec![q0, q1],
+                vec![],
+                vec![],
+                vec![format!("{theta:.4}")],
+            );
+        }
+        self.backend.rzz(theta, q0, q1);
     }
 
-    fn sadj(&mut self, q: usize) {
-        self.tracer.sadj(q);
-        self.main.sadj(q);
+    pub fn sadj(&mut self, q: usize) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate("S", true, vec![q], vec![], vec![], vec![]);
+        }
+        self.backend.sadj(q);
     }
 
-    fn s(&mut self, q: usize) {
-        self.tracer.s(q);
-        self.main.s(q);
+    pub fn s(&mut self, q: usize) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate("S", false, vec![q], vec![], vec![], vec![]);
+        }
+        self.backend.s(q);
     }
 
-    fn sx(&mut self, q: usize) {
-        self.tracer.sx(q);
-        self.main.sx(q);
+    pub fn sx(&mut self, q: usize) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate("SX", false, vec![q], vec![], vec![], vec![]);
+        }
+        self.backend.sx(q);
     }
 
-    fn swap(&mut self, q0: usize, q1: usize) {
-        self.tracer.swap(q0, q1);
-        self.main.swap(q0, q1);
+    pub fn swap(&mut self, q0: usize, q1: usize) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate("SWAP", false, vec![q0, q1], vec![], vec![], vec![]);
+        }
+        self.backend.swap(q0, q1);
     }
 
-    fn tadj(&mut self, q: usize) {
-        self.tracer.tadj(q);
-        self.main.tadj(q);
+    pub fn tadj(&mut self, q: usize) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate("T", true, vec![q], vec![], vec![], vec![]);
+        }
+        self.backend.tadj(q);
     }
 
-    fn t(&mut self, q: usize) {
-        self.tracer.t(q);
-        self.main.t(q);
+    pub fn t(&mut self, q: usize) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate("T", false, vec![q], vec![], vec![], vec![]);
+        }
+        self.backend.t(q);
     }
 
-    fn x(&mut self, q: usize) {
-        self.tracer.x(q);
-        self.main.x(q);
+    pub fn x(&mut self, q: usize) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate("X", false, vec![q], vec![], vec![], vec![]);
+        }
+        self.backend.x(q);
     }
 
-    fn y(&mut self, q: usize) {
-        self.tracer.y(q);
-        self.main.y(q);
+    pub fn y(&mut self, q: usize) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate("Y", false, vec![q], vec![], vec![], vec![]);
+        }
+        self.backend.y(q);
     }
 
-    fn z(&mut self, q: usize) {
-        self.tracer.z(q);
-        self.main.z(q);
+    pub fn z(&mut self, q: usize) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate("Z", false, vec![q], vec![], vec![], vec![]);
+        }
+        self.backend.z(q);
     }
 
-    fn qubit_allocate(&mut self) -> usize {
-        let q = self.main.qubit_allocate();
-        self.tracer.qubit_allocate(q);
+    pub fn qubit_allocate(&mut self) -> usize {
+        let q = self.backend.qubit_allocate();
+        if let Some(tracer) = &mut self.tracer {
+            tracer.qubit_allocate(q);
+        }
         q
     }
 
-    fn qubit_release(&mut self, q: usize) -> bool {
-        self.main.qubit_release(q)
+    pub fn qubit_release(&mut self, q: usize) -> bool {
+        self.backend.qubit_release(q)
     }
 
-    fn qubit_swap_id(&mut self, q0: usize, q1: usize) {
-        self.tracer.qubit_swap_id(q0, q1);
-        self.main.qubit_swap_id(q0, q1);
+    pub fn qubit_swap_id(&mut self, q0: usize, q1: usize) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.qubit_swap_id(q0, q1);
+        }
+        self.backend.qubit_swap_id(q0, q1);
     }
 
-    fn capture_quantum_state(
+    pub fn capture_quantum_state(
         &mut self,
     ) -> (Vec<(num_bigint::BigUint, num_complex::Complex<f64>)>, usize) {
-        self.main.capture_quantum_state()
+        self.backend.capture_quantum_state()
     }
 
-    fn qubit_is_zero(&mut self, q: usize) -> bool {
-        self.main.qubit_is_zero(q)
+    pub fn qubit_is_zero(&mut self, q: usize) -> bool {
+        self.backend.qubit_is_zero(q)
     }
 
-    fn custom_intrinsic(&mut self, name: &str, arg: Value) -> Option<Result<Value, String>> {
-        self.tracer.custom_intrinsic(name, arg.clone());
-        self.main.custom_intrinsic(name, arg)
+    pub fn custom_intrinsic(&mut self, name: &str, arg: Value) -> Option<Result<Value, String>> {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.custom_intrinsic(name, arg.clone());
+        }
+        self.backend.custom_intrinsic(name, arg)
     }
 
-    fn set_seed(&mut self, seed: Option<u64>) {
-        self.main.set_seed(seed);
+    pub fn set_seed(&mut self, seed: Option<u64>) {
+        self.backend.set_seed(seed);
     }
 }
 
@@ -917,58 +1225,16 @@ pub trait TracingBackend {
     fn qubit_allocate(&mut self, q: usize);
     fn qubit_swap_id(&mut self, _q0: usize, _q1: usize);
 
-    // bunch of gates
-    fn ccx(&mut self, ctl0: usize, ctl1: usize, q: usize);
-    fn cx(&mut self, _ctl: usize, _q: usize);
-    fn cy(&mut self, _ctl: usize, _q: usize);
-    fn cz(&mut self, _ctl: usize, _q: usize);
-    fn h(&mut self, _q: usize);
+    fn gate(
+        &mut self,
+        name: &str,
+        is_adjoint: bool,
+        target_qubits: Vec<usize>,
+        control_qubits: Vec<usize>,
+        control_results: Vec<usize>,
+        args: Vec<String>,
+    );
     fn reset(&mut self, _q: usize);
-    fn rx(&mut self, _theta: f64, _q: usize);
-    fn rxx(&mut self, _theta: f64, _q0: usize, _q1: usize);
-    fn ry(&mut self, _theta: f64, _q: usize);
-    fn ryy(&mut self, _theta: f64, _q0: usize, _q1: usize);
-    fn rz(&mut self, _theta: f64, _q: usize);
-    fn rzz(&mut self, _theta: f64, _q0: usize, _q1: usize);
-    fn sadj(&mut self, _q: usize);
-    fn s(&mut self, _q: usize);
-    fn sx(&mut self, _q: usize);
-    fn swap(&mut self, _q0: usize, _q1: usize);
-    fn tadj(&mut self, _q: usize);
-    fn t(&mut self, _q: usize);
-    fn x(&mut self, _q: usize);
-    fn y(&mut self, _q: usize);
-    fn z(&mut self, _q: usize);
-    fn custom_intrinsic(&mut self, _name: &str, _arg: Value);
-}
 
-/// A dummy tracing backend that does nothing.
-pub struct DummyTracingBackend;
-impl TracingBackend for DummyTracingBackend {
-    fn ccx(&mut self, _ctl0: usize, _ctl1: usize, _q: usize) {}
-    fn cx(&mut self, _ctl: usize, _q: usize) {}
-    fn cy(&mut self, _ctl: usize, _q: usize) {}
-    fn cz(&mut self, _ctl: usize, _q: usize) {}
-    fn h(&mut self, _q: usize) {}
-    fn m(&mut self, _q: usize, _r: &val::Result) {}
-    fn mresetz(&mut self, _q: usize, _r: &val::Result) {}
-    fn reset(&mut self, _q: usize) {}
-    fn rx(&mut self, _theta: f64, _q: usize) {}
-    fn rxx(&mut self, _theta: f64, _q0: usize, _q1: usize) {}
-    fn ry(&mut self, _theta: f64, _q: usize) {}
-    fn ryy(&mut self, _theta: f64, _q0: usize, _q1: usize) {}
-    fn rz(&mut self, _theta: f64, _q: usize) {}
-    fn rzz(&mut self, _theta: f64, _q0: usize, _q1: usize) {}
-    fn sadj(&mut self, _q: usize) {}
-    fn s(&mut self, _q: usize) {}
-    fn sx(&mut self, _q: usize) {}
-    fn swap(&mut self, _q0: usize, _q1: usize) {}
-    fn tadj(&mut self, _q: usize) {}
-    fn t(&mut self, _q: usize) {}
-    fn x(&mut self, _q: usize) {}
-    fn y(&mut self, _q: usize) {}
-    fn z(&mut self, _q: usize) {}
-    fn qubit_allocate(&mut self, _q: usize) {}
-    fn qubit_swap_id(&mut self, _q0: usize, _q1: usize) {}
-    fn custom_intrinsic(&mut self, _name: &str, _arg: Value) {}
+    fn custom_intrinsic(&mut self, _name: &str, _arg: Value);
 }

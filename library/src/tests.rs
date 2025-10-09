@@ -16,7 +16,7 @@ mod table_lookup;
 
 use indoc::indoc;
 use qsc::{
-    Backend, DummyTracingBackend, LanguageFeatures, PackageType, SourceMap, SparseSim,
+    Backend, LanguageFeatures, PackageType, SourceMap, SparseSim, TraceAndSim,
     interpret::{self, GenericReceiver, Interpreter, Value},
     target::Profile,
 };
@@ -78,7 +78,7 @@ pub fn test_expression_with_lib_and_profile_and_sim(
     .expect("test should compile");
 
     let result = interpreter
-        .eval_entry_with_sim(&mut (sim, &mut DummyTracingBackend {}), &mut out)
+        .eval_entry_with_sim(&mut TraceAndSim::new_no_trace(sim), &mut out)
         .expect("test should run successfully");
 
     match (&expected, result) {
@@ -126,7 +126,7 @@ pub fn test_expression_fails_with_lib_and_profile_and_sim(
     .expect("test should compile");
 
     let result = interpreter
-        .eval_entry_with_sim(&mut (sim, &mut DummyTracingBackend {}), &mut out)
+        .eval_entry_with_sim(&mut TraceAndSim::new_no_trace(sim), &mut out)
         .expect_err("test should run successfully");
 
     assert!(
