@@ -788,15 +788,16 @@ def compile(entry_expr: Union[str, Callable], *args) -> QirInputData:
     ipython_helper()
     start = monotonic()
     global _config
+    interpreter = get_interpreter()
     target_profile = _config._config.get("targetProfile", "unspecified")
     telemetry_events.on_compile(target_profile)
     if isinstance(entry_expr, Callable) and hasattr(entry_expr, "__global_callable"):
         args = python_args_to_interpreter_args(args)
-        ll_str = get_interpreter().qir(
+        ll_str = interpreter.qir(
             entry_expr=None, callable=entry_expr.__global_callable, args=args
         )
     else:
-        ll_str = get_interpreter().qir(entry_expr=entry_expr)
+        ll_str = interpreter.qir(entry_expr=entry_expr)
     res = QirInputData("main", ll_str)
     durationMs = (monotonic() - start) * 1000
     telemetry_events.on_compile_end(durationMs, target_profile)
