@@ -29,7 +29,19 @@ pub fn run_clifford<'py>(
         instructions.push(item);
     }
 
-    let noise = unbind_noise_config(py, noise_config);
+    let mut noise = unbind_noise_config(py, noise_config);
+
+    if !noise.rz.is_noiseless() {
+        if noise.s.is_noiseless() {
+            noise.s = noise.rz;
+        }
+        if noise.z.is_noiseless() {
+            noise.z = noise.rz;
+        }
+        if noise.s_adj.is_noiseless() {
+            noise.s_adj = noise.rz;
+        }
+    }
 
     // run the shots
     let output = (0..shots)
