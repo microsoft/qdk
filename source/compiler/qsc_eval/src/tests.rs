@@ -3,7 +3,7 @@
 
 use crate::{
     Env, Error, ErrorBehavior, State, StepAction, StepResult, Value,
-    backend::{Backend, SparseSim},
+    backend::{Backend, DummyTracingBackend, SparseSim},
     debug::Frame,
     exec_graph_section,
     output::{GenericReceiver, Receiver},
@@ -30,9 +30,16 @@ pub(super) fn eval_graph(
     env: &mut Env,
     out: &mut impl Receiver,
 ) -> Result<Value, (Error, Vec<Frame>)> {
+    let mut tracer = DummyTracingBackend {};
     let mut state = State::new(package, graph, None, ErrorBehavior::FailOnError);
-    let StepResult::Return(value) =
-        state.eval(globals, env, sim, out, &[], StepAction::Continue)?
+    let StepResult::Return(value) = state.eval(
+        globals,
+        env,
+        &mut (sim, &mut tracer),
+        out,
+        &[],
+        StepAction::Continue,
+    )?
     else {
         unreachable!("eval_expr should always return a value");
     };

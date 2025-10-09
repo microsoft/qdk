@@ -8,7 +8,7 @@ mod tests;
 
 use crate::{
     Error, Rc,
-    backend::Backend,
+    backend::{Backend, TraceAndSim, TracingBackend},
     error::PackageSpan,
     output::Receiver,
     val::{self, Value, unwrap_tuple},
@@ -19,15 +19,16 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use std::convert::TryFrom;
 
 #[allow(clippy::too_many_lines)]
-pub(crate) fn call(
+pub(crate) fn call<R: Into<val::Result>, B: Backend<ResultType = R>, T: TracingBackend<R>>(
     name: &str,
     name_span: PackageSpan,
     arg: Value,
     arg_span: PackageSpan,
-    sim: &mut dyn Backend<ResultType = impl Into<val::Result>>,
+    trace_and_sim: &mut TraceAndSim<B, T>,
     rng: &mut StdRng,
     out: &mut dyn Receiver,
 ) -> Result<Value, Error> {
+    let (sim, tracer) = trace_and_sim;
     match name {
         "Length" => match arg.unwrap_array().len().try_into() {
             Ok(len) => Ok(Value::Int(len)),
@@ -102,19 +103,22 @@ pub(crate) fn call(
                 Err(_) => Err(Error::OutputFail(name_span)),
             }
         }
-        "PermuteLabels" => qubit_relabel(arg, arg_span, |q0, q1| sim.qubit_swap_id(q0, q1)),
+        "PermuteLabels" => qubit_relabel(arg, arg_span, |q0, q1| {
+            tracer.qubit_swap_id(q0, q1);
+            sim.qubit_swap_id(q0, q1);
+        }),
         "Message" => match out.message(&arg.unwrap_string()) {
             Ok(()) => Ok(Value::unit()),
             Err(_) => Err(Error::OutputFail(name_span)),
         },
-        "CheckZero" => Ok(Value::Bool(
-            sim.qubit_is_zero(
-                arg.unwrap_qubit()
-                    .try_deref()
-                    .ok_or(Error::QubitUsedAfterRelease(arg_span))?
-                    .0,
-            ),
-        )),
+        "CheckZero" => Ok({
+            let q = arg
+                .unwrap_qubit()
+                .try_deref()
+                .ok_or(Error::QubitUsedAfterRelease(arg_span))?
+                .0;
+            Value::Bool(sim.qubit_is_zero(q))
+        }),
         "ArcCos" => Ok(Value::Double(arg.unwrap_double().acos())),
         "ArcSin" => Ok(Value::Double(arg.unwrap_double().asin())),
         "ArcTan" => Ok(Value::Double(arg.unwrap_double().atan())),
@@ -156,58 +160,194 @@ pub(crate) fn call(
         }
         #[allow(clippy::cast_possible_truncation)]
         "Truncate" => Ok(Value::Int(arg.unwrap_double() as i64)),
-        "__quantum__qis__ccx__body" => {
-            three_qubit_gate(|ctl0, ctl1, q| sim.ccx(ctl0, ctl1, q), arg, arg_span)
-        }
-        "__quantum__qis__cx__body" => two_qubit_gate(|ctl, q| sim.cx(ctl, q), arg, arg_span),
-        "__quantum__qis__cy__body" => two_qubit_gate(|ctl, q| sim.cy(ctl, q), arg, arg_span),
-        "__quantum__qis__cz__body" => two_qubit_gate(|ctl, q| sim.cz(ctl, q), arg, arg_span),
-        "__quantum__qis__rx__body" => {
-            one_qubit_rotation(|theta, q| sim.rx(theta, q), arg, arg_span)
-        }
-        "__quantum__qis__rxx__body" => {
-            two_qubit_rotation(|theta, q0, q1| sim.rxx(theta, q0, q1), arg, arg_span)
-        }
-        "__quantum__qis__ry__body" => {
-            one_qubit_rotation(|theta, q| sim.ry(theta, q), arg, arg_span)
-        }
-        "__quantum__qis__ryy__body" => {
-            two_qubit_rotation(|theta, q0, q1| sim.ryy(theta, q0, q1), arg, arg_span)
-        }
-        "__quantum__qis__rz__body" => {
-            one_qubit_rotation(|theta, q| sim.rz(theta, q), arg, arg_span)
-        }
-        "__quantum__qis__rzz__body" => {
-            two_qubit_rotation(|theta, q0, q1| sim.rzz(theta, q0, q1), arg, arg_span)
-        }
-        "__quantum__qis__h__body" => one_qubit_gate(|q| sim.h(q), arg, arg_span),
-        "__quantum__qis__s__body" => one_qubit_gate(|q| sim.s(q), arg, arg_span),
-        "__quantum__qis__s__adj" => one_qubit_gate(|q| sim.sadj(q), arg, arg_span),
-        "__quantum__qis__sx__body" => one_qubit_gate(|q| sim.sx(q), arg, arg_span),
-        "__quantum__qis__t__body" => one_qubit_gate(|q| sim.t(q), arg, arg_span),
-        "__quantum__qis__t__adj" => one_qubit_gate(|q| sim.tadj(q), arg, arg_span),
-        "__quantum__qis__x__body" => one_qubit_gate(|q| sim.x(q), arg, arg_span),
-        "__quantum__qis__y__body" => one_qubit_gate(|q| sim.y(q), arg, arg_span),
-        "__quantum__qis__z__body" => one_qubit_gate(|q| sim.z(q), arg, arg_span),
-        "__quantum__qis__swap__body" => two_qubit_gate(|q0, q1| sim.swap(q0, q1), arg, arg_span),
-        "__quantum__qis__reset__body" => one_qubit_gate(|q| sim.reset(q), arg, arg_span),
-        "__quantum__qis__m__body" => Ok(Value::Result(
-            sim.m(arg
+        "__quantum__qis__ccx__body" => three_qubit_gate(
+            |ctl0, ctl1, q| {
+                tracer.ccx(ctl0, ctl1, q);
+                sim.ccx(ctl0, ctl1, q);
+            },
+            arg,
+            arg_span,
+        ),
+        "__quantum__qis__cx__body" => two_qubit_gate(
+            |ctl, q| {
+                tracer.cx(ctl, q);
+                sim.cx(ctl, q);
+            },
+            arg,
+            arg_span,
+        ),
+        "__quantum__qis__cy__body" => two_qubit_gate(
+            |ctl, q| {
+                tracer.cy(ctl, q);
+                sim.cy(ctl, q);
+            },
+            arg,
+            arg_span,
+        ),
+        "__quantum__qis__cz__body" => two_qubit_gate(
+            |ctl, q| {
+                tracer.cz(ctl, q);
+                sim.cz(ctl, q);
+            },
+            arg,
+            arg_span,
+        ),
+        "__quantum__qis__rx__body" => one_qubit_rotation(
+            |theta, q| {
+                tracer.rx(theta, q);
+                sim.rx(theta, q);
+            },
+            arg,
+            arg_span,
+        ),
+        "__quantum__qis__rxx__body" => two_qubit_rotation(
+            |theta, q0, q1| {
+                tracer.rxx(theta, q0, q1);
+                sim.rxx(theta, q0, q1);
+            },
+            arg,
+            arg_span,
+        ),
+        "__quantum__qis__ry__body" => one_qubit_rotation(
+            |theta, q| {
+                tracer.ry(theta, q);
+                sim.ry(theta, q);
+            },
+            arg,
+            arg_span,
+        ),
+        "__quantum__qis__ryy__body" => two_qubit_rotation(
+            |theta, q0, q1| {
+                tracer.ryy(theta, q0, q1);
+                sim.ryy(theta, q0, q1);
+            },
+            arg,
+            arg_span,
+        ),
+        "__quantum__qis__rz__body" => one_qubit_rotation(
+            |theta, q| {
+                tracer.rz(theta, q);
+                sim.rz(theta, q);
+            },
+            arg,
+            arg_span,
+        ),
+        "__quantum__qis__rzz__body" => two_qubit_rotation(
+            |theta, q0, q1| {
+                tracer.rzz(theta, q0, q1);
+                sim.rzz(theta, q0, q1);
+            },
+            arg,
+            arg_span,
+        ),
+        "__quantum__qis__h__body" => one_qubit_gate(
+            |q| {
+                tracer.h(q);
+                sim.h(q);
+            },
+            arg,
+            arg_span,
+        ),
+        "__quantum__qis__s__body" => one_qubit_gate(
+            |q| {
+                tracer.s(q);
+                sim.s(q);
+            },
+            arg,
+            arg_span,
+        ),
+        "__quantum__qis__s__adj" => one_qubit_gate(
+            |q| {
+                tracer.sadj(q);
+                sim.sadj(q);
+            },
+            arg,
+            arg_span,
+        ),
+        "__quantum__qis__sx__body" => one_qubit_gate(
+            |q| {
+                tracer.sx(q);
+                sim.sx(q);
+            },
+            arg,
+            arg_span,
+        ),
+        "__quantum__qis__t__body" => one_qubit_gate(
+            |q| {
+                tracer.t(q);
+                sim.t(q);
+            },
+            arg,
+            arg_span,
+        ),
+        "__quantum__qis__t__adj" => one_qubit_gate(
+            |q| {
+                tracer.tadj(q);
+                sim.tadj(q);
+            },
+            arg,
+            arg_span,
+        ),
+        "__quantum__qis__x__body" => one_qubit_gate(
+            |q| {
+                tracer.x(q);
+                sim.x(q);
+            },
+            arg,
+            arg_span,
+        ),
+        "__quantum__qis__y__body" => one_qubit_gate(
+            |q| {
+                tracer.y(q);
+                sim.y(q);
+            },
+            arg,
+            arg_span,
+        ),
+        "__quantum__qis__z__body" => one_qubit_gate(
+            |q| {
+                tracer.z(q);
+                sim.z(q);
+            },
+            arg,
+            arg_span,
+        ),
+        "__quantum__qis__swap__body" => two_qubit_gate(
+            |q0, q1| {
+                tracer.swap(q0, q1);
+                sim.swap(q0, q1);
+            },
+            arg,
+            arg_span,
+        ),
+        "__quantum__qis__reset__body" => one_qubit_gate(
+            |q| {
+                tracer.reset(q);
+                sim.reset(q);
+            },
+            arg,
+            arg_span,
+        ),
+        "__quantum__qis__m__body" => {
+            let q = arg
                 .unwrap_qubit()
                 .try_deref()
                 .ok_or(Error::QubitUsedAfterRelease(arg_span))?
-                .0)
-                .into(),
-        )),
-        "__quantum__qis__mresetz__body" => Ok(Value::Result(
-            sim.mresetz(
-                arg.unwrap_qubit()
-                    .try_deref()
-                    .ok_or(Error::QubitUsedAfterRelease(arg_span))?
-                    .0,
-            )
-            .into(),
-        )),
+                .0;
+            let result = sim.m(q);
+            tracer.m(q, &result);
+            Ok(Value::Result(result.into()))
+        }
+        "__quantum__qis__mresetz__body" => {
+            let q = arg
+                .unwrap_qubit()
+                .try_deref()
+                .ok_or(Error::QubitUsedAfterRelease(arg_span))?
+                .0;
+            let result = sim.mresetz(q);
+            tracer.mresetz(q, &result);
+            Ok(Value::Result(result.into()))
+        }
         "__quantum__rt__read_loss" => Ok(Value::Bool(arg == Value::Result(val::Result::Loss))),
         _ => {
             let qubits = arg.qubits();
@@ -219,6 +359,7 @@ pub(crate) fn call(
             if qubits.len() != qubits_len {
                 return Err(Error::QubitUsedAfterRelease(arg_span));
             }
+            tracer.custom_intrinsic(name, arg.clone());
             if let Some(result) = sim.custom_intrinsic(name, arg) {
                 match result {
                     Ok(value) => Ok(value),

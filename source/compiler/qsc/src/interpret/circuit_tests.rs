@@ -591,6 +591,42 @@ fn mresetz_base_profile() {
 }
 
 #[test]
+fn qubit_relabel() {
+    let circ = circuit_both_ways(
+        "
+        namespace Test {
+            operation Main() : Unit {
+                use (q1, q2) = (Qubit(), Qubit());
+                H(q1);
+                CNOT(q1, q2);
+                Relabel([q1, q2], [q2, q1]);
+                H(q1);
+                CNOT(q1, q2);
+                MResetZ(q1);
+                MResetZ(q2);
+            }
+        }
+    ",
+        CircuitEntryPoint::EntryPoint,
+    );
+
+    expect![[r#"
+        Eval:
+        q_0    ── H ──── ● ─────────── X ──── M ──── |0〉 ──
+                         │             │      ╘════════════
+        q_1    ───────── X ──── H ──── ● ──── M ──── |0〉 ──
+                                              ╘════════════
+
+        Static:
+        q_0    ─ [[ ─── [Main] ──── H ──── ● ─────────── X ──── M ──── |0〉 ─── ]] ──
+               ═ [[ ═══ [Main] ══          │             │      ╘═════════════ ]] ══
+        q_1    ─ [[ ─── [Main] ─────────── X ──── H ──── ● ──── M ──── |0〉 ─── ]] ──
+               ═ [[ ═══ [Main] ══                               ╘═════════════ ]] ══
+    "#]]
+    .assert_eq(&circ);
+}
+
+#[test]
 fn eval_method_result_comparison() {
     let mut interpreter = interpreter(
         r"

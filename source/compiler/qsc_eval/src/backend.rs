@@ -8,7 +8,8 @@ use num_bigint::BigUint;
 use num_complex::Complex;
 use num_traits::Zero;
 use qdk_simulators::QuantumSim;
-use rand::{Rng, RngCore, SeedableRng, rngs::StdRng};
+use rand::{Rng, RngCore};
+use rand::{SeedableRng, rngs::StdRng};
 
 #[cfg(test)]
 mod noise_tests;
@@ -665,6 +666,8 @@ fn unwrap_matrix_as_array2(matrix: Value, qubits: &[usize]) -> Array2<Complex<f6
     })
 }
 
+pub type TraceAndSim<'a, B, T> = (&'a mut B, &'a mut T);
+
 /// Simple struct that chains two backends together so that the chained
 /// backend is called before the main backend.
 /// For any intrinsics that return a value,
@@ -672,18 +675,18 @@ fn unwrap_matrix_as_array2(matrix: Value, qubits: &[usize]) -> Array2<Complex<f6
 /// The value returned by the main backend is returned.
 pub struct Chain<T1, T2> {
     pub main: T1,
-    pub chained: T2,
+    pub tracer: T2,
 }
 
 impl<T1, T2> Chain<T1, T2>
 where
     T1: Backend,
-    T2: Backend,
+    T2: TracingBackend<T1::ResultType>,
 {
     pub fn new(primary: T1, chained: T2) -> Chain<T1, T2> {
         Chain {
             main: primary,
-            chained,
+            tracer: chained,
         }
     }
 }
@@ -691,164 +694,289 @@ where
 impl<T1, T2> Backend for Chain<T1, T2>
 where
     T1: Backend,
-    T2: Backend,
+    T2: TracingBackend<T1::ResultType>,
 {
     type ResultType = T1::ResultType;
 
     fn ccx(&mut self, ctl0: usize, ctl1: usize, q: usize) {
-        self.chained.ccx(ctl0, ctl1, q);
+        self.tracer.ccx(ctl0, ctl1, q);
         self.main.ccx(ctl0, ctl1, q);
     }
 
     fn cx(&mut self, ctl: usize, q: usize) {
-        self.chained.cx(ctl, q);
+        self.tracer.cx(ctl, q);
         self.main.cx(ctl, q);
     }
 
     fn cy(&mut self, ctl: usize, q: usize) {
-        self.chained.cy(ctl, q);
+        self.tracer.cy(ctl, q);
         self.main.cy(ctl, q);
     }
 
     fn cz(&mut self, ctl: usize, q: usize) {
-        self.chained.cz(ctl, q);
+        self.tracer.cz(ctl, q);
         self.main.cz(ctl, q);
     }
 
     fn h(&mut self, q: usize) {
-        self.chained.h(q);
+        self.tracer.h(q);
         self.main.h(q);
     }
 
     fn m(&mut self, q: usize) -> Self::ResultType {
-        let _ = self.chained.m(q);
-        self.main.m(q)
+        let r = self.main.m(q);
+        self.tracer.m(q, &r);
+        r
     }
 
     fn mresetz(&mut self, q: usize) -> Self::ResultType {
-        let _ = self.chained.mresetz(q);
-        self.main.mresetz(q)
+        let r = self.main.mresetz(q);
+        self.tracer.mresetz(q, &r);
+        r
     }
 
     fn reset(&mut self, q: usize) {
-        self.chained.reset(q);
+        self.tracer.reset(q);
         self.main.reset(q);
     }
 
     fn rx(&mut self, theta: f64, q: usize) {
-        self.chained.rx(theta, q);
+        self.tracer.rx(theta, q);
         self.main.rx(theta, q);
     }
 
     fn rxx(&mut self, theta: f64, q0: usize, q1: usize) {
-        self.chained.rxx(theta, q0, q1);
+        self.tracer.rxx(theta, q0, q1);
         self.main.rxx(theta, q0, q1);
     }
 
     fn ry(&mut self, theta: f64, q: usize) {
-        self.chained.ry(theta, q);
+        self.tracer.ry(theta, q);
         self.main.ry(theta, q);
     }
 
     fn ryy(&mut self, theta: f64, q0: usize, q1: usize) {
-        self.chained.ryy(theta, q0, q1);
+        self.tracer.ryy(theta, q0, q1);
         self.main.ryy(theta, q0, q1);
     }
 
     fn rz(&mut self, theta: f64, q: usize) {
-        self.chained.rz(theta, q);
+        self.tracer.rz(theta, q);
         self.main.rz(theta, q);
     }
 
     fn rzz(&mut self, theta: f64, q0: usize, q1: usize) {
-        self.chained.rzz(theta, q0, q1);
+        self.tracer.rzz(theta, q0, q1);
         self.main.rzz(theta, q0, q1);
     }
 
     fn sadj(&mut self, q: usize) {
-        self.chained.sadj(q);
+        self.tracer.sadj(q);
         self.main.sadj(q);
     }
 
     fn s(&mut self, q: usize) {
-        self.chained.s(q);
+        self.tracer.s(q);
         self.main.s(q);
     }
 
     fn sx(&mut self, q: usize) {
-        self.chained.sx(q);
+        self.tracer.sx(q);
         self.main.sx(q);
     }
 
     fn swap(&mut self, q0: usize, q1: usize) {
-        self.chained.swap(q0, q1);
+        self.tracer.swap(q0, q1);
         self.main.swap(q0, q1);
     }
 
     fn tadj(&mut self, q: usize) {
-        self.chained.tadj(q);
+        self.tracer.tadj(q);
         self.main.tadj(q);
     }
 
     fn t(&mut self, q: usize) {
-        self.chained.t(q);
+        self.tracer.t(q);
         self.main.t(q);
     }
 
     fn x(&mut self, q: usize) {
-        self.chained.x(q);
+        self.tracer.x(q);
         self.main.x(q);
     }
 
     fn y(&mut self, q: usize) {
-        self.chained.y(q);
+        self.tracer.y(q);
         self.main.y(q);
     }
 
     fn z(&mut self, q: usize) {
-        self.chained.z(q);
+        self.tracer.z(q);
         self.main.z(q);
     }
 
     fn qubit_allocate(&mut self) -> usize {
-        // Warning: we use the qubit id allocated by the
-        // main backend, even for later calls into the chained
-        // backend. This is not an issue today, but could
-        // become an issue if the qubit ids differ between
-        // the two backends.
-        let _ = self.chained.qubit_allocate();
-        self.main.qubit_allocate()
+        let q = self.main.qubit_allocate();
+        self.tracer.qubit_allocate(q);
+        q
     }
 
     fn qubit_release(&mut self, q: usize) -> bool {
-        let _ = self.chained.qubit_release(q);
         self.main.qubit_release(q)
     }
 
     fn qubit_swap_id(&mut self, q0: usize, q1: usize) {
-        self.chained.qubit_swap_id(q0, q1);
+        self.tracer.qubit_swap_id(q0, q1);
         self.main.qubit_swap_id(q0, q1);
     }
 
     fn capture_quantum_state(
         &mut self,
     ) -> (Vec<(num_bigint::BigUint, num_complex::Complex<f64>)>, usize) {
-        let _ = self.chained.capture_quantum_state();
         self.main.capture_quantum_state()
     }
 
     fn qubit_is_zero(&mut self, q: usize) -> bool {
-        let _ = self.chained.qubit_is_zero(q);
         self.main.qubit_is_zero(q)
     }
 
     fn custom_intrinsic(&mut self, name: &str, arg: Value) -> Option<Result<Value, String>> {
-        let _ = self.chained.custom_intrinsic(name, arg.clone());
+        self.tracer.custom_intrinsic(name, arg.clone());
         self.main.custom_intrinsic(name, arg)
     }
 
     fn set_seed(&mut self, seed: Option<u64>) {
-        self.chained.set_seed(seed);
         self.main.set_seed(seed);
     }
+}
+
+#[derive(Default)]
+pub struct DummySimBackend {
+    next_result_id: usize,
+    next_qubit_id: usize,
+}
+
+impl Backend for DummySimBackend {
+    type ResultType = usize;
+
+    fn ccx(&mut self, _ctl0: usize, _ctl1: usize, _q: usize) {}
+    fn cx(&mut self, _ctl: usize, _q: usize) {}
+    fn cy(&mut self, _ctl: usize, _q: usize) {}
+    fn cz(&mut self, _ctl: usize, _q: usize) {}
+    fn h(&mut self, _q: usize) {}
+    fn m(&mut self, _q: usize) -> Self::ResultType {
+        let id = self.next_result_id;
+        self.next_result_id += 1;
+        id
+    }
+    fn mresetz(&mut self, _q: usize) -> Self::ResultType {
+        let id = self.next_result_id;
+        self.next_result_id += 1;
+        id
+    }
+    fn reset(&mut self, _q: usize) {}
+    fn rx(&mut self, _theta: f64, _q: usize) {}
+    fn rxx(&mut self, _theta: f64, _q0: usize, _q1: usize) {}
+    fn ry(&mut self, _theta: f64, _q: usize) {}
+    fn ryy(&mut self, _theta: f64, _q0: usize, _q1: usize) {}
+    fn rz(&mut self, _theta: f64, _q: usize) {}
+    fn rzz(&mut self, _theta: f64, _q0: usize, _q1: usize) {}
+    fn sadj(&mut self, _q: usize) {}
+    fn s(&mut self, _q: usize) {}
+    fn sx(&mut self, _q: usize) {}
+    fn swap(&mut self, _q0: usize, _q1: usize) {}
+    fn tadj(&mut self, _q: usize) {}
+    fn t(&mut self, _q: usize) {}
+    fn x(&mut self, _q: usize) {}
+    fn y(&mut self, _q: usize) {}
+    fn z(&mut self, _q: usize) {}
+    fn qubit_allocate(&mut self) -> usize {
+        let id = self.next_qubit_id;
+        self.next_qubit_id += 1;
+        id
+    }
+    fn qubit_release(&mut self, _q: usize) -> bool {
+        // TODO: hang on, what's going on with qubit allocation/release
+        true
+    }
+    fn qubit_swap_id(&mut self, _q0: usize, _q1: usize) {}
+    fn capture_quantum_state(&mut self) -> (Vec<(BigUint, Complex<f64>)>, usize) {
+        (Vec::new(), 0)
+    }
+    fn qubit_is_zero(&mut self, _q: usize) -> bool {
+        // We don't simulate quantum execution here. So we don't know if the qubit
+        // is zero or not. Returning true avoids potential panics.
+        true
+    }
+    fn custom_intrinsic(&mut self, name: &str, _arg: Value) -> Option<Result<Value, String>> {
+        match name {
+            // Special case this known intrinsic to match the simulator
+            // behavior, so that our samples will work
+            "BeginEstimateCaching" => Some(Ok(Value::Bool(true))),
+            _ => Some(Ok(Value::unit())),
+        }
+    }
+}
+
+pub trait TracingBackend<R> {
+    // tricky qubit management things
+    fn m(&mut self, q: usize, r: &R);
+    fn mresetz(&mut self, q: usize, r: &R);
+    fn qubit_allocate(&mut self, q: usize);
+    fn qubit_swap_id(&mut self, _q0: usize, _q1: usize);
+
+    // bunch of gates
+    fn ccx(&mut self, ctl0: usize, ctl1: usize, q: usize);
+    fn cx(&mut self, _ctl: usize, _q: usize);
+    fn cy(&mut self, _ctl: usize, _q: usize);
+    fn cz(&mut self, _ctl: usize, _q: usize);
+    fn h(&mut self, _q: usize);
+    fn reset(&mut self, _q: usize);
+    fn rx(&mut self, _theta: f64, _q: usize);
+    fn rxx(&mut self, _theta: f64, _q0: usize, _q1: usize);
+    fn ry(&mut self, _theta: f64, _q: usize);
+    fn ryy(&mut self, _theta: f64, _q0: usize, _q1: usize);
+    fn rz(&mut self, _theta: f64, _q: usize);
+    fn rzz(&mut self, _theta: f64, _q0: usize, _q1: usize);
+    fn sadj(&mut self, _q: usize);
+    fn s(&mut self, _q: usize);
+    fn sx(&mut self, _q: usize);
+    fn swap(&mut self, _q0: usize, _q1: usize);
+    fn tadj(&mut self, _q: usize);
+    fn t(&mut self, _q: usize);
+    fn x(&mut self, _q: usize);
+    fn y(&mut self, _q: usize);
+    fn z(&mut self, _q: usize);
+    fn custom_intrinsic(&mut self, _name: &str, _arg: Value);
+}
+
+/// A dummy tracing backend that does nothing.
+pub struct DummyTracingBackend;
+impl<R> TracingBackend<R> for DummyTracingBackend {
+    fn ccx(&mut self, _ctl0: usize, _ctl1: usize, _q: usize) {}
+    fn cx(&mut self, _ctl: usize, _q: usize) {}
+    fn cy(&mut self, _ctl: usize, _q: usize) {}
+    fn cz(&mut self, _ctl: usize, _q: usize) {}
+    fn h(&mut self, _q: usize) {}
+    fn m(&mut self, _q: usize, _r: &R) {}
+    fn mresetz(&mut self, _q: usize, _r: &R) {}
+    fn reset(&mut self, _q: usize) {}
+    fn rx(&mut self, _theta: f64, _q: usize) {}
+    fn rxx(&mut self, _theta: f64, _q0: usize, _q1: usize) {}
+    fn ry(&mut self, _theta: f64, _q: usize) {}
+    fn ryy(&mut self, _theta: f64, _q0: usize, _q1: usize) {}
+    fn rz(&mut self, _theta: f64, _q: usize) {}
+    fn rzz(&mut self, _theta: f64, _q0: usize, _q1: usize) {}
+    fn sadj(&mut self, _q: usize) {}
+    fn s(&mut self, _q: usize) {}
+    fn sx(&mut self, _q: usize) {}
+    fn swap(&mut self, _q0: usize, _q1: usize) {}
+    fn tadj(&mut self, _q: usize) {}
+    fn t(&mut self, _q: usize) {}
+    fn x(&mut self, _q: usize) {}
+    fn y(&mut self, _q: usize) {}
+    fn z(&mut self, _q: usize) {}
+    fn qubit_allocate(&mut self, _q: usize) {}
+    fn qubit_swap_id(&mut self, _q0: usize, _q1: usize) {}
+    fn custom_intrinsic(&mut self, _name: &str, _arg: Value) {}
 }

@@ -19,7 +19,7 @@ use qsc::qasm::compiler::compile_to_qsharp_ast_with_config;
 use qsc::qasm::semantic::QasmSemanticParseResult;
 use qsc::qasm::{OperationSignature, QubitSemantics};
 use qsc::target::Profile;
-use qsc::{Backend, PackageType, PauliNoise, SparseSim};
+use qsc::{Backend, DummyTracingBackend, PackageType, PauliNoise, SparseSim};
 use qsc::{
     LanguageFeatures, SourceMap, ast::Package, error::WithSource, interpret, project::FileSystem,
 };
@@ -161,7 +161,8 @@ pub(crate) fn run_ast(
         // If seed is provided, we want to use a different seed for each shot
         // so that the results are different for each shot, but still deterministic
         sim.set_seed(seed.map(|s| s + i as u64));
-        let result = interpreter.run_with_sim(&mut sim, receiver, None)?;
+        let result =
+            interpreter.run_with_sim(&mut sim, &mut DummyTracingBackend, receiver, None)?;
         results.push(result);
     }
 

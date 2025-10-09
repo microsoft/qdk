@@ -11,8 +11,8 @@ use num_bigint::BigUint;
 use num_complex::Complex64;
 use project_system::{ProgramConfig, into_openqasm_arg, into_qsc_args, is_openqasm_program};
 use qsc::{
-    LanguageFeatures, PackageStore, PackageType, PauliNoise, SourceContents, SourceMap, SourceName,
-    SparseSim, TargetCapabilityFlags,
+    DummyTracingBackend, LanguageFeatures, PackageStore, PackageType, PauliNoise, SourceContents,
+    SourceMap, SourceName, SparseSim, TargetCapabilityFlags,
     compile::{self, Dependencies, package_store_with_stdlib},
     format_state_id, get_matrix_latex, get_state_latex,
     hir::PackageId,
@@ -462,7 +462,7 @@ where
         let result = {
             let mut sim = SparseSim::new_with_noise(pauliNoise);
             sim.set_loss(qubitLoss);
-            interpreter.eval_entry_with_sim(&mut sim, &mut out)
+            interpreter.eval_entry_with_sim(&mut (&mut sim, &mut DummyTracingBackend {}), &mut out)
         };
         let mut success = true;
         let msg: serde_json::Value = match result {
@@ -562,7 +562,8 @@ pub fn runWithNoise(
             let result = {
                 let mut sim = SparseSim::new_with_noise(&noise);
                 sim.set_loss(qubitLoss);
-                interpreter.eval_entry_with_sim(&mut sim, &mut out)
+                interpreter
+                    .eval_entry_with_sim(&mut (&mut sim, &mut DummyTracingBackend {}), &mut out)
             };
             let mut success = true;
             let msg: serde_json::Value = match result {
