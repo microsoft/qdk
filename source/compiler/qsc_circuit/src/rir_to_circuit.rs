@@ -14,7 +14,7 @@ use crate::{
     Circuit, ComponentColumn, Config, Error, GenerationMethod, Ket, Measurement, Operation,
     Register, Unitary,
     builder::RegisterMap,
-    circuit::SourceLocation,
+    circuit::{ResolvedSourceLocation, SourceLocation},
     group_qubits, operation_list_to_grid,
     rir_to_circuit::tracer::{
         BlockBuilder, FixedQubitRegisterMapBuilder, GateLabel, QubitRegister, ResultRegister,
@@ -293,7 +293,7 @@ pub fn make_circuit(
         operations
     };
 
-    let qubits = register_map.into_qubits();
+    let qubits = register_map.to_qubits();
 
     resolve_location_metadata(&mut operations, &program.dbg_info);
 
@@ -317,7 +317,7 @@ pub fn make_circuit(
     Ok(circuit)
 }
 
-fn resolve_location_metadata(operations: &mut [Op], dbg_info: &DbgInfo) {
+pub(crate) fn resolve_location_metadata(operations: &mut [Op], dbg_info: &DbgInfo) {
     for op in operations {
         if let OperationKind::Group { children, .. } = &mut op.kind {
             resolve_location_metadata(children, dbg_info);
@@ -758,21 +758,11 @@ pub(crate) fn fill_in_dbg_metadata(
                 package_store,
                 position_encoding,
             );
-            let mut json = String::new();
-            writeln!(&mut json, "metadata={{").expect("writing to string should work");
-            writeln!(&mut json, r#""source": {:?},"#, location.source)
-                .expect("writing to string should work");
-            write!(
-                        &mut json,
-                        r#""span": {{"start": {{"line": {}, "character": {}}}, "end": {{"line": {}, "character": {}}}}}"#,
-                        location.range.start.line,
-                        location.range.start.column,
-                        location.range.end.line,
-                        location.range.end.column
-                    )
-                    .expect("writing to string should work");
-            write!(&mut json, "}}").expect("writing to string should work");
-            *source = Some(SourceLocation::Resolved(json));
+            *source = Some(SourceLocation::Resolved(ResolvedSourceLocation {
+                file: location.source.to_string(),
+                line: location.range.start.line,
+                column: location.range.start.column,
+            }));
         }
     }
 }

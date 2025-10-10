@@ -57,7 +57,7 @@ pub type Component = Operation;
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum SourceLocation {
-    Resolved(String),
+    Resolved(ResolvedSourceLocation),
     #[serde(skip)]
     Unresolved(MetadataPackageSpan),
 }
@@ -116,6 +116,14 @@ impl Operation {
             Self::Measurement(measurement) => &mut measurement.args,
             Self::Unitary(unitary) => &mut unitary.args,
             Self::Ket(ket) => &mut ket.args,
+        }
+    }
+
+    pub fn source(&self) -> &Option<SourceLocation> {
+        match self {
+            Self::Measurement(measurement) => &measurement.source,
+            Self::Unitary(unitary) => &unitary.source,
+            Self::Ket(ket) => &ket.source,
         }
     }
 
@@ -341,7 +349,14 @@ impl Row {
         self.add(column, CircuitObject::Object(object.to_string()));
     }
 
-    fn add_gate(&mut self, column: usize, gate: &str, args: &[String], is_adjoint: bool) {
+    fn add_gate(
+        &mut self,
+        column: usize,
+        gate: &str,
+        args: &[String],
+        is_adjoint: bool,
+        source: Option<&SourceLocation>,
+    ) {
         let mut gate_label = String::new();
         gate_label.push_str(gate);
         if is_adjoint {
@@ -356,6 +371,10 @@ impl Row {
         if !args_without_metadata.is_empty() {
             let args = args_without_metadata.join(", ");
             let _ = write!(&mut gate_label, "({args})");
+        }
+
+        if let Some(SourceLocation::Resolved(loc)) = source {
+            let _ = write!(&mut gate_label, "@{}:{}:{}", loc.file, loc.line, loc.column);
         }
 
         self.add_object(column, gate_label.as_str());
@@ -714,6 +733,7 @@ fn add_operation_to_rows(
                 &operation.gate(),
                 &operation.args(),
                 operation.is_adjoint(),
+                operation.source().as_ref(),
             );
         }
     }
@@ -768,15 +788,16 @@ fn add_operation_box_start_to_rows(
             gate_label.push('\'');
         }
         let args = operation.args();
-        let args_without_metadata = args
-            .iter()
-            .filter(|arg| !arg.starts_with("metadata="))
-            .cloned()
-            .collect::<Vec<_>>();
-        if !args_without_metadata.is_empty() {
-            let args = args_without_metadata.join(", ");
+
+        if !args.is_empty() {
+            let args = args.join(", ");
             let _ = write!(&mut gate_label, "({args})");
         }
+
+        if let Some(SourceLocation::Resolved(loc)) = operation.source() {
+            let _ = write!(&mut gate_label, "@{}:{}:{}", loc.file, loc.line, loc.column);
+        }
+
         gate_label.push(']');
 
         row.add_object(column + 1, gate_label.as_str());

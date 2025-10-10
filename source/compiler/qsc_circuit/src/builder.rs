@@ -8,7 +8,7 @@ use crate::{
     Config, Qubit,
     circuit::{Circuit, operation_list_to_grid},
     rir_to_circuit::{
-        Op, fill_in_dbg_metadata,
+        Op, fill_in_dbg_metadata, resolve_location_metadata,
         tracer::{BlockBuilder, GateLabel, QubitRegister, ResultRegister},
     },
 };
@@ -185,7 +185,10 @@ impl CircuitBuilder {
         operations: &[Op],
         dbg_lookup: Option<(&PackageStore, Encoding)>,
     ) -> Circuit {
-        let qubits = self.register_map_builder.to_qubits();
+        let qubits = self.register_map_builder.register_map.to_qubits();
+
+        let mut operations = operations.to_vec();
+        resolve_location_metadata(&mut operations, &self.dbg_info);
 
         let mut operations = operations
             .iter()
@@ -343,9 +346,9 @@ impl RegisterMap {
             .expect("result should already be mapped")
     }
 
-    pub fn into_qubits(self) -> Vec<Qubit> {
+    pub fn to_qubits(&self) -> Vec<Qubit> {
         let mut qubits = vec![];
-
+        // add qubit declarations
         for (QubitRegister(i), rs) in self.qubit_measurements.iter() {
             let num_results = rs.len();
             qubits.push(Qubit { id: i, num_results });
@@ -404,17 +407,6 @@ impl RegisterMapBuilder {
         let q1_mapped = self.register_map.qubit_register(q1);
         self.register_map.qubit_map.insert(q0, q1_mapped);
         self.register_map.qubit_map.insert(q1, q0_mapped);
-    }
-
-    fn to_qubits(&self) -> Vec<Qubit> {
-        let mut qubits = vec![];
-        // add qubit declarations
-        for (QubitRegister(i), rs) in self.register_map.qubit_measurements.iter() {
-            let num_results = rs.len();
-            qubits.push(Qubit { id: i, num_results });
-        }
-
-        qubits
     }
 
     pub(crate) fn into_register_map(self) -> RegisterMap {
