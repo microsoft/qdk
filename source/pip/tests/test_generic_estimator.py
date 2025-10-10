@@ -202,7 +202,7 @@ def test_prune_error_budget():
 
     assert abs(result["errorBudget"]["logical"] - 0.01 / 3) < 1e-6
     assert abs(result["errorBudget"]["rotations"] - 0.01 / 3) < 1e-6
-    assert abs(result["errorBudget"]["tstates"] - 0.01 / 3) < 1e-6
+    assert abs(result["errorBudget"]["magic_states"] - 0.01 / 3) < 1e-6
 
     result = qsharp.estimate_custom(
         SampleAlgorithm(), sample_qubit(), SampleCode(), error_budget=0.1
@@ -210,7 +210,7 @@ def test_prune_error_budget():
 
     assert abs(result["errorBudget"]["logical"] - 0.1 / 3) < 1e-6
     assert abs(result["errorBudget"]["rotations"] - 0.1 / 3) < 1e-6
-    assert abs(result["errorBudget"]["tstates"] - 0.1 / 3) < 1e-6
+    assert abs(result["errorBudget"]["magic_states"] - 0.1 / 3) < 1e-6
 
     def _prune_error_budget(self, budget, _):
         rotations = budget["rotations"]
@@ -224,6 +224,6 @@ def test_prune_error_budget():
 
     assert abs(result["errorBudget"]["logical"] - 0.01 / 2) < 1e-6
     assert abs(result["errorBudget"]["rotations"]) < 1e-6
-    assert abs(result["errorBudget"]["tstates"] - 0.01 / 2) < 1e-6
+    assert abs(result["errorBudget"]["magic_states"] - 0.01 / 2) < 1e-6
 
     del SampleAlgorithm.prune_error_budget
