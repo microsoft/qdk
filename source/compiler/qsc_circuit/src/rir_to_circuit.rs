@@ -2140,8 +2140,8 @@ fn trace_gate(
             GateInputs {
                 target_qubits,
                 control_qubits,
-                control_results,
             },
+            control_results,
             args,
             metadata.cloned(),
         );

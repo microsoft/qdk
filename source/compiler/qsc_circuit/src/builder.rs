@@ -37,12 +37,11 @@ impl Tracer for CircuitBuilder {
         GateInputs {
             target_qubits,
             control_qubits,
-            control_results,
         }: GateInputs,
         args: Vec<String>,
         metadata: Option<backend::InstructionMetadata>,
     ) {
-        let dbg_location = metadata.as_ref().map(|md| self.push_dbg_location(md));
+        let metadata = metadata.map(|md| self.convert_metadata(&md));
 
         self.block_builder.gate(
             self.register_map_builder.current(),
@@ -51,53 +50,73 @@ impl Tracer for CircuitBuilder {
             GateInputs {
                 target_qubits,
                 control_qubits,
-                control_results,
             },
+            vec![],
             args,
-            dbg_location.map(|i| rir::InstructionMetadata {
-                dbg_location: Some(i),
-            }),
+            metadata,
         );
     }
 
-    fn m(&mut self, q: usize, val: &val::Result) {
+    fn m(&mut self, q: usize, val: &val::Result, metadata: Option<backend::InstructionMetadata>) {
+        let metadata = metadata.map(|md| self.convert_metadata(&md));
         let r = match val {
             val::Result::Id(id) => *id,
             val::Result::Loss | val::Result::Val(_) => self.register_map_builder.result_allocate(),
         };
         self.register_map_builder.link_result_to_qubit(q, r);
         self.block_builder
-            .m(self.register_map_builder.current(), q, r, None);
+            .m(self.register_map_builder.current(), q, r, metadata);
     }
 
-    fn mresetz(&mut self, q: usize, val: &val::Result) {
+    fn mresetz(
+        &mut self,
+        q: usize,
+        val: &val::Result,
+        metadata: Option<backend::InstructionMetadata>,
+    ) {
+        let metadata = metadata.map(|md| self.convert_metadata(&md));
         let r = match val {
             val::Result::Id(id) => *id,
             val::Result::Loss | val::Result::Val(_) => self.register_map_builder.result_allocate(),
         };
         self.register_map_builder.link_result_to_qubit(q, r);
         self.block_builder
-            .mresetz(self.register_map_builder.current(), q, r, None);
+            .mresetz(self.register_map_builder.current(), q, r, metadata);
     }
 
-    fn reset(&mut self, q: usize) {
+    fn reset(&mut self, q: usize, metadata: Option<backend::InstructionMetadata>) {
+        let metadata = metadata.map(|md| self.convert_metadata(&md));
         self.block_builder
-            .reset(self.register_map_builder.current(), q, None);
+            .reset(self.register_map_builder.current(), q, metadata);
     }
 
-    fn qubit_allocate(&mut self, q: usize) {
+    fn qubit_allocate(&mut self, q: usize, _metadata: Option<backend::InstructionMetadata>) {
+        // TODO: metadata would be neat to add to the circuit
         self.register_map_builder.map_qubit(q);
     }
 
-    fn qubit_swap_id(&mut self, q0: usize, q1: usize) {
+    fn qubit_swap_id(
+        &mut self,
+        q0: usize,
+        q1: usize,
+        _metadata: Option<backend::InstructionMetadata>,
+    ) {
+        // TODO: metadata would be neat to add to the circuit
         self.register_map_builder.swap(q0, q1);
     }
 
-    fn custom_intrinsic(&mut self, name: &str, arg: Value) {
+    fn custom_intrinsic(
+        &mut self,
+        name: &str,
+        arg: Value,
+        metadata: Option<backend::InstructionMetadata>,
+    ) {
         // The qubit arguments are treated as the targets for custom gates.
         // Any remaining arguments will be kept in the display_args field
         // to be shown as part of the gate label when the circuit is rendered.
         let (qubit_args, classical_args) = self.split_qubit_args(arg);
+
+        let metadata = metadata.map(|md| self.convert_metadata(&md));
 
         self.block_builder.gate(
             self.register_map_builder.current(),
@@ -106,18 +125,19 @@ impl Tracer for CircuitBuilder {
             GateInputs {
                 target_qubits: qubit_args,
                 control_qubits: vec![],
-                control_results: vec![],
             },
+            vec![],
             if classical_args.is_empty() {
                 vec![]
             } else {
                 vec![classical_args]
             },
-            None,
+            metadata,
         );
     }
 
-    fn qubit_release(&mut self, q: usize) {
+    fn qubit_release(&mut self, q: usize, _metadata: Option<backend::InstructionMetadata>) {
+        // TODO: metadata would be neat to add to the circuit
         self.register_map_builder.qubit_release(q);
     }
 }
@@ -275,6 +295,17 @@ impl CircuitBuilder {
         };
         self.dbg_info.dbg_locations.push(md);
         self.dbg_info.dbg_locations.len() - 1
+    }
+
+    fn convert_metadata(
+        &mut self,
+        metadata: &backend::InstructionMetadata,
+    ) -> rir::InstructionMetadata {
+        let dbg_location = self.push_dbg_location(metadata);
+
+        rir::InstructionMetadata {
+            dbg_location: Some(dbg_location),
+        }
     }
 }
 // Really similar to source/compiler/qsc_partial_eval/src/management.rs

@@ -26,7 +26,7 @@ pub mod output;
 pub mod state;
 pub mod val;
 
-use crate::backend::TracingBackend;
+use crate::backend::{InstructionMetadata, TracingBackend};
 use crate::val::{
     Value, index_array, make_range, slice_array, update_index_range, update_index_single,
 };
@@ -1278,7 +1278,7 @@ impl State {
         let name = &callee.name.name;
         let val = match name.as_ref() {
             "__quantum__rt__qubit_allocate" => {
-                let q = sim.qubit_allocate();
+                let q = sim.qubit_allocate(Some(InstructionMetadata::new(arg_span)));
                 let q = Rc::new(Qubit(q));
                 env.track_qubit(Rc::clone(&q));
                 if let Some(counter) = &mut self.qubit_counter {
@@ -1292,7 +1292,7 @@ impl State {
                     .try_deref()
                     .ok_or(Error::QubitDoubleRelease(arg_span))?;
                 env.release_qubit(&qubit);
-                if sim.qubit_release(qubit.0) {
+                if sim.qubit_release(qubit.0, Some(InstructionMetadata::new(arg_span))) {
                     Value::unit()
                 } else {
                     return Err(Error::ReleasedQubitNotZero(qubit.0, arg_span));

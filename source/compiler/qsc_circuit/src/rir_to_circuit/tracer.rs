@@ -94,13 +94,13 @@ impl BlockBuilder {
         name: &str,
         is_adjoint: bool,
         inputs: GateInputs,
+        control_results: Vec<usize>,
         args: Vec<String>,
         metadata: Option<InstructionMetadata>,
     ) {
         let GateInputs {
             target_qubits,
             control_qubits,
-            control_results,
         } = inputs;
 
         let target_qubits = target_qubits
@@ -108,14 +108,14 @@ impl BlockBuilder {
             .map(|q| register_map.qubit_register(*q))
             .collect();
 
-        let control_results = control_results
-            .iter()
-            .map(|reg| register_map.result_register(*reg))
-            .collect();
-
         let control_qubits = control_qubits
             .iter()
             .map(|q| register_map.qubit_register(*q))
+            .collect();
+
+        let control_results = control_results
+            .iter()
+            .map(|r| register_map.result_register(*r))
             .collect();
 
         self.push(Op {
