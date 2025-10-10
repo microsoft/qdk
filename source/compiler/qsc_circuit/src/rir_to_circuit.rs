@@ -16,7 +16,7 @@ use crate::{
     builder::RegisterMap,
     group_qubits, operation_list_to_grid,
     rir_to_circuit::tracer::{
-        BlockBuilder, FixedQubitRegisterMapBuilder, QubitRegister, ResultRegister,
+        BlockBuilder, FixedQubitRegisterMapBuilder, GateLabel, QubitRegister, ResultRegister,
     },
 };
 use log::{debug, warn};
@@ -2120,7 +2120,7 @@ fn trace_gate(
     metadata: Option<&InstructionMetadata>,
 ) -> Result<(), Error> {
     let GateSpec {
-        name: gate,
+        name,
         operand_types,
         is_adjoint,
     } = callable_spec(callable, operands)?;
@@ -2135,13 +2135,12 @@ fn trace_gate(
     } else {
         builder_ctx.builder.gate(
             builder_ctx.register_map,
-            gate,
-            is_adjoint,
+            &GateLabel { name, is_adjoint },
             GateInputs {
                 target_qubits,
                 control_qubits,
             },
-            control_results,
+            &control_results,
             args,
             metadata.cloned(),
         );

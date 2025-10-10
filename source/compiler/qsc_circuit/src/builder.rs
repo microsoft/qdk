@@ -9,7 +9,7 @@ use crate::{
     circuit::{Circuit, operation_list_to_grid},
     rir_to_circuit::{
         Op, fill_in_dbg_metadata,
-        tracer::{BlockBuilder, QubitRegister, ResultRegister},
+        tracer::{BlockBuilder, GateLabel, QubitRegister, ResultRegister},
     },
 };
 use qsc_data_structures::{index_map::IndexMap, line_column::Encoding, span::Span};
@@ -45,13 +45,12 @@ impl Tracer for CircuitBuilder {
 
         self.block_builder.gate(
             self.register_map_builder.current(),
-            name,
-            is_adjoint,
+            &GateLabel { name, is_adjoint },
             GateInputs {
                 target_qubits,
                 control_qubits,
             },
-            vec![],
+            &[],
             args,
             metadata,
         );
@@ -120,13 +119,15 @@ impl Tracer for CircuitBuilder {
 
         self.block_builder.gate(
             self.register_map_builder.current(),
-            name,
-            false,
+            &GateLabel {
+                name,
+                is_adjoint: false,
+            },
             GateInputs {
                 target_qubits: qubit_args,
                 control_qubits: vec![],
             },
-            vec![],
+            &[],
             if classical_args.is_empty() {
                 vec![]
             } else {

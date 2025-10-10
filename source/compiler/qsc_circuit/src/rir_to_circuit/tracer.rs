@@ -87,14 +87,18 @@ impl From<QubitRegister> for usize {
     }
 }
 
+pub(crate) struct GateLabel<'a> {
+    pub name: &'a str,
+    pub is_adjoint: bool,
+}
+
 impl BlockBuilder {
     pub fn gate(
         &mut self,
         register_map: &RegisterMap,
-        name: &str,
-        is_adjoint: bool,
+        gate_label: &GateLabel,
         inputs: GateInputs,
-        control_results: Vec<usize>,
+        control_results: &[usize],
         args: Vec<String>,
         metadata: Option<InstructionMetadata>,
     ) {
@@ -120,12 +124,12 @@ impl BlockBuilder {
 
         self.push(Op {
             kind: OperationKind::Unitary { metadata },
-            label: name.to_string(),
+            label: gate_label.name.to_string(),
             target_qubits,
             control_qubits,
             target_results: vec![],
             control_results,
-            is_adjoint,
+            is_adjoint: gate_label.is_adjoint,
             args,
         });
     }
