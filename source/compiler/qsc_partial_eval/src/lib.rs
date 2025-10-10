@@ -19,7 +19,7 @@ use qsc_data_structures::{functors::FunctorApp, span::Span, target::TargetCapabi
 use qsc_eval::{
     self, Error as EvalError, ErrorBehavior, PackageSpan, State, StepAction, StepResult, Variable,
     are_ctls_unique,
-    backend::TraceAndSim,
+    backend::TracingBackend,
     exec_graph_section,
     intrinsic::qubit_relabel,
     output::GenericReceiver,
@@ -1154,7 +1154,7 @@ impl<'a> PartialEvaluator<'a> {
         let classical_result = state.eval(
             self.package_store,
             &mut scope.env,
-            &mut TraceAndSim::new_no_trace(&mut self.backend),
+            &mut TracingBackend::new_no_trace(&mut self.backend),
             &mut GenericReceiver::new(&mut std::io::sink()),
             &[],
             StepAction::Continue,
@@ -2042,8 +2042,8 @@ impl<'a> PartialEvaluator<'a> {
                             span,
                         }),
                     };
-                    self.program.dbg_metadata_scopes.push(scope);
-                    let i = self.program.dbg_metadata_scopes.len() - 1;
+                    self.program.dbg_info.dbg_metadata_scopes.push(scope);
+                    let i = self.program.dbg_info.dbg_metadata_scopes.len() - 1;
                     self.eval_context.dbg_callable_to_scope.insert(c.0, i);
                     i
                 }
@@ -2068,9 +2068,9 @@ impl<'a> PartialEvaluator<'a> {
             inlined_at,
         };
 
-        self.program.dbg_locations.push(new_location);
+        self.program.dbg_info.dbg_locations.push(new_location);
 
-        self.program.dbg_locations.len() - 1
+        self.program.dbg_info.dbg_locations.len() - 1
     }
 
     fn eval_expr_if_with_classical_condition(

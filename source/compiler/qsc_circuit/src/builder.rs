@@ -6,14 +6,19 @@ mod tests;
 
 use crate::{
     Config, Qubit,
-    circuit::{Circuit, Operation, operation_list_to_grid},
-    rir_to_circuit::tracer::{BlockBuilder, GateInputs, QubitRegister, ResultRegister},
+    circuit::{Circuit, operation_list_to_grid},
+    rir_to_circuit::{
+        Op, fill_in_dbg_metadata,
+        tracer::{BlockBuilder, QubitRegister, ResultRegister},
+    },
 };
-use qsc_data_structures::index_map::IndexMap;
+use qsc_data_structures::{index_map::IndexMap, line_column::Encoding, span::Span};
 use qsc_eval::{
-    backend::Tracer,
+    backend::{self, GateInputs, Tracer},
     val::{self, Value},
 };
+use qsc_frontend::compile::PackageStore;
+use qsc_partial_eval::rir::{self, DbgInfo, DbgMetadataScope, MetadataPackageSpan};
 use std::{fmt::Write, mem::replace, rc::Rc};
 
 /// Backend implementation that builds a circuit representation.
@@ -21,6 +26,7 @@ pub struct CircuitBuilder {
     config: Config,
     register_map_builder: RegisterMapBuilder,
     block_builder: BlockBuilder,
+    dbg_info: rir::DbgInfo,
 }
 
 impl Tracer for CircuitBuilder {
@@ -28,11 +34,16 @@ impl Tracer for CircuitBuilder {
         &mut self,
         name: &str,
         is_adjoint: bool,
-        target_qubits: Vec<usize>,
-        control_qubits: Vec<usize>,
-        control_results: Vec<usize>,
+        GateInputs {
+            target_qubits,
+            control_qubits,
+            control_results,
+        }: GateInputs,
         args: Vec<String>,
+        metadata: Option<backend::InstructionMetadata>,
     ) {
+        let dbg_location = metadata.as_ref().map(|md| self.push_dbg_location(md));
+
         self.block_builder.gate(
             self.register_map_builder.current(),
             name,
@@ -43,7 +54,9 @@ impl Tracer for CircuitBuilder {
                 control_results,
             },
             args,
-            None,
+            dbg_location.map(|i| rir::InstructionMetadata {
+                dbg_location: Some(i),
+            }),
         );
     }
 
@@ -116,47 +129,64 @@ impl CircuitBuilder {
             config,
             register_map_builder: RegisterMapBuilder::default(),
             block_builder: BlockBuilder::new(config.max_operations),
+            dbg_info: DbgInfo {
+                dbg_metadata_scopes: vec![DbgMetadataScope::SubProgram {
+                    name: "program".into(),
+                    location: MetadataPackageSpan {
+                        package: 2,                  // TODO: - pass in user package ofc
+                        span: Span { lo: 0, hi: 0 }, // pass in whole program or whatever
+                    },
+                }],
+
+                ..Default::default()
+            },
         }
     }
 
     #[must_use]
-    pub fn snapshot(&self) -> Circuit {
-        let mut operations = vec![];
-        operations.extend(
-            self.block_builder
-                .operations()
-                .iter()
-                .map(|op| op.clone().into()),
-        );
-        self.finish_circuit(&operations)
+    pub fn snapshot(&self, dbg_lookup: Option<(&PackageStore, Encoding)>) -> Circuit {
+        self.finish_circuit(self.block_builder.operations(), dbg_lookup)
     }
 
     #[must_use]
-    pub fn finish(mut self) -> Circuit {
+    pub fn finish(mut self, dbg_lookup: Option<(&PackageStore, Encoding)>) -> Circuit {
         let ops = replace(
             &mut self.block_builder,
             BlockBuilder::new(self.config.max_operations),
         )
         .into_operations();
 
-        self.finish_circuit(
-            ops.iter()
-                .map(|o| o.clone().into())
-                .collect::<Vec<_>>()
-                .as_slice(),
-        )
+        self.finish_circuit(&ops, dbg_lookup)
     }
 
-    fn finish_circuit(&self, operations: &[Operation]) -> Circuit {
+    fn finish_circuit(
+        &self,
+        operations: &[Op],
+        dbg_lookup: Option<(&PackageStore, Encoding)>,
+    ) -> Circuit {
         let qubits = self.register_map_builder.to_qubits();
+        let mut operations = operations.to_vec();
 
+        if let Some((package_store, position_encoding)) = dbg_lookup {
+            fill_in_dbg_metadata(
+                &self.dbg_info,
+                &mut operations,
+                package_store,
+                position_encoding,
+            );
+        }
+
+        let component_grid = operation_list_to_grid(
+            operations
+                .iter()
+                .map(|o| o.clone().into())
+                .collect::<Vec<_>>(),
+            &qubits,
+            self.config.loop_detection,
+        );
         Circuit {
-            component_grid: operation_list_to_grid(
-                operations.to_vec(),
-                &qubits,
-                self.config.loop_detection,
-            ),
             qubits,
+            component_grid,
         }
     }
 
@@ -231,6 +261,20 @@ impl CircuitBuilder {
             classical_args.pop();
             classical_args.pop();
         }
+    }
+
+    fn push_dbg_location(&mut self, md: &backend::InstructionMetadata) -> usize {
+        let md = rir::DbgLocation {
+            location: rir::MetadataPackageSpan {
+                package: u32::try_from(usize::from(md.location.package))
+                    .expect("package id should fit in u32"),
+                span: md.location.span,
+            },
+            scope: 0, // TODO: fill in correct scope
+            inlined_at: None,
+        };
+        self.dbg_info.dbg_locations.push(md);
+        self.dbg_info.dbg_locations.len() - 1
     }
 }
 // Really similar to source/compiler/qsc_partial_eval/src/management.rs

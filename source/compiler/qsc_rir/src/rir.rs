@@ -18,6 +18,11 @@ pub struct Program {
     pub num_qubits: u32,
     pub num_results: u32,
     pub tags: Vec<String>,
+    pub dbg_info: DbgInfo,
+}
+
+#[derive(Default, Clone)]
+pub struct DbgInfo {
     pub dbg_metadata_scopes: Vec<DbgMetadataScope>,
     pub dbg_locations: Vec<DbgLocation>,
 }
@@ -126,13 +131,13 @@ impl Display for Program {
         write!(indent, "\nnum_results: {}", self.num_results)?;
         write!(indent, "\ndbg_metadata_scopes:")?;
         indent = set_indentation(indent, 2);
-        for (index, scope) in self.dbg_metadata_scopes.iter().enumerate() {
+        for (index, scope) in self.dbg_info.dbg_metadata_scopes.iter().enumerate() {
             write!(indent, "\n[{index}]: {scope}")?;
         }
         indent = set_indentation(indent, 1);
         write!(indent, "\ndbg_locations:")?;
         indent = set_indentation(indent, 2);
-        for (index, location) in self.dbg_locations.iter().enumerate() {
+        for (index, location) in self.dbg_info.dbg_locations.iter().enumerate() {
             write!(indent, "\n[{index}]: {location}")?;
         }
         indent = set_indentation(indent, 1);
@@ -149,13 +154,15 @@ impl Program {
     #[must_use]
     pub fn new() -> Self {
         let mut s = Self::default();
-        s.dbg_metadata_scopes.push(DbgMetadataScope::SubProgram {
-            name: "entry".into(),
-            location: MetadataPackageSpan {
-                package: 0, // TODO: wrong, obviously
-                span: Span::default(),
-            },
-        });
+        s.dbg_info
+            .dbg_metadata_scopes
+            .push(DbgMetadataScope::SubProgram {
+                name: "entry".into(),
+                location: MetadataPackageSpan {
+                    package: 0, // TODO: wrong, obviously
+                    span: Span::default(),
+                },
+            });
         s
     }
 
@@ -297,7 +304,7 @@ impl Display for DbgLocation {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct MetadataPackageSpan {
     pub package: u32,
     pub span: Span,

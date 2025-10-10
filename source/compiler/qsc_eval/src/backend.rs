@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use crate::PackageSpan;
 use crate::val::{self, Value};
 use crate::{noise::PauliNoise, val::unwrap_tuple};
 use ndarray::Array2;
@@ -879,12 +880,23 @@ impl Backend for OptionalBackend<'_> {
     }
 }
 
-pub struct TraceAndSim<'a> {
+pub struct InstructionMetadata {
+    pub location: PackageSpan,
+}
+
+impl InstructionMetadata {
+    #[must_use]
+    pub fn new(location: PackageSpan) -> Self {
+        Self { location }
+    }
+}
+
+pub struct TracingBackend<'a> {
     backend: OptionalBackend<'a>,
     tracer: Option<&'a mut dyn Tracer>,
 }
 
-impl<'a> TraceAndSim<'a> {
+impl<'a> TracingBackend<'a> {
     pub fn new(backend: &'a mut dyn Backend, tracer: &'a mut dyn Tracer) -> Self {
         Self {
             backend: OptionalBackend::Some(backend),
@@ -906,37 +918,67 @@ impl<'a> TraceAndSim<'a> {
         }
     }
 
-    pub fn ccx(&mut self, ctl0: usize, ctl1: usize, q: usize) {
+    pub fn ccx(
+        &mut self,
+        ctl0: usize,
+        ctl1: usize,
+        q: usize,
+        metadata: Option<InstructionMetadata>,
+    ) {
         if let Some(tracer) = &mut self.tracer {
-            tracer.gate("X", false, vec![q], vec![ctl0, ctl1], vec![], vec![]);
+            tracer.gate(
+                "X",
+                false,
+                GateInputs::with_targets_and_controls(vec![q], vec![ctl0, ctl1]),
+                vec![],
+                metadata,
+            );
         }
         self.backend.ccx(ctl0, ctl1, q);
     }
 
     pub fn cx(&mut self, ctl: usize, q: usize) {
         if let Some(tracer) = &mut self.tracer {
-            tracer.gate("X", false, vec![q], vec![ctl], vec![], vec![]);
+            tracer.gate(
+                "X",
+                false,
+                GateInputs::with_targets_and_controls(vec![q], vec![ctl]),
+                vec![],
+                None,
+            );
         }
         self.backend.cx(ctl, q);
     }
 
     pub fn cy(&mut self, ctl: usize, q: usize) {
         if let Some(tracer) = &mut self.tracer {
-            tracer.gate("Y", false, vec![q], vec![ctl], vec![], vec![]);
+            tracer.gate(
+                "Y",
+                false,
+                GateInputs::with_targets_and_controls(vec![q], vec![ctl]),
+                vec![],
+                None,
+            );
         }
         self.backend.cy(ctl, q);
     }
 
     pub fn cz(&mut self, ctl: usize, q: usize) {
         if let Some(tracer) = &mut self.tracer {
-            tracer.gate("Z", false, vec![q], vec![ctl], vec![], vec![]);
+            tracer.gate(
+                "Z",
+                false,
+                GateInputs::with_targets_and_controls(vec![q], vec![ctl]),
+                vec![],
+                None,
+            );
         }
         self.backend.cz(ctl, q);
     }
 
     pub fn h(&mut self, q: usize) {
         if let Some(tracer) = &mut self.tracer {
-            tracer.gate("H", false, vec![q], vec![], vec![], vec![]);
+            tracer.gate("H", false, GateInputs::with_targets(vec![q]), vec![], None);
         }
         self.backend.h(q);
     }
@@ -969,10 +1011,9 @@ impl<'a> TraceAndSim<'a> {
             tracer.gate(
                 "Rx",
                 false,
-                vec![q],
-                vec![],
-                vec![],
+                GateInputs::with_targets(vec![q]),
                 vec![format!("{theta:.4}")],
+                None,
             );
         }
         self.backend.rx(theta, q);
@@ -983,10 +1024,9 @@ impl<'a> TraceAndSim<'a> {
             tracer.gate(
                 "Rxx",
                 false,
-                vec![q0, q1],
-                vec![],
-                vec![],
+                GateInputs::with_targets(vec![q0, q1]),
                 vec![format!("{theta:.4}")],
+                None,
             );
         }
         self.backend.rxx(theta, q0, q1);
@@ -997,10 +1037,9 @@ impl<'a> TraceAndSim<'a> {
             tracer.gate(
                 "Ry",
                 false,
-                vec![q],
-                vec![],
-                vec![],
+                GateInputs::with_targets(vec![q]),
                 vec![format!("{theta:.4}")],
+                None,
             );
         }
         self.backend.ry(theta, q);
@@ -1011,10 +1050,9 @@ impl<'a> TraceAndSim<'a> {
             tracer.gate(
                 "Ryy",
                 false,
-                vec![q0, q1],
-                vec![],
-                vec![],
+                GateInputs::with_targets(vec![q0, q1]),
                 vec![format!("{theta:.4}")],
+                None,
             );
         }
         self.backend.ryy(theta, q0, q1);
@@ -1025,10 +1063,9 @@ impl<'a> TraceAndSim<'a> {
             tracer.gate(
                 "Rz",
                 false,
-                vec![q],
-                vec![],
-                vec![],
+                GateInputs::with_targets(vec![q]),
                 vec![format!("{theta:.4}")],
+                None,
             );
         }
         self.backend.rz(theta, q);
@@ -1039,10 +1076,9 @@ impl<'a> TraceAndSim<'a> {
             tracer.gate(
                 "Rzz",
                 false,
-                vec![q0, q1],
-                vec![],
-                vec![],
+                GateInputs::with_targets(vec![q0, q1]),
                 vec![format!("{theta:.4}")],
+                None,
             );
         }
         self.backend.rzz(theta, q0, q1);
@@ -1050,63 +1086,69 @@ impl<'a> TraceAndSim<'a> {
 
     pub fn sadj(&mut self, q: usize) {
         if let Some(tracer) = &mut self.tracer {
-            tracer.gate("S", true, vec![q], vec![], vec![], vec![]);
+            tracer.gate("S", true, GateInputs::with_targets(vec![q]), vec![], None);
         }
         self.backend.sadj(q);
     }
 
     pub fn s(&mut self, q: usize) {
         if let Some(tracer) = &mut self.tracer {
-            tracer.gate("S", false, vec![q], vec![], vec![], vec![]);
+            tracer.gate("S", false, GateInputs::with_targets(vec![q]), vec![], None);
         }
         self.backend.s(q);
     }
 
     pub fn sx(&mut self, q: usize) {
         if let Some(tracer) = &mut self.tracer {
-            tracer.gate("SX", false, vec![q], vec![], vec![], vec![]);
+            tracer.gate("SX", false, GateInputs::with_targets(vec![q]), vec![], None);
         }
         self.backend.sx(q);
     }
 
     pub fn swap(&mut self, q0: usize, q1: usize) {
         if let Some(tracer) = &mut self.tracer {
-            tracer.gate("SWAP", false, vec![q0, q1], vec![], vec![], vec![]);
+            tracer.gate(
+                "SWAP",
+                false,
+                GateInputs::with_targets(vec![q0, q1]),
+                vec![],
+                None,
+            );
         }
         self.backend.swap(q0, q1);
     }
 
     pub fn tadj(&mut self, q: usize) {
         if let Some(tracer) = &mut self.tracer {
-            tracer.gate("T", true, vec![q], vec![], vec![], vec![]);
+            tracer.gate("T", true, GateInputs::with_targets(vec![q]), vec![], None);
         }
         self.backend.tadj(q);
     }
 
     pub fn t(&mut self, q: usize) {
         if let Some(tracer) = &mut self.tracer {
-            tracer.gate("T", false, vec![q], vec![], vec![], vec![]);
+            tracer.gate("T", false, GateInputs::with_targets(vec![q]), vec![], None);
         }
         self.backend.t(q);
     }
 
     pub fn x(&mut self, q: usize) {
         if let Some(tracer) = &mut self.tracer {
-            tracer.gate("X", false, vec![q], vec![], vec![], vec![]);
+            tracer.gate("X", false, GateInputs::with_targets(vec![q]), vec![], None);
         }
         self.backend.x(q);
     }
 
     pub fn y(&mut self, q: usize) {
         if let Some(tracer) = &mut self.tracer {
-            tracer.gate("Y", false, vec![q], vec![], vec![], vec![]);
+            tracer.gate("Y", false, GateInputs::with_targets(vec![q]), vec![], None);
         }
         self.backend.y(q);
     }
 
     pub fn z(&mut self, q: usize) {
         if let Some(tracer) = &mut self.tracer {
-            tracer.gate("Z", false, vec![q], vec![], vec![], vec![]);
+            tracer.gate("Z", false, GateInputs::with_targets(vec![q]), vec![], None);
         }
         self.backend.z(q);
     }
@@ -1229,14 +1271,42 @@ pub trait Tracer {
         &mut self,
         name: &str,
         is_adjoint: bool,
-        target_qubits: Vec<usize>,
-        control_qubits: Vec<usize>,
-        control_results: Vec<usize>,
+        gate_inputs: GateInputs,
         args: Vec<String>,
+        metadata: Option<InstructionMetadata>,
     );
     fn m(&mut self, q: usize, r: &val::Result);
     fn mresetz(&mut self, q: usize, r: &val::Result);
     fn reset(&mut self, q: usize);
     fn qubit_swap_id(&mut self, q0: usize, q1: usize);
     fn custom_intrinsic(&mut self, name: &str, arg: Value);
+}
+
+pub struct GateInputs {
+    pub target_qubits: Vec<usize>,
+    pub control_qubits: Vec<usize>,
+    pub control_results: Vec<usize>,
+}
+
+impl GateInputs {
+    #[must_use]
+    pub fn with_targets(target_qubits: Vec<usize>) -> Self {
+        Self {
+            target_qubits,
+            control_qubits: Vec::new(),
+            control_results: Vec::new(),
+        }
+    }
+
+    #[must_use]
+    pub fn with_targets_and_controls(
+        target_qubits: Vec<usize>,
+        control_qubits: Vec<usize>,
+    ) -> Self {
+        Self {
+            target_qubits,
+            control_qubits,
+            control_results: Vec::new(),
+        }
+    }
 }

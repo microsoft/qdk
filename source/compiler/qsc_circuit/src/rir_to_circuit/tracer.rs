@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use qsc_eval::backend::GateInputs;
 use qsc_partial_eval::rir::InstructionMetadata;
 
 use crate::{
@@ -205,10 +206,4 @@ impl BlockBuilder {
             args: vec![],
         });
     }
-}
-
-pub(crate) struct GateInputs {
-    pub target_qubits: Vec<usize>,
-    pub control_qubits: Vec<usize>,
-    pub control_results: Vec<usize>,
 }

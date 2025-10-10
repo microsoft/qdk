@@ -8,7 +8,7 @@ mod tests;
 
 use crate::{
     Error, Rc,
-    backend::TraceAndSim,
+    backend::{InstructionMetadata, TracingBackend},
     error::PackageSpan,
     output::Receiver,
     val::{self, Value, unwrap_tuple},
@@ -24,7 +24,7 @@ pub(crate) fn call(
     name_span: PackageSpan,
     arg: Value,
     arg_span: PackageSpan,
-    sim: &mut TraceAndSim,
+    sim: &mut TracingBackend,
     rng: &mut StdRng,
     out: &mut dyn Receiver,
 ) -> Result<Value, Error> {
@@ -160,7 +160,12 @@ pub(crate) fn call(
         "Truncate" => Ok(Value::Int(arg.unwrap_double() as i64)),
         "__quantum__qis__ccx__body" => three_qubit_gate(
             |ctl0, ctl1, q| {
-                sim.ccx(ctl0, ctl1, q);
+                sim.ccx(
+                    ctl0,
+                    ctl1,
+                    q,
+                    Some(InstructionMetadata::new(arg_span)), // wrong span, but what the heck
+                );
             },
             arg,
             arg_span,

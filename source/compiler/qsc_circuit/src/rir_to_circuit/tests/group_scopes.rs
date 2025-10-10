@@ -7,15 +7,15 @@ use crate::rir_to_circuit::{Op, OperationKind, fmt_ops, group_operations, tracer
 use expect_test::{Expect, expect};
 use qsc_data_structures::span::Span;
 use qsc_partial_eval::rir::{
-    DbgLocation, DbgMetadataScope, InstructionMetadata, MetadataPackageSpan,
+    DbgInfo, DbgLocation, DbgMetadataScope, InstructionMetadata, MetadataPackageSpan,
 };
 
 #[allow(clippy::needless_pass_by_value)]
 fn check(instructions: Vec<Instruction>, expect: Expect) {
-    let (locations, scopes, ops) = program(instructions);
-    let grouped = group_operations(&locations, &scopes, ops.clone());
+    let (dbg_info, ops) = program(instructions);
+    let grouped = group_operations(&dbg_info, ops.clone());
 
-    expect.assert_eq(&fmt_ops(&locations, &scopes, &grouped));
+    expect.assert_eq(&fmt_ops(&dbg_info, &grouped));
 }
 struct Location {
     scope: String,
@@ -28,7 +28,7 @@ struct Instruction {
     stack: Option<Vec<Location>>,
 }
 
-fn program(instructions: Vec<Instruction>) -> (Vec<DbgLocation>, Vec<DbgMetadataScope>, Vec<Op>) {
+fn program(instructions: Vec<Instruction>) -> (DbgInfo, Vec<Op>) {
     let mut locations = vec![];
     let mut scopes = vec![];
     let mut ops = vec![];
@@ -93,7 +93,13 @@ fn program(instructions: Vec<Instruction>) -> (Vec<DbgLocation>, Vec<DbgMetadata
         }
     }
 
-    (locations, scopes, ops)
+    (
+        DbgInfo {
+            dbg_locations: locations,
+            dbg_metadata_scopes: scopes,
+        },
+        ops,
+    )
 }
 
 fn unitary(label: String, qubits: Vec<QubitRegister>, metadata: Option<InstructionMetadata>) -> Op {

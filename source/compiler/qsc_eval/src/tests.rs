@@ -3,7 +3,7 @@
 
 use crate::{
     Env, Error, ErrorBehavior, State, StepAction, StepResult, Value,
-    backend::{Backend, SparseSim, TraceAndSim},
+    backend::{Backend, SparseSim, TracingBackend},
     debug::Frame,
     exec_graph_section,
     output::{GenericReceiver, Receiver},
@@ -33,7 +33,7 @@ pub(super) fn eval_graph(
     let StepResult::Return(value) = state.eval(
         globals,
         env,
-        &mut TraceAndSim::new_no_trace(sim),
+        &mut TracingBackend::new_no_trace(sim),
         out,
         &[],
         StepAction::Continue,
