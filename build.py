@@ -653,8 +653,7 @@ if build_jupyterlab:
 
 if build_pip and build_widgets and args.integration_tests:
     step_start("Running notebook samples integration tests")
-    # Find all notebooks in the samples directory. Skip the basic sample and the azure submission sample, since those won't run
-    # nicely in automation.
+    # Find all notebooks in the samples directory. Skip the some of the samples since these won't run.
     notebook_files = [
         os.path.join(dp, f)
         for dp, _, filenames in os.walk(samples_src)
@@ -667,6 +666,7 @@ if build_pip and build_widgets and args.integration_tests:
             or f.startswith("iterative_phase_estimation.")
             or f.startswith("repeat_until_success.")
             or f.startswith("python-deps.")
+            or f.startswith("submit_qiskit_to_azure.")
         )
     ]
     python_bin = use_python_env(samples_src)
