@@ -195,3 +195,35 @@ def test_with_factory_builder():
 
     assert "physical_qubits" in result["factoryParts"][0]["factory"]
     assert "duration" in result["factoryParts"][0]["factory"]
+
+
+def test_prune_error_budget():
+    result = qsharp.estimate_custom(SampleAlgorithm(), sample_qubit(), SampleCode())
+
+    assert abs(result["errorBudget"]["logical"] - 0.01 / 3) < 1e-6
+    assert abs(result["errorBudget"]["rotations"] - 0.01 / 3) < 1e-6
+    assert abs(result["errorBudget"]["magic_states"] - 0.01 / 3) < 1e-6
+
+    result = qsharp.estimate_custom(
+        SampleAlgorithm(), sample_qubit(), SampleCode(), error_budget=0.1
+    )
+
+    assert abs(result["errorBudget"]["logical"] - 0.1 / 3) < 1e-6
+    assert abs(result["errorBudget"]["rotations"] - 0.1 / 3) < 1e-6
+    assert abs(result["errorBudget"]["magic_states"] - 0.1 / 3) < 1e-6
+
+    def _prune_error_budget(self, budget, _):
+        rotations = budget["rotations"]
+        budget["logical"] += rotations / 2
+        budget["magic_states"] += rotations / 2
+        budget["rotations"] = 0.0
+
+    SampleAlgorithm.prune_error_budget = _prune_error_budget
+
+    result = qsharp.estimate_custom(SampleAlgorithm(), sample_qubit(), SampleCode())
+
+    assert abs(result["errorBudget"]["logical"] - 0.01 / 2) < 1e-6
+    assert abs(result["errorBudget"]["rotations"]) < 1e-6
+    assert abs(result["errorBudget"]["magic_states"] - 0.01 / 2) < 1e-6
+
+    del SampleAlgorithm.prune_error_budget
