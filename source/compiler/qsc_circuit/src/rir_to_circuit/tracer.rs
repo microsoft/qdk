@@ -6,7 +6,7 @@ use qsc_partial_eval::rir::InstructionMetadata;
 
 use crate::{
     builder::{RegisterMap, RegisterMapBuilder},
-    rir_to_circuit::{Op, OperationKind},
+    rir_to_circuit::{DbgLocationKind, Op, OperationKind},
 };
 
 pub(crate) struct BlockBuilder {
@@ -123,7 +123,11 @@ impl BlockBuilder {
             .collect();
 
         self.push(Op {
-            kind: OperationKind::Unitary { metadata },
+            kind: OperationKind::Unitary {
+                location: metadata
+                    .and_then(|md| md.dbg_location)
+                    .map(DbgLocationKind::Unresolved),
+            },
             label: gate_label.name.to_string(),
             target_qubits,
             control_qubits,
@@ -146,7 +150,11 @@ impl BlockBuilder {
         let results = vec![register_map.result_register(result)];
 
         self.push(Op {
-            kind: OperationKind::Measurement { metadata },
+            kind: OperationKind::Measurement {
+                location: metadata
+                    .and_then(|md| md.dbg_location)
+                    .map(DbgLocationKind::Unresolved),
+            },
             label: "M".to_string(),
             target_qubits: vec![],
             control_qubits: qubits,
@@ -170,7 +178,10 @@ impl BlockBuilder {
 
         self.push(Op {
             kind: OperationKind::Measurement {
-                metadata: metadata.clone(),
+                location: metadata
+                    .as_ref()
+                    .and_then(|md| md.dbg_location)
+                    .map(DbgLocationKind::Unresolved),
             },
             label: "MResetZ".to_string(),
             target_qubits: vec![],
@@ -182,7 +193,11 @@ impl BlockBuilder {
         });
 
         self.push(Op {
-            kind: OperationKind::Ket { metadata },
+            kind: OperationKind::Ket {
+                location: metadata
+                    .and_then(|md| md.dbg_location)
+                    .map(DbgLocationKind::Unresolved),
+            },
             label: "0".to_string(),
             target_qubits: qubits,
             control_qubits: vec![],
@@ -200,7 +215,11 @@ impl BlockBuilder {
         metadata: Option<InstructionMetadata>,
     ) {
         self.push(Op {
-            kind: OperationKind::Ket { metadata },
+            kind: OperationKind::Ket {
+                location: metadata
+                    .and_then(|md| md.dbg_location)
+                    .map(DbgLocationKind::Unresolved),
+            },
             label: "0".to_string(),
             target_qubits: vec![register_map.qubit_register(qubit)],
             control_qubits: vec![],

@@ -20,6 +20,7 @@ use qsc::{
         self, CircuitEntryPoint,
         output::{self, Receiver},
     },
+    line_column::Encoding,
     qasm::{CompileRawQasmResult, io::InMemorySourceResolver},
     target::Profile,
 };
@@ -115,6 +116,7 @@ pub fn get_estimates(program: ProgramConfig, expr: &str, params: &str) -> Result
             language_features,
             store,
             &deps[..],
+            Encoding::Utf16,
         )
         .map_err(|e| e[0].to_string())?;
 
@@ -214,6 +216,7 @@ pub fn get_circuit(
             LanguageFeatures::from_iter(language_features),
             store,
             &deps[..],
+            Encoding::Utf16,
         )
         .map_err(interpret_errors_into_qsharp_errors_json)?;
 
@@ -444,6 +447,7 @@ where
         language_features,
         store,
         dependencies,
+        Encoding::Utf16,
     ) {
         Ok(interpreter) => interpreter,
         Err(err) => {
@@ -766,6 +770,7 @@ fn get_configured_interpreter_from_openqasm(
         capabilities,
         language_features,
         &dependencies,
+        Encoding::Utf16,
     )
     .map_err(interpret_errors_into_qsharp_errors_json)?;
 

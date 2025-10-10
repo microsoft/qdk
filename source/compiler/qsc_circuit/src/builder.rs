@@ -186,25 +186,18 @@ impl CircuitBuilder {
         dbg_lookup: Option<(&PackageStore, Encoding)>,
     ) -> Circuit {
         let qubits = self.register_map_builder.to_qubits();
-        let mut operations = operations.to_vec();
+
+        let mut operations = operations
+            .iter()
+            .map(|o| o.clone().into())
+            .collect::<Vec<_>>();
 
         if let Some((package_store, position_encoding)) = dbg_lookup {
-            fill_in_dbg_metadata(
-                &self.dbg_info,
-                &mut operations,
-                package_store,
-                position_encoding,
-            );
+            fill_in_dbg_metadata(&mut operations, package_store, position_encoding);
         }
 
-        let component_grid = operation_list_to_grid(
-            operations
-                .iter()
-                .map(|o| o.clone().into())
-                .collect::<Vec<_>>(),
-            &qubits,
-            self.config.loop_detection,
-        );
+        let component_grid =
+            operation_list_to_grid(operations, &qubits, self.config.loop_detection);
         Circuit {
             qubits,
             component_grid,

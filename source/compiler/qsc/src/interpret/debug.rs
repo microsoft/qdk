@@ -16,6 +16,7 @@ use std::rc::Rc;
 
 #[must_use]
 pub(crate) fn format_call_stack(
+    position_encoding: Encoding,
     store: &PackageStore,
     globals: &impl PackageStoreLookup,
     frames: Vec<Frame>,
@@ -49,7 +50,7 @@ pub(crate) fn format_call_stack(
         write!(trace, "{}", call.name.name).expect("writing to string should succeed");
 
         let name = get_item_file_name(store, frame.id);
-        let pos = get_position(frame, store);
+        let pos = get_position(position_encoding, frame, store);
         write!(
             trace,
             " in {}:{}:{}",
@@ -99,7 +100,7 @@ fn get_ns_name(item: &Item) -> Option<Rc<str>> {
 }
 
 /// Converts the [`Span`] of [`Frame`] into a [`Position`].
-fn get_position(frame: Frame, store: &PackageStore) -> Position {
+fn get_position(position_encoding: Encoding, frame: Frame, store: &PackageStore) -> Position {
     let filename = get_item_file_name(store, frame.id).expect("file should exist");
     let package_id = map_fir_package_to_hir(frame.id.package);
     let unit = store.get(package_id).expect("package should exist");
@@ -108,5 +109,5 @@ fn get_position(frame: Frame, store: &PackageStore) -> Position {
         .find_by_name(&filename)
         .expect("source should exist");
     let contents = &source.contents;
-    Position::from_utf8_byte_offset(Encoding::Utf8, contents, frame.span.lo - source.offset)
+    Position::from_utf8_byte_offset(position_encoding, contents, frame.span.lo - source.offset)
 }

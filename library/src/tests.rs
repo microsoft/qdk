@@ -18,6 +18,7 @@ use indoc::indoc;
 use qsc::{
     Backend, LanguageFeatures, PackageType, SourceMap, SparseSim, TracingBackend,
     interpret::{self, GenericReceiver, Interpreter, Value},
+    line_column::Encoding,
     target::Profile,
 };
 
@@ -74,6 +75,7 @@ pub fn test_expression_with_lib_and_profile_and_sim(
         LanguageFeatures::default(),
         store,
         &[(std_id, None)],
+        Encoding::Utf8,
     )
     .expect("test should compile");
 
@@ -122,6 +124,7 @@ pub fn test_expression_fails_with_lib_and_profile_and_sim(
         LanguageFeatures::default(),
         store,
         &[(std_id, None)],
+        Encoding::Utf8,
     )
     .expect("test should compile");
 

@@ -5,7 +5,7 @@ allocator::assign_global!();
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use indoc::indoc;
-use qsc::{PackageType, TargetCapabilityFlags, interpret::Interpreter};
+use qsc::{PackageType, TargetCapabilityFlags, interpret::Interpreter, line_column::Encoding};
 use qsc_data_structures::language_features::LanguageFeatures;
 use qsc_eval::output::GenericReceiver;
 use qsc_frontend::compile::SourceMap;
@@ -27,6 +27,7 @@ pub fn teleport(c: &mut Criterion) {
             LanguageFeatures::default(),
             store,
             &[(std_id, None)],
+            Encoding::Utf8,
         )
         .expect("code should compile");
         b.iter(move || {
@@ -48,6 +49,7 @@ pub fn deutsch_jozsa(c: &mut Criterion) {
             LanguageFeatures::default(),
             store,
             &[(std_id, None)],
+            Encoding::Utf8,
         )
         .expect("code should compile");
         b.iter(move || {
@@ -69,6 +71,7 @@ pub fn large_file(c: &mut Criterion) {
             LanguageFeatures::default(),
             store,
             &[(std_id, None)],
+            Encoding::Utf8,
         )
         .expect("code should compile");
 
@@ -91,6 +94,7 @@ pub fn bench5x5(c: &mut Criterion) {
             LanguageFeatures::default(),
             store,
             &[(std_id, None)],
+            Encoding::Utf8,
         )
         .expect("code should compile");
 
@@ -125,6 +129,7 @@ pub fn array_append(c: &mut Criterion) {
             LanguageFeatures::default(),
             store,
             &[(std_id, None)],
+            Encoding::Utf8,
         )
         .expect("code should compile");
 
@@ -159,6 +164,7 @@ pub fn array_update(c: &mut Criterion) {
             LanguageFeatures::default(),
             store,
             &[(std_id, None)],
+            Encoding::Utf8,
         )
         .expect("code should compile");
 
@@ -181,6 +187,7 @@ pub fn array_literal(c: &mut Criterion) {
             LanguageFeatures::default(),
             store,
             &[(std_id, None)],
+            Encoding::Utf8,
         )
         .expect("code should compile");
 
@@ -220,6 +227,7 @@ pub fn large_nested_iteration(c: &mut Criterion) {
             LanguageFeatures::default(),
             store,
             &[(std_id, None)],
+        qsc_data_structures::line_column::Encoding::Utf8,
         )
         .expect("code should compile");
 

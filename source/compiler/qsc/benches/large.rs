@@ -47,6 +47,7 @@ pub fn large_file_interpreter(c: &mut Criterion) {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+        qsc_data_structures::line_column::Encoding::Utf8,
             )
             .expect("code should compile");
         });

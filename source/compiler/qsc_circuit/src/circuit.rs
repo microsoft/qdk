@@ -5,6 +5,7 @@
 mod tests;
 
 use log::warn;
+use qsc_partial_eval::rir::MetadataPackageSpan;
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -54,6 +55,20 @@ pub struct ComponentColumn {
 /// Union type for components.
 pub type Component = Operation;
 
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub enum SourceLocation {
+    Resolved(String),
+    #[serde(skip)]
+    Unresolved(MetadataPackageSpan),
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct ResolvedSourceLocation {
+    pub file: String,
+    pub line: u32,
+    pub column: u32,
+}
+
 /// Union type for operations.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(tag = "kind")]
@@ -101,6 +116,14 @@ impl Operation {
             Self::Measurement(measurement) => &mut measurement.args,
             Self::Unitary(unitary) => &mut unitary.args,
             Self::Ket(ket) => &mut ket.args,
+        }
+    }
+
+    pub fn source_mut(&mut self) -> &mut Option<SourceLocation> {
+        match self {
+            Self::Measurement(measurement) => &mut measurement.source,
+            Self::Unitary(unitary) => &mut unitary.source,
+            Self::Ket(ket) => &mut ket.source,
         }
     }
 
@@ -164,6 +187,8 @@ pub struct Measurement {
     pub children: ComponentGrid,
     pub qubits: Vec<Register>,
     pub results: Vec<Register>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<SourceLocation>,
 }
 
 /// Representation of a unitary operation.
@@ -184,6 +209,8 @@ pub struct Unitary {
     #[serde(skip_serializing_if = "Not::not")]
     #[serde(default)]
     pub is_adjoint: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<SourceLocation>,
 }
 
 /// Representation of a gate that will set the target to a specific state.
@@ -197,6 +224,8 @@ pub struct Ket {
     #[serde(default)]
     pub children: ComponentGrid,
     pub targets: Vec<Register>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<SourceLocation>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Eq, Hash, PartialEq, Clone)]

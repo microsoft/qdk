@@ -45,6 +45,7 @@ fn measurement(q_id: usize, c_id: usize) -> Operation {
         qubits: vec![Register::quantum(q_id)],
         results: vec![Register::classical(q_id, c_id)],
         children: vec![],
+        source: None,
     })
 }
 
@@ -56,6 +57,7 @@ fn unitary(gate: &str, targets: Vec<Register>) -> Operation {
         controls: vec![],
         targets,
         children: vec![],
+        source: None,
     })
 }
 
@@ -67,6 +69,7 @@ fn ctl_unitary(gate: &str, targets: Vec<Register>, controls: Vec<Register>) -> O
         controls,
         targets,
         children: vec![],
+        source: None,
     })
 }
 
@@ -256,6 +259,7 @@ fn with_args() {
             controls: vec![],
             targets: vec![Register::quantum(0)],
             children: vec![],
+            source: None,
         })]]),
     };
 
@@ -276,6 +280,7 @@ fn two_targets() {
             controls: vec![],
             targets: vec![Register::quantum(0), Register::quantum(2)],
             children: vec![],
+            source: None,
         })]]),
     };
 
@@ -355,6 +360,7 @@ fn classical_controlled_group() {
                         result: Some(0),
                     }],
                     is_adjoint: false,
+                    source: None,
                 })],
             },
             ComponentColumn {

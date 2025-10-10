@@ -74,6 +74,7 @@ fn stack_traces_can_cross_eval_session_and_file_boundaries() {
         LanguageFeatures::default(),
         store,
         &[(std_id, None)],
+        qsc_data_structures::line_column::Encoding::Utf8,
     )
     .expect("Failed to compile base environment.");
 
@@ -151,6 +152,7 @@ fn stack_traces_can_cross_file_and_entry_boundaries() {
         LanguageFeatures::default(),
         store,
         &[(std_id, None)],
+        qsc_data_structures::line_column::Encoding::Utf8,
     )
     .expect("Failed to compile base environment.");
 

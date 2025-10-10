@@ -3,7 +3,9 @@
 
 use std::rc::Rc;
 
-use crate::rir_to_circuit::{Op, OperationKind, fmt_ops, group_operations, tracer::QubitRegister};
+use crate::rir_to_circuit::{
+    DbgLocationKind, Op, OperationKind, fmt_ops, group_operations, tracer::QubitRegister,
+};
 use expect_test::{Expect, expect};
 use qsc_data_structures::span::Span;
 use qsc_partial_eval::rir::{
@@ -104,7 +106,11 @@ fn program(instructions: Vec<Instruction>) -> (DbgInfo, Vec<Op>) {
 
 fn unitary(label: String, qubits: Vec<QubitRegister>, metadata: Option<InstructionMetadata>) -> Op {
     Op {
-        kind: OperationKind::Unitary { metadata },
+        kind: OperationKind::Unitary {
+            location: metadata
+                .and_then(|md| md.dbg_location)
+                .map(DbgLocationKind::Unresolved),
+        },
         label,
         target_qubits: qubits,
         control_qubits: vec![],
