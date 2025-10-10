@@ -22,7 +22,7 @@ use miette::Diagnostic;
 use num_bigint::BigUint;
 use num_complex::Complex;
 use qsc_circuit::{
-    Builder as CircuitBuilder, Circuit, Config as CircuitConfig, GenerationMethod,
+    Circuit, CircuitBuilder, Config as CircuitConfig, GenerationMethod,
     operations::entry_expr_for_qubit_operation, rir_to_circuit::make_circuit,
 };
 use qsc_codegen::qir::{fir_to_qir, fir_to_qir_from_callable, fir_to_rir};

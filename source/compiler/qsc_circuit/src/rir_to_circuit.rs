@@ -12,9 +12,11 @@ use std::{
 
 use crate::{
     Circuit, ComponentColumn, Config, Error, GenerationMethod, Ket, Measurement, Operation,
-    Register, Unitary, group_qubits, operation_list_to_grid,
+    Register, Unitary,
+    builder::RegisterMap,
+    group_qubits, operation_list_to_grid,
     rir_to_circuit::tracer::{
-        BlockBuilder, FixedQubitRegisterMap, GateInputs, QubitRegister, RegisterMap, ResultRegister,
+        BlockBuilder, FixedQubitRegisterMapBuilder, GateInputs, QubitRegister, ResultRegister,
     },
 };
 use log::{debug, warn};
@@ -194,7 +196,7 @@ pub fn make_circuit(
         dbg_metadata_scopes: &program.dbg_metadata_scopes,
     };
     assert!(config.generation_method == GenerationMethod::Static);
-    let mut register_map = FixedQubitRegisterMap::new(
+    let mut register_map_builder = FixedQubitRegisterMapBuilder::new(
         usize::try_from(program.num_qubits).expect("number of qubits should fit in usize"),
     );
     let callables = &program.callables;
@@ -208,14 +210,19 @@ pub fn make_circuit(
             let block_operations = process_block_vars(
                 &dbg_info,
                 &mut variables,
-                &mut register_map,
+                &mut register_map_builder,
                 callables,
                 block,
             )?;
             blocks.insert(id, block_operations);
         }
 
-        done = expand_branches_for_vars(&mut register_map, program, &mut variables, &blocks)?;
+        done = expand_branches_for_vars(
+            register_map_builder.register_map(),
+            program,
+            &mut variables,
+            &blocks,
+        )?;
         i += 1;
         if i > 100 {
             warn!("make_circuit: too many iterations expanding branches, giving up");
@@ -229,6 +236,8 @@ pub fn make_circuit(
         variables,
         blocks: IndexMap::default(),
     };
+
+    let register_map = register_map_builder.into_register_map();
 
     let mut ops_remaining = config.max_operations;
 
@@ -297,7 +306,7 @@ pub fn make_circuit(
 
 /// true result means done
 fn expand_branches_for_vars(
-    register_map: &mut FixedQubitRegisterMap,
+    register_map: &RegisterMap,
     program: &Program,
     variables: &mut IndexMap<VariableId, Expr>,
     blocks: &IndexMap<BlockId, CircuitBlock>,
@@ -355,7 +364,7 @@ struct ExpandedBranchBlockVarsOnly {
 fn expand_branch_vars(
     variables: &IndexMap<VariableId, Expr>,
     blocks: &IndexMap<BlockId, CircuitBlock>,
-    register_map: &mut FixedQubitRegisterMap,
+    register_map: &RegisterMap,
     curent_block_id: BlockId,
     branch: &Branch,
 ) -> Result<Option<ExpandedBranchBlockVarsOnly>, Error> {
@@ -503,7 +512,7 @@ fn make_group_op(
 fn process_block_vars(
     dbg_info: &DbgInfo,
     variables: &mut IndexMap<VariableId, Expr>,
-    register_map: &mut FixedQubitRegisterMap,
+    register_map: &mut FixedQubitRegisterMapBuilder,
     callables: &IndexMap<qsc_partial_eval::CallableId, Callable>,
     block: &BlockWithMetadata,
 ) -> Result<CircuitBlock, Error> {
@@ -549,7 +558,7 @@ fn process_block_vars(
 /// and an operation is added to the block that represents the branch logic (i.e., a unitary operation with two children, one for the true branch and one for the false branch).
 fn expand_branches(
     state: &mut ProgramMap,
-    register_map: &FixedQubitRegisterMap,
+    register_map: &RegisterMap,
     program: &Program,
 ) -> Result<(), Error> {
     for (block_id, _) in program.blocks.iter() {
@@ -725,7 +734,7 @@ struct ExpandedBranchBlock {
 
 fn expand_branch(
     state: &mut ProgramMap,
-    register_map: &FixedQubitRegisterMap,
+    register_map: &RegisterMap,
     curent_block_id: BlockId,
     branch: &Branch,
 ) -> Result<ExpandedBranchBlock, Error> {
@@ -834,7 +843,7 @@ struct CircuitBlock {
 
 fn operations_in_block(
     state: &mut ProgramMap,
-    register_map: &FixedQubitRegisterMap,
+    register_map: &RegisterMap,
     dbg_info: &DbgInfo,
     callables: &IndexMap<qsc_partial_eval::CallableId, Callable>,
     block: &BlockWithMetadata,
@@ -1284,7 +1293,7 @@ enum Terminator {
 fn get_operations_for_instruction_vars_only(
     dbg_info: &DbgInfo,
     variables: &mut IndexMap<VariableId, Expr>,
-    register_map: &mut FixedQubitRegisterMap,
+    register_map: &mut FixedQubitRegisterMapBuilder,
     callables: &IndexMap<qsc_partial_eval::CallableId, Callable>,
     phis: &mut Vec<(Variable, Vec<(Expr, BlockId)>)>,
     done: &mut bool,
@@ -1374,7 +1383,7 @@ fn get_operations_for_instruction_vars_only(
 
 struct BuilderWithRegisterMap<'a> {
     builder: &'a mut BlockBuilder,
-    register_map: &'a FixedQubitRegisterMap,
+    register_map: &'a RegisterMap,
 }
 
 fn get_operations_for_instruction(
@@ -2023,7 +2032,7 @@ fn store_expr_in_variable(
 
 fn process_callable_variables(
     variables: &mut IndexMap<VariableId, Expr>,
-    register_map: &mut FixedQubitRegisterMap,
+    register_map: &mut FixedQubitRegisterMapBuilder,
     callable: &Callable,
     operands: &Vec<Operand>,
     var: Option<Variable>,

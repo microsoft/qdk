@@ -627,6 +627,120 @@ fn qubit_relabel() {
 }
 
 #[test]
+fn qubit_reuse() {
+    let circ = circuit_both_ways(
+        "
+        namespace Test {
+            operation Main() : Unit {
+                {
+                    use q1 = Qubit();
+                    X(q1);
+                    MResetZ(q1);
+                }
+                {
+                    use q2 = Qubit();
+                    Y(q2);
+                    MResetZ(q2);
+                }
+            }
+        }
+    ",
+        CircuitEntryPoint::EntryPoint,
+    );
+
+    expect![[r#"
+        Eval:
+        q_0    ── X ──── M ──── |0〉 ──── Y ──── M ──── |0〉 ──
+                         ╘══════════════════════╪════════════
+                                                ╘════════════
+
+        Static:
+        q_0    ─ [[ ─── [Main] ──── X ──── M ──── |0〉 ──── Y ──── M ──── |0〉 ─── ]] ──
+               ═ [[ ═══ [Main] ══          ╘══════════════════════╪═════════════ ]] ══
+               ═ [[ ═══ [Main] ══                                 ╘═════════════ ]] ══
+    "#]]
+    .assert_eq(&circ);
+}
+
+#[test]
+fn qubit_reuse_no_measurements() {
+    let circ = circuit_both_ways(
+        "
+        namespace Test {
+            operation Main() : Unit {
+                {
+                    use q1 = Qubit();
+                    X(q1);
+                    Reset(q1);
+                }
+                {
+                    use q2 = Qubit();
+                    Y(q2);
+                    Reset(q2);
+                }
+            }
+        }
+    ",
+        CircuitEntryPoint::EntryPoint,
+    );
+
+    expect![[r#"
+        Eval:
+        q_0    ── X ──── |0〉 ──── Y ──── |0〉 ──
+
+        Static:
+        q_0    ─ [[ ─── [Main] ──── X ──── |0〉 ──── Y ──── |0〉 ─── ]] ──
+    "#]]
+    .assert_eq(&circ);
+}
+
+#[test]
+fn two_qubit_reuse() {
+    let circ = circuit_both_ways(
+        "
+        namespace Test {
+            operation Main() : Unit {
+                {
+                    use (q1, q2) = (Qubit(), Qubit());
+                    X(q1);
+                    CNOT(q1, q2);
+                    MResetZ(q1);
+                    MResetZ(q2);
+                }
+                {
+                    use (q1, q2) = (Qubit(), Qubit());
+                    Y(q1);
+                    CNOT(q1, q2);
+                    MResetZ(q1);
+                    MResetZ(q2);
+                }
+            }
+        }
+    ",
+        CircuitEntryPoint::EntryPoint,
+    );
+
+    expect![[r#"
+        Eval:
+        q_0    ── X ──── ● ──── M ──── |0〉 ──── Y ──── ● ──── M ──── |0〉 ──
+                         │      ╘══════════════════════╪══════╪════════════
+                         │                             │      ╘════════════
+        q_1    ───────── X ──── M ──── |0〉 ─────────── X ──── M ──── |0〉 ──
+                                ╘═════════════════════════════╪════════════
+                                                              ╘════════════
+
+        Static:
+        q_0    ─ [[ ─── [Main] ──── X ──── ● ──── M ──── |0〉 ──── Y ──── ● ──── M ──── |0〉 ─── ]] ──
+               ═ [[ ═══ [Main] ══          │      ╘══════════════════════╪══════╪═════════════ ]] ══
+               ═ [[ ═══ [Main] ══          │                             │      ╘═════════════ ]] ══
+        q_1    ─ [[ ─── [Main] ─────────── X ──── M ──── |0〉 ─────────── X ──── M ──── |0〉 ─── ]] ──
+               ═ [[ ═══ [Main] ══                 ╘═════════════════════════════╪═════════════ ]] ══
+               ═ [[ ═══ [Main] ══                                               ╘═════════════ ]] ══
+    "#]]
+    .assert_eq(&circ);
+}
+
+#[test]
 fn eval_method_result_comparison() {
     let mut interpreter = interpreter(
         r"

@@ -4,8 +4,7 @@
 use qsc_partial_eval::rir::InstructionMetadata;
 
 use crate::{
-    Qubit,
-    builder::Remapper,
+    builder::{RegisterMap, RegisterMapBuilder},
     rir_to_circuit::{Op, OperationKind},
 };
 
@@ -43,12 +42,12 @@ impl BlockBuilder {
     }
 }
 
-pub(crate) struct FixedQubitRegisterMap {
-    remapper: Remapper,
+pub(crate) struct FixedQubitRegisterMapBuilder {
+    remapper: RegisterMapBuilder,
 }
-impl FixedQubitRegisterMap {
+impl FixedQubitRegisterMapBuilder {
     pub(crate) fn new(num_qubits: usize) -> Self {
-        let mut remapper = Remapper::default();
+        let mut remapper = RegisterMapBuilder::default();
 
         for id in 0..num_qubits {
             remapper.map_qubit(id);
@@ -56,25 +55,16 @@ impl FixedQubitRegisterMap {
         Self { remapper }
     }
 
-    pub(crate) fn into_qubits(self) -> Vec<Qubit> {
-        self.remapper.into_qubits()
-    }
-
     pub(crate) fn link_result_to_qubit(&mut self, q: usize, r: usize) {
         self.remapper.link_result_to_qubit(q, r);
     }
-}
 
-impl RegisterMap for FixedQubitRegisterMap {
-    type ResultType = usize;
-    type QubitType = usize;
-
-    fn qubit_register(&self, qubit_id: Self::QubitType) -> QubitRegister {
-        self.remapper.qubit_register(qubit_id)
+    pub(crate) fn register_map(&self) -> &RegisterMap {
+        self.remapper.current()
     }
 
-    fn result_register(&self, result_id: Self::ResultType) -> ResultRegister {
-        self.remapper.result_register(result_id)
+    pub(crate) fn into_register_map(self) -> RegisterMap {
+        self.remapper.into_register_map()
     }
 }
 
@@ -96,26 +86,16 @@ impl From<QubitRegister> for usize {
     }
 }
 
-pub(crate) trait RegisterMap {
-    type ResultType;
-    type QubitType;
-
-    fn qubit_register(&self, qubit_id: Self::QubitType) -> QubitRegister;
-    fn result_register(&self, result_id: Self::ResultType) -> ResultRegister;
-}
-
 impl BlockBuilder {
-    pub fn gate<ResultType: Copy, QubitType: Copy, T>(
+    pub fn gate(
         &mut self,
-        register_map: &T,
+        register_map: &RegisterMap,
         name: &str,
         is_adjoint: bool,
-        inputs: GateInputs<QubitType, ResultType>,
+        inputs: GateInputs,
         args: Vec<String>,
         metadata: Option<InstructionMetadata>,
-    ) where
-        T: RegisterMap<ResultType = ResultType, QubitType = QubitType>,
-    {
+    ) {
         let GateInputs {
             target_qubits,
             control_qubits,
@@ -149,15 +129,13 @@ impl BlockBuilder {
         });
     }
 
-    pub fn m<ResultType: Copy, QubitType: Copy, T>(
+    pub fn m(
         &mut self,
-        register_map: &T,
-        qubit: QubitType,
-        result: ResultType,
+        register_map: &RegisterMap,
+        qubit: usize,
+        result: usize,
         metadata: Option<InstructionMetadata>,
-    ) where
-        T: RegisterMap<ResultType = ResultType, QubitType = QubitType>,
-    {
+    ) {
         // Qubit-result mappings should have been established already
         let qubits = vec![register_map.qubit_register(qubit)];
         let results = vec![register_map.result_register(result)];
@@ -174,15 +152,13 @@ impl BlockBuilder {
         });
     }
 
-    pub fn mresetz<ResultType: Copy, QubitType: Copy, T>(
+    pub fn mresetz(
         &mut self,
-        register_map: &T,
-        qubit: QubitType,
-        result: ResultType,
+        register_map: &RegisterMap,
+        qubit: usize,
+        result: usize,
         metadata: Option<InstructionMetadata>,
-    ) where
-        T: RegisterMap<ResultType = ResultType, QubitType = QubitType>,
-    {
+    ) {
         // Qubit-result mappings should have been established already
         let qubits = vec![register_map.qubit_register(qubit)];
         let result_registers = vec![register_map.result_register(result)];
@@ -212,14 +188,12 @@ impl BlockBuilder {
         });
     }
 
-    pub fn reset<ResultType: Copy, QubitType: Copy, T>(
+    pub fn reset(
         &mut self,
-        register_map: &T,
-        qubit: QubitType,
+        register_map: &RegisterMap,
+        qubit: usize,
         metadata: Option<InstructionMetadata>,
-    ) where
-        T: RegisterMap<ResultType = ResultType, QubitType = QubitType>,
-    {
+    ) {
         self.push(Op {
             kind: OperationKind::Ket { metadata },
             label: "0".to_string(),
@@ -233,8 +207,8 @@ impl BlockBuilder {
     }
 }
 
-pub(crate) struct GateInputs<QubitType, ResultType> {
-    pub target_qubits: Vec<QubitType>,
-    pub control_qubits: Vec<QubitType>,
-    pub control_results: Vec<ResultType>,
+pub(crate) struct GateInputs {
+    pub target_qubits: Vec<usize>,
+    pub control_qubits: Vec<usize>,
+    pub control_results: Vec<usize>,
 }

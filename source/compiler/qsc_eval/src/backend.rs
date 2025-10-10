@@ -1120,7 +1120,11 @@ impl<'a> TraceAndSim<'a> {
     }
 
     pub fn qubit_release(&mut self, q: usize) -> bool {
-        self.backend.qubit_release(q)
+        let b = self.backend.qubit_release(q);
+        if let Some(tracer) = &mut self.tracer {
+            tracer.qubit_release(q);
+        }
+        b
     }
 
     pub fn qubit_swap_id(&mut self, q0: usize, q1: usize) {
@@ -1220,6 +1224,7 @@ impl Backend for DummySimBackend {
 
 pub trait Tracer {
     fn qubit_allocate(&mut self, q: usize);
+    fn qubit_release(&mut self, q: usize);
     fn gate(
         &mut self,
         name: &str,

@@ -5,7 +5,7 @@ mod builder;
 mod circuit;
 pub mod operations;
 
-pub use builder::Builder;
+pub use builder::CircuitBuilder;
 pub use circuit::{
     CURRENT_VERSION, Circuit, CircuitGroup, Component, ComponentColumn, ComponentGrid, Config,
     GenerationMethod, Ket, Measurement, Operation, Qubit, Register, Unitary, group_qubits,
