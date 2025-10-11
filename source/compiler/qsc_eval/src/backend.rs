@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::PackageSpan;
+use crate::debug::Frame;
 use crate::val::{self, Value};
 use crate::{noise::PauliNoise, val::unwrap_tuple};
 use ndarray::Array2;
@@ -880,14 +880,15 @@ impl Backend for OptionalBackend<'_> {
     }
 }
 
-pub struct InstructionMetadata {
-    pub location: PackageSpan,
+// TODO: reconcile with llvm debug metadata
+pub struct DebugMetadata {
+    pub stack: Vec<Frame>,
 }
 
-impl InstructionMetadata {
+impl DebugMetadata {
     #[must_use]
-    pub fn new(location: PackageSpan) -> Self {
-        Self { location }
+    pub fn new(stack: Vec<Frame>) -> Self {
+        Self { stack }
     }
 }
 
@@ -918,13 +919,7 @@ impl<'a> TracingBackend<'a> {
         }
     }
 
-    pub fn ccx(
-        &mut self,
-        ctl0: usize,
-        ctl1: usize,
-        q: usize,
-        metadata: Option<InstructionMetadata>,
-    ) {
+    pub fn ccx(&mut self, ctl0: usize, ctl1: usize, q: usize, metadata: Option<DebugMetadata>) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "X",
@@ -937,7 +932,7 @@ impl<'a> TracingBackend<'a> {
         self.backend.ccx(ctl0, ctl1, q);
     }
 
-    pub fn cx(&mut self, ctl: usize, q: usize, metadata: Option<InstructionMetadata>) {
+    pub fn cx(&mut self, ctl: usize, q: usize, metadata: Option<DebugMetadata>) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "X",
@@ -950,7 +945,7 @@ impl<'a> TracingBackend<'a> {
         self.backend.cx(ctl, q);
     }
 
-    pub fn cy(&mut self, ctl: usize, q: usize, metadata: Option<InstructionMetadata>) {
+    pub fn cy(&mut self, ctl: usize, q: usize, metadata: Option<DebugMetadata>) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "Y",
@@ -963,7 +958,7 @@ impl<'a> TracingBackend<'a> {
         self.backend.cy(ctl, q);
     }
 
-    pub fn cz(&mut self, ctl: usize, q: usize, metadata: Option<InstructionMetadata>) {
+    pub fn cz(&mut self, ctl: usize, q: usize, metadata: Option<DebugMetadata>) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "Z",
@@ -976,7 +971,7 @@ impl<'a> TracingBackend<'a> {
         self.backend.cz(ctl, q);
     }
 
-    pub fn h(&mut self, q: usize, metadata: Option<InstructionMetadata>) {
+    pub fn h(&mut self, q: usize, metadata: Option<DebugMetadata>) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "H",
@@ -989,7 +984,7 @@ impl<'a> TracingBackend<'a> {
         self.backend.h(q);
     }
 
-    pub fn m(&mut self, q: usize, metadata: Option<InstructionMetadata>) -> val::Result {
+    pub fn m(&mut self, q: usize, metadata: Option<DebugMetadata>) -> val::Result {
         let r = self.backend.m(q);
         if let Some(tracer) = &mut self.tracer {
             tracer.m(q, &r, metadata);
@@ -997,7 +992,7 @@ impl<'a> TracingBackend<'a> {
         r
     }
 
-    pub fn mresetz(&mut self, q: usize, metadata: Option<InstructionMetadata>) -> val::Result {
+    pub fn mresetz(&mut self, q: usize, metadata: Option<DebugMetadata>) -> val::Result {
         let r = self.backend.mresetz(q);
         if let Some(tracer) = &mut self.tracer {
             tracer.mresetz(q, &r, metadata);
@@ -1005,14 +1000,14 @@ impl<'a> TracingBackend<'a> {
         r
     }
 
-    pub fn reset(&mut self, q: usize, metadata: Option<InstructionMetadata>) {
+    pub fn reset(&mut self, q: usize, metadata: Option<DebugMetadata>) {
         if let Some(tracer) = &mut self.tracer {
             tracer.reset(q, metadata);
         }
         self.backend.reset(q);
     }
 
-    pub fn rx(&mut self, theta: f64, q: usize, metadata: Option<InstructionMetadata>) {
+    pub fn rx(&mut self, theta: f64, q: usize, metadata: Option<DebugMetadata>) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "Rx",
@@ -1025,7 +1020,7 @@ impl<'a> TracingBackend<'a> {
         self.backend.rx(theta, q);
     }
 
-    pub fn rxx(&mut self, theta: f64, q0: usize, q1: usize, metadata: Option<InstructionMetadata>) {
+    pub fn rxx(&mut self, theta: f64, q0: usize, q1: usize, metadata: Option<DebugMetadata>) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "Rxx",
@@ -1038,7 +1033,7 @@ impl<'a> TracingBackend<'a> {
         self.backend.rxx(theta, q0, q1);
     }
 
-    pub fn ry(&mut self, theta: f64, q: usize, metadata: Option<InstructionMetadata>) {
+    pub fn ry(&mut self, theta: f64, q: usize, metadata: Option<DebugMetadata>) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "Ry",
@@ -1051,7 +1046,7 @@ impl<'a> TracingBackend<'a> {
         self.backend.ry(theta, q);
     }
 
-    pub fn ryy(&mut self, theta: f64, q0: usize, q1: usize, metadata: Option<InstructionMetadata>) {
+    pub fn ryy(&mut self, theta: f64, q0: usize, q1: usize, metadata: Option<DebugMetadata>) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "Ryy",
@@ -1064,7 +1059,7 @@ impl<'a> TracingBackend<'a> {
         self.backend.ryy(theta, q0, q1);
     }
 
-    pub fn rz(&mut self, theta: f64, q: usize, metadata: Option<InstructionMetadata>) {
+    pub fn rz(&mut self, theta: f64, q: usize, metadata: Option<DebugMetadata>) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "Rz",
@@ -1077,7 +1072,7 @@ impl<'a> TracingBackend<'a> {
         self.backend.rz(theta, q);
     }
 
-    pub fn rzz(&mut self, theta: f64, q0: usize, q1: usize, metadata: Option<InstructionMetadata>) {
+    pub fn rzz(&mut self, theta: f64, q0: usize, q1: usize, metadata: Option<DebugMetadata>) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "Rzz",
@@ -1090,7 +1085,7 @@ impl<'a> TracingBackend<'a> {
         self.backend.rzz(theta, q0, q1);
     }
 
-    pub fn sadj(&mut self, q: usize, metadata: Option<InstructionMetadata>) {
+    pub fn sadj(&mut self, q: usize, metadata: Option<DebugMetadata>) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "S",
@@ -1103,7 +1098,7 @@ impl<'a> TracingBackend<'a> {
         self.backend.sadj(q);
     }
 
-    pub fn s(&mut self, q: usize, metadata: Option<InstructionMetadata>) {
+    pub fn s(&mut self, q: usize, metadata: Option<DebugMetadata>) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "S",
@@ -1116,7 +1111,7 @@ impl<'a> TracingBackend<'a> {
         self.backend.s(q);
     }
 
-    pub fn sx(&mut self, q: usize, metadata: Option<InstructionMetadata>) {
+    pub fn sx(&mut self, q: usize, metadata: Option<DebugMetadata>) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "SX",
@@ -1129,7 +1124,7 @@ impl<'a> TracingBackend<'a> {
         self.backend.sx(q);
     }
 
-    pub fn swap(&mut self, q0: usize, q1: usize, metadata: Option<InstructionMetadata>) {
+    pub fn swap(&mut self, q0: usize, q1: usize, metadata: Option<DebugMetadata>) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "SWAP",
@@ -1142,7 +1137,7 @@ impl<'a> TracingBackend<'a> {
         self.backend.swap(q0, q1);
     }
 
-    pub fn tadj(&mut self, q: usize, metadata: Option<InstructionMetadata>) {
+    pub fn tadj(&mut self, q: usize, metadata: Option<DebugMetadata>) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "T",
@@ -1155,7 +1150,7 @@ impl<'a> TracingBackend<'a> {
         self.backend.tadj(q);
     }
 
-    pub fn t(&mut self, q: usize, metadata: Option<InstructionMetadata>) {
+    pub fn t(&mut self, q: usize, metadata: Option<DebugMetadata>) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "T",
@@ -1168,7 +1163,7 @@ impl<'a> TracingBackend<'a> {
         self.backend.t(q);
     }
 
-    pub fn x(&mut self, q: usize, metadata: Option<InstructionMetadata>) {
+    pub fn x(&mut self, q: usize, metadata: Option<DebugMetadata>) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "X",
@@ -1181,7 +1176,7 @@ impl<'a> TracingBackend<'a> {
         self.backend.x(q);
     }
 
-    pub fn y(&mut self, q: usize, metadata: Option<InstructionMetadata>) {
+    pub fn y(&mut self, q: usize, metadata: Option<DebugMetadata>) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "Y",
@@ -1194,7 +1189,7 @@ impl<'a> TracingBackend<'a> {
         self.backend.y(q);
     }
 
-    pub fn z(&mut self, q: usize, metadata: Option<InstructionMetadata>) {
+    pub fn z(&mut self, q: usize, metadata: Option<DebugMetadata>) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "Z",
@@ -1207,7 +1202,7 @@ impl<'a> TracingBackend<'a> {
         self.backend.z(q);
     }
 
-    pub fn qubit_allocate(&mut self, metadata: Option<InstructionMetadata>) -> usize {
+    pub fn qubit_allocate(&mut self, metadata: Option<DebugMetadata>) -> usize {
         let q = self.backend.qubit_allocate();
         if let Some(tracer) = &mut self.tracer {
             tracer.qubit_allocate(q, metadata);
@@ -1215,7 +1210,7 @@ impl<'a> TracingBackend<'a> {
         q
     }
 
-    pub fn qubit_release(&mut self, q: usize, metadata: Option<InstructionMetadata>) -> bool {
+    pub fn qubit_release(&mut self, q: usize, metadata: Option<DebugMetadata>) -> bool {
         let b = self.backend.qubit_release(q);
         if let Some(tracer) = &mut self.tracer {
             tracer.qubit_release(q, metadata);
@@ -1223,7 +1218,7 @@ impl<'a> TracingBackend<'a> {
         b
     }
 
-    pub fn qubit_swap_id(&mut self, q0: usize, q1: usize, metadata: Option<InstructionMetadata>) {
+    pub fn qubit_swap_id(&mut self, q0: usize, q1: usize, metadata: Option<DebugMetadata>) {
         if let Some(tracer) = &mut self.tracer {
             tracer.qubit_swap_id(q0, q1, metadata);
         }
@@ -1244,7 +1239,7 @@ impl<'a> TracingBackend<'a> {
         &mut self,
         name: &str,
         arg: Value,
-        metadata: Option<InstructionMetadata>,
+        metadata: Option<DebugMetadata>,
     ) -> Option<Result<Value, String>> {
         if let Some(tracer) = &mut self.tracer {
             tracer.custom_intrinsic(name, arg.clone(), metadata);
@@ -1324,21 +1319,21 @@ impl Backend for DummySimBackend {
 }
 
 pub trait Tracer {
-    fn qubit_allocate(&mut self, q: usize, metadata: Option<InstructionMetadata>);
-    fn qubit_release(&mut self, q: usize, metadata: Option<InstructionMetadata>);
+    fn qubit_allocate(&mut self, q: usize, metadata: Option<DebugMetadata>);
+    fn qubit_release(&mut self, q: usize, metadata: Option<DebugMetadata>);
     fn gate(
         &mut self,
         name: &str,
         is_adjoint: bool,
         gate_inputs: GateInputs,
         args: Vec<String>,
-        metadata: Option<InstructionMetadata>,
+        metadata: Option<DebugMetadata>,
     );
-    fn m(&mut self, q: usize, r: &val::Result, metadata: Option<InstructionMetadata>);
-    fn mresetz(&mut self, q: usize, r: &val::Result, metadata: Option<InstructionMetadata>);
-    fn reset(&mut self, q: usize, metadata: Option<InstructionMetadata>);
-    fn qubit_swap_id(&mut self, q0: usize, q1: usize, metadata: Option<InstructionMetadata>);
-    fn custom_intrinsic(&mut self, name: &str, arg: Value, metadata: Option<InstructionMetadata>);
+    fn m(&mut self, q: usize, r: &val::Result, metadata: Option<DebugMetadata>);
+    fn mresetz(&mut self, q: usize, r: &val::Result, metadata: Option<DebugMetadata>);
+    fn reset(&mut self, q: usize, metadata: Option<DebugMetadata>);
+    fn qubit_swap_id(&mut self, q0: usize, q1: usize, metadata: Option<DebugMetadata>);
+    fn custom_intrinsic(&mut self, name: &str, arg: Value, metadata: Option<DebugMetadata>);
 }
 
 pub struct GateInputs {

@@ -8,7 +8,8 @@ mod tests;
 
 use crate::{
     Error, Rc,
-    backend::{InstructionMetadata, TracingBackend},
+    backend::{DebugMetadata, TracingBackend},
+    debug::Frame,
     error::PackageSpan,
     output::Receiver,
     val::{self, Value, unwrap_tuple},
@@ -24,6 +25,7 @@ pub(crate) fn call(
     name_span: PackageSpan,
     arg: Value,
     arg_span: PackageSpan,
+    call_stack: &[Frame],
     sim: &mut TracingBackend,
     rng: &mut StdRng,
     out: &mut dyn Receiver,
@@ -103,7 +105,7 @@ pub(crate) fn call(
             }
         }
         "PermuteLabels" => qubit_relabel(arg, arg_span, |q0, q1| {
-            sim.qubit_swap_id(q0, q1, Some(InstructionMetadata::new(arg_span)));
+            sim.qubit_swap_id(q0, q1, Some(DebugMetadata::new(call_stack.to_vec())));
         }),
         "Message" => match out.message(&arg.unwrap_string()) {
             Ok(()) => Ok(Value::unit()),
@@ -164,7 +166,7 @@ pub(crate) fn call(
                     ctl0,
                     ctl1,
                     q,
-                    Some(InstructionMetadata::new(arg_span)), // wrong span, but what the heck
+                    Some(DebugMetadata::new(call_stack.to_vec())), // wrong span, but what the heck
                 );
             },
             arg,
@@ -172,140 +174,140 @@ pub(crate) fn call(
         ),
         "__quantum__qis__cx__body" => two_qubit_gate(
             |ctl, q| {
-                sim.cx(ctl, q, Some(InstructionMetadata::new(arg_span)));
+                sim.cx(ctl, q, Some(DebugMetadata::new(call_stack.to_vec())));
             },
             arg,
             arg_span,
         ),
         "__quantum__qis__cy__body" => two_qubit_gate(
             |ctl, q| {
-                sim.cy(ctl, q, Some(InstructionMetadata::new(arg_span)));
+                sim.cy(ctl, q, Some(DebugMetadata::new(call_stack.to_vec())));
             },
             arg,
             arg_span,
         ),
         "__quantum__qis__cz__body" => two_qubit_gate(
             |ctl, q| {
-                sim.cz(ctl, q, Some(InstructionMetadata::new(arg_span)));
+                sim.cz(ctl, q, Some(DebugMetadata::new(call_stack.to_vec())));
             },
             arg,
             arg_span,
         ),
         "__quantum__qis__rx__body" => one_qubit_rotation(
             |theta, q| {
-                sim.rx(theta, q, Some(InstructionMetadata::new(arg_span)));
+                sim.rx(theta, q, Some(DebugMetadata::new(call_stack.to_vec())));
             },
             arg,
             arg_span,
         ),
         "__quantum__qis__rxx__body" => two_qubit_rotation(
             |theta, q0, q1| {
-                sim.rxx(theta, q0, q1, Some(InstructionMetadata::new(arg_span)));
+                sim.rxx(theta, q0, q1, Some(DebugMetadata::new(call_stack.to_vec())));
             },
             arg,
             arg_span,
         ),
         "__quantum__qis__ry__body" => one_qubit_rotation(
             |theta, q| {
-                sim.ry(theta, q, Some(InstructionMetadata::new(arg_span)));
+                sim.ry(theta, q, Some(DebugMetadata::new(call_stack.to_vec())));
             },
             arg,
             arg_span,
         ),
         "__quantum__qis__ryy__body" => two_qubit_rotation(
             |theta, q0, q1| {
-                sim.ryy(theta, q0, q1, Some(InstructionMetadata::new(arg_span)));
+                sim.ryy(theta, q0, q1, Some(DebugMetadata::new(call_stack.to_vec())));
             },
             arg,
             arg_span,
         ),
         "__quantum__qis__rz__body" => one_qubit_rotation(
             |theta, q| {
-                sim.rz(theta, q, Some(InstructionMetadata::new(arg_span)));
+                sim.rz(theta, q, Some(DebugMetadata::new(call_stack.to_vec())));
             },
             arg,
             arg_span,
         ),
         "__quantum__qis__rzz__body" => two_qubit_rotation(
             |theta, q0, q1| {
-                sim.rzz(theta, q0, q1, Some(InstructionMetadata::new(arg_span)));
+                sim.rzz(theta, q0, q1, Some(DebugMetadata::new(call_stack.to_vec())));
             },
             arg,
             arg_span,
         ),
         "__quantum__qis__h__body" => one_qubit_gate(
             |q| {
-                sim.h(q, Some(InstructionMetadata::new(arg_span)));
+                sim.h(q, Some(DebugMetadata::new(call_stack.to_vec())));
             },
             arg,
             arg_span,
         ),
         "__quantum__qis__s__body" => one_qubit_gate(
             |q| {
-                sim.s(q, Some(InstructionMetadata::new(arg_span)));
+                sim.s(q, Some(DebugMetadata::new(call_stack.to_vec())));
             },
             arg,
             arg_span,
         ),
         "__quantum__qis__s__adj" => one_qubit_gate(
             |q| {
-                sim.sadj(q, Some(InstructionMetadata::new(arg_span)));
+                sim.sadj(q, Some(DebugMetadata::new(call_stack.to_vec())));
             },
             arg,
             arg_span,
         ),
         "__quantum__qis__sx__body" => one_qubit_gate(
             |q| {
-                sim.sx(q, Some(InstructionMetadata::new(arg_span)));
+                sim.sx(q, Some(DebugMetadata::new(call_stack.to_vec())));
             },
             arg,
             arg_span,
         ),
         "__quantum__qis__t__body" => one_qubit_gate(
             |q| {
-                sim.t(q, Some(InstructionMetadata::new(arg_span)));
+                sim.t(q, Some(DebugMetadata::new(call_stack.to_vec())));
             },
             arg,
             arg_span,
         ),
         "__quantum__qis__t__adj" => one_qubit_gate(
             |q| {
-                sim.tadj(q, Some(InstructionMetadata::new(arg_span)));
+                sim.tadj(q, Some(DebugMetadata::new(call_stack.to_vec())));
             },
             arg,
             arg_span,
         ),
         "__quantum__qis__x__body" => one_qubit_gate(
             |q| {
-                sim.x(q, Some(InstructionMetadata::new(arg_span)));
+                sim.x(q, Some(DebugMetadata::new(call_stack.to_vec())));
             },
             arg,
             arg_span,
         ),
         "__quantum__qis__y__body" => one_qubit_gate(
             |q| {
-                sim.y(q, Some(InstructionMetadata::new(arg_span)));
+                sim.y(q, Some(DebugMetadata::new(call_stack.to_vec())));
             },
             arg,
             arg_span,
         ),
         "__quantum__qis__z__body" => one_qubit_gate(
             |q| {
-                sim.z(q, Some(InstructionMetadata::new(arg_span)));
+                sim.z(q, Some(DebugMetadata::new(call_stack.to_vec())));
             },
             arg,
             arg_span,
         ),
         "__quantum__qis__swap__body" => two_qubit_gate(
             |q0, q1| {
-                sim.swap(q0, q1, Some(InstructionMetadata::new(arg_span)));
+                sim.swap(q0, q1, Some(DebugMetadata::new(call_stack.to_vec())));
             },
             arg,
             arg_span,
         ),
         "__quantum__qis__reset__body" => one_qubit_gate(
             |q| {
-                sim.reset(q, Some(InstructionMetadata::new(arg_span)));
+                sim.reset(q, Some(DebugMetadata::new(call_stack.to_vec())));
             },
             arg,
             arg_span,
@@ -316,7 +318,7 @@ pub(crate) fn call(
                 .try_deref()
                 .ok_or(Error::QubitUsedAfterRelease(arg_span))?
                 .0;
-            let result = sim.m(q, Some(InstructionMetadata::new(arg_span)));
+            let result = sim.m(q, Some(DebugMetadata::new(call_stack.to_vec())));
             Ok(Value::Result(result))
         }
         "__quantum__qis__mresetz__body" => {
@@ -325,7 +327,7 @@ pub(crate) fn call(
                 .try_deref()
                 .ok_or(Error::QubitUsedAfterRelease(arg_span))?
                 .0;
-            let result = sim.mresetz(q, Some(InstructionMetadata::new(arg_span)));
+            let result = sim.mresetz(q, Some(DebugMetadata::new(call_stack.to_vec())));
             Ok(Value::Result(result))
         }
         "__quantum__rt__read_loss" => Ok(Value::Bool(arg == Value::Result(val::Result::Loss))),
@@ -340,7 +342,7 @@ pub(crate) fn call(
                 return Err(Error::QubitUsedAfterRelease(arg_span));
             }
             if let Some(result) =
-                sim.custom_intrinsic(name, arg, Some(InstructionMetadata::new(arg_span)))
+                sim.custom_intrinsic(name, arg, Some(DebugMetadata::new(call_stack.to_vec())))
             {
                 match result {
                     Ok(value) => Ok(value),

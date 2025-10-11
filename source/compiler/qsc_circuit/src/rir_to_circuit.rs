@@ -159,7 +159,7 @@ impl From<Op> for Operation {
         };
 
         match value.kind {
-            OperationKind::Unitary { location: _ } => Operation::Unitary(Unitary {
+            OperationKind::Unitary { .. } => Operation::Unitary(Unitary {
                 gate: value.label,
                 args,
                 children: vec![],
@@ -168,27 +168,22 @@ impl From<Op> for Operation {
                 is_adjoint: value.is_adjoint,
                 source,
             }),
-            OperationKind::Measurement { location: _ } => Operation::Measurement(Measurement {
+            OperationKind::Measurement { .. } => Operation::Measurement(Measurement {
                 gate: value.label,
                 args,
                 children: vec![],
                 qubits: controls,
                 results: targets,
-                source: None,
+                source,
             }),
-            OperationKind::Ket { location: _ } => Operation::Ket(Ket {
+            OperationKind::Ket { .. } => Operation::Ket(Ket {
                 gate: value.label,
                 args,
                 children: vec![],
                 targets,
                 source,
             }),
-            OperationKind::Group {
-                children,
-                scope_stack: _,
-                location_fallback: _,
-                location: _,
-            } => Operation::Unitary(Unitary {
+            OperationKind::Group { children, .. } => Operation::Unitary(Unitary {
                 gate: value.label,
                 args,
                 children: vec![ComponentColumn {

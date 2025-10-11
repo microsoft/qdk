@@ -118,6 +118,7 @@ export interface BaseOperation {
   isConditional?: boolean;
   /** Specify conditions on when to render operation. */
   conditionalRender?: ConditionalRender;
+  source?: SourceLocation;
 }
 
 /**
@@ -269,4 +270,10 @@ export enum ConditionalRender {
  */
 export interface DataAttributes {
   [attr: string]: string;
+}
+
+export interface SourceLocation {
+  file: string;
+  line: number;
+  column: number;
 }

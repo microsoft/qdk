@@ -373,32 +373,18 @@ function mapComponentLocationsToHtml(componentGrid: ComponentGrid) {
         mapComponentLocationsToHtml(component.children);
       }
 
-      component.args = component.args?.map((arg) => {
-        try {
-          if (arg.startsWith("metadata=")) {
-            const rest = arg.substring("metadata=".length);
-            const metadata = JSON.parse(rest);
-            log.debug("Parsed metadata for gate: ", metadata);
-            if (
-              typeof metadata === "object" &&
-              typeof metadata.source === "string" &&
-              typeof metadata.span === "object" &&
-              typeof metadata.span.start === "object" &&
-              typeof metadata.span.start.line === "number" &&
-              typeof metadata.span.start.character === "number" &&
-              typeof metadata.span.end === "object" &&
-              typeof metadata.span.end.line === "number" &&
-              typeof metadata.span.end.character === "number"
-            ) {
-              return documentHtml(true, metadata.source, metadata.span);
-            }
-          }
-          return arg;
-        } catch {
-          log.debug("Failed to parse component argument as location: ", arg);
-          return arg;
+      const source = component.source;
+      if (source) {
+        const r: IRange = {
+          start: { line: source.line, character: source.column },
+          end: { line: source.line, character: source.column + 1 },
+        };
+        const html = documentHtml(true, source.file, r);
+        if (!component.args) {
+          component.args = [];
         }
-      });
+        component.args.push(html);
+      }
     }
   }
 }

@@ -56,6 +56,7 @@ pub struct ComponentColumn {
 pub type Component = Operation;
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(untagged)]
 pub enum SourceLocation {
     Resolved(ResolvedSourceLocation),
     #[serde(skip)]
@@ -64,6 +65,7 @@ pub enum SourceLocation {
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ResolvedSourceLocation {
+    // Use ILocation in wasm, this is hella confusing
     pub file: String,
     pub line: u32,
     pub column: u32,
@@ -119,6 +121,7 @@ impl Operation {
         }
     }
 
+    #[must_use]
     pub fn source(&self) -> &Option<SourceLocation> {
         match self {
             Self::Measurement(measurement) => &measurement.source,
@@ -127,6 +130,7 @@ impl Operation {
         }
     }
 
+    #[must_use]
     pub fn source_mut(&mut self) -> &mut Option<SourceLocation> {
         match self {
             Self::Measurement(measurement) => &mut measurement.source,
@@ -349,6 +353,14 @@ impl Row {
         self.add(column, CircuitObject::Object(object.to_string()));
     }
 
+    fn add_measurement(&mut self, column: usize, source: Option<&SourceLocation>) {
+        let mut gate_label = String::from("M");
+        if let Some(SourceLocation::Resolved(loc)) = source {
+            let _ = write!(&mut gate_label, "@{}:{}:{}", loc.file, loc.line, loc.column);
+        }
+        self.add(column, CircuitObject::Object(gate_label.to_string()));
+    }
+
     fn add_gate(
         &mut self,
         column: usize,
@@ -363,13 +375,8 @@ impl Row {
             gate_label.push('\'');
         }
 
-        let args_without_metadata = args
-            .iter()
-            .filter(|arg| !arg.starts_with("metadata="))
-            .cloned()
-            .collect::<Vec<_>>();
-        if !args_without_metadata.is_empty() {
-            let args = args_without_metadata.join(", ");
+        if !args.is_empty() {
+            let args = args.join(", ");
             let _ = write!(&mut gate_label, "({args})");
         }
 
@@ -742,7 +749,7 @@ fn add_operation_to_rows(
         for i in controls {
             let row = &mut rows[*i];
             if matches!(row.wire, Wire::Qubit { .. }) && operation.is_measurement() {
-                row.add_object(column, "M");
+                row.add_measurement(column, operation.source().as_ref());
             } else {
                 row.add_object(column, "●");
             }
@@ -807,7 +814,7 @@ fn add_operation_box_start_to_rows(
         for i in controls {
             let row = &mut rows[*i];
             if matches!(row.wire, Wire::Qubit { .. }) && operation.is_measurement() {
-                row.add_object(column + 1, "M");
+                row.add_measurement(column + 1, operation.source().as_ref());
             } else {
                 row.add_object(column + 1, "●");
             }

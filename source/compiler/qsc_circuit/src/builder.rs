@@ -17,6 +17,7 @@ use qsc_eval::{
     backend::{self, GateInputs, Tracer},
     val::{self, Value},
 };
+use qsc_fir::fir::PackageId;
 use qsc_frontend::compile::PackageStore;
 use qsc_partial_eval::rir::{self, DbgInfo, DbgMetadataScope, MetadataPackageSpan};
 use std::{fmt::Write, mem::replace, rc::Rc};
@@ -39,7 +40,7 @@ impl Tracer for CircuitBuilder {
             control_qubits,
         }: GateInputs,
         args: Vec<String>,
-        metadata: Option<backend::InstructionMetadata>,
+        metadata: Option<backend::DebugMetadata>,
     ) {
         let metadata = metadata.map(|md| self.convert_metadata(&md));
 
@@ -56,7 +57,7 @@ impl Tracer for CircuitBuilder {
         );
     }
 
-    fn m(&mut self, q: usize, val: &val::Result, metadata: Option<backend::InstructionMetadata>) {
+    fn m(&mut self, q: usize, val: &val::Result, metadata: Option<backend::DebugMetadata>) {
         let metadata = metadata.map(|md| self.convert_metadata(&md));
         let r = match val {
             val::Result::Id(id) => *id,
@@ -67,12 +68,7 @@ impl Tracer for CircuitBuilder {
             .m(self.register_map_builder.current(), q, r, metadata);
     }
 
-    fn mresetz(
-        &mut self,
-        q: usize,
-        val: &val::Result,
-        metadata: Option<backend::InstructionMetadata>,
-    ) {
+    fn mresetz(&mut self, q: usize, val: &val::Result, metadata: Option<backend::DebugMetadata>) {
         let metadata = metadata.map(|md| self.convert_metadata(&md));
         let r = match val {
             val::Result::Id(id) => *id,
@@ -83,23 +79,18 @@ impl Tracer for CircuitBuilder {
             .mresetz(self.register_map_builder.current(), q, r, metadata);
     }
 
-    fn reset(&mut self, q: usize, metadata: Option<backend::InstructionMetadata>) {
+    fn reset(&mut self, q: usize, metadata: Option<backend::DebugMetadata>) {
         let metadata = metadata.map(|md| self.convert_metadata(&md));
         self.block_builder
             .reset(self.register_map_builder.current(), q, metadata);
     }
 
-    fn qubit_allocate(&mut self, q: usize, _metadata: Option<backend::InstructionMetadata>) {
+    fn qubit_allocate(&mut self, q: usize, _metadata: Option<backend::DebugMetadata>) {
         // TODO: metadata would be neat to add to the circuit
         self.register_map_builder.map_qubit(q);
     }
 
-    fn qubit_swap_id(
-        &mut self,
-        q0: usize,
-        q1: usize,
-        _metadata: Option<backend::InstructionMetadata>,
-    ) {
+    fn qubit_swap_id(&mut self, q0: usize, q1: usize, _metadata: Option<backend::DebugMetadata>) {
         // TODO: metadata would be neat to add to the circuit
         self.register_map_builder.swap(q0, q1);
     }
@@ -108,7 +99,7 @@ impl Tracer for CircuitBuilder {
         &mut self,
         name: &str,
         arg: Value,
-        metadata: Option<backend::InstructionMetadata>,
+        metadata: Option<backend::DebugMetadata>,
     ) {
         // The qubit arguments are treated as the targets for custom gates.
         // Any remaining arguments will be kept in the display_args field
@@ -137,7 +128,7 @@ impl Tracer for CircuitBuilder {
         );
     }
 
-    fn qubit_release(&mut self, q: usize, _metadata: Option<backend::InstructionMetadata>) {
+    fn qubit_release(&mut self, q: usize, _metadata: Option<backend::DebugMetadata>) {
         // TODO: metadata would be neat to add to the circuit
         self.register_map_builder.qubit_release(q);
     }
@@ -280,29 +271,46 @@ impl CircuitBuilder {
         }
     }
 
-    fn push_dbg_location(&mut self, md: &backend::InstructionMetadata) -> usize {
+    fn push_dbg_location(&mut self, md: &backend::DebugMetadata) -> Option<usize> {
+        let mut user_frame: Option<(PackageId, Span)> = None;
+        let mut grab_span_and_stop = false;
+        for frame in md.stack.iter().rev() {
+            if grab_span_and_stop {
+                if let Some(c) = user_frame {
+                    user_frame = Some((c.0, frame.span));
+                }
+                break;
+            }
+            let caller_package = frame.caller;
+            let instr_span = frame.span;
+
+            eprintln!("dbg frame: {caller_package:?} @ {instr_span}");
+            // TODO: don't hardcode stdlib
+            if caller_package != PackageId::CORE && caller_package != 1.into() {
+                grab_span_and_stop = true;
+            }
+            user_frame.replace((caller_package, instr_span));
+        }
+
+        let (package, span) = user_frame?;
+
+        let location = rir::MetadataPackageSpan {
+            package: u32::try_from(usize::from(package)).expect("package id should fit in u32"),
+            span,
+        };
         let md = rir::DbgLocation {
-            location: rir::MetadataPackageSpan {
-                package: u32::try_from(usize::from(md.location.package))
-                    .expect("package id should fit in u32"),
-                span: md.location.span,
-            },
+            location,
             scope: 0, // TODO: fill in correct scope
             inlined_at: None,
         };
         self.dbg_info.dbg_locations.push(md);
-        self.dbg_info.dbg_locations.len() - 1
+        Some(self.dbg_info.dbg_locations.len() - 1)
     }
 
-    fn convert_metadata(
-        &mut self,
-        metadata: &backend::InstructionMetadata,
-    ) -> rir::InstructionMetadata {
+    fn convert_metadata(&mut self, metadata: &backend::DebugMetadata) -> rir::InstructionMetadata {
         let dbg_location = self.push_dbg_location(metadata);
 
-        rir::InstructionMetadata {
-            dbg_location: Some(dbg_location),
-        }
+        rir::InstructionMetadata { dbg_location }
     }
 }
 // Really similar to source/compiler/qsc_partial_eval/src/management.rs

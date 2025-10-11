@@ -26,7 +26,7 @@ pub mod output;
 pub mod state;
 pub mod val;
 
-use crate::backend::{InstructionMetadata, TracingBackend};
+use crate::backend::{DebugMetadata, TracingBackend};
 use crate::val::{
     Value, index_array, make_range, slice_array, update_index_range, update_index_single,
 };
@@ -696,7 +696,7 @@ impl State {
 
     #[must_use]
     pub fn get_stack_frames(&self) -> Vec<Frame> {
-        let mut frames = self.call_stack.clone().into_frames();
+        let mut frames = self.call_stack.frames();
 
         let mut span = self.current_span;
         for frame in frames.iter_mut().rev() {
@@ -1278,7 +1278,7 @@ impl State {
         let name = &callee.name.name;
         let val = match name.as_ref() {
             "__quantum__rt__qubit_allocate" => {
-                let q = sim.qubit_allocate(Some(InstructionMetadata::new(arg_span)));
+                let q = sim.qubit_allocate(Some(DebugMetadata::new(self.get_stack_frames())));
                 let q = Rc::new(Qubit(q));
                 env.track_qubit(Rc::clone(&q));
                 if let Some(counter) = &mut self.qubit_counter {
@@ -1292,7 +1292,7 @@ impl State {
                     .try_deref()
                     .ok_or(Error::QubitDoubleRelease(arg_span))?;
                 env.release_qubit(&qubit);
-                if sim.qubit_release(qubit.0, Some(InstructionMetadata::new(arg_span))) {
+                if sim.qubit_release(qubit.0, Some(DebugMetadata::new(self.get_stack_frames()))) {
                     Value::unit()
                 } else {
                     return Err(Error::ReleasedQubitNotZero(qubit.0, arg_span));
@@ -1304,6 +1304,7 @@ impl State {
                     callee_span,
                     arg,
                     arg_span,
+                    &self.get_stack_frames(),
                     sim,
                     &mut self.rng.borrow_mut(),
                     out,
