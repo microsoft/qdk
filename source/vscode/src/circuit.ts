@@ -27,7 +27,7 @@ import {
 } from "./telemetry";
 import { getRandomGuid } from "./utils";
 import { sendMessageToPanel } from "./webviewPanel";
-import { ICircuitConfig } from "../../npm/qsharp/lib/web/qsc_wasm";
+import { ICircuitConfig, IPosition } from "../../npm/qsharp/lib/web/qsc_wasm";
 
 const compilerRunTimeoutMs = 1000 * 60 * 5; // 5 minutes
 
@@ -375,11 +375,10 @@ function mapComponentLocationsToHtml(componentGrid: ComponentGrid) {
 
       const source = component.source;
       if (source) {
-        const r: IRange = {
-          start: { line: source.line, character: source.column },
-          end: { line: source.line, character: source.column + 1 },
-        };
-        const html = documentHtml(true, source.file, r);
+        const html = documentHtml(true, source.file, {
+          line: source.line,
+          character: source.column,
+        });
         if (!component.args) {
           component.args = [];
         }
@@ -410,7 +409,7 @@ function errorsToHtml(errors: IQSharpError[]) {
   for (const error of errors) {
     const { document, diagnostic: diag, stack: rawStack } = error;
 
-    const location = documentHtml(false, document, diag.range);
+    const location = documentHtml(false, document, diag.range.start);
     const message = escapeHtml(`(${diag.code}) ${diag.message}`).replace(
       /\n/g,
       "<br/><br/>",
@@ -480,7 +479,7 @@ export function updateCircuitPanel(
 function documentHtml(
   customCommand: boolean,
   maybeUri: string,
-  range?: IRange,
+  position?: IPosition,
 ) {
   let location;
   try {
@@ -498,8 +497,8 @@ function documentHtml(
     // alternative is to have the webview pass a message back to the extension.
     const uri = Uri.parse(maybeUri, true);
 
-    if (customCommand && range) {
-      const args = [uri, range];
+    if (customCommand && position) {
+      const args = [uri, position];
       const command = "qsharp-vscode.gotoLocation";
       const openCommandUri = Uri.parse(
         `command:${command}?${encodeURIComponent(JSON.stringify(args))}`,
@@ -514,8 +513,8 @@ function documentHtml(
         true,
       );
       const fsPath = escapeHtml(uri.fsPath);
-      const lineColumn = range
-        ? escapeHtml(`:${range.start.line + 1}:${range.start.character + 1}`)
+      const lineColumn = position
+        ? escapeHtml(`:${position.line + 1}:${position.character + 1}`)
         : "";
       location = `<a href="${openCommandUri}">${fsPath}</a>${lineColumn}`;
     }

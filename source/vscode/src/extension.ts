@@ -3,6 +3,7 @@
 
 import {
   getLibrarySourceContent,
+  IPosition,
   IRange,
   log,
   qsharpGithubUriScheme,
@@ -96,17 +97,17 @@ export async function activate(
   context.subscriptions.push(
     vscode.commands.registerCommand(
       "qsharp-vscode.gotoLocation",
-      async (uri: vscode.Uri, range: IRange) => {
+      async (uri: vscode.Uri, position: IPosition) => {
         const document = await vscode.workspace.openTextDocument(uri);
         const editor = await vscode.window.showTextDocument(
           document,
           vscode.ViewColumn.One,
         );
+        const range: IRange = {
+          start: position,
+          end: position,
+        };
         const vscodeRange = toVsCodeRange(range);
-        editor.selection = new vscode.Selection(
-          vscodeRange.start,
-          vscodeRange.end,
-        );
         editor.revealRange(vscodeRange, vscode.TextEditorRevealType.InCenter);
       },
     ),
