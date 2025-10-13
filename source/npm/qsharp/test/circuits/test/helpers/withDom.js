@@ -14,8 +14,8 @@ export function withDom() {
     jsdom = new JSDOM(
       `<!doctype html><html>
       <head>
-        <link rel="stylesheet" href="../../../qsharp-ux.css">
-        <link rel="stylesheet" href="../../../qsharp-circuit.css">
+        <link rel="stylesheet" href="../../../ux/qsharp-ux.css">
+        <link rel="stylesheet" href="../../../ux/qsharp-circuit.css">
       </head>
       <body><div id="app" class="qs-circuit"></div></body></html>`,
       {

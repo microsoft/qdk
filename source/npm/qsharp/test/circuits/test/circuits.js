@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { withDom } from "./helpers/withDom.js";
 import { Sqore } from "../../../dist/ux/circuit-vis/sqore.js";
+import { getCompiler } from "../../../dist/main.js";
 
 withDom();
 
@@ -32,26 +33,35 @@ function* walk(dir) {
 }
 
 /**
- * Find candidate .qsc files:
- * 1) files next to this test file
- * 2) or anything under a __cases__ folder next to this test file
+ * Find candidate .qsc files
  */
 function findQscFiles() {
   const here = __dirname;
   const candidates = [];
 
-  // A) .qsc files directly in this folder
-  for (const name of fs.readdirSync(here)) {
-    if (name.toLowerCase().endsWith(".qsc")) {
-      candidates.push(path.join(here, name));
-    }
-  }
-
-  // B) .qsc files under __cases__ (recursively)
-  const casesDir = path.join(here, "__cases__");
+  const casesDir = path.join(here, "..", "cases");
   if (fs.existsSync(casesDir) && fs.statSync(casesDir).isDirectory()) {
     for (const f of walk(casesDir)) {
       if (f.toLowerCase().endsWith(".qsc")) candidates.push(f);
+    }
+  }
+
+  // Sort for stable test ordering
+  candidates.sort((a, b) => a.localeCompare(b));
+  return candidates;
+}
+
+/**
+ * Find candidate .qs files
+ */
+function findQsFiles() {
+  const here = __dirname;
+  const candidates = [];
+
+  const casesDir = path.join(here, "..", "cases");
+  if (fs.existsSync(casesDir) && fs.statSync(casesDir).isDirectory()) {
+    for (const f of walk(casesDir)) {
+      if (f.toLowerCase().endsWith(".qs")) candidates.push(f);
     }
   }
 
@@ -88,12 +98,15 @@ function checkCircuitSnapshot(circuitGroup, t) {
 
   // Draw
   const sqore = new Sqore(circuitGroup);
-  sqore.draw(container);
+
+  // TODO: maybe make renderDepth configurable
+  sqore.draw(container, 10);
 
   // Write an .html snapshot (update with --test-update-snapshots)
   const outFile = path.join(
     __dirname,
-    "__html_snapshots__",
+    "..",
+    "snapshots",
     safe(t.name) + ".html",
   );
 
@@ -114,18 +127,52 @@ function safe(s) {
 }
 
 // --- Parent test that spawns one subtest per .qsc file ---
-test("sqore .qsc cases", async (t) => {
+test("circuit snapshot tests", async (t) => {
   const files = findQscFiles();
   if (files.length === 0) {
     // Not a failure; just informatively skip if there are none.
-    t.diagnostic("No .qsc files found next to the test or under __cases__/");
+    t.diagnostic("No .qsc files found under cases/");
     return;
   }
 
   for (const file of files) {
-    const relName = path.basename(file, ".qsc");
+    const relName = path.basename(file);
     await t.test(relName, (tt) => {
       const circuitGroup = loadCircuitGroup(file);
+      checkCircuitSnapshot(circuitGroup, tt);
+    });
+  }
+});
+
+test("circuit snapshot tests - .qs files", async (t) => {
+  const files = findQsFiles();
+  if (files.length === 0) {
+    // Not a failure; just informatively skip if there are none.
+    t.diagnostic("No .qs files found under cases/");
+    return;
+  }
+
+  for (const file of files) {
+    const relName = path.basename(file);
+    await t.test(relName, async (tt) => {
+      const circuitSource = fs.readFileSync(file, "utf8");
+      const compiler = getCompiler();
+      const circuitGroup = await compiler.getCircuit(
+        {
+          sources: [["main.qs", circuitSource]],
+          languageFeatures: [],
+          profile: "adaptive_rif",
+        },
+        undefined,
+        {
+          generationMethod: "static",
+          collapseQubitRegisters: false,
+          groupScopes: true,
+          loopDetection: false,
+          maxOperations: 100,
+        },
+      );
+
       checkCircuitSnapshot(circuitGroup, tt);
     });
   }
