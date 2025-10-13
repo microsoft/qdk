@@ -79,9 +79,70 @@ test("one gate", (t0) => {
   const out = path.join(
     __dirname,
     "__html_snapshots__",
-    "simple-two-circles.html",
+    t0.name.replace(/\s+/g, "-") + ".html",
   );
 
-  t0.assert.snapshot(html);
+  t0.assert.fileSnapshot(html, out, { serializers: [(s) => String(s)] });
+});
+
+test("gate and measurement", (t0) => {
+  /**
+   * @type {import("../../../dist/data-structures/circuit.js").CircuitGroup}
+   */
+  const circuitGroup = {
+    version: CURRENT_VERSION,
+    circuits: [
+      {
+        qubits: [
+          {
+            id: 0,
+            numResults: 1,
+          },
+        ],
+        componentGrid: [
+          {
+            components: [
+              {
+                gate: "H",
+                kind: "unitary",
+                targets: [
+                  {
+                    qubit: 0,
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            components: [
+              {
+                gate: "M",
+                kind: "measurement",
+                qubits: [
+                  {
+                    qubit: 0,
+                  },
+                ],
+                results: [{ qubit: 0, result: 0 }],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+
+  const container = document.getElementById("app");
+  const sqore = new Sqore(circuitGroup);
+  sqore.draw(container);
+
+  const html = serializeNode(document);
+
+  const out = path.join(
+    __dirname,
+    "__html_snapshots__",
+    t0.name.replace(/\s+/g, "-") + ".html",
+  );
+
   t0.assert.fileSnapshot(html, out, { serializers: [(s) => String(s)] });
 });

@@ -56,12 +56,12 @@ const deepEqual = (obj1: unknown, obj2: unknown): boolean => {
  *
  * @returns UUID string.
  */
-const createUUID = (): string =>
-  "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
-    const r = (Math.random() * 16) | 0,
-      v = c == "x" ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
+// const createUUID = (): string =>
+//   "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
+//     const r = (Math.random() * 16) | 0,
+//       v = c == "x" ? r : (r & 0x3) | 0x8;
+//     return v.toString(16);
+//   });
 
 /**
  * Calculate the width of a gate, given its render data.
@@ -440,7 +440,7 @@ const mathChars = {
 
 export {
   deepEqual,
-  createUUID,
+  // createUUID,
   getGateWidth,
   getChildTargets,
   locationStringToIndexes,

@@ -14,7 +14,7 @@ import {
   Column,
 } from "./circuit.js";
 import { GateRenderData, GateType } from "./gateRenderData.js";
-import { createUUID } from "./utils.js";
+// import { createUUID } from "./utils.js";
 import {
   gateHeight,
   minGateWidth,
@@ -262,10 +262,10 @@ export class Sqore {
    */
   private generateSvg(composedSqore: ComposedSqore): SVGElement {
     const { width, height, elements } = composedSqore;
-    const uuid: string = createUUID();
+    // const uuid: string = createUUID();
 
     const svg: SVGElement = document.createElementNS(svgNS, "svg");
-    svg.setAttribute("id", uuid);
+    // svg.setAttribute("id", uuid);
     svg.setAttribute("class", "qviz");
     svg.setAttribute("width", width.toString());
     svg.setAttribute("height", height.toString());

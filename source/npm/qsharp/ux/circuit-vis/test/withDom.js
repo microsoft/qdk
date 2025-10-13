@@ -3,21 +3,21 @@
 
 // @ts-check
 
-import { before, after } from "node:test";
+import { beforeEach, afterEach } from "node:test";
 import { JSDOM } from "jsdom";
 
 export function withDom() {
   /** @type {JSDOM | null} */
   let jsdom = null;
 
-  before(() => {
+  beforeEach(() => {
     jsdom = new JSDOM(
       `<!doctype html><html>
       <head>
         <link rel="stylesheet" href="../../../qsharp-ux.css">
         <link rel="stylesheet" href="../../../qsharp-circuit.css">
       </head>
-      <body><div id="app"></div></body></html>`,
+      <body><div id="app" class="qs-circuit"></div></body></html>`,
       {
         contentType: "text/html",
         pretendToBeVisual: true,
@@ -34,7 +34,7 @@ export function withDom() {
     globalThis.XMLSerializer = window.XMLSerializer;
   });
 
-  after(() => {
+  afterEach(() => {
     if (jsdom) {
       jsdom.window.close();
       jsdom = null;
