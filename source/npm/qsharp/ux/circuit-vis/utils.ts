@@ -1,15 +1,15 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { GateRenderData, GateType } from "./gateRenderData";
+import { GateRenderData, GateType } from "./gateRenderData.js";
 import {
   minGateWidth,
   labelPadding,
   labelFontSize,
   argsFontSize,
-} from "./constants";
-import { ComponentGrid, Operation } from "./circuit";
-import { Register } from "./register";
+} from "./constants.js";
+import { ComponentGrid, Operation } from "./circuit.js";
+import { Register } from "./register.js";
 
 /**
  * Performs a deep equality check between two objects or arrays.

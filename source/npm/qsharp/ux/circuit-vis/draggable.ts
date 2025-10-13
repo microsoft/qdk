@@ -1,19 +1,19 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { ComponentGrid, Operation } from "./circuit";
+import { ComponentGrid, Operation } from "./circuit.js";
 import {
   gatePadding,
   minGateWidth,
   registerHeight,
   regLineStart,
   startX,
-} from "./constants";
-import { box, controlDot, line } from "./formatters/formatUtils";
-import { formatGate } from "./formatters/gateFormatter";
-import { qubitInput } from "./formatters/inputFormatter";
-import { toRenderData } from "./panel";
-import { Sqore } from "./sqore";
+} from "./constants.js";
+import { box, controlDot, line } from "./formatters/formatUtils.js";
+import { formatGate } from "./formatters/gateFormatter.js";
+import { qubitInput } from "./formatters/inputFormatter.js";
+import { toRenderData } from "./panel.js";
+import { Sqore } from "./sqore.js";
 import {
   findLocation,
   getHostElems,
@@ -21,7 +21,7 @@ import {
   getToolboxElems,
   getWireData,
   locationStringToIndexes,
-} from "./utils";
+} from "./utils.js";
 
 interface Context {
   container: HTMLElement;

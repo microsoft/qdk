@@ -284,7 +284,6 @@ impl CircuitBuilder {
             let caller_package = frame.caller;
             let instr_span = frame.span;
 
-            eprintln!("dbg frame: {caller_package:?} @ {instr_span}");
             // TODO: don't hardcode stdlib
             if caller_package != PackageId::CORE && caller_package != 1.into() {
                 grab_span_and_stop = true;

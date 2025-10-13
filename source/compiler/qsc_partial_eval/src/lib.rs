@@ -3155,7 +3155,6 @@ impl<'a> PartialEvaluator<'a> {
     }
 
     fn try_eval_block(&mut self, block_id: BlockId) -> Result<EvalControlFlow, Error> {
-        // eprintln!("try_eval_block: {block_id:?}");
         if self.eval_context.is_current_scope_user_scope() {
             self.eval_context.current_user_source_block.push(block_id);
         }
@@ -3190,7 +3189,6 @@ impl<'a> PartialEvaluator<'a> {
                 return_stmt_package_span,
             ))
         } else {
-            // eprintln!("try_eval_block: done {block_id:?}");
             if self.eval_context.is_current_scope_user_scope() {
                 self.eval_context.current_user_source_block.pop();
             }

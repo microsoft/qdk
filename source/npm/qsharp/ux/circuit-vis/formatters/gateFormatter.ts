@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { GateRenderData, GateType } from "../gateRenderData";
+import { GateRenderData, GateType } from "../gateRenderData.js";
 import {
   minGateWidth,
   gateHeight,
@@ -12,7 +12,7 @@ import {
   groupBoxPadding,
   classicalRegHeight,
   nestedGroupPadding,
-} from "../constants";
+} from "../constants.js";
 import {
   createSvgElement,
   group,
@@ -24,9 +24,9 @@ import {
   arc,
   dashedLine,
   dashedBox,
-} from "./formatUtils";
+} from "./formatUtils.js";
 
-import { mathChars } from "../utils";
+import { mathChars } from "../utils.js";
 
 /**
  * Given an array of operations render data, return the SVG representation.

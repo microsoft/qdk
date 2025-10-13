@@ -1,9 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { ComponentGrid, Operation, Qubit, Unitary } from "./circuit";
-import { Sqore } from "./sqore";
-import { toolboxGateDictionary } from "./panel";
+import { ComponentGrid, Operation, Qubit, Unitary } from "./circuit.js";
+import { Sqore } from "./sqore.js";
+import { toolboxGateDictionary } from "./panel.js";
 import {
   getGateLocationString,
   findOperation,
@@ -16,8 +16,8 @@ import {
   deepEqual,
   getQubitLabelElems,
   getMinMaxRegIdx,
-} from "./utils";
-import { addContextMenuToHostElem, promptForArguments } from "./contextMenu";
+} from "./utils.js";
+import { addContextMenuToHostElem, promptForArguments } from "./contextMenu.js";
 import {
   removeTrailingUnusedQubits,
   addControl,
@@ -27,7 +27,7 @@ import {
   removeControl,
   removeOperation,
   resolveOverlappingOperations,
-} from "./circuitManipulation";
+} from "./circuitManipulation.js";
 import {
   createGateGhost,
   createQubitLabelGhost,
@@ -35,8 +35,8 @@ import {
   getColumnOffsetsAndWidths,
   makeDropzoneBox,
   removeAllWireDropzones,
-} from "./draggable";
-import { getOperationRegisters } from "../../src/utils";
+} from "./draggable.js";
+import { getOperationRegisters } from "../../src/utils.js";
 
 let events: CircuitEvents | null = null;
 

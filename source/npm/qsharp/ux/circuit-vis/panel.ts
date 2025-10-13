@@ -1,16 +1,16 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { Ket, Measurement, Operation, Unitary } from "./circuit";
+import { Ket, Measurement, Operation, Unitary } from "./circuit.js";
 import {
   gateHeight,
   horizontalGap,
   minGateWidth,
   verticalGap,
-} from "./constants";
-import { formatGate } from "./formatters/gateFormatter";
-import { GateType, GateRenderData } from "./gateRenderData";
-import { getGateWidth } from "./utils";
+} from "./constants.js";
+import { formatGate } from "./formatters/gateFormatter.js";
+import { GateType, GateRenderData } from "./gateRenderData.js";
+import { getGateWidth } from "./utils.js";
 
 /**
  * Create a panel for the circuit visualization.

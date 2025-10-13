@@ -1,10 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { formatInputs } from "./formatters/inputFormatter";
-import { formatGates } from "./formatters/gateFormatter";
-import { formatRegisters } from "./formatters/registerFormatter";
-import { processOperations } from "./process";
+import { formatInputs } from "./formatters/inputFormatter.js";
+import { formatGates } from "./formatters/gateFormatter.js";
+import { formatRegisters } from "./formatters/registerFormatter.js";
+import { processOperations } from "./process.js";
 import {
   ConditionalRender,
   Circuit,
@@ -12,13 +12,18 @@ import {
   ComponentGrid,
   Operation,
   Column,
-} from "./circuit";
-import { GateRenderData, GateType } from "./gateRenderData";
-import { createUUID } from "./utils";
-import { gateHeight, minGateWidth, minToolboxHeight, svgNS } from "./constants";
-import { createDropzones } from "./draggable";
-import { enableEvents } from "./events";
-import { createPanel, enableRunButton } from "./panel";
+} from "./circuit.js";
+import { GateRenderData, GateType } from "./gateRenderData.js";
+import { createUUID } from "./utils.js";
+import {
+  gateHeight,
+  minGateWidth,
+  minToolboxHeight,
+  svgNS,
+} from "./constants.js";
+import { createDropzones } from "./draggable.js";
+import { enableEvents } from "./events.js";
+import { createPanel, enableRunButton } from "./panel.js";
 
 /**
  * Contains render data for visualization.

@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { labelFontSize, svgNS } from "../constants";
+import { labelFontSize, svgNS } from "../constants.js";
 
 // Helper functions for basic SVG components
 
