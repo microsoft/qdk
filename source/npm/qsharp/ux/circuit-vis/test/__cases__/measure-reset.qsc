@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "circuits": [
+    {
+      "qubits": [
+        {
+          "id": 0,
+          "numResults": 1
+        }
+      ],
+      "componentGrid": [
+        {
+          "components": [
+            {
+              "gate": "H",
+              "kind": "unitary",
+              "targets": [
+                {
+                  "qubit": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "components": [
+            {
+              "kind": "measurement",
+              "gate": "Measure",
+              "qubits": [
+                {
+                  "qubit": 0
+                }
+              ],
+              "results": [
+                {
+                  "qubit": 0,
+                  "result": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "components": [
+            {
+              "kind": "ket",
+              "gate": "0",
+              "targets": [
+                {
+                  "qubit": 0
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
