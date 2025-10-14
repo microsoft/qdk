@@ -240,12 +240,41 @@ const _addDataWires = (container: HTMLElement) => {
     if (dataWire !== -1) {
       elem.setAttribute("data-wire", `${dataWire}`);
     } else {
-      const { y, height } = elem.getBBox();
+      // Try to get from data attributes first (check element, then parent gate)
+      let dataMinY = elem.getAttribute("data-min-y");
+      let dataMaxY = elem.getAttribute("data-max-y");
+
+      // If not on element, check if parent is a gate element with the attributes
+      if (!dataMinY || !dataMaxY) {
+        const parentGate = elem.closest<SVGElement>(".gate");
+        if (parentGate) {
+          dataMinY = parentGate.getAttribute("data-min-y");
+          dataMaxY = parentGate.getAttribute("data-max-y");
+        }
+      }
+
       const wireData = getWireData(container);
-      const groupDataWire = wireData.findIndex(
-        (wireY) => wireY > y && wireY < y + height,
-      );
-      elem.setAttribute("data-wire", `${groupDataWire}`);
+
+      if (dataMinY && dataMaxY) {
+        const minY = parseFloat(dataMinY);
+        const maxY = parseFloat(dataMaxY);
+        const groupDataWire = wireData.findIndex(
+          (wireY) => wireY > minY && wireY < maxY,
+        );
+        elem.setAttribute("data-wire", `${groupDataWire}`);
+      } else {
+        // Fallback to getBBox if data attributes not available
+        try {
+          const { y, height } = elem.getBBox();
+          const groupDataWire = wireData.findIndex(
+            (wireY) => wireY > y && wireY < y + height,
+          );
+          elem.setAttribute("data-wire", `${groupDataWire}`);
+        } catch {
+          // If we can't determine, don't set data-wire
+          console.warn("Could not determine wire for element:", elem);
+        }
+      }
     }
   });
 };
@@ -256,16 +285,34 @@ const _addDataWires = (container: HTMLElement) => {
  *      Function returns [40, 100, 140]
  */
 const _wireYs = (elem: SVGGraphicsElement, wireData: number[]): number[] => {
-  if (!elem.isConnected) {
-    throw new Error(`Element is not connected: ${elem.outerHTML}`);
+  // Try to get from data attributes first (check element, then parent gate)
+  let dataMinY = elem.getAttribute("data-min-y");
+  let dataMaxY = elem.getAttribute("data-max-y");
+
+  // If not on element, check if parent is a gate element with the attributes
+  if (!dataMinY || !dataMaxY) {
+    const parentGate = elem.closest<SVGElement>(".gate");
+    if (parentGate) {
+      dataMinY = parentGate.getAttribute("data-min-y");
+      dataMaxY = parentGate.getAttribute("data-max-y");
+    }
   }
-  if (!elem.getBBox) {
-    throw new Error(
-      `Element does not support getBBox: ${elem} ${(elem as SVGElement).tagName} ${elem.outerHTML}`,
-    );
+
+  if (dataMinY && dataMaxY) {
+    const minY = parseFloat(dataMinY);
+    const maxY = parseFloat(dataMaxY);
+    return wireData.filter((wireY) => wireY > minY && wireY < maxY);
   }
-  const { y, height } = elem.getBBox();
-  return wireData.filter((wireY) => wireY > y && wireY < y + height);
+
+  // Fallback to getBBox if available
+  try {
+    const { y, height } = elem.getBBox();
+    return wireData.filter((wireY) => wireY > y && wireY < y + height);
+  } catch {
+    // If we can't determine, assume it doesn't span multiple wires
+    console.warn("Could not determine wire span for element:", elem);
+    return [];
+  }
 };
 
 /**
@@ -284,11 +331,55 @@ const _addStyles = (container: HTMLElement, wireData: number[]): void => {
 };
 
 /**
- * Find center point of element
+ * Find center point of element using data attributes instead of getBBox
  */
 const _center = (elem: SVGGraphicsElement): { cX: number; cY: number } => {
-  const { x, y, width, height } = elem.getBBox();
-  return { cX: x + width / 2, cY: y + height / 2 };
+  // Try to get from data attributes first (set during element creation)
+  let dataX = elem.getAttribute("data-x");
+  let dataY = elem.getAttribute("data-y");
+  let dataWidth = elem.getAttribute("data-width");
+  let dataHeight = elem.getAttribute("data-height");
+
+  // If not on element, check if parent is a gate element with the attributes
+  if (!dataX || !dataY || !dataWidth || !dataHeight) {
+    const parentGate = elem.closest<SVGElement>(".gate");
+    if (parentGate) {
+      dataX = dataX || parentGate.getAttribute("data-x");
+      dataY = dataY || parentGate.getAttribute("data-y");
+      dataWidth = dataWidth || parentGate.getAttribute("data-width");
+      dataHeight = dataHeight || parentGate.getAttribute("data-height");
+    }
+  }
+
+  if (dataX && dataY && dataWidth && dataHeight) {
+    return {
+      cX: parseFloat(dataX) + parseFloat(dataWidth) / 2,
+      cY: parseFloat(dataY) + parseFloat(dataHeight) / 2,
+    };
+  }
+
+  // Fallback: try to parse from SVG attributes (for rect, circle, etc.)
+  const tagName = (elem as SVGElement).tagName.toLowerCase();
+  if (tagName === "rect") {
+    const x = parseFloat(elem.getAttribute("x") || "0");
+    const y = parseFloat(elem.getAttribute("y") || "0");
+    const width = parseFloat(elem.getAttribute("width") || "0");
+    const height = parseFloat(elem.getAttribute("height") || "0");
+    return { cX: x + width / 2, cY: y + height / 2 };
+  } else if (tagName === "circle") {
+    const cx = parseFloat(elem.getAttribute("cx") || "0");
+    const cy = parseFloat(elem.getAttribute("cy") || "0");
+    return { cX: cx, cY: cy };
+  }
+
+  // Last resort: try getBBox if available (for environments that support it)
+  try {
+    const { x, y, width, height } = elem.getBBox();
+    return { cX: x + width / 2, cY: y + height / 2 };
+  } catch {
+    console.warn("Could not determine center of element:", elem);
+    return { cX: 0, cY: 0 };
+  }
 };
 
 /**
@@ -440,17 +531,35 @@ const getColumnOffsetsAndWidths = (
       const indexes = locationStringToIndexes(location);
       if (indexes.length != 1) return acc;
       const [colIndex] = indexes[0];
+
+      // Try to get width from data attribute first (check element, then parent gate)
+      let dataWidth = elem.getAttribute("data-width");
+      if (!dataWidth) {
+        const parentGate = elem.closest<SVGElement>(".gate");
+        if (parentGate) {
+          dataWidth = parentGate.getAttribute("data-width");
+        }
+      }
+
+      const width = dataWidth
+        ? parseFloat(dataWidth)
+        : (() => {
+            try {
+              return elem.getBBox().width;
+            } catch {
+              return minGateWidth;
+            }
+          })();
+
       if (!acc[colIndex]) {
-        acc[colIndex] = Math.max(minGateWidth, elem.getBBox().width);
+        acc[colIndex] = Math.max(minGateWidth, width);
       } else {
-        acc[colIndex] = Math.max(acc[colIndex], elem.getBBox().width);
+        acc[colIndex] = Math.max(acc[colIndex], width);
       }
       return acc;
     },
     {} as Record<number, number>,
-  );
-
-  // Find the max colIndex to size the array
+  ); // Find the max colIndex to size the array
   const maxColIndex = Math.max(...Object.keys(colWidths).map(Number), 0);
 
   let xOffset = startX - gatePadding;

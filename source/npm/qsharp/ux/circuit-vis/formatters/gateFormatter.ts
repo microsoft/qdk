@@ -71,7 +71,13 @@ const formatGate = (
             x,
             targetsY as number[][],
             width,
-            renderData.dataAttributes?.sourceLocation,
+            renderData.dataAttributes?.sourceLinkTitle &&
+              renderData.dataAttributes?.sourceLinkHref
+              ? {
+                  title: renderData.dataAttributes?.sourceLinkTitle,
+                  href: renderData.dataAttributes?.sourceLinkHref,
+                }
+              : undefined,
             displayArgs,
           ),
         ],
@@ -121,6 +127,15 @@ const _createGate = (
   Object.entries(dataAttributes || {}).forEach(
     ([attr, val]) => (attributes[`data-${attr}`] = val),
   );
+
+  // Add positioning data attributes to avoid relying on getBBox() in tests
+  const [x1, y1, x2, y2] = _gatePosition(renderData, nestedDepth);
+  attributes["data-x"] = x1.toString();
+  attributes["data-y"] = y1.toString();
+  attributes["data-width"] = (x2 - x1).toString();
+  attributes["data-height"] = (y2 - y1).toString();
+  attributes["data-min-y"] = y1.toString();
+  attributes["data-max-y"] = y2.toString();
 
   const zoomBtn: SVGElement | null = _zoomButton(renderData, nestedDepth);
   if (zoomBtn != null) svgElems = svgElems.concat([zoomBtn]);
@@ -289,7 +304,10 @@ const _unitary = (
   x: number,
   y: number[][],
   width: number,
-  location?: string,
+  location?: {
+    title: string;
+    href: string;
+  },
   displayArgs?: string,
   renderDashedLine = true,
   cssClass?: string,
@@ -348,7 +366,10 @@ const _unitaryBox = (
   y: number,
   width: number,
   height: number = gateHeight,
-  location?: string,
+  location?: {
+    title: string;
+    href: string;
+  },
   displayArgs?: string,
   cssClass?: string,
 ): SVGElement => {
@@ -372,8 +393,6 @@ const _unitaryBox = (
   }
 
   if (location) {
-    // location is a string iwth a full HTML text like "<a href='...' target='_blank'>...</a>"
-    // construct an element to put inside elems
     const locationEl: SVGElement = createSvgElement("foreignObject", {
       x: (x - width / 2) as any,
       y: (y + height + 2) as any,
@@ -381,9 +400,9 @@ const _unitaryBox = (
       height: 20 as any,
     });
     const aEl = document.createElement("a");
-    aEl.setAttribute("href", location);
-    aEl.setAttribute("target", "_blank");
+    aEl.setAttribute("href", location.href);
     aEl.setAttribute("class", "qs-circuit-source-link");
+    aEl.setAttribute("title", location.title);
     aEl.textContent = "source";
     locationEl.appendChild(aEl);
     elems.push(locationEl);
@@ -441,7 +460,13 @@ const _ket = (label: string, renderData: GateRenderData): SVGElement => {
     x,
     targetsY as number[][],
     width,
-    renderData.dataAttributes?.sourceLocation,
+    renderData.dataAttributes?.sourceLinkTitle &&
+      renderData.dataAttributes?.sourceLinkHref
+      ? {
+          title: renderData.dataAttributes?.sourceLinkTitle,
+          href: renderData.dataAttributes?.sourceLinkHref,
+        }
+      : undefined,
     undefined,
     false,
     "gate-ket",
@@ -507,7 +532,13 @@ const _controlledGate = (
             x,
             groupedTargetsY,
             width,
-            renderData.dataAttributes?.sourceLocation,
+            renderData.dataAttributes?.sourceLinkTitle &&
+              renderData.dataAttributes?.sourceLinkHref
+              ? {
+                  title: renderData.dataAttributes?.sourceLinkTitle,
+                  href: renderData.dataAttributes?.sourceLinkHref,
+                }
+              : undefined,
             displayArgs,
             false,
           ),

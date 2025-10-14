@@ -14,7 +14,10 @@ withDom();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-/** Serialize the whole document (or a node) for stable SVG/HTML snapshots. */
+/**
+ * Serialize the whole document (or a node) for stable SVG/HTML snapshots.
+ * @param {Document | Node} node
+ */
 function serializeNode(node) {
   const ser = new XMLSerializer();
   return ser.serializeToString(node) + "\n";
@@ -55,10 +58,9 @@ function findQscFiles() {
  * Find candidate .qs files
  */
 function findQsFiles() {
-  const here = __dirname;
   const candidates = [];
 
-  const casesDir = path.join(here, "..", "cases");
+  const casesDir = path.join(__dirname, "..", "cases");
   if (fs.existsSync(casesDir) && fs.statSync(casesDir).isDirectory()) {
     for (const f of walk(casesDir)) {
       if (f.toLowerCase().endsWith(".qs")) candidates.push(f);
@@ -115,10 +117,32 @@ function htmlSnapshotPath(name) {
  */
 function drawCircuit(circuitGroup, container) {
   const sqore = new Sqore(circuitGroup, {
-    renderLocation: (s) => `location:${s.file}?line=${s.line}&col=${s.column}`,
+    renderLocation,
   });
 
   sqore.draw(container);
+}
+
+/**
+ * @param {{ file: string; line: number; column: any; }} s
+ */
+function renderLocation(s) {
+  // Read the file and extract the specific line
+  try {
+    const filePath = path.join(__dirname, "..", "cases", s.file);
+    const fileContent = fs.readFileSync(filePath, "utf8");
+    const lines = fileContent.split("\n");
+    const targetLine = lines[s.line] || "";
+    const snippet = targetLine.trim();
+
+    // Return a javascript: URL that shows the snippet as alert/tooltip
+    return {
+      title: `${s.file}:${s.line}:${s.column}\n${snippet.replace(/'/g, "\\'")}`,
+      href: "#",
+    };
+  } catch {
+    return { title: `Error loading ${s.file}:${s.line}`, href: "#" };
+  }
 }
 
 /**
@@ -128,7 +152,7 @@ function drawCircuit(circuitGroup, container) {
 function drawEditableCircuit(circuitGroup, container) {
   const sqore = new Sqore(circuitGroup, {
     isEditable: true,
-    renderLocation: (s) => `location:${s.file}?line=${s.line}&col=${s.column}`,
+    renderLocation,
   });
 
   sqore.draw(container);

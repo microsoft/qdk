@@ -212,7 +212,10 @@ function ZoomableCircuit(props: {
       isEditable,
       editCallback,
       runCallback,
-      renderLocation: () => "HI",
+      renderLocation: () => ({
+        title: "HI",
+        href: "HIII",
+      }),
     });
     return container.getElementsByClassName("qviz")[0]!;
   }

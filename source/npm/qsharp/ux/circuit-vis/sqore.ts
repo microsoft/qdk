@@ -51,7 +51,7 @@ export type DrawOptions = {
   isEditable?: boolean;
   editCallback?: (circuitGroup: CircuitGroup) => void;
   runCallback?: () => void;
-  renderLocation?: (l: SourceLocation) => string;
+  renderLocation?: (l: SourceLocation) => { title: string; href: string };
 };
 
 /**
@@ -168,9 +168,10 @@ export class Sqore {
 
         const source = component.source;
         if (source && this.options.renderLocation && !this.options.isEditable) {
-          const uri = this.options.renderLocation(source);
+          const location = this.options.renderLocation(source);
           const attrs = component.dataAttributes || {};
-          attrs.sourceLocation = uri;
+          attrs.sourceLinkTitle = location.title;
+          attrs.sourceLinkHref = location.href;
           component.dataAttributes = attrs;
         }
       }

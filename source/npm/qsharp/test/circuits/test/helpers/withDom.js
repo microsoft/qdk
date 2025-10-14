@@ -4,8 +4,8 @@
 // @ts-check
 
 import { JSDOM } from "jsdom";
-import { before, after } from "node:test";
 import { createCanvas, Image, ImageData } from "canvas";
+import { afterEach, beforeEach } from "node:test";
 
 const documentTemplate = `<!doctype html><html>
       <head>
@@ -21,7 +21,7 @@ export function withDom() {
   /** @type {JSDOM | null} */
   let jsdom = null;
 
-  before(() => {
+  beforeEach(() => {
     jsdom = new JSDOM(documentTemplate, {
       pretendToBeVisual: true,
       resources: "usable",
@@ -54,7 +54,7 @@ export function withDom() {
     globalThis.ImageData = ImageData;
   });
 
-  after(() => {
+  afterEach(() => {
     jsdom?.window.close();
 
     // clean up globals
