@@ -176,6 +176,12 @@ class Config:
     ) -> Dict[str, Dict[str, str]]:
         return {"application/x.qsharp-config": self._config}
 
+    def get_target_profile(self) -> str:
+        """
+        Returns the target profile as a string, or "unspecified" if not set.
+        """
+        return self._config.get("targetProfile", "unspecified")
+
 
 class PauliNoise(Tuple[float, float, float]):
     """
@@ -322,6 +328,19 @@ def get_interpreter() -> Interpreter:
         init()
         assert _interpreter is not None, "Failed to initialize the Q# interpreter."
     return _interpreter
+
+
+def get_config() -> Config:
+    """
+    Returns the Q# interpreter configuration.
+
+    :returns: The Q# interpreter configuration.
+    """
+    global _config
+    if _config is None:
+        init()
+        assert _config is not None, "Failed to initialize the Q# interpreter."
+    return _config
 
 
 class StateDump:
@@ -787,9 +806,8 @@ def compile(entry_expr: Union[str, Callable], *args) -> QirInputData:
     """
     ipython_helper()
     start = monotonic()
-    global _config
     interpreter = get_interpreter()
-    target_profile = _config._config.get("targetProfile", "unspecified")
+    target_profile = get_config().get_target_profile()
     telemetry_events.on_compile(target_profile)
     if isinstance(entry_expr, Callable) and hasattr(entry_expr, "__global_callable"):
         args = python_args_to_interpreter_args(args)
