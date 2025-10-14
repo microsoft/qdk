@@ -356,6 +356,8 @@ const _unitaryBox = (
   displayArgs?: string,
   cssClass?: string,
 ): SVGElement => {
+  console.log(`Rendering unitary box ${label} at (${x}, ${y})`);
+
   y -= gateHeight / 2;
   const uBox: SVGElement = box(x - width / 2, y, width, height);
   if (cssClass != null) {
@@ -375,7 +377,13 @@ const _unitaryBox = (
     elems.push(argButton);
   }
 
+  console.log(`Location info: ${location}`);
+
   if (location) {
+    console.debug(`Adding location info to gate: ${location}`);
+    console.log(
+      "Note: location info is currently assumed to be a full HTML string",
+    );
     // location is a string iwth a full HTML text like "<a href='...' target='_blank'>...</a>"
     // construct an element to put inside elems
     const locationEl: SVGElement = createSvgElement("foreignObject", {

@@ -227,7 +227,7 @@ pub fn large_nested_iteration(c: &mut Criterion) {
             LanguageFeatures::default(),
             store,
             &[(std_id, None)],
-        qsc_data_structures::line_column::Encoding::Utf8,
+            qsc_data_structures::line_column::Encoding::Utf8,
         )
         .expect("code should compile");
 

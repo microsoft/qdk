@@ -291,6 +291,8 @@ const toRenderData = (
       break;
   }
 
+  console.log(`Processing operation: ${JSON.stringify(operation)}`);
+
   if (operation.args !== undefined && operation.args.length > 0) {
     const location_arg = operation.args.find((arg) =>
       arg.startsWith("<a href"),

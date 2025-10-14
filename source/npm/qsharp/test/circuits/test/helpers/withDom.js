@@ -17,7 +17,10 @@ export function withDom() {
         <link rel="stylesheet" href="../../../ux/qsharp-ux.css">
         <link rel="stylesheet" href="../../../ux/qsharp-circuit.css">
       </head>
-      <body><div id="app" class="qs-circuit"></div></body></html>`,
+      <body>
+        <div id="app" class="qs-circuit"></div>
+      </body>
+      </html>`,
       {
         contentType: "text/html",
         pretendToBeVisual: true,

@@ -231,6 +231,7 @@ impl Interpreter {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn new_internal(
         dbg: bool,
         sources: SourceMap,

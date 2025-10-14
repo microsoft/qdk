@@ -103,12 +103,7 @@ function checkCircuitSnapshot(circuitGroup, t) {
   sqore.draw(container, 10);
 
   // Write an .html snapshot (update with --test-update-snapshots)
-  const outFile = path.join(
-    __dirname,
-    "..",
-    "snapshots",
-    safe(t.name) + ".html",
-  );
+  const outFile = path.join(__dirname, "..", "cases", t.name + ".html");
 
   t.assert.fileSnapshot(
     // You may prefer serializeNode(container) if you only want the render root.
@@ -116,14 +111,6 @@ function checkCircuitSnapshot(circuitGroup, t) {
     outFile,
     { serializers: [(s) => String(s)] },
   );
-}
-
-/** Make a safe filename from a test name. */
-function safe(s) {
-  return s
-    .toLowerCase()
-    .replace(/[^a-z0-9/_-]+/g, "-")
-    .replace(/^-+|-+$/g, "");
 }
 
 // --- Parent test that spawns one subtest per .qsc file ---
@@ -154,7 +141,19 @@ test("circuit snapshot tests - .qs files", async (t) => {
 
   for (const file of files) {
     const relName = path.basename(file);
-    await t.test(relName, async (tt) => {
+    const generationMethod = relName.includes("-eval.")
+      ? "classicalEval"
+      : relName.includes("-static.")
+        ? "static"
+        : undefined;
+
+    if (generationMethod === undefined) {
+      throw new Error(
+        `Could not determine generation method from file name ${relName}. Please include -eval or -static in the file name.`,
+      );
+    }
+
+    await t.test(`${relName}`, async (tt) => {
       const circuitSource = fs.readFileSync(file, "utf8");
       const compiler = getCompiler();
       const circuitGroup = await compiler.getCircuit(
@@ -165,7 +164,7 @@ test("circuit snapshot tests - .qs files", async (t) => {
         },
         undefined,
         {
-          generationMethod: "static",
+          generationMethod,
           collapseQubitRegisters: false,
           groupScopes: true,
           loopDetection: false,

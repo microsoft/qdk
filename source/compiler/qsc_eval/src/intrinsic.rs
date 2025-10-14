@@ -20,6 +20,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use std::convert::TryFrom;
 
 #[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn call(
     name: &str,
     name_span: PackageSpan,

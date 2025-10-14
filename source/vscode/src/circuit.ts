@@ -7,7 +7,6 @@ import {
   ICompilerWorker,
   IOperationInfo,
   IQSharpError,
-  IRange,
   QdkDiagnostics,
   getCompilerWorker,
   log,

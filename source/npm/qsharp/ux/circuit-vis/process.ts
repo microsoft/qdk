@@ -267,6 +267,8 @@ const _opToRenderData = (
   // If adjoint, add ' to the end of gate label
   if (isAdjoint && renderData.label.length > 0) renderData.label += "'";
 
+  console.log(`Arguments for gate ${renderData.label}: ${args}`);
+
   // If gate has extra arguments, display them
   // For now, we only display the first argument
   if (args !== undefined && args.length > 0) {
