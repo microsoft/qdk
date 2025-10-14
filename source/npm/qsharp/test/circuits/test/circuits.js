@@ -24,8 +24,8 @@ function serializeNode(node) {
 }
 
 /**
- * Walk a directory recursively and yield file paths.
  * @param {string} dir
+ * @returns {Iterable<string>}
  */
 function* walk(dir) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -117,6 +117,7 @@ function htmlSnapshotPath(name) {
  */
 function drawCircuit(circuitGroup, container) {
   const sqore = new Sqore(circuitGroup, {
+    renderDepth: 10,
     renderLocation,
   });
 
@@ -124,24 +125,27 @@ function drawCircuit(circuitGroup, container) {
 }
 
 /**
- * @param {{ file: string; line: number; column: any; }} s
+ * @param {{ file: string; line: number; column: number; }} location
  */
-function renderLocation(s) {
+function renderLocation(location) {
   // Read the file and extract the specific line
   try {
-    const filePath = path.join(__dirname, "..", "cases", s.file);
+    const filePath = path.join(__dirname, "..", "cases", location.file);
     const fileContent = fs.readFileSync(filePath, "utf8");
     const lines = fileContent.split("\n");
-    const targetLine = lines[s.line] || "";
+    const targetLine = lines[location.line] || "";
     const snippet = targetLine.trim();
 
     // Return a javascript: URL that shows the snippet as alert/tooltip
     return {
-      title: `${s.file}:${s.line}:${s.column}\n${snippet.replace(/'/g, "\\'")}`,
+      title: `${location.file}:${location.line}:${location.column}\n${snippet.replace(/'/g, "\\'")}`,
       href: "#",
     };
   } catch {
-    return { title: `Error loading ${s.file}:${s.line}`, href: "#" };
+    return {
+      title: `Error loading ${location.file}:${location.line}`,
+      href: "#",
+    };
   }
 }
 
