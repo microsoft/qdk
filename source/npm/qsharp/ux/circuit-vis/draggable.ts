@@ -37,7 +37,7 @@ interface Context {
  * @param sqore         Sqore object
  */
 const createDropzones = (container: HTMLElement, sqore: Sqore): void => {
-  const svg = container.querySelector("svg[id]") as SVGElement;
+  const svg = container.querySelector("svg.qviz") as SVGElement;
 
   const context: Context = {
     container,
@@ -256,6 +256,14 @@ const _addDataWires = (container: HTMLElement) => {
  *      Function returns [40, 100, 140]
  */
 const _wireYs = (elem: SVGGraphicsElement, wireData: number[]): number[] => {
+  if (!elem.isConnected) {
+    throw new Error(`Element is not connected: ${elem.outerHTML}`);
+  }
+  if (!elem.getBBox) {
+    throw new Error(
+      `Element does not support getBBox: ${elem} ${(elem as SVGElement).tagName} ${elem.outerHTML}`,
+    );
+  }
   const { y, height } = elem.getBBox();
   return wireData.filter((wireY) => wireY > y && wireY < y + height);
 };

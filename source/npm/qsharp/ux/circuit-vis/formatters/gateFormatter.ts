@@ -294,9 +294,6 @@ const _unitary = (
   renderDashedLine = true,
   cssClass?: string,
 ): SVGElement => {
-  console.log(
-    `Rendering unitary gate ${label}, renderDashedLine=${renderDashedLine}`,
-  );
   if (y.length === 0)
     throw new Error(
       `Failed to render unitary gate (${label}): has no y-values`,
@@ -321,7 +318,6 @@ const _unitary = (
 
   // Draw dashed line between disconnected unitaries
   if (renderDashedLine && unitaryBoxes.length > 1) {
-    console.log("Rendering dashed line between unitary boxes");
     const lastBox: number[] = y[y.length - 1];
     const firstBox: number[] = y[0];
     const maxY: number = lastBox[lastBox.length - 1],
@@ -356,8 +352,6 @@ const _unitaryBox = (
   displayArgs?: string,
   cssClass?: string,
 ): SVGElement => {
-  console.log(`Rendering unitary box ${label} at (${x}, ${y})`);
-
   y -= gateHeight / 2;
   const uBox: SVGElement = box(x - width / 2, y, width, height);
   if (cssClass != null) {
@@ -377,13 +371,7 @@ const _unitaryBox = (
     elems.push(argButton);
   }
 
-  console.log(`Location info: ${location}`);
-
   if (location) {
-    console.debug(`Adding location info to gate: ${location}`);
-    console.log(
-      "Note: location info is currently assumed to be a full HTML string",
-    );
     // location is a string iwth a full HTML text like "<a href='...' target='_blank'>...</a>"
     // construct an element to put inside elems
     const locationEl: SVGElement = createSvgElement("foreignObject", {
@@ -392,7 +380,12 @@ const _unitaryBox = (
       width: width as any,
       height: 20 as any,
     });
-    locationEl.innerHTML = location;
+    const aEl = document.createElement("a");
+    aEl.setAttribute("href", location);
+    aEl.setAttribute("target", "_blank");
+    aEl.setAttribute("class", "qs-circuit-source-link");
+    aEl.textContent = "source";
+    locationEl.appendChild(aEl);
     elems.push(locationEl);
   }
   return group(elems);

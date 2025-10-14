@@ -19,7 +19,7 @@ import { getGateWidth } from "./utils.js";
 const createPanel = (container: HTMLElement): void => {
   // Find or create the wrapper
   let wrapper: HTMLElement | null = container.querySelector(".circuit-wrapper");
-  const circuit = container.querySelector("svg[id]");
+  const circuit = container.querySelector("svg.qviz");
   if (circuit == null) {
     throw new Error("No circuit found in the container");
   }
@@ -294,18 +294,8 @@ const toRenderData = (
   console.log(`Processing operation: ${JSON.stringify(operation)}`);
 
   if (operation.args !== undefined && operation.args.length > 0) {
-    const location_arg = operation.args.find((arg) =>
-      arg.startsWith("<a href"),
-    );
-    const real_args = operation.args.filter(
-      (arg) => !arg.startsWith("<a href"),
-    );
-    if (real_args.length > 0) {
-      renderData.displayArgs = real_args[0];
-    }
-
-    if (location_arg !== undefined) {
-      renderData.dataAttributes = { sourceLocation: location_arg };
+    if (operation.args.length > 0) {
+      renderData.displayArgs = operation.args[0];
     }
   }
 

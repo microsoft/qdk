@@ -497,12 +497,7 @@ function documentHtml(
     const uri = Uri.parse(maybeUri, true);
 
     if (customCommand && position) {
-      const args = [uri, position];
-      const command = "qsharp-vscode.gotoLocation";
-      const openCommandUri = Uri.parse(
-        `command:${command}?${encodeURIComponent(JSON.stringify(args))}`,
-        true,
-      );
+      const openCommandUri = `command:qsharp-vscode.gotoLocation?${encodeURIComponent(JSON.stringify([uri, position]))}`;
       location = `<a href="${openCommandUri}">source</a>`;
     } else {
       const args = [uri];

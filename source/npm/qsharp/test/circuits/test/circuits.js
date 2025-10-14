@@ -87,34 +87,54 @@ function loadCircuitGroup(file) {
 }
 
 /**
- * Render and snapshot a CircuitGroup as an .html file.
- * Uses the test's name to generate a friendly file path.
- * @param {import("../../../dist/data-structures/circuit.js").CircuitGroup} circuitGroup
- * @param {import("node:test").TestContext} t
+ * @param {test.TestContext} t
+ * @param {string} name
  */
-function checkCircuitSnapshot(circuitGroup, t) {
-  const container = document.getElementById("app");
-  if (!container) throw new Error("Could not find container element");
-
-  // Draw
-  const sqore = new Sqore(circuitGroup);
-
-  // TODO: maybe make renderDepth configurable
-  sqore.draw(container, 10);
-
-  // Write an .html snapshot (update with --test-update-snapshots)
-  const outFile = path.join(__dirname, "..", "cases", t.name + ".html");
-
-  t.assert.fileSnapshot(
-    // You may prefer serializeNode(container) if you only want the render root.
-    serializeNode(document),
-    outFile,
-    { serializers: [(s) => String(s)] },
-  );
+function snapshotHtml(t, name) {
+  t.assert.fileSnapshot(serializeNode(document), htmlSnapshotPath(name), {
+    serializers: [(s) => String(s)],
+  });
 }
 
-// --- Parent test that spawns one subtest per .qsc file ---
-test("circuit snapshot tests", async (t) => {
+function getContainerElement() {
+  const container = document.getElementById("app");
+  if (!container) throw new Error("Could not find container element");
+  return container;
+}
+
+/**
+ * @param {string} name
+ */
+function htmlSnapshotPath(name) {
+  return path.join(__dirname, "..", "cases", name + ".html");
+}
+
+/**
+ * @param {import("../../../dist/browser.js").CircuitData} circuitGroup
+ * @param {HTMLElement} container
+ */
+function drawCircuit(circuitGroup, container) {
+  const sqore = new Sqore(circuitGroup, {
+    renderLocation: (s) => `location:${s.file}?line=${s.line}&col=${s.column}`,
+  });
+
+  sqore.draw(container);
+}
+
+/**
+ * @param {import("../../../dist/browser.js").CircuitData} circuitGroup
+ * @param {HTMLElement} container
+ */
+function drawEditableCircuit(circuitGroup, container) {
+  const sqore = new Sqore(circuitGroup, {
+    isEditable: true,
+    renderLocation: (s) => `location:${s.file}?line=${s.line}&col=${s.column}`,
+  });
+
+  sqore.draw(container);
+}
+
+test("circuit snapshot tests - .qsc files", async (t) => {
   const files = findQscFiles();
   if (files.length === 0) {
     // Not a failure; just informatively skip if there are none.
@@ -126,7 +146,8 @@ test("circuit snapshot tests", async (t) => {
     const relName = path.basename(file);
     await t.test(relName, (tt) => {
       const circuitGroup = loadCircuitGroup(file);
-      checkCircuitSnapshot(circuitGroup, tt);
+      drawEditableCircuit(circuitGroup, getContainerElement());
+      snapshotHtml(tt, tt.name);
     });
   }
 });
@@ -158,7 +179,7 @@ test("circuit snapshot tests - .qs files", async (t) => {
       const compiler = getCompiler();
       const circuitGroup = await compiler.getCircuit(
         {
-          sources: [["main.qs", circuitSource]],
+          sources: [[relName, circuitSource]],
           languageFeatures: [],
           profile: "adaptive_rif",
         },
@@ -172,7 +193,8 @@ test("circuit snapshot tests - .qs files", async (t) => {
         },
       );
 
-      checkCircuitSnapshot(circuitGroup, tt);
+      drawCircuit(circuitGroup, getContainerElement());
+      snapshotHtml(tt, tt.name);
     });
   }
 });

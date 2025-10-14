@@ -82,7 +82,7 @@ class CircuitEvents {
   ) {
     this.renderFn = useRefresh;
 
-    this.circuitSvg = container.querySelector("svg[id]") as SVGElement;
+    this.circuitSvg = container.querySelector("svg.qviz") as SVGElement;
     this.dropzoneLayer = container.querySelector(
       ".dropzone-layer",
     ) as SVGGElement;

@@ -272,15 +272,8 @@ const _opToRenderData = (
   // If gate has extra arguments, display them
   // For now, we only display the first argument
   if (args !== undefined && args.length > 0) {
-    const locationArg = args.find((arg) => arg.startsWith("<a href"));
-    const real_args = args.filter((arg) => !arg.startsWith("<a href"));
-
-    if (real_args.length > 0) {
-      renderData.displayArgs = real_args[0];
-    }
-
-    if (locationArg) {
-      renderData.dataAttributes = { sourceLocation: locationArg };
+    if (args.length > 0) {
+      renderData.displayArgs = args[0];
     }
   }
 

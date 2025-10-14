@@ -207,14 +207,13 @@ function ZoomableCircuit(props: {
     editCallback?: (fileData: qviz.CircuitGroup) => void,
     runCallback?: () => void,
   ) {
-    qviz.draw(
-      circuitGroup,
-      container,
-      expandDepth,
+    qviz.draw(circuitGroup, container, {
+      renderDepth: expandDepth,
       isEditable,
       editCallback,
       runCallback,
-    );
+      renderLocation: () => "HI",
+    });
     return container.getElementsByClassName("qviz")[0]!;
   }
 

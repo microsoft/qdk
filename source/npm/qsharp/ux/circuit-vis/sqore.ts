@@ -12,6 +12,7 @@ import {
   ComponentGrid,
   Operation,
   Column,
+  SourceLocation,
 } from "./circuit.js";
 import { GateRenderData, GateType } from "./gateRenderData.js";
 // import { createUUID } from "./utils.js";
@@ -45,14 +46,21 @@ type GateRegistry = {
   [location: string]: Operation;
 };
 
+export type DrawOptions = {
+  renderDepth?: number;
+  isEditable?: boolean;
+  editCallback?: (circuitGroup: CircuitGroup) => void;
+  runCallback?: () => void;
+  renderLocation?: (l: SourceLocation) => string;
+};
+
 /**
  * Entrypoint class for rendering circuit visualizations.
  */
 export class Sqore {
   circuit: Circuit;
   gateRegistry: GateRegistry = {};
-  renderDepth = 0;
-
+  renderDepth: number = this.options.renderDepth ?? 0;
   /**
    * Initializes Sqore object.
    *
@@ -63,9 +71,7 @@ export class Sqore {
    */
   constructor(
     public circuitGroup: CircuitGroup,
-    readonly isEditable = false,
-    private editCallback?: (circuitGroup: CircuitGroup) => void,
-    private runCallback?: () => void,
+    private options: DrawOptions = {},
   ) {
     if (
       this.circuitGroup == null ||
@@ -86,11 +92,10 @@ export class Sqore {
    * @param container HTML element for rendering visualization into.
    * @param renderDepth Initial layer depth at which to render gates.
    */
-  draw(container: HTMLElement, renderDepth = 0): void {
+  draw(container: HTMLElement): void {
     // Inject into container
     if (container == null) throw new Error(`Container not provided.`);
 
-    this.renderDepth = renderDepth;
     this.renderCircuit(container);
   }
 
@@ -104,7 +109,9 @@ export class Sqore {
     // Create copy of circuit to prevent mutation
     const _circuit: Circuit =
       circuit ?? JSON.parse(JSON.stringify(this.circuit));
-    const renderDepth = this.renderDepth;
+
+    // Render source locations as URIs using the provided rendering function
+    this.transformLocations(_circuit);
 
     // Assign unique locations to each operation
     _circuit.componentGrid.forEach((col, colIndex) =>
@@ -113,35 +120,14 @@ export class Sqore {
       ),
     );
 
-    // Render operations starting at given depth
-    // _circuit.componentGrid = this.selectOpsAtDepth(
-    //   _circuit.componentGrid,
-    //   renderDepth,
-    // );
-
-    // If only one top-level operation, expand automatically:
-    // if (
-    //   _circuit.componentGrid.length == 1 &&
-    //   _circuit.componentGrid[0].components.length == 1 &&
-    //   _circuit.componentGrid[0].components[0].dataAttributes != null &&
-    //   Object.prototype.hasOwnProperty.call(
-    //     _circuit.componentGrid[0].components[0].dataAttributes,
-    //     "location",
-    //   )
-    // ) {
-    //   const location: string =
-    //     _circuit.componentGrid[0].components[0].dataAttributes["location"];
-    //   this.expandOperation(_circuit.componentGrid, location);
-    // }
-
     const grid = _circuit.componentGrid;
-    this.expandUntilDepth(grid, renderDepth);
+    this.expandUntilDepth(grid, this.renderDepth);
 
     // Create visualization components
     const composedSqore: ComposedSqore = this.compose(_circuit);
     const svg: SVGElement = this.generateSvg(composedSqore);
     this.setViewBox(svg);
-    const previousSvg = container.querySelector("svg[id]");
+    const previousSvg = container.querySelector("svg.qviz");
     if (previousSvg == null) {
       container.appendChild(svg);
     } else {
@@ -154,16 +140,39 @@ export class Sqore {
     }
     this.addGateClickHandlers(container, _circuit);
 
-    if (this.isEditable) {
+    if (this.options.isEditable) {
       createDropzones(container, this);
       createPanel(container);
-      if (this.runCallback != undefined) {
-        const callback = this.runCallback;
+      if (this.options.runCallback != undefined) {
+        const callback = this.options.runCallback;
         enableRunButton(container, callback);
       }
       enableEvents(container, this, () => this.renderCircuit(container));
-      if (this.editCallback != undefined) {
-        this.editCallback(this.minimizeCircuits(this.circuitGroup));
+      if (this.options.editCallback != undefined) {
+        this.options.editCallback(this.minimizeCircuits(this.circuitGroup));
+      }
+    }
+  }
+
+  transformLocations(circuit: Circuit) {
+    const componentGrid = circuit.componentGrid;
+    this.renderSourceLocations(componentGrid);
+  }
+
+  renderSourceLocations(componentGrid: ComponentGrid) {
+    for (const column of componentGrid) {
+      for (const component of column.components) {
+        if (component.children?.length) {
+          this.renderSourceLocations(component.children);
+        }
+
+        const source = component.source;
+        if (source && this.options.renderLocation && !this.options.isEditable) {
+          const uri = this.options.renderLocation(source);
+          const attrs = component.dataAttributes || {};
+          attrs.sourceLocation = uri;
+          component.dataAttributes = attrs;
+        }
       }
     }
   }

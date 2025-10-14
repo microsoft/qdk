@@ -388,7 +388,7 @@ const getToolboxElems = (container: HTMLElement): SVGGraphicsElement[] => {
  * @returns An array of SVG graphics elements representing the host elements.
  */
 const getHostElems = (container: HTMLElement): SVGGraphicsElement[] => {
-  const circuitSvg = container.querySelector("svg[id]");
+  const circuitSvg = container.querySelector("svg.qviz");
   return circuitSvg != null
     ? Array.from(
         circuitSvg.querySelectorAll<SVGGraphicsElement>(
@@ -405,7 +405,7 @@ const getHostElems = (container: HTMLElement): SVGGraphicsElement[] => {
  * @returns An array of SVG graphics elements representing the gate elements.
  */
 const getGateElems = (container: HTMLElement): SVGGraphicsElement[] => {
-  const circuitSvg = container.querySelector("svg[id]");
+  const circuitSvg = container.querySelector("svg.qviz");
   return circuitSvg != null
     ? Array.from(circuitSvg.querySelectorAll<SVGGraphicsElement>(".gate"))
     : [];
@@ -418,7 +418,7 @@ const getGateElems = (container: HTMLElement): SVGGraphicsElement[] => {
  * @returns An array of SVGTextElement representing the qubit labels.
  */
 const getQubitLabelElems = (container: HTMLElement): SVGTextElement[] => {
-  const circuitSvg = container.querySelector("svg[id]");
+  const circuitSvg = container.querySelector("svg.qviz");
   if (!circuitSvg) return [];
   const labelGroup = circuitSvg.querySelector("g.qubit-input-states");
   if (!labelGroup) return [];
