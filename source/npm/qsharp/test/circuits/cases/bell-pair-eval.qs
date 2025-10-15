@@ -1,7 +1,6 @@
 operation Main() : (Result, Result) {
     use (q1, q2) = (Qubit(), Qubit());
     PrepareBellPair(q1, q2);
-    Std.Diagnostics.DumpMachine();
     (MResetZ(q1), MResetZ(q2))
 }
 

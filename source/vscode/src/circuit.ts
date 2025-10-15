@@ -12,7 +12,6 @@ import {
   log,
 } from "qsharp-lang";
 import { Uri, workspace } from "vscode";
-import { ComponentGrid } from "../../npm/qsharp/dist/data-structures/circuit";
 import { getTargetFriendlyName } from "./config";
 import { clearCommandDiagnostics } from "./diagnostics";
 import { FullProgramConfig, getActiveProgram } from "./programConfig";
@@ -27,6 +26,7 @@ import {
 import { getRandomGuid } from "./utils";
 import { sendMessageToPanel } from "./webviewPanel";
 import { ICircuitConfig, IPosition } from "../../npm/qsharp/lib/web/qsc_wasm";
+import { basename } from "./common";
 
 const compilerRunTimeoutMs = 1000 * 60 * 5; // 5 minutes
 
@@ -282,7 +282,6 @@ async function getCircuitOrError(
       params.operation,
       config,
     );
-    transformLocations(circuit);
     return {
       result: "success",
       simulated: config.generationMethod === "simulate",
@@ -352,39 +351,6 @@ export function getConfig() {
 
   log.debug("Using circuit config: ", configObject);
   return configObject;
-}
-
-function transformLocations(circuits: CircuitData) {
-  for (const circuit of circuits.circuits) {
-    const componentGrid = circuit.componentGrid;
-    mapComponentLocationsToHtml(componentGrid);
-  }
-}
-
-function mapComponentLocationsToHtml(componentGrid: ComponentGrid) {
-  log.debug(
-    "Mapping component locations to HTML for component grid: ",
-    componentGrid,
-  );
-  for (const column of componentGrid) {
-    for (const component of column.components) {
-      if (component.children?.length) {
-        mapComponentLocationsToHtml(component.children);
-      }
-
-      const source = component.source;
-      if (source) {
-        const html = documentHtml(true, source.file, {
-          line: source.line,
-          character: source.column,
-        });
-        if (!component.args) {
-          component.args = [];
-        }
-        component.args.push(html);
-      }
-    }
-  }
 }
 
 function hasResultComparisonError(errors: IQSharpError[]) {
@@ -480,7 +446,6 @@ function documentHtml(
   maybeUri: string,
   position?: IPosition,
 ) {
-  let location;
   try {
     // If the error location is a document URI, create a link to that document.
     // We use the `vscode.open` command (https://code.visualstudio.com/api/references/commands#commands)
@@ -495,28 +460,22 @@ function documentHtml(
     // location. Then this would be a link to that command instead. Yet another
     // alternative is to have the webview pass a message back to the extension.
     const uri = Uri.parse(maybeUri, true);
+    const fsPath = escapeHtml(basename(uri.path) ?? uri.fsPath);
+    const lineColumn = position
+      ? escapeHtml(`:${position.line + 1}:${position.character + 1}`)
+      : "";
 
-    if (customCommand && position) {
-      const openCommandUri = `command:qsharp-vscode.gotoLocation?${encodeURIComponent(JSON.stringify([uri, position]))}`;
-      location = `<a href="${openCommandUri}">source</a>`;
-    } else {
-      const args = [uri];
-      const command = "vscode.open";
-      const openCommandUri = Uri.parse(
-        `command:${command}?${encodeURIComponent(JSON.stringify(args))}`,
-        true,
-      );
-      const fsPath = escapeHtml(uri.fsPath);
-      const lineColumn = position
-        ? escapeHtml(`:${position.line + 1}:${position.character + 1}`)
-        : "";
-      location = `<a href="${openCommandUri}">${fsPath}</a>${lineColumn}`;
-    }
+    const args = customCommand && position ? [uri, position] : [uri];
+    const openCommand =
+      customCommand && position ? "qsharp-vscode.gotoLocation" : "vscode.open";
+
+    const argsStr = encodeURIComponent(JSON.stringify(args));
+    const openCommandUri = Uri.parse(`command:${openCommand}?${argsStr}`, true);
+    const title = `${fsPath}${lineColumn}`;
+    return `<a href="${openCommandUri}">${title}</a>`;
   } catch {
     // Likely could not parse document URI - it must be a project level error
     // or an error from stdlib, use the document name directly
-    location = escapeHtml(maybeUri);
+    return escapeHtml(maybeUri);
   }
-
-  return location;
 }

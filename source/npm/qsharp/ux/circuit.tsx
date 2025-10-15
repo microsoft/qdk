@@ -5,7 +5,7 @@ import * as qviz from "./circuit-vis/index.js";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { CircuitProps } from "./data.js";
 import { Spinner } from "./spinner.js";
-import { toCircuitGroup } from "./circuit-vis/circuit.js";
+import { SourceLocation, toCircuitGroup } from "./circuit-vis/circuit.js";
 
 // For perf reasons we set a limit on how many gates/qubits
 // we attempt to render. This is still a lot higher than a human would
@@ -23,6 +23,7 @@ export function Circuit(props: {
   isEditable: boolean;
   editCallback?: (fileData: qviz.CircuitGroup) => void;
   runCallback?: () => void;
+  renderLocation: (s: SourceLocation) => { title: string; href: string };
 }) {
   let unrenderable = false;
   let qubits = 0;
@@ -67,6 +68,7 @@ function ZoomableCircuit(props: {
   isEditable: boolean;
   editCallback?: (fileData: qviz.CircuitGroup) => void;
   runCallback?: () => void;
+  renderLocation: (s: SourceLocation) => { title: string; href: string };
 }) {
   const circuitDiv = useRef<HTMLDivElement>(null);
   const [zoomLevel, setZoomLevel] = useState(100);
@@ -94,6 +96,7 @@ function ZoomableCircuit(props: {
         container,
         expandDepth,
         props.isEditable,
+        props.renderLocation,
         props.editCallback,
         props.runCallback,
       );
@@ -204,6 +207,7 @@ function ZoomableCircuit(props: {
     container: HTMLDivElement,
     expandDepth: number,
     isEditable: boolean,
+    renderLocation?: (s: SourceLocation) => { title: string; href: string },
     editCallback?: (fileData: qviz.CircuitGroup) => void,
     runCallback?: () => void,
   ) {
@@ -212,10 +216,7 @@ function ZoomableCircuit(props: {
       isEditable,
       editCallback,
       runCallback,
-      renderLocation: () => ({
-        title: "HI",
-        href: "HIII",
-      }),
+      renderLocation,
     });
     return container.getElementsByClassName("qviz")[0]!;
   }
@@ -410,6 +411,19 @@ export function CircuitPanel(props: CircuitProps) {
           isEditable={props.isEditable}
           editCallback={props.editCallback}
           runCallback={props.runCallback}
+          renderLocation={(location) => {
+            const uri = location.file;
+            const position = {
+              line: location.line,
+              character: location.column,
+            };
+            const basename = uri.replace(/\/+$/, "").split("/").pop() ?? uri;
+            const argsStr = encodeURIComponent(JSON.stringify([uri, position]));
+            return {
+              title: `${basename}:${location.line}:${location.column}`,
+              href: `command:qsharp-vscode.gotoLocation?${argsStr}`,
+            };
+          }}
         ></Circuit>
       ) : null}
     </div>

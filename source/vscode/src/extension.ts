@@ -97,8 +97,11 @@ export async function activate(
   context.subscriptions.push(
     vscode.commands.registerCommand(
       "qsharp-vscode.gotoLocation",
-      async (uri: vscode.Uri, position: IPosition) => {
-        const document = await vscode.workspace.openTextDocument(uri);
+      async (uri: string, position: IPosition) => {
+        log.debug(`Navigating to ${uri} at ${JSON.stringify(position)}`);
+        const document = await vscode.workspace.openTextDocument(
+          vscode.Uri.parse(uri),
+        );
         const editor = await vscode.window.showTextDocument(
           document,
           vscode.ViewColumn.One,
@@ -108,6 +111,10 @@ export async function activate(
           end: position,
         };
         const vscodeRange = toVsCodeRange(range);
+        editor.selection = new vscode.Selection(
+          vscodeRange.start,
+          vscodeRange.end,
+        );
         editor.revealRange(vscodeRange, vscode.TextEditorRevealType.InCenter);
       },
     ),

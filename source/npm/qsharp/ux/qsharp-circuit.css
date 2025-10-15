@@ -72,6 +72,16 @@
     fill: var(--vscode-button-secondaryForeground, #ffffff);
   }
 
+  /* Hover effect for clickable gates */
+  a.qs-circuit-source-link:hover .gate-unitary {
+    fill: var(--vscode-button-secondaryHoverBackground, #4d4d4d);
+  }
+
+  a.qs-circuit-source-link:hover .gate-measure,
+  a.qs-circuit-source-link:hover .gate-ket {
+    fill: var(--vscode-button-hoverBackground, #005a9e);
+  }
+
   /* Default style for arg-button */
   .arg-button {
     fill: var(--vscode-editor-foreground, #ffffff);

@@ -65,22 +65,7 @@ const formatGate = (
       return _createGate([_measure(x, controlsY[0])], renderData, nestedDepth);
     case GateType.Unitary:
       return _createGate(
-        [
-          _unitary(
-            label,
-            x,
-            targetsY as number[][],
-            width,
-            renderData.dataAttributes?.sourceLinkTitle &&
-              renderData.dataAttributes?.sourceLinkHref
-              ? {
-                  title: renderData.dataAttributes?.sourceLinkTitle,
-                  href: renderData.dataAttributes?.sourceLinkHref,
-                }
-              : undefined,
-            displayArgs,
-          ),
-        ],
+        [_unitary(label, x, targetsY as number[][], width, displayArgs)],
         renderData,
         nestedDepth,
       );
@@ -137,9 +122,38 @@ const _createGate = (
   attributes["data-min-y"] = y1.toString();
   attributes["data-max-y"] = y2.toString();
 
+  const location =
+    renderData.dataAttributes?.sourceLinkTitle &&
+    renderData.dataAttributes?.sourceLinkHref
+      ? {
+          title: renderData.dataAttributes?.sourceLinkTitle,
+          href: renderData.dataAttributes?.sourceLinkHref,
+        }
+      : undefined;
+
   const zoomBtn: SVGElement | null = _zoomButton(renderData, nestedDepth);
   if (zoomBtn != null) svgElems = svgElems.concat([zoomBtn]);
-  return group(svgElems, attributes);
+
+  const gateElem = group(svgElems, attributes);
+
+  // If there's a source location, wrap the gate in an SVG <a> element to make it clickable
+  if (location) {
+    const linkElem = createSvgElement("a", {
+      href: location.href,
+      class: "qs-circuit-source-link",
+    });
+
+    // Add title as a child <title> element for accessibility and hover tooltip
+    const titleElem = createSvgElement("title");
+    titleElem.textContent = location.title;
+    linkElem.appendChild(titleElem);
+
+    // Add the gate as a child of the link
+    linkElem.appendChild(gateElem);
+    return linkElem;
+  }
+
+  return gateElem;
 };
 
 /**
@@ -304,10 +318,6 @@ const _unitary = (
   x: number,
   y: number[][],
   width: number,
-  location?: {
-    title: string;
-    href: string;
-  },
   displayArgs?: string,
   renderDashedLine = true,
   cssClass?: string,
@@ -322,16 +332,7 @@ const _unitary = (
     const maxY: number = group[group.length - 1],
       minY: number = group[0];
     const height: number = maxY - minY + gateHeight;
-    return _unitaryBox(
-      label,
-      x,
-      minY,
-      width,
-      height,
-      location,
-      displayArgs,
-      cssClass,
-    );
+    return _unitaryBox(label, x, minY, width, height, displayArgs, cssClass);
   });
 
   // Draw dashed line between disconnected unitaries
@@ -366,10 +367,6 @@ const _unitaryBox = (
   y: number,
   width: number,
   height: number = gateHeight,
-  location?: {
-    title: string;
-    href: string;
-  },
   displayArgs?: string,
   cssClass?: string,
 ): SVGElement => {
@@ -392,21 +389,6 @@ const _unitaryBox = (
     elems.push(argButton);
   }
 
-  if (location) {
-    const locationEl: SVGElement = createSvgElement("foreignObject", {
-      x: (x - width / 2) as any,
-      y: (y + height + 2) as any,
-      width: width as any,
-      height: 20 as any,
-    });
-    const aEl = document.createElement("a");
-    aEl.setAttribute("href", location.href);
-    aEl.setAttribute("class", "qs-circuit-source-link");
-    aEl.setAttribute("title", location.title);
-    aEl.textContent = "source";
-    locationEl.appendChild(aEl);
-    elems.push(locationEl);
-  }
   return group(elems);
 };
 
@@ -460,13 +442,6 @@ const _ket = (label: string, renderData: GateRenderData): SVGElement => {
     x,
     targetsY as number[][],
     width,
-    renderData.dataAttributes?.sourceLinkTitle &&
-      renderData.dataAttributes?.sourceLinkHref
-      ? {
-          title: renderData.dataAttributes?.sourceLinkTitle,
-          href: renderData.dataAttributes?.sourceLinkHref,
-        }
-      : undefined,
     undefined,
     false,
     "gate-ket",
@@ -527,21 +502,7 @@ const _controlledGate = (
       {
         const groupedTargetsY: number[][] = targetsY as number[][];
         targetGateSvgs.push(
-          _unitary(
-            label,
-            x,
-            groupedTargetsY,
-            width,
-            renderData.dataAttributes?.sourceLinkTitle &&
-              renderData.dataAttributes?.sourceLinkHref
-              ? {
-                  title: renderData.dataAttributes?.sourceLinkTitle,
-                  href: renderData.dataAttributes?.sourceLinkHref,
-                }
-              : undefined,
-            displayArgs,
-            false,
-          ),
+          _unitary(label, x, groupedTargetsY, width, displayArgs, false),
         );
         targetsY = targetsY.flat();
       }
