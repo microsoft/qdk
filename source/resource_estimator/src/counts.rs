@@ -6,7 +6,7 @@ mod tests;
 
 use num_bigint::BigUint;
 use num_complex::Complex;
-use qsc::{Backend, interpret::Value};
+use qsc::{Backend, BackendResult, interpret::Value};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use rustc_hash::FxHashMap;
 use std::{array, cell::RefCell, f64::consts::PI, fmt::Debug, iter::Sum};
@@ -400,8 +400,6 @@ impl LogicalCounter {
 }
 
 impl Backend for LogicalCounter {
-    type ResultType = bool;
-
     fn ccx(&mut self, ctl0: usize, ctl1: usize, q: usize) {
         self.ccz_count += 1;
         self.schedule_ccz(ctl0, ctl1, q);
@@ -421,13 +419,13 @@ impl Backend for LogicalCounter {
 
     fn h(&mut self, _q: usize) {}
 
-    fn m(&mut self, _q: usize) -> Self::ResultType {
+    fn m(&mut self, _q: usize) -> BackendResult {
         self.m_count += 1;
 
-        self.rnd.borrow_mut().gen_bool(0.5)
+        self.rnd.borrow_mut().gen_bool(0.5).into()
     }
 
-    fn mresetz(&mut self, q: usize) -> Self::ResultType {
+    fn mresetz(&mut self, q: usize) -> BackendResult {
         self.m(q)
     }
 

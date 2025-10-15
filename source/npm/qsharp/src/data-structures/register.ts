@@ -42,6 +42,8 @@ export interface RegisterRenderData {
   y: number;
   /** Nested classical registers attached to quantum register. */
   children?: RegisterRenderData[];
+  /** Link href and title for clickable gate. */
+  link?: { href: string; title: string };
 }
 
 /**

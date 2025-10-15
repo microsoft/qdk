@@ -1,22 +1,27 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use crate::circuit::GenerationMethod;
+
 use super::*;
 use expect_test::expect;
 
 #[test]
 fn exceed_max_operations() {
-    let mut builder = Builder::new(Config { max_operations: 2 });
+    let mut builder = CircuitBuilder::new(Config {
+        max_operations: 2,
+        generation_method: GenerationMethod::ClassicalEval,
+        locations: false,
+    });
 
-    let q = builder.qubit_allocate();
+    let tracer: &mut dyn Tracer = &mut builder;
+    tracer.qubit_allocate(0, None);
 
-    builder.x(q);
-    builder.x(q);
-    builder.x(q);
+    tracer.gate("X", false, GateInputs::with_targets(vec![0]), vec![], None);
+    tracer.gate("X", false, GateInputs::with_targets(vec![0]), vec![], None);
+    tracer.gate("X", false, GateInputs::with_targets(vec![0]), vec![], None);
 
-    builder.qubit_release(q);
-
-    let circuit = builder.finish();
+    let circuit = builder.finish(None);
 
     // The current behavior is to silently truncate the circuit
     // if it exceeds the maximum allowed number of operations.
@@ -28,17 +33,21 @@ fn exceed_max_operations() {
 
 #[test]
 fn exceed_max_operations_deferred_measurements() {
-    let mut builder = Builder::new(Config { max_operations: 2 });
+    let mut builder = CircuitBuilder::new(Config {
+        max_operations: 2,
+        generation_method: GenerationMethod::ClassicalEval,
+        locations: false,
+    });
 
-    let q = builder.qubit_allocate();
+    // TODO: ugh...
+    let tracer: &mut dyn Tracer = &mut builder;
+    tracer.qubit_allocate(0, None);
 
-    builder.x(q);
-    builder.m(q);
-    builder.x(q);
+    tracer.gate("X", false, GateInputs::with_targets(vec![0]), vec![], None);
+    tracer.m(0, &(0.into()), None);
+    tracer.gate("X", false, GateInputs::with_targets(vec![0]), vec![], None);
 
-    builder.qubit_release(q);
-
-    let circuit = builder.finish();
+    let circuit = builder.finish(None);
 
     // The current behavior is to silently truncate the circuit
     // if it exceeds the maximum allowed number of operations.

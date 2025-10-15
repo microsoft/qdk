@@ -26,10 +26,10 @@ pub mod output;
 pub mod state;
 pub mod val;
 
+use crate::backend::{DebugMetadata, TracingBackend};
 use crate::val::{
     Value, index_array, make_range, slice_array, update_index_range, update_index_single,
 };
-use backend::Backend;
 use core::panic;
 use debug::{CallStack, Frame};
 pub use error::PackageSpan;
@@ -282,17 +282,25 @@ pub fn exec_graph_section(graph: &ExecGraph, range: ops::Range<usize>) -> ExecGr
 /// Returns the first error encountered during execution.
 /// # Panics
 /// On internal error where no result is returned.
+#[allow(clippy::needless_pass_by_value)]
 pub fn eval(
     package: PackageId,
     seed: Option<u64>,
     exec_graph: ExecGraph,
     globals: &impl PackageStoreLookup,
     env: &mut Env,
-    sim: &mut impl Backend<ResultType = impl Into<val::Result>>,
+    tracing_backend: &mut TracingBackend,
     receiver: &mut impl Receiver,
 ) -> Result<Value, (Error, Vec<Frame>)> {
     let mut state = State::new(package, exec_graph, seed, ErrorBehavior::FailOnError);
-    let res = state.eval(globals, env, sim, receiver, &[], StepAction::Continue)?;
+    let res = state.eval(
+        globals,
+        env,
+        tracing_backend,
+        receiver,
+        &[],
+        StepAction::Continue,
+    )?;
     let StepResult::Return(value) = res else {
         panic!("eval should always return a value");
     };
@@ -310,7 +318,7 @@ pub fn invoke(
     seed: Option<u64>,
     globals: &impl PackageStoreLookup,
     env: &mut Env,
-    sim: &mut impl Backend<ResultType = impl Into<val::Result>>,
+    tracing_backend: &mut TracingBackend,
     receiver: &mut impl Receiver,
     callable: Value,
     args: Value,
@@ -327,7 +335,7 @@ pub fn invoke(
     state
         .eval_call(
             env,
-            sim,
+            tracing_backend,
             globals,
             Span::default(),
             Span::default(),
@@ -337,7 +345,14 @@ pub fn invoke(
 
     // Trigger evaluation of the state until the end of the stack is reached and a return value is obtained, which will be the final
     // result of the invocation.
-    let res = state.eval(globals, env, sim, receiver, &[], StepAction::Continue)?;
+    let res = state.eval(
+        globals,
+        env,
+        tracing_backend,
+        receiver,
+        &[],
+        StepAction::Continue,
+    )?;
     let StepResult::Return(value) = res else {
         panic!("eval should always return a value");
     };
@@ -681,7 +696,7 @@ impl State {
 
     #[must_use]
     pub fn get_stack_frames(&self) -> Vec<Frame> {
-        let mut frames = self.call_stack.clone().into_frames();
+        let mut frames = self.call_stack.frames();
 
         let mut span = self.current_span;
         for frame in frames.iter_mut().rev() {
@@ -716,7 +731,7 @@ impl State {
         &mut self,
         globals: &impl PackageStoreLookup,
         env: &mut Env,
-        sim: &mut impl Backend<ResultType = impl Into<val::Result>>,
+        tracing_backend: &mut TracingBackend,
         out: &mut impl Receiver,
         breakpoints: &[StmtId],
         step: StepAction,
@@ -735,7 +750,7 @@ impl State {
                 }
                 Some(ExecGraphNode::Expr(expr)) => {
                     self.idx += 1;
-                    match self.eval_expr(env, sim, globals, out, *expr) {
+                    match self.eval_expr(env, tracing_backend, globals, out, *expr) {
                         Ok(()) => continue,
                         Err(e) => {
                             if self.error_behavior == ErrorBehavior::StopOnError {
@@ -909,7 +924,7 @@ impl State {
     fn eval_expr(
         &mut self,
         env: &mut Env,
-        sim: &mut impl Backend<ResultType = impl Into<val::Result>>,
+        tracing_backend: &mut TracingBackend,
         globals: &impl PackageStoreLookup,
         out: &mut impl Receiver,
         expr: ExprId,
@@ -931,7 +946,7 @@ impl State {
                         return Ok(());
                     }
                     let rhs_val = self.take_val_register();
-                    self.eval_expr(env, sim, globals, out, *lhs)?;
+                    self.eval_expr(env, tracing_backend, globals, out, *lhs)?;
                     self.push_val();
                     self.set_val_register(rhs_val);
                 }
@@ -951,7 +966,7 @@ impl State {
                     return Ok(());
                 }
                 self.push_val();
-                self.eval_expr(env, sim, globals, out, *lhs)?;
+                self.eval_expr(env, tracing_backend, globals, out, *lhs)?;
                 self.eval_update_index(mid_span)?;
                 self.eval_assign(env, globals, *lhs)?;
             }
@@ -963,7 +978,7 @@ impl State {
             ExprKind::Call(callee_expr, args_expr) => {
                 let callable_span = globals.get_expr((self.package, *callee_expr).into()).span;
                 let args_span = globals.get_expr((self.package, *args_expr).into()).span;
-                self.eval_call(env, sim, globals, callable_span, args_span, out)?;
+                self.eval_call(env, tracing_backend, globals, callable_span, args_span, out)?;
             }
             ExprKind::Closure(args, callable) => {
                 let closure = resolve_closure(env, self.package, expr.span, args, *callable)?;
@@ -1145,10 +1160,11 @@ impl State {
         Ok(())
     }
 
+    #[allow(clippy::needless_pass_by_value)]
     fn eval_call(
         &mut self,
         env: &mut Env,
-        sim: &mut impl Backend<ResultType = impl Into<val::Result>>,
+        tracing_backend: &mut TracingBackend,
         globals: &impl PackageStoreLookup,
         callable_span: Span,
         arg_span: Span,
@@ -1194,7 +1210,7 @@ impl State {
                 callee_id,
                 functor,
                 callee,
-                sim,
+                tracing_backend,
                 callee_span,
                 arg,
                 arg_span,
@@ -1250,7 +1266,7 @@ impl State {
         callee_id: StoreItemId,
         functor: FunctorApp,
         callee: &fir::CallableDecl,
-        sim: &mut impl Backend<ResultType = impl Into<val::Result>>,
+        sim: &mut TracingBackend,
         callee_span: PackageSpan,
         arg: Value,
         arg_span: PackageSpan,
@@ -1262,7 +1278,8 @@ impl State {
         let name = &callee.name.name;
         let val = match name.as_ref() {
             "__quantum__rt__qubit_allocate" => {
-                let q = Rc::new(Qubit(sim.qubit_allocate()));
+                let q = sim.qubit_allocate(Some(DebugMetadata::new(self.get_stack_frames())));
+                let q = Rc::new(Qubit(q));
                 env.track_qubit(Rc::clone(&q));
                 if let Some(counter) = &mut self.qubit_counter {
                     counter.allocated(q.0);
@@ -1275,7 +1292,7 @@ impl State {
                     .try_deref()
                     .ok_or(Error::QubitDoubleRelease(arg_span))?;
                 env.release_qubit(&qubit);
-                if sim.qubit_release(qubit.0) {
+                if sim.qubit_release(qubit.0, Some(DebugMetadata::new(self.get_stack_frames()))) {
                     Value::unit()
                 } else {
                     return Err(Error::ReleasedQubitNotZero(qubit.0, arg_span));
@@ -1287,6 +1304,7 @@ impl State {
                     callee_span,
                     arg,
                     arg_span,
+                    &self.get_stack_frames(),
                     sim,
                     &mut self.rng.borrow_mut(),
                     out,

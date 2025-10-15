@@ -3,11 +3,11 @@
 
 use std::sync::Arc;
 
+use crate::compile::{CompileUnit, PackageStore};
 use qsc_data_structures::{
     line_column::{Encoding, Range},
     span::Span,
 };
-use qsc_frontend::compile::PackageStore;
 use qsc_hir::hir::PackageId;
 
 /// Describes a location in source code in terms of a source name and [`Range`].
@@ -31,14 +31,20 @@ impl Location {
         package_store: &PackageStore,
         position_encoding: Encoding,
     ) -> Self {
-        let source = package_store
+        let package = package_store
             .get(package_id)
-            .expect("package id must exist in store")
+            .expect("package id must exist in store");
+
+        Self::from_package(span, package, position_encoding)
+    }
+
+    fn from_package(span: Span, package: &CompileUnit, position_encoding: Encoding) -> Self {
+        let source = package
             .sources
             .find_by_offset(span.lo)
             .expect("source should exist for offset");
 
-        Location {
+        Self {
             source: source.name.clone(),
             range: Range::from_span(position_encoding, &source.contents, &(span - source.offset)),
         }
@@ -47,15 +53,13 @@ impl Location {
 
 #[cfg(test)]
 mod tests {
-    use crate::compile;
+    use crate::compile::{self, PackageStore, SourceMap};
     use expect_test::expect;
     use qsc_data_structures::{
         language_features::LanguageFeatures, line_column::Encoding, span::Span,
         target::TargetCapabilityFlags,
     };
-    use qsc_frontend::compile::{PackageStore, SourceMap};
     use qsc_hir::hir::PackageId;
-    use qsc_passes::PackageType;
 
     use super::Location;
 
@@ -221,8 +225,7 @@ mod tests {
         let mut store = PackageStore::new(compile::core());
         let mut dependencies = Vec::new();
 
-        let (package_type, capabilities) = (PackageType::Lib, TargetCapabilityFlags::all());
-
+        let capabilities = TargetCapabilityFlags::all();
         let std = compile::std(&store, capabilities);
         let std_package_id = store.insert(std);
 
@@ -234,11 +237,10 @@ mod tests {
             ],
             None,
         );
-        let (unit, _) = compile::compile(
+        let unit = compile::compile(
             &store,
             &dependencies,
             sources,
-            package_type,
             capabilities,
             LanguageFeatures::default(),
         );
