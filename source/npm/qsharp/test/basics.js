@@ -104,10 +104,6 @@ test("library summaries slim docs", async () => {
   const lines = summaries.split("\n");
   const namespaceHeaders = lines.filter((line) => line.startsWith("# "));
   assert(namespaceHeaders.length > 0, "Should have namespace headers");
-
-  console.log(
-    `Generated ${summaries.length} characters of summaries with ${namespaceHeaders.length} namespaces`,
-  );
 });
 
 test("basic eval", async () => {
@@ -343,14 +339,16 @@ test("getAllKatas works", async () => {
   assert.ok(katas.length > 0, "katas should not be empty");
 });
 
-// Run tests for all katas, including unpublished
-const katasList = await getAllKatas({ includeUnpublished: true });
+test("all katas", async (t) => {
+  // Run tests for all katas, including unpublished
+  const katasList = await getAllKatas({ includeUnpublished: true });
 
-katasList.forEach((kataDesc) => {
-  test(`${kataDesc.id} kata is valid`, async () => {
-    const kata = await getKata(kataDesc.id);
-    await validateKata(kata, true, true, true);
-  });
+  for (const kataDesc of katasList) {
+    await t.test(`${kataDesc.id} kata is valid`, async () => {
+      const kata = await getKata(kataDesc.id);
+      await validateKata(kata, true, true, true);
+    });
+  }
 });
 
 test("worker 100 shots", async () => {

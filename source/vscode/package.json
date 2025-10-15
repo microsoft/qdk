@@ -96,6 +96,38 @@
     "configuration": {
       "title": "Q#",
       "properties": {
+        "Q#.circuits.config": {
+          "markdownDescription": "Circuit diagram options",
+          "type": "object",
+          "additionalProperties": false,
+          "default": {
+            "maxOperations": 10001,
+            "generationMethod": "classicalEval",
+            "locations": true
+          },
+          "properties": {
+            "maxOperations": {
+              "type": "number",
+              "default": 10001,
+              "minimum": 1,
+              "description": "The maximum number of operations to include in the circuit diagram."
+            },
+            "generationMethod": {
+              "type": "string",
+              "default": "classicalEval",
+              "enum": [
+                "classicalEval",
+                "simulate"
+              ],
+              "description": "The method to use for generating the circuit diagram. 'classicalEval' uses only classical evaluation, and 'simulate' uses quantum simulation."
+            },
+            "locations": {
+              "type": "boolean",
+              "default": true,
+              "description": "Show the source code locations of operations and qubit declarations in the circuit diagram."
+            }
+          }
+        },
         "Q#.simulation.pauliNoise": {
           "markdownDescription": "The Pauli noise to apply when running multiple shots via the Histogram command. This is applied for every gate or measurement on all qubits referenced.\n\nProbability values are in the range [0, 1].",
           "type": "object",
@@ -318,6 +350,11 @@
       }
     ],
     "commands": [
+      {
+        "command": "qsharp-vscode.gotoLocations",
+        "title": "Go to source locations",
+        "category": "QDK"
+      },
       {
         "command": "qsharp-vscode.createProject",
         "title": "Create Q# project",

@@ -83,6 +83,7 @@ mod given_interpreter {
                     LanguageFeatures::default(),
                     store,
                     &[],
+                    qsc_data_structures::line_column::Encoding::Utf8,
                 )
                 .expect("interpreter should be created");
 
@@ -1590,6 +1591,7 @@ mod given_interpreter {
             LanguageFeatures::default(),
             store,
             dependencies,
+            qsc_data_structures::line_column::Encoding::Utf8,
         )
         .expect("interpreter should be created")
     }
@@ -1604,6 +1606,7 @@ mod given_interpreter {
             LanguageFeatures::default(),
             store,
             dependencies,
+            qsc_data_structures::line_column::Encoding::Utf8,
         )
         .expect("interpreter should be created")
     }
@@ -1719,6 +1722,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                qsc_data_structures::line_column::Encoding::Utf8,
             )
             .expect("interpreter should be created");
 
@@ -1741,6 +1745,7 @@ mod given_interpreter {
                     LanguageFeatures::default(),
                     store,
                     &[(std_id, None)],
+                    qsc_data_structures::line_column::Encoding::Utf8,
                 )
                 .is_err(),
                 "interpreter should fail with error"
@@ -1764,6 +1769,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                qsc_data_structures::line_column::Encoding::Utf8,
             );
 
             match result {
@@ -1804,6 +1810,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 dependencies,
+                qsc_data_structures::line_column::Encoding::Utf8,
             )
             .expect("interpreter should be created");
 
@@ -1833,6 +1840,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[],
+                qsc_data_structures::line_column::Encoding::Utf8,
             )
             .expect("interpreter should be created");
 
@@ -2017,6 +2025,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[],
+                qsc_data_structures::line_column::Encoding::Utf8,
             )
             .expect("interpreter should be created");
             let (result, output) = line(&mut interpreter, "Test.Hello()");
@@ -2050,6 +2059,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[],
+                qsc_data_structures::line_column::Encoding::Utf8,
             )
             .expect("interpreter should be created");
 
@@ -2087,6 +2097,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                qsc_data_structures::line_column::Encoding::Utf8,
             )
             .expect("interpreter should be created");
 
@@ -2159,6 +2170,7 @@ mod given_interpreter {
                 capabilities,
                 language_features,
                 &dependencies,
+                qsc_data_structures::line_column::Encoding::Utf8,
             )
             .expect("interpreter should be created");
             let (result, output) = entry(&mut interpreter);
@@ -2198,6 +2210,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                qsc_data_structures::line_column::Encoding::Utf8,
             )
             .expect("interpreter should be created");
 
@@ -2234,6 +2247,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                qsc_data_structures::line_column::Encoding::Utf8,
             )
             .expect("interpreter should be created");
 
@@ -2313,6 +2327,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                qsc_data_structures::line_column::Encoding::Utf8,
             )
             .expect("interpreter should be created");
 
@@ -2347,6 +2362,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                qsc_data_structures::line_column::Encoding::Utf8,
             )
             .expect("interpreter should be created");
 
@@ -2382,6 +2398,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                qsc_data_structures::line_column::Encoding::Utf8,
             ) {
                 Ok(_) => panic!("interpreter should fail with error"),
                 Err(errors) => {

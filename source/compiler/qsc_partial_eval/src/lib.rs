@@ -18,7 +18,9 @@ use miette::Diagnostic;
 use qsc_data_structures::{functors::FunctorApp, span::Span, target::TargetCapabilityFlags};
 use qsc_eval::{
     self, Error as EvalError, ErrorBehavior, PackageSpan, State, StepAction, StepResult, Variable,
-    are_ctls_unique, exec_graph_section,
+    are_ctls_unique,
+    backend::TracingBackend,
+    exec_graph_section,
     intrinsic::qubit_relabel,
     output::GenericReceiver,
     resolve_closure,
@@ -1106,7 +1108,7 @@ impl<'a> PartialEvaluator<'a> {
         let classical_result = state.eval(
             self.package_store,
             &mut scope.env,
-            &mut self.backend,
+            &mut TracingBackend::new_no_trace(&mut self.backend),
             &mut GenericReceiver::new(&mut std::io::sink()),
             &[],
             StepAction::Continue,

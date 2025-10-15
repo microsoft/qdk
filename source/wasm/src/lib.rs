@@ -12,7 +12,7 @@ use num_complex::Complex64;
 use project_system::{ProgramConfig, into_openqasm_arg, into_qsc_args, is_openqasm_program};
 use qsc::{
     LanguageFeatures, PackageStore, PackageType, PauliNoise, SourceContents, SourceMap, SourceName,
-    SparseSim, TargetCapabilityFlags,
+    SparseSim, TargetCapabilityFlags, TracingBackend,
     compile::{self, Dependencies, package_store_with_stdlib},
     format_state_id, get_matrix_latex, get_state_latex,
     hir::PackageId,
@@ -20,6 +20,7 @@ use qsc::{
         self, CircuitEntryPoint,
         output::{self, Receiver},
     },
+    line_column::Encoding,
     qasm::{CompileRawQasmResult, io::InMemorySourceResolver},
     target::Profile,
 };
@@ -115,6 +116,7 @@ pub fn get_estimates(program: ProgramConfig, expr: &str, params: &str) -> Result
             language_features,
             store,
             &deps[..],
+            Encoding::Utf16,
         )
         .map_err(|e| e[0].to_string())?;
 
@@ -141,17 +143,47 @@ pub(crate) fn get_estimates_from_openqasm(
     })
 }
 
+serializable_type! {
+    CircuitConfig,
+    {
+        max_operations: usize,
+        generation_method: String,
+        locations: bool,
+    },
+    r#"export interface ICircuitConfig {
+        maxOperations: number;
+        generationMethod: "simulate" | "classicalEval" ;
+        locations: boolean;
+    }"#,
+    ICircuitConfig
+}
+
 #[wasm_bindgen]
 pub fn get_circuit(
     program: ProgramConfig,
-    simulate: bool,
     operation: Option<IOperationInfo>,
+    config: Option<ICircuitConfig>,
 ) -> Result<JsValue, String> {
+    let config = config.map_or(qsc::circuit::Config::default(), |c| {
+        let c: CircuitConfig = c.into();
+        qsc::circuit::Config {
+            max_operations: c.max_operations,
+            generation_method: match c.generation_method.as_str() {
+                "simulate" => qsc::circuit::GenerationMethod::Simulate,
+                "classicalEval" => qsc::circuit::GenerationMethod::ClassicalEval,
+                _ => {
+                    return qsc::circuit::Config::default();
+                }
+            },
+            locations: c.locations,
+        }
+    });
     if is_openqasm_program(&program) {
         let (sources, capabilities) = into_openqasm_arg(program);
         let (_, mut interpreter) = get_interpreter_from_openqasm(&sources, capabilities)?;
+
         let circuit = interpreter
-            .circuit(CircuitEntryPoint::EntryPoint, simulate)
+            .circuit(CircuitEntryPoint::EntryPoint, config)
             .map_err(interpret_errors_into_qsharp_errors_json)?;
         serde_wasm_bindgen::to_value(&circuit).map_err(|e| e.to_string())
     } else {
@@ -177,11 +209,12 @@ pub fn get_circuit(
             LanguageFeatures::from_iter(language_features),
             store,
             &deps[..],
+            Encoding::Utf16,
         )
         .map_err(interpret_errors_into_qsharp_errors_json)?;
 
         let circuit = interpreter
-            .circuit(entry_point, simulate)
+            .circuit(entry_point, config)
             .map_err(interpret_errors_into_qsharp_errors_json)?;
 
         serde_wasm_bindgen::to_value(&circuit).map_err(|e| e.to_string())
@@ -407,6 +440,7 @@ where
         language_features,
         store,
         dependencies,
+        Encoding::Utf16,
     ) {
         Ok(interpreter) => interpreter,
         Err(err) => {
@@ -425,7 +459,7 @@ where
         let result = {
             let mut sim = SparseSim::new_with_noise(pauliNoise);
             sim.set_loss(qubitLoss);
-            interpreter.eval_entry_with_sim(&mut sim, &mut out)
+            interpreter.eval_entry_with_sim(&mut TracingBackend::new_no_trace(&mut sim), &mut out)
         };
         let mut success = true;
         let msg: serde_json::Value = match result {
@@ -525,7 +559,8 @@ pub fn runWithNoise(
             let result = {
                 let mut sim = SparseSim::new_with_noise(&noise);
                 sim.set_loss(qubitLoss);
-                interpreter.eval_entry_with_sim(&mut sim, &mut out)
+                interpreter
+                    .eval_entry_with_sim(&mut TracingBackend::new_no_trace(&mut sim), &mut out)
             };
             let mut success = true;
             let msg: serde_json::Value = match result {
@@ -728,6 +763,7 @@ fn get_configured_interpreter_from_openqasm(
         capabilities,
         language_features,
         &dependencies,
+        Encoding::Utf16,
     )
     .map_err(interpret_errors_into_qsharp_errors_json)?;
 
