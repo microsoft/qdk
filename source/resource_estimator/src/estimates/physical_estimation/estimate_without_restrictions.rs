@@ -43,7 +43,8 @@ impl<
             let mut error_budget = error_budget.clone();
 
             self.layout_overhead()
-                .prune_error_budget(&mut error_budget, self.error_budget_strategy());
+                .prune_error_budget(&mut error_budget, self.error_budget_strategy())
+                .map_err(Error::PruneErrorBudgetFailed)?;
 
             let required_logical_error_rate =
                 self.required_logical_error_rate(error_budget.logical(), num_cycles)?;

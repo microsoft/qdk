@@ -28,7 +28,13 @@ pub trait Overhead {
     /// When implemented, prunes the error budget with respect to the provided
     /// strategy
     #[allow(unused_variables)]
-    fn prune_error_budget(&self, budget: &mut ErrorBudget, strategy: ErrorBudgetStrategy) {}
+    fn prune_error_budget(
+        &self,
+        budget: &mut ErrorBudget,
+        strategy: ErrorBudgetStrategy,
+    ) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 /// This is the realized logical overhead after applying an error budget.  This

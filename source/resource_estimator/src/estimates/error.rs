@@ -34,6 +34,13 @@ pub enum Error {
     #[error("Cannot compute the required number of magic states: {0}")]
     #[diagnostic(code("Qsc.Estimates.NumberOfMagicStatesComputationFailed"))]
     NumberOfMagicStatesComputationFailed(String),
+    /// Error while pruning the error budget
+    ///
+    /// ✅ This does not contain user data and can be logged
+    /// ✅ This error cannot be triggered by the system.
+    #[error("Cannot prune the error budget: {0}")]
+    #[diagnostic(code("Qsc.Estimates.PruneErrorBudgetFailed"))]
+    PruneErrorBudgetFailed(String),
     /// Both constraints for maximal time and
     /// maximal number of qubits are provided
     ///
