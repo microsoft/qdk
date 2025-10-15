@@ -23,7 +23,7 @@ export function Circuit(props: {
   isEditable: boolean;
   editCallback?: (fileData: qviz.CircuitGroup) => void;
   runCallback?: () => void;
-  renderLocation: (s: SourceLocation) => { title: string; href: string };
+  renderLocations: (s: SourceLocation[]) => { title: string; href: string };
 }) {
   let unrenderable = false;
   let qubits = 0;
@@ -68,7 +68,7 @@ function ZoomableCircuit(props: {
   isEditable: boolean;
   editCallback?: (fileData: qviz.CircuitGroup) => void;
   runCallback?: () => void;
-  renderLocation: (s: SourceLocation) => { title: string; href: string };
+  renderLocations: (s: SourceLocation[]) => { title: string; href: string };
 }) {
   const circuitDiv = useRef<HTMLDivElement>(null);
   const [zoomLevel, setZoomLevel] = useState(100);
@@ -96,7 +96,7 @@ function ZoomableCircuit(props: {
         container,
         expandDepth,
         props.isEditable,
-        props.renderLocation,
+        props.renderLocations,
         props.editCallback,
         props.runCallback,
       );
@@ -207,7 +207,7 @@ function ZoomableCircuit(props: {
     container: HTMLDivElement,
     expandDepth: number,
     isEditable: boolean,
-    renderLocation?: (s: SourceLocation) => { title: string; href: string },
+    renderLocations?: (s: SourceLocation[]) => { title: string; href: string },
     editCallback?: (fileData: qviz.CircuitGroup) => void,
     runCallback?: () => void,
   ) {
@@ -216,7 +216,7 @@ function ZoomableCircuit(props: {
       isEditable,
       editCallback,
       runCallback,
-      renderLocation,
+      renderLocations,
     });
     return container.getElementsByClassName("qviz")[0]!;
   }
@@ -411,17 +411,35 @@ export function CircuitPanel(props: CircuitProps) {
           isEditable={props.isEditable}
           editCallback={props.editCallback}
           runCallback={props.runCallback}
-          renderLocation={(location) => {
-            const uri = location.file;
-            const position = {
-              line: location.line,
-              character: location.column,
-            };
-            const basename = uri.replace(/\/+$/, "").split("/").pop() ?? uri;
-            const argsStr = encodeURIComponent(JSON.stringify([uri, position]));
+          renderLocations={(locations) => {
+            const qdkLocations = locations.map((location) => {
+              const position = {
+                line: location.line,
+                character: location.column,
+              };
+              return {
+                source: location.file,
+                span: {
+                  start: position,
+                  end: position,
+                },
+              };
+            });
+
+            const titles = locations.map((location) => {
+              const basename =
+                location.file.replace(/\/+$/, "").split("/").pop() ??
+                location.file;
+              const title = `${basename}:${location.line}:${location.column}`;
+              return title;
+            });
+            const title = titles.length > 1 ? `${titles[0]}, ...` : titles[0];
+
+            const argsStr = encodeURIComponent(JSON.stringify([qdkLocations]));
+            const href = `command:qsharp-vscode.gotoLocations?${argsStr}`;
             return {
-              title: `${basename}:${location.line}:${location.column}`,
-              href: `command:qsharp-vscode.gotoLocation?${argsStr}`,
+              title,
+              href,
             };
           }}
         ></Circuit>

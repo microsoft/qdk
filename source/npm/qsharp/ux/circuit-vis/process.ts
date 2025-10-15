@@ -31,7 +31,7 @@ import { getGateWidth } from "./utils.js";
 const processOperations = (
   componentGrid: ComponentGrid,
   registers: RegisterMap,
-  renderLocation?: (s: SourceLocation) => { title: string; href: string },
+  renderLocations?: (s: SourceLocation[]) => { title: string; href: string },
 ): { renderDataArray: GateRenderData[][]; svgWidth: number } => {
   if (componentGrid.length === 0)
     return { renderDataArray: [], svgWidth: startX + gatePadding * 2 };
@@ -49,7 +49,7 @@ const processOperations = (
         const renderData: GateRenderData = _opToRenderData(
           op,
           registers,
-          renderLocation,
+          renderLocations,
         );
 
         if (
@@ -151,7 +151,7 @@ const _getClassicalRegStart = (
 const _opToRenderData = (
   op: Operation | null,
   registers: RegisterMap,
-  renderLocation?: (s: SourceLocation) => { title: string; href: string },
+  renderLocations?: (s: SourceLocation[]) => { title: string; href: string },
 ): GateRenderData => {
   const renderData: GateRenderData = {
     type: GateType.Invalid,
@@ -285,8 +285,8 @@ const _opToRenderData = (
   // Set gate width
   renderData.width = getGateWidth(renderData);
 
-  if (op.source && renderLocation) {
-    renderData.link = renderLocation(op.source);
+  if (op.source && renderLocations) {
+    renderData.link = renderLocations([op.source]);
   }
 
   // Extend existing data attributes with user-provided data attributes

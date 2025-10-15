@@ -51,7 +51,7 @@ export type DrawOptions = {
   isEditable?: boolean;
   editCallback?: (circuitGroup: CircuitGroup) => void;
   runCallback?: () => void;
-  renderLocation?: (l: SourceLocation) => { title: string; href: string };
+  renderLocations?: (l: SourceLocation[]) => { title: string; href: string };
 };
 
 /**
@@ -221,12 +221,12 @@ export class Sqore {
     const { qubits, componentGrid } = circuit;
     const { qubitWires, registers, svgHeight } = formatInputs(
       qubits,
-      !this.options.isEditable ? this.options.renderLocation : undefined,
+      !this.options.isEditable ? this.options.renderLocations : undefined,
     );
     const { renderDataArray, svgWidth } = processOperations(
       componentGrid,
       registers,
-      !this.options.isEditable ? this.options.renderLocation : undefined,
+      !this.options.isEditable ? this.options.renderLocations : undefined,
     );
     const formattedGates: SVGElement = formatGates(renderDataArray);
     const measureGates: GateRenderData[] = flatten(renderDataArray).filter(

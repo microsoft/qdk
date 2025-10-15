@@ -370,8 +370,8 @@
     ],
     "commands": [
       {
-        "command": "qsharp-vscode.gotoLocation",
-        "title": "Go to source location",
+        "command": "qsharp-vscode.gotoLocations",
+        "title": "Go to source locations",
         "category": "QDK"
       },
       {

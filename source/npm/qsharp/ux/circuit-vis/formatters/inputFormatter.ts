@@ -23,7 +23,7 @@ import { mathChars } from "../utils.js";
  */
 const formatInputs = (
   qubits: Qubit[],
-  renderLocation?: (s: SourceLocation) => { title: string; href: string },
+  renderLocations?: (s: SourceLocation[]) => { title: string; href: string },
 ): { qubitWires: SVGElement; registers: RegisterMap; svgHeight: number } => {
   const qubitWires: SVGElement[] = [];
   const registers: RegisterMap = {};
@@ -31,10 +31,8 @@ const formatInputs = (
   let currY: number = startY;
   qubits.forEach(({ id, numResults, declarations }, wireIndex) => {
     const link: { link?: { href: string; title: string } } = {};
-    if (renderLocation && declarations && declarations.length > 0) {
-      // TODO: render multiple
-      const decl = declarations[0];
-      link.link = renderLocation(decl);
+    if (renderLocations && declarations && declarations.length > 0) {
+      link.link = renderLocations(declarations);
     }
 
     // Add qubit wire to list of qubit wires

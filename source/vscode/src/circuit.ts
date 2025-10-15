@@ -470,9 +470,19 @@ function documentHtml(
       ? escapeHtml(`:${position.line + 1}:${position.character + 1}`)
       : "";
 
-    const args = customCommand && position ? [uri, position] : [uri];
+    const locations = [
+      {
+        source: uri,
+        span: {
+          start: position,
+          end: position,
+        },
+      },
+    ];
+
+    const args = customCommand && position ? [locations] : [uri];
     const openCommand =
-      customCommand && position ? "qsharp-vscode.gotoLocation" : "vscode.open";
+      customCommand && position ? "qsharp-vscode.gotoLocations" : "vscode.open";
 
     const argsStr = encodeURIComponent(JSON.stringify(args));
     const openCommandUri = Uri.parse(`command:${openCommand}?${argsStr}`, true);

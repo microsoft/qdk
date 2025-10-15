@@ -118,10 +118,21 @@ function htmlSnapshotPath(name) {
 function drawCircuit(circuitGroup, container) {
   const sqore = new Sqore(circuitGroup, {
     renderDepth: 10,
-    renderLocation,
+    renderLocations,
   });
 
   sqore.draw(container);
+}
+
+/**
+ * @param {{ file: string; line: number; column: number; }[]} locations
+ */
+function renderLocations(locations) {
+  let locs = locations.map((loc) => renderLocation(loc));
+  return {
+    title: locs.map((l) => l.title).join("\n"),
+    href: "#",
+  };
 }
 
 /**
@@ -156,7 +167,7 @@ function renderLocation(location) {
 function drawEditableCircuit(circuitGroup, container) {
   const sqore = new Sqore(circuitGroup, {
     isEditable: true,
-    renderLocation,
+    renderLocations,
   });
 
   sqore.draw(container);
