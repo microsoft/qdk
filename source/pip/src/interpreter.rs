@@ -769,11 +769,13 @@ impl Interpreter {
 
         // TODO: backcompat, for now
         let generation_method = GenerationMethod::ClassicalEval;
+        let locations = false;
 
         match self.interpreter.circuit(
             entrypoint,
             qsc::circuit::Config {
                 generation_method,
+                locations,
                 ..Default::default()
             },
         ) {

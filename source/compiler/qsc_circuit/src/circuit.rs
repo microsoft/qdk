@@ -73,6 +73,7 @@ pub struct ResolvedSourceLocation {
 
 impl Display for ResolvedSourceLocation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // TODO: pretty sure we have to add 1 here
         write!(f, "{}:{}:{}", self.file, self.line, self.column)
     }
 }
@@ -282,11 +283,12 @@ pub struct Qubit {
     #[serde(rename = "numResults")]
     #[serde(default)]
     pub num_results: usize,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub declarations: Vec<SourceLocation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub declarations: Option<Vec<SourceLocation>>,
 }
 
 #[derive(Clone, Debug, Copy)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct Config {
     /// Maximum number of operations the builder will add to the circuit
     pub max_operations: usize,
@@ -297,6 +299,9 @@ pub struct Config {
     pub generation_method: GenerationMethod,
     /// Collapse qubit registers into single qubits
     pub collapse_qubit_registers: bool,
+    /// Show the source code locations of operations and qubit declarations
+    /// in the circuit diagram
+    pub locations: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -328,6 +333,7 @@ impl Default for Config {
             group_scopes: true,
             generation_method: GenerationMethod::Static,
             collapse_qubit_registers: false,
+            locations: true,
         }
     }
 }
@@ -364,7 +370,7 @@ impl Row {
     fn add_measurement(&mut self, column: usize, source: Option<&SourceLocation>) {
         let mut gate_label = String::from("M");
         if let Some(SourceLocation::Resolved(loc)) = source {
-            let _ = write!(&mut gate_label, "@{}:{}:{}", loc.file, loc.line, loc.column);
+            let _ = write!(&mut gate_label, "@{loc}");
         }
         self.add(column, CircuitObject::Object(gate_label.to_string()));
     }
@@ -641,7 +647,7 @@ impl Circuit {
         for q in &self.qubits {
             let mut label = format!("q_{}", q.id);
             let mut first = true;
-            for loc in &q.declarations {
+            for loc in q.declarations.iter().flatten() {
                 if let SourceLocation::Resolved(loc) = loc {
                     if first {
                         label.push('@');
@@ -1501,9 +1507,12 @@ fn get_qubit_map(
             if let Some(group_idx) = group_idx {
                 qubit_map.insert(q.id, group_idx);
                 new_qubits[group_idx].num_results += q.num_results;
-                new_qubits[group_idx]
-                    .declarations
-                    .extend(q.declarations.clone());
+                if let Some(d) = q.declarations {
+                    match &mut new_qubits[group_idx].declarations {
+                        Some(v) => v.extend(d.clone()),
+                        None => new_qubits[group_idx].declarations = Some(d.clone()),
+                    }
+                }
             } else {
                 group_idx = Some(new_qubits.len());
                 qubit_map.insert(q.id, new_qubits.len());

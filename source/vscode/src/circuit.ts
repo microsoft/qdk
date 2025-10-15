@@ -317,6 +317,7 @@ export function getConfig() {
     groupScopes: true,
     generationMethod: "static" as const,
     collapseQubitRegisters: false,
+    locations: true,
   };
 
   const config = workspace
@@ -347,6 +348,10 @@ export function getConfig() {
       typeof config.collapseQubitRegisters === "boolean"
         ? config.collapseQubitRegisters
         : defaultConfig.collapseQubitRegisters,
+    locations:
+      "locations" in config && typeof config.locations === "boolean"
+        ? config.locations
+        : defaultConfig.locations,
   };
 
   log.debug("Using circuit config: ", configObject);

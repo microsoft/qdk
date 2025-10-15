@@ -110,9 +110,6 @@ export class Sqore {
     const _circuit: Circuit =
       circuit ?? JSON.parse(JSON.stringify(this.circuit));
 
-    // Render source locations as URIs using the provided rendering function
-    this.transformLocations(_circuit);
-
     // Assign unique locations to each operation
     _circuit.componentGrid.forEach((col, colIndex) =>
       col.components.forEach((op, i) =>
@@ -156,30 +153,6 @@ export class Sqore {
       enableEvents(container, this, () => this.renderCircuit(container));
       if (this.options.editCallback != undefined) {
         this.options.editCallback(this.minimizeCircuits(this.circuitGroup));
-      }
-    }
-  }
-
-  transformLocations(circuit: Circuit) {
-    const componentGrid = circuit.componentGrid;
-    this.renderSourceLocations(componentGrid);
-  }
-
-  renderSourceLocations(componentGrid: ComponentGrid) {
-    for (const column of componentGrid) {
-      for (const component of column.components) {
-        if (component.children?.length) {
-          this.renderSourceLocations(component.children);
-        }
-
-        const source = component.source;
-        if (source && this.options.renderLocation && !this.options.isEditable) {
-          const location = this.options.renderLocation(source);
-          const attrs = component.dataAttributes || {};
-          attrs.sourceLinkTitle = location.title;
-          attrs.sourceLinkHref = location.href;
-          component.dataAttributes = attrs;
-        }
       }
     }
   }
@@ -246,10 +219,14 @@ export class Sqore {
     };
 
     const { qubits, componentGrid } = circuit;
-    const { qubitWires, registers, svgHeight } = formatInputs(qubits);
+    const { qubitWires, registers, svgHeight } = formatInputs(
+      qubits,
+      !this.options.isEditable ? this.options.renderLocation : undefined,
+    );
     const { renderDataArray, svgWidth } = processOperations(
       componentGrid,
       registers,
+      !this.options.isEditable ? this.options.renderLocation : undefined,
     );
     const formattedGates: SVGElement = formatGates(renderDataArray);
     const measureGates: GateRenderData[] = flatten(renderDataArray).filter(

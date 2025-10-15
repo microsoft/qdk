@@ -46,8 +46,7 @@ impl Tracer for CircuitBuilder {
         args: Vec<String>,
         metadata: Option<backend::DebugMetadata>,
     ) {
-        let metadata = metadata.map(|md| self.convert_metadata(&md));
-
+        let metadata = self.convert_if_source_locations_enabled(metadata);
         self.block_builder.gate(
             self.register_map_builder.current(),
             &GateLabel { name, is_adjoint },
@@ -62,7 +61,7 @@ impl Tracer for CircuitBuilder {
     }
 
     fn m(&mut self, q: usize, val: &val::Result, metadata: Option<backend::DebugMetadata>) {
-        let metadata = metadata.map(|md| self.convert_metadata(&md));
+        let metadata = self.convert_if_source_locations_enabled(metadata);
         let r = match val {
             val::Result::Id(id) => *id,
             val::Result::Loss | val::Result::Val(_) => self.register_map_builder.result_allocate(),
@@ -73,7 +72,7 @@ impl Tracer for CircuitBuilder {
     }
 
     fn mresetz(&mut self, q: usize, val: &val::Result, metadata: Option<backend::DebugMetadata>) {
-        let metadata = metadata.map(|md| self.convert_metadata(&md));
+        let metadata = self.convert_if_source_locations_enabled(metadata);
         let r = match val {
             val::Result::Id(id) => *id,
             val::Result::Loss | val::Result::Val(_) => self.register_map_builder.result_allocate(),
@@ -84,13 +83,13 @@ impl Tracer for CircuitBuilder {
     }
 
     fn reset(&mut self, q: usize, metadata: Option<backend::DebugMetadata>) {
-        let metadata = metadata.map(|md| self.convert_metadata(&md));
+        let metadata = self.convert_if_source_locations_enabled(metadata);
         self.block_builder
             .reset(self.register_map_builder.current(), q, metadata);
     }
 
     fn qubit_allocate(&mut self, q: usize, metadata: Option<backend::DebugMetadata>) {
-        let metadata = metadata.map(|md| self.convert_metadata(&md));
+        let metadata = self.convert_if_source_locations_enabled(metadata);
         self.register_map_builder.map_qubit(q, metadata);
     }
 
@@ -308,6 +307,16 @@ impl CircuitBuilder {
 
         rir::InstructionMetadata { dbg_location }
     }
+
+    fn convert_if_source_locations_enabled(
+        &mut self,
+        metadata: Option<backend::DebugMetadata>,
+    ) -> Option<InstructionMetadata> {
+        if !self.config.locations {
+            return None;
+        }
+        metadata.map(|md| self.convert_metadata(&md))
+    }
 }
 
 pub(crate) fn finish_circuit(
@@ -325,7 +334,9 @@ pub(crate) fn finish_circuit(
             resolve_location_if_unresolved(dbg_info, d);
         }
 
-        q.declarations = declarations.iter().filter_map(to_source_location).collect();
+        if !declarations.is_empty() {
+            q.declarations = Some(declarations.iter().filter_map(to_source_location).collect());
+        }
     }
 
     let mut qubits = qubits.into_iter().map(|(q, _)| q).collect::<Vec<_>>();
@@ -339,12 +350,14 @@ pub(crate) fn finish_circuit(
         fill_in_dbg_metadata(&mut operations, package_store, position_encoding);
 
         for q in &mut qubits {
-            for source_location in &mut q.declarations {
-                resolve_source_location_if_unresolved(
-                    source_location,
-                    package_store,
-                    position_encoding,
-                );
+            if let Some(declarations) = &mut q.declarations {
+                for source_location in declarations {
+                    resolve_source_location_if_unresolved(
+                        source_location,
+                        package_store,
+                        position_encoding,
+                    );
+                }
             }
         }
     }
@@ -411,7 +424,7 @@ impl RegisterMap {
                 Qubit {
                     id: i,
                     num_results,
-                    declarations: vec![],
+                    declarations: None,
                 },
                 declarations.clone(),
             ));

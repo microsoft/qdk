@@ -104,10 +104,6 @@ test("library summaries slim docs", async () => {
   const lines = summaries.split("\n");
   const namespaceHeaders = lines.filter((line) => line.startsWith("# "));
   assert(namespaceHeaders.length > 0, "Should have namespace headers");
-
-  console.log(
-    `Generated ${summaries.length} characters of summaries with ${namespaceHeaders.length} namespaces`,
-  );
 });
 
 test("basic eval", async () => {

@@ -106,16 +106,28 @@ export async function activate(
           document,
           vscode.ViewColumn.One,
         );
+        void editor;
         const range: IRange = {
           start: position,
           end: position,
         };
         const vscodeRange = toVsCodeRange(range);
-        editor.selection = new vscode.Selection(
+        const location = new vscode.Location(
+          vscode.Uri.parse(uri),
           vscodeRange.start,
-          vscodeRange.end,
         );
-        editor.revealRange(vscodeRange, vscode.TextEditorRevealType.InCenter);
+        // editor.selection = new vscode.Selection(
+        //   vscodeRange.start,
+        //   vscodeRange.end,
+        // );
+        // editor.revealRange(vscodeRange, vscode.TextEditorRevealType.InCenter);
+        vscode.commands.executeCommand(
+          "editor.action.goToLocations",
+          uri,
+          vscodeRange.start,
+          [location, location],
+          "peek",
+        );
       },
     ),
   );

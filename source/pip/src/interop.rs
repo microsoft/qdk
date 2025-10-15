@@ -616,11 +616,13 @@ pub(crate) fn circuit_qasm_program(
 
     // TODO: backcompat, for now
     let generation_method = GenerationMethod::ClassicalEval;
+    let locations = false;
 
     match interpreter.circuit(
         CircuitEntryPoint::EntryExpr(entry_expr),
         qsc::circuit::Config {
             generation_method,
+            locations,
             ..Default::default()
         },
     ) {

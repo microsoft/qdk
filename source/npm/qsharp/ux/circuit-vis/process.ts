@@ -8,7 +8,12 @@ import {
   controlBtnOffset,
   groupBoxPadding,
 } from "./constants.js";
-import { ComponentGrid, Operation, ConditionalRender } from "./circuit.js";
+import {
+  ComponentGrid,
+  Operation,
+  ConditionalRender,
+  SourceLocation,
+} from "./circuit.js";
 import { GateRenderData, GateType } from "./gateRenderData.js";
 import { Register, RegisterMap } from "./register.js";
 import { getGateWidth } from "./utils.js";
@@ -26,6 +31,7 @@ import { getGateWidth } from "./utils.js";
 const processOperations = (
   componentGrid: ComponentGrid,
   registers: RegisterMap,
+  renderLocation?: (s: SourceLocation) => { title: string; href: string },
 ): { renderDataArray: GateRenderData[][]; svgWidth: number } => {
   if (componentGrid.length === 0)
     return { renderDataArray: [], svgWidth: startX + gatePadding * 2 };
@@ -40,7 +46,11 @@ const processOperations = (
   const renderDataArray: GateRenderData[][] = componentGrid.map(
     (col, colIndex) =>
       col.components.map((op) => {
-        const renderData: GateRenderData = _opToRenderData(op, registers);
+        const renderData: GateRenderData = _opToRenderData(
+          op,
+          registers,
+          renderLocation,
+        );
 
         if (
           op != null &&
@@ -141,6 +151,7 @@ const _getClassicalRegStart = (
 const _opToRenderData = (
   op: Operation | null,
   registers: RegisterMap,
+  renderLocation?: (s: SourceLocation) => { title: string; href: string },
 ): GateRenderData => {
   const renderData: GateRenderData = {
     type: GateType.Invalid,
@@ -273,6 +284,10 @@ const _opToRenderData = (
 
   // Set gate width
   renderData.width = getGateWidth(renderData);
+
+  if (op.source && renderLocation) {
+    renderData.link = renderLocation(op.source);
+  }
 
   // Extend existing data attributes with user-provided data attributes
   if (dataAttributes != null)

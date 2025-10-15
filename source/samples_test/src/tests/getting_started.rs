@@ -64,8 +64,12 @@ pub const CATSTATES_EXPECT_DEBUG: Expect = expect![[r#"
     [Zero, Zero, Zero, Zero, Zero]"#]];
 pub const RANDOMBITS_EXPECT: Expect = expect!["[Zero, Zero, One, One, One]"];
 pub const RANDOMBITS_EXPECT_DEBUG: Expect = expect!["[Zero, Zero, One, One, One]"];
-pub const SIMPLETELEPORTATION_EXPECT: Expect = expect!["()"];
-pub const SIMPLETELEPORTATION_EXPECT_DEBUG: Expect = expect!["()"];
+pub const SIMPLETELEPORTATION_EXPECT: Expect = expect![[r#"
+    Teleportation successful: true.
+    true"#]];
+pub const SIMPLETELEPORTATION_EXPECT_DEBUG: Expect = expect![[r#"
+    Teleportation successful: true.
+    true"#]];
 pub const ENTANGLEMENT_EXPECT: Expect = expect![[r#"
     STATE:
     |00⟩: 0.7071+0.0000𝑖

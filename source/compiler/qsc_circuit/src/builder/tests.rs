@@ -14,6 +14,7 @@ fn exceed_max_operations() {
         generation_method: GenerationMethod::ClassicalEval,
         group_scopes: false,
         collapse_qubit_registers: false,
+        locations: false,
     });
 
     let tracer: &mut dyn Tracer = &mut builder;
@@ -41,6 +42,7 @@ fn exceed_max_operations_deferred_measurements() {
         generation_method: GenerationMethod::ClassicalEval,
         group_scopes: false,
         collapse_qubit_registers: false,
+        locations: false,
     });
 
     // TODO: ugh...

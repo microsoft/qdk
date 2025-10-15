@@ -218,6 +218,7 @@ test("circuit snapshot tests - .qs files", async (t) => {
           groupScopes: true,
           loopDetection: false,
           maxOperations: 100,
+          locations: true,
         },
       );
 

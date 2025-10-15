@@ -72,6 +72,10 @@
     fill: var(--vscode-button-secondaryForeground, #ffffff);
   }
 
+  a.qs-circuit-source-link .qs-maintext {
+    pointer-events: auto;
+  }
+
   /* Hover effect for clickable gates */
   a.qs-circuit-source-link:hover .gate-unitary {
     fill: var(--vscode-button-secondaryHoverBackground, #4d4d4d);
@@ -80,6 +84,20 @@
   a.qs-circuit-source-link:hover .gate-measure,
   a.qs-circuit-source-link:hover .gate-ket {
     fill: var(--vscode-button-hoverBackground, #005a9e);
+  }
+
+  a.qs-circuit-source-link:hover .qs-maintext {
+    fill: var(--vscode-editorLink-activeForeground, #5d5d5d);
+  }
+
+  a.qs-circuit-source-link:hover .control-dot {
+    fill: var(--vscode-editorLink-activeForeground, #5d5d5d);
+    stroke: var(--vscode-editorLink-activeForeground, #5d5d5d);
+  }
+
+  a.qs-circuit-source-link:hover .oplus > line,
+  a.qs-circuit-source-link:hover .oplus > circle {
+    stroke: var(--vscode-editorLink-activeForeground, #5d5d5d);
   }
 
   /* Default style for arg-button */

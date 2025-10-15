@@ -82,6 +82,8 @@ export interface Qubit {
   id: number;
   /** Number of measurement results associated to the qubit. */
   numResults?: number;
+  /** Declaration locations in the source code. */
+  declarations?: SourceLocation[];
 }
 
 /**

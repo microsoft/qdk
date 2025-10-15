@@ -151,6 +151,7 @@ serializable_type! {
         group_scopes: bool,
         generation_method: String,
         collapse_qubit_registers: bool,
+        locations: bool,
     },
     r#"export interface ICircuitConfig {
         maxOperations: number;
@@ -158,6 +159,7 @@ serializable_type! {
         groupScopes: boolean;
         generationMethod: "simulate" | "classicalEval" | "static";
         collapseQubitRegisters: boolean;
+        locations: boolean;
     }"#,
     ICircuitConfig
 }
@@ -183,6 +185,7 @@ pub fn get_circuit(
                 }
             },
             collapse_qubit_registers: c.collapse_qubit_registers,
+            locations: c.locations,
         }
     });
     if is_openqasm_program(&program) {

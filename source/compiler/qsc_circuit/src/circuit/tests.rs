@@ -26,7 +26,7 @@ fn qubit(id: usize) -> Qubit {
     Qubit {
         id,
         num_results: 0,
-        declarations: vec![],
+        declarations: None,
     }
 }
 
@@ -34,7 +34,7 @@ fn qubit_with_results(id: usize, num_results: usize) -> Qubit {
     Qubit {
         id,
         num_results,
-        declarations: vec![],
+        declarations: None,
     }
 }
 
@@ -150,12 +150,12 @@ fn bell() {
         Qubit {
             id: 0,
             num_results: 1,
-            declarations: vec![],
+            declarations: None,
         },
         Qubit {
             id: 1,
             num_results: 1,
-            declarations: vec![],
+            declarations: None,
         },
     ];
     let component_grid = operation_list_to_grid(operations, &qubits, true);
@@ -184,7 +184,7 @@ fn control_classical() {
         Qubit {
             id: 0,
             num_results: 1,
-            declarations: vec![],
+            declarations: None,
         },
         qubit(1),
         qubit(2),
@@ -210,7 +210,7 @@ fn two_measurements() {
     let qubits = vec![Qubit {
         id: 0,
         num_results: 2,
-        declarations: vec![],
+        declarations: None,
     }];
     let component_grid = operation_list_to_grid(operations, &qubits, true);
     let c = Circuit {
@@ -232,7 +232,7 @@ fn left_align_operations() {
         Qubit {
             id: 0,
             num_results: 1,
-            declarations: vec![],
+            declarations: None,
         },
         qubit(1),
         qubit(2),
@@ -330,12 +330,12 @@ fn classical_controlled_group() {
             Qubit {
                 id: 0,
                 num_results: 1,
-                declarations: vec![],
+                declarations: None,
             },
             Qubit {
                 id: 1,
                 num_results: 1,
-                declarations: vec![],
+                declarations: None,
             },
         ],
         component_grid: vec![

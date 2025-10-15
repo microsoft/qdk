@@ -122,30 +122,21 @@ const _createGate = (
   attributes["data-min-y"] = y1.toString();
   attributes["data-max-y"] = y2.toString();
 
-  const location =
-    renderData.dataAttributes?.sourceLinkTitle &&
-    renderData.dataAttributes?.sourceLinkHref
-      ? {
-          title: renderData.dataAttributes?.sourceLinkTitle,
-          href: renderData.dataAttributes?.sourceLinkHref,
-        }
-      : undefined;
-
   const zoomBtn: SVGElement | null = _zoomButton(renderData, nestedDepth);
   if (zoomBtn != null) svgElems = svgElems.concat([zoomBtn]);
 
   const gateElem = group(svgElems, attributes);
 
   // If there's a source location, wrap the gate in an SVG <a> element to make it clickable
-  if (location) {
+  if (renderData.link) {
     const linkElem = createSvgElement("a", {
-      href: location.href,
+      href: renderData.link.href,
       class: "qs-circuit-source-link",
     });
 
     // Add title as a child <title> element for accessibility and hover tooltip
     const titleElem = createSvgElement("title");
-    titleElem.textContent = location.title;
+    titleElem.textContent = renderData.link.title;
     linkElem.appendChild(titleElem);
 
     // Add the gate as a child of the link
