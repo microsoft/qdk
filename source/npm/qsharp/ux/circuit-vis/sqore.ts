@@ -120,6 +120,12 @@ export class Sqore {
       ),
     );
 
+    // Render operations starting at given depth
+    // _circuit.componentGrid = this.selectOpsAtDepth(
+    //   _circuit.componentGrid,
+    //   renderDepth,
+    // );
+
     const grid = _circuit.componentGrid;
     this.expandUntilDepth(grid, this.renderDepth);
 

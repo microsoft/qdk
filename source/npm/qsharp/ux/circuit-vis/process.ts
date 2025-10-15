@@ -269,11 +269,7 @@ const _opToRenderData = (
 
   // If gate has extra arguments, display them
   // For now, we only display the first argument
-  if (args !== undefined && args.length > 0) {
-    if (args.length > 0) {
-      renderData.displayArgs = args[0];
-    }
-  }
+  if (args !== undefined && args.length > 0) renderData.displayArgs = args[0];
 
   // Set gate width
   renderData.width = getGateWidth(renderData);

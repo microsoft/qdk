@@ -291,13 +291,8 @@ const toRenderData = (
       break;
   }
 
-  console.log(`Processing operation: ${JSON.stringify(operation)}`);
-
-  if (operation.args !== undefined && operation.args.length > 0) {
-    if (operation.args.length > 0) {
-      renderData.displayArgs = operation.args[0];
-    }
-  }
+  if (operation.args !== undefined && operation.args.length > 0)
+    renderData.displayArgs = operation.args[0];
 
   renderData.width = getGateWidth(renderData);
   renderData.x = x + 1 + renderData.width / 2; // offset by 1 for left padding

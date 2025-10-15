@@ -1145,6 +1145,35 @@ fn custom_intrinsic_one_classical_arg() {
 }
 
 #[test]
+fn custom_intrinsic_no_qubit_args() {
+    let circ = circuit_both_ways(
+        r"
+    namespace Test {
+        operation foo(n: Int): Unit {
+            body intrinsic;
+        }
+
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            X(q);
+            foo(4);
+        }
+    }",
+        CircuitEntryPoint::EntryPoint,
+    );
+
+    expect![[r#"
+        Eval:
+        q_0    ─ X@test.qs:9:12 ──
+
+        Static:
+        q_0    ─ [[ ─── [Main@test.qs:7:8] ─── X@test.qs:9:12 ─── ]] ──
+    "#]]
+    .assert_eq(&circ);
+}
+
+#[test]
 fn custom_intrinsic_mixed_args_classical_eval() {
     let circ = circuit(
         r"
@@ -1229,7 +1258,6 @@ fn custom_intrinsic_mixed_args_static() {
 
     // This intrinsic never gets codegenned, so it's missing from the
     // circuit too.
-
     expect![[r#"
         q_0
         q_1
@@ -1265,8 +1293,6 @@ fn custom_intrinsic_apply_idle_noise_classical_eval() {
         },
     );
 
-    // These intrinsics never get codegenned, so they're missing from the
-    // circuit too.
     expect![[r#"
         q_0    ─ ApplyIdleNoise@test.qs:7:12 ─
     "#]]

@@ -106,6 +106,11 @@ impl Tracer for CircuitBuilder {
         // to be shown as part of the gate label when the circuit is rendered.
         let (qubit_args, classical_args) = self.split_qubit_args(arg);
 
+        if qubit_args.is_empty() {
+            // don't add a gate with no qubit targets
+            return;
+        }
+
         let metadata = metadata.map(|md| self.convert_metadata(&md));
 
         self.block_builder.gate(
