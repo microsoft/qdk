@@ -210,42 +210,60 @@ test("circuit snapshot tests - .qs files", async (t) => {
     await t.test(`${relName}`, async (tt) => {
       const circuitSource = fs.readFileSync(file, "utf8");
       const compiler = getCompiler();
-      const staticCircuit = await compiler.getCircuit(
-        {
-          sources: [[relName, circuitSource]],
-          languageFeatures: [],
-          profile: "adaptive_rif",
-        },
-        undefined,
-        {
-          generationMethod: "static",
-          collapseQubitRegisters: false,
-          groupScopes: true,
-          loopDetection: false,
-          maxOperations: 100,
-          locations: true,
-        },
-      );
 
-      const evalCircuit = await compiler.getCircuit(
-        {
-          sources: [[relName, circuitSource]],
-          languageFeatures: [],
-          profile: "adaptive_rif",
-        },
-        undefined,
-        {
-          generationMethod: "classicalEval",
-          collapseQubitRegisters: false,
-          groupScopes: true,
-          loopDetection: false,
-          maxOperations: 100,
-          locations: true,
-        },
-      );
+      const staticContainer = getContainerElement(`circuit-static`);
+      const evalContainer = getContainerElement(`circuit-eval`);
+      try {
+        const staticCircuit = await compiler.getCircuit(
+          {
+            sources: [[relName, circuitSource]],
+            languageFeatures: [],
+            profile: "adaptive_rif",
+          },
+          undefined,
+          {
+            generationMethod: "static",
+            collapseQubitRegisters: false,
+            groupScopes: true,
+            loopDetection: false,
+            maxOperations: 100,
+            locations: true,
+          },
+        );
+        drawCircuit(staticCircuit, staticContainer);
+      } catch (e) {
+        const pre = document.createElement("pre");
+        pre.appendChild(
+          document.createTextNode(`Error generating static circuit: ${e}`),
+        );
+        staticContainer.appendChild(pre);
+      }
 
-      drawCircuit(staticCircuit, getContainerElement(`circuit-static`));
-      drawCircuit(evalCircuit, getContainerElement(`circuit-eval`));
+      try {
+        const evalCircuit = await compiler.getCircuit(
+          {
+            sources: [[relName, circuitSource]],
+            languageFeatures: [],
+            profile: "adaptive_rif",
+          },
+          undefined,
+          {
+            generationMethod: "classicalEval",
+            collapseQubitRegisters: false,
+            groupScopes: true,
+            loopDetection: false,
+            maxOperations: 100,
+            locations: true,
+          },
+        );
+        drawCircuit(evalCircuit, evalContainer);
+      } catch (e) {
+        const pre = document.createElement("pre");
+        pre.appendChild(
+          document.createTextNode(`Error generating eval circuit: ${e}`),
+        );
+        evalContainer.appendChild(pre);
+      }
 
       snapshotHtml(tt, tt.name);
     });
