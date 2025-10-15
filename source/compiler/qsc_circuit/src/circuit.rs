@@ -5,7 +5,7 @@
 mod tests;
 
 use log::warn;
-use qsc_partial_eval::rir::MetadataPackageSpan;
+use qsc_data_structures::debug::MetadataPackageSpan;
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 use std::{

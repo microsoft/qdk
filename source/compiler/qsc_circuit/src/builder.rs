@@ -14,16 +14,18 @@ use crate::{
         tracer::{BlockBuilder, GateLabel, ResultRegister, WireId},
     },
 };
-use qsc_data_structures::{index_map::IndexMap, line_column::Encoding, span::Span};
+use qsc_data_structures::{
+    debug::{DbgInfo, DbgLocation, DbgMetadataScope, InstructionMetadata, MetadataPackageSpan},
+    index_map::IndexMap,
+    line_column::Encoding,
+    span::Span,
+};
 use qsc_eval::{
     backend::{self, GateInputs, Tracer},
     val::{self, Value},
 };
 use qsc_fir::fir::PackageId;
 use qsc_frontend::compile::PackageStore;
-use qsc_partial_eval::rir::{
-    self, DbgInfo, DbgMetadataScope, InstructionMetadata, MetadataPackageSpan,
-};
 use std::{fmt::Write, mem::replace, rc::Rc};
 
 /// Backend implementation that builds a circuit representation.
@@ -31,7 +33,7 @@ pub struct CircuitBuilder {
     config: Config,
     register_map_builder: RegisterMapBuilder,
     block_builder: BlockBuilder,
-    dbg_info: rir::DbgInfo,
+    dbg_info: DbgInfo,
 }
 
 impl Tracer for CircuitBuilder {
@@ -289,11 +291,11 @@ impl CircuitBuilder {
 
         let (package, span) = user_frame?;
 
-        let location = rir::MetadataPackageSpan {
+        let location = MetadataPackageSpan {
             package: u32::try_from(usize::from(package)).expect("package id should fit in u32"),
             span,
         };
-        let md = rir::DbgLocation {
+        let md = DbgLocation {
             location,
             scope: 0, // TODO: fill in correct scope
             inlined_at: None,
@@ -302,10 +304,10 @@ impl CircuitBuilder {
         Some(self.dbg_info.dbg_locations.len() - 1)
     }
 
-    fn convert_metadata(&mut self, metadata: &backend::DebugMetadata) -> rir::InstructionMetadata {
+    fn convert_metadata(&mut self, metadata: &backend::DebugMetadata) -> InstructionMetadata {
         let dbg_location = self.push_dbg_location(metadata);
 
-        rir::InstructionMetadata { dbg_location }
+        InstructionMetadata { dbg_location }
     }
 
     fn convert_if_source_locations_enabled(

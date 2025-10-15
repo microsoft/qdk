@@ -15,7 +15,12 @@ use core::panic;
 use evaluation_context::{Arg, BlockNode, EvalControlFlow, EvaluationContext, Scope};
 use management::{QuantumIntrinsicsChecker, ResourceManager};
 use miette::Diagnostic;
-use qsc_data_structures::{functors::FunctorApp, span::Span, target::TargetCapabilityFlags};
+use qsc_data_structures::{
+    debug::{DbgLocation, DbgMetadataScope, InstructionMetadata, MetadataPackageSpan},
+    functors::FunctorApp,
+    span::Span,
+    target::TargetCapabilityFlags,
+};
 use qsc_eval::{
     self, Error as EvalError, ErrorBehavior, PackageSpan, State, StepAction, StepResult, Variable,
     are_ctls_unique,
@@ -47,10 +52,7 @@ use qsc_rca::{
         get_missing_runtime_features,
     },
 };
-use qsc_rir::rir::{
-    DbgLocation, DbgMetadataScope, InstructionMetadata, InstructionWithMetadata,
-    MetadataPackageSpan,
-};
+use qsc_rir::rir::InstructionWithMetadata;
 pub use qsc_rir::{
     builder::{self, initialize_decl},
     rir::{

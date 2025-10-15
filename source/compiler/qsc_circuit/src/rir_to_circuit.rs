@@ -20,17 +20,18 @@ use crate::{
     },
 };
 use log::{debug, warn};
-use qsc_data_structures::{index_map::IndexMap, line_column::Encoding};
+use qsc_data_structures::{
+    debug::{DbgInfo, DbgLocation, DbgMetadataScope, InstructionMetadata, MetadataPackageSpan},
+    index_map::IndexMap,
+    line_column::Encoding,
+};
 use qsc_eval::backend::GateInputs;
 use qsc_frontend::{compile::PackageStore, location::Location};
 use qsc_hir::hir::PackageId;
 use qsc_partial_eval::{
     Callable, CallableType, ConditionCode, FcmpConditionCode, Instruction, Literal, Operand,
     VariableId,
-    rir::{
-        BlockId, BlockWithMetadata, DbgInfo, DbgLocation, DbgMetadataScope, InstructionMetadata,
-        InstructionWithMetadata, MetadataPackageSpan, Program, Ty, Variable,
-    },
+    rir::{BlockId, BlockWithMetadata, InstructionWithMetadata, Program, Ty, Variable},
 };
 use rustc_hash::FxHashSet;
 

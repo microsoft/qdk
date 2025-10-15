@@ -7,9 +7,9 @@ use crate::rir_to_circuit::{
     DbgLocationKind, Op, OperationKind, fmt_ops, group_operations, tracer::WireId,
 };
 use expect_test::{Expect, expect};
-use qsc_data_structures::span::Span;
-use qsc_partial_eval::rir::{
-    DbgInfo, DbgLocation, DbgMetadataScope, InstructionMetadata, MetadataPackageSpan,
+use qsc_data_structures::{
+    debug::{DbgInfo, DbgLocation, DbgMetadataScope, InstructionMetadata, MetadataPackageSpan},
+    span::Span,
 };
 
 #[allow(clippy::needless_pass_by_value)]

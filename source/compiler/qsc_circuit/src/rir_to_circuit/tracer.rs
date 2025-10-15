@@ -1,8 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use qsc_data_structures::debug::InstructionMetadata;
 use qsc_eval::backend::GateInputs;
-use qsc_partial_eval::rir::InstructionMetadata;
 
 use crate::{
     builder::{RegisterMap, RegisterMapBuilder},
