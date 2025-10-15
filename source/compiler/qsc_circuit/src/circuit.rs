@@ -71,6 +71,12 @@ pub struct ResolvedSourceLocation {
     pub column: u32,
 }
 
+impl Display for ResolvedSourceLocation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}:{}", self.file, self.line, self.column)
+    }
+}
+
 /// Union type for operations.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(tag = "kind")]
@@ -270,12 +276,14 @@ impl Register {
     }
 }
 
-#[derive(PartialEq, Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Qubit {
     pub id: usize,
     #[serde(rename = "numResults")]
     #[serde(default)]
     pub num_results: usize,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub declarations: Vec<SourceLocation>,
 }
 
 #[derive(Clone, Debug, Copy)]
@@ -333,7 +341,7 @@ struct Row {
 }
 
 enum Wire {
-    Qubit { q_id: usize },
+    Qubit { label: String },
     Classical { start_column: Option<usize> },
 }
 
@@ -433,8 +441,8 @@ impl Row {
         // Temporary string so we can trim whitespace at the end
         let mut s = String::new();
         match &self.wire {
-            Wire::Qubit { q_id: label } => {
-                s.write_str(&fmt_qubit_label(*label))?;
+            Wire::Qubit { label } => {
+                s.write_str(&fmt_qubit_label(label))?;
                 for (column_index, column) in columns.iter().enumerate().skip(1) {
                     let val = self.objects.get(&column_index);
                     let object = val.unwrap_or(&CircuitObject::Wire);
@@ -476,9 +484,9 @@ const BLANK: [char; 3] = [' ', ' ', ' ']; // "       "
 
 /// "q_0  "
 #[allow(clippy::doc_markdown)]
-fn fmt_qubit_label(id: usize) -> String {
-    let rest = MIN_COLUMN_WIDTH - 2;
-    format!("q_{id: <rest$}")
+fn fmt_qubit_label(label: &str) -> String {
+    let rest = MIN_COLUMN_WIDTH - 1;
+    format!("{label: <rest$} ")
 }
 
 struct Column {
@@ -631,8 +639,21 @@ impl Circuit {
         qubits_with_gap_row_below: &FxHashSet<usize>,
     ) {
         for q in &self.qubits {
+            let mut label = format!("q_{}", q.id);
+            let mut first = true;
+            for loc in &q.declarations {
+                if let SourceLocation::Resolved(loc) = loc {
+                    if first {
+                        label.push('@');
+                        first = false;
+                    } else {
+                        label.push_str(", ");
+                    }
+                    let _ = write!(&mut label, "{loc}");
+                }
+            }
             rows.push(Row {
-                wire: Wire::Qubit { q_id: q.id },
+                wire: Wire::Qubit { label },
                 objects: FxHashMap::default(),
                 next_column: 1,
             });
@@ -802,7 +823,7 @@ fn add_operation_box_start_to_rows(
         }
 
         if let Some(SourceLocation::Resolved(loc)) = operation.source() {
-            let _ = write!(&mut gate_label, "@{}:{}:{}", loc.file, loc.line, loc.column);
+            let _ = write!(&mut gate_label, "@{loc}");
         }
 
         gate_label.push(']');
@@ -1480,12 +1501,16 @@ fn get_qubit_map(
             if let Some(group_idx) = group_idx {
                 qubit_map.insert(q.id, group_idx);
                 new_qubits[group_idx].num_results += q.num_results;
+                new_qubits[group_idx]
+                    .declarations
+                    .extend(q.declarations.clone());
             } else {
                 group_idx = Some(new_qubits.len());
                 qubit_map.insert(q.id, new_qubits.len());
                 new_qubits.push(Qubit {
                     id: q.id, // Use the first qubit's ID as the group ID
                     num_results: q.num_results,
+                    declarations: q.declarations.clone(),
                 });
             }
         } else {

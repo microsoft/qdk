@@ -51,7 +51,7 @@ impl FixedQubitRegisterMapBuilder {
         let mut remapper = RegisterMapBuilder::default();
 
         for id in 0..num_qubits {
-            remapper.map_qubit(id);
+            remapper.map_qubit(id, None);
         }
         Self { remapper }
     }
@@ -73,16 +73,16 @@ impl FixedQubitRegisterMapBuilder {
 pub(crate) struct ResultRegister(pub usize, pub usize);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct QubitRegister(pub usize);
+pub(crate) struct WireId(pub usize);
 
-impl From<usize> for QubitRegister {
+impl From<usize> for WireId {
     fn from(value: usize) -> Self {
-        QubitRegister(value)
+        WireId(value)
     }
 }
 
-impl From<QubitRegister> for usize {
-    fn from(value: QubitRegister) -> Self {
+impl From<WireId> for usize {
+    fn from(value: WireId) -> Self {
         value.0
     }
 }

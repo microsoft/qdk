@@ -13,11 +13,10 @@ use std::{
 use crate::{
     Circuit, ComponentColumn, Config, Error, GenerationMethod, Ket, Measurement, Operation,
     Register, Unitary,
-    builder::RegisterMap,
+    builder::{RegisterMap, finish_circuit},
     circuit::{ResolvedSourceLocation, SourceLocation},
-    group_qubits, operation_list_to_grid,
     rir_to_circuit::tracer::{
-        BlockBuilder, FixedQubitRegisterMapBuilder, GateLabel, QubitRegister, ResultRegister,
+        BlockBuilder, FixedQubitRegisterMapBuilder, GateLabel, ResultRegister, WireId,
     },
 };
 use log::{debug, warn};
@@ -36,7 +35,7 @@ use qsc_partial_eval::{
 use rustc_hash::FxHashSet;
 
 #[derive(Clone, Debug)]
-enum DbgLocationKind {
+pub(crate) enum DbgLocationKind {
     Resolved(MetadataPackageSpan),
     Unresolved(usize),
 }
@@ -54,8 +53,8 @@ struct Branch {
 pub(crate) struct Op {
     kind: OperationKind,
     label: String,
-    target_qubits: Vec<QubitRegister>,
-    control_qubits: Vec<QubitRegister>,
+    target_qubits: Vec<WireId>,
+    control_qubits: Vec<WireId>,
     target_results: Vec<ResultRegister>,
     control_results: Vec<ResultRegister>,
     is_adjoint: bool,
@@ -147,16 +146,14 @@ impl From<Op> for Operation {
             )
             .collect();
 
-        let source = if let Some(DbgLocationKind::Resolved(location)) = match &value.kind {
+        let dbg_location = match &value.kind {
             OperationKind::Unitary { location }
             | OperationKind::Measurement { location }
             | OperationKind::Ket { location }
             | OperationKind::Group { location, .. } => location,
-        } {
-            Some(SourceLocation::Unresolved(location.clone()))
-        } else {
-            None
         };
+
+        let source = dbg_location.as_ref().and_then(to_source_location);
 
         match value.kind {
             OperationKind::Unitary { .. } => Operation::Unitary(Unitary {
@@ -195,6 +192,14 @@ impl From<Op> for Operation {
                 source,
             }),
         }
+    }
+}
+
+pub(crate) fn to_source_location(d: &DbgLocationKind) -> Option<SourceLocation> {
+    if let DbgLocationKind::Resolved(location) = d {
+        Some(SourceLocation::Unresolved(location.clone()))
+    } else {
+        None
     }
 }
 
@@ -282,7 +287,7 @@ pub fn make_circuit(
 
     let operations = extend_with_successors(&program_map, entry_block);
 
-    let mut operations = if config.group_scopes {
+    let operations = if config.group_scopes {
         group_operations(&program.dbg_info, operations)
     } else {
         operations
@@ -290,25 +295,15 @@ pub fn make_circuit(
 
     let qubits = register_map.to_qubits();
 
-    resolve_location_metadata(&mut operations, &program.dbg_info);
-
-    let mut operations = operations.into_iter().map(Into::into).collect::<Vec<_>>();
-
-    fill_in_dbg_metadata(&mut operations, package_store, position_encoding);
-
-    let (operations, qubits) = if config.collapse_qubit_registers && qubits.len() > 2 {
-        // TODO: dummy values for now
-        group_qubits(operations, qubits, &[0, 1])
-    } else {
-        (operations, qubits)
-    };
-
-    let component_grid = operation_list_to_grid(operations, &qubits, config.loop_detection);
-
-    let circuit = Circuit {
+    let circuit = finish_circuit(
         qubits,
-        component_grid,
-    };
+        operations,
+        &program.dbg_info,
+        Some((package_store, position_encoding)),
+        config.loop_detection,
+        config.collapse_qubit_registers,
+    );
+
     Ok(circuit)
 }
 
@@ -318,43 +313,40 @@ pub(crate) fn resolve_location_metadata(operations: &mut [Op], dbg_info: &DbgInf
             resolve_location_metadata(children, dbg_info);
         }
 
-        let location = match &op.kind {
+        match &mut op.kind {
             OperationKind::Unitary { location }
             | OperationKind::Measurement { location }
-            | OperationKind::Ket { location } => location
-                .as_ref()
-                .and_then(|metadata| resolve_location_if_unresolved(dbg_info, metadata)),
+            | OperationKind::Ket { location } => {
+                if let Some(l) = location {
+                    resolve_location_if_unresolved(dbg_info, l);
+                }
+            }
             OperationKind::Group {
                 children: _,
                 scope_stack: _,
-                location_fallback,
+                location_fallback, // TODO: no fallback
                 location,
-            } => location
-                .as_ref()
-                .or(location_fallback.as_ref())
-                .and_then(|location| resolve_location_if_unresolved(dbg_info, location)),
-        };
-
-        if let Some(resolved_location) = location {
-            match &mut op.kind {
-                OperationKind::Unitary { location }
-                | OperationKind::Measurement { location }
-                | OperationKind::Ket { location }
-                | OperationKind::Group { location, .. } => {
-                    *location = Some(DbgLocationKind::Resolved(resolved_location));
+            } => {
+                if let Some(l) = location.as_mut() {
+                    resolve_location_if_unresolved(dbg_info, l);
+                } else {
+                    if let Some(l) = location_fallback.as_mut() {
+                        resolve_location_if_unresolved(dbg_info, l);
+                    }
+                    *location = location_fallback.clone();
                 }
             }
         }
     }
 }
 
-fn resolve_location_if_unresolved(
-    dbg_info: &DbgInfo,
-    location: &DbgLocationKind,
-) -> Option<MetadataPackageSpan> {
-    match location {
-        DbgLocationKind::Resolved(metadata_package_span) => Some(metadata_package_span.clone()),
+pub(crate) fn resolve_location_if_unresolved(dbg_info: &DbgInfo, location: &mut DbgLocationKind) {
+    let resolved = match location {
+        DbgLocationKind::Resolved(_) => None,
         DbgLocationKind::Unresolved(dbg_location) => resolve_location(dbg_info, *dbg_location),
+    };
+    if let Some(resolved) = resolved {
+        *location = DbgLocationKind::Resolved(resolved);
     }
 }
 
@@ -539,7 +531,7 @@ fn make_group_op_vars_only(
 fn make_group_op(
     label: &str,
     operations: &[Op],
-    targets: &[QubitRegister],
+    targets: &[WireId],
     control_results: &[ResultRegister],
 ) -> Op {
     let children = operations
@@ -733,32 +725,36 @@ pub(crate) fn fill_in_dbg_metadata(
         }
 
         let source = op.source_mut();
-        let location = source.as_ref().and_then(|s| match s {
-            SourceLocation::Resolved(_) => None,
-            SourceLocation::Unresolved(metadata_package_span) => {
-                Some(metadata_package_span.clone())
-            }
-        });
-
-        if let Some(MetadataPackageSpan {
-            package: package_id,
-            span,
-        }) = &location
-        {
-            let location = Location::from(
-                *span,
-                usize::try_from(*package_id)
-                    .expect("package id should fit into usize")
-                    .into(),
-                package_store,
-                position_encoding,
-            );
-            *source = Some(SourceLocation::Resolved(ResolvedSourceLocation {
-                file: location.source.to_string(),
-                line: location.range.start.line,
-                column: location.range.start.column,
-            }));
+        if let Some(source) = source {
+            resolve_source_location_if_unresolved(source, package_store, position_encoding);
         }
+    }
+}
+
+pub(crate) fn resolve_source_location_if_unresolved(
+    source: &mut SourceLocation,
+    package_store: &PackageStore,
+    position_encoding: Encoding,
+) {
+    let location = match source {
+        SourceLocation::Resolved(_) => None,
+        SourceLocation::Unresolved(metadata_package_span) => Some(metadata_package_span.clone()),
+    };
+
+    if let Some(location) = &location {
+        let location = Location::from(
+            location.span,
+            usize::try_from(location.package)
+                .expect("package id should fit into usize")
+                .into(),
+            package_store,
+            position_encoding,
+        );
+        *source = SourceLocation::Resolved(ResolvedSourceLocation {
+            file: location.source.to_string(),
+            line: location.range.start.line,
+            column: location.range.start.column,
+        });
     }
 }
 
@@ -963,7 +959,7 @@ fn add_op(
 ) {
     match instruction_stack {
         Some(instruction_stack) => {
-            let qubits: FxHashSet<QubitRegister> = op
+            let qubits: FxHashSet<WireId> = op
                 .control_qubits
                 .iter()
                 .chain(&op.target_qubits)
@@ -1176,7 +1172,7 @@ fn add_scoped_op(
     dbg_info: &DbgInfo,
     op: Op,
     instruction_stack: &InstructionStack,
-    target_qubits: Vec<QubitRegister>,
+    target_qubits: Vec<WireId>,
     target_results: Vec<ResultRegister>,
 ) {
     let full_instruction_stack = concat_stacks(
@@ -1682,7 +1678,7 @@ fn eq_expr(expr_left: Expr, expr_right: Expr) -> Result<BoolExpr, Error> {
 #[derive(Clone, Debug)]
 struct ConditionalBlock {
     operations: Vec<Op>,
-    targets: Vec<QubitRegister>,
+    targets: Vec<WireId>,
 }
 
 #[derive(Clone, Debug)]
@@ -1822,7 +1818,7 @@ fn expand_real_branch_block(operations: &Vec<Op>) -> Result<ConditionalBlock, Er
     // }
 
     // TODO: everything is a target. Don't know how else we would do this.
-    let target_qubits = seen.into_iter().map(|(q, _)| QubitRegister(q)).collect();
+    let target_qubits = seen.into_iter().map(|(q, _)| WireId(q)).collect();
     Ok(ConditionalBlock {
         operations: real_ops,
         targets: target_qubits,

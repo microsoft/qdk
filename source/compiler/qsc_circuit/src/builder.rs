@@ -7,9 +7,11 @@ mod tests;
 use crate::{
     Config, Qubit,
     circuit::{Circuit, operation_list_to_grid},
+    group_qubits,
     rir_to_circuit::{
-        Op, fill_in_dbg_metadata, resolve_location_metadata,
-        tracer::{BlockBuilder, GateLabel, QubitRegister, ResultRegister},
+        DbgLocationKind, Op, fill_in_dbg_metadata, resolve_location_if_unresolved,
+        resolve_location_metadata, resolve_source_location_if_unresolved, to_source_location,
+        tracer::{BlockBuilder, GateLabel, ResultRegister, WireId},
     },
 };
 use qsc_data_structures::{index_map::IndexMap, line_column::Encoding, span::Span};
@@ -19,7 +21,9 @@ use qsc_eval::{
 };
 use qsc_fir::fir::PackageId;
 use qsc_frontend::compile::PackageStore;
-use qsc_partial_eval::rir::{self, DbgInfo, DbgMetadataScope, MetadataPackageSpan};
+use qsc_partial_eval::rir::{
+    self, DbgInfo, DbgMetadataScope, InstructionMetadata, MetadataPackageSpan,
+};
 use std::{fmt::Write, mem::replace, rc::Rc};
 
 /// Backend implementation that builds a circuit representation.
@@ -85,9 +89,9 @@ impl Tracer for CircuitBuilder {
             .reset(self.register_map_builder.current(), q, metadata);
     }
 
-    fn qubit_allocate(&mut self, q: usize, _metadata: Option<backend::DebugMetadata>) {
-        // TODO: metadata would be neat to add to the circuit
-        self.register_map_builder.map_qubit(q);
+    fn qubit_allocate(&mut self, q: usize, metadata: Option<backend::DebugMetadata>) {
+        let metadata = metadata.map(|md| self.convert_metadata(&md));
+        self.register_map_builder.map_qubit(q, metadata);
     }
 
     fn qubit_swap_id(&mut self, q0: usize, q1: usize, _metadata: Option<backend::DebugMetadata>) {
@@ -181,26 +185,14 @@ impl CircuitBuilder {
         operations: &[Op],
         dbg_lookup: Option<(&PackageStore, Encoding)>,
     ) -> Circuit {
-        let qubits = self.register_map_builder.register_map.to_qubits();
-
-        let mut operations = operations.to_vec();
-        resolve_location_metadata(&mut operations, &self.dbg_info);
-
-        let mut operations = operations
-            .iter()
-            .map(|o| o.clone().into())
-            .collect::<Vec<_>>();
-
-        if let Some((package_store, position_encoding)) = dbg_lookup {
-            fill_in_dbg_metadata(&mut operations, package_store, position_encoding);
-        }
-
-        let component_grid =
-            operation_list_to_grid(operations, &qubits, self.config.loop_detection);
-        Circuit {
-            qubits,
-            component_grid,
-        }
+        finish_circuit(
+            self.register_map_builder.register_map.to_qubits(),
+            operations.to_vec(),
+            &self.dbg_info,
+            dbg_lookup,
+            self.config.loop_detection,
+            self.config.collapse_qubit_registers,
+        )
     }
 
     /// Splits the qubit arguments from classical arguments so that the qubits
@@ -317,31 +309,84 @@ impl CircuitBuilder {
         rir::InstructionMetadata { dbg_location }
     }
 }
+
+pub(crate) fn finish_circuit(
+    mut qubits: Vec<(Qubit, Vec<DbgLocationKind>)>,
+    mut operations: Vec<Op>,
+    dbg_info: &DbgInfo,
+    dbg_lookup: Option<(&PackageStore, Encoding)>,
+    loop_detection: bool,
+    collapse_qubit_registers: bool,
+) -> Circuit {
+    resolve_location_metadata(&mut operations, dbg_info);
+
+    for (q, declarations) in &mut qubits {
+        for d in declarations.iter_mut() {
+            resolve_location_if_unresolved(dbg_info, d);
+        }
+
+        q.declarations = declarations.iter().filter_map(to_source_location).collect();
+    }
+
+    let mut qubits = qubits.into_iter().map(|(q, _)| q).collect::<Vec<_>>();
+
+    let mut operations = operations
+        .iter()
+        .map(|o| o.clone().into())
+        .collect::<Vec<_>>();
+
+    if let Some((package_store, position_encoding)) = dbg_lookup {
+        fill_in_dbg_metadata(&mut operations, package_store, position_encoding);
+
+        for q in &mut qubits {
+            for source_location in &mut q.declarations {
+                resolve_source_location_if_unresolved(
+                    source_location,
+                    package_store,
+                    position_encoding,
+                );
+            }
+        }
+    }
+
+    let (operations, qubits) = if collapse_qubit_registers && qubits.len() > 2 {
+        // TODO: dummy values for now
+        group_qubits(operations, qubits, &[0, 1])
+    } else {
+        (operations, qubits)
+    };
+
+    let component_grid = operation_list_to_grid(operations, &qubits, loop_detection);
+    Circuit {
+        qubits,
+        component_grid,
+    }
+}
 // Really similar to source/compiler/qsc_partial_eval/src/management.rs
 pub(crate) struct RegisterMapBuilder {
     next_meas_id: usize, // ResultType
-    next_qubit_wire_id: QubitRegister,
+    next_qubit_wire_id: WireId,
     register_map: RegisterMap,
 }
 
 #[derive(Default)]
 pub(crate) struct RegisterMap {
-    qubit_map: IndexMap<usize, QubitRegister>, // QubitType -> QubitRegister
-    qubit_measurements: IndexMap<QubitRegister, Vec<usize>>, // QubitRegister -> Vec<ResultType>
+    qubit_map: IndexMap<usize, WireId>, // QubitType -> WireId
+    qubit_measurements: IndexMap<WireId, (Vec<DbgLocationKind>, Vec<usize>)>, // WireId -> Vec<ResultType>
 }
 
 impl Default for RegisterMapBuilder {
     fn default() -> Self {
         Self {
             next_meas_id: 0,
-            next_qubit_wire_id: QubitRegister(0),
+            next_qubit_wire_id: WireId(0),
             register_map: RegisterMap::default(),
         }
     }
 }
 
 impl RegisterMap {
-    pub(crate) fn qubit_register(&self, qubit_id: usize) -> QubitRegister {
+    pub(crate) fn qubit_register(&self, qubit_id: usize) -> WireId {
         self.qubit_map
             .get(qubit_id)
             .expect("qubit should already be mapped")
@@ -351,19 +396,25 @@ impl RegisterMap {
     pub(crate) fn result_register(&self, result_id: usize) -> ResultRegister {
         self.qubit_measurements
             .iter()
-            .find_map(|(QubitRegister(qubit_register), results)| {
+            .find_map(|(WireId(qubit_register), (_, results))| {
                 let r_idx = results.iter().position(|&r| r == result_id);
                 r_idx.map(|r_idx| ResultRegister(qubit_register, r_idx))
             })
             .expect("result should already be mapped")
     }
 
-    pub fn to_qubits(&self) -> Vec<Qubit> {
+    pub fn to_qubits(&self) -> Vec<(Qubit, Vec<DbgLocationKind>)> {
         let mut qubits = vec![];
-        // add qubit declarations
-        for (QubitRegister(i), rs) in self.qubit_measurements.iter() {
+        for (WireId(i), (declarations, rs)) in self.qubit_measurements.iter() {
             let num_results = rs.len();
-            qubits.push(Qubit { id: i, num_results });
+            qubits.push((
+                Qubit {
+                    id: i,
+                    num_results,
+                    declarations: vec![],
+                },
+                declarations.clone(),
+            ));
         }
 
         qubits
@@ -375,13 +426,23 @@ impl RegisterMapBuilder {
         &self.register_map
     }
 
-    pub fn map_qubit(&mut self, qubit: usize) {
+    pub fn map_qubit(&mut self, qubit: usize, metadata: Option<InstructionMetadata>) {
+        let location = metadata
+            .and_then(|md| md.dbg_location)
+            .map(DbgLocationKind::Unresolved);
         let mapped = self.next_qubit_wire_id;
         self.next_qubit_wire_id.0 += 1;
         self.register_map.qubit_map.insert(qubit, mapped);
 
-        if self.register_map.qubit_measurements.get(mapped).is_none() {
-            self.register_map.qubit_measurements.insert(mapped, vec![]);
+        if let Some(q) = self.register_map.qubit_measurements.get_mut(mapped) {
+            if let Some(location) = location {
+                q.0.push(location);
+            }
+        } else {
+            let l = location.map(|l| vec![l]).unwrap_or_default();
+            self.register_map
+                .qubit_measurements
+                .insert(mapped, (l, vec![]));
         }
     }
 
@@ -400,11 +461,11 @@ impl RegisterMapBuilder {
 
     pub fn link_result_to_qubit(&mut self, q: usize, r: usize) {
         let mapped_q = self.register_map.qubit_register(q);
-        let Some(v) = self.register_map.qubit_measurements.get_mut(mapped_q) else {
+        let Some((_, measurements)) = self.register_map.qubit_measurements.get_mut(mapped_q) else {
             panic!("qubit should already be mapped");
         };
-        if !v.contains(&r) {
-            v.push(r);
+        if !measurements.contains(&r) {
+            measurements.push(r);
         }
     }
 
