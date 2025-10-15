@@ -98,9 +98,14 @@ function snapshotHtml(t, name) {
   });
 }
 
-function getContainerElement() {
-  const container = document.getElementById("app");
-  if (!container) throw new Error("Could not find container element");
+/**
+ * @param {string} id
+ */
+function getContainerElement(id) {
+  const container = document.createElement("div");
+  container.id = id;
+  container.className = "qs-circuit";
+  document.body.appendChild(container);
   return container;
 }
 
@@ -185,7 +190,7 @@ test("circuit snapshot tests - .qsc files", async (t) => {
     const relName = path.basename(file);
     await t.test(relName, (tt) => {
       const circuitGroup = loadCircuitGroup(file);
-      drawEditableCircuit(circuitGroup, getContainerElement());
+      drawEditableCircuit(circuitGroup, getContainerElement(`circuit`));
       snapshotHtml(tt, tt.name);
     });
   }
@@ -201,22 +206,11 @@ test("circuit snapshot tests - .qs files", async (t) => {
 
   for (const file of files) {
     const relName = path.basename(file);
-    const generationMethod = relName.includes("-eval.")
-      ? "classicalEval"
-      : relName.includes("-static.")
-        ? "static"
-        : undefined;
-
-    if (generationMethod === undefined) {
-      throw new Error(
-        `Could not determine generation method from file name ${relName}. Please include -eval or -static in the file name.`,
-      );
-    }
 
     await t.test(`${relName}`, async (tt) => {
       const circuitSource = fs.readFileSync(file, "utf8");
       const compiler = getCompiler();
-      const circuitGroup = await compiler.getCircuit(
+      const staticCircuit = await compiler.getCircuit(
         {
           sources: [[relName, circuitSource]],
           languageFeatures: [],
@@ -224,7 +218,7 @@ test("circuit snapshot tests - .qs files", async (t) => {
         },
         undefined,
         {
-          generationMethod,
+          generationMethod: "static",
           collapseQubitRegisters: false,
           groupScopes: true,
           loopDetection: false,
@@ -233,7 +227,26 @@ test("circuit snapshot tests - .qs files", async (t) => {
         },
       );
 
-      drawCircuit(circuitGroup, getContainerElement());
+      const evalCircuit = await compiler.getCircuit(
+        {
+          sources: [[relName, circuitSource]],
+          languageFeatures: [],
+          profile: "adaptive_rif",
+        },
+        undefined,
+        {
+          generationMethod: "classicalEval",
+          collapseQubitRegisters: false,
+          groupScopes: true,
+          loopDetection: false,
+          maxOperations: 100,
+          locations: true,
+        },
+      );
+
+      drawCircuit(staticCircuit, getContainerElement(`circuit-static`));
+      drawCircuit(evalCircuit, getContainerElement(`circuit-eval`));
+
       snapshotHtml(tt, tt.name);
     });
   }
