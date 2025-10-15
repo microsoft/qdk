@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { GateRenderData, GateType } from "../gateRenderData";
+import { GateRenderData, GateType } from "../gateRenderData.js";
 import {
   minGateWidth,
   gateHeight,
@@ -12,7 +12,7 @@ import {
   groupBoxPadding,
   classicalRegHeight,
   nestedGroupPadding,
-} from "../constants";
+} from "../constants.js";
 import {
   createSvgElement,
   group,
@@ -24,9 +24,9 @@ import {
   arc,
   dashedLine,
   dashedBox,
-} from "./formatUtils";
+} from "./formatUtils.js";
 
-import { mathChars } from "../utils";
+import { mathChars } from "../utils.js";
 
 /**
  * Given an array of operations render data, return the SVG representation.
@@ -113,9 +113,38 @@ const _createGate = (
     ([attr, val]) => (attributes[`data-${attr}`] = val),
   );
 
+  // Add positioning data attributes to avoid relying on getBBox() in tests
+  const [x1, y1, x2, y2] = _gatePosition(renderData, nestedDepth);
+  attributes["data-x"] = x1.toString();
+  attributes["data-y"] = y1.toString();
+  attributes["data-width"] = (x2 - x1).toString();
+  attributes["data-height"] = (y2 - y1).toString();
+  attributes["data-min-y"] = y1.toString();
+  attributes["data-max-y"] = y2.toString();
+
   const zoomBtn: SVGElement | null = _zoomButton(renderData, nestedDepth);
   if (zoomBtn != null) svgElems = svgElems.concat([zoomBtn]);
-  return group(svgElems, attributes);
+
+  const gateElem = group(svgElems, attributes);
+
+  // If there's a source location, wrap the gate in an SVG <a> element to make it clickable
+  if (renderData.link) {
+    const linkElem = createSvgElement("a", {
+      href: renderData.link.href,
+      class: "qs-circuit-source-link",
+    });
+
+    // Add title as a child <title> element for accessibility and hover tooltip
+    const titleElem = createSvgElement("title");
+    titleElem.textContent = renderData.link.title;
+    linkElem.appendChild(titleElem);
+
+    // Add the gate as a child of the link
+    linkElem.appendChild(gateElem);
+    return linkElem;
+  }
+
+  return gateElem;
 };
 
 /**
@@ -350,6 +379,7 @@ const _unitaryBox = (
     argButton.setAttribute("class", "arg-button");
     elems.push(argButton);
   }
+
   return group(elems);
 };
 

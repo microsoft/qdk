@@ -24,6 +24,7 @@ use qsc::{
     LanguageFeatures, PackageType, SourceMap, TargetCapabilityFlags, compile,
     hir::PackageId,
     interpret::{GenericReceiver, Interpreter},
+    line_column::Encoding,
     packages::BuildableProgram,
     qasm::{
         OutputSemantics, ProgramType, QubitSemantics,
@@ -59,6 +60,7 @@ fn compile_and_run_internal(sources: SourceMap, debug: bool) -> String {
         LanguageFeatures::default(),
         store,
         &[(std_id, None)],
+        Encoding::Utf8,
     ) {
         Ok(interpreter) => interpreter,
         Err(errors) => {
@@ -152,6 +154,7 @@ fn compile_and_run_qasm_internal(source: &str, debug: bool) -> String {
         capabilities,
         language_features,
         &dependencies,
+        Encoding::Utf8,
     ) {
         Ok(interpreter) => interpreter,
         Err(errors) => {
@@ -191,6 +194,7 @@ fn compile(sources: SourceMap) {
         LanguageFeatures::default(),
         store,
         &[(std_id, None)],
+        Encoding::Utf8,
     ) {
         Ok(interpreter) => {
             check_lints(&interpreter);
@@ -247,6 +251,7 @@ fn compile_project(project_folder: &str) {
         LanguageFeatures::default(),
         store,
         &user_code_dependencies,
+        Encoding::Utf8,
     ) {
         Ok(interpreter) => {
             check_lints(&interpreter);

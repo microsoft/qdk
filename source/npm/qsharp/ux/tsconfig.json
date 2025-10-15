@@ -1,14 +1,22 @@
 {
   "compilerOptions": {
-    "module": "CommonJS",
+    "outDir": "../dist",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
     "target": "ES2020",
-    "noEmit": true,
     "lib": ["DOM", "ES2020"],
+
+    // "verbatimModuleSyntax": true,
+
     "strict": true /* enable all strict type-checking options */,
     "jsx": "react-jsx",
     "jsxImportSource": "preact",
-    "isolatedModules": true,
-    "esModuleInterop": true,
+    // "isolatedModules": true,
+    // "esModuleInterop": true,
     "skipLibCheck": true,
     "types": []
   }

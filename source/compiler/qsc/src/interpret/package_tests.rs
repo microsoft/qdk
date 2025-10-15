@@ -77,6 +77,7 @@ fn import_and_call_reexport() {
         LanguageFeatures::default(),
         store,
         &user_code_dependencies,
+        qsc_data_structures::line_column::Encoding::Utf8,
     )
     .expect("interpreter creation should succeed");
 
@@ -157,6 +158,7 @@ fn directly_call_reexport() {
         LanguageFeatures::default(),
         store,
         &user_code_dependencies,
+        qsc_data_structures::line_column::Encoding::Utf8,
     )
     .expect("interpreter creation should succeed");
 

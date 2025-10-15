@@ -5,6 +5,7 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use indoc::indoc;
 use qsc::{
     LanguageFeatures, PackageType, SourceMap, TargetCapabilityFlags, interpret::Interpreter,
+    line_column::Encoding,
 };
 
 pub fn deep_nested_callable_generics(c: &mut Criterion) {
@@ -32,8 +33,9 @@ pub fn deep_nested_callable_generics(c: &mut Criterion) {
                 TargetCapabilityFlags::all(),
                 LanguageFeatures::default(),
                 store,
-                &[(std_id, None)],
+                &[(std_id, None)],Encoding::Utf8,
             )
+
             .is_err(), "code should fail with type error");
         });
     });

@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { DataAttributes } from "./circuit";
+import { DataAttributes } from "./circuit.js";
 
 /**
  * Enum for the various gate operations handled.
@@ -55,4 +55,6 @@ export interface GateRenderData {
   children?: GateRenderData[][] | GateRenderData[][][];
   /** Custom data attributes to attach to gate element. */
   dataAttributes?: DataAttributes;
+  /** Link href and title for clickable gate. */
+  link?: { href: string; title: string };
 }

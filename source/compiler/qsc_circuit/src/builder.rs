@@ -5,280 +5,198 @@
 mod tests;
 
 use crate::{
-    Config,
-    circuit::{Circuit, Ket, Measurement, Operation, Register, Unitary, operation_list_to_grid},
+    Config, Qubit,
+    circuit::{Circuit, operation_list_to_grid},
+    rir_to_circuit::{
+        DbgLocationKind, Op, fill_in_dbg_metadata, resolve_location_if_unresolved,
+        resolve_location_metadata, resolve_source_location_if_unresolved, to_source_location,
+        tracer::{BlockBuilder, GateLabel, ResultRegister, WireId},
+    },
 };
-use num_bigint::BigUint;
-use num_complex::Complex;
-use qsc_data_structures::index_map::IndexMap;
-use qsc_eval::{backend::Backend, val::Value};
-use std::{fmt::Write, mem::take, rc::Rc};
+use qsc_data_structures::{
+    debug::{DbgInfo, DbgLocation, DbgMetadataScope, InstructionMetadata, MetadataPackageSpan},
+    index_map::IndexMap,
+    line_column::Encoding,
+    span::Span,
+};
+use qsc_eval::{
+    backend::{self, GateInputs, Tracer},
+    val::{self, Value},
+};
+use qsc_fir::fir::PackageId;
+use qsc_frontend::compile::PackageStore;
+use std::{fmt::Write, mem::replace, rc::Rc};
 
 /// Backend implementation that builds a circuit representation.
-pub struct Builder {
-    max_ops_exceeded: bool,
-    operations: Vec<Operation>,
+pub struct CircuitBuilder {
     config: Config,
-    remapper: Remapper,
+    register_map_builder: RegisterMapBuilder,
+    block_builder: BlockBuilder,
+    dbg_info: DbgInfo,
 }
 
-impl Backend for Builder {
-    type ResultType = usize;
-
-    fn ccx(&mut self, ctl0: usize, ctl1: usize, q: usize) {
-        let ctl0 = self.map(ctl0);
-        let ctl1 = self.map(ctl1);
-        let q = self.map(q);
-        self.push_gate(controlled_gate("X", [ctl0, ctl1], [q]));
+impl Tracer for CircuitBuilder {
+    fn gate(
+        &mut self,
+        name: &str,
+        is_adjoint: bool,
+        GateInputs {
+            target_qubits,
+            control_qubits,
+        }: GateInputs,
+        args: Vec<String>,
+        metadata: Option<backend::DebugMetadata>,
+    ) {
+        let metadata = self.convert_if_source_locations_enabled(metadata);
+        self.block_builder.gate(
+            self.register_map_builder.current(),
+            &GateLabel { name, is_adjoint },
+            GateInputs {
+                target_qubits,
+                control_qubits,
+            },
+            &[],
+            args,
+            metadata,
+        );
     }
 
-    fn cx(&mut self, ctl: usize, q: usize) {
-        let ctl = self.map(ctl);
-        let q = self.map(q);
-        self.push_gate(controlled_gate("X", [ctl], [q]));
+    fn m(&mut self, q: usize, val: &val::Result, metadata: Option<backend::DebugMetadata>) {
+        let metadata = self.convert_if_source_locations_enabled(metadata);
+        let r = match val {
+            val::Result::Id(id) => *id,
+            val::Result::Loss | val::Result::Val(_) => self.register_map_builder.result_allocate(),
+        };
+        self.register_map_builder.link_result_to_qubit(q, r);
+        self.block_builder
+            .m(self.register_map_builder.current(), q, r, metadata);
     }
 
-    fn cy(&mut self, ctl: usize, q: usize) {
-        let ctl = self.map(ctl);
-        let q = self.map(q);
-        self.push_gate(controlled_gate("Y", [ctl], [q]));
+    fn mresetz(&mut self, q: usize, val: &val::Result, metadata: Option<backend::DebugMetadata>) {
+        let metadata = self.convert_if_source_locations_enabled(metadata);
+        let r = match val {
+            val::Result::Id(id) => *id,
+            val::Result::Loss | val::Result::Val(_) => self.register_map_builder.result_allocate(),
+        };
+        self.register_map_builder.link_result_to_qubit(q, r);
+        self.block_builder
+            .mresetz(self.register_map_builder.current(), q, r, metadata);
     }
 
-    fn cz(&mut self, ctl: usize, q: usize) {
-        let ctl = self.map(ctl);
-        let q = self.map(q);
-        self.push_gate(controlled_gate("Z", [ctl], [q]));
+    fn reset(&mut self, q: usize, metadata: Option<backend::DebugMetadata>) {
+        let metadata = self.convert_if_source_locations_enabled(metadata);
+        self.block_builder
+            .reset(self.register_map_builder.current(), q, metadata);
     }
 
-    fn h(&mut self, q: usize) {
-        let q = self.map(q);
-        self.push_gate(gate("H", [q]));
+    fn qubit_allocate(&mut self, q: usize, metadata: Option<backend::DebugMetadata>) {
+        let metadata = self.convert_if_source_locations_enabled(metadata);
+        self.register_map_builder.map_qubit(q, metadata);
     }
 
-    fn m(&mut self, q: usize) -> Self::ResultType {
-        let mapped_q = self.map(q);
-        // In the Circuit schema, result id is per-qubit
-        let res_id = self.num_measurements_for_qubit(mapped_q);
-        let id = self.remapper.m(q);
-
-        self.push_gate(measurement_gate(mapped_q.0, res_id));
-        id
+    fn qubit_swap_id(&mut self, q0: usize, q1: usize, _metadata: Option<backend::DebugMetadata>) {
+        // TODO: metadata would be neat to add to the circuit
+        self.register_map_builder.swap(q0, q1);
     }
 
-    fn mresetz(&mut self, q: usize) -> Self::ResultType {
-        let mapped_q = self.map(q);
-        // In the Circuit schema, result id is per-qubit
-        let res_id = self.num_measurements_for_qubit(mapped_q);
-        // We don't actually need the Remapper since we're not
-        // remapping any qubits, but it's handy for keeping track of measurements
-        let id = self.remapper.m(q);
-
-        // Ideally MResetZ would be atomic but we don't currently have
-        // a way to visually represent that. So decompose it into
-        // a measurement and a reset gate.
-        self.push_gate(measurement_gate(mapped_q.0, res_id));
-        self.push_gate(ket_gate("0", [mapped_q]));
-        id
-    }
-
-    fn reset(&mut self, q: usize) {
-        let mapped_q = self.map(q);
-        self.push_gate(ket_gate("0", [mapped_q]));
-    }
-
-    fn rx(&mut self, theta: f64, q: usize) {
-        let q = self.map(q);
-        self.push_gate(rotation_gate("Rx", theta, [q]));
-    }
-
-    fn rxx(&mut self, theta: f64, q0: usize, q1: usize) {
-        let q0 = self.map(q0);
-        let q1 = self.map(q1);
-        self.push_gate(rotation_gate("Rxx", theta, [q0, q1]));
-    }
-
-    fn ry(&mut self, theta: f64, q: usize) {
-        let q = self.map(q);
-        self.push_gate(rotation_gate("Ry", theta, [q]));
-    }
-
-    fn ryy(&mut self, theta: f64, q0: usize, q1: usize) {
-        let q0 = self.map(q0);
-        let q1 = self.map(q1);
-        self.push_gate(rotation_gate("Ryy", theta, [q0, q1]));
-    }
-
-    fn rz(&mut self, theta: f64, q: usize) {
-        let q = self.map(q);
-        self.push_gate(rotation_gate("Rz", theta, [q]));
-    }
-
-    fn rzz(&mut self, theta: f64, q0: usize, q1: usize) {
-        let q0 = self.map(q0);
-        let q1 = self.map(q1);
-        self.push_gate(rotation_gate("Rzz", theta, [q0, q1]));
-    }
-
-    fn sadj(&mut self, q: usize) {
-        let q = self.map(q);
-        self.push_gate(adjoint_gate("S", [q]));
-    }
-
-    fn s(&mut self, q: usize) {
-        let q = self.map(q);
-        self.push_gate(gate("S", [q]));
-    }
-
-    fn sx(&mut self, q: usize) {
-        let q = self.map(q);
-        self.push_gate(gate("SX", [q]));
-    }
-
-    fn swap(&mut self, q0: usize, q1: usize) {
-        let q0 = self.map(q0);
-        let q1 = self.map(q1);
-        self.push_gate(gate("SWAP", [q0, q1]));
-    }
-
-    fn tadj(&mut self, q: usize) {
-        let q = self.map(q);
-        self.push_gate(adjoint_gate("T", [q]));
-    }
-
-    fn t(&mut self, q: usize) {
-        let q = self.map(q);
-        self.push_gate(gate("T", [q]));
-    }
-
-    fn x(&mut self, q: usize) {
-        let q = self.map(q);
-        self.push_gate(gate("X", [q]));
-    }
-
-    fn y(&mut self, q: usize) {
-        let q = self.map(q);
-        self.push_gate(gate("Y", [q]));
-    }
-
-    fn z(&mut self, q: usize) {
-        let q = self.map(q);
-        self.push_gate(gate("Z", [q]));
-    }
-
-    fn qubit_allocate(&mut self) -> usize {
-        self.remapper.qubit_allocate()
-    }
-
-    fn qubit_release(&mut self, q: usize) -> bool {
-        self.remapper.qubit_release(q);
-        true
-    }
-
-    fn qubit_swap_id(&mut self, q0: usize, q1: usize) {
-        self.remapper.swap(q0, q1);
-    }
-
-    fn capture_quantum_state(&mut self) -> (Vec<(BigUint, Complex<f64>)>, usize) {
-        (Vec::new(), 0)
-    }
-
-    fn qubit_is_zero(&mut self, _q: usize) -> bool {
-        // We don't simulate quantum execution here. So we don't know if the qubit
-        // is zero or not. Returning true avoids potential panics.
-        true
-    }
-
-    fn custom_intrinsic(&mut self, name: &str, arg: Value) -> Option<Result<Value, String>> {
+    fn custom_intrinsic(
+        &mut self,
+        name: &str,
+        arg: Value,
+        metadata: Option<backend::DebugMetadata>,
+    ) {
         // The qubit arguments are treated as the targets for custom gates.
         // Any remaining arguments will be kept in the display_args field
         // to be shown as part of the gate label when the circuit is rendered.
         let (qubit_args, classical_args) = self.split_qubit_args(arg);
 
-        self.push_gate(custom_gate(
-            name,
-            &qubit_args,
+        if qubit_args.is_empty() {
+            // don't add a gate with no qubit targets
+            return;
+        }
+
+        let metadata = metadata.map(|md| self.convert_metadata(&md));
+
+        self.block_builder.gate(
+            self.register_map_builder.current(),
+            &GateLabel {
+                name,
+                is_adjoint: false,
+            },
+            GateInputs {
+                target_qubits: qubit_args,
+                control_qubits: vec![],
+            },
+            &[],
             if classical_args.is_empty() {
                 vec![]
             } else {
                 vec![classical_args]
             },
-        ));
+            metadata,
+        );
+    }
 
-        match name {
-            // Special case this known intrinsic to match the simulator
-            // behavior, so that our samples will work
-            "BeginEstimateCaching" => Some(Ok(Value::Bool(true))),
-            _ => Some(Ok(Value::unit())),
-        }
+    fn qubit_release(&mut self, q: usize, _metadata: Option<backend::DebugMetadata>) {
+        // TODO: metadata would be neat to add to the circuit
+        self.register_map_builder.qubit_release(q);
     }
 }
 
-impl Builder {
+impl CircuitBuilder {
     #[must_use]
     pub fn new(config: Config) -> Self {
-        Builder {
-            max_ops_exceeded: false,
-            operations: vec![],
+        CircuitBuilder {
             config,
-            remapper: Remapper::default(),
+            register_map_builder: RegisterMapBuilder::default(),
+            block_builder: BlockBuilder::new(config.max_operations),
+            dbg_info: DbgInfo {
+                dbg_metadata_scopes: vec![DbgMetadataScope::SubProgram {
+                    name: "program".into(),
+                    location: MetadataPackageSpan {
+                        package: 2,                  // TODO: - pass in user package ofc
+                        span: Span { lo: 0, hi: 0 }, // pass in whole program or whatever
+                    },
+                }],
+
+                ..Default::default()
+            },
         }
     }
 
     #[must_use]
-    pub fn snapshot(&self) -> Circuit {
-        let operations = self.operations.clone();
-        self.finish_circuit(operations)
+    pub fn snapshot(&self, dbg_lookup: Option<(&PackageStore, Encoding)>) -> Circuit {
+        self.finish_circuit(self.block_builder.operations(), dbg_lookup)
     }
 
     #[must_use]
-    pub fn finish(mut self) -> Circuit {
-        let operations = take(&mut self.operations);
-        self.finish_circuit(operations)
+    pub fn finish(mut self, dbg_lookup: Option<(&PackageStore, Encoding)>) -> Circuit {
+        let ops = replace(
+            &mut self.block_builder,
+            BlockBuilder::new(self.config.max_operations),
+        )
+        .into_operations();
+
+        self.finish_circuit(&ops, dbg_lookup)
     }
 
-    fn map(&mut self, qubit: usize) -> WireId {
-        self.remapper.map(qubit)
-    }
-
-    fn push_gate(&mut self, gate: Operation) {
-        if self.max_ops_exceeded || self.operations.len() >= self.config.max_operations {
-            // Stop adding gates and leave the circuit as is
-            self.max_ops_exceeded = true;
-            return;
-        }
-        self.operations.push(gate);
-    }
-
-    fn num_measurements_for_qubit(&self, qubit: WireId) -> usize {
-        self.remapper
-            .qubit_measurement_counts
-            .get(qubit)
-            .copied()
-            .unwrap_or_default()
-    }
-
-    fn finish_circuit(&self, operations: Vec<Operation>) -> Circuit {
-        let mut qubits = vec![];
-
-        // add qubit declarations
-        for i in 0..self.remapper.num_qubits() {
-            let num_measurements = self.num_measurements_for_qubit(WireId(i));
-            qubits.push(crate::circuit::Qubit {
-                id: i,
-                num_results: num_measurements,
-            });
-        }
-
-        Circuit {
-            component_grid: operation_list_to_grid(operations, qubits.len()),
-            qubits,
-        }
+    fn finish_circuit(
+        &self,
+        operations: &[Op],
+        dbg_lookup: Option<(&PackageStore, Encoding)>,
+    ) -> Circuit {
+        finish_circuit(
+            self.register_map_builder.register_map.to_qubits(),
+            operations.to_vec(),
+            &self.dbg_info,
+            dbg_lookup,
+        )
     }
 
     /// Splits the qubit arguments from classical arguments so that the qubits
     /// can be treated as the targets for custom gates.
     /// The classical arguments get formatted into a comma-separated list.
-    fn split_qubit_args(&mut self, arg: Value) -> (Vec<WireId>, String) {
+    fn split_qubit_args(&mut self, arg: Value) -> (Vec<usize>, String) {
         let arg = if let Value::Tuple(vals, _) = arg {
             vals
         } else {
@@ -292,7 +210,7 @@ impl Builder {
     }
 
     /// Pushes all qubit values into `qubits`, and formats all classical values into `classical_args`.
-    fn push_val(&mut self, arg: &Value, qubits: &mut Vec<WireId>, classical_args: &mut String) {
+    fn push_val(&mut self, arg: &Value, qubits: &mut Vec<usize>, classical_args: &mut String) {
         match arg {
             Value::Array(vals) => {
                 self.push_list::<'[', ']'>(vals, qubits, classical_args);
@@ -301,14 +219,14 @@ impl Builder {
                 self.push_list::<'(', ')'>(vals, qubits, classical_args);
             }
             Value::Qubit(q) => {
-                qubits.push(self.map(q.deref().0));
+                qubits.push(q.deref().0);
             }
             v => {
                 let _ = write!(classical_args, "{v}");
             }
         }
-        qubits.sort_unstable_by_key(|q| q.0);
-        qubits.dedup_by_key(|q| q.0);
+        qubits.sort_unstable();
+        qubits.dedup();
     }
 
     /// Pushes all qubit values into `qubits`, and formats all
@@ -316,7 +234,7 @@ impl Builder {
     fn push_list<const OPEN: char, const CLOSE: char>(
         &mut self,
         vals: &[Value],
-        qubits: &mut Vec<WireId>,
+        qubits: &mut Vec<usize>,
         classical_args: &mut String,
     ) {
         classical_args.push(OPEN);
@@ -331,7 +249,7 @@ impl Builder {
 
     /// Pushes all qubit values into `qubits`, and formats all
     /// classical values into `classical_args` as comma-separated values.
-    fn push_vals(&mut self, vals: &[Value], qubits: &mut Vec<WireId>, classical_args: &mut String) {
+    fn push_vals(&mut self, vals: &[Value], qubits: &mut Vec<usize>, classical_args: &mut String) {
         let mut any = false;
         for v in vals {
             let start = classical_args.len();
@@ -347,171 +265,223 @@ impl Builder {
             classical_args.pop();
         }
     }
+
+    fn push_dbg_location(&mut self, md: &backend::DebugMetadata) -> Option<usize> {
+        let mut user_frame: Option<(PackageId, Span)> = None;
+        let mut grab_span_and_stop = false;
+        for frame in md.stack.iter().rev() {
+            if grab_span_and_stop {
+                if let Some(c) = user_frame {
+                    user_frame = Some((c.0, frame.span));
+                }
+                break;
+            }
+            let caller_package = frame.caller;
+            let instr_span = frame.span;
+
+            // TODO: don't hardcode stdlib
+            if caller_package != PackageId::CORE && caller_package != 1.into() {
+                grab_span_and_stop = true;
+            }
+            user_frame.replace((caller_package, instr_span));
+        }
+
+        let (package, span) = user_frame?;
+
+        let location = MetadataPackageSpan {
+            package: u32::try_from(usize::from(package)).expect("package id should fit in u32"),
+            span,
+        };
+        let md = DbgLocation {
+            location,
+            scope: 0, // TODO: fill in correct scope
+            inlined_at: None,
+        };
+        self.dbg_info.dbg_locations.push(md);
+        Some(self.dbg_info.dbg_locations.len() - 1)
+    }
+
+    fn convert_metadata(&mut self, metadata: &backend::DebugMetadata) -> InstructionMetadata {
+        let dbg_location = self.push_dbg_location(metadata);
+
+        InstructionMetadata { dbg_location }
+    }
+
+    fn convert_if_source_locations_enabled(
+        &mut self,
+        metadata: Option<backend::DebugMetadata>,
+    ) -> Option<InstructionMetadata> {
+        if !self.config.locations {
+            return None;
+        }
+        metadata.map(|md| self.convert_metadata(&md))
+    }
 }
 
-/// Provides support for qubit id allocation, measurement and
-/// reset operations for Base Profile targets.
-///
-/// Since qubit reuse is disallowed, a mapping is maintained
-/// from allocated qubit ids to hardware qubit ids. Each time
-/// a qubit is reset, it is remapped to a fresh hardware qubit.
-///
-/// Note that even though qubit reset & reuse is disallowed,
-/// qubit ids are still reused for new allocations.
-/// Measurements are tracked and deferred.
-#[derive(Default)]
-struct Remapper {
-    next_meas_id: usize,
-    next_qubit_id: usize,
-    next_qubit_wire_id: WireId,
-    qubit_map: IndexMap<usize, WireId>,
-    qubit_measurement_counts: IndexMap<WireId, usize>,
-}
+pub(crate) fn finish_circuit(
+    mut qubits: Vec<(Qubit, Vec<DbgLocationKind>)>,
+    mut operations: Vec<Op>,
+    dbg_info: &DbgInfo,
+    dbg_lookup: Option<(&PackageStore, Encoding)>,
+) -> Circuit {
+    resolve_location_metadata(&mut operations, dbg_info);
 
-impl Remapper {
-    fn map(&mut self, qubit: usize) -> WireId {
-        if let Some(mapped) = self.qubit_map.get(qubit) {
-            *mapped
-        } else {
-            let mapped = self.next_qubit_wire_id;
-            self.next_qubit_wire_id.0 += 1;
-            self.qubit_map.insert(qubit, mapped);
-            mapped
+    for (q, declarations) in &mut qubits {
+        for d in declarations.iter_mut() {
+            resolve_location_if_unresolved(dbg_info, d);
+        }
+
+        if !declarations.is_empty() {
+            q.declarations = Some(declarations.iter().filter_map(to_source_location).collect());
         }
     }
 
-    fn m(&mut self, q: usize) -> usize {
-        let mapped_q = self.map(q);
-        let id = self.get_meas_id();
-        match self.qubit_measurement_counts.get_mut(mapped_q) {
-            Some(count) => *count += 1,
-            None => {
-                self.qubit_measurement_counts.insert(mapped_q, 1);
+    let mut qubits = qubits.into_iter().map(|(q, _)| q).collect::<Vec<_>>();
+
+    let mut operations = operations
+        .iter()
+        .map(|o| o.clone().into())
+        .collect::<Vec<_>>();
+
+    if let Some((package_store, position_encoding)) = dbg_lookup {
+        fill_in_dbg_metadata(&mut operations, package_store, position_encoding);
+
+        for q in &mut qubits {
+            if let Some(declarations) = &mut q.declarations {
+                for source_location in declarations {
+                    resolve_source_location_if_unresolved(
+                        source_location,
+                        package_store,
+                        position_encoding,
+                    );
+                }
             }
         }
-        id
     }
 
-    fn qubit_allocate(&mut self) -> usize {
-        let id = self.next_qubit_id;
-        self.next_qubit_id += 1;
-        let _ = self.map(id);
-        id
+    let component_grid = operation_list_to_grid(operations, &qubits);
+    Circuit {
+        qubits,
+        component_grid,
+    }
+}
+// Really similar to source/compiler/qsc_partial_eval/src/management.rs
+pub(crate) struct RegisterMapBuilder {
+    next_meas_id: usize, // ResultType
+    next_qubit_wire_id: WireId,
+    register_map: RegisterMap,
+}
+
+#[derive(Default)]
+pub(crate) struct RegisterMap {
+    qubit_map: IndexMap<usize, WireId>, // QubitType -> WireId
+    qubit_measurements: IndexMap<WireId, (Vec<DbgLocationKind>, Vec<usize>)>, // WireId -> Vec<ResultType>
+}
+
+impl Default for RegisterMapBuilder {
+    fn default() -> Self {
+        Self {
+            next_meas_id: 0,
+            next_qubit_wire_id: WireId(0),
+            register_map: RegisterMap::default(),
+        }
+    }
+}
+
+impl RegisterMap {
+    pub(crate) fn qubit_register(&self, qubit_id: usize) -> WireId {
+        self.qubit_map
+            .get(qubit_id)
+            .expect("qubit should already be mapped")
+            .to_owned()
     }
 
-    fn qubit_release(&mut self, _q: usize) {
-        self.next_qubit_id -= 1;
+    pub(crate) fn result_register(&self, result_id: usize) -> ResultRegister {
+        self.qubit_measurements
+            .iter()
+            .find_map(|(WireId(qubit_register), (_, results))| {
+                let r_idx = results.iter().position(|&r| r == result_id);
+                r_idx.map(|r_idx| ResultRegister(qubit_register, r_idx))
+            })
+            .expect("result should already be mapped")
     }
 
-    fn swap(&mut self, q0: usize, q1: usize) {
-        let q0_mapped = self.map(q0);
-        let q1_mapped = self.map(q1);
-        self.qubit_map.insert(q0, q1_mapped);
-        self.qubit_map.insert(q1, q0_mapped);
+    pub fn to_qubits(&self) -> Vec<(Qubit, Vec<DbgLocationKind>)> {
+        let mut qubits = vec![];
+        for (WireId(i), (declarations, rs)) in self.qubit_measurements.iter() {
+            let num_results = rs.len();
+            qubits.push((
+                Qubit {
+                    id: i,
+                    num_results,
+                    declarations: None,
+                },
+                declarations.clone(),
+            ));
+        }
+
+        qubits
+    }
+}
+
+impl RegisterMapBuilder {
+    pub(crate) fn current(&self) -> &RegisterMap {
+        &self.register_map
     }
 
-    #[must_use]
-    fn num_qubits(&self) -> usize {
-        self.next_qubit_wire_id.0
+    pub fn map_qubit(&mut self, qubit: usize, metadata: Option<InstructionMetadata>) {
+        let location = metadata
+            .and_then(|md| md.dbg_location)
+            .map(DbgLocationKind::Unresolved);
+        let mapped = self.next_qubit_wire_id;
+        self.next_qubit_wire_id.0 += 1;
+        self.register_map.qubit_map.insert(qubit, mapped);
+
+        if let Some(q) = self.register_map.qubit_measurements.get_mut(mapped) {
+            if let Some(location) = location {
+                q.0.push(location);
+            }
+        } else {
+            let l = location.map(|l| vec![l]).unwrap_or_default();
+            self.register_map
+                .qubit_measurements
+                .insert(mapped, (l, vec![]));
+        }
     }
 
-    #[must_use]
-    fn get_meas_id(&mut self) -> usize {
+    fn qubit_release(&mut self, q: usize) {
+        // let curr = self.register_map.qubit_map.get(q);
+        self.next_qubit_wire_id.0 -= 1;
+
+        // can't rely on this because arrays are released in the order of allocation :/
+        // assert_eq!(
+        //     curr,
+        //     Some(&(self.next_qubit_wire_id)),
+        //     "can only release the most recently allocated qubit"
+        // );
+        self.register_map.qubit_map.remove(q);
+    }
+
+    pub fn link_result_to_qubit(&mut self, q: usize, r: usize) {
+        let mapped_q = self.register_map.qubit_register(q);
+        let Some((_, measurements)) = self.register_map.qubit_measurements.get_mut(mapped_q) else {
+            panic!("qubit should already be mapped");
+        };
+        if !measurements.contains(&r) {
+            measurements.push(r);
+        }
+    }
+
+    fn result_allocate(&mut self) -> usize {
         let id = self.next_meas_id;
         self.next_meas_id += 1;
         id
     }
-}
 
-#[derive(Copy, Clone, Default)]
-struct WireId(pub usize);
-
-impl From<usize> for WireId {
-    fn from(id: usize) -> Self {
-        WireId(id)
+    fn swap(&mut self, q0: usize, q1: usize) {
+        let q0_mapped = self.register_map.qubit_register(q0);
+        let q1_mapped = self.register_map.qubit_register(q1);
+        self.register_map.qubit_map.insert(q0, q1_mapped);
+        self.register_map.qubit_map.insert(q1, q0_mapped);
     }
-}
-
-impl From<WireId> for usize {
-    fn from(id: WireId) -> Self {
-        id.0
-    }
-}
-
-fn gate<const N: usize>(name: &str, targets: [WireId; N]) -> Operation {
-    Operation::Unitary(Unitary {
-        gate: name.into(),
-        args: vec![],
-        is_adjoint: false,
-        controls: vec![],
-        targets: targets.iter().map(|q| Register::quantum(q.0)).collect(),
-        children: vec![],
-    })
-}
-
-fn adjoint_gate<const N: usize>(name: &str, targets: [WireId; N]) -> Operation {
-    Operation::Unitary(Unitary {
-        gate: name.into(),
-        args: vec![],
-        is_adjoint: true,
-        controls: vec![],
-        targets: targets.iter().map(|q| Register::quantum(q.0)).collect(),
-        children: vec![],
-    })
-}
-
-fn controlled_gate<const M: usize, const N: usize>(
-    name: &str,
-    controls: [WireId; M],
-    targets: [WireId; N],
-) -> Operation {
-    Operation::Unitary(Unitary {
-        gate: name.into(),
-        args: vec![],
-        is_adjoint: false,
-        controls: controls.iter().map(|q| Register::quantum(q.0)).collect(),
-        targets: targets.iter().map(|q| Register::quantum(q.0)).collect(),
-        children: vec![],
-    })
-}
-
-fn measurement_gate(qubit: usize, result: usize) -> Operation {
-    Operation::Measurement(Measurement {
-        gate: "Measure".into(),
-        args: vec![],
-        qubits: vec![Register::quantum(qubit)],
-        results: vec![Register::classical(qubit, result)],
-        children: vec![],
-    })
-}
-
-fn ket_gate<const N: usize>(name: &str, targets: [WireId; N]) -> Operation {
-    Operation::Ket(Ket {
-        gate: name.into(),
-        args: vec![],
-        targets: targets.iter().map(|q| Register::quantum(q.0)).collect(),
-        children: vec![],
-    })
-}
-
-fn rotation_gate<const N: usize>(name: &str, theta: f64, targets: [WireId; N]) -> Operation {
-    Operation::Unitary(Unitary {
-        gate: name.into(),
-        args: vec![format!("{theta:.4}")],
-        is_adjoint: false,
-        controls: vec![],
-        targets: targets.iter().map(|q| Register::quantum(q.0)).collect(),
-        children: vec![],
-    })
-}
-
-fn custom_gate(name: &str, targets: &[WireId], args: Vec<String>) -> Operation {
-    Operation::Unitary(Unitary {
-        gate: name.into(),
-        args,
-        is_adjoint: false,
-        controls: vec![],
-        targets: targets.iter().map(|q| Register::quantum(q.0)).collect(),
-        children: vec![],
-    })
 }

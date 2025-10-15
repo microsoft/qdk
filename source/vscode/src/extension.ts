@@ -3,6 +3,7 @@
 
 import {
   getLibrarySourceContent,
+  ILocation,
   log,
   qsharpGithubUriScheme,
   qsharpLibraryUriScheme,
@@ -34,6 +35,7 @@ import {
   maybeShowChangelogPrompt,
   registerChangelogCommand,
 } from "./changelog.js";
+import { toVsCodeRange } from "./common.js";
 
 export async function activate(
   context: vscode.ExtensionContext,
@@ -91,9 +93,68 @@ export async function activate(
   // Show prompt after update if not suppressed
   maybeShowChangelogPrompt(context);
 
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "qsharp-vscode.gotoLocations",
+      async (locations: ILocation[]) => {
+        // location sources can be a proper URI, or a compiler-generated pseudo-source
+        // file like `<entry>`. We only want to navigate if it's a proper URI.
+
+        log.debug(`gotoLocation`, locations);
+        const validLocations = parseLocations(locations);
+
+        if (validLocations.length === 0) {
+          log.debug("No valid locations to navigate to.");
+          return;
+        }
+
+        for (const l of validLocations) {
+          const document = await vscode.workspace.openTextDocument(l.uri);
+          const existingEditor = vscode.window.visibleTextEditors.find(
+            (e) => e.document.uri.toString() === l.uri.toString(),
+          );
+          const viewColumn =
+            existingEditor?.viewColumn ?? vscode.ViewColumn.One;
+
+          // Force the document to open and take focus first in our preferred
+          // view column - this prevents the `goToLocations` command
+          // below from opening the document in whatever view column currently
+          // has focus.
+          await vscode.window.showTextDocument(document, {
+            viewColumn,
+          });
+          // editor.revealRange(vscodeRange, vscode.TextEditorRevealType.InCenter);
+        }
+
+        vscode.commands.executeCommand(
+          "editor.action.goToLocations",
+          validLocations[0].uri,
+          validLocations[0].range.start,
+          validLocations,
+          "peek",
+        );
+      },
+    ),
+  );
+
   log.info("Q# extension activated.");
 
   return api;
+}
+
+function parseLocations(locations: ILocation[]): vscode.Location[] {
+  const uris = [];
+  for (const loc of locations) {
+    try {
+      const uri = vscode.Uri.parse(loc.source);
+      uris.push(new vscode.Location(uri, toVsCodeRange(loc.span)));
+    } catch {
+      // ignore invalid URIs
+      log.debug(`Ignoring invalid URI: ${loc.source}`);
+      continue;
+    }
+  }
+  return uris;
 }
 
 export interface ExtensionApi {

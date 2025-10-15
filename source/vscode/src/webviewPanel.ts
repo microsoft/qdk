@@ -267,7 +267,7 @@ function createPanel(
       QSharpWebViewType,
       title,
       {
-        viewColumn: ViewColumn.Three,
+        viewColumn: ViewColumn.Two,
         preserveFocus: true,
       },
       {
@@ -304,7 +304,7 @@ export function sendMessageToPanel(
   message: any,
 ) {
   const panelRecord = getOrCreatePanel(panel.panelType, panel.id);
-  if (reveal) panelRecord.panel.reveal(ViewColumn.Beside);
+  if (reveal) panelRecord.panel.reveal(ViewColumn.Two);
   if (message) panelRecord.panel.sendMessage(message);
 }
 
