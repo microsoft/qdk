@@ -616,7 +616,7 @@ impl Display for QuantumProperties {
 pub enum ValueKind {
     /// The first runtime kind corresponds to the content of the array while the second corresponds to the size.
     Array(RuntimeKind, RuntimeKind),
-    /// Runtime kind correspondig to a single element.
+    /// Runtime kind corresponding to a single element.
     Element(RuntimeKind),
 }
 
@@ -792,7 +792,7 @@ bitflags! {
         const MeasurementWithinDynamicScope = 1 << 17;
         /// Use of a dynamic index to access or update an array.
         const UseOfDynamicIndex = 1 << 18;
-        /// A return expression withing a dynamic scope.
+        /// A return expression within a dynamic scope.
         const ReturnWithinDynamicScope = 1 << 19;
         /// A loop with a dynamic condition.
         const LoopWithDynamicCondition = 1 << 20;

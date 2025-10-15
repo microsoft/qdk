@@ -4,7 +4,7 @@
 use std::fmt::{self, Display, Write};
 
 /// Takes a unicode buffer or stream and wraps it with
-/// `indenter::Idented`. Which applies an indentation of 1
+/// `indenter::Indented`. Which applies an indentation of 1
 /// each time you insert a new line.
 fn with_indentation<T>(f: &mut T) -> indenter::Indented<'_, T>
 where
@@ -14,7 +14,7 @@ where
     set_indentation(indent, 1)
 }
 
-/// Takes an `indenter::Idented` and changes its indentation level.
+/// Takes an `indenter::Indented` and changes its indentation level.
 fn set_indentation<T>(indent: indenter::Indented<'_, T>, level: usize) -> indenter::Indented<'_, T>
 where
     T: fmt::Write,

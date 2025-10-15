@@ -28,7 +28,7 @@ use std::{
 enum NumberLexError {
     /// A number ending in an underscore.
     EndsInUnderscore,
-    /// An incomplete binary, octal, or hex numer.
+    /// An incomplete binary, octal, or hex number.
     Incomplete,
     /// The token wasn't parsed and no characters were consumed
     /// when trying to parse the token.

@@ -631,7 +631,7 @@ impl<'a> Analyzer<'a> {
         self.visit_expr(msg_expr_id);
 
         // The compute kind of the expression is determined from the message expression runtime features plus an
-        // additional runtime feature if the message expresion is dynamic.
+        // additional runtime feature if the message expression is dynamic.
         let application_instance = self.get_current_application_instance();
         let msg_expr_compute_kind = *application_instance.get_expr_compute_kind(msg_expr_id);
         let mut compute_kind = ComputeKind::Classical;
@@ -1108,7 +1108,7 @@ impl<'a> Analyzer<'a> {
 
         // We analyze both the condition expression and the block N times, where N is the analysis stabilization limit.
         // The reason why we need a stabilization limit is because there can be up-to N levels of indirection for the
-        // condition due to variable assigments.
+        // condition due to variable assignments.
         // The number of statements with assignments in the condition expression and the loop block is a good proxy for
         // the worst case scenario regarding the propagation of properties throughout variables. Because of this, we use
         // it as the stabilization limit.

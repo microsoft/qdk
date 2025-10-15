@@ -85,7 +85,7 @@ impl EvaluationContext {
     }
 }
 
-/// Struct that represents a block node when we intepret an RIR program as a graph.
+/// Struct that represents a block node when we interpret an RIR program as a graph.
 pub struct BlockNode {
     /// The ID of the block.
     pub id: BlockId,

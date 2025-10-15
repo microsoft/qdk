@@ -59,7 +59,7 @@ operation EstimateEigenvalue(
 
 /// # Summary
 /// Given a qubit register `qs` measure each qubit in the register
-/// assume reults represent a binary fraction in little-endian order
+/// assume results represent a binary fraction in little-endian order
 /// and return the fraction as a `Double` value.
 operation MeasureBinaryFractionLE(qs : Qubit[]) : Double {
     mutable result = 0.0;

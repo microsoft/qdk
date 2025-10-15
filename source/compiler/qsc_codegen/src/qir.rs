@@ -662,7 +662,7 @@ impl ToQir<String> for rir::Callable {
                     self.call_type,
                     rir::CallableType::Measurement | rir::CallableType::Reset
                 ) {
-                    // These callables are a special case that need the irreversable attribute.
+                    // These callables are a special case that need the irreversible attribute.
                     " #1"
                 } else {
                     ""

@@ -266,10 +266,10 @@ fn expression_by_formula2() {
 
 #[test]
 fn test_default_t_factory() {
-    let physical_qubit = PhysicalQubit::default();
+    let physical_qubit = Rc::new(PhysicalQubit::default());
     let ftp = surface_code_gate_based();
-    let logical_qubit = LogicalPatch::new(&ftp, 15, Rc::new(physical_qubit))
-        .expect("logical qubit contruction should succeed");
+    let logical_qubit = LogicalPatch::new(&ftp, 15, physical_qubit.clone())
+        .expect("logical qubit construction should succeed");
     let tfactory = default_t_factory(&logical_qubit);
 
     assert_eq!(tfactory.num_rounds(), 1);
@@ -277,4 +277,7 @@ fn test_default_t_factory() {
     assert_eq!(tfactory.code_parameter_per_round(), vec![Some(&15)]);
     assert_eq!(tfactory.physical_qubits_per_round(), vec![450]);
     assert_eq!(tfactory.duration_per_round(), vec![6000]);
+    assert!(
+        (tfactory.output_error_rate() - physical_qubit.t_gate_error_rate()).abs() < f64::EPSILON
+    );
 }

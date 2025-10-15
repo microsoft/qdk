@@ -46,7 +46,7 @@ export function render({ model, el }: RenderArgs) {
 
   // There is an existing issue where in VS Code it always shows the widget background as white.
   // (See https://github.com/microsoft/vscode-jupyter/issues/7161)
-  // We tried to fix this in CSS by overridding the style, but there is a race condition whereby
+  // We tried to fix this in CSS by overriding the style, but there is a race condition whereby
   // depending on which style gets injected first (ours or ipywidgets), it may or may not work.
 
   // The solution here is to force our own override to be last in the style list if not already.

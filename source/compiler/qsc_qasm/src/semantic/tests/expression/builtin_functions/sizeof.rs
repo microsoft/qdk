@@ -472,7 +472,7 @@ fn sizeof_dyn_array_ref_omitted_dimension() {
     );
 }
 
-// This is a runtime failure, so it lowers and compiles wihtout errors.
+// This is a runtime failure, so it lowers and compiles without errors.
 #[test]
 fn sizeof_dyn_array_ref_invalid_dimension_lowers_correctly() {
     let source = "

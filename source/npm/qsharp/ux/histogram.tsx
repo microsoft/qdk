@@ -200,7 +200,7 @@ export function Histogram(props: {
     const svgElem = e.currentTarget as SVGSVGElement;
 
     // Below gets the mouse location in the svg element coordinates. This stays
-    // consistent while the scroll is occuring (i.e. it is the point the mouse
+    // consistent while the scroll is occurring (i.e. it is the point the mouse
     // was at when scrolling started).
     const mousePoint = new DOMPoint(e.clientX, e.clientY).matrixTransform(
       svgElem.getScreenCTM()?.inverse(),
@@ -211,7 +211,7 @@ export function Histogram(props: {
     that location on the screen. That means adjusting the scroll offset.
 
     SVG translation is used to pan left and right, but zooming is done manually (making the
-    bars wider or thinner) to keep the fonts from getting streched, which occurs with scaling.
+    bars wider or thinner) to keep the fonts from getting stretched, which occurs with scaling.
 
     deltaX and deltaY do not accumulate across events, they are a new delta each time.
     */

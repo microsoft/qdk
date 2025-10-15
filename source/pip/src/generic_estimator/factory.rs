@@ -9,11 +9,13 @@ use pyo3::{
     types::{PyAnyMethods, PyDict, PyList},
 };
 use resource_estimator::estimates::{
-    Factory, FactoryBuilder, PhysicalQubitCalculation, RoundBasedFactory,
+    DistillationRound, Factory, FactoryBuilder, PhysicalQubitCalculation, RoundBasedFactory,
 };
 use round_based::{OrderedBFSControl, ordered_bfs};
 use serde::Serialize;
 use serde_json::{Map, Value, json};
+
+use crate::generic_estimator::utils::maybe_extract_and_check_method;
 
 use super::{
     code::PythonQEC,
@@ -27,7 +29,10 @@ pub use round_based::PythonDistillationUnit;
 
 enum FactoryImplementation<'py> {
     Generic(Bound<'py, PyAny>),
-    RoundBased(Bound<'py, PyAny>),
+    RoundBased {
+        distillation_units: Bound<'py, PyAny>,
+        trivial_distillation_unit: Option<Bound<'py, PyAny>>,
+    },
 }
 
 /// A wrapper around a Python instance to compute magic state factories.
@@ -59,7 +64,7 @@ enum FactoryImplementation<'py> {
 ///         ...
 /// ```
 ///
-/// A factory object is simply a Phython dictionary, which _must_ contain
+/// A factory object is simply a Python dictionary, which _must_ contain
 /// entries for `"physical_qubits"` and `"duration"` (in nano seconds).  It may
 /// also contain `"num_output_states"`, which defaults to 1 if not specified. It
 /// may contain other entries, which will be included in the serialized resource
@@ -67,7 +72,7 @@ enum FactoryImplementation<'py> {
 ///
 /// ## Creating factories based on multiple rounds of distillation
 ///
-/// To create factories based on mulitple rounds of distillation, the class must
+/// To create factories based on multiple rounds of distillation, the class must
 /// implement the function `distillation_units`, which returns a list of
 /// distillation unit objects (described below). Further, such a class may
 /// provide local variables `gate_error`, `max_rounds` and `max_extra_rounds`
@@ -101,7 +106,7 @@ enum FactoryImplementation<'py> {
 /// `"code_parameter"`, and `"num_output_states"` are optional and default to
 /// `"distillation-unit"`, `None`, and `1`.  The fields for `"physical_qubits"`
 /// and `"runtime"` must be callable (e.g., using a Python lambda) with the
-/// 0-based round index as only paramter.  The fields for `"output_error_rate"`
+/// 0-based round index as only parameter.  The fields for `"output_error_rate"`
 /// and `"failure_probability"` also must be callable with the input error rate
 /// (of the previous round or initial gate error rate) as the only parameter.
 pub struct PythonFactoryBuilder<'py> {
@@ -112,10 +117,15 @@ pub struct PythonFactoryBuilder<'py> {
 
 impl<'py> PythonFactoryBuilder<'py> {
     pub fn from_bound(builder: Bound<'py, PyAny>) -> PyResult<Self> {
-        let implementation = if let Ok(method) = builder.getattr("find_factories") {
-            FactoryImplementation::Generic(method)
-        } else if let Ok(method) = builder.getattr("distillation_units") {
-            FactoryImplementation::RoundBased(method)
+        let implementation = if let Ok(find_factories) = builder.getattr("find_factories") {
+            FactoryImplementation::Generic(find_factories)
+        } else if let Ok(distillation_units) = builder.getattr("distillation_units") {
+            let trivial_distillation_unit =
+                maybe_extract_and_check_method(&builder, "trivial_distillation_unit")?;
+            FactoryImplementation::RoundBased {
+                distillation_units,
+                trivial_distillation_unit,
+            }
         } else {
             return Err(PyLookupError::new_err(
                 "FactoryBuilder must have either find_factories or distillation_units method",
@@ -134,6 +144,164 @@ impl<'py> PythonFactoryBuilder<'py> {
             num_magic_state_types,
         })
     }
+
+    fn create_generic_factories<'a>(
+        code: &PythonQEC<'py>,
+        qubit: &Bound<'py, PyDict>,
+        output_error_rate: f64,
+        find_factories: &Bound<'py, PyAny>,
+    ) -> Result<Vec<std::borrow::Cow<'a, PythonFactory<'py>>>, String> {
+        let result = find_factories
+            .call1((code.bound(), qubit.as_ref(), output_error_rate))
+            .map_err(|e| e.to_string())?;
+
+        if result.is_none() {
+            Ok(vec![])
+        } else {
+            let factories = result.downcast::<PyList>().map_err(|e| e.to_string())?;
+            let mut converted = vec![];
+
+            for element in factories {
+                let dict = element.downcast::<PyDict>().map_err(|e| e.to_string())?;
+                let factory = PythonFactory::from_py_dict(dict).ok_or(format!(
+                            "Failed to convert factory from Python dict: {dict:?}, does the dictionary contain entries for 'physical_qubits' and 'duration'?",
+                        ))?;
+                converted.push(Cow::Owned(factory));
+            }
+
+            Ok(converted)
+        }
+    }
+
+    fn create_round_based_factories(
+        &self,
+        code: &PythonQEC<'py>,
+        qubit: &Bound<'py, PyDict>,
+        output_error_rate: f64,
+        max_code_parameter: &SerializableBound<'py>,
+        distillation_units: &Bound<'py, PyAny>,
+        trivial_distillation_unit: Option<&Bound<'py, PyAny>>,
+    ) -> Result<Vec<std::borrow::Cow<PythonFactory<'py>>>, String> {
+        // input error rate
+        let qubit_key = self
+            .builder
+            .getattr("gate_error")
+            .and_then(|a| a.extract())
+            .unwrap_or(String::from("gate_error"));
+        let initial_input_error_rate = qubit
+            .get_item(&qubit_key)
+            .map_err(|e| e.to_string())?
+            .extract()
+            .map_err(|e| e.to_string())?;
+
+        if initial_input_error_rate <= output_error_rate
+            && let Some(trivial_distillation_unit) = trivial_distillation_unit
+        {
+            return Self::create_trivial_distillation_unit(
+                code,
+                qubit,
+                max_code_parameter,
+                trivial_distillation_unit,
+                initial_input_error_rate,
+            );
+        }
+
+        let use_max_qubits_per_round = self
+            .builder
+            .getattr("use_max_qubits_per_round")
+            .and_then(|a| a.extract())
+            .unwrap_or(false);
+        let max_rounds = self
+            .builder
+            .getattr("max_rounds")
+            .and_then(|a| a.extract())
+            .unwrap_or(3);
+        let max_extra_rounds = self
+            .builder
+            .getattr("max_extra_rounds")
+            .and_then(|a| a.extract())
+            .unwrap_or(5);
+
+        let return_value = distillation_units
+            .call1((code.bound(), qubit.as_ref(), &**max_code_parameter))
+            .map_err(|e| e.to_string())?;
+
+        let units: Vec<_> = return_value
+            .try_iter()
+            .map_err(|e| {
+                format!("{e} (check the return value of the 'distillation_units' method)",)
+            })?
+            .map(|bound| PythonDistillationUnit::new(bound?.downcast_into::<PyDict>()?))
+            .collect::<Result<_, _>>()
+            .map_err(|e| e.to_string())?;
+
+        let mut factories: Vec<Cow<PythonFactory>> = vec![];
+
+        ordered_bfs(&units, max_extra_rounds, |selected_units| {
+            if selected_units.len() > max_rounds && !factories.is_empty() {
+                return Ok(OrderedBFSControl::Terminate);
+            }
+
+            if let Ok(mut factory) =
+                RoundBasedFactory::build(&selected_units, initial_input_error_rate, 0.01)
+            {
+                if factory.output_error_rate() <= output_error_rate {
+                    factory.set_physical_qubit_calculation(if use_max_qubits_per_round {
+                        PhysicalQubitCalculation::Max
+                    } else {
+                        PhysicalQubitCalculation::Sum
+                    });
+                    factories.push(Cow::Owned(PythonFactory::try_from(factory)?));
+
+                    if selected_units.len() > max_rounds {
+                        return Ok(OrderedBFSControl::Terminate);
+                    }
+                }
+            }
+
+            Ok(OrderedBFSControl::Continue)
+        })?;
+
+        if factories.is_empty() {
+            return Err(format!(
+                "No factories found for output error rate: {output_error_rate}, try increasing the 'max_rounds' parameter."
+            ));
+        }
+
+        factories.sort_unstable_by(|f1, f2| {
+            f1.normalized_qubits()
+                .total_cmp(&f2.normalized_qubits())
+                .then(f1.duration().cmp(&f2.duration()))
+        });
+
+        Ok(factories)
+    }
+
+    fn create_trivial_distillation_unit<'a>(
+        code: &PythonQEC<'py>,
+        qubit: &Bound<'py, PyDict>,
+        max_code_parameter: &SerializableBound<'py>,
+        trivial_distillation_unit: &Bound<'py, PyAny>,
+        input_error_rate: f64,
+    ) -> Result<Vec<std::borrow::Cow<'a, PythonFactory<'py>>>, String> {
+        let result = trivial_distillation_unit
+            .call1((code.bound(), qubit.as_ref(), &**max_code_parameter))
+            .map_err(|e| e.to_string())?;
+
+        let unit = PythonDistillationUnit::new(
+            result
+                .downcast_into::<PyDict>()
+                .map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
+
+        let round = DistillationRound::new(&unit, 0.0, 0);
+
+        let factory =
+            RoundBasedFactory::new(1, 0.0, vec![round], vec![input_error_rate; 2], vec![0.0; 2]);
+
+        Ok(vec![Cow::Owned(PythonFactory::try_from(factory)?)])
+    }
 }
 
 impl<'py> FactoryBuilder<PythonQEC<'py>> for PythonFactoryBuilder<'py> {
@@ -148,111 +316,20 @@ impl<'py> FactoryBuilder<PythonQEC<'py>> for PythonFactoryBuilder<'py> {
         max_code_parameter: &SerializableBound<'py>,
     ) -> Result<Vec<std::borrow::Cow<Self::Factory>>, String> {
         match &self.implementation {
-            FactoryImplementation::Generic(method) => {
-                let result = method
-                    .call1((code.bound(), qubit.as_ref(), output_error_rate))
-                    .map_err(|e| e.to_string())?;
-
-                if result.is_none() {
-                    Ok(vec![])
-                } else {
-                    let factories = result.downcast::<PyList>().map_err(|e| e.to_string())?;
-                    let mut converted = vec![];
-
-                    for element in factories {
-                        let dict = element.downcast::<PyDict>().map_err(|e| e.to_string())?;
-                        let factory = PythonFactory::from_py_dict(dict).ok_or(format!(
-                            "Failed to convert factory from Python dict: {dict:?}, does the dictionary contain entries for 'physical_qubits' and 'duration'?",
-
-                        ))?;
-                        converted.push(Cow::Owned(factory));
-                    }
-
-                    Ok(converted)
-                }
+            FactoryImplementation::Generic(find_factories) => {
+                Self::create_generic_factories(code, qubit, output_error_rate, find_factories)
             }
-            FactoryImplementation::RoundBased(method) => {
-                // input error rate
-                let qubit_key = self
-                    .builder
-                    .getattr("gate_error")
-                    .and_then(|a| a.extract())
-                    .unwrap_or(String::from("gate_error"));
-                let initial_input_error_rate = qubit
-                    .get_item(&qubit_key)
-                    .map_err(|e| e.to_string())?
-                    .extract()
-                    .map_err(|e| e.to_string())?;
-                let use_max_qubits_per_round = self
-                    .builder
-                    .getattr("use_max_qubits_per_round")
-                    .and_then(|a| a.extract())
-                    .unwrap_or(false);
-                let max_rounds = self
-                    .builder
-                    .getattr("max_rounds")
-                    .and_then(|a| a.extract())
-                    .unwrap_or(3);
-                let max_extra_rounds = self
-                    .builder
-                    .getattr("max_extra_rounds")
-                    .and_then(|a| a.extract())
-                    .unwrap_or(5);
-
-                let return_value = method
-                    .call1((code.bound(), qubit.as_ref(), &**max_code_parameter))
-                    .map_err(|e| e.to_string())?;
-
-                let units: Vec<_> = return_value
-                    .try_iter()
-                    .map_err(|e| {
-                        format!("{e} (check the return value of the 'distillation_units' method)",)
-                    })?
-                    .map(|bound| PythonDistillationUnit::new(bound?.downcast_into::<PyDict>()?))
-                    .collect::<Result<_, _>>()
-                    .map_err(|e| e.to_string())?;
-
-                let mut factories: Vec<Cow<PythonFactory>> = vec![];
-
-                ordered_bfs(&units, max_extra_rounds, |selected_units| {
-                    if selected_units.len() > max_rounds && !factories.is_empty() {
-                        return Ok(OrderedBFSControl::Terminate);
-                    }
-
-                    if let Ok(mut factory) =
-                        RoundBasedFactory::build(&selected_units, initial_input_error_rate, 0.01)
-                    {
-                        if factory.output_error_rate() <= output_error_rate {
-                            factory.set_physical_qubit_calculation(if use_max_qubits_per_round {
-                                PhysicalQubitCalculation::Max
-                            } else {
-                                PhysicalQubitCalculation::Sum
-                            });
-                            factories.push(Cow::Owned(PythonFactory::try_from(factory)?));
-
-                            if selected_units.len() > max_rounds {
-                                return Ok(OrderedBFSControl::Terminate);
-                            }
-                        }
-                    }
-
-                    Ok(OrderedBFSControl::Continue)
-                })?;
-
-                if factories.is_empty() {
-                    return Err(format!(
-                        "No factories found for output error rate: {output_error_rate}, try increasing the 'max_rounds' parameter."
-                    ));
-                }
-
-                factories.sort_unstable_by(|f1, f2| {
-                    f1.normalized_qubits()
-                        .total_cmp(&f2.normalized_qubits())
-                        .then(f1.duration().cmp(&f2.duration()))
-                });
-
-                Ok(factories)
-            }
+            FactoryImplementation::RoundBased {
+                distillation_units,
+                trivial_distillation_unit,
+            } => self.create_round_based_factories(
+                code,
+                qubit,
+                output_error_rate,
+                max_code_parameter,
+                distillation_units,
+                trivial_distillation_unit.as_ref(),
+            ),
         }
     }
 

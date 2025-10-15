@@ -468,7 +468,7 @@ pub fn default_t_factory(logical_qubit: &LogicalPatch<Protocol>) -> TFactory {
     let unit = TFactoryDistillationUnit::by_template(&template, &tfactory_qubit);
 
     let length = 1;
-    let t_error_rate = logical_qubit.logical_error_rate();
+    let t_error_rate = logical_qubit.physical_qubit().t_gate_error_rate();
     let failure_probability_requirement = 0.0;
 
     let round = DistillationRound::new(&unit, failure_probability_requirement, 0);

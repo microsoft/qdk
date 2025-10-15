@@ -179,7 +179,7 @@ export function ScatterChart(props: {
     }
   });
 
-  // The mouse events (over, out, and click) bubble, so put the hanlders on the
+  // The mouse events (over, out, and click) bubble, so put the handlers on the
   // SVG element and check the target element in the handler.
   return (
     <div style="position: relative">

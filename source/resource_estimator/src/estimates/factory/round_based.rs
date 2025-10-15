@@ -106,7 +106,7 @@ impl<P: Clone> DistillationRound<P> {
 
     pub fn compute_num_output_states(&self, failure_probability: f64) -> u64 {
         // special case when not necessary to run actual distillation:
-        // the physcial qubit error rate is already below the threshold
+        // the physical qubit error rate is already below the threshold
         if failure_probability == 0.0 && self.failure_probability_requirement == 0.0 {
             return self.num_units * self.num_output_states;
         }

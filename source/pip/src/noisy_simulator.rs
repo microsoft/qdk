@@ -23,7 +23,7 @@ pub(crate) fn register_noisy_simulator_submodule<'a>(
 /// Performance Warning:
 ///  nalgebra stores its matrices in column major order, and we want to send
 ///  them from Python in row major order, this means that there will be lots of
-///  cache-misses in the convertion from one format to another.
+///  cache-misses in the conversion from one format to another.
 ///
 ///  This function is only used on a non-critical path for performance. Namely,
 ///  the input to the simulator to set it up, and getting the final output.
