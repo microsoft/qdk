@@ -666,7 +666,7 @@ if build_pip and build_widgets and args.integration_tests:
             or f.startswith("iterative_phase_estimation.")
             or f.startswith("repeat_until_success.")
             or f.startswith("python-deps.")
-            or f.startswith("submit_qiskit_to_azure.")
+            or f.startswith("submit_qiskit_circuit_to_azure.")
         )
     ]
     python_bin = use_python_env(samples_src)
