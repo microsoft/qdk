@@ -14,7 +14,7 @@ from pathlib import Path
 
 python_ver = (3, 11)  # Python support for Windows on ARM64 requires v3.11 or later
 rust_ver = (1, 88, 0)  # Ensure Rust version 1.88 or later is installed
-node_ver = (20, 18, 0)
+node_ver = (22, 14, 0)
 rust_fmt_ver = (1, 8, 0)  # Current version when Rust 1.88 shipped
 clippy_ver = (0, 1, 88)
 wasm_bindgen_ver = (0, 2, 100)
@@ -46,11 +46,11 @@ def add_wasm_tools_to_path():
 
     if bindgen_path not in os.environ["PATH"]:
         print(f"Adding {bindgen_path} to PATH")
-        os.environ["PATH"] += (os.pathsep + bindgen_path)
+        os.environ["PATH"] += os.pathsep + bindgen_path
 
     if wasmopt_path not in os.environ["PATH"]:
         print(f"Adding {wasmopt_path} to PATH")
-        os.environ["PATH"] += (os.pathsep + wasmopt_path)
+        os.environ["PATH"] += os.pathsep + wasmopt_path
 
 
 def check_prereqs(install=False, skip_wasm=False):
@@ -166,7 +166,9 @@ def wasm_checks(install, installed_rust_targets):
         if install == True:
             print("wasm-bindgen not found. Attempting to install...")
             install_wasm_bindgen()
-            wasm_bindgen_version = subprocess.check_output(["wasm-bindgen", "--version"])
+            wasm_bindgen_version = subprocess.check_output(
+                ["wasm-bindgen", "--version"]
+            )
         else:
             print(
                 "wasm-bindgen not found. Install via 'python ./prereqs.py --install' or see https://github.com/rustwasm/wasm-bindgen"
