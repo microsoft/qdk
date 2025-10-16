@@ -78,4 +78,4 @@ export type CircuitProps = {
   runCallback?: () => void;
 };
 
-export type CircuitGroup = import("./circuit-vis/circuit").CircuitGroup;
+export type CircuitGroup = import("./circuit-vis/circuit.js").CircuitGroup;

@@ -7,11 +7,11 @@ import {
   gatePadding,
   controlBtnOffset,
   groupBoxPadding,
-} from "./constants";
-import { ComponentGrid, Operation, ConditionalRender } from "./circuit";
-import { GateRenderData, GateType } from "./gateRenderData";
-import { Register, RegisterMap } from "./register";
-import { getGateWidth } from "./utils";
+} from "./constants.js";
+import { ComponentGrid, Operation, ConditionalRender } from "./circuit.js";
+import { GateRenderData, GateType } from "./gateRenderData.js";
+import { Register, RegisterMap } from "./register.js";
+import { getGateWidth } from "./utils.js";
 
 /**
  * Takes in a component grid and maps the operations to `GateRenderData` objects which

@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { GateRenderData, GateType } from "../gateRenderData";
+import { GateRenderData, GateType } from "../gateRenderData.js";
 import {
   minGateWidth,
   gateHeight,
@@ -12,7 +12,7 @@ import {
   groupBoxPadding,
   classicalRegHeight,
   nestedGroupPadding,
-} from "../constants";
+} from "../constants.js";
 import {
   createSvgElement,
   group,
@@ -24,9 +24,9 @@ import {
   arc,
   dashedLine,
   dashedBox,
-} from "./formatUtils";
+} from "./formatUtils.js";
 
-import { mathChars } from "../utils";
+import { mathChars } from "../utils.js";
 
 /**
  * Given an array of operations render data, return the SVG representation.
@@ -112,6 +112,15 @@ const _createGate = (
   Object.entries(dataAttributes || {}).forEach(
     ([attr, val]) => (attributes[`data-${attr}`] = val),
   );
+
+  // Add positioning data attributes to avoid relying on getBBox() in tests
+  const [x1, y1, x2, y2] = _gatePosition(renderData, nestedDepth);
+  attributes["data-x"] = x1.toString();
+  attributes["data-y"] = y1.toString();
+  attributes["data-width"] = (x2 - x1).toString();
+  attributes["data-height"] = (y2 - y1).toString();
+  attributes["data-min-y"] = y1.toString();
+  attributes["data-max-y"] = y2.toString();
 
   const zoomBtn: SVGElement | null = _zoomButton(renderData, nestedDepth);
   if (zoomBtn != null) svgElems = svgElems.concat([zoomBtn]);

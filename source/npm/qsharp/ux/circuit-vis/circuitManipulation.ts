@@ -1,17 +1,17 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { getOperationRegisters } from "../../src/utils";
-import { Column, ComponentGrid, Operation, Unitary } from "./circuit";
-import { CircuitEvents } from "./events";
-import { Register } from "./register";
+import { getOperationRegisters } from "../../src/utils.js";
+import { Column, ComponentGrid, Operation, Unitary } from "./circuit.js";
+import { CircuitEvents } from "./events.js";
+import { Register } from "./register.js";
 import {
   findOperation,
   findParentArray,
   findParentOperation,
   getChildTargets,
   locationStringToIndexes,
-} from "./utils";
+} from "./utils.js";
 
 /**
  * Move an operation in the circuit.
