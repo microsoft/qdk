@@ -113,15 +113,6 @@ const _createGate = (
     ([attr, val]) => (attributes[`data-${attr}`] = val),
   );
 
-  // Add positioning data attributes to avoid relying on getBBox() in tests
-  const [x1, y1, x2, y2] = _gatePosition(renderData, nestedDepth);
-  attributes["data-x"] = x1.toString();
-  attributes["data-y"] = y1.toString();
-  attributes["data-width"] = (x2 - x1).toString();
-  attributes["data-height"] = (y2 - y1).toString();
-  attributes["data-min-y"] = y1.toString();
-  attributes["data-max-y"] = y2.toString();
-
   const zoomBtn: SVGElement | null = _zoomButton(renderData, nestedDepth);
   if (zoomBtn != null) svgElems = svgElems.concat([zoomBtn]);
   return group(svgElems, attributes);
