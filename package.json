@@ -7,7 +7,7 @@
   ],
   "license": "MIT",
   "engines": {
-    "node": ">=20.18.2"
+    "node": ">=22.14.0"
   },
   "scripts": {
     "eslint:check": "eslint -c ./eslint.config.mjs --max-warnings 0 ./",
@@ -23,7 +23,7 @@
     "@types/chai": "^4.3.8",
     "@types/markdown-it": "^14.1.1",
     "@types/mocha": "^10.0.2",
-    "@types/node": "^20.17",
+    "@types/node": "^22.14",
     "@types/vscode": "^1.99.1",
     "@types/vscode-webview": "^1.57.5",
     "@vscode/codicons": "^0.0.36",

@@ -9,7 +9,7 @@ import {
   registerHeight,
   classicalRegHeight,
 } from "../constants.js";
-import { createSvgElement, group, text } from "./formatUtils.js";
+import { group, text } from "./formatUtils.js";
 import { mathChars } from "../utils.js";
 
 /**

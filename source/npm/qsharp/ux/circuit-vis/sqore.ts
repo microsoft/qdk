@@ -15,7 +15,6 @@ import {
   SourceLocation,
 } from "./circuit.js";
 import { GateRenderData, GateType } from "./gateRenderData.js";
-// import { createUUID } from "./utils.js";
 import {
   gateHeight,
   minGateWidth,
