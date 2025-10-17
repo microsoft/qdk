@@ -27,7 +27,6 @@ interface Context {
   container: HTMLElement;
   svg: SVGElement;
   operationGrid: ComponentGrid;
-  wireData: number[];
 }
 
 /**
@@ -43,9 +42,8 @@ const createDropzones = (container: HTMLElement, sqore: Sqore): void => {
     container,
     svg,
     operationGrid: sqore.circuit.componentGrid,
-    wireData: getWireData(container),
   };
-  _addStyles(container, getWireData(container));
+  _addStyles(container);
   _addDataWires(container);
   svg.appendChild(_ghostQubitLayer(context));
   svg.appendChild(_dropzoneLayer(context));
@@ -66,7 +64,7 @@ const createGateGhost = (
   isControl: boolean,
 ) => {
   const ghost = isControl
-    ? controlDot(20, 20)
+    ? controlDot(20, 20, [])
     : (() => {
         const ghostRenderData = toRenderData(selectedOperation, 0, 0);
         return formatGate(ghostRenderData).cloneNode(true) as SVGElement;
@@ -233,19 +231,14 @@ const removeAllWireDropzones = (circuitSvg: SVGElement) => {
 const _addDataWires = (container: HTMLElement) => {
   const elems = getHostElems(container);
   elems.forEach((elem) => {
-    const { cY } = _center(elem);
-    // i.e. cY = 40, wireData returns [40, 100, 140, 180]
+    const wireYs = _wireYs(elem);
+    // i.e. wireYs = [40], wireData returns [40, 100, 140, 180]
     // dataWire will return 0, which is the index of 40 in wireData
-    const dataWire = getWireData(container).findIndex((y) => y === cY);
+    const dataWire = getWireData(container).findIndex((y) =>
+      wireYs.includes(y),
+    );
     if (dataWire !== -1) {
       elem.setAttribute("data-wire", `${dataWire}`);
-    } else {
-      const { y, height } = elem.getBBox();
-      const wireData = getWireData(container);
-      const groupDataWire = wireData.findIndex(
-        (wireY) => wireY > y && wireY < y + height,
-      );
-      elem.setAttribute("data-wire", `${groupDataWire}`);
     }
   });
 };
@@ -255,32 +248,34 @@ const _addDataWires = (container: HTMLElement) => {
  * i.e. Gate 'Foo' spans on wire 0 (y=40), 1 (y=100), and 2 (y=140)
  *      Function returns [40, 100, 140]
  */
-const _wireYs = (elem: SVGGraphicsElement, wireData: number[]): number[] => {
-  const { y, height } = elem.getBBox();
-  return wireData.filter((wireY) => wireY > y && wireY < y + height);
+const _wireYs = (elem: SVGGraphicsElement): number[] => {
+  const wireYsAttr = elem.getAttribute("data-wire-ys");
+  if (wireYsAttr) {
+    try {
+      const wireYs = JSON.parse(wireYsAttr);
+      if (Array.isArray(wireYs) && wireYs.every((y) => typeof y === "number")) {
+        return wireYs;
+      }
+    } catch {
+      console.warn(`Invalid data-wire-ys attribute: ${wireYsAttr}`);
+    }
+  }
+  return [];
 };
 
 /**
  * Add custom styles specific to this module
  */
-const _addStyles = (container: HTMLElement, wireData: number[]): void => {
+const _addStyles = (container: HTMLElement): void => {
   const elems = getHostElems(container);
   elems.forEach((elem) => {
-    if (_wireYs(elem, wireData).length < 2) elem.style.cursor = "grab";
+    if (_wireYs(elem).length < 2) elem.style.cursor = "grab";
   });
 
   const toolBoxElems = getToolboxElems(container);
   toolBoxElems.forEach((elem) => {
     elem.style.cursor = "grab";
   });
-};
-
-/**
- * Find center point of element
- */
-const _center = (elem: SVGGraphicsElement): { cX: number; cY: number } => {
-  const { x, y, width, height } = elem.getBBox();
-  return { cX: x + width / 2, cY: y + height / 2 };
 };
 
 /**
@@ -427,15 +422,20 @@ const getColumnOffsetsAndWidths = (
   // Compute column widths
   const colWidths = elems.reduce(
     (acc, elem) => {
+      const widthAttr = elem.getAttribute("data-width");
+      if (!widthAttr) return acc;
+      const elemWidth: number = Number(widthAttr);
+      if (isNaN(elemWidth) || elemWidth <= 0) return acc;
+
       const location = findLocation(elem);
       if (!location) return acc;
       const indexes = locationStringToIndexes(location);
       if (indexes.length != 1) return acc;
       const [colIndex] = indexes[0];
       if (!acc[colIndex]) {
-        acc[colIndex] = Math.max(minGateWidth, elem.getBBox().width);
+        acc[colIndex] = Math.max(minGateWidth, elemWidth);
       } else {
-        acc[colIndex] = Math.max(acc[colIndex], elem.getBBox().width);
+        acc[colIndex] = Math.max(acc[colIndex], elemWidth);
       }
       return acc;
     },

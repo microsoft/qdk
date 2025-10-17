@@ -12,8 +12,8 @@ import { draw } from "../dist/ux/circuit-vis/index.js";
 
 const documentTemplate = `<!doctype html><html>
   <head>
-    <link rel="stylesheet" href="../../../ux/qsharp-ux.css">
-    <link rel="stylesheet" href="../../../ux/qsharp-circuit.css">
+    <link rel="stylesheet" href="../../ux/qsharp-ux.css">
+    <link rel="stylesheet" href="../../ux/qsharp-circuit.css">
   </head>
   <body>
   </body>
