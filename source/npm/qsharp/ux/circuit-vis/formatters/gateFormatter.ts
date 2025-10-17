@@ -62,7 +62,11 @@ const formatGate = (
     renderData;
   switch (type) {
     case GateType.Measure:
-      return _createGate([_measure(x, controlsY[0])], renderData, nestedDepth);
+      return _createGate(
+        [_measure(x, controlsY[0], controlsY)],
+        renderData,
+        nestedDepth,
+      );
     case GateType.Unitary:
       return _createGate(
         [_unitary(label, x, targetsY as number[][], width, displayArgs)],
@@ -112,15 +116,6 @@ const _createGate = (
   Object.entries(dataAttributes || {}).forEach(
     ([attr, val]) => (attributes[`data-${attr}`] = val),
   );
-
-  // Add positioning data attributes to avoid relying on getBBox() in tests
-  const [x1, y1, x2, y2] = _gatePosition(renderData, nestedDepth);
-  attributes["data-x"] = x1.toString();
-  attributes["data-y"] = y1.toString();
-  attributes["data-width"] = (x2 - x1).toString();
-  attributes["data-height"] = (y2 - y1).toString();
-  attributes["data-min-y"] = y1.toString();
-  attributes["data-max-y"] = y2.toString();
 
   const zoomBtn: SVGElement | null = _zoomButton(renderData, nestedDepth);
   if (zoomBtn != null) svgElems = svgElems.concat([zoomBtn]);
@@ -238,10 +233,11 @@ const _gatePosition = (
  *
  * @param x  x coord of measurement gate.
  * @param y  y coord of measurement gate.
+ * @param wireYs y coords of wires connected to the measurement gate.
  *
  * @returns SVG representation of measurement gate.
  */
-const _measure = (x: number, y: number): SVGElement => {
+const _measure = (x: number, y: number, wireYs: number[]): SVGElement => {
   x -= minGateWidth / 2;
   const width: number = minGateWidth,
     height = gateHeight;
@@ -262,6 +258,8 @@ const _measure = (x: number, y: number): SVGElement => {
     y - height / 2 + 8,
   );
   meter.style.pointerEvents = "none";
+  mBox.setAttribute("data-wire-ys", JSON.stringify(wireYs));
+  mBox.setAttribute("data-width", `${width}`);
   return group([mBox, mArc, meter]);
 };
 
@@ -319,11 +317,20 @@ const _unitary = (
     );
 
   // Render each group as a separate unitary boxes
-  const unitaryBoxes: SVGElement[] = y.map((group: number[]) => {
-    const maxY: number = group[group.length - 1],
-      minY: number = group[0];
+  const unitaryBoxes: SVGElement[] = y.map((wireYs: number[]) => {
+    const maxY: number = wireYs[wireYs.length - 1];
+    const minY: number = wireYs[0];
     const height: number = maxY - minY + gateHeight;
-    return _unitaryBox(label, x, minY, width, height, displayArgs, cssClass);
+    return _unitaryBox(
+      label,
+      x,
+      minY,
+      width,
+      height,
+      wireYs,
+      displayArgs,
+      cssClass,
+    );
   });
 
   // Draw dashed line between disconnected unitaries
@@ -347,6 +354,7 @@ const _unitary = (
  * @param y      y coord of gate.
  * @param width  Width of gate.
  * @param height Height of gate.
+ * @param wireYs y coords of wires connected to the gate.
  * @param displayArgs Arguments passed in to gate.
  * @param cssClass Optional CSS class to apply to the unitary gate for styling.
  *
@@ -357,15 +365,24 @@ const _unitaryBox = (
   x: number,
   y: number,
   width: number,
-  height: number = gateHeight,
+  height: number,
+  wireYs: number[],
   displayArgs?: string,
   cssClass?: string,
 ): SVGElement => {
   y -= gateHeight / 2;
-  const uBox: SVGElement = box(x - width / 2, y, width, height);
+  const uBox: SVGElement = box(
+    x - width / 2,
+    y,
+    width,
+    height,
+    cssClass || "gate-unitary",
+  );
   if (cssClass != null) {
     uBox.setAttribute("class", cssClass);
   }
+  uBox.setAttribute("data-wire-ys", JSON.stringify(wireYs));
+  uBox.setAttribute("data-width", `${width}`);
   const labelY = y + height / 2 - (displayArgs == null ? 0 : 7);
   const labelText = text(label, x, labelY);
   _style_gate_text(labelText);
@@ -415,7 +432,7 @@ const _swap = (renderData: GateRenderData, nestedDepth: number): SVGElement => {
 const _x = (renderData: GateRenderData): SVGElement => {
   const { x, targetsY } = renderData;
   const ys = targetsY.flatMap((y) => y as number[]);
-  return _oplus(x, ys[0]);
+  return _oplus(x, ys[0], ys);
 };
 
 /**
@@ -484,7 +501,9 @@ const _controlledGate = (
   // Get SVG for target gates
   switch (type) {
     case GateType.Cnot:
-      (targetsY as number[]).forEach((y) => targetGateSvgs.push(_oplus(x, y)));
+      (targetsY as number[]).forEach((y) =>
+        targetGateSvgs.push(_oplus(x, y, [y])),
+      );
       break;
     case GateType.Swap:
       (targetsY as number[]).forEach((y) => targetGateSvgs.push(_cross(x, y)));
@@ -503,7 +522,7 @@ const _controlledGate = (
   }
   // Get SVGs for control dots
   const controlledDotsSvg: SVGElement[] = controlsY.map((y) =>
-    controlDot(x, y),
+    controlDot(x, y, [y]),
   );
   // Create control lines
   const maxY: number = Math.max(...controlsY, ...(targetsY as number[]));
@@ -523,15 +542,19 @@ const _controlledGate = (
  *
  * @param x x coordinate of gate.
  * @param y y coordinate of gate.
- * @param r radius of circle.
+ * @param wireYs y coords of wires connected to the gate.
  *
  * @returns SVG representation of $\oplus$ symbol.
  */
-const _oplus = (x: number, y: number, r = 15): SVGElement => {
+const _oplus = (x: number, y: number, wireYs: number[]): SVGElement => {
+  const r = 15;
   const circleBorder: SVGElement = circle(x, y, r);
   const vertLine: SVGElement = line(x, y - r, x, y + r);
   const horLine: SVGElement = line(x - r, y, x + r, y);
-  return group([circleBorder, vertLine, horLine], { class: "oplus" });
+  const oplus = group([circleBorder, vertLine, horLine], { class: "oplus" });
+  oplus.setAttribute("data-wire-ys", JSON.stringify(wireYs));
+  oplus.setAttribute("data-width", `${2 * r}`);
+  return oplus;
 };
 
 /**
@@ -550,7 +573,7 @@ const _groupedOperations = (
   const [x1, y1, x2, y2] = _gatePosition(renderData, nestedDepth);
 
   // Draw dashed box around children gates
-  const box: SVGElement = dashedBox(x1, y1, x2, y2);
+  const box: SVGElement = dashedBox(x1, y1, x2, y2, "gate-unitary");
   const elems: SVGElement[] = [box];
   if (children != null)
     elems.push(formatGates(children as GateRenderData[][], nestedDepth + 1));

@@ -18,7 +18,7 @@ __pycache__/
 /source/npm/qsharp/docs/
 /source/npm/qsharp/lib/
 /source/npm/qsharp/src/*.generated.*
-/source/npm/qsharp/test/circuits/cases/*.html
+/source/npm/qsharp/test/**/*.snapshot.*
 /source/pip/
 /source/pip/src/**/*.html
 /source/playground/public/libs/
