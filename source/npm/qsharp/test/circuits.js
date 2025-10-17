@@ -156,6 +156,42 @@ function loadCircuit(file) {
   }
 }
 
+/**
+ * @param {{ file: string; line: number; column: number; }[]} locations
+ */
+function renderLocations(locations) {
+  let locs = locations.map((loc) => renderLocation(loc));
+  return {
+    title: locs.map((l) => l.title).join("\n"),
+    href: "#",
+  };
+}
+
+/**
+ * @param {{ file: string; line: number; column: number; }} location
+ */
+function renderLocation(location) {
+  // Read the file and extract the specific line
+  try {
+    const filePath = path.join(getCasesDirectory(), location.file);
+    const fileContent = fs.readFileSync(filePath, "utf8");
+    const lines = fileContent.split("\n");
+    const targetLine = lines[location.line] || "";
+    const snippet = targetLine.trim();
+
+    // Return a javascript: URL that shows the snippet as alert/tooltip
+    return {
+      title: `${location.file}:${location.line}:${location.column}\n${snippet.replace(/'/g, "\\'")}`,
+      href: "#",
+    };
+  } catch {
+    return {
+      title: `Error loading ${location.file}:${location.line}`,
+      href: "#",
+    };
+  }
+}
+
 test("circuit snapshot tests - .qsc files", async (t) => {
   const files = findFilesWithExtension(getCasesDirectory(), ".qsc");
   if (files.length === 0) {
@@ -168,7 +204,10 @@ test("circuit snapshot tests - .qsc files", async (t) => {
     await t.test(relName, (tt) => {
       const circuit = loadCircuit(file);
       const container = createContainerElement(`circuit`);
-      draw(circuit, container, 0, true /* isEditable */);
+      draw(circuit, container, {
+        isEditable: true,
+        renderLocations,
+      });
       checkDocumentSnapshot(tt, tt.name);
     });
   }
@@ -195,11 +234,18 @@ test("circuit snapshot tests - .qs files", async (t) => {
             languageFeatures: [],
             profile: "adaptive_rif",
           },
-          false,
+          undefined,
+          {
+            generationMethod: "classicalEval",
+            maxOperations: 100,
+            locations: true,
+          },
         );
 
         // Render the circuit
-        draw(circuit, container);
+        draw(circuit, container, {
+          renderLocations,
+        });
       } catch (e) {
         const pre = document.createElement("pre");
         pre.appendChild(
