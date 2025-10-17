@@ -1,5 +1,12 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
+// Circuit snapshot tests: Verifies that Q# circuit diagrams render correctly.
+// To add a new test case, add a .qs or .qsc file to `circuits-cases/` and run with
+// `node --test --test-update-snapshots` or `npm test -- --test-update-snapshots` to generate the snapshot.
+// Snapshots are stored as .html files in `circuits-cases/` and are compared against the rendered output.
+
 // @ts-check
-// Discovers *.qsc files and runs each as a subtest.
 
 import { createCanvas } from "canvas";
 import { JSDOM } from "jsdom";
