@@ -47,3 +47,7 @@ harness = false
 [[bench]]
 name = "gpu"
 harness = false
+
+[[bin]]
+name = "gpu-runner"
+path = "src/bin/gpu-runner.rs"
