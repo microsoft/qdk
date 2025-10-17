@@ -34,7 +34,6 @@ pub fn deep_nested_callable_generics(c: &mut Criterion) {
                 store,
                 &[(std_id, None)],
             )
-
             .is_err(), "code should fail with type error");
         });
     });

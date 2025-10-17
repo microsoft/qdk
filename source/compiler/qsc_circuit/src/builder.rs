@@ -10,7 +10,7 @@ use crate::{
     rir_to_circuit::{
         DbgLocationKind, Op, fill_in_dbg_metadata, resolve_location_if_unresolved,
         resolve_location_metadata, resolve_source_location_if_unresolved, to_source_location,
-        tracer::{BlockBuilder, GateLabel, ResultRegister, WireId},
+        tracer::{CircuitBuilder, GateLabel, ResultRegister, WireId},
     },
 };
 use qsc_data_structures::{
@@ -19,22 +19,23 @@ use qsc_data_structures::{
     span::Span,
 };
 use qsc_eval::{
-    backend::{self, GateInputs, Tracer},
+    backend::{DebugMetadata, GateInputs, Tracer},
     val::{self, Value},
 };
 use qsc_fir::fir::PackageId;
 use qsc_frontend::compile::PackageStore;
 use std::{fmt::Write, mem::replace, rc::Rc};
 
-/// Backend implementation that builds a circuit representation.
-pub struct CircuitBuilder {
+/// Circuit builder that implements the `Tracer` trait to build a circuit
+/// while tracing execution.
+pub struct CircuitTracer {
     config: Config,
     register_map_builder: RegisterMapBuilder,
-    block_builder: BlockBuilder,
+    circuit_builder: CircuitBuilder,
     dbg_info: DbgInfo,
 }
 
-impl Tracer for CircuitBuilder {
+impl Tracer for CircuitTracer {
     fn gate(
         &mut self,
         name: &str,
@@ -44,10 +45,10 @@ impl Tracer for CircuitBuilder {
             control_qubits,
         }: GateInputs,
         args: Vec<String>,
-        metadata: Option<backend::DebugMetadata>,
+        metadata: Option<DebugMetadata>,
     ) {
         let metadata = self.convert_if_source_locations_enabled(metadata);
-        self.block_builder.gate(
+        self.circuit_builder.gate(
             self.register_map_builder.current(),
             &GateLabel { name, is_adjoint },
             GateInputs {
@@ -60,50 +61,45 @@ impl Tracer for CircuitBuilder {
         );
     }
 
-    fn m(&mut self, q: usize, val: &val::Result, metadata: Option<backend::DebugMetadata>) {
+    fn m(&mut self, q: usize, val: &val::Result, metadata: Option<DebugMetadata>) {
         let metadata = self.convert_if_source_locations_enabled(metadata);
         let r = match val {
             val::Result::Id(id) => *id,
             val::Result::Loss | val::Result::Val(_) => self.register_map_builder.result_allocate(),
         };
         self.register_map_builder.link_result_to_qubit(q, r);
-        self.block_builder
+        self.circuit_builder
             .m(self.register_map_builder.current(), q, r, metadata);
     }
 
-    fn mresetz(&mut self, q: usize, val: &val::Result, metadata: Option<backend::DebugMetadata>) {
+    fn mresetz(&mut self, q: usize, val: &val::Result, metadata: Option<DebugMetadata>) {
         let metadata = self.convert_if_source_locations_enabled(metadata);
         let r = match val {
             val::Result::Id(id) => *id,
             val::Result::Loss | val::Result::Val(_) => self.register_map_builder.result_allocate(),
         };
         self.register_map_builder.link_result_to_qubit(q, r);
-        self.block_builder
+        self.circuit_builder
             .mresetz(self.register_map_builder.current(), q, r, metadata);
     }
 
-    fn reset(&mut self, q: usize, metadata: Option<backend::DebugMetadata>) {
+    fn reset(&mut self, q: usize, metadata: Option<DebugMetadata>) {
         let metadata = self.convert_if_source_locations_enabled(metadata);
-        self.block_builder
+        self.circuit_builder
             .reset(self.register_map_builder.current(), q, metadata);
     }
 
-    fn qubit_allocate(&mut self, q: usize, metadata: Option<backend::DebugMetadata>) {
+    fn qubit_allocate(&mut self, q: usize, metadata: Option<DebugMetadata>) {
         let metadata = self.convert_if_source_locations_enabled(metadata);
         self.register_map_builder.map_qubit(q, metadata);
     }
 
-    fn qubit_swap_id(&mut self, q0: usize, q1: usize, _metadata: Option<backend::DebugMetadata>) {
+    fn qubit_swap_id(&mut self, q0: usize, q1: usize, _metadata: Option<DebugMetadata>) {
         // TODO: metadata would be neat to add to the circuit
         self.register_map_builder.swap(q0, q1);
     }
 
-    fn custom_intrinsic(
-        &mut self,
-        name: &str,
-        arg: Value,
-        metadata: Option<backend::DebugMetadata>,
-    ) {
+    fn custom_intrinsic(&mut self, name: &str, arg: Value, metadata: Option<DebugMetadata>) {
         // The qubit arguments are treated as the targets for custom gates.
         // Any remaining arguments will be kept in the display_args field
         // to be shown as part of the gate label when the circuit is rendered.
@@ -116,7 +112,7 @@ impl Tracer for CircuitBuilder {
 
         let metadata = metadata.map(|md| self.convert_metadata(&md));
 
-        self.block_builder.gate(
+        self.circuit_builder.gate(
             self.register_map_builder.current(),
             &GateLabel {
                 name,
@@ -136,19 +132,19 @@ impl Tracer for CircuitBuilder {
         );
     }
 
-    fn qubit_release(&mut self, q: usize, _metadata: Option<backend::DebugMetadata>) {
+    fn qubit_release(&mut self, q: usize, _metadata: Option<DebugMetadata>) {
         // TODO: metadata would be neat to add to the circuit
         self.register_map_builder.qubit_release(q);
     }
 }
 
-impl CircuitBuilder {
+impl CircuitTracer {
     #[must_use]
     pub fn new(config: Config) -> Self {
-        CircuitBuilder {
+        CircuitTracer {
             config,
             register_map_builder: RegisterMapBuilder::default(),
-            block_builder: BlockBuilder::new(config.max_operations),
+            circuit_builder: CircuitBuilder::new(config.max_operations),
             dbg_info: DbgInfo {
                 dbg_metadata_scopes: vec![DbgMetadataScope::SubProgram {
                     name: "program".into(),
@@ -165,14 +161,14 @@ impl CircuitBuilder {
 
     #[must_use]
     pub fn snapshot(&self, dbg_lookup: Option<&PackageStore>) -> Circuit {
-        self.finish_circuit(self.block_builder.operations(), dbg_lookup)
+        self.finish_circuit(self.circuit_builder.operations(), dbg_lookup)
     }
 
     #[must_use]
     pub fn finish(mut self, dbg_lookup: Option<&PackageStore>) -> Circuit {
         let ops = replace(
-            &mut self.block_builder,
-            BlockBuilder::new(self.config.max_operations),
+            &mut self.circuit_builder,
+            CircuitBuilder::new(self.config.max_operations),
         )
         .into_operations();
 
@@ -261,7 +257,7 @@ impl CircuitBuilder {
         }
     }
 
-    fn push_dbg_location(&mut self, md: &backend::DebugMetadata) -> Option<usize> {
+    fn push_dbg_location(&mut self, md: &DebugMetadata) -> Option<usize> {
         let mut user_frame: Option<(PackageId, Span)> = None;
         let mut grab_span_and_stop = false;
         for frame in md.stack.iter().rev() {
@@ -296,7 +292,7 @@ impl CircuitBuilder {
         Some(self.dbg_info.dbg_locations.len() - 1)
     }
 
-    fn convert_metadata(&mut self, metadata: &backend::DebugMetadata) -> InstructionMetadata {
+    fn convert_metadata(&mut self, metadata: &DebugMetadata) -> InstructionMetadata {
         let dbg_location = self.push_dbg_location(metadata);
 
         InstructionMetadata { dbg_location }
@@ -304,7 +300,7 @@ impl CircuitBuilder {
 
     fn convert_if_source_locations_enabled(
         &mut self,
-        metadata: Option<backend::DebugMetadata>,
+        metadata: Option<DebugMetadata>,
     ) -> Option<InstructionMetadata> {
         if !self.config.locations {
             return None;

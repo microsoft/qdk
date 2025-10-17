@@ -22,7 +22,7 @@ use miette::Diagnostic;
 use num_bigint::BigUint;
 use num_complex::Complex;
 use qsc_circuit::{
-    Circuit, CircuitBuilder, Config as CircuitConfig, GenerationMethod,
+    Circuit, CircuitTracer, Config as CircuitConfig, GenerationMethod,
     operations::entry_expr_for_qubit_operation,
 };
 use qsc_codegen::qir::{fir_to_qir, fir_to_qir_from_callable};
@@ -35,7 +35,7 @@ use qsc_data_structures::{
 };
 use qsc_eval::{
     Env, ErrorBehavior, State, VariableInfo,
-    backend::{Backend, DummySimBackend, SparseSim, Tracer, TracingBackend},
+    backend::{Backend, SparseSim, TracingBackend},
     output::Receiver,
 };
 pub use qsc_eval::{
@@ -145,7 +145,7 @@ pub struct Interpreter {
     /// The default simulator backend.
     sim: SparseSim,
     /// The tracer that records the circuit being built.
-    circuit_tracer: CircuitBuilder,
+    circuit_tracer: CircuitTracer,
     /// The quantum seed, if any. This is cached here so that it can be used in calls to
     /// `run_internal` which use a passed instance of the simulator instead of the one above.
     quantum_seed: Option<u64>,
@@ -284,7 +284,7 @@ impl Interpreter {
             complex_ty_cache: None.into(),
             env: Env::default(),
             sim: SparseSim::new(),
-            circuit_tracer: CircuitBuilder::new(CircuitConfig::default()),
+            circuit_tracer: CircuitTracer::new(CircuitConfig::default()),
             quantum_seed: None,
             classical_seed: None,
             package,
@@ -350,7 +350,7 @@ impl Interpreter {
             complex_ty_cache: None.into(),
             env: Env::default(),
             sim: SparseSim::new(),
-            circuit_tracer: CircuitBuilder::new(CircuitConfig::default()),
+            circuit_tracer: CircuitTracer::new(CircuitConfig::default()),
             quantum_seed: None,
             classical_seed: None,
             package,
@@ -978,42 +978,32 @@ impl Interpreter {
         let circuit = match config.generation_method {
             GenerationMethod::Simulate => {
                 let mut sim = SparseSim::new();
-                let mut tracer = CircuitBuilder::new(config);
+                let mut tracer = CircuitTracer::new(config);
+                let mut tracing_backend = TracingBackend::new(&mut sim, &mut tracer);
 
                 match invoke_params {
                     Some((callable, args)) => {
                         let mut sink = std::io::sink();
                         let mut out = GenericReceiver::new(&mut sink);
-
-                        self.invoke_with_sim(
-                            &mut TracingBackend::new(&mut sim, &mut tracer),
-                            &mut out,
-                            callable,
-                            args,
-                        )?;
+                        self.invoke_with_sim(&mut tracing_backend, &mut out, callable, args)?;
                     }
-                    None => self.run_with_sim_no_output(entry_expr, &mut sim, &mut tracer)?,
+                    None => self.run_with_sim_no_output(entry_expr, &mut tracing_backend)?,
                 }
 
                 tracer.finish(Some(self.compiler.package_store()))
             }
             GenerationMethod::ClassicalEval => {
-                let mut sim = DummySimBackend::default();
-                let mut tracer = CircuitBuilder::new(config);
+                let mut tracer = CircuitTracer::new(config);
+                let mut tracing_backend = TracingBackend::new_no_sim(&mut tracer);
 
                 match invoke_params {
                     Some((callable, args)) => {
                         let mut sink = std::io::sink();
                         let mut out = GenericReceiver::new(&mut sink);
 
-                        self.invoke_with_sim(
-                            &mut TracingBackend::new(&mut sim, &mut tracer),
-                            &mut out,
-                            callable,
-                            args,
-                        )?;
+                        self.invoke_with_sim(&mut tracing_backend, &mut out, callable, args)?;
                     }
-                    None => self.run_with_sim_no_output(entry_expr, &mut sim, &mut tracer)?,
+                    None => self.run_with_sim_no_output(entry_expr, &mut tracing_backend)?,
                 }
 
                 tracer.finish(Some(self.compiler.package_store()))
@@ -1065,8 +1055,7 @@ impl Interpreter {
     fn run_with_sim_no_output(
         &mut self,
         entry_expr: Option<String>,
-        sim: &mut impl Backend,
-        tracer: &mut impl Tracer,
+        sim: &mut TracingBackend,
     ) -> std::result::Result<(), Vec<Error>> {
         let mut sink = std::io::sink();
         let mut out = GenericReceiver::new(&mut sink);
@@ -1091,7 +1080,7 @@ impl Interpreter {
             self.compiler.package_store(),
             &self.fir_store,
             &mut Env::default(),
-            &mut TracingBackend::new(sim, tracer),
+            sim,
             &mut out,
         )?;
 
