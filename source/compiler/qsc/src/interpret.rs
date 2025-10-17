@@ -154,9 +154,6 @@ pub struct Interpreter {
     classical_seed: Option<u64>,
     /// The evaluator environment.
     env: Env,
-    /// The character encoding used in the host **environment** (not source).
-    /// This encoding will be used whenever user-facing positions are reported.
-    position_encoding: Encoding,
 }
 
 pub type InterpretResult = std::result::Result<Value, Vec<Error>>;
@@ -191,7 +188,6 @@ impl Interpreter {
         language_features: LanguageFeatures,
         store: PackageStore,
         dependencies: &Dependencies,
-        position_encoding: Encoding,
     ) -> std::result::Result<Self, Vec<Error>> {
         Self::new_internal(
             false,
@@ -201,7 +197,6 @@ impl Interpreter {
             language_features,
             store,
             dependencies,
-            position_encoding,
         )
     }
 
@@ -215,7 +210,6 @@ impl Interpreter {
         language_features: LanguageFeatures,
         store: PackageStore,
         dependencies: &Dependencies,
-        position_encoding: Encoding,
     ) -> std::result::Result<Self, Vec<Error>> {
         Self::new_internal(
             true,
@@ -225,7 +219,6 @@ impl Interpreter {
             language_features,
             store,
             dependencies,
-            position_encoding,
         )
     }
 
@@ -238,7 +231,6 @@ impl Interpreter {
         language_features: LanguageFeatures,
         store: PackageStore,
         dependencies: &Dependencies,
-        position_encoding: Encoding,
     ) -> std::result::Result<Self, Vec<Error>> {
         let compiler = Compiler::new(
             sources,
@@ -297,7 +289,6 @@ impl Interpreter {
             classical_seed: None,
             package,
             source_package: map_hir_package_to_fir(source_package_id),
-            position_encoding,
         })
     }
 
@@ -308,7 +299,6 @@ impl Interpreter {
         capabilities: TargetCapabilityFlags,
         language_features: LanguageFeatures,
         dependencies: &Dependencies,
-        position_encoding: Encoding,
     ) -> std::result::Result<Self, Vec<Error>> {
         let compiler = Compiler::from(
             store,
@@ -365,7 +355,6 @@ impl Interpreter {
             classical_seed: None,
             package,
             source_package: map_hir_package_to_fir(source_package_id),
-            position_encoding,
         })
     }
 
@@ -677,7 +666,6 @@ impl Interpreter {
             &mut Env::default(),
             &mut TracingBackend::new(&mut self.sim, &mut self.circuit_tracer),
             receiver,
-            self.position_encoding,
         )
     }
 
@@ -702,7 +690,6 @@ impl Interpreter {
             &mut Env::default(),
             tracing_backend,
             receiver,
-            self.position_encoding,
         )
     }
 
@@ -784,7 +771,6 @@ impl Interpreter {
             &mut self.env,
             &mut TracingBackend::new(&mut self.sim, &mut self.circuit_tracer),
             receiver,
-            self.position_encoding,
         )
     }
 
@@ -807,7 +793,6 @@ impl Interpreter {
         )
         .map_err(|(error, call_stack)| {
             eval_error(
-                self.position_encoding,
                 self.compiler.package_store(),
                 &self.fir_store,
                 call_stack,
@@ -867,10 +852,8 @@ impl Interpreter {
 
     /// Get the current circuit representation of the program.
     pub fn get_circuit(&self) -> Circuit {
-        self.circuit_tracer.snapshot(Some((
-            self.compiler.package_store(),
-            self.position_encoding,
-        ))) // TODO: defer the location to source resolving?
+        self.circuit_tracer
+            .snapshot(Some(self.compiler.package_store())) // TODO: defer the location to source resolving?
     }
 
     /// Performs QIR codegen using the given entry expression on a new instance of the environment
@@ -1012,10 +995,7 @@ impl Interpreter {
                     None => self.run_with_sim_no_output(entry_expr, &mut sim, &mut tracer)?,
                 }
 
-                tracer.finish(Some((
-                    self.compiler.package_store(),
-                    self.position_encoding,
-                )))
+                tracer.finish(Some(self.compiler.package_store()))
             }
             GenerationMethod::ClassicalEval => {
                 let mut sim = DummySimBackend::default();
@@ -1036,10 +1016,7 @@ impl Interpreter {
                     None => self.run_with_sim_no_output(entry_expr, &mut sim, &mut tracer)?,
                 }
 
-                tracer.finish(Some((
-                    self.compiler.package_store(),
-                    self.position_encoding,
-                )))
+                tracer.finish(Some(self.compiler.package_store()))
             }
         };
 
@@ -1082,7 +1059,6 @@ impl Interpreter {
             &mut Env::default(),
             tracing_backend,
             receiver,
-            self.position_encoding,
         )
     }
 
@@ -1117,7 +1093,6 @@ impl Interpreter {
             &mut Env::default(),
             &mut TracingBackend::new(sim, tracer),
             &mut out,
-            self.position_encoding,
         )?;
 
         Ok(())
@@ -1144,7 +1119,6 @@ impl Interpreter {
         )
         .map_err(|(error, call_stack)| {
             eval_error(
-                self.position_encoding,
                 self.compiler.package_store(),
                 &self.fir_store,
                 call_stack,
@@ -1315,7 +1289,6 @@ impl Debugger {
             language_features,
             store,
             dependencies,
-            position_encoding,
         )?;
         let source_package_id = interpreter.source_package;
         let unit = interpreter.fir_store.get(source_package_id);
@@ -1371,7 +1344,6 @@ impl Debugger {
             )
             .map_err(|(error, call_stack)| {
                 eval_error(
-                    self.position_encoding,
                     self.interpreter.compiler.package_store(),
                     &self.interpreter.fir_store,
                     call_stack,
@@ -1476,7 +1448,6 @@ fn eval(
     env: &mut Env,
     tracing_backend: &mut TracingBackend,
     receiver: &mut impl Receiver,
-    position_encoding: Encoding,
 ) -> InterpretResult {
     qsc_eval::eval(
         package,
@@ -1487,15 +1458,7 @@ fn eval(
         tracing_backend,
         receiver,
     )
-    .map_err(|(error, call_stack)| {
-        eval_error(
-            position_encoding,
-            package_store,
-            fir_store,
-            call_stack,
-            error,
-        )
-    })
+    .map_err(|(error, call_stack)| eval_error(package_store, fir_store, call_stack, error))
 }
 
 /// Represents a stack frame for debugging.
@@ -1602,7 +1565,6 @@ impl<'a> Visitor<'a> for BreakpointCollector<'a> {
 }
 
 fn eval_error(
-    position_encoding: Encoding,
     package_store: &PackageStore,
     fir_store: &fir::PackageStore,
     call_stack: Vec<Frame>,
@@ -1612,7 +1574,6 @@ fn eval_error(
         None
     } else {
         Some(format_call_stack(
-            position_encoding,
             package_store,
             fir_store,
             call_stack,

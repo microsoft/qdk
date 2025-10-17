@@ -7,7 +7,6 @@ mod tests;
 use qsc::{
     PackageType, SourceContents, SourceMap, SourceName,
     interpret::{Error, Interpreter, Value, output::Receiver},
-    line_column::Encoding,
     target::Profile,
 };
 
@@ -38,7 +37,6 @@ pub fn check_solution(
         LanguageFeatures::default(),
         store,
         &[(std_id, None)],
-        Encoding::Utf8,
     )?;
 
     interpreter.eval_entry(receiver).map(|value| {

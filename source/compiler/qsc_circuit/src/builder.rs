@@ -16,7 +16,6 @@ use crate::{
 use qsc_data_structures::{
     debug::{DbgInfo, DbgLocation, DbgMetadataScope, InstructionMetadata, MetadataPackageSpan},
     index_map::IndexMap,
-    line_column::Encoding,
     span::Span,
 };
 use qsc_eval::{
@@ -165,12 +164,12 @@ impl CircuitBuilder {
     }
 
     #[must_use]
-    pub fn snapshot(&self, dbg_lookup: Option<(&PackageStore, Encoding)>) -> Circuit {
+    pub fn snapshot(&self, dbg_lookup: Option<&PackageStore>) -> Circuit {
         self.finish_circuit(self.block_builder.operations(), dbg_lookup)
     }
 
     #[must_use]
-    pub fn finish(mut self, dbg_lookup: Option<(&PackageStore, Encoding)>) -> Circuit {
+    pub fn finish(mut self, dbg_lookup: Option<&PackageStore>) -> Circuit {
         let ops = replace(
             &mut self.block_builder,
             BlockBuilder::new(self.config.max_operations),
@@ -180,11 +179,7 @@ impl CircuitBuilder {
         self.finish_circuit(&ops, dbg_lookup)
     }
 
-    fn finish_circuit(
-        &self,
-        operations: &[Op],
-        dbg_lookup: Option<(&PackageStore, Encoding)>,
-    ) -> Circuit {
+    fn finish_circuit(&self, operations: &[Op], dbg_lookup: Option<&PackageStore>) -> Circuit {
         finish_circuit(
             self.register_map_builder.register_map.to_qubits(),
             operations.to_vec(),
@@ -322,7 +317,7 @@ pub(crate) fn finish_circuit(
     mut qubits: Vec<(Qubit, Vec<DbgLocationKind>)>,
     mut operations: Vec<Op>,
     dbg_info: &DbgInfo,
-    dbg_lookup: Option<(&PackageStore, Encoding)>,
+    dbg_lookup: Option<&PackageStore>,
 ) -> Circuit {
     resolve_location_metadata(&mut operations, dbg_info);
 
@@ -343,17 +338,13 @@ pub(crate) fn finish_circuit(
         .map(|o| o.clone().into())
         .collect::<Vec<_>>();
 
-    if let Some((package_store, position_encoding)) = dbg_lookup {
-        fill_in_dbg_metadata(&mut operations, package_store, position_encoding);
+    if let Some(package_store) = dbg_lookup {
+        fill_in_dbg_metadata(&mut operations, package_store);
 
         for q in &mut qubits {
             if let Some(declarations) = &mut q.declarations {
                 for source_location in declarations {
-                    resolve_source_location_if_unresolved(
-                        source_location,
-                        package_store,
-                        position_encoding,
-                    );
+                    resolve_source_location_if_unresolved(source_location, package_store);
                 }
             }
         }

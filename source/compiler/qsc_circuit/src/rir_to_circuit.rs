@@ -10,10 +10,7 @@ use crate::{
     circuit::{ResolvedSourceLocation, SourceLocation},
     rir_to_circuit::tracer::{ResultRegister, WireId},
 };
-use qsc_data_structures::{
-    debug::{DbgInfo, DbgMetadataScope, MetadataPackageSpan},
-    line_column::Encoding,
-};
+use qsc_data_structures::debug::{DbgInfo, DbgMetadataScope, MetadataPackageSpan};
 use qsc_frontend::{compile::PackageStore, location::Location};
 use qsc_hir::hir::PackageId;
 
@@ -168,20 +165,16 @@ fn resolve_location(dbg_info: &DbgInfo, dbg_location: usize) -> Option<MetadataP
         .map(|l| dbg_info.dbg_locations[l].location.clone())
 }
 
-pub(crate) fn fill_in_dbg_metadata(
-    operations: &mut [Operation],
-    package_store: &PackageStore,
-    position_encoding: Encoding,
-) {
+pub(crate) fn fill_in_dbg_metadata(operations: &mut [Operation], package_store: &PackageStore) {
     for op in operations {
         let children_columns = op.children_mut();
         for column in children_columns {
-            fill_in_dbg_metadata(&mut column.components, package_store, position_encoding);
+            fill_in_dbg_metadata(&mut column.components, package_store);
         }
 
         let source = op.source_mut();
         if let Some(source) = source {
-            resolve_source_location_if_unresolved(source, package_store, position_encoding);
+            resolve_source_location_if_unresolved(source, package_store);
         }
     }
 }
@@ -189,7 +182,6 @@ pub(crate) fn fill_in_dbg_metadata(
 pub(crate) fn resolve_source_location_if_unresolved(
     source: &mut SourceLocation,
     package_store: &PackageStore,
-    position_encoding: Encoding,
 ) {
     let location = match source {
         SourceLocation::Resolved(_) => None,
@@ -203,7 +195,7 @@ pub(crate) fn resolve_source_location_if_unresolved(
                 .expect("package id should fit into usize")
                 .into(),
             package_store,
-            position_encoding,
+            qsc_data_structures::line_column::Encoding::Utf8,
         );
         *source = SourceLocation::Resolved(ResolvedSourceLocation {
             file: location.source.to_string(),

@@ -37,7 +37,6 @@ use qsc::{
         self, CircuitEntryPoint, PauliNoise, TaggedItem, Value,
         output::{Error, Receiver},
     },
-    line_column::Encoding,
     packages::BuildableProgram,
     project::{FileSystem, PackageCache, PackageGraphSources, ProjectType},
     qasm::{CompilerConfig, QubitSemantics, compiler::compile_to_qsharp_ast_with_config},
@@ -408,7 +407,6 @@ impl Interpreter {
             buildable_program.user_code.language_features,
             buildable_program.store,
             &buildable_program.user_code_dependencies,
-            Encoding::Utf8,
         ) {
             Ok(interpreter) => {
                 if let Some(make_callable) = &make_callable {
