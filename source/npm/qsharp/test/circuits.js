@@ -220,41 +220,65 @@ test("circuit snapshot tests - .qs files", async (t) => {
     return;
   }
 
+  // TODO: test base profile too
   for (const file of files) {
     const relName = path.basename(file);
     await t.test(`${relName}`, async (tt) => {
       const circuitSource = fs.readFileSync(file, "utf8");
-      const compiler = getCompiler();
-      const container = createContainerElement(`circuit`);
-      try {
-        // Generate the circuit from Q#
-        const circuit = await compiler.getCircuit(
-          {
-            sources: [[relName, circuitSource]],
-            languageFeatures: [],
-            profile: "adaptive_rif",
-          },
-          undefined,
-          {
-            generationMethod: "classicalEval",
-            maxOperations: 100,
-            locations: true,
-          },
-        );
+      await generateAndDrawCircuit(
+        relName,
+        circuitSource,
+        "circuit-static",
+        "static",
+      );
 
-        // Render the circuit
-        draw(circuit, container, {
-          renderLocations,
-        });
-      } catch (e) {
-        const pre = document.createElement("pre");
-        pre.appendChild(
-          document.createTextNode(`Error generating circuit: ${e}`),
-        );
-        container.appendChild(pre);
-      }
+      await generateAndDrawCircuit(
+        relName,
+        circuitSource,
+        "circuit-eval",
+        "classicalEval",
+      );
 
       checkDocumentSnapshot(tt, tt.name);
     });
   }
 });
+
+async function generateAndDrawCircuit(
+  name,
+  circuitSource,
+  id,
+  generationMethod,
+) {
+  const compiler = getCompiler();
+  const container = createContainerElement(id);
+  try {
+    // Generate the circuit from Q#
+    const circuit = await compiler.getCircuit(
+      {
+        sources: [[name, circuitSource]],
+        languageFeatures: [],
+        profile: "adaptive_rif",
+      },
+      undefined,
+      {
+        generationMethod,
+        collapseQubitRegisters: false,
+        groupScopes: true,
+        loopDetection: false,
+        maxOperations: 100,
+        locations: true,
+      },
+    );
+
+    // Render the circuit
+    draw(circuit, container, {
+      renderDepth: 10,
+      renderLocations,
+    });
+  } catch (e) {
+    const pre = document.createElement("pre");
+    pre.appendChild(document.createTextNode(`Error generating circuit: ${e}`));
+    container.appendChild(pre);
+  }
+}
