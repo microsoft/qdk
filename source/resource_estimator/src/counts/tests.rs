@@ -8,7 +8,6 @@ use indoc::indoc;
 use qsc::{
     LanguageFeatures, PackageType, SourceMap, TargetCapabilityFlags, TracingBackend,
     interpret::{GenericReceiver, Interpreter},
-    line_column::Encoding,
     target::Profile,
 };
 
@@ -24,7 +23,6 @@ fn verify_logical_counts(source: &str, entry: Option<&str>, expect: &Expect) {
         LanguageFeatures::default(),
         store,
         &[(std_id, None)],
-        Encoding::Utf8,
     )
     .expect("compilation should succeed");
     let mut counter = LogicalCounter::default();

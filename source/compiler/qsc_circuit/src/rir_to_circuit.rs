@@ -16,14 +16,13 @@ use crate::{
     builder::{RegisterMap, finish_circuit},
     circuit::{ResolvedSourceLocation, SourceLocation},
     rir_to_circuit::tracer::{
-        BlockBuilder, FixedQubitRegisterMapBuilder, GateLabel, ResultRegister, WireId,
+        CircuitBuilder, FixedQubitRegisterMapBuilder, GateLabel, ResultRegister, WireId,
     },
 };
 use log::{debug, warn};
 use qsc_data_structures::{
     debug::{DbgInfo, DbgLocation, DbgMetadataScope, InstructionMetadata, MetadataPackageSpan},
     index_map::IndexMap,
-    line_column::Encoding,
 };
 use qsc_eval::backend::GateInputs;
 use qsc_frontend::{compile::PackageStore, location::Location};
@@ -207,7 +206,6 @@ pub(crate) fn to_source_location(d: &DbgLocationKind) -> Option<SourceLocation> 
 pub fn make_circuit(
     program: &Program,
     package_store: &PackageStore,
-    position_encoding: Encoding,
     config: Config,
 ) -> std::result::Result<Circuit, Error> {
     assert!(config.generation_method == GenerationMethod::Static);
@@ -300,7 +298,7 @@ pub fn make_circuit(
         qubits,
         operations,
         &program.dbg_info,
-        Some((package_store, position_encoding)),
+        Some(package_store),
         config.loop_detection,
         config.collapse_qubit_registers,
     );
@@ -714,20 +712,16 @@ fn extend_with_successors(state: &ProgramMap, entry_block: &CircuitBlock) -> Vec
     operations
 }
 
-pub(crate) fn fill_in_dbg_metadata(
-    operations: &mut [Operation],
-    package_store: &PackageStore,
-    position_encoding: Encoding,
-) {
+pub(crate) fn fill_in_dbg_metadata(operations: &mut [Operation], package_store: &PackageStore) {
     for op in operations {
         let children_columns = op.children_mut();
         for column in children_columns {
-            fill_in_dbg_metadata(&mut column.components, package_store, position_encoding);
+            fill_in_dbg_metadata(&mut column.components, package_store);
         }
 
         let source = op.source_mut();
         if let Some(source) = source {
-            resolve_source_location_if_unresolved(source, package_store, position_encoding);
+            resolve_source_location_if_unresolved(source, package_store);
         }
     }
 }
@@ -735,7 +729,6 @@ pub(crate) fn fill_in_dbg_metadata(
 pub(crate) fn resolve_source_location_if_unresolved(
     source: &mut SourceLocation,
     package_store: &PackageStore,
-    position_encoding: Encoding,
 ) {
     let location = match source {
         SourceLocation::Resolved(_) => None,
@@ -749,7 +742,7 @@ pub(crate) fn resolve_source_location_if_unresolved(
                 .expect("package id should fit into usize")
                 .into(),
             package_store,
-            position_encoding,
+            qsc_data_structures::line_column::Encoding::Utf8,
         );
         *source = SourceLocation::Resolved(ResolvedSourceLocation {
             file: location.source.to_string(),
@@ -891,7 +884,7 @@ fn operations_in_block(
     let mut phis = vec![];
     let mut done = false;
 
-    let mut builder = BlockBuilder::new(ops_remaining);
+    let mut builder = CircuitBuilder::new(ops_remaining);
     for instruction in &block.0 {
         if done {
             return Err(Error::UnsupportedFeature(
@@ -1397,7 +1390,7 @@ fn get_operations_for_instruction_vars_only(
 }
 
 struct BuilderWithRegisterMap<'a> {
-    builder: &'a mut BlockBuilder,
+    builder: &'a mut CircuitBuilder,
     register_map: &'a RegisterMap,
 }
 

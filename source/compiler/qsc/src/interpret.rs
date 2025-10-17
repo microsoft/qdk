@@ -22,7 +22,7 @@ use miette::Diagnostic;
 use num_bigint::BigUint;
 use num_complex::Complex;
 use qsc_circuit::{
-    Circuit, CircuitBuilder, Config as CircuitConfig, GenerationMethod,
+    Circuit, CircuitTracer, Config as CircuitConfig, GenerationMethod,
     operations::entry_expr_for_qubit_operation, rir_to_circuit::make_circuit,
 };
 use qsc_codegen::qir::{fir_to_qir, fir_to_qir_from_callable, fir_to_rir};
@@ -35,7 +35,7 @@ use qsc_data_structures::{
 };
 use qsc_eval::{
     Env, ErrorBehavior, State, VariableInfo,
-    backend::{Backend, DummySimBackend, SparseSim, Tracer, TracingBackend},
+    backend::{Backend, SparseSim, TracingBackend},
     output::Receiver,
 };
 pub use qsc_eval::{
@@ -147,7 +147,7 @@ pub struct Interpreter {
     /// The default simulator backend.
     sim: SparseSim,
     /// The tracer that records the circuit being built.
-    circuit_tracer: CircuitBuilder,
+    circuit_tracer: CircuitTracer,
     /// The quantum seed, if any. This is cached here so that it can be used in calls to
     /// `run_internal` which use a passed instance of the simulator instead of the one above.
     quantum_seed: Option<u64>,
@@ -156,9 +156,6 @@ pub struct Interpreter {
     classical_seed: Option<u64>,
     /// The evaluator environment.
     env: Env,
-    /// The character encoding used in the host **environment** (not source).
-    /// This encoding will be used whenever user-facing positions are reported.
-    position_encoding: Encoding,
 }
 
 pub type InterpretResult = std::result::Result<Value, Vec<Error>>;
@@ -193,7 +190,6 @@ impl Interpreter {
         language_features: LanguageFeatures,
         store: PackageStore,
         dependencies: &Dependencies,
-        position_encoding: Encoding,
     ) -> std::result::Result<Self, Vec<Error>> {
         Self::new_internal(
             false,
@@ -203,7 +199,6 @@ impl Interpreter {
             language_features,
             store,
             dependencies,
-            position_encoding,
         )
     }
 
@@ -217,7 +212,6 @@ impl Interpreter {
         language_features: LanguageFeatures,
         store: PackageStore,
         dependencies: &Dependencies,
-        position_encoding: Encoding,
     ) -> std::result::Result<Self, Vec<Error>> {
         Self::new_internal(
             true,
@@ -227,7 +221,6 @@ impl Interpreter {
             language_features,
             store,
             dependencies,
-            position_encoding,
         )
     }
 
@@ -240,7 +233,6 @@ impl Interpreter {
         language_features: LanguageFeatures,
         store: PackageStore,
         dependencies: &Dependencies,
-        position_encoding: Encoding,
     ) -> std::result::Result<Self, Vec<Error>> {
         let compiler = Compiler::new(
             sources,
@@ -301,12 +293,11 @@ impl Interpreter {
             complex_ty_cache: None.into(),
             env: Env::default(),
             sim: SparseSim::new(),
-            circuit_tracer: CircuitBuilder::new(CircuitConfig::default()),
+            circuit_tracer: CircuitTracer::new(CircuitConfig::default()),
             quantum_seed: None,
             classical_seed: None,
             package,
             source_package: map_hir_package_to_fir(source_package_id),
-            position_encoding,
         })
     }
 
@@ -317,7 +308,6 @@ impl Interpreter {
         capabilities: TargetCapabilityFlags,
         language_features: LanguageFeatures,
         dependencies: &Dependencies,
-        position_encoding: Encoding,
     ) -> std::result::Result<Self, Vec<Error>> {
         let compiler = Compiler::from(
             store,
@@ -377,12 +367,11 @@ impl Interpreter {
             complex_ty_cache: None.into(),
             env: Env::default(),
             sim: SparseSim::new(),
-            circuit_tracer: CircuitBuilder::new(CircuitConfig::default()),
+            circuit_tracer: CircuitTracer::new(CircuitConfig::default()),
             quantum_seed: None,
             classical_seed: None,
             package,
             source_package: map_hir_package_to_fir(source_package_id),
-            position_encoding,
         })
     }
 
@@ -694,7 +683,6 @@ impl Interpreter {
             &mut Env::default(),
             &mut TracingBackend::new(&mut self.sim, &mut self.circuit_tracer),
             receiver,
-            self.position_encoding,
         )
     }
 
@@ -719,7 +707,6 @@ impl Interpreter {
             &mut Env::default(),
             tracing_backend,
             receiver,
-            self.position_encoding,
         )
     }
 
@@ -801,7 +788,6 @@ impl Interpreter {
             &mut self.env,
             &mut TracingBackend::new(&mut self.sim, &mut self.circuit_tracer),
             receiver,
-            self.position_encoding,
         )
     }
 
@@ -824,7 +810,6 @@ impl Interpreter {
         )
         .map_err(|(error, call_stack)| {
             eval_error(
-                self.position_encoding,
                 self.compiler.package_store(),
                 &self.fir_store,
                 call_stack,
@@ -886,10 +871,8 @@ impl Interpreter {
 
     /// Get the current circuit representation of the program.
     pub fn get_circuit(&self) -> Circuit {
-        self.circuit_tracer.snapshot(Some((
-            self.compiler.package_store(),
-            self.position_encoding,
-        ))) // TODO: defer the location to source resolving?
+        self.circuit_tracer
+            .snapshot(Some(self.compiler.package_store())) // TODO: defer the location to source resolving?
     }
 
     /// Performs QIR codegen using the given entry expression on a new instance of the environment
@@ -1011,54 +994,43 @@ impl Interpreter {
             CircuitEntryPoint::EntryPoint => (None, None),
         };
 
-        let circuit = if config.generation_method == GenerationMethod::Simulate {
-            let mut sim = SparseSim::new();
-            let mut tracer = CircuitBuilder::new(config);
+        let circuit = match config.generation_method {
+            GenerationMethod::Simulate => {
+                let mut sim = SparseSim::new();
+                let mut tracer = CircuitTracer::new(config);
+                let mut tracing_backend = TracingBackend::new(&mut sim, &mut tracer);
 
-            match invoke_params {
-                Some((callable, args)) => {
-                    let mut sink = std::io::sink();
-                    let mut out = GenericReceiver::new(&mut sink);
+                match invoke_params {
+                    Some((callable, args)) => {
+                        let mut sink = std::io::sink();
+                        let mut out = GenericReceiver::new(&mut sink);
 
-                    self.invoke_with_sim(
-                        &mut TracingBackend::new(&mut sim, &mut tracer),
-                        &mut out,
-                        callable,
-                        args,
-                    )?;
+                        self.invoke_with_sim(&mut tracing_backend, &mut out, callable, args)?;
+                    }
+                    None => self.run_with_sim_no_output(entry_expr, &mut tracing_backend)?,
                 }
-                None => self.run_with_sim_no_output(entry_expr, &mut sim, &mut tracer)?,
+
+                tracer.finish(Some(self.compiler.package_store()))
             }
+            GenerationMethod::ClassicalEval => {
+                let mut tracer = CircuitTracer::new(config);
+                let mut tracing_backend = TracingBackend::new_no_sim(&mut tracer);
 
-            tracer.finish(Some((
-                self.compiler.package_store(),
-                self.position_encoding,
-            )))
-        } else if config.generation_method == GenerationMethod::ClassicalEval {
-            let mut sim = DummySimBackend::default();
-            let mut tracer = CircuitBuilder::new(config);
+                match invoke_params {
+                    Some((callable, args)) => {
+                        let mut sink = std::io::sink();
+                        let mut out = GenericReceiver::new(&mut sink);
 
-            match invoke_params {
-                Some((callable, args)) => {
-                    let mut sink = std::io::sink();
-                    let mut out = GenericReceiver::new(&mut sink);
-
-                    self.invoke_with_sim(
-                        &mut TracingBackend::new(&mut sim, &mut tracer),
-                        &mut out,
-                        callable,
-                        args,
-                    )?;
+                        self.invoke_with_sim(&mut tracing_backend, &mut out, callable, args)?;
+                    }
+                    None => self.run_with_sim_no_output(entry_expr, &mut tracing_backend)?,
                 }
-                None => self.run_with_sim_no_output(entry_expr, &mut sim, &mut tracer)?,
-            }
 
-            tracer.finish(Some((
-                self.compiler.package_store(),
-                self.position_encoding,
-            )))
-        } else {
-            self.static_circuit(entry_expr.as_deref(), invoke_params, config)?
+                tracer.finish(Some(self.compiler.package_store()))
+            }
+            GenerationMethod::Static => {
+                self.static_circuit(entry_expr.as_deref(), invoke_params, config)?
+            }
         };
 
         Ok(circuit)
@@ -1076,30 +1048,21 @@ impl Interpreter {
 
         if let Some((callable, args)) = invoke_params {
             // TODO: Static circuit generation from a callable is not yet supported.
-            let mut sim = DummySimBackend::default();
-            let mut tracer = CircuitBuilder::new(config);
+            let mut tracer = CircuitTracer::new(config);
             let mut sink = std::io::sink();
             let mut out = GenericReceiver::new(&mut sink);
 
             self.invoke_with_sim(
-                &mut TracingBackend::new(&mut sim, &mut tracer),
+                &mut TracingBackend::new_no_sim(&mut tracer),
                 &mut out,
                 callable,
                 args,
             )?;
-            Ok(tracer.finish(Some((
-                self.compiler.package_store(),
-                self.position_encoding,
-            ))))
+            Ok(tracer.finish(Some(self.compiler.package_store())))
         } else {
             let program = self.compile_to_rir(entry_expr)?;
-            make_circuit(
-                &program,
-                self.compiler.package_store(),
-                self.position_encoding,
-                config,
-            )
-            .map_err(|e| vec![e.into()])
+            make_circuit(&program, self.compiler.package_store(), config)
+                .map_err(|e| vec![e.into()])
         }
     }
 
@@ -1210,15 +1173,13 @@ impl Interpreter {
             &mut Env::default(),
             tracing_backend,
             receiver,
-            self.position_encoding,
         )
     }
 
     fn run_with_sim_no_output(
         &mut self,
         entry_expr: Option<String>,
-        sim: &mut impl Backend,
-        tracer: &mut impl Tracer,
+        sim: &mut TracingBackend,
     ) -> std::result::Result<(), Vec<Error>> {
         let mut sink = std::io::sink();
         let mut out = GenericReceiver::new(&mut sink);
@@ -1243,9 +1204,8 @@ impl Interpreter {
             self.compiler.package_store(),
             &self.fir_store,
             &mut Env::default(),
-            &mut TracingBackend::new(sim, tracer),
+            sim,
             &mut out,
-            self.position_encoding,
         )?;
 
         Ok(())
@@ -1272,7 +1232,6 @@ impl Interpreter {
         )
         .map_err(|(error, call_stack)| {
             eval_error(
-                self.position_encoding,
                 self.compiler.package_store(),
                 &self.fir_store,
                 call_stack,
@@ -1443,7 +1402,6 @@ impl Debugger {
             language_features,
             store,
             dependencies,
-            position_encoding,
         )?;
         let source_package_id = interpreter.source_package;
         let unit = interpreter.fir_store.get(source_package_id);
@@ -1499,7 +1457,6 @@ impl Debugger {
             )
             .map_err(|(error, call_stack)| {
                 eval_error(
-                    self.position_encoding,
                     self.interpreter.compiler.package_store(),
                     &self.interpreter.fir_store,
                     call_stack,
@@ -1604,7 +1561,6 @@ fn eval(
     env: &mut Env,
     tracing_backend: &mut TracingBackend,
     receiver: &mut impl Receiver,
-    position_encoding: Encoding,
 ) -> InterpretResult {
     qsc_eval::eval(
         package,
@@ -1615,15 +1571,7 @@ fn eval(
         tracing_backend,
         receiver,
     )
-    .map_err(|(error, call_stack)| {
-        eval_error(
-            position_encoding,
-            package_store,
-            fir_store,
-            call_stack,
-            error,
-        )
-    })
+    .map_err(|(error, call_stack)| eval_error(package_store, fir_store, call_stack, error))
 }
 
 /// Represents a stack frame for debugging.
@@ -1730,7 +1678,6 @@ impl<'a> Visitor<'a> for BreakpointCollector<'a> {
 }
 
 fn eval_error(
-    position_encoding: Encoding,
     package_store: &PackageStore,
     fir_store: &fir::PackageStore,
     call_stack: Vec<Frame>,
@@ -1740,7 +1687,6 @@ fn eval_error(
         None
     } else {
         Some(format_call_stack(
-            position_encoding,
             package_store,
             fir_store,
             call_stack,

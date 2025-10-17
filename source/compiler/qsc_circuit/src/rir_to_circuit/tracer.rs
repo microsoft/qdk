@@ -9,13 +9,13 @@ use crate::{
     rir_to_circuit::{DbgLocationKind, Op, OperationKind},
 };
 
-pub(crate) struct BlockBuilder {
+pub(crate) struct CircuitBuilder {
     max_ops: usize,
     max_ops_exceeded: bool,
     operations: Vec<Op>,
 }
 
-impl BlockBuilder {
+impl CircuitBuilder {
     pub(crate) fn new(max_operations: usize) -> Self {
         Self {
             max_ops: max_operations,
@@ -92,7 +92,7 @@ pub(crate) struct GateLabel<'a> {
     pub is_adjoint: bool,
 }
 
-impl BlockBuilder {
+impl CircuitBuilder {
     pub fn gate(
         &mut self,
         register_map: &RegisterMap,

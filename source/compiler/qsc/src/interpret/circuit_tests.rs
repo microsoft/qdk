@@ -8,7 +8,7 @@ use crate::{interpret::Error, target::Profile};
 use expect_test::expect;
 use miette::Diagnostic;
 use qsc_circuit::{Circuit, Config, GenerationMethod};
-use qsc_data_structures::{language_features::LanguageFeatures, line_column::Encoding};
+use qsc_data_structures::language_features::LanguageFeatures;
 use qsc_eval::output::GenericReceiver;
 use qsc_frontend::compile::SourceMap;
 use qsc_passes::PackageType;
@@ -23,7 +23,6 @@ fn interpreter(code: &str, profile: Profile) -> Interpreter {
         LanguageFeatures::default(),
         store,
         &[(std_id, None)],
-        Encoding::Utf8,
     )
     .expect("interpreter creation should succeed")
 }

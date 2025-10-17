@@ -14,7 +14,6 @@ use qsc::circuit::GenerationMethod;
 use qsc::hir::PackageId;
 use qsc::interpret::output::Receiver;
 use qsc::interpret::{CircuitEntryPoint, Interpreter, into_errors};
-use qsc::line_column::Encoding;
 use qsc::project::ProjectType;
 use qsc::qasm::compiler::compile_to_qsharp_ast_with_config;
 use qsc::qasm::semantic::QasmSemanticParseResult;
@@ -113,15 +112,9 @@ pub(crate) fn run_qasm_program(
 
     let package_type = PackageType::Exe;
     let language_features = LanguageFeatures::default();
-    let mut interpreter = create_interpreter_from_ast(
-        package,
-        source_map,
-        target,
-        language_features,
-        package_type,
-        Encoding::Utf8,
-    )
-    .map_err(|errors| QSharpError::new_err(format_errors(errors)))?;
+    let mut interpreter =
+        create_interpreter_from_ast(package, source_map, target, language_features, package_type)
+            .map_err(|errors| QSharpError::new_err(format_errors(errors)))?;
 
     let entry_expr = signature.create_entry_expr_from_params(String::new());
     interpreter
@@ -326,15 +319,9 @@ pub(crate) fn compile_qasm_program_to_qir(
 
     let package_type = PackageType::Lib;
     let language_features = LanguageFeatures::default();
-    let mut interpreter = create_interpreter_from_ast(
-        package,
-        source_map,
-        target,
-        language_features,
-        package_type,
-        Encoding::Utf8,
-    )
-    .map_err(|errors| QSharpError::new_err(format_errors(errors)))?;
+    let mut interpreter =
+        create_interpreter_from_ast(package, source_map, target, language_features, package_type)
+            .map_err(|errors| QSharpError::new_err(format_errors(errors)))?;
     let entry_expr = signature.create_entry_expr_from_params(String::new());
 
     generate_qir_from_ast(entry_expr, &mut interpreter)
@@ -527,7 +514,6 @@ fn estimate_qasm(
         Profile::Unrestricted,
         LanguageFeatures::default(),
         PackageType::Exe,
-        Encoding::Utf8,
     )
     .map_err(into_estimation_errors)?;
 
@@ -605,7 +591,6 @@ pub(crate) fn circuit_qasm_program(
         TargetProfile::Unrestricted.into(),
         language_features,
         package_type,
-        Encoding::Utf8,
     )
     .map_err(|errors| QSharpError::new_err(format_errors(errors)))?;
 
@@ -680,7 +665,6 @@ fn create_interpreter_from_ast(
     profile: Profile,
     language_features: LanguageFeatures,
     package_type: PackageType,
-    position_encoding: Encoding,
 ) -> Result<Interpreter, Vec<interpret::Error>> {
     let capabilities = profile.into();
     let (stdid, mut store) = qsc::compile::package_store_with_stdlib(capabilities);
@@ -709,7 +693,6 @@ fn create_interpreter_from_ast(
         capabilities,
         language_features,
         &dependencies,
-        position_encoding,
     )
 }
 
