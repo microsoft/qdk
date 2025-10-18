@@ -1,11 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import * as qviz from "./circuit-vis";
+import * as qviz from "./circuit-vis/index.js";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { CircuitProps } from "./data.js";
 import { Spinner } from "./spinner.js";
-import { toCircuitGroup } from "./circuit-vis/circuit";
+import { toCircuitGroup } from "./circuit-vis/circuit.js";
 
 // For perf reasons we set a limit on how many gates/qubits
 // we attempt to render. This is still a lot higher than a human would

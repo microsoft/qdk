@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "circuits": [
+    {
+      "qubits": [],
+      "componentGrid": []
+    }
+  ]
+}
