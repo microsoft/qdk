@@ -18,8 +18,6 @@ const MAX_SHOTS_PER_BATCH: u32 = 65535; // To align with max workgroups per dime
 const MIN_QUBIT_COUNT: u32 = 10; // Round up circuit qubits if smaller to enable to optimizations re unrolling, etc.
 const MAX_QUBIT_COUNT: u32 = 22; // Limit so we can fit each shot in one workgroup, and to avoid issues with f32 precision on larger state vectors
 const MAX_BUFFER_SIZE: usize = 1 << 30; // 1 GB limit due to some wgpu restrictions
-const MAX_WORKGROUP_STORAGE_SIZE: usize = 16384; // 16 KB default for WebGPU
-
 const MAX_CIRCUIT_OPS: usize = MAX_BUFFER_SIZE / std::mem::size_of::<Op>();
 const SIZEOF_SHOTDATA: usize = 400; // Size of ShotData struct on the GPU in bytes
 const MAX_SHOT_ENTRIES: usize = MAX_BUFFER_SIZE / SIZEOF_SHOTDATA;
@@ -107,7 +105,8 @@ impl GpuContext {
 
         if max_required_buffer_size > max_storage_buffer_size {
             return Err(format!(
-                "Required buffer size of {max_required_buffer_size} exceeds maximum GPU buffer size of {max_storage_buffer_size}",
+                "Required buffer size of {max_required_buffer_size} exceeds maximum GPU \
+                buffer size of {max_storage_buffer_size}",
             ));
         }
 
@@ -158,7 +157,10 @@ impl GpuContext {
         let (device, queue): (Device, Queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: None,
-                required_features: wgpu::Features::empty(),
+                // Note that mappable primary buffers are a native-only feature, but using here to
+                // workaround the Xcode bug described in https://github.com/gfx-rs/wgpu/issues/8111.
+                // This will need to be revisited for web support.
+                required_features: wgpu::Features::MAPPABLE_PRIMARY_BUFFERS,
                 required_limits: Self::get_required_limits(&adapter, &run_params)?,
                 memory_hints: wgpu::MemoryHints::Performance,
                 trace: wgpu::Trace::Off,
@@ -251,14 +253,14 @@ impl GpuContext {
         let shot_state = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Shot State Buffer"),
             size: self.run_params.shots_buffer_size as u64,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::STORAGE,
             mapped_at_creation: false,
         });
 
         let state_vector = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("StateVector Buffer"),
             size: self.run_params.state_vector_buffer_size as u64,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::STORAGE,
             mapped_at_creation: false,
         });
 
@@ -294,26 +296,28 @@ impl GpuContext {
     pub fn create_resources(&mut self) {
         let buffers = self.create_buffers();
 
-        // TODO Fix this
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("StateVector Bind Group"),
             layout: &self.bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: buffers.state_vector.as_entire_binding(),
+                    resource: buffers.uniform_params.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    // Bind a 256-byte slice; dynamic offsets will move this window
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &buffers.ops,
-                        offset: 0,
-                        size: Some(NonZeroU64::new(256).expect("Failed to create NonZeroU64")),
-                    }),
+                    resource: buffers.shot_state.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
+                    resource: buffers.ops.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: buffers.state_vector.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
                     resource: buffers.results.as_entire_binding(),
                 },
             ],
@@ -365,39 +369,13 @@ impl GpuContext {
     }
 
     pub async fn run(&self) -> Vec<Result> {
-        // TODO: Need to update this for the prepare, execute loop over all ops and batching of shots
         let resources: &GpuResources = self.resources.as_ref().expect("Resources not initialized");
-
-        // Initialize the first entry of the state vector to |0> (the rest are already zeroed)
-        let state_init_buffer = self.device.create_buffer(&BufferDescriptor {
-            label: Some("State init buffer"),
-            size: std::mem::size_of::<f32>() as u64 * 2,
-            usage: BufferUsages::MAP_WRITE | BufferUsages::COPY_SRC,
-            mapped_at_creation: true,
-        });
-
-        // Upload the ops data and unmap
-        let entry_0: [f32; 2] = [1.0, 0.0]; // Initial state |0>
-        state_init_buffer
-            .slice(..)
-            .get_mapped_range_mut()
-            .copy_from_slice(bytemuck::cast_slice(&entry_0));
-        state_init_buffer.unmap();
 
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("StateVector Command Encoder"),
             });
-
-        // Copy the upload buffers into the state vector and ops buffers on the GPU
-        encoder.copy_buffer_to_buffer(
-            &state_init_buffer,
-            0,
-            &resources.buffers.state_vector,
-            0,
-            state_init_buffer.size(),
-        );
 
         encoder.copy_buffer_to_buffer(
             &resources.buffers.ops_upload,
@@ -406,6 +384,38 @@ impl GpuContext {
             0,
             resources.buffers.ops.size(),
         );
+        /*
+        GPU processing of shots is as follows. Note the following considerations:
+
+        - Shots will be split into batches if they do not all fit in the GPU memory at once
+        - Programs will be split into blocks if they are in blocks (i.e., for adaptive circuits), or
+          if the size of one block exceeds the limited for dispatches per submit
+        - Each op in the program is processed by two compute shaders:
+            - prepare_op: prepares any data needed to process the op. This runs on a single thread per shot
+              to avoid any parallelization issues with RNG state, noise decisions, etc. The GPU
+              ensures that state is consistent between dispatches, so the next steps sees the final
+              result of the work done here.
+            - execute_op: applies the op to the state vector. This is parallelized across threads
+              (and eventually workgroups for >22 qubits), and should only do work that does not
+              require any synchronization across workgroups. The next 'prepare_op' step will
+              do any cross-shot collation or processing needed after this kernel completes.
+
+        - By making the 'prepare_op' step responsible for generating state such as random numbers and
+          noise decisions, and collating the results of parallel processing in prior dispatches,
+          we can ensure that the 'execute_op' step is fully parallelizable, and also only require
+          one read-only copy of the program to execute in GPU memory when running shots concurrently.
+
+        The overall processing flow is as follows:
+
+        - For each batch of shots (will be 1 if all shots fit in one batch):
+            - For each block of ops in the program (will be 1 if all ops fit in one block):
+                - For each op in the block:
+                    - Dispatch the prepare_op kernel
+                    - Dispatch the execute_op kernel
+                - Do any end of block processing (e.g., compute & branching for adaptive)
+            - Do any output recording for the shots in the batch
+        - Return the collated shot results
+         */
 
         // TODO: This should be done per-batch with updated uniform params
         let uniform_params_data = UniformParams {
@@ -432,8 +442,8 @@ impl GpuContext {
         let workgroup_count: u32 = 1;
         // u32::try_from(self.workgroup_count).expect("Too many workgroups");
         for i in 0..op_count {
-            let op_offset: u32 = i * 256; // Each op is 256 bytes (aligned)
-            compute_pass.set_bind_group(0, &resources.bind_group, &[op_offset]);
+            // let op_offset: u32 = i * 256; // Each op is 256 bytes (aligned)
+            compute_pass.set_bind_group(0, &resources.bind_group, &[]);
             compute_pass.dispatch_workgroups(workgroup_count, 1, 1);
         }
 
@@ -502,23 +512,29 @@ impl GpuContext {
 
 fn create_bind_group_layout(device: &Device) -> BindGroupLayout {
     let buffers = [
-        ("Params", 0, true),
-        ("ShotState", 1, false),
-        ("Ops", 2, true),
-        ("StateVector", 3, false),
-        ("Results", 4, false),
+        ("Params", 0, true, true),
+        ("ShotState", 1, false, false),
+        ("Ops", 2, true, false),
+        ("StateVector", 3, false, false),
+        ("Results", 4, false, false),
     ]
     .into_iter()
-    .map(|(_, binding, read_only)| wgpu::BindGroupLayoutEntry {
-        binding,
-        visibility: wgpu::ShaderStages::COMPUTE,
-        ty: wgpu::BindingType::Buffer {
-            ty: wgpu::BufferBindingType::Storage { read_only },
-            has_dynamic_offset: false,
-            min_binding_size: None,
+    .map(
+        |(_, binding, read_only, uniform)| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::COMPUTE,
+            ty: wgpu::BindingType::Buffer {
+                ty: (if uniform {
+                    wgpu::BufferBindingType::Uniform
+                } else {
+                    wgpu::BufferBindingType::Storage { read_only }
+                }),
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
         },
-        count: None,
-    })
+    )
     .collect::<Vec<_>>();
 
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -528,6 +544,8 @@ fn create_bind_group_layout(device: &Device) -> BindGroupLayout {
 }
 
 pub fn create_ops_buffers(buffer_size: usize, ops: &[Op], device: &Device) -> (Buffer, Buffer) {
+    // TODO: Try to just map and copy the ops buffer directly without the extra upload buffer
+    // See https://toji.dev/webgpu-best-practices/buffer-uploads
     let ops_upload_buffer = device.create_buffer(&BufferDescriptor {
         label: Some("Ops Upload Buffer"),
         size: buffer_size as u64,

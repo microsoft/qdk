@@ -263,6 +263,22 @@ impl Op {
         op
     }
 
+    /// Reset gate: maps |0⟩ to |0⟩ and |1⟩ to |0⟩
+    /// Note: This is used with a qubit id of u32::MAX to indicate a reset of the entire system
+    #[must_use]
+    pub fn new_reset_gate(qubit: u32) -> Self {
+        let mut op = Self::new_1q_gate(ops::RESET, qubit);
+        op._00r = 1.0; // |0⟩⟨0| coefficient
+        op._00i = 0.0;
+        op._01r = 1.0; // |0⟩⟨1| coefficient
+        op._01i = 0.0;
+        op._10r = 0.0; // |1⟩⟨0| coefficient
+        op._10i = 0.0;
+        op._11r = 0.0; // |1⟩⟨1| coefficient
+        op._11i = 0.0;
+        op
+    }
+
     /// X gate (Pauli-X): [[0, 1], [1, 0]]
     #[must_use]
     pub fn new_x_gate(qubit: u32) -> Self {

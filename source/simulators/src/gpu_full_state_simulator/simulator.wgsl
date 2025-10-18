@@ -8,6 +8,7 @@
 // Coding guidelines:
 // - WGSL generally uses 'camelCase' for vars and functions, 'PascalCase' for types and structs, and 'SCREAMING_SNAKE_CASE' for constants.
 // - WGSL doesn't have the ternary operator, but does have a built-in function `select` that can be used to achieve similar functionality. See https://www.w3.org/TR/WGSL/#select-builtin
+// - The default workgroup memory size for WebGPU is 16KB, so don't exceed this in total across all workgroup variables.
 
 // The number of qubits being simulated is provided as a specialization constant at pipeline creation time
 // See https://gpuweb.github.io/gpuweb/wgsl/#pipeline-overridable
@@ -60,7 +61,9 @@ struct ShotData {
     // NOTE: The below 2 are not yet used, but heating and idle time will be used later for advanced noise modeling
     qubit_heat: array<f32, MAX_QUBIT_COUNT>,
     qubit_idle_since: array<f32, MAX_QUBIT_COUNT>,
-} // struct size = 12 x 4 + 22 x 8 + 22 x 4 + 22 x 4 = 400 bytes (which is multiple of 16 for nice alignment)
+}
+// struct size = 12 x 4 + 22 x 8 + 22 x 4 + 22 x 4 = 400 bytes (which is multiple of 16 for simple alignment)
+// See https://www.w3.org/TR/WGSL/#structure-member-layout for alignment rules
 
 @group(0) @binding(1)
 var<storage, read_write> shots: array<ShotData>;
@@ -76,7 +79,7 @@ var<storage, read_write> stateVector: array<vec2f>;
 
 // Buffer for storing measurement results per shot
 @group(0) @binding(4)
-var<storage, read_write> results: array<i32>;
+var<storage, read_write> results: array<u32>;
 
 // For every qubit, each 'execute' kernel thread will update its own workgroup storage location for accumulating probabilities
 // The final probabilities will be reduced and written back to the shot state after the parallel execution completes.
@@ -96,5 +99,9 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
 // Each workgroup dispatched is dedicated to a single shot.
 @compute @workgroup_size(THREADS_PER_WORKGROUP)
 fn execute_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
+    shots[globalId.x].shot_id = params.start_shot_id + globalId.x;
+    shots[globalId.x].next_op_idx = 0u;
+    shots[globalId.x].rng_seed = params.rng_seed;
 
+    results[globalId.x] = params.rng_seed;
 }
