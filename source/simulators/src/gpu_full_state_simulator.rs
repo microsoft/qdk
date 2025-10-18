@@ -5,6 +5,7 @@
 mod tests;
 
 mod gpu_context;
+mod gpu_controller;
 pub mod pauli_noise;
 
 pub mod per_gate_pauli_noise;
@@ -49,6 +50,21 @@ pub fn run_gpu_shot(qubits: u32, ops: Vec<Op>) -> Result<shader_types::Result, S
     }
     // The sampled result is always in index 0
     Ok(results.remove(0))
+}
+
+pub fn run_gpu_shots(
+    qubits: u32,
+    results: u32,
+    ops: Vec<Op>,
+    shots: u32,
+) -> Result<Vec<shader_types::Result>, String> {
+    futures::executor::block_on(async {
+        let mut controller = gpu_controller::GpuContext::new(qubits, results, ops, shots, true)
+            .await
+            .map_err(|e| e.to_string())?;
+        controller.create_resources();
+        Ok(controller.run().await)
+    })
 }
 
 pub fn time_run_gpu_simulator(
