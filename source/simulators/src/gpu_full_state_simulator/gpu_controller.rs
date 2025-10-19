@@ -19,7 +19,7 @@ const MIN_QUBIT_COUNT: u32 = 10; // Round up circuit qubits if smaller to enable
 const MAX_QUBIT_COUNT: u32 = 22; // Limit so we can fit each shot in one workgroup, and to avoid issues with f32 precision on larger state vectors
 const MAX_BUFFER_SIZE: usize = 1 << 30; // 1 GB limit due to some wgpu restrictions
 const MAX_CIRCUIT_OPS: usize = MAX_BUFFER_SIZE / std::mem::size_of::<Op>();
-const SIZEOF_SHOTDATA: usize = 416; // Size of ShotData struct on the GPU in bytes
+const SIZEOF_SHOTDATA: usize = 1024; // Size of ShotData struct on the GPU in bytes
 const MAX_SHOT_ENTRIES: usize = MAX_BUFFER_SIZE / SIZEOF_SHOTDATA;
 
 // There is no hard limit here, but for very large circuits we may need to split into multiple dispatches.
@@ -58,7 +58,7 @@ struct GpuBuffers {
 #[repr(C)]
 #[derive(bytemuck::Pod, bytemuck::Zeroable, Copy, Clone, Debug)]
 struct UniformParams {
-    start_shot_id: u32,
+    reserved: u32,
 }
 
 struct RunParams {
@@ -415,14 +415,6 @@ impl GpuContext {
             - Do any output recording for the shots in the batch
         - Return the collated shot results
          */
-
-        // TODO: This should be done per-batch with updated uniform params
-        let uniform_params_data = UniformParams { start_shot_id: 0 };
-        self.queue.write_buffer(
-            &resources.buffers.uniform_params,
-            0,
-            bytemuck::bytes_of(&uniform_params_data),
-        );
 
         let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("StateVector Compute Pass"),
