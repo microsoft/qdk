@@ -13,6 +13,8 @@ use wgpu::{
     Device, Limits, Queue, RequestAdapterError, ShaderModule, wgc::pipeline,
 };
 
+// Some of these values are to align with WebGPU default limits
+// See https://gpuweb.github.io/gpuweb/#limits
 const THREADS_PER_WORKGROUP: u32 = 32; // 32 gives good occupancy across various GPUs
 const MAX_SHOTS_PER_BATCH: u32 = 65535; // To align with max workgroups per dimension WebGPU default
 const MIN_QUBIT_COUNT: u32 = 10; // Round up circuit qubits if smaller to enable to optimizations re unrolling, etc.
