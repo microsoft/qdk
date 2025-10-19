@@ -534,8 +534,9 @@ fn create_bind_group_layout(device: &Device) -> BindGroupLayout {
 }
 
 pub fn create_ops_buffers(buffer_size: usize, ops: &[Op], device: &Device) -> (Buffer, Buffer) {
-    // TODO: Try to just map and copy the ops buffer directly without the extra upload buffer
-    // See https://toji.dev/webgpu-best-practices/buffer-uploads
+    // If we try to just map and copy the ops buffer directly without the extra upload buffer
+    // then Xcode profiling doesn't see the ops due to a bug, so we use an intermediate upload buffer.
+    // See https://toji.dev/webgpu-best-practices/buffer-uploads for general best practices on buffer uploads.
     let ops_upload_buffer = device.create_buffer(&BufferDescriptor {
         label: Some("Ops Upload Buffer"),
         size: buffer_size as u64,
