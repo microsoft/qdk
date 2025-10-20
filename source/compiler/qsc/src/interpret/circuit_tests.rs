@@ -13,17 +13,29 @@ use qsc_eval::output::GenericReceiver;
 use qsc_frontend::compile::SourceMap;
 use qsc_passes::PackageType;
 
-fn interpreter(code: &str, profile: Profile) -> Interpreter {
+fn interpreter(code: &str, profile: Profile, trace_circuit: bool) -> Interpreter {
     let sources = SourceMap::new([("test.qs".into(), code.into())], None);
     let (std_id, store) = crate::compile::package_store_with_stdlib(profile.into());
-    Interpreter::new(
-        sources,
-        PackageType::Exe,
-        profile.into(),
-        LanguageFeatures::default(),
-        store,
-        &[(std_id, None)],
-    )
+    if trace_circuit {
+        Interpreter::new_with_circuit_tracer(
+            sources,
+            PackageType::Exe,
+            profile.into(),
+            LanguageFeatures::default(),
+            store,
+            &[(std_id, None)],
+            Default::default(),
+        )
+    } else {
+        Interpreter::new(
+            sources,
+            PackageType::Exe,
+            profile.into(),
+            LanguageFeatures::default(),
+            store,
+            &[(std_id, None)],
+        )
+    }
     .expect("interpreter creation should succeed")
 }
 
@@ -96,7 +108,7 @@ fn circuit_inner(
     config: Config,
     profile: Profile,
 ) -> Result<Circuit, Vec<Error>> {
-    let mut interpreter = interpreter(code, profile);
+    let mut interpreter = interpreter(code, profile, false);
     interpreter.set_quantum_seed(Some(2));
     interpreter.circuit(entry, config)
 }
@@ -574,6 +586,7 @@ fn eval_method_result_comparison() {
             }
         ",
         Profile::Unrestricted,
+        true,
     );
 
     interpreter.set_quantum_seed(Some(2));
