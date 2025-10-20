@@ -90,13 +90,11 @@ function runCircuit() {
 }
 
 function App({ state }: { state: State }) {
-  let content: preact.JSX.Element;
   switch (state.viewType) {
     case "loading":
-      content = <div>Loading...</div>;
-      break;
+      return <div>Loading...</div>;
     case "circuit":
-      content = (
+      return (
         <CircuitPanel
           {...state.props}
           isEditable={true}
@@ -104,11 +102,8 @@ function App({ state }: { state: State }) {
           runCallback={runCircuit}
         ></CircuitPanel>
       );
-      break;
     default:
       console.error("Unknown view type in state", state);
-      content = <div>Loading error</div>;
-      break;
+      return <div>Loading error</div>;
   }
-  return <div style={{ paddingLeft: "8px" }}>{content}</div>;
 }

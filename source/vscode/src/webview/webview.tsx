@@ -176,13 +176,11 @@ function onRowDeleted(rowId: string) {
 function App({ state }: { state: State }) {
   const onFilter = () => undefined;
 
-  let content: preact.JSX.Element;
   switch (state.viewType) {
     case "loading":
-      content = <div>Loading...</div>;
-      break;
+      return <div>Loading...</div>;
     case "histogram":
-      content = (
+      return (
         <>
           <Histogram
             data={new Map(state.buckets)}
@@ -206,9 +204,8 @@ function App({ state }: { state: State }) {
           )}
         </>
       );
-      break;
     case "estimates":
-      content = (
+      return (
         <EstimatesPanel
           calculating={state.estimatesData.calculating}
           estimatesData={state.estimatesData.estimates}
@@ -217,30 +214,23 @@ function App({ state }: { state: State }) {
           runNames={[]}
         />
       );
-      break;
     case "circuit":
-      content = <CircuitPanel {...state.props}></CircuitPanel>;
-      break;
+      return <CircuitPanel {...state.props}></CircuitPanel>;
     case "help":
-      content = <HelpPage />;
-      break;
+      return <HelpPage />;
     case "documentation":
       // Ideally we'd have this on all web views, but it makes the font a little
       // too large in the others right now. Something to unify later.
       document.body.classList.add("markdown-body");
       document.body.style.fontSize = "0.8em";
-      content = (
+      return (
         <DocumentationView
           fragmentsToRender={state.fragmentsToRender}
           projectName={state.projectName}
         />
       );
-      break;
     default:
       console.error("Unknown view type in state", state);
-      content = <div>Loading error</div>;
-      break;
+      return <div>Loading error</div>;
   }
-
-  return <div style={{ paddingLeft: "8px" }}>{content}</div>;
 }
