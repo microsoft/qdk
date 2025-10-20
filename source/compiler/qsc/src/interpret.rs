@@ -22,8 +22,7 @@ use miette::Diagnostic;
 use num_bigint::BigUint;
 use num_complex::Complex;
 use qsc_circuit::{
-    Circuit, CircuitTracer, Config as CircuitConfig, GenerationMethod, TracerConfig,
-    operations::entry_expr_for_qubit_operation,
+    Circuit, CircuitTracer, TracerConfig, operations::entry_expr_for_qubit_operation,
 };
 use qsc_codegen::qir::{fir_to_qir, fir_to_qir_from_callable};
 use qsc_data_structures::{
@@ -645,10 +644,7 @@ impl Interpreter {
     pub fn eval_entry(&mut self, receiver: &mut impl Receiver) -> InterpretResult {
         let graph = self.get_entry_exec_graph()?;
         self.expr_graph = Some(graph.clone());
-        let mut tracing_backend = match &mut self.circuit_tracer {
-            Some(tracer) => TracingBackend::new(&mut self.sim, tracer),
-            None => TracingBackend::new_no_trace(&mut self.sim),
-        };
+
         eval(
             self.source_package,
             self.classical_seed,
@@ -656,7 +652,7 @@ impl Interpreter {
             self.compiler.package_store(),
             &self.fir_store,
             &mut Env::default(),
-            &mut tracing_backend,
+            &mut TracingBackend::sim_and_optional_trace(&mut self.sim, &mut self.circuit_tracer),
             receiver,
         )
     }
@@ -665,9 +661,10 @@ impl Interpreter {
     /// and a new instance of the environment.
     pub fn eval_entry_with_sim(
         &mut self,
-        tracing_backend: &mut TracingBackend,
+        sim: &mut impl Backend,
         receiver: &mut impl Receiver,
     ) -> InterpretResult {
+        let mut tracing_backend = TracingBackend::no_trace(sim);
         let graph = self.get_entry_exec_graph()?;
         self.expr_graph = Some(graph.clone());
         if self.quantum_seed.is_some() {
@@ -680,7 +677,7 @@ impl Interpreter {
             self.compiler.package_store(),
             &self.fir_store,
             &mut Env::default(),
-            tracing_backend,
+            &mut tracing_backend,
             receiver,
         )
     }
@@ -754,10 +751,6 @@ impl Interpreter {
         // here to keep the package stores consistent.
         self.compiler.update(increment);
 
-        let mut tracing_backend = match &mut self.circuit_tracer {
-            Some(tracer) => TracingBackend::new(&mut self.sim, tracer),
-            None => TracingBackend::new_no_trace(&mut self.sim),
-        };
         eval(
             self.package,
             self.classical_seed,
@@ -765,7 +758,7 @@ impl Interpreter {
             self.compiler.package_store(),
             &self.fir_store,
             &mut self.env,
-            &mut tracing_backend,
+            &mut TracingBackend::sim_and_optional_trace(&mut self.sim, &mut self.circuit_tracer),
             receiver,
         )
     }
@@ -777,16 +770,12 @@ impl Interpreter {
         callable: Value,
         args: Value,
     ) -> InterpretResult {
-        let mut tracing_backend = match &mut self.circuit_tracer {
-            Some(tracer) => TracingBackend::new(&mut self.sim, tracer),
-            None => TracingBackend::new_no_trace(&mut self.sim),
-        };
         qsc_eval::invoke(
             self.package,
             self.classical_seed,
             &self.fir_store,
             &mut self.env,
-            &mut tracing_backend,
+            &mut TracingBackend::sim_and_optional_trace(&mut self.sim, &mut self.circuit_tracer),
             receiver,
             callable,
             args,
@@ -818,12 +807,7 @@ impl Interpreter {
         if let Some(loss) = qubit_loss {
             sim.set_loss(loss);
         }
-        self.invoke_with_sim(
-            &mut TracingBackend::new_no_trace(&mut sim),
-            receiver,
-            callable,
-            args,
-        )
+        self.invoke_with_sim(&mut sim, receiver, callable, args)
     }
 
     /// Runs the given entry expression on a new instance of the environment and simulator,
@@ -842,7 +826,7 @@ impl Interpreter {
         if let Some(loss) = qubit_loss {
             sim.set_loss(loss);
         }
-        self.run_with_sim(&mut TracingBackend::new_no_trace(&mut sim), receiver, expr)
+        self.run_with_sim(&mut sim, receiver, expr)
     }
 
     /// Gets the current quantum state of the simulator.
@@ -950,68 +934,27 @@ impl Interpreter {
 
     /// Generates a circuit representation for the program.
     ///
-    /// `entry` can be the current entrypoint, an entry expression, or any operation
-    /// that takes qubits.
-    ///
-    /// An operation can be specified by its name or a lambda expression that only takes qubits.
-    /// e.g. `Sample.Main` , `qs => H(qs[0])`
-    ///
-    /// If `simulate` is specified, the program is simulated and the resulting
-    /// circuit is returned (a.k.a. trace mode). Otherwise, the circuit is generated without
-    /// simulation. In this case circuit generation may fail if the program contains dynamic
-    /// behavior (quantum operations that are dependent on measurement results).
+    /// For `entry` options, see [`CircuitEntryPoint`]. For `config` options, see [`CircuitConfig`].
     pub fn circuit(
         &mut self,
         entry: CircuitEntryPoint,
-        config: CircuitConfig,
+        method: CircuitGenerationMethod,
+        tracer_config: TracerConfig,
     ) -> std::result::Result<Circuit, Vec<Error>> {
-        let (entry_expr, invoke_params) = match entry {
-            CircuitEntryPoint::Operation(operation_expr) => {
-                let (item, functor_app) = self.eval_to_operation(&operation_expr)?;
-                let expr = entry_expr_for_qubit_operation(item, functor_app, &operation_expr)
-                    .map_err(|e| vec![e.into()])?;
-                (Some(expr), None)
-            }
-            CircuitEntryPoint::EntryExpr(expr) => (Some(expr), None),
-            CircuitEntryPoint::Callable(call_val, args_val) => (None, Some((call_val, args_val))),
-            CircuitEntryPoint::EntryPoint => (None, None),
-        };
-
-        let circuit = match config.generation_method {
-            GenerationMethod::Simulate => {
+        let mut tracer = CircuitTracer::new(tracer_config);
+        match method {
+            CircuitGenerationMethod::Simulate => {
                 let mut sim = SparseSim::new();
-                let mut tracer = CircuitTracer::new(config.tracer_config);
-                let mut tracing_backend = TracingBackend::new(&mut sim, &mut tracer);
-
-                match invoke_params {
-                    Some((callable, args)) => {
-                        let mut sink = std::io::sink();
-                        let mut out = GenericReceiver::new(&mut sink);
-                        self.invoke_with_sim(&mut tracing_backend, &mut out, callable, args)?;
-                    }
-                    None => self.run_with_sim_no_output(entry_expr, &mut tracing_backend)?,
-                }
-
-                tracer.finish(Some(self.compiler.package_store()))
+                self.eval_with_tracing_backend(
+                    entry,
+                    &mut TracingBackend::sim_and_trace(&mut sim, &mut tracer),
+                )?;
             }
-            GenerationMethod::ClassicalEval => {
-                let mut tracer = CircuitTracer::new(config.tracer_config);
-                let mut tracing_backend = TracingBackend::new_no_sim(&mut tracer);
-
-                match invoke_params {
-                    Some((callable, args)) => {
-                        let mut sink = std::io::sink();
-                        let mut out = GenericReceiver::new(&mut sink);
-
-                        self.invoke_with_sim(&mut tracing_backend, &mut out, callable, args)?;
-                    }
-                    None => self.run_with_sim_no_output(entry_expr, &mut tracing_backend)?,
-                }
-
-                tracer.finish(Some(self.compiler.package_store()))
+            CircuitGenerationMethod::ClassicalEval => {
+                self.eval_with_tracing_backend(entry, &mut TracingBackend::no_sim(&mut tracer))?;
             }
-        };
-
+        }
+        let circuit = tracer.finish(Some(self.compiler.package_store()));
         Ok(circuit)
     }
 
@@ -1026,10 +969,11 @@ impl Interpreter {
     /// but using the current compilation.
     pub fn run_with_sim(
         &mut self,
-        tracing_backend: &mut TracingBackend,
+        sim: &mut impl Backend,
         receiver: &mut impl Receiver,
         expr: Option<&str>,
     ) -> InterpretResult {
+        let mut tracing_backend = TracingBackend::no_trace(sim);
         let graph = if let Some(expr) = expr {
             let (graph, _) = self.compile_entry_expr(expr)?;
             self.expr_graph = Some(graph.clone());
@@ -1049,49 +993,78 @@ impl Interpreter {
             self.compiler.package_store(),
             &self.fir_store,
             &mut Env::default(),
-            tracing_backend,
+            &mut tracing_backend,
             receiver,
         )
     }
 
-    fn run_with_sim_no_output(
+    fn eval_with_tracing_backend(
         &mut self,
-        entry_expr: Option<String>,
-        sim: &mut TracingBackend,
+        entry: CircuitEntryPoint,
+        tracing_backend: &mut TracingBackend,
     ) -> std::result::Result<(), Vec<Error>> {
-        let mut sink = std::io::sink();
-        let mut out = GenericReceiver::new(&mut sink);
-
-        let (package_id, graph) = if let Some(entry_expr) = entry_expr {
-            // entry expression is provided
-            let (graph, _) = self.compile_entry_expr(&entry_expr)?;
-            (self.package, graph)
-        } else {
-            // no entry expression, use the entrypoint in the package
-            (self.source_package, self.get_entry_exec_graph()?)
+        let (entry_expr, invoke_params) = match entry {
+            CircuitEntryPoint::Operation(operation_expr) => {
+                let (item, functor_app) = self.eval_to_operation(&operation_expr)?;
+                let expr = entry_expr_for_qubit_operation(item, functor_app, &operation_expr)
+                    .map_err(|e| vec![e.into()])?;
+                (Some(expr), None)
+            }
+            CircuitEntryPoint::EntryExpr(expr) => (Some(expr), None),
+            CircuitEntryPoint::Callable(call_val, args_val) => (None, Some((call_val, args_val))),
+            CircuitEntryPoint::EntryPoint => (None, None),
         };
 
-        if self.quantum_seed.is_some() {
-            sim.set_seed(self.quantum_seed);
+        let mut sink = std::io::sink();
+        let mut out = GenericReceiver::new(&mut sink);
+        if let Some((callable, args)) = invoke_params {
+            self.invoke_with_tracing_backend(tracing_backend, &mut out, callable, args)?;
+        } else {
+            let (package_id, graph) = if let Some(entry_expr) = entry_expr {
+                // entry expression is provided
+                let (graph, _) = self.compile_entry_expr(&entry_expr)?;
+                (self.package, graph)
+            } else {
+                // no entry expression, use the entrypoint in the package
+                (self.source_package, self.get_entry_exec_graph()?)
+            };
+
+            if self.quantum_seed.is_some() {
+                tracing_backend.set_seed(self.quantum_seed);
+            }
+
+            eval(
+                package_id,
+                self.classical_seed,
+                graph,
+                self.compiler.package_store(),
+                &self.fir_store,
+                &mut Env::default(),
+                tracing_backend,
+                &mut out,
+            )?;
         }
-
-        eval(
-            package_id,
-            self.classical_seed,
-            graph,
-            self.compiler.package_store(),
-            &self.fir_store,
-            &mut Env::default(),
-            sim,
-            &mut out,
-        )?;
-
         Ok(())
     }
 
     /// Invokes the given callable with the given arguments on the given simulator with a new instance of the environment
     /// but using the current compilation.
     pub fn invoke_with_sim(
+        &mut self,
+        sim: &mut impl Backend,
+        receiver: &mut impl Receiver,
+        callable: Value,
+        args: Value,
+    ) -> InterpretResult {
+        self.invoke_with_tracing_backend(
+            &mut TracingBackend::no_trace(sim),
+            receiver,
+            callable,
+            args,
+        )
+    }
+
+    fn invoke_with_tracing_backend(
         &mut self,
         tracing_backend: &mut TracingBackend,
         receiver: &mut impl Receiver,
@@ -1243,6 +1216,7 @@ impl Interpreter {
 pub enum CircuitEntryPoint {
     /// An operation. This must be a callable name or a lambda
     /// expression that only takes qubits as arguments.
+    /// e.g. `Sample.Main` , `qs => H(qs[0])`
     /// The callable name must be visible in the current package.
     Operation(String),
     /// An explicitly provided entry expression.
@@ -1251,6 +1225,20 @@ pub enum CircuitEntryPoint {
     Callable(Value, Value),
     /// The entry point for the current package.
     EntryPoint,
+}
+
+/// How the circuit is generated.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum CircuitGenerationMethod {
+    /// Simulate the program and trace the actual gate calls. Nondeterministic.
+    /// circuit is returned (a.k.a. trace mode).
+    /// Nondeterministic
+    Simulate,
+    /// Evaluate the classical parts. Will fail if branching on measurement occurs
+    /// the circuit is generated without
+    /// simulation. In this case circuit generation may fail if the program contains dynamic
+    /// behavior (quantum operations that are dependent on measurement results).
+    ClassicalEval,
 }
 
 /// A debugger that enables step-by-step evaluation of code
@@ -1363,16 +1351,14 @@ impl Debugger {
         breakpoints: &[StmtId],
         step: StepAction,
     ) -> std::result::Result<StepResult, Vec<Error>> {
-        let mut tracing_backend = match &mut self.interpreter.circuit_tracer {
-            Some(tracer) => TracingBackend::new(&mut self.interpreter.sim, tracer),
-            None => TracingBackend::new_no_trace(&mut self.interpreter.sim),
-        };
-
         self.state
             .eval(
                 &self.interpreter.fir_store,
                 &mut self.interpreter.env,
-                &mut tracing_backend,
+                &mut TracingBackend::sim_and_optional_trace(
+                    &mut self.interpreter.sim,
+                    &mut self.interpreter.circuit_tracer,
+                ),
                 receiver,
                 breakpoints,
                 step,

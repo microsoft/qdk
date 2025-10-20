@@ -51,7 +51,7 @@ pub mod line_column {
 }
 
 pub use qsc_eval::{
-    backend::{Backend, SparseSim, TracingBackend},
+    backend::{Backend, SparseSim},
     noise::PauliNoise,
     state::{
         fmt_basis_state_label, fmt_complex, format_state_id, get_matrix_latex, get_phase,
@@ -70,9 +70,9 @@ pub use qsc_doc_gen::{display, generate_docs};
 
 pub mod circuit {
     pub use qsc_circuit::{
-        CURRENT_VERSION, Circuit, CircuitGroup, ComponentColumn, ComponentGrid, Config,
-        GenerationMethod, Operation, TracerConfig, circuit_to_qsharp::circuits_to_qsharp,
-        json_to_circuit::json_to_circuits, operations::*,
+        CURRENT_VERSION, Circuit, CircuitGroup, ComponentColumn, ComponentGrid, Operation,
+        TracerConfig, circuit_to_qsharp::circuits_to_qsharp, json_to_circuit::json_to_circuits,
+        operations::*,
     };
 }
 

@@ -25,10 +25,7 @@ pub use system::estimate_physical_resources_from_json;
 
 use counts::LogicalCounter;
 use miette::Diagnostic;
-use qsc::{
-    TracingBackend,
-    interpret::{self, GenericReceiver, Interpreter, Value},
-};
+use qsc::interpret::{self, GenericReceiver, Interpreter, Value};
 use system::estimate_physical_resources;
 use thiserror::Error;
 
@@ -47,7 +44,7 @@ pub fn estimate_entry(interpreter: &mut Interpreter, params: &str) -> Result<Str
     let mut stdout = std::io::sink();
     let mut out = GenericReceiver::new(&mut stdout);
     interpreter
-        .eval_entry_with_sim(&mut TracingBackend::new_no_trace(&mut counter), &mut out)
+        .eval_entry_with_sim(&mut counter, &mut out)
         .map_err(|e| e.into_iter().map(Error::Interpreter).collect::<Vec<_>>())?;
     estimate_physical_resources(counter.logical_resources(), params)
         .map_err(|e| vec![Error::Estimation(e)])
@@ -62,11 +59,7 @@ pub fn estimate_expr(
     let mut stdout = std::io::sink();
     let mut out = GenericReceiver::new(&mut stdout);
     interpreter
-        .run_with_sim(
-            &mut TracingBackend::new_no_trace(&mut counter),
-            &mut out,
-            Some(expr),
-        )
+        .run_with_sim(&mut counter, &mut out, Some(expr))
         .map_err(|e| e.into_iter().map(Error::Interpreter).collect::<Vec<_>>())?;
     estimate_physical_resources(counter.logical_resources(), params)
         .map_err(|e| vec![Error::Estimation(e)])
@@ -82,12 +75,7 @@ pub fn estimate_call(
     let mut stdout = std::io::sink();
     let mut out = GenericReceiver::new(&mut stdout);
     interpreter
-        .invoke_with_sim(
-            &mut TracingBackend::new_no_trace(&mut counter),
-            &mut out,
-            callable,
-            args,
-        )
+        .invoke_with_sim(&mut counter, &mut out, callable, args)
         .map_err(|e| e.into_iter().map(Error::Interpreter).collect::<Vec<_>>())?;
     estimate_physical_resources(counter.logical_resources(), params)
         .map_err(|e| vec![Error::Estimation(e)])
@@ -101,11 +89,7 @@ pub fn logical_counts_expr(
     let mut stdout = std::io::sink();
     let mut out = GenericReceiver::new(&mut stdout);
     interpreter
-        .run_with_sim(
-            &mut TracingBackend::new_no_trace(&mut counter),
-            &mut out,
-            Some(expr),
-        )
+        .run_with_sim(&mut counter, &mut out, Some(expr))
         .map_err(|e| e.into_iter().map(Error::Interpreter).collect::<Vec<_>>())?;
     Ok(counter.logical_resources())
 }
@@ -119,12 +103,7 @@ pub fn logical_counts_call(
     let mut stdout = std::io::sink();
     let mut out = GenericReceiver::new(&mut stdout);
     interpreter
-        .invoke_with_sim(
-            &mut TracingBackend::new_no_trace(&mut counter),
-            &mut out,
-            callable,
-            args,
-        )
+        .invoke_with_sim(&mut counter, &mut out, callable, args)
         .map_err(|e| e.into_iter().map(Error::Interpreter).collect::<Vec<_>>())?;
     Ok(counter.logical_resources())
 }

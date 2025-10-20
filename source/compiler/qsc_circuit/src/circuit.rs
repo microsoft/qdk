@@ -281,21 +281,6 @@ pub struct Qubit {
 }
 
 #[derive(Clone, Debug, Copy)]
-pub struct Config {
-    /// How the circuit is generated
-    pub generation_method: GenerationMethod,
-    pub tracer_config: TracerConfig,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum GenerationMethod {
-    /// Simulate the program and trace the actual gate calls. Nondeterministic
-    Simulate,
-    /// Evaluate the classical parts. Will fail if branching on measurement occurs
-    ClassicalEval,
-}
-
-#[derive(Clone, Debug, Copy)]
 pub struct TracerConfig {
     /// Maximum number of operations the builder will add to the circuit
     pub max_operations: usize,

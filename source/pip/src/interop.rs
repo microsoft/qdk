@@ -10,7 +10,7 @@ use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
-use qsc::circuit::{Config, TracerConfig};
+use qsc::circuit::TracerConfig;
 use qsc::hir::PackageId;
 use qsc::interpret::output::Receiver;
 use qsc::interpret::{CircuitEntryPoint, Interpreter, into_errors};
@@ -19,7 +19,7 @@ use qsc::qasm::compiler::compile_to_qsharp_ast_with_config;
 use qsc::qasm::semantic::QasmSemanticParseResult;
 use qsc::qasm::{OperationSignature, QubitSemantics};
 use qsc::target::Profile;
-use qsc::{Backend, PackageType, PauliNoise, SparseSim, TracingBackend};
+use qsc::{Backend, PackageType, PauliNoise, SparseSim};
 use qsc::{
     LanguageFeatures, SourceMap, ast::Package, error::WithSource, interpret, project::FileSystem,
 };
@@ -161,11 +161,7 @@ pub(crate) fn run_ast(
         // If seed is provided, we want to use a different seed for each shot
         // so that the results are different for each shot, but still deterministic
         sim.set_seed(seed.map(|s| s + i as u64));
-        let result = interpreter.run_with_sim(
-            &mut TracingBackend::new_no_trace(&mut sim),
-            receiver,
-            None,
-        )?;
+        let result = interpreter.run_with_sim(&mut sim, receiver, None)?;
         results.push(result);
     }
 
@@ -600,15 +596,13 @@ pub(crate) fn circuit_qasm_program(
         .map_err(|errors| map_entry_compilation_errors(errors, &signature))?;
 
     // TODO: backcompat, for now
-    let config = Config {
-        generation_method: qsc::circuit::GenerationMethod::ClassicalEval,
-        tracer_config: TracerConfig {
-            locations: false,
-            ..Default::default()
-        },
+    let method = qsc::interpret::CircuitGenerationMethod::ClassicalEval;
+    let config = TracerConfig {
+        locations: false,
+        ..Default::default()
     };
 
-    match interpreter.circuit(CircuitEntryPoint::EntryExpr(entry_expr), config) {
+    match interpreter.circuit(CircuitEntryPoint::EntryExpr(entry_expr), method, config) {
         Ok(circuit) => crate::interpreter::Circuit(circuit).into_py_any(py),
         Err(errors) => Err(QSharpError::new_err(format_errors(errors))),
     }
