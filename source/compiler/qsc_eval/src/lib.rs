@@ -26,7 +26,7 @@ pub mod output;
 pub mod state;
 pub mod val;
 
-use crate::backend::{DebugMetadata, TracingBackend};
+use crate::backend::TracingBackend;
 use crate::val::{
     Value, index_array, make_range, slice_array, update_index_range, update_index_single,
 };
@@ -291,13 +291,7 @@ pub fn eval(
     tracing_backend: &mut TracingBackend,
     receiver: &mut impl Receiver,
 ) -> Result<Value, (Error, Vec<Frame>)> {
-    let mut state = State::new(
-        package,
-        exec_graph,
-        seed,
-        ErrorBehavior::FailOnError,
-        tracing_backend.is_stacks_enabled(),
-    );
+    let mut state = State::new(package, exec_graph, seed, ErrorBehavior::FailOnError);
     let res = state.eval(
         globals,
         env,
@@ -327,15 +321,8 @@ pub fn invoke(
     receiver: &mut impl Receiver,
     callable: Value,
     args: Value,
-    trace_stacks: bool,
 ) -> Result<Value, (Error, Vec<Frame>)> {
-    let mut state = State::new(
-        package,
-        Vec::new().into(),
-        seed,
-        ErrorBehavior::FailOnError,
-        trace_stacks,
-    );
+    let mut state = State::new(package, Vec::new().into(), seed, ErrorBehavior::FailOnError);
     // Push the callable value into the state stack and then the args value so they are ready for evaluation.
     state.set_val_register(callable);
     state.push_val();
@@ -611,7 +598,6 @@ pub struct State {
     qubit_counter: Option<QubitCounter>,
     error_behavior: ErrorBehavior,
     last_error: Option<(Error, Vec<Frame>)>,
-    trace_stacks: bool,
 }
 
 impl State {
@@ -621,7 +607,6 @@ impl State {
         exec_graph: ExecGraph,
         classical_seed: Option<u64>,
         error_behavior: ErrorBehavior,
-        trace_stacks: bool,
     ) -> Self {
         let rng = match classical_seed {
             Some(seed) => RefCell::new(StdRng::seed_from_u64(seed)),
@@ -642,7 +627,6 @@ impl State {
             qubit_counter: None,
             error_behavior,
             last_error: None,
-            trace_stacks,
         }
     }
 
@@ -721,8 +705,8 @@ impl State {
     }
 
     #[must_use]
-    pub fn capture_stack_if_trace_stacks(&self) -> Vec<Frame> {
-        if self.trace_stacks {
+    pub fn capture_stack_if_trace_enabled(&self, tracing_backend: &TracingBackend) -> Vec<Frame> {
+        if tracing_backend.is_stacks_enabled() {
             self.capture_stack()
         } else {
             vec![]
@@ -1302,9 +1286,7 @@ impl State {
         let name = &callee.name.name;
         let val = match name.as_ref() {
             "__quantum__rt__qubit_allocate" => {
-                let q = sim.qubit_allocate(Some(DebugMetadata::new(
-                    self.capture_stack_if_trace_stacks(),
-                )));
+                let q = sim.qubit_allocate(&self.capture_stack_if_trace_enabled(sim));
                 let q = Rc::new(Qubit(q));
                 env.track_qubit(Rc::clone(&q));
                 if let Some(counter) = &mut self.qubit_counter {
@@ -1318,10 +1300,7 @@ impl State {
                     .try_deref()
                     .ok_or(Error::QubitDoubleRelease(arg_span))?;
                 env.release_qubit(&qubit);
-                if sim.qubit_release(
-                    qubit.0,
-                    Some(DebugMetadata::new(self.capture_stack_if_trace_stacks())),
-                ) {
+                if sim.qubit_release(qubit.0, &self.capture_stack_if_trace_enabled(sim)) {
                     Value::unit()
                 } else {
                     return Err(Error::ReleasedQubitNotZero(qubit.0, arg_span));
@@ -1333,7 +1312,7 @@ impl State {
                     callee_span,
                     arg,
                     arg_span,
-                    &self.capture_stack_if_trace_stacks(),
+                    &self.capture_stack_if_trace_enabled(sim),
                     sim,
                     &mut self.rng.borrow_mut(),
                     out,

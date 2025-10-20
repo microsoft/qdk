@@ -30,13 +30,7 @@ pub(super) fn eval_graph(
     out: &mut impl Receiver,
 ) -> Result<Value, (Error, Vec<Frame>)> {
     let mut tracing_backend = TracingBackend::new_no_trace(sim);
-    let mut state = State::new(
-        package,
-        graph,
-        None,
-        ErrorBehavior::FailOnError,
-        tracing_backend.is_stacks_enabled(),
-    );
+    let mut state = State::new(package, graph, None, ErrorBehavior::FailOnError);
     let StepResult::Return(value) = state.eval(
         globals,
         env,

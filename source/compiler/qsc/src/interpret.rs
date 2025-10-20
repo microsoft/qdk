@@ -781,7 +781,6 @@ impl Interpreter {
             Some(tracer) => TracingBackend::new(&mut self.sim, tracer),
             None => TracingBackend::new_no_trace(&mut self.sim),
         };
-        let trace_stacks = tracing_backend.is_stacks_enabled();
         qsc_eval::invoke(
             self.package,
             self.classical_seed,
@@ -791,7 +790,6 @@ impl Interpreter {
             receiver,
             callable,
             args,
-            trace_stacks,
         )
         .map_err(|(error, call_stack)| {
             eval_error(
@@ -1109,7 +1107,6 @@ impl Interpreter {
             receiver,
             callable,
             args,
-            tracing_backend.is_stacks_enabled(),
         )
         .map_err(|(error, call_stack)| {
             eval_error(
@@ -1336,7 +1333,6 @@ impl Debugger {
                 entry_exec_graph,
                 None,
                 ErrorBehavior::StopOnError,
-                true,
             ),
         })
     }
@@ -1345,10 +1341,7 @@ impl Debugger {
         let source_package_id = interpreter.source_package;
         let unit = interpreter.fir_store.get(source_package_id);
         let entry_exec_graph = unit.entry_exec_graph.clone();
-        let trace_stacks = interpreter
-            .circuit_tracer
-            .as_ref()
-            .is_some_and(qsc_eval::backend::Tracer::is_stacks_enabled);
+
         Self {
             interpreter,
             position_encoding,
@@ -1357,7 +1350,6 @@ impl Debugger {
                 entry_exec_graph,
                 None,
                 ErrorBehavior::StopOnError,
-                trace_stacks,
             ),
         }
     }
