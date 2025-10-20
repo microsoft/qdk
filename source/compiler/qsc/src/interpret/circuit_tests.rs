@@ -7,34 +7,46 @@ use super::{CircuitEntryPoint, Debugger, Interpreter};
 use crate::{interpret::Error, target::Profile};
 use expect_test::expect;
 use miette::Diagnostic;
-use qsc_circuit::{Circuit, Config, GenerationMethod};
+use qsc_circuit::{Circuit, Config, GenerationMethod, TracerConfig};
 use qsc_data_structures::language_features::LanguageFeatures;
 use qsc_eval::output::GenericReceiver;
 use qsc_frontend::compile::SourceMap;
 use qsc_passes::PackageType;
 
-fn interpreter(code: &str, profile: Profile) -> Interpreter {
+fn interpreter(code: &str, profile: Profile, trace_circuit: bool) -> Interpreter {
     let sources = SourceMap::new([("test.qs".into(), code.into())], None);
     let (std_id, store) = crate::compile::package_store_with_stdlib(profile.into());
-    Interpreter::new(
-        sources,
-        PackageType::Exe,
-        profile.into(),
-        LanguageFeatures::default(),
-        store,
-        &[(std_id, None)],
-    )
+    if trace_circuit {
+        Interpreter::new_with_circuit_tracer(
+            sources,
+            PackageType::Exe,
+            profile.into(),
+            LanguageFeatures::default(),
+            store,
+            &[(std_id, None)],
+            Default::default(),
+        )
+    } else {
+        Interpreter::new(
+            sources,
+            PackageType::Exe,
+            profile.into(),
+            LanguageFeatures::default(),
+            store,
+            &[(std_id, None)],
+        )
+    }
     .expect("interpreter creation should succeed")
 }
 
 fn circuit_both_ways(code: &str, entry: CircuitEntryPoint) -> String {
     let eval_config = Config {
         generation_method: GenerationMethod::ClassicalEval,
-        ..Default::default()
+        tracer_config: Default::default(),
     };
     let static_config = Config {
         generation_method: GenerationMethod::Static,
-        ..Default::default()
+        tracer_config: Default::default(),
     };
 
     let eval_circ = circuit(code, entry.clone(), eval_config);
@@ -43,16 +55,15 @@ fn circuit_both_ways(code: &str, entry: CircuitEntryPoint) -> String {
     format!("Eval:\n{eval_circ}\nStatic:\n{static_circ}")
 }
 
-fn circuit_both_ways_with_config(code: &str, entry: CircuitEntryPoint, config: Config) -> String {
-    assert_eq!(
-        config.generation_method,
-        Config::default().generation_method,
-        "will overwrite provided generation method, are you sure you want to pass in a non-default?"
-    );
-
+#[allow(clippy::needless_pass_by_value)]
+fn circuit_both_ways_with_config(
+    code: &str,
+    entry: CircuitEntryPoint,
+    tracer_config: TracerConfig,
+) -> String {
     let eval_config = Config {
         generation_method: GenerationMethod::ClassicalEval,
-        ..config
+        tracer_config,
     };
     let static_config = Config {
         generation_method: GenerationMethod::Static,
@@ -89,7 +100,7 @@ fn circuit_with_profile_both_ways(
 ) -> String {
     let eval_config = Config {
         generation_method: GenerationMethod::ClassicalEval,
-        ..Default::default()
+        tracer_config: Default::default(),
     };
     let static_config = Config {
         generation_method: GenerationMethod::Static,
@@ -117,7 +128,7 @@ fn circuit_inner(
     config: Config,
     profile: Profile,
 ) -> Result<Circuit, Vec<Error>> {
-    let mut interpreter = interpreter(code, profile);
+    let mut interpreter = interpreter(code, profile, false);
     interpreter.set_quantum_seed(Some(2));
     interpreter.circuit(entry, config)
 }
@@ -272,7 +283,7 @@ fn classical_for_loop() {
             }
         ",
         CircuitEntryPoint::EntryPoint,
-        Config {
+        TracerConfig {
             loop_detection: true,
             group_scopes: true,
             ..Default::default()
@@ -763,6 +774,7 @@ fn eval_method_result_comparison() {
             }
         ",
         Profile::Unrestricted,
+        true,
     );
 
     interpreter.set_quantum_seed(Some(2));
@@ -772,7 +784,7 @@ fn eval_method_result_comparison() {
             CircuitEntryPoint::EntryPoint,
             Config {
                 generation_method: GenerationMethod::ClassicalEval,
-                ..Default::default()
+                tracer_config: Default::default(),
             },
         )
         .expect_err("circuit should return error")
@@ -799,7 +811,7 @@ fn eval_method_result_comparison() {
             CircuitEntryPoint::EntryPoint,
             Config {
                 generation_method: GenerationMethod::Simulate,
-                ..Default::default()
+                tracer_config: Default::default(),
             },
         )
         .expect("circuit generation should succeed");
@@ -1199,7 +1211,7 @@ fn custom_intrinsic_mixed_args_classical_eval() {
         {
             Config {
                 generation_method: GenerationMethod::ClassicalEval,
-                ..Default::default()
+                tracer_config: Default::default(),
             }
         },
     );
@@ -1288,7 +1300,7 @@ fn custom_intrinsic_apply_idle_noise_classical_eval() {
         CircuitEntryPoint::EntryPoint,
         Config {
             generation_method: GenerationMethod::ClassicalEval,
-            ..Default::default()
+            tracer_config: Default::default(),
         },
     );
 
@@ -1531,7 +1543,10 @@ fn controlled_operation() {
 
         }",
         CircuitEntryPoint::Operation("Controlled Test.SWAP".into()),
-        Config::default(),
+        Config {
+            generation_method: GenerationMethod::ClassicalEval,
+            tracer_config: Default::default(),
+        },
     );
 
     // Controlled operations are not supported at the moment.
@@ -1592,7 +1607,10 @@ fn operation_with_non_qubit_args() {
 
         }",
         CircuitEntryPoint::Operation("Test.Test".into()),
-        Config::default(),
+        Config {
+            generation_method: GenerationMethod::ClassicalEval,
+            tracer_config: Default::default(),
+        },
     );
 
     expect![[r"
@@ -1729,7 +1747,10 @@ fn operation_with_subsequent_qubits_no_double_rows() {
             }
         ",
         CircuitEntryPoint::EntryPoint,
-        Config::default(),
+        Config {
+            generation_method: GenerationMethod::ClassicalEval,
+            tracer_config: Default::default(),
+        },
     );
 
     expect![[r#"
@@ -1762,7 +1783,10 @@ fn operation_with_subsequent_qubits_no_added_rows() {
             }
         ",
         CircuitEntryPoint::EntryPoint,
-        Config::default(),
+        Config {
+            generation_method: GenerationMethod::ClassicalEval,
+            tracer_config: Default::default(),
+        },
     );
 
     expect![[r#"
@@ -2648,13 +2672,14 @@ mod debugger_stepping {
     fn generate_circuit_steps(code: &str, profile: Profile) -> String {
         let sources = SourceMap::new([("test.qs".into(), code.into())], None);
         let (std_id, store) = crate::compile::package_store_with_stdlib(profile.into());
-        let mut debugger = Debugger::new(
+        let mut debugger = Debugger::new_with_circuit_trace(
             sources,
             profile.into(),
             Encoding::Utf8,
             LanguageFeatures::default(),
             store,
             &[(std_id, None)],
+            Default::default(),
         )
         .expect("debugger creation should succeed");
 

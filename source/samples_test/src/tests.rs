@@ -48,18 +48,26 @@ fn compile_and_run_internal(sources: SourceMap, debug: bool) -> String {
     // when we load the project, need to set these
     let (std_id, store) = compile::package_store_with_stdlib(TargetCapabilityFlags::all());
 
-    let mut interpreter = match (if debug {
-        Interpreter::new_with_debug
+    let mut interpreter = match if debug {
+        Interpreter::new_with_debug(
+            sources,
+            PackageType::Exe,
+            TargetCapabilityFlags::all(),
+            LanguageFeatures::default(),
+            store,
+            &[(std_id, None)],
+            None,
+        )
     } else {
-        Interpreter::new
-    })(
-        sources,
-        PackageType::Exe,
-        TargetCapabilityFlags::all(),
-        LanguageFeatures::default(),
-        store,
-        &[(std_id, None)],
-    ) {
+        Interpreter::new(
+            sources,
+            PackageType::Exe,
+            TargetCapabilityFlags::all(),
+            LanguageFeatures::default(),
+            store,
+            &[(std_id, None)],
+        )
+    } {
         Ok(interpreter) => interpreter,
         Err(errors) => {
             for error in &errors {
@@ -152,6 +160,7 @@ fn compile_and_run_qasm_internal(source: &str, debug: bool) -> String {
         capabilities,
         language_features,
         &dependencies,
+        None,
     ) {
         Ok(interpreter) => interpreter,
         Err(errors) => {

@@ -1,28 +1,25 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::circuit::GenerationMethod;
-
 use super::*;
 use expect_test::expect;
 
 #[test]
 fn exceed_max_operations() {
-    let mut builder = CircuitTracer::new(Config {
+    let mut builder = CircuitTracer::new(TracerConfig {
         max_operations: 2,
+        locations: false,
         loop_detection: false,
-        generation_method: GenerationMethod::ClassicalEval,
         group_scopes: false,
         collapse_qubit_registers: false,
-        locations: false,
     });
 
     let tracer: &mut dyn Tracer = &mut builder;
-    tracer.qubit_allocate(0, None);
+    tracer.qubit_allocate(0, &[]);
 
-    tracer.gate("X", false, GateInputs::with_targets(vec![0]), vec![], None);
-    tracer.gate("X", false, GateInputs::with_targets(vec![0]), vec![], None);
-    tracer.gate("X", false, GateInputs::with_targets(vec![0]), vec![], None);
+    tracer.gate("X", false, GateInputs::with_targets(vec![0]), vec![], &[]);
+    tracer.gate("X", false, GateInputs::with_targets(vec![0]), vec![], &[]);
+    tracer.gate("X", false, GateInputs::with_targets(vec![0]), vec![], &[]);
 
     let circuit = builder.finish(None);
 
@@ -36,22 +33,21 @@ fn exceed_max_operations() {
 
 #[test]
 fn exceed_max_operations_deferred_measurements() {
-    let mut builder = CircuitTracer::new(Config {
+    let mut builder = CircuitTracer::new(TracerConfig {
         max_operations: 2,
+        locations: false,
         loop_detection: false,
-        generation_method: GenerationMethod::ClassicalEval,
         group_scopes: false,
         collapse_qubit_registers: false,
-        locations: false,
     });
 
     // TODO: ugh...
     let tracer: &mut dyn Tracer = &mut builder;
-    tracer.qubit_allocate(0, None);
+    tracer.qubit_allocate(0, &[]);
 
-    tracer.gate("X", false, GateInputs::with_targets(vec![0]), vec![], None);
-    tracer.m(0, &(0.into()), None);
-    tracer.gate("X", false, GateInputs::with_targets(vec![0]), vec![], None);
+    tracer.gate("X", false, GateInputs::with_targets(vec![0]), vec![], &[]);
+    tracer.m(0, &(0.into()), &[]);
+    tracer.gate("X", false, GateInputs::with_targets(vec![0]), vec![], &[]);
 
     let circuit = builder.finish(None);
 

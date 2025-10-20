@@ -5,8 +5,8 @@
 mod tests;
 
 use crate::{
-    Config, Qubit,
-    circuit::{Circuit, operation_list_to_grid},
+    Qubit,
+    circuit::{Circuit, TracerConfig, operation_list_to_grid},
     group_qubits,
     rir_to_circuit::{
         DbgLocationKind, Op, fill_in_dbg_metadata, resolve_location_if_unresolved,
@@ -20,7 +20,8 @@ use qsc_data_structures::{
     span::Span,
 };
 use qsc_eval::{
-    backend::{DebugMetadata, GateInputs, Tracer},
+    backend::{GateInputs, Tracer},
+    debug::Frame,
     val::{self, Value},
 };
 use qsc_fir::fir::PackageId;
@@ -30,7 +31,7 @@ use std::{fmt::Write, mem::replace, rc::Rc};
 /// Circuit builder that implements the `Tracer` trait to build a circuit
 /// while tracing execution.
 pub struct CircuitTracer {
-    config: Config,
+    config: TracerConfig,
     register_map_builder: RegisterMapBuilder,
     circuit_builder: CircuitBuilder,
     dbg_info: DbgInfo,
@@ -46,9 +47,9 @@ impl Tracer for CircuitTracer {
             control_qubits,
         }: GateInputs,
         args: Vec<String>,
-        metadata: Option<DebugMetadata>,
+        stack: &[Frame],
     ) {
-        let metadata = self.convert_if_source_locations_enabled(metadata);
+        let metadata = self.convert_if_source_locations_enabled(stack);
         self.circuit_builder.gate(
             self.register_map_builder.current(),
             &GateLabel { name, is_adjoint },
@@ -62,8 +63,8 @@ impl Tracer for CircuitTracer {
         );
     }
 
-    fn m(&mut self, q: usize, val: &val::Result, metadata: Option<DebugMetadata>) {
-        let metadata = self.convert_if_source_locations_enabled(metadata);
+    fn m(&mut self, q: usize, val: &val::Result, stack: &[Frame]) {
+        let metadata = self.convert_if_source_locations_enabled(stack);
         let r = match val {
             val::Result::Id(id) => *id,
             val::Result::Loss | val::Result::Val(_) => self.register_map_builder.result_allocate(),
@@ -73,8 +74,8 @@ impl Tracer for CircuitTracer {
             .m(self.register_map_builder.current(), q, r, metadata);
     }
 
-    fn mresetz(&mut self, q: usize, val: &val::Result, metadata: Option<DebugMetadata>) {
-        let metadata = self.convert_if_source_locations_enabled(metadata);
+    fn mresetz(&mut self, q: usize, val: &val::Result, stack: &[Frame]) {
+        let metadata = self.convert_if_source_locations_enabled(stack);
         let r = match val {
             val::Result::Id(id) => *id,
             val::Result::Loss | val::Result::Val(_) => self.register_map_builder.result_allocate(),
@@ -84,23 +85,23 @@ impl Tracer for CircuitTracer {
             .mresetz(self.register_map_builder.current(), q, r, metadata);
     }
 
-    fn reset(&mut self, q: usize, metadata: Option<DebugMetadata>) {
-        let metadata = self.convert_if_source_locations_enabled(metadata);
+    fn reset(&mut self, q: usize, stack: &[Frame]) {
+        let metadata = self.convert_if_source_locations_enabled(stack);
         self.circuit_builder
             .reset(self.register_map_builder.current(), q, metadata);
     }
 
-    fn qubit_allocate(&mut self, q: usize, metadata: Option<DebugMetadata>) {
-        let metadata = self.convert_if_source_locations_enabled(metadata);
+    fn qubit_allocate(&mut self, q: usize, stack: &[Frame]) {
+        let metadata = self.convert_if_source_locations_enabled(stack);
         self.register_map_builder.map_qubit(q, metadata);
     }
 
-    fn qubit_swap_id(&mut self, q0: usize, q1: usize, _metadata: Option<DebugMetadata>) {
+    fn qubit_swap_id(&mut self, q0: usize, q1: usize, _stack: &[Frame]) {
         // TODO: metadata would be neat to add to the circuit
         self.register_map_builder.swap(q0, q1);
     }
 
-    fn custom_intrinsic(&mut self, name: &str, arg: Value, metadata: Option<DebugMetadata>) {
+    fn custom_intrinsic(&mut self, name: &str, arg: Value, stack: &[Frame]) {
         // The qubit arguments are treated as the targets for custom gates.
         // Any remaining arguments will be kept in the display_args field
         // to be shown as part of the gate label when the circuit is rendered.
@@ -111,7 +112,11 @@ impl Tracer for CircuitTracer {
             return;
         }
 
-        let metadata = metadata.map(|md| self.convert_metadata(&md));
+        let metadata = if stack.is_empty() {
+            None
+        } else {
+            Some(self.convert_metadata(stack))
+        };
 
         self.circuit_builder.gate(
             self.register_map_builder.current(),
@@ -133,15 +138,19 @@ impl Tracer for CircuitTracer {
         );
     }
 
-    fn qubit_release(&mut self, q: usize, _metadata: Option<DebugMetadata>) {
+    fn qubit_release(&mut self, q: usize, _stack: &[Frame]) {
         // TODO: metadata would be neat to add to the circuit
         self.register_map_builder.qubit_release(q);
+    }
+
+    fn is_stacks_enabled(&self) -> bool {
+        self.config.locations
     }
 }
 
 impl CircuitTracer {
     #[must_use]
-    pub fn new(config: Config) -> Self {
+    pub fn new(config: TracerConfig) -> Self {
         CircuitTracer {
             config,
             register_map_builder: RegisterMapBuilder::default(),
@@ -260,10 +269,10 @@ impl CircuitTracer {
         }
     }
 
-    fn push_dbg_location(&mut self, md: &DebugMetadata) -> Option<usize> {
+    fn push_dbg_location(&mut self, stack: &[Frame]) -> Option<usize> {
         let mut user_frame: Option<(PackageId, Span)> = None;
         let mut grab_span_and_stop = false;
-        for frame in md.stack.iter().rev() {
+        for frame in stack.iter().rev() {
             if grab_span_and_stop {
                 if let Some(c) = user_frame {
                     user_frame = Some((c.0, frame.span));
@@ -295,20 +304,24 @@ impl CircuitTracer {
         Some(self.dbg_info.dbg_locations.len() - 1)
     }
 
-    fn convert_metadata(&mut self, metadata: &DebugMetadata) -> InstructionMetadata {
-        let dbg_location = self.push_dbg_location(metadata);
+    fn convert_metadata(&mut self, stack: &[Frame]) -> InstructionMetadata {
+        let dbg_location = self.push_dbg_location(stack);
 
         InstructionMetadata { dbg_location }
     }
 
     fn convert_if_source_locations_enabled(
         &mut self,
-        metadata: Option<DebugMetadata>,
+        stack: &[Frame],
     ) -> Option<InstructionMetadata> {
         if !self.config.locations {
             return None;
         }
-        metadata.map(|md| self.convert_metadata(&md))
+
+        if stack.is_empty() {
+            return None;
+        }
+        Some(self.convert_metadata(stack))
     }
 }
 

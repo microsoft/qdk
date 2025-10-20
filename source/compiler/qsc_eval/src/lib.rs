@@ -26,7 +26,7 @@ pub mod output;
 pub mod state;
 pub mod val;
 
-use crate::backend::{DebugMetadata, TracingBackend};
+use crate::backend::TracingBackend;
 use crate::val::{
     Value, index_array, make_range, slice_array, update_index_range, update_index_single,
 };
@@ -282,7 +282,6 @@ pub fn exec_graph_section(graph: &ExecGraph, range: ops::Range<usize>) -> ExecGr
 /// Returns the first error encountered during execution.
 /// # Panics
 /// On internal error where no result is returned.
-#[allow(clippy::needless_pass_by_value)]
 pub fn eval(
     package: PackageId,
     seed: Option<u64>,
@@ -341,7 +340,7 @@ pub fn invoke(
             Span::default(),
             receiver,
         )
-        .map_err(|e| (e, state.get_stack_frames()))?;
+        .map_err(|e| (e, state.capture_stack()))?;
 
     // Trigger evaluation of the state until the end of the stack is reached and a return value is obtained, which will be the final
     // result of the invocation.
@@ -695,7 +694,7 @@ impl State {
     }
 
     #[must_use]
-    pub fn get_stack_frames(&self) -> Vec<Frame> {
+    pub fn capture_stack(&self) -> Vec<Frame> {
         let mut frames = self.call_stack.frames();
 
         let mut span = self.current_span;
@@ -703,6 +702,15 @@ impl State {
             std::mem::swap(&mut frame.span, &mut span);
         }
         frames
+    }
+
+    #[must_use]
+    pub fn capture_stack_if_trace_enabled(&self, tracing_backend: &TracingBackend) -> Vec<Frame> {
+        if tracing_backend.is_stacks_enabled() {
+            self.capture_stack()
+        } else {
+            vec![]
+        }
     }
 
     fn set_last_error(&mut self, error: Error, frames: Vec<Frame>) {
@@ -755,13 +763,13 @@ impl State {
                         Err(e) => {
                             if self.error_behavior == ErrorBehavior::StopOnError {
                                 let error_str = e.to_string();
-                                self.set_last_error(e, self.get_stack_frames());
+                                self.set_last_error(e, self.capture_stack());
                                 // Clear the execution graph stack to indicate that execution has failed.
                                 // This will prevent further execution steps.
                                 self.exec_graph_stack.clear();
                                 return Ok(StepResult::Fail(error_str));
                             }
-                            return Err((e, self.get_stack_frames()));
+                            return Err((e, self.capture_stack()));
                         }
                     }
                 }
@@ -1278,7 +1286,7 @@ impl State {
         let name = &callee.name.name;
         let val = match name.as_ref() {
             "__quantum__rt__qubit_allocate" => {
-                let q = sim.qubit_allocate(Some(DebugMetadata::new(self.get_stack_frames())));
+                let q = sim.qubit_allocate(&self.capture_stack_if_trace_enabled(sim));
                 let q = Rc::new(Qubit(q));
                 env.track_qubit(Rc::clone(&q));
                 if let Some(counter) = &mut self.qubit_counter {
@@ -1292,7 +1300,7 @@ impl State {
                     .try_deref()
                     .ok_or(Error::QubitDoubleRelease(arg_span))?;
                 env.release_qubit(&qubit);
-                if sim.qubit_release(qubit.0, Some(DebugMetadata::new(self.get_stack_frames()))) {
+                if sim.qubit_release(qubit.0, &self.capture_stack_if_trace_enabled(sim)) {
                     Value::unit()
                 } else {
                     return Err(Error::ReleasedQubitNotZero(qubit.0, arg_span));
@@ -1304,7 +1312,7 @@ impl State {
                     callee_span,
                     arg,
                     arg_span,
-                    &self.get_stack_frames(),
+                    &self.capture_stack_if_trace_enabled(sim),
                     sim,
                     &mut self.rng.borrow_mut(),
                     out,

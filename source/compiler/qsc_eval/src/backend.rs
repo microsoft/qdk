@@ -690,14 +690,23 @@ impl<'a> TracingBackend<'a> {
         }
     }
 
-    pub fn ccx(&mut self, ctl0: usize, ctl1: usize, q: usize, metadata: Option<DebugMetadata>) {
+    #[must_use]
+    pub fn is_stacks_enabled(&self) -> bool {
+        if let Some(tracer) = &self.tracer {
+            tracer.is_stacks_enabled()
+        } else {
+            false
+        }
+    }
+
+    pub fn ccx(&mut self, ctl0: usize, ctl1: usize, q: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "X",
                 false,
                 GateInputs::with_targets_and_controls(vec![q], vec![ctl0, ctl1]),
                 vec![],
-                metadata,
+                stack,
             );
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
@@ -705,14 +714,14 @@ impl<'a> TracingBackend<'a> {
         }
     }
 
-    pub fn cx(&mut self, ctl: usize, q: usize, metadata: Option<DebugMetadata>) {
+    pub fn cx(&mut self, ctl: usize, q: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "X",
                 false,
                 GateInputs::with_targets_and_controls(vec![q], vec![ctl]),
                 vec![],
-                metadata,
+                stack,
             );
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
@@ -720,14 +729,14 @@ impl<'a> TracingBackend<'a> {
         }
     }
 
-    pub fn cy(&mut self, ctl: usize, q: usize, metadata: Option<DebugMetadata>) {
+    pub fn cy(&mut self, ctl: usize, q: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "Y",
                 false,
                 GateInputs::with_targets_and_controls(vec![q], vec![ctl]),
                 vec![],
-                metadata,
+                stack,
             );
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
@@ -735,14 +744,14 @@ impl<'a> TracingBackend<'a> {
         }
     }
 
-    pub fn cz(&mut self, ctl: usize, q: usize, metadata: Option<DebugMetadata>) {
+    pub fn cz(&mut self, ctl: usize, q: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "Z",
                 false,
                 GateInputs::with_targets_and_controls(vec![q], vec![ctl]),
                 vec![],
-                metadata,
+                stack,
             );
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
@@ -750,60 +759,54 @@ impl<'a> TracingBackend<'a> {
         }
     }
 
-    pub fn h(&mut self, q: usize, metadata: Option<DebugMetadata>) {
+    pub fn h(&mut self, q: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
-            tracer.gate(
-                "H",
-                false,
-                GateInputs::with_targets(vec![q]),
-                vec![],
-                metadata,
-            );
+            tracer.gate("H", false, GateInputs::with_targets(vec![q]), vec![], stack);
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
             backend.h(q);
         }
     }
 
-    pub fn m(&mut self, q: usize, metadata: Option<DebugMetadata>) -> val::Result {
+    pub fn m(&mut self, q: usize, stack: &[Frame]) -> val::Result {
         let r = match &mut self.backend {
             OptionalBackend::Some(backend) => backend.m(q),
             OptionalBackend::None(fake) => fake.m(q),
         };
         if let Some(tracer) = &mut self.tracer {
-            tracer.m(q, &r, metadata);
+            tracer.m(q, &r, stack);
         }
         r
     }
 
-    pub fn mresetz(&mut self, q: usize, metadata: Option<DebugMetadata>) -> val::Result {
+    pub fn mresetz(&mut self, q: usize, stack: &[Frame]) -> val::Result {
         let r = match &mut self.backend {
             OptionalBackend::Some(backend) => backend.mresetz(q),
             OptionalBackend::None(fake) => fake.mresetz(q),
         };
         if let Some(tracer) = &mut self.tracer {
-            tracer.mresetz(q, &r, metadata);
+            tracer.mresetz(q, &r, stack);
         }
         r
     }
 
-    pub fn reset(&mut self, q: usize, metadata: Option<DebugMetadata>) {
+    pub fn reset(&mut self, q: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
-            tracer.reset(q, metadata);
+            tracer.reset(q, stack);
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
             backend.reset(q);
         }
     }
 
-    pub fn rx(&mut self, theta: f64, q: usize, metadata: Option<DebugMetadata>) {
+    pub fn rx(&mut self, theta: f64, q: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "Rx",
                 false,
                 GateInputs::with_targets(vec![q]),
                 vec![format!("{theta:.4}")],
-                metadata,
+                stack,
             );
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
@@ -811,14 +814,14 @@ impl<'a> TracingBackend<'a> {
         }
     }
 
-    pub fn rxx(&mut self, theta: f64, q0: usize, q1: usize, metadata: Option<DebugMetadata>) {
+    pub fn rxx(&mut self, theta: f64, q0: usize, q1: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "Rxx",
                 false,
                 GateInputs::with_targets(vec![q0, q1]),
                 vec![format!("{theta:.4}")],
-                metadata,
+                stack,
             );
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
@@ -826,14 +829,14 @@ impl<'a> TracingBackend<'a> {
         }
     }
 
-    pub fn ry(&mut self, theta: f64, q: usize, metadata: Option<DebugMetadata>) {
+    pub fn ry(&mut self, theta: f64, q: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "Ry",
                 false,
                 GateInputs::with_targets(vec![q]),
                 vec![format!("{theta:.4}")],
-                metadata,
+                stack,
             );
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
@@ -841,14 +844,14 @@ impl<'a> TracingBackend<'a> {
         }
     }
 
-    pub fn ryy(&mut self, theta: f64, q0: usize, q1: usize, metadata: Option<DebugMetadata>) {
+    pub fn ryy(&mut self, theta: f64, q0: usize, q1: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "Ryy",
                 false,
                 GateInputs::with_targets(vec![q0, q1]),
                 vec![format!("{theta:.4}")],
-                metadata,
+                stack,
             );
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
@@ -856,14 +859,14 @@ impl<'a> TracingBackend<'a> {
         }
     }
 
-    pub fn rz(&mut self, theta: f64, q: usize, metadata: Option<DebugMetadata>) {
+    pub fn rz(&mut self, theta: f64, q: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "Rz",
                 false,
                 GateInputs::with_targets(vec![q]),
                 vec![format!("{theta:.4}")],
-                metadata,
+                stack,
             );
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
@@ -871,14 +874,14 @@ impl<'a> TracingBackend<'a> {
         }
     }
 
-    pub fn rzz(&mut self, theta: f64, q0: usize, q1: usize, metadata: Option<DebugMetadata>) {
+    pub fn rzz(&mut self, theta: f64, q0: usize, q1: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "Rzz",
                 false,
                 GateInputs::with_targets(vec![q0, q1]),
                 vec![format!("{theta:.4}")],
-                metadata,
+                stack,
             );
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
@@ -886,44 +889,32 @@ impl<'a> TracingBackend<'a> {
         }
     }
 
-    pub fn sadj(&mut self, q: usize, metadata: Option<DebugMetadata>) {
+    pub fn sadj(&mut self, q: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
-            tracer.gate(
-                "S",
-                true,
-                GateInputs::with_targets(vec![q]),
-                vec![],
-                metadata,
-            );
+            tracer.gate("S", true, GateInputs::with_targets(vec![q]), vec![], stack);
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
             backend.sadj(q);
         }
     }
 
-    pub fn s(&mut self, q: usize, metadata: Option<DebugMetadata>) {
+    pub fn s(&mut self, q: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
-            tracer.gate(
-                "S",
-                false,
-                GateInputs::with_targets(vec![q]),
-                vec![],
-                metadata,
-            );
+            tracer.gate("S", false, GateInputs::with_targets(vec![q]), vec![], stack);
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
             backend.s(q);
         }
     }
 
-    pub fn sx(&mut self, q: usize, metadata: Option<DebugMetadata>) {
+    pub fn sx(&mut self, q: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "SX",
                 false,
                 GateInputs::with_targets(vec![q]),
                 vec![],
-                metadata,
+                stack,
             );
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
@@ -931,14 +922,14 @@ impl<'a> TracingBackend<'a> {
         }
     }
 
-    pub fn swap(&mut self, q0: usize, q1: usize, metadata: Option<DebugMetadata>) {
+    pub fn swap(&mut self, q0: usize, q1: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "SWAP",
                 false,
                 GateInputs::with_targets(vec![q0, q1]),
                 vec![],
-                metadata,
+                stack,
             );
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
@@ -946,106 +937,76 @@ impl<'a> TracingBackend<'a> {
         }
     }
 
-    pub fn tadj(&mut self, q: usize, metadata: Option<DebugMetadata>) {
+    pub fn tadj(&mut self, q: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
-            tracer.gate(
-                "T",
-                true,
-                GateInputs::with_targets(vec![q]),
-                vec![],
-                metadata,
-            );
+            tracer.gate("T", true, GateInputs::with_targets(vec![q]), vec![], stack);
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
             backend.tadj(q);
         }
     }
 
-    pub fn t(&mut self, q: usize, metadata: Option<DebugMetadata>) {
+    pub fn t(&mut self, q: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
-            tracer.gate(
-                "T",
-                false,
-                GateInputs::with_targets(vec![q]),
-                vec![],
-                metadata,
-            );
+            tracer.gate("T", false, GateInputs::with_targets(vec![q]), vec![], stack);
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
             backend.t(q);
         }
     }
 
-    pub fn x(&mut self, q: usize, metadata: Option<DebugMetadata>) {
+    pub fn x(&mut self, q: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
-            tracer.gate(
-                "X",
-                false,
-                GateInputs::with_targets(vec![q]),
-                vec![],
-                metadata,
-            );
+            tracer.gate("X", false, GateInputs::with_targets(vec![q]), vec![], stack);
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
             backend.x(q);
         }
     }
 
-    pub fn y(&mut self, q: usize, metadata: Option<DebugMetadata>) {
+    pub fn y(&mut self, q: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
-            tracer.gate(
-                "Y",
-                false,
-                GateInputs::with_targets(vec![q]),
-                vec![],
-                metadata,
-            );
+            tracer.gate("Y", false, GateInputs::with_targets(vec![q]), vec![], stack);
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
             backend.y(q);
         }
     }
 
-    pub fn z(&mut self, q: usize, metadata: Option<DebugMetadata>) {
+    pub fn z(&mut self, q: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
-            tracer.gate(
-                "Z",
-                false,
-                GateInputs::with_targets(vec![q]),
-                vec![],
-                metadata,
-            );
+            tracer.gate("Z", false, GateInputs::with_targets(vec![q]), vec![], stack);
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
             backend.z(q);
         }
     }
 
-    pub fn qubit_allocate(&mut self, metadata: Option<DebugMetadata>) -> usize {
+    pub fn qubit_allocate(&mut self, stack: &[Frame]) -> usize {
         let q = match &mut self.backend {
             OptionalBackend::Some(backend) => backend.qubit_allocate(),
             OptionalBackend::None(fake) => fake.qubit_allocate(),
         };
         if let Some(tracer) = &mut self.tracer {
-            tracer.qubit_allocate(q, metadata);
+            tracer.qubit_allocate(q, stack);
         }
         q
     }
 
-    pub fn qubit_release(&mut self, q: usize, metadata: Option<DebugMetadata>) -> bool {
+    pub fn qubit_release(&mut self, q: usize, stack: &[Frame]) -> bool {
         let b = match &mut self.backend {
             OptionalBackend::Some(backend) => backend.qubit_release(q),
             OptionalBackend::None(fake) => fake.qubit_release(q),
         };
         if let Some(tracer) = &mut self.tracer {
-            tracer.qubit_release(q, metadata);
+            tracer.qubit_release(q, stack);
         }
         b
     }
 
-    pub fn qubit_swap_id(&mut self, q0: usize, q1: usize, metadata: Option<DebugMetadata>) {
+    pub fn qubit_swap_id(&mut self, q0: usize, q1: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
-            tracer.qubit_swap_id(q0, q1, metadata);
+            tracer.qubit_swap_id(q0, q1, stack);
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
             backend.qubit_swap_id(q0, q1);
@@ -1072,10 +1033,10 @@ impl<'a> TracingBackend<'a> {
         &mut self,
         name: &str,
         arg: Value,
-        metadata: Option<DebugMetadata>,
+        stack: &[Frame],
     ) -> Option<Result<Value, String>> {
         if let Some(tracer) = &mut self.tracer {
-            tracer.custom_intrinsic(name, arg.clone(), metadata);
+            tracer.custom_intrinsic(name, arg.clone(), stack);
         }
         match &mut self.backend {
             OptionalBackend::Some(backend) => backend.custom_intrinsic(name, arg),
@@ -1131,21 +1092,22 @@ impl BasicAllocator {
 }
 
 pub trait Tracer {
-    fn qubit_allocate(&mut self, q: usize, metadata: Option<DebugMetadata>);
-    fn qubit_release(&mut self, q: usize, metadata: Option<DebugMetadata>);
+    fn qubit_allocate(&mut self, q: usize, stack: &[Frame]);
+    fn qubit_release(&mut self, q: usize, stack: &[Frame]);
     fn gate(
         &mut self,
         name: &str,
         is_adjoint: bool,
         gate_inputs: GateInputs,
         args: Vec<String>,
-        metadata: Option<DebugMetadata>,
+        stack: &[Frame],
     );
-    fn m(&mut self, q: usize, r: &val::Result, metadata: Option<DebugMetadata>);
-    fn mresetz(&mut self, q: usize, r: &val::Result, metadata: Option<DebugMetadata>);
-    fn reset(&mut self, q: usize, metadata: Option<DebugMetadata>);
-    fn qubit_swap_id(&mut self, q0: usize, q1: usize, metadata: Option<DebugMetadata>);
-    fn custom_intrinsic(&mut self, name: &str, arg: Value, metadata: Option<DebugMetadata>);
+    fn m(&mut self, q: usize, r: &val::Result, stack: &[Frame]);
+    fn mresetz(&mut self, q: usize, r: &val::Result, stack: &[Frame]);
+    fn reset(&mut self, q: usize, stack: &[Frame]);
+    fn qubit_swap_id(&mut self, q0: usize, q1: usize, stack: &[Frame]);
+    fn custom_intrinsic(&mut self, name: &str, arg: Value, stack: &[Frame]);
+    fn is_stacks_enabled(&self) -> bool;
 }
 
 // TODO: reconcile with llvm debug metadata

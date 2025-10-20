@@ -239,13 +239,14 @@ pub fn init_debugger(
         into_qsc_args(program, entry, false)
             .map_err(|e| e.into_iter().map(Into::into).collect::<Vec<_>>())?;
 
-    Debugger::new(
+    Debugger::new_with_circuit_trace(
         source_map,
         capabilities,
         Encoding::Utf16,
         language_features,
         package_store,
         &user_code_dependencies[..],
+        Default::default(),
     )
 }
 

@@ -288,20 +288,10 @@ pub struct Qubit {
 }
 
 #[derive(Clone, Debug, Copy)]
-#[allow(clippy::struct_excessive_bools)]
 pub struct Config {
-    /// Maximum number of operations the builder will add to the circuit
-    pub max_operations: usize,
-    /// Detect repeated motifs in the circuit and group them into sub-circuits
-    pub loop_detection: bool,
-    pub group_scopes: bool,
     /// How the circuit is generated
     pub generation_method: GenerationMethod,
-    /// Collapse qubit registers into single qubits
-    pub collapse_qubit_registers: bool,
-    /// Show the source code locations of operations and qubit declarations
-    /// in the circuit diagram
-    pub locations: bool,
+    pub tracer_config: TracerConfig,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -315,7 +305,21 @@ pub enum GenerationMethod {
     Static,
 }
 
-impl Config {
+#[derive(Clone, Debug, Copy)]
+pub struct TracerConfig {
+    /// Maximum number of operations the builder will add to the circuit
+    pub max_operations: usize,
+    /// Show the source code locations of operations and qubit declarations
+    /// in the circuit diagram
+    pub locations: bool,
+    /// Detect repeated motifs in the circuit and group them into sub-circuits
+    pub loop_detection: bool,
+    pub group_scopes: bool,
+    /// Collapse qubit registers into single qubits
+    pub collapse_qubit_registers: bool,
+}
+
+impl TracerConfig {
     /// Set to the current UI limit + 1 so that it still triggers
     /// the "this circuit has too many gates" warning in the UI.
     /// (see npm\qsharp\ux\circuit.tsx)
@@ -325,15 +329,14 @@ impl Config {
     const DEFAULT_MAX_OPERATIONS: usize = 10001;
 }
 
-impl Default for Config {
+impl Default for TracerConfig {
     fn default() -> Self {
         Self {
             max_operations: Self::DEFAULT_MAX_OPERATIONS,
+            locations: true,
             loop_detection: false,
             group_scopes: true,
-            generation_method: GenerationMethod::Static,
             collapse_qubit_registers: false,
-            locations: true,
         }
     }
 }

@@ -252,7 +252,7 @@ pub fn make_circuit(
 
     let register_map = register_map_builder.into_register_map();
 
-    let mut ops_remaining = config.max_operations;
+    let mut ops_remaining = config.tracer_config.max_operations;
 
     // Do it all again, with all variables properly resolved
     for (id, block) in program.blocks.iter() {
@@ -286,7 +286,7 @@ pub fn make_circuit(
 
     let operations = extend_with_successors(&program_map, entry_block);
 
-    let operations = if config.group_scopes {
+    let operations = if config.tracer_config.group_scopes {
         group_operations(&program.dbg_info, operations)
     } else {
         operations
@@ -299,8 +299,8 @@ pub fn make_circuit(
         operations,
         &program.dbg_info,
         Some(package_store),
-        config.loop_detection,
-        config.collapse_qubit_registers,
+        config.tracer_config.loop_detection,
+        config.tracer_config.collapse_qubit_registers,
     );
 
     Ok(circuit)
