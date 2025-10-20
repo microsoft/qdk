@@ -32,6 +32,22 @@ Glossary:
 
 ## Next steps
 
+Gates to add:
+
+- Add h & cx to test Bell pair, qrgn, maximum probability spread, and maximum entanglement.
+  - Test float fidelity up to 27 qubits with H on all.
+  - Add 'precise' summing to check effect on perf and accuracy.
+  - Test cross-workgroup processing.
+- To support Atom: sx, rz, cz, mresetz, mov (id with loss noise), Pauli noise.
+  - Get Teleport working end-to-end for 12 & 27 qubits (4 or 9 teleports using 3 qubits each).
+  - Test with various state prep and qubit remappings to ensure results remain correct.
+- To support Benzene: h, rz, x, cx, s, sdg, MResetEveryZ (sample), depolarizing noise.
+  - Give a drop to Rushi to test
+- To support Ising: rx, rzz, MResetEveryZ (sample).
+  - Get a 4x4 and a 5x5 lattice working end-to-end. Compare perf to sparse and to Qiskit.
+
+Features:
+
 - Take a circuit as input, with optional noise config.
   - Only support 'canonical' one and two qubit gates plus 'mov' for now, i.e., NOT 'ccx'.
   - Only support Pauli noise (incl. depolarizing) and qubit loss for now.

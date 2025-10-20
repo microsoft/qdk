@@ -16,8 +16,9 @@ override QUBIT_COUNT: i32;
 // override RESULT_COUNT: u32;
 
 // Always use 32 threads per workgroup for max concurrency on most current GPU hardware
-const THREADS_PER_WORKGROUP: u32 = 32u;
-const MAX_QUBIT_COUNT: u32 = 22u;
+const THREADS_PER_WORKGROUP: i32 = 32;
+const MAX_QUBIT_COUNT: i32 = 27;
+const MAX_QUBITS_PER_WORKGROUP: i32 = 22;
 
 // Operation IDs
 const OPID_ID      = 0u;
@@ -102,10 +103,10 @@ struct ShotData {
     // 16 x 4 bytes to this point = 64 bytes
 
     // Track the per-qubit probabilities for optimization of measurement sampling and noise modeling
-    qubit_state: array<QubitState, MAX_QUBIT_COUNT>, // 22 x 16 bytes = 352 bytes
-    // 416 bytes to this point
+    qubit_state: array<QubitState, MAX_QUBIT_COUNT>, // 27 x 16 bytes = 432 bytes
+    // 496 bytes to this point
 
-    padding: array<u32, 24>, // Reserve 96 bytes, rounding the struct size up to 512 bytes at this point
+    padding: array<u32, 4>, // Reserve 16 bytes, rounding the struct size up to 512 bytes at this point
 
     // Making this large enough to hold a 3-qubit gate (8x8 matrix) such as Toffoli for when we add it.
     unitary: array<vec2f, 64>, // For MAT1Q and MAT2Q ops. 64 x 8 = 512 bytes
@@ -144,12 +145,13 @@ var<storage, read_write> results: array<u32>;
 struct QubitProbabilityPerThread {
     zero: array<f32, THREADS_PER_WORKGROUP>,
     one: array<f32, THREADS_PER_WORKGROUP>,
-};
+}; // size: 256 bytes
 var<workgroup> qubitProbabilities: array<QubitProbabilityPerThread, QUBIT_COUNT>;
-// Workgroup memory size: QUBIT_COUNT (max 22) * THREADS_PER_WORKGROUP (max 32) * 2 * 4 = max 5632 bytes.
+// Workgroup memory size: QUBIT_COUNT (max 27) * 256 = max 6,912 bytes.
 
-// Always run each workgroup with multiple threads for max concurrency, even though for prepare_ops each thread handles a distinct shot.
-@compute @workgroup_size(THREADS_PER_WORKGROUP)
+// TODO: Run with 1 for now, as threads may diverge too much in prepare_op stage causing performance issues.
+// Try to increase later if lack of parallelism is a bottleneck.
+@compute @workgroup_size(1)
 fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
     // Get a reference to the shot and op to prepare
     let shot_buffer_idx = globalId.x;
@@ -192,41 +194,143 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
 
         // TODO Handle supported op types
         // Advance to the next op for the next dispatch (e.g., skip over noise that got processed here)
+        shot.op_idx = op_idx;
         shot.next_op_idx = op_idx + 1u;
     }
 }
 
-// Each workgroup dispatched is dedicated to a single shot. So the workgroup_id.x indicates the shot index.
-// The local_invocation_id.x indicates the thread within the workgroup, with each responsible for a different part of the state vector.
 @compute @workgroup_size(THREADS_PER_WORKGROUP)
 fn execute_op(
         @builtin(workgroup_id) workgroupId: vec3<u32>,
-        @builtin(local_invocation_id) localId: vec3<u32>) {
-    let shot_buffer_idx = i32(workgroupId.x);
+        @builtin(local_invocation_index) tid: u32) {
+    // Workgroups are per shot if 22 or less qubits, else 2 workgroups for 23 qubits, 4 for 24, etc..
+    let workgroups_per_shot: i32 = 1 << u32(max(0, QUBIT_COUNT - MAX_QUBITS_PER_WORKGROUP));
+    let shot_buffer_idx: i32 = i32(workgroupId.x) / workgroups_per_shot;
+    let workgroup_idx_in_shot: i32 = i32(workgroupId.x) % workgroups_per_shot;
+    let thread_idx_in_shot: i32 = workgroup_idx_in_shot * THREADS_PER_WORKGROUP + i32(tid);
+
     let shot = &shots[shot_buffer_idx];
-    let tid = localId.x;
+
+    // Here 'entries' refers to complex amplitudes in the state vector
+    let entries_per_shot: i32 = 1 << u32(QUBIT_COUNT);
+    let entries_per_workgroup: i32 = entries_per_shot / workgroups_per_shot;
+    let entries_per_thread: i32 = entries_per_workgroup / THREADS_PER_WORKGROUP;
+
+    let shot_state_vector_start: i32 = shot_buffer_idx * entries_per_shot;
+    let thread_start_idx: i32 = shot_state_vector_start +
+                                workgroup_idx_in_shot * entries_per_workgroup +
+                                i32(tid) * entries_per_thread;
 
     let op_idx = shot.op_idx;
     let op = &op[op_idx];
 
-    // Calculate the start index in the state vector for this shot and thread
-    let amplitudes_per_shot: i32 = 1 << u32(QUBIT_COUNT);
-    let amplitudes_per_thread: i32 = amplitudes_per_shot / i32(THREADS_PER_WORKGROUP);
-    let shot_start_idx: i32 = shot_buffer_idx * amplitudes_per_shot;
-    let thread_start_idx: i32 = shot_start_idx + i32(tid) * amplitudes_per_thread;
-
     if (shot.op_type == OPID_RESET && op.q1 == ALL_QUBITS) {
         // Set the state vector to |0...0> by zeroing all amplitudes except the first one
-        for(var i: i32 = 0; i < amplitudes_per_thread; i = i + 1) {
+        for(var i: i32 = 0; i < entries_per_thread; i++) {
             stateVector[thread_start_idx + i] = vec2f(0.0, 0.0);
         }
-        // Set the |0...0> amplitude to 1.0 from thread 0
-        if (tid == 0u) {
-            stateVector[shot_start_idx] = vec2f(1.0, 0.0);
+        // Set the |0...0> amplitude to 1.0 from the first workgroup & thread for the shot
+        if (tid == 0 && workgroup_idx_in_shot == 0) {
+            stateVector[thread_start_idx] = vec2f(1.0, 0.0);
         }
+    } else if (op.id == OPID_H) {
+        var unitary: array<vec2f, 4> = array<vec2f, 4>(
+            vec2f(0.70710678, 0.0), vec2f(0.70710678, 0.0),
+            vec2f(0.70710678, 0.0), vec2f(-0.70710678, 0.0)
+        );
+        apply_1q_unitary(shot_state_vector_start, entries_per_thread, thread_idx_in_shot, op.q1, unitary);
+    } else if (op.id == OPID_SX) {
+        var unitary: array<vec2f, 4> = array<vec2f, 4>(
+            vec2f(0.5, 0.5), vec2f(0.5, -0.5),
+            vec2f(0.5, -0.5), vec2f(0.5, 0.5)
+        );
+        apply_1q_unitary(shot_state_vector_start, entries_per_thread, thread_idx_in_shot, op.q1, unitary);
+    } else if (op.id == OPID_CX) {
+        apply_cx_cz(shot_state_vector_start, entries_per_thread, thread_idx_in_shot, op.q1, op.q2, false);
+    } else if (op.id == OPID_CX) {
+        apply_cx_cz(shot_state_vector_start, entries_per_thread, thread_idx_in_shot, op.q1, op.q2, true);
     } else {
-        // TODO
+        // TODO: Rz
     }
+}
+
+fn apply_1q_unitary(shot_start_offset: i32, chunk_size: i32, chunk_idx: i32, qubit: u32, unitary: array<vec2f, 4>) {
+    // Each iteration processes 2 amplitudes (the pair affected by the 1-qubit gate), so half as many iterations as chunk size
+    let iterations = chunk_size >> 1;
+
+    // Being we are doing half as many iterations for each chunk, what is the start count for this chunk?
+    let start_count = chunk_idx * iterations;
+
+    // The corresponding stride between the two amplitudes in each pair (i.e., the distance to jump to
+    // get from the |0> amplitude to the |1> amplitude for the target qubit)
+    let stride = 1 << qubit;
+
+    // Calculate starting offset for this chunk:
+    // - Take start_count and split it into high and low parts at the qubit bit position
+    // - Low part: (start_count & ((1 << qubit) - 1)) = bits below the target qubit (stay as-is)
+    // - High part: (start_count >> qubit) << (qubit + 1) = bits above the target qubit (shift left by qubit+1 to create the stride gap)
+    // - This effectively interleaves the chunks to index only amplitudes where target qubit = 0
+    var offset = shot_start_offset + ((start_count >> qubit) << (qubit + 1)) + (start_count & ((1 << qubit) - 1));
+
+    // Optimize for phase operations where we can skip half the memory updates
+    let is_phase = unitary[0].x == 1.0 && unitary[0].y == 0.0 &&
+                   unitary[1].x == 0.0 && unitary[1].y == 0.0;
+
+    for (var i: i32 = 0; i < iterations; i++) {
+        let amp0: vec2f = stateVector[offset];
+        let amp1: vec2f = stateVector[offset + stride];
+
+        if (!is_phase) { stateVector[offset] = cplxmul(amp0, unitary[0]) + cplxmul(amp1, unitary[1]); }
+        stateVector[offset + stride] = cplxmul(amp0, unitary[2]) + cplxmul(amp1, unitary[3]);
+
+        offset += 1;
+        // If we walked past the end of the block, jump to the next stride
+        // The target qubit flips to 1 when we walk past the 0 entries, and
+        // a target qubit value is also the stride size
+        offset += (offset & stride);
+    }
+}
+
+fn apply_cx_cz(shot_start_offset: i32, chunk_size: i32, chunk_idx: i32, c: u32, t: u32, is_cz: bool) {
+    // Each iteration processes 4 amplitudes (the four affected by the 2-qubit gate), so quarter as many iterations as chunk size
+    let iterations = chunk_size >> 2;
+
+    // Being we are doing quarter as many iterations for each chunk, what is the start count for this chunk?
+    let start_count = shot_start_offset + chunk_idx * iterations;
+    let end_count = start_count + iterations;
+
+    let lowQubit = select(c, t, c > t);
+    let hiQubit = select(c, t, c < t);
+
+    let lowBitCount = lowQubit;
+    let midBitCount = hiQubit - lowQubit - 1;
+    let hiBitCount = u32(MAX_QUBIT_COUNT) - hiQubit - 1;
+
+    let lowMask = (1 << lowBitCount) - 1;
+    let midMask = (1 << (lowBitCount + midBitCount)) - 1 - lowMask;
+    let hiMask = (1 << (lowBitCount + midBitCount + hiBitCount)) - 1 - midMask - lowMask;
+
+    for (var i: i32 = start_count; i < end_count; i++) {
+        // q1 is the control, q2 is the target
+        let offset10: i32 = (i & lowMask) | ((i & midMask) << 1) | ((i & hiMask) << 2) | (1 << c);
+        let offset11: i32 = offset10 | (1 << t);
+
+        if (is_cz) {
+            let old11 = stateVector[offset11];
+            stateVector[offset11] = vec2f(-old11.x, -old11.y);
+        } else {
+            let old10 = stateVector[offset10];
+            stateVector[offset10] = stateVector[offset11];
+            stateVector[offset11] = old10;
+        }
+    }
+}
+
+fn cplxmul(a: vec2f, b: vec2f) -> vec2f {
+    return vec2f(
+        a.x * b.x - a.y * b.y,
+        a.x * b.y + a.y * b.x
+    );
 }
 
 // See https://www.reedbeta.com/blog/hash-functions-for-gpu-rendering/

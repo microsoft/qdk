@@ -15,11 +15,12 @@ use wgpu::{
 
 // Some of these values are to align with WebGPU default limits
 // See https://gpuweb.github.io/gpuweb/#limits
-const THREADS_PER_WORKGROUP: u32 = 32; // 32 gives good occupancy across various GPUs
-const MAX_SHOTS_PER_BATCH: u32 = 65535; // To align with max workgroups per dimension WebGPU default
-const MIN_QUBIT_COUNT: u32 = 10; // Round up circuit qubits if smaller to enable to optimizations re unrolling, etc.
-const MAX_QUBIT_COUNT: u32 = 22; // Limit so we can fit each shot in one workgroup, and to avoid issues with f32 precision on larger state vectors
 const MAX_BUFFER_SIZE: usize = 1 << 30; // 1 GB limit due to some wgpu restrictions
+const MAX_QUBIT_COUNT: u32 = 27; // 2^27 * 8 bytes per complex32 = 1 GB buffer limit
+const MAX_QUBITS_PER_WORKGROUP: u32 = 22; // Max qubits to be processed by a single workgroup
+const MAX_SHOTS_PER_BATCH: u32 = 65535; // To align with max workgroups per dimension WebGPU default
+const THREADS_PER_WORKGROUP: u32 = 32; // 32 gives good occupancy across various GPUs
+const MIN_QUBIT_COUNT: u32 = 10; // Round up circuit qubits if smaller to enable to optimizations re unrolling, etc.
 const MAX_CIRCUIT_OPS: usize = MAX_BUFFER_SIZE / std::mem::size_of::<Op>();
 const SIZEOF_SHOTDATA: usize = 1024; // Size of ShotData struct on the GPU in bytes
 const MAX_SHOT_ENTRIES: usize = MAX_BUFFER_SIZE / SIZEOF_SHOTDATA;
@@ -71,6 +72,7 @@ struct RunParams {
     entries_processed_per_thread: usize,
     batch_count: usize,
     shots_per_batch: usize,
+    workgroups_per_shot: usize,
     op_count: usize,
 }
 
@@ -204,32 +206,33 @@ impl GpuContext {
 
         let state_vector_entries_per_shot: usize = 1 << qubit_count;
         let state_vector_size_per_shot = state_vector_entries_per_shot * state_vector_entry_size;
-        let max_state_vectors = MAX_BUFFER_SIZE / state_vector_size_per_shot;
+        let max_shot_state_vectors = MAX_BUFFER_SIZE / state_vector_size_per_shot;
 
         // How many of the structures would fit
-        let max_shots_in_buffer = min(MAX_SHOT_ENTRIES, max_state_vectors);
+        let max_shots_in_buffer = min(MAX_SHOT_ENTRIES, max_shot_state_vectors);
         // How many would we allow based on the max shots per batch
         let max_shots_per_batch = min(max_shots_in_buffer, MAX_SHOTS_PER_BATCH as usize);
         // Do that many, of however many shots if less
         let shots_per_batch = min(shot_count as usize, max_shots_per_batch);
 
+        let workgroups_per_shot = if qubit_count <= MAX_QUBITS_PER_WORKGROUP {
+            1
+        } else {
+            1 << (qubit_count - MAX_QUBITS_PER_WORKGROUP)
+        };
+
         let shots_buffer_size = shots_per_batch * SIZEOF_SHOTDATA;
         let ops_buffer_size = op_count as usize * op_size;
         let state_vector_buffer_size = shots_per_batch * state_vector_size_per_shot;
-        // Each result is an i32
+        // Each result is an u32
         let results_buffer_size =
-            shots_per_batch * result_count as usize * std::mem::size_of::<i32>();
+            shots_per_batch * result_count as usize * std::mem::size_of::<u32>();
 
-        let mut batch_count = shot_count as usize / shots_per_batch;
-        if (shot_count as usize % shots_per_batch) > 0 {
-            // Need an extra batch for the remainder of shots
-            // TODO: Remember to handle this smaller final batch in the run logic
-            batch_count += 1;
-        }
+        let batch_count = (shot_count as usize - 1) / shots_per_batch + 1;
 
         // NOTE: There was always be min 10 qubits, so min 1024 entries
         let entries_processed_per_thread =
-            state_vector_entries_per_shot / THREADS_PER_WORKGROUP as usize;
+            ((1u32 << qubit_count.min(MAX_QUBITS_PER_WORKGROUP)) / THREADS_PER_WORKGROUP) as usize;
 
         Ok(RunParams {
             shots_buffer_size,
@@ -238,6 +241,7 @@ impl GpuContext {
             results_buffer_size,
             entries_processed_per_thread,
             batch_count,
+            workgroups_per_shot,
             shots_per_batch,
             op_count: op_count as usize,
         })
@@ -418,23 +422,38 @@ impl GpuContext {
         - Return the collated shot results
          */
 
+        // TODO: Support multiple batches of shots
+        if self.run_params.batch_count != 1 {
+            unimplemented!("Multiple batches of shots not yet supported");
+        }
+
         let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("StateVector Compute Pass"),
             timestamp_writes: None,
         });
 
-        // TODO: Do the prepare_op and execute_op loop here. Use MAX_DISPATCHES_PER_SUBMIT
-        // Remember to handle the final batch if smaller than shots_per_batch
-        compute_pass.set_pipeline(&resources.pipeline_prepare_op);
+        // TODO: Break into multiple dispatches if too many ops
+        if self.run_params.op_count > MAX_DISPATCHES_PER_SUBMIT as usize {
+            unimplemented!("Multiple submits per circuit not yet supported");
+        }
 
-        let op_count = u32::try_from(self.ops.len()).expect("Too many ops");
-        // assert!(self.workgroup_count > 0);
-        let workgroup_count: u32 = 1;
-        // u32::try_from(self.workgroup_count).expect("Too many workgroups");
-        for i in 0..op_count {
-            // let op_offset: u32 = i * 256; // Each op is 256 bytes (aligned)
-            compute_pass.set_bind_group(0, &resources.bind_group, &[]);
-            compute_pass.dispatch_workgroups(workgroup_count, 1, 1);
+        compute_pass.set_bind_group(0, &resources.bind_group, &[]);
+
+        // Currently always 1 workgroup per shot for the prepare_op stage
+        let prepare_workgroup_count = u32::try_from(self.run_params.shots_per_batch)
+            .expect("shots_per_batch should fit in u32");
+        // Workgroups for execute_op depends on qubit count
+        let execute_workgroup_count =
+            u32::try_from(self.run_params.workgroups_per_shot * self.run_params.shots_per_batch)
+                .expect("workgroups_per_shot * shots_per_batch should fit in u32");
+
+        // Dispatch the compute shaders for each op for this batch of shots
+        for i in 0..self.run_params.op_count {
+            compute_pass.set_pipeline(&resources.pipeline_prepare_op);
+            compute_pass.dispatch_workgroups(prepare_workgroup_count, 1, 1);
+
+            compute_pass.set_pipeline(&resources.pipeline_execute_op);
+            compute_pass.dispatch_workgroups(execute_workgroup_count, 1, 1);
         }
 
         drop(compute_pass);
