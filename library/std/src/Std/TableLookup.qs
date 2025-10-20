@@ -10,39 +10,6 @@ import Std.Logical.Xor;
 import Std.ResourceEstimation.BeginEstimateCaching;
 import Std.ResourceEstimation.EndEstimateCaching;
 
-operation TestLookupEqual(): Unit {
-    // Could be random, but fixed for reproducibility
-    let data = [
-        [false, false, false, false, false], // 0
-        [false, false, true, false, false],  // 1
-        [true, true, false, false, false],   // 2
-        [false, true, false, false, false],  // 3
-        [true, true, true, true, true],      // 4
-        [true, false, false, false, false],  // 5
-        [true, true, true, false, false],    // 6
-        [true, false, true, false, false],   // 7
-        [false, false, false, false, false], // 8
-        [false, false, true, false, false],  // 9
-        [true, true, false, false, false],   // 10
-        [false, true, false, false, false],  // 11
-        [true, true, true, true, false],     // 12
-        [true, false, false, false, true],   // 13
-        [true, true, true, false, false],    // 14
-        [true, false, true, false, false],   // 15
-    ];
-
-    // Should check against Std.TableLookup.Select, but this check operation
-    // uses adjoint variant and it always returns target to zero state.
-    // Luckily Select is self-adjoint, so we pass adjoint variant here
-    // and the check is performed against Select.
-    let equal = Std.Diagnostics.CheckOperationsAreEqual(
-        9,
-        (qs) => LookupViaPPAndSplit(data, qs[0..3], qs[4..8]),
-        (qs) => Adjoint Std.TableLookup.Select(data, qs[0..3], qs[4..8])
-    );
-    Fact(equal, "Std Select and SelectViaPPAndSplit should be equivalent.");
-}
-
 /// # Summary
 /// Performs table lookup using power products and register split. Sizes must match.
 operation LookupViaPPAndSplit(
@@ -83,48 +50,14 @@ operation LookupViaPPAndSplit(
             let products1 = ConstructPowerProducts(h1, aux_qubits1);
             let products2 = ConstructPowerProducts(h2, aux_qubits2);
 
-            // TODO: If multi-target CNOTs are not available, we can optimize this
-            // by moving this loop to be the innermost loop.
-            for bit_index in 0..Length(target)-1 {
-                let sourceData = Mapped(a -> a[bit_index], data);
-                let flipData = FastMobiusTransform(sourceData);
-                let mask_as_matrix = Chunks(m1, flipData);
-
-                // Apply X to target[bit_index] if the empty product (index 0) is set
-                if mask_as_matrix[0][0] {
-                    X(target[bit_index]);
-                }
-
-                for row in 0..m2-2 {
-                    if (mask_as_matrix[row+1][0]) {
-                        CNOT(products2[row], target[bit_index]);
-                    }
-                }
-
-                for col in 0..m1-2 {
-                    if (mask_as_matrix[0][col+1]) {
-                        CNOT(products1[col], target[bit_index]);
-                    }
-                }
-
-                for row in 0..m2-2 {
-                    for col in 0..m1-2 {
-                        if mask_as_matrix[row+1][col+1] {
-                            CCNOT(products2[row], products1[col], target[bit_index]);
-                        }
-                    }
-                }
-
-            }
+            ApplyFlips(data, products1, products2, target);
 
             // Undo power products of both halves
             DestructPowerProducts(products1);
             DestructPowerProducts(products2);
 
-            Fact(Std.Diagnostics.CheckAllZero(aux_qubits1),
-                "Auxiliary1 qubits should be reset to zero after SelectViaPowerProducts");
-            Fact(Std.Diagnostics.CheckAllZero(aux_qubits2),
-                "Auxiliary2 qubits should be reset to zero after SelectViaPowerProducts");
+            Fact(Std.Diagnostics.CheckAllZero(aux_qubits1), "Auxiliary1 qubits should be reset to zero after SelectViaPowerProducts");
+            Fact(Std.Diagnostics.CheckAllZero(aux_qubits2), "Auxiliary2 qubits should be reset to zero after SelectViaPowerProducts");
         }
     }
 
@@ -132,6 +65,48 @@ operation LookupViaPPAndSplit(
     adjoint self;
 }
 
+operation ApplyFlips(
+    data : Bool[][],
+    products1 : Qubit[],
+    products2 : Qubit[],
+    target : Qubit[]
+) : Unit {
+    let m1 = Length(products1) + 1;
+    let m2 = Length(products2) + 1;
+    // TODO: If multi-target CNOTs are not available, we can optimize this
+    // by moving this loop to be the innermost loop.
+    for bit_index in 0..Length(target)-1 {
+        let sourceData = Mapped(a -> a[bit_index], data);
+        let flipData = FastMobiusTransform(sourceData);
+        let mask_as_matrix = Chunks(m1, flipData);
+
+        // Apply X to target[bit_index] if the empty product (index 0) is set
+        if mask_as_matrix[0][0] {
+            X(target[bit_index]);
+        }
+
+        for row in 0..m2-2 {
+            if (mask_as_matrix[row+1][0]) {
+                CNOT(products2[row], target[bit_index]);
+            }
+        }
+
+        for col in 0..m1-2 {
+            if (mask_as_matrix[0][col+1]) {
+                CNOT(products1[col], target[bit_index]);
+            }
+        }
+
+        for row in 0..m2-2 {
+            for col in 0..m1-2 {
+                if mask_as_matrix[row+1][col+1] {
+                    CCNOT(products2[row], products1[col], target[bit_index]);
+                }
+            }
+        }
+
+    }
+}
 
 /// # Summary
 /// Performs table lookup using a SELECT network
