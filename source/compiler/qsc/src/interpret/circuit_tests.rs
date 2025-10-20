@@ -1769,7 +1769,7 @@ fn operation_with_subsequent_qubits_no_double_rows() {
         ",
         CircuitEntryPoint::EntryPoint,
         Config {
-            generation_method: GenerationMethod::ClassicalEval,
+            generation_method: GenerationMethod::Static,
             tracer_config: Default::default(),
         },
     );
@@ -1805,7 +1805,7 @@ fn operation_with_subsequent_qubits_no_added_rows() {
         ",
         CircuitEntryPoint::EntryPoint,
         Config {
-            generation_method: GenerationMethod::ClassicalEval,
+            generation_method: GenerationMethod::Static,
             tracer_config: Default::default(),
         },
     );
