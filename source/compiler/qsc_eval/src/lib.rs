@@ -282,7 +282,6 @@ pub fn exec_graph_section(graph: &ExecGraph, range: ops::Range<usize>) -> ExecGr
 /// Returns the first error encountered during execution.
 /// # Panics
 /// On internal error where no result is returned.
-#[allow(clippy::needless_pass_by_value)]
 pub fn eval(
     package: PackageId,
     seed: Option<u64>,
@@ -292,7 +291,13 @@ pub fn eval(
     tracing_backend: &mut TracingBackend,
     receiver: &mut impl Receiver,
 ) -> Result<Value, (Error, Vec<Frame>)> {
-    let mut state = State::new(package, exec_graph, seed, ErrorBehavior::FailOnError);
+    let mut state = State::new(
+        package,
+        exec_graph,
+        seed,
+        ErrorBehavior::FailOnError,
+        tracing_backend.is_stacks_enabled(),
+    );
     let res = state.eval(
         globals,
         env,
@@ -322,8 +327,15 @@ pub fn invoke(
     receiver: &mut impl Receiver,
     callable: Value,
     args: Value,
+    trace_stacks: bool,
 ) -> Result<Value, (Error, Vec<Frame>)> {
-    let mut state = State::new(package, Vec::new().into(), seed, ErrorBehavior::FailOnError);
+    let mut state = State::new(
+        package,
+        Vec::new().into(),
+        seed,
+        ErrorBehavior::FailOnError,
+        trace_stacks,
+    );
     // Push the callable value into the state stack and then the args value so they are ready for evaluation.
     state.set_val_register(callable);
     state.push_val();
@@ -341,7 +353,7 @@ pub fn invoke(
             Span::default(),
             receiver,
         )
-        .map_err(|e| (e, state.get_stack_frames()))?;
+        .map_err(|e| (e, state.capture_stack()))?;
 
     // Trigger evaluation of the state until the end of the stack is reached and a return value is obtained, which will be the final
     // result of the invocation.
@@ -599,6 +611,7 @@ pub struct State {
     qubit_counter: Option<QubitCounter>,
     error_behavior: ErrorBehavior,
     last_error: Option<(Error, Vec<Frame>)>,
+    trace_stacks: bool,
 }
 
 impl State {
@@ -608,6 +621,7 @@ impl State {
         exec_graph: ExecGraph,
         classical_seed: Option<u64>,
         error_behavior: ErrorBehavior,
+        trace_stacks: bool,
     ) -> Self {
         let rng = match classical_seed {
             Some(seed) => RefCell::new(StdRng::seed_from_u64(seed)),
@@ -628,6 +642,7 @@ impl State {
             qubit_counter: None,
             error_behavior,
             last_error: None,
+            trace_stacks,
         }
     }
 
@@ -695,7 +710,7 @@ impl State {
     }
 
     #[must_use]
-    pub fn get_stack_frames(&self) -> Vec<Frame> {
+    pub fn capture_stack(&self) -> Vec<Frame> {
         let mut frames = self.call_stack.frames();
 
         let mut span = self.current_span;
@@ -703,6 +718,15 @@ impl State {
             std::mem::swap(&mut frame.span, &mut span);
         }
         frames
+    }
+
+    #[must_use]
+    pub fn capture_stack_if_trace_stacks(&self) -> Vec<Frame> {
+        if self.trace_stacks {
+            self.capture_stack()
+        } else {
+            vec![]
+        }
     }
 
     fn set_last_error(&mut self, error: Error, frames: Vec<Frame>) {
@@ -755,13 +779,13 @@ impl State {
                         Err(e) => {
                             if self.error_behavior == ErrorBehavior::StopOnError {
                                 let error_str = e.to_string();
-                                self.set_last_error(e, self.get_stack_frames());
+                                self.set_last_error(e, self.capture_stack());
                                 // Clear the execution graph stack to indicate that execution has failed.
                                 // This will prevent further execution steps.
                                 self.exec_graph_stack.clear();
                                 return Ok(StepResult::Fail(error_str));
                             }
-                            return Err((e, self.get_stack_frames()));
+                            return Err((e, self.capture_stack()));
                         }
                     }
                 }
@@ -1278,7 +1302,9 @@ impl State {
         let name = &callee.name.name;
         let val = match name.as_ref() {
             "__quantum__rt__qubit_allocate" => {
-                let q = sim.qubit_allocate(Some(DebugMetadata::new(self.get_stack_frames())));
+                let q = sim.qubit_allocate(Some(DebugMetadata::new(
+                    self.capture_stack_if_trace_stacks(),
+                )));
                 let q = Rc::new(Qubit(q));
                 env.track_qubit(Rc::clone(&q));
                 if let Some(counter) = &mut self.qubit_counter {
@@ -1292,7 +1318,10 @@ impl State {
                     .try_deref()
                     .ok_or(Error::QubitDoubleRelease(arg_span))?;
                 env.release_qubit(&qubit);
-                if sim.qubit_release(qubit.0, Some(DebugMetadata::new(self.get_stack_frames()))) {
+                if sim.qubit_release(
+                    qubit.0,
+                    Some(DebugMetadata::new(self.capture_stack_if_trace_stacks())),
+                ) {
                     Value::unit()
                 } else {
                     return Err(Error::ReleasedQubitNotZero(qubit.0, arg_span));
@@ -1304,7 +1333,7 @@ impl State {
                     callee_span,
                     arg,
                     arg_span,
-                    &self.get_stack_frames(),
+                    &self.capture_stack_if_trace_stacks(),
                     sim,
                     &mut self.rng.borrow_mut(),
                     out,

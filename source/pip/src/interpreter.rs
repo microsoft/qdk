@@ -29,7 +29,7 @@ use pyo3::{
 };
 use qsc::{
     LanguageFeatures, PackageType, SourceMap,
-    circuit::GenerationMethod,
+    circuit::{Config, TracerConfig},
     error::WithSource,
     fir::{self},
     hir::ty::{Prim, Ty},
@@ -400,13 +400,20 @@ impl Interpreter {
             BuildableProgram::new(target, graph)
         };
 
-        match interpret::Interpreter::new(
+        // TODO: locations?
+        let config = TracerConfig {
+            locations: false,
+            ..Default::default()
+        };
+
+        match interpret::Interpreter::new_with_circuit_tracer(
             SourceMap::new(buildable_program.user_code.sources, None),
             PackageType::Lib,
             target,
             buildable_program.user_code.language_features,
             buildable_program.store,
             &buildable_program.user_code_dependencies,
+            config,
         ) {
             Ok(interpreter) => {
                 if let Some(make_callable) = &make_callable {
@@ -766,17 +773,15 @@ impl Interpreter {
         };
 
         // TODO: backcompat, for now
-        let generation_method = GenerationMethod::ClassicalEval;
-        let locations = false;
-
-        match self.interpreter.circuit(
-            entrypoint,
-            qsc::circuit::Config {
-                generation_method,
-                locations,
+        let config = Config {
+            generation_method: qsc::circuit::GenerationMethod::ClassicalEval,
+            tracer_config: TracerConfig {
+                locations: false,
                 ..Default::default()
             },
-        ) {
+        };
+
+        match self.interpreter.circuit(entrypoint, config) {
             Ok(circuit) => Circuit(circuit).into_py_any(py),
             Err(errors) => Err(QSharpError::new_err(format_errors(errors))),
         }

@@ -281,15 +281,10 @@ pub struct Qubit {
 }
 
 #[derive(Clone, Debug, Copy)]
-#[allow(clippy::struct_excessive_bools)]
 pub struct Config {
-    /// Maximum number of operations the builder will add to the circuit
-    pub max_operations: usize,
     /// How the circuit is generated
     pub generation_method: GenerationMethod,
-    /// Show the source code locations of operations and qubit declarations
-    /// in the circuit diagram
-    pub locations: bool,
+    pub tracer_config: TracerConfig,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -300,7 +295,16 @@ pub enum GenerationMethod {
     ClassicalEval,
 }
 
-impl Config {
+#[derive(Clone, Debug, Copy)]
+pub struct TracerConfig {
+    /// Maximum number of operations the builder will add to the circuit
+    pub max_operations: usize,
+    /// Show the source code locations of operations and qubit declarations
+    /// in the circuit diagram
+    pub locations: bool,
+}
+
+impl TracerConfig {
     /// Set to the current UI limit + 1 so that it still triggers
     /// the "this circuit has too many gates" warning in the UI.
     /// (see npm\qsharp\ux\circuit.tsx)
@@ -310,11 +314,10 @@ impl Config {
     const DEFAULT_MAX_OPERATIONS: usize = 10001;
 }
 
-impl Default for Config {
+impl Default for TracerConfig {
     fn default() -> Self {
         Self {
             max_operations: Self::DEFAULT_MAX_OPERATIONS,
-            generation_method: GenerationMethod::ClassicalEval,
             locations: true,
         }
     }

@@ -1,16 +1,13 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::circuit::GenerationMethod;
-
 use super::*;
 use expect_test::expect;
 
 #[test]
 fn exceed_max_operations() {
-    let mut builder = CircuitTracer::new(Config {
+    let mut builder = CircuitTracer::new(TracerConfig {
         max_operations: 2,
-        generation_method: GenerationMethod::ClassicalEval,
         locations: false,
     });
 
@@ -33,9 +30,8 @@ fn exceed_max_operations() {
 
 #[test]
 fn exceed_max_operations_deferred_measurements() {
-    let mut builder = CircuitTracer::new(Config {
+    let mut builder = CircuitTracer::new(TracerConfig {
         max_operations: 2,
-        generation_method: GenerationMethod::ClassicalEval,
         locations: false,
     });
 

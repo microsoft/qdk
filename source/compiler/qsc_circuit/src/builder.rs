@@ -5,8 +5,8 @@
 mod tests;
 
 use crate::{
-    Config, Qubit,
-    circuit::{Circuit, operation_list_to_grid},
+    Qubit,
+    circuit::{Circuit, TracerConfig, operation_list_to_grid},
     rir_to_circuit::{
         DbgLocationKind, Op, fill_in_dbg_metadata, resolve_location_if_unresolved,
         resolve_location_metadata, resolve_source_location_if_unresolved, to_source_location,
@@ -29,7 +29,7 @@ use std::{fmt::Write, mem::replace, rc::Rc};
 /// Circuit builder that implements the `Tracer` trait to build a circuit
 /// while tracing execution.
 pub struct CircuitTracer {
-    config: Config,
+    config: TracerConfig,
     register_map_builder: RegisterMapBuilder,
     circuit_builder: CircuitBuilder,
     dbg_info: DbgInfo,
@@ -136,11 +136,15 @@ impl Tracer for CircuitTracer {
         // TODO: metadata would be neat to add to the circuit
         self.register_map_builder.qubit_release(q);
     }
+
+    fn is_stacks_enabled(&self) -> bool {
+        self.config.locations
+    }
 }
 
 impl CircuitTracer {
     #[must_use]
-    pub fn new(config: Config) -> Self {
+    pub fn new(config: TracerConfig) -> Self {
         CircuitTracer {
             config,
             register_map_builder: RegisterMapBuilder::default(),

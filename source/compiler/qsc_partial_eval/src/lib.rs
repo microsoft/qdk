@@ -1104,6 +1104,7 @@ impl<'a> PartialEvaluator<'a> {
             exec_graph,
             None,
             ErrorBehavior::FailOnError,
+            false, // no trace
         );
         let classical_result = state.eval(
             self.package_store,

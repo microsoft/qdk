@@ -690,6 +690,15 @@ impl<'a> TracingBackend<'a> {
         }
     }
 
+    #[must_use]
+    pub fn is_stacks_enabled(&self) -> bool {
+        if let Some(tracer) = &self.tracer {
+            tracer.is_stacks_enabled()
+        } else {
+            false
+        }
+    }
+
     pub fn ccx(&mut self, ctl0: usize, ctl1: usize, q: usize, metadata: Option<DebugMetadata>) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
@@ -1146,6 +1155,7 @@ pub trait Tracer {
     fn reset(&mut self, q: usize, metadata: Option<DebugMetadata>);
     fn qubit_swap_id(&mut self, q0: usize, q1: usize, metadata: Option<DebugMetadata>);
     fn custom_intrinsic(&mut self, name: &str, arg: Value, metadata: Option<DebugMetadata>);
+    fn is_stacks_enabled(&self) -> bool;
 }
 
 // TODO: reconcile with llvm debug metadata

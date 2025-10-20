@@ -22,7 +22,7 @@ use miette::Diagnostic;
 use num_bigint::BigUint;
 use num_complex::Complex;
 use qsc_circuit::{
-    Circuit, CircuitTracer, Config as CircuitConfig, GenerationMethod,
+    Circuit, CircuitTracer, Config as CircuitConfig, GenerationMethod, TracerConfig,
     operations::entry_expr_for_qubit_operation,
 };
 use qsc_codegen::qir::{fir_to_qir, fir_to_qir_from_callable};
@@ -145,7 +145,7 @@ pub struct Interpreter {
     /// The default simulator backend.
     sim: SparseSim,
     /// The tracer that records the circuit being built.
-    circuit_tracer: CircuitTracer,
+    circuit_tracer: Option<CircuitTracer>,
     /// The quantum seed, if any. This is cached here so that it can be used in calls to
     /// `run_internal` which use a passed instance of the simulator instead of the one above.
     quantum_seed: Option<u64>,
@@ -178,6 +178,27 @@ pub struct TaggedItem {
 }
 
 impl Interpreter {
+    pub fn new_with_circuit_tracer(
+        sources: SourceMap,
+        package_type: PackageType,
+        capabilities: TargetCapabilityFlags,
+        language_features: LanguageFeatures,
+        store: PackageStore,
+        dependencies: &Dependencies,
+        circuit_tracer_config: TracerConfig,
+    ) -> std::result::Result<Self, Vec<Error>> {
+        Self::new_with_sources(
+            false,
+            sources,
+            package_type,
+            capabilities,
+            language_features,
+            store,
+            dependencies,
+            Some(circuit_tracer_config),
+        )
+    }
+
     /// Creates a new incremental compiler, compiling the passed in sources.
     /// # Errors
     /// If compiling the sources fails, compiler errors are returned.
@@ -189,7 +210,7 @@ impl Interpreter {
         store: PackageStore,
         dependencies: &Dependencies,
     ) -> std::result::Result<Self, Vec<Error>> {
-        Self::new_internal(
+        Self::new_with_sources(
             false,
             sources,
             package_type,
@@ -197,6 +218,7 @@ impl Interpreter {
             language_features,
             store,
             dependencies,
+            None,
         )
     }
 
@@ -210,8 +232,9 @@ impl Interpreter {
         language_features: LanguageFeatures,
         store: PackageStore,
         dependencies: &Dependencies,
+        trace_circuit_config: Option<TracerConfig>,
     ) -> std::result::Result<Self, Vec<Error>> {
-        Self::new_internal(
+        Self::new_with_sources(
             true,
             sources,
             package_type,
@@ -219,11 +242,12 @@ impl Interpreter {
             language_features,
             store,
             dependencies,
+            trace_circuit_config,
         )
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn new_internal(
+    fn new_with_sources(
         dbg: bool,
         sources: SourceMap,
         package_type: PackageType,
@@ -231,6 +255,7 @@ impl Interpreter {
         language_features: LanguageFeatures,
         store: PackageStore,
         dependencies: &Dependencies,
+        circuit_tracer_config: Option<TracerConfig>,
     ) -> std::result::Result<Self, Vec<Error>> {
         let compiler = Compiler::new(
             sources,
@@ -242,54 +267,7 @@ impl Interpreter {
         )
         .map_err(into_errors)?;
 
-        let mut fir_store = fir::PackageStore::new();
-        for (id, unit) in compiler.package_store() {
-            let pkg = qsc_lowerer::Lowerer::new()
-                .with_debug(dbg)
-                .lower_package(&unit.package, &fir_store);
-            fir_store.insert(map_hir_package_to_fir(id), pkg);
-        }
-
-        let source_package_id = compiler.source_package_id();
-        let package_id = compiler.package_id();
-
-        let package = map_hir_package_to_fir(package_id);
-        if capabilities != TargetCapabilityFlags::all() {
-            let _ = PassContext::run_fir_passes_on_fir(
-                &fir_store,
-                map_hir_package_to_fir(source_package_id),
-                capabilities,
-            )
-            .map_err(|caps_errors| {
-                let source_package = compiler
-                    .package_store()
-                    .get(source_package_id)
-                    .expect("package should exist in the package store");
-
-                caps_errors
-                    .into_iter()
-                    .map(|error| Error::Pass(WithSource::from_map(&source_package.sources, error)))
-                    .collect::<Vec<_>>()
-            })?;
-        }
-
-        Ok(Self {
-            compiler,
-            lines: 0,
-            capabilities,
-            fir_store,
-            lowerer: qsc_lowerer::Lowerer::new().with_debug(dbg),
-            expr_graph: None,
-            angle_ty_cache: None.into(),
-            complex_ty_cache: None.into(),
-            env: Env::default(),
-            sim: SparseSim::new(),
-            circuit_tracer: CircuitTracer::new(CircuitConfig::default()),
-            quantum_seed: None,
-            classical_seed: None,
-            package,
-            source_package: map_hir_package_to_fir(source_package_id),
-        })
+        Self::with_compiler(dbg, capabilities, circuit_tracer_config, compiler)
     }
 
     pub fn from(
@@ -299,6 +277,7 @@ impl Interpreter {
         capabilities: TargetCapabilityFlags,
         language_features: LanguageFeatures,
         dependencies: &Dependencies,
+        circuit_tracer_config: Option<TracerConfig>,
     ) -> std::result::Result<Self, Vec<Error>> {
         let compiler = Compiler::from(
             store,
@@ -309,6 +288,15 @@ impl Interpreter {
         )
         .map_err(into_errors)?;
 
+        Self::with_compiler(dbg, capabilities, circuit_tracer_config, compiler)
+    }
+
+    fn with_compiler(
+        dbg: bool,
+        capabilities: TargetCapabilityFlags,
+        circuit_tracer_config: Option<TracerConfig>,
+        compiler: Compiler,
+    ) -> std::result::Result<Interpreter, Vec<Error>> {
         let mut fir_store = fir::PackageStore::new();
         for (id, unit) in compiler.package_store() {
             let mut lowerer = qsc_lowerer::Lowerer::new().with_debug(dbg);
@@ -350,7 +338,7 @@ impl Interpreter {
             complex_ty_cache: None.into(),
             env: Env::default(),
             sim: SparseSim::new(),
-            circuit_tracer: CircuitTracer::new(CircuitConfig::default()),
+            circuit_tracer: circuit_tracer_config.map(CircuitTracer::new),
             quantum_seed: None,
             classical_seed: None,
             package,
@@ -657,6 +645,10 @@ impl Interpreter {
     pub fn eval_entry(&mut self, receiver: &mut impl Receiver) -> InterpretResult {
         let graph = self.get_entry_exec_graph()?;
         self.expr_graph = Some(graph.clone());
+        let mut tracing_backend = match &mut self.circuit_tracer {
+            Some(tracer) => TracingBackend::new(&mut self.sim, tracer),
+            None => TracingBackend::new_no_trace(&mut self.sim),
+        };
         eval(
             self.source_package,
             self.classical_seed,
@@ -664,7 +656,7 @@ impl Interpreter {
             self.compiler.package_store(),
             &self.fir_store,
             &mut Env::default(),
-            &mut TracingBackend::new(&mut self.sim, &mut self.circuit_tracer),
+            &mut tracing_backend,
             receiver,
         )
     }
@@ -762,6 +754,10 @@ impl Interpreter {
         // here to keep the package stores consistent.
         self.compiler.update(increment);
 
+        let mut tracing_backend = match &mut self.circuit_tracer {
+            Some(tracer) => TracingBackend::new(&mut self.sim, tracer),
+            None => TracingBackend::new_no_trace(&mut self.sim),
+        };
         eval(
             self.package,
             self.classical_seed,
@@ -769,7 +765,7 @@ impl Interpreter {
             self.compiler.package_store(),
             &self.fir_store,
             &mut self.env,
-            &mut TracingBackend::new(&mut self.sim, &mut self.circuit_tracer),
+            &mut tracing_backend,
             receiver,
         )
     }
@@ -781,15 +777,21 @@ impl Interpreter {
         callable: Value,
         args: Value,
     ) -> InterpretResult {
+        let mut tracing_backend = match &mut self.circuit_tracer {
+            Some(tracer) => TracingBackend::new(&mut self.sim, tracer),
+            None => TracingBackend::new_no_trace(&mut self.sim),
+        };
+        let trace_stacks = tracing_backend.is_stacks_enabled();
         qsc_eval::invoke(
             self.package,
             self.classical_seed,
             &self.fir_store,
             &mut self.env,
-            &mut TracingBackend::new(&mut self.sim, &mut self.circuit_tracer),
+            &mut tracing_backend,
             receiver,
             callable,
             args,
+            trace_stacks,
         )
         .map_err(|(error, call_stack)| {
             eval_error(
@@ -853,6 +855,8 @@ impl Interpreter {
     /// Get the current circuit representation of the program.
     pub fn get_circuit(&self) -> Circuit {
         self.circuit_tracer
+            .as_ref()
+            .expect("to call get_circuit, the interpreter should be initialized with circuit tracing enabled")
             .snapshot(Some(self.compiler.package_store())) // TODO: defer the location to source resolving?
     }
 
@@ -978,7 +982,7 @@ impl Interpreter {
         let circuit = match config.generation_method {
             GenerationMethod::Simulate => {
                 let mut sim = SparseSim::new();
-                let mut tracer = CircuitTracer::new(config);
+                let mut tracer = CircuitTracer::new(config.tracer_config);
                 let mut tracing_backend = TracingBackend::new(&mut sim, &mut tracer);
 
                 match invoke_params {
@@ -993,7 +997,7 @@ impl Interpreter {
                 tracer.finish(Some(self.compiler.package_store()))
             }
             GenerationMethod::ClassicalEval => {
-                let mut tracer = CircuitTracer::new(config);
+                let mut tracer = CircuitTracer::new(config.tracer_config);
                 let mut tracing_backend = TracingBackend::new_no_sim(&mut tracer);
 
                 match invoke_params {
@@ -1105,6 +1109,7 @@ impl Interpreter {
             receiver,
             callable,
             args,
+            tracing_backend.is_stacks_enabled(),
         )
         .map_err(|(error, call_stack)| {
             eval_error(
@@ -1263,6 +1268,26 @@ pub struct Debugger {
 }
 
 impl Debugger {
+    pub fn new_with_circuit_trace(
+        sources: SourceMap,
+        capabilities: TargetCapabilityFlags,
+        position_encoding: Encoding,
+        language_features: LanguageFeatures,
+        store: PackageStore,
+        dependencies: &Dependencies,
+        trace_circuit_config: TracerConfig,
+    ) -> std::result::Result<Self, Vec<Error>> {
+        Self::with_options(
+            sources,
+            capabilities,
+            position_encoding,
+            language_features,
+            store,
+            dependencies,
+            Some(trace_circuit_config),
+        )
+    }
+
     pub fn new(
         sources: SourceMap,
         capabilities: TargetCapabilityFlags,
@@ -1271,6 +1296,26 @@ impl Debugger {
         store: PackageStore,
         dependencies: &Dependencies,
     ) -> std::result::Result<Self, Vec<Error>> {
+        Self::with_options(
+            sources,
+            capabilities,
+            position_encoding,
+            language_features,
+            store,
+            dependencies,
+            None,
+        )
+    }
+
+    fn with_options(
+        sources: SourceMap,
+        capabilities: TargetCapabilityFlags,
+        position_encoding: Encoding,
+        language_features: LanguageFeatures,
+        store: PackageStore,
+        dependencies: &Dependencies,
+        circuit_config: Option<TracerConfig>,
+    ) -> std::result::Result<Self, Vec<Error>> {
         let interpreter = Interpreter::new_with_debug(
             sources,
             PackageType::Exe,
@@ -1278,6 +1323,7 @@ impl Debugger {
             language_features,
             store,
             dependencies,
+            circuit_config,
         )?;
         let source_package_id = interpreter.source_package;
         let unit = interpreter.fir_store.get(source_package_id);
@@ -1290,6 +1336,7 @@ impl Debugger {
                 entry_exec_graph,
                 None,
                 ErrorBehavior::StopOnError,
+                true,
             ),
         })
     }
@@ -1298,6 +1345,10 @@ impl Debugger {
         let source_package_id = interpreter.source_package;
         let unit = interpreter.fir_store.get(source_package_id);
         let entry_exec_graph = unit.entry_exec_graph.clone();
+        let trace_stacks = interpreter
+            .circuit_tracer
+            .as_ref()
+            .is_some_and(qsc_eval::backend::Tracer::is_stacks_enabled);
         Self {
             interpreter,
             position_encoding,
@@ -1306,6 +1357,7 @@ impl Debugger {
                 entry_exec_graph,
                 None,
                 ErrorBehavior::StopOnError,
+                trace_stacks,
             ),
         }
     }
@@ -1319,14 +1371,16 @@ impl Debugger {
         breakpoints: &[StmtId],
         step: StepAction,
     ) -> std::result::Result<StepResult, Vec<Error>> {
+        let mut tracing_backend = match &mut self.interpreter.circuit_tracer {
+            Some(tracer) => TracingBackend::new(&mut self.interpreter.sim, tracer),
+            None => TracingBackend::new_no_trace(&mut self.interpreter.sim),
+        };
+
         self.state
             .eval(
                 &self.interpreter.fir_store,
                 &mut self.interpreter.env,
-                &mut TracingBackend::new(
-                    &mut self.interpreter.sim,
-                    &mut self.interpreter.circuit_tracer,
-                ),
+                &mut tracing_backend,
                 receiver,
                 breakpoints,
                 step,
@@ -1343,7 +1397,7 @@ impl Debugger {
 
     #[must_use]
     pub fn get_stack_frames(&self) -> Vec<StackFrame> {
-        let frames = self.state.get_stack_frames();
+        let frames = self.state.capture_stack();
 
         frames
             .iter()

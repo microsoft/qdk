@@ -160,22 +160,30 @@ serializable_type! {
 pub fn get_circuit(
     program: ProgramConfig,
     operation: Option<IOperationInfo>,
-    config: Option<ICircuitConfig>,
+    config: Option<ICircuitConfig>, // TODO: make this required
 ) -> Result<JsValue, String> {
-    let config = config.map_or(qsc::circuit::Config::default(), |c| {
-        let c: CircuitConfig = c.into();
+    let config = config.map_or(
         qsc::circuit::Config {
-            max_operations: c.max_operations,
-            generation_method: match c.generation_method.as_str() {
-                "simulate" => qsc::circuit::GenerationMethod::Simulate,
-                "classicalEval" => qsc::circuit::GenerationMethod::ClassicalEval,
-                _ => {
-                    return qsc::circuit::Config::default();
-                }
-            },
-            locations: c.locations,
-        }
-    });
+            generation_method: qsc::circuit::GenerationMethod::ClassicalEval,
+            tracer_config: Default::default(),
+        },
+        |c| {
+            let c: CircuitConfig = c.into();
+            qsc::circuit::Config {
+                generation_method: match c.generation_method.as_str() {
+                    "simulate" => qsc::circuit::GenerationMethod::Simulate,
+                    "classicalEval" => qsc::circuit::GenerationMethod::ClassicalEval,
+                    _ => {
+                        panic!("Invalid generation method option: {}", c.generation_method)
+                    }
+                },
+                tracer_config: qsc::circuit::TracerConfig {
+                    locations: c.locations,
+                    max_operations: c.max_operations,
+                },
+            }
+        },
+    );
     if is_openqasm_program(&program) {
         let (sources, capabilities) = into_openqasm_arg(program);
         let (_, mut interpreter) = get_interpreter_from_openqasm(&sources, capabilities)?;
@@ -752,6 +760,8 @@ fn get_configured_interpreter_from_openqasm(
     let sig = sig.expect("msg: there should be a signature");
     let language_features = LanguageFeatures::default();
     let entry_expr = sig.create_entry_expr_from_params(String::new());
+    // Always enable circuit tracing along with debugging.
+    let trace_circuit_config = if dbg { Some(Default::default()) } else { None };
     let interpreter = interpret::Interpreter::from(
         dbg,
         store,
@@ -759,6 +769,7 @@ fn get_configured_interpreter_from_openqasm(
         capabilities,
         language_features,
         &dependencies,
+        trace_circuit_config,
     )
     .map_err(interpret_errors_into_qsharp_errors_json)?;
 
