@@ -373,13 +373,13 @@ fn expr_array_core(s: &mut ParserContext) -> Result<Box<ExprKind>> {
                 TokenKind::Close(Delim::Bracket),
                 peek_kind,
                 peek.span,
-            )))
+            )));
         }
         return Err(Error::new(ErrorKind::Token(
             TokenKind::Comma,
             peek_kind,
             peek.span,
-        )))
+        )));
     }
 
     s.expect(WordKinds::Size);
