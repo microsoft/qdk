@@ -349,7 +349,11 @@ fn expr_if(s: &mut ParserContext) -> Result<Box<ExprKind>> {
 fn expr_array(s: &mut ParserContext) -> Result<Box<ExprKind>> {
     token(s, TokenKind::Open(Delim::Bracket))?;
     let kind = expr_array_core(s)?;
-    token(s, TokenKind::Close(Delim::Bracket))?;
+    if Ok::<Box<ExprKind>, Error>(kind.clone()).is_ok() {
+        token(s, TokenKind::Close(Delim::Bracket))?;
+    } else {
+        token(s, TokenKind::Comma)?;
+    }
     Ok(kind)
 }
 
@@ -359,7 +363,23 @@ fn expr_array_core(s: &mut ParserContext) -> Result<Box<ExprKind>> {
     };
 
     if token(s, TokenKind::Comma).is_err() {
-        return Ok(Box::new(ExprKind::Array(vec![first].into_boxed_slice())));
+        let peek = s.peek();
+        let peek_kind = peek.kind;
+        if peek_kind.eq(&TokenKind::Close(Delim::Bracket)) {
+            return Ok(Box::new(ExprKind::Array(vec![first].into_boxed_slice())));
+        }
+        if peek_kind.eq(&TokenKind::Semi) {
+            return Err(Error::new(ErrorKind::Token(
+                TokenKind::Close(Delim::Bracket),
+                peek_kind,
+                peek.span,
+            )))
+        }
+        return Err(Error::new(ErrorKind::Token(
+            TokenKind::Comma,
+            peek_kind,
+            peek.span,
+        )))
     }
 
     s.expect(WordKinds::Size);
