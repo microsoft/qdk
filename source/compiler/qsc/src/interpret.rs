@@ -186,7 +186,7 @@ impl Interpreter {
         dependencies: &Dependencies,
         circuit_tracer_config: TracerConfig,
     ) -> std::result::Result<Self, Vec<Error>> {
-        Self::new_with_sources(
+        Self::with_sources(
             false,
             sources,
             package_type,
@@ -209,7 +209,7 @@ impl Interpreter {
         store: PackageStore,
         dependencies: &Dependencies,
     ) -> std::result::Result<Self, Vec<Error>> {
-        Self::new_with_sources(
+        Self::with_sources(
             false,
             sources,
             package_type,
@@ -233,7 +233,7 @@ impl Interpreter {
         dependencies: &Dependencies,
         trace_circuit_config: Option<TracerConfig>,
     ) -> std::result::Result<Self, Vec<Error>> {
-        Self::new_with_sources(
+        Self::with_sources(
             true,
             sources,
             package_type,
@@ -246,7 +246,7 @@ impl Interpreter {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn new_with_sources(
+    fn with_sources(
         dbg: bool,
         sources: SourceMap,
         package_type: PackageType,
@@ -644,7 +644,6 @@ impl Interpreter {
     pub fn eval_entry(&mut self, receiver: &mut impl Receiver) -> InterpretResult {
         let graph = self.get_entry_exec_graph()?;
         self.expr_graph = Some(graph.clone());
-
         eval(
             self.source_package,
             self.classical_seed,
