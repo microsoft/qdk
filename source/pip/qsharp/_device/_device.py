@@ -2,7 +2,6 @@
 # Licensed under the MIT License.
 
 from enum import Enum
-from qsharp._simulation import clifford_simulation, NoiseConfig
 from .._qsharp import QirInputData
 
 
@@ -49,7 +48,7 @@ class Device:
         # Compute the home locations of qubits in the register zones.
         # The home location is the (row, column) position of the qubit in the device layout, using only
         # the register zones.
-        self.home_locs = [0] * sum(
+        self.home_locs = [(0, 0)] * sum(
             zone.row_count * self.column_count
             for zone in zones
             if zone.type == ZoneType.REG
@@ -146,68 +145,3 @@ class Device:
             dict: The device layout as a dictionary.
         """
         return self.as_dict()
-
-
-class AC1000(Device):
-    def __init__(self):
-        super().__init__(
-            36,
-            [
-                Zone("Register 1", 17, ZoneType.REG),
-                Zone("Interaction Zone", 4, ZoneType.INTER),
-                Zone("Register 2", 17, ZoneType.REG),
-                Zone("Measurement Zone", 4, ZoneType.MEAS),
-            ],
-        )
-
-    def compile(
-        self,
-        program: str | QirInputData,
-        skip_scheduling: bool = False,
-        check_clifford: bool = False,
-        verbose: bool = False,
-    ) -> QirInputData:
-        from ._transform import transform
-
-        return transform(
-            program,
-            self,
-            skip_scheduling,
-            check_clifford,
-            verbose,
-        )
-
-    def get_trace(self, qir: str | QirInputData, **kwargs) -> dict:
-        from ._trace import trace
-
-        return trace(
-            qir,
-            self,
-        )
-
-    def capture_trace(self, qir: str | QirInputData) -> dict:
-        # Compile and capture the trace in one step.
-        compiled = self.compile(qir)
-        return self.get_trace(compiled)
-
-    def simulate(
-        self,
-        qir: str | QirInputData,
-        shots=1,
-        noise: NoiseConfig | None = None,
-        type="clifford",
-    ):
-        from qsharp.passes import transform_to_clifford
-
-        if noise is None:
-            noise = NoiseConfig()
-
-        if type == "clifford":
-            qir_clifford = transform_to_clifford(qir)
-            return clifford_simulation(
-                str(qir_clifford),
-                shots,
-                noise,
-            )
-
-        raise ValueError(f"Simulation type {type} is not supported")
