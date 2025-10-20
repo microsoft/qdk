@@ -288,7 +288,7 @@ def run_qir(
     input: Union[str, bytes],
     shots: Optional[int] = 1,
     noise: Optional[NoiseConfig] = None,
-) -> str:
+) -> List:
     context = pyqir.Context()
     if isinstance(input, str):
         mod = pyqir.Module.from_ir(context, input)

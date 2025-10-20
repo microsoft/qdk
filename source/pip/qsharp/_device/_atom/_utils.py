@@ -5,6 +5,7 @@ from pyqir import (
     Instruction,
     Call,
     Constant,
+    Value,
     qubit_id,
     is_qubit_type,
     result_id,
@@ -36,8 +37,8 @@ def as_qis_gate(instr: Instruction) -> Dict:
     return {}
 
 
-# Returns all values used by the instruction.
-def get_used_values(instr: Instruction):
+# Returns all values and, separately, all measurement results used by the instruction.
+def get_used_values(instr: Instruction) -> tuple[list[Value], list[Value]]:
     vals = []
     meas_results = []
     if isinstance(instr, Call):
@@ -66,7 +67,7 @@ def get_used_values(instr: Instruction):
 
 # Returns true if any of the used values are in the existing values.
 # Useful for determining if an instruction depends on any instructions in a set.
-def uses_any_value(used_values, existing_values):
+def uses_any_value(used_values, existing_values) -> bool:
     return any(
         [
             val in existing_values

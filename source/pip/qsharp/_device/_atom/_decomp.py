@@ -20,18 +20,19 @@ class DecomposeMultiQubitToCZ(QirModuleVisitor):
     Decomposes all multi-qubit gates to CZ gates and single qubit gates.
     """
 
+    h_func: Function
+    s_func: Function
+    sadj_func: Function
+    t_func: Function
+    tadj_func: Function
+    rz_func: Function
+    cz_func: Function
+
     def _on_module(self, module):
         void = Type.void(module.context)
         qubit_ty = qubit_type(module.context)
         self.double_ty = Type.double(module.context)
         # Find or create all the needed functions.
-        self.h_func = None
-        self.s_func = None
-        self.sadj_func = None
-        self.t_func = None
-        self.tadj_func = None
-        self.rz_func = None
-        self.cz_func = None
         for func in module.functions:
             match func.name:
                 case "__quantum__qis__h__body":
@@ -48,49 +49,49 @@ class DecomposeMultiQubitToCZ(QirModuleVisitor):
                     self.rz_func = func
                 case "__quantum__qis__cz__body":
                     self.cz_func = func
-        if not self.h_func:
+        if not hasattr(self, "h_func"):
             self.h_func = Function(
                 FunctionType(void, [qubit_ty]),
                 Linkage.EXTERNAL,
                 "__quantum__qis__h__body",
                 module,
             )
-        if not self.s_func:
+        if not hasattr(self, "s_func"):
             self.s_func = Function(
                 FunctionType(void, [qubit_ty]),
                 Linkage.EXTERNAL,
                 "__quantum__qis__s__body",
                 module,
             )
-        if not self.sadj_func:
+        if not hasattr(self, "sadj_func"):
             self.sadj_func = Function(
                 FunctionType(void, [qubit_ty]),
                 Linkage.EXTERNAL,
                 "__quantum__qis__s__adj",
                 module,
             )
-        if not self.t_func:
+        if not hasattr(self, "t_func"):
             self.t_func = Function(
                 FunctionType(void, [qubit_ty]),
                 Linkage.EXTERNAL,
                 "__quantum__qis__t__body",
                 module,
             )
-        if not self.tadj_func:
+        if not hasattr(self, "tadj_func"):
             self.tadj_func = Function(
                 FunctionType(void, [qubit_ty]),
                 Linkage.EXTERNAL,
                 "__quantum__qis__t__adj",
                 module,
             )
-        if not self.rz_func:
+        if not hasattr(self, "rz_func"):
             self.rz_func = Function(
                 FunctionType(void, [self.double_ty, qubit_ty]),
                 Linkage.EXTERNAL,
                 "__quantum__qis__rz__body",
                 module,
             )
-        if not self.cz_func:
+        if not hasattr(self, "cz_func"):
             self.cz_func = Function(
                 FunctionType(void, [qubit_ty, qubit_ty]),
                 Linkage.EXTERNAL,
@@ -202,15 +203,16 @@ class DecomposeSingleRotationToRz(QirModuleVisitor):
     Decomposes all single qubit rotations to Rz gates.
     """
 
+    h_func: Function
+    s_func: Function
+    sadj_func: Function
+    rz_func: Function
+
     def _on_module(self, module):
         void = Type.void(module.context)
         qubit_ty = qubit_type(module.context)
         self.double_ty = Type.double(module.context)
         # Find or create all the needed functions.
-        self.h_func = None
-        self.s_func = None
-        self.sadj_func = None
-        self.rz_func = None
         for func in module.functions:
             match func.name:
                 case "__quantum__qis__h__body":
@@ -221,28 +223,28 @@ class DecomposeSingleRotationToRz(QirModuleVisitor):
                     self.sadj_func = func
                 case "__quantum__qis__rz__body":
                     self.rz_func = func
-        if not self.h_func:
+        if not hasattr(self, "h_func"):
             self.h_func = Function(
                 FunctionType(void, [qubit_ty]),
                 Linkage.EXTERNAL,
                 "__quantum__qis__h__body",
                 module,
             )
-        if not self.s_func:
+        if not hasattr(self, "s_func"):
             self.s_func = Function(
                 FunctionType(void, [qubit_ty]),
                 Linkage.EXTERNAL,
                 "__quantum__qis__s__body",
                 module,
             )
-        if not self.sadj_func:
+        if not hasattr(self, "sadj_func"):
             self.sadj_func = Function(
                 FunctionType(void, [qubit_ty]),
                 Linkage.EXTERNAL,
                 "__quantum__qis__s__adj",
                 module,
             )
-        if not self.rz_func:
+        if not hasattr(self, "rz_func"):
             self.rz_func = Function(
                 FunctionType(void, [self.double_ty, qubit_ty]),
                 Linkage.EXTERNAL,
@@ -279,27 +281,28 @@ class DecomposeSingleQubitToRzSX(QirModuleVisitor):
     Decomposes all single qubit gates to Rz and Sx gates.
     """
 
+    sx_func: Function
+    rz_func: Function
+
     def _on_module(self, module):
         void = Type.void(module.context)
         qubit_ty = qubit_type(module.context)
         self.double_ty = Type.double(module.context)
         # Find or create all the needed functions.
-        self.sx_func = None
-        self.rz_func = None
         for func in module.functions:
             match func.name:
                 case "__quantum__qis__sx__body":
                     self.sx_func = func
                 case "__quantum__qis__rz__body":
                     self.rz_func = func
-        if not self.sx_func:
+        if not hasattr(self, "sx_func"):
             self.sx_func = Function(
                 FunctionType(void, [qubit_ty]),
                 Linkage.EXTERNAL,
                 "__quantum__qis__sx__body",
                 module,
             )
-        if not self.rz_func:
+        if not hasattr(self, "rz_func"):
             self.rz_func = Function(
                 FunctionType(void, [self.double_ty, qubit_ty]),
                 Linkage.EXTERNAL,
@@ -387,14 +390,15 @@ class DecomposeRzAnglesToCliffordGates(QirModuleVisitor):
     PI_OVER_2 = pi / 2
     TWO_PI = 2 * pi
 
+    z_func: Function
+    s_func: Function
+    sadj_func: Function
+
     def _on_module(self, module):
         void = Type.void(module.context)
         qubit_ty = qubit_type(module.context)
         self.double_ty = Type.double(module.context)
         # Find or create all the needed functions.
-        self.z_func = None
-        self.s_func = None
-        self.sadj_func = None
         for func in module.functions:
             match func.name:
                 case "__quantum__qis__s__body":
@@ -404,21 +408,21 @@ class DecomposeRzAnglesToCliffordGates(QirModuleVisitor):
                 case "__quantum__qis__z__body":
                     self.z_func = func
 
-        if not self.s_func:
+        if not hasattr(self, "s_func"):
             self.s_func = Function(
                 FunctionType(void, [qubit_ty]),
                 Linkage.EXTERNAL,
                 "__quantum__qis__s__body",
                 module,
             )
-        if not self.sadj_func:
+        if not hasattr(self, "sadj_func"):
             self.sadj_func = Function(
                 FunctionType(void, [qubit_ty]),
                 Linkage.EXTERNAL,
                 "__quantum__qis__s__adj",
                 module,
             )
-        if not self.z_func:
+        if not hasattr(self, "z_func"):
             self.z_func = Function(
                 FunctionType(void, [qubit_ty]),
                 Linkage.EXTERNAL,

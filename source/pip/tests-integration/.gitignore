@@ -5,6 +5,9 @@
 *.py[cod]
 *$py.class
 
+# Python expecttest backup files
+*.py.bak
+
 # C extensions
 *.so
 

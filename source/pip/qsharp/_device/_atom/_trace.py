@@ -1,33 +1,8 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from pyqir import Module, Context, QirModuleVisitor, qubit_id, required_num_qubits
-from ._device import Device
-from ._validate import ValidateSingleBlock
-from .._qsharp import QirInputData
-
-
-def trace(
-    qir: str | QirInputData,
-    device: Device | None = None,
-) -> dict:
-    """
-    Trace the execution of a QIR module, returning a structured representation of the operations performed on qubits.
-
-    Args:
-        qir (str | QirInputData): The input QIR module as a string or QirInputData object.
-        device (Device | None): The target device layout. If None, a default device layout for AC1k is used.
-
-    Returns:
-        dict: A dictionary representing the trace of operations on qubits.
-    """
-    if device is None:
-        device = Device.ac1k()
-    module = Module.from_ir(Context(), str(qir))
-    ValidateSingleBlock().run(module)
-    tracer = Trace(device)
-    tracer.run(module)
-    return tracer.trace
+from pyqir import QirModuleVisitor, qubit_id, required_num_qubits
+from .._device import Device
 
 
 class Trace(QirModuleVisitor):

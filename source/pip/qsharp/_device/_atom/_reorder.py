@@ -7,9 +7,6 @@ from pyqir import (
     Instruction,
     Function,
     QirModuleVisitor,
-    is_entry_point,
-    qubit_id,
-    required_num_qubits,
 )
 
 
@@ -53,7 +50,7 @@ class Reorder(QirModuleVisitor):
         # contains instructions of the same type that do not depend on each other.
         steps = []
 
-        # A list of all values used in the current step. This is used to determine if an instruction
+        # A list of all values or resultsused in the current step. This is used to determine if an instruction
         # can be added to the current step or if it needs to go into a new step by checking dependencies.
         values_used_in_step = []
         results_used_in_step = []
@@ -62,7 +59,8 @@ class Reorder(QirModuleVisitor):
         # must be at the end of the block.
         output_recording = []
         terminator = block.terminator
-        terminator.remove()
+        if terminator:
+            terminator.remove()
 
         for instr in block.instructions:
             # Remove the instruction from the block, which keeps it alive in the module
@@ -117,36 +115,5 @@ class Reorder(QirModuleVisitor):
         # Add output recording instructions and terminator at the end of the block.
         for instr in output_recording:
             self.builder.instr(instr)
-        self.builder.instr(terminator)
-
-
-class PerQubitOrdering(QirModuleVisitor):
-    """
-    Get the ordering of instructions on each qubit as a data structure.
-    """
-
-    qubit_instructions: list[list[str]]
-
-    def _on_function(self, function):
-        if is_entry_point(function):
-            self.qubit_instructions = [[] for _ in range(required_num_qubits(function))]
-            super()._on_function(function)
-
-    def _on_call_instr(self, call):
-        if call.callee.name == "__quantum__qis__sx__body":
-            self._on_qis_sx(call, call.args[0])
-        else:
-            super()._on_call_instr(call)
-
-    def _on_qis_cz(self, call, ctrl, target):
-        self.qubit_instructions[qubit_id(ctrl)].append(str(call))
-        self.qubit_instructions[qubit_id(target)].append(str(call))
-
-    def _on_qis_sx(self, call, target):
-        self.qubit_instructions[qubit_id(target)].append(str(call))
-
-    def _on_qis_rz(self, call, angle, target):
-        self.qubit_instructions[qubit_id(target)].append(str(call))
-
-    def _on_qis_mresetz(self, call, target, result):
-        self.qubit_instructions[qubit_id(target)].append(str(call))
+        if terminator:
+            self.builder.instr(terminator)
