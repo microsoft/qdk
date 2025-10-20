@@ -10,7 +10,7 @@ use rand::distributions::uniform;
 use std::{cmp::max, cmp::min, num::NonZeroU64};
 use wgpu::{
     Adapter, BindGroup, BindGroupLayout, Buffer, BufferDescriptor, BufferUsages, ComputePipeline,
-    Device, Limits, Queue, RequestAdapterError, ShaderModule, wgc::pipeline,
+    Device, Limits, Queue, RequestAdapterError, ShaderModule,
 };
 
 // Some of these values are to align with WebGPU default limits

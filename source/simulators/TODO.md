@@ -48,6 +48,7 @@ Gates to add:
 
 Features:
 
+- Check prob sums and use metalsim/metalsim/neumaier.c also if necessary.
 - Take a circuit as input, with optional noise config.
   - Only support 'canonical' one and two qubit gates plus 'mov' for now, i.e., NOT 'ccx'.
   - Only support Pauli noise (incl. depolarizing) and qubit loss for now.
