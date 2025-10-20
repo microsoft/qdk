@@ -11,8 +11,7 @@ use std::{
 };
 
 use crate::{
-    Circuit, ComponentColumn, Config, Error, GenerationMethod, Ket, Measurement, Operation,
-    Register, Unitary,
+    Circuit, ComponentColumn, Error, Ket, Measurement, Operation, Register, TracerConfig, Unitary,
     builder::{RegisterMap, finish_circuit},
     circuit::{ResolvedSourceLocation, SourceLocation},
     rir_to_circuit::tracer::{
@@ -206,9 +205,8 @@ pub(crate) fn to_source_location(d: &DbgLocationKind) -> Option<SourceLocation> 
 pub fn make_circuit(
     program: &Program,
     package_store: &PackageStore,
-    config: Config,
+    config: TracerConfig,
 ) -> std::result::Result<Circuit, Error> {
-    assert!(config.generation_method == GenerationMethod::Static);
     let mut register_map_builder = FixedQubitRegisterMapBuilder::new(
         usize::try_from(program.num_qubits).expect("number of qubits should fit in usize"),
     );
@@ -252,7 +250,7 @@ pub fn make_circuit(
 
     let register_map = register_map_builder.into_register_map();
 
-    let mut ops_remaining = config.tracer_config.max_operations;
+    let mut ops_remaining = config.max_operations;
 
     // Do it all again, with all variables properly resolved
     for (id, block) in program.blocks.iter() {
@@ -286,7 +284,7 @@ pub fn make_circuit(
 
     let operations = extend_with_successors(&program_map, entry_block);
 
-    let operations = if config.tracer_config.group_scopes {
+    let operations = if config.group_scopes {
         group_operations(&program.dbg_info, operations)
     } else {
         operations
@@ -299,8 +297,8 @@ pub fn make_circuit(
         operations,
         &program.dbg_info,
         Some(package_store),
-        config.tracer_config.loop_detection,
-        config.tracer_config.collapse_qubit_registers,
+        config.loop_detection,
+        config.collapse_qubit_registers,
     );
 
     Ok(circuit)

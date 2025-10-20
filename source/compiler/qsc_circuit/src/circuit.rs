@@ -306,6 +306,7 @@ pub enum GenerationMethod {
 }
 
 #[derive(Clone, Debug, Copy)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct TracerConfig {
     /// Maximum number of operations the builder will add to the circuit
     pub max_operations: usize,
