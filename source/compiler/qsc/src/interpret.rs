@@ -269,7 +269,7 @@ impl Interpreter {
         Self::with_compiler(dbg, capabilities, circuit_tracer_config, compiler)
     }
 
-    pub fn from(
+    pub fn with_package_store(
         dbg: bool,
         store: PackageStore,
         source_package_id: qsc_hir::hir::PackageId,
