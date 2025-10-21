@@ -349,11 +349,7 @@ fn expr_if(s: &mut ParserContext) -> Result<Box<ExprKind>> {
 fn expr_array(s: &mut ParserContext) -> Result<Box<ExprKind>> {
     token(s, TokenKind::Open(Delim::Bracket))?;
     let kind = expr_array_core(s)?;
-    if Ok::<Box<ExprKind>, Error>(kind.clone()).is_ok() {
-        token(s, TokenKind::Close(Delim::Bracket))?;
-    } else {
-        token(s, TokenKind::Comma)?;
-    }
+    token(s, TokenKind::Close(Delim::Bracket))?;
     Ok(kind)
 }
 
