@@ -14,6 +14,7 @@ fn main() {
     let ops: Vec<Op> = vec![
         init_op,                  // 1, 0xFFFFFFFF, 0xDEADBEEF
         Op::new_h_gate(0),        // 5, 0
+        Op::new_rx_gate(1.0, 0),  // 12, ...
         Op::new_cx_gate(0, 1),    // 15, 0, 1
         Op::new_sample_gate(0.0), // 27
     ];

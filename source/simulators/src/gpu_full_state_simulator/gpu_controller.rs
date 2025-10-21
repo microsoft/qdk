@@ -18,6 +18,9 @@ use wgpu::{
 const MAX_BUFFER_SIZE: usize = 1 << 30; // 1 GB limit due to some wgpu restrictions
 const MAX_QUBIT_COUNT: u32 = 27; // 2^27 * 8 bytes per complex32 = 1 GB buffer limit
 const MAX_QUBITS_PER_WORKGROUP: u32 = 22; // Max qubits to be processed by a single workgroup
+
+// Once a shot is big enough to need multiple workgroups, what's the max number of workgroups possible
+const MAX_PARTITIONED_WORKGROUPS: usize = 1 << (MAX_QUBIT_COUNT - MAX_QUBITS_PER_WORKGROUP);
 const MAX_SHOTS_PER_BATCH: u32 = 65535; // To align with max workgroups per dimension WebGPU default
 const THREADS_PER_WORKGROUP: u32 = 32; // 32 gives good occupancy across various GPUs
 const MIN_QUBIT_COUNT: u32 = 10; // Round up circuit qubits if smaller to enable to optimizations re unrolling, etc.
@@ -49,7 +52,7 @@ struct GpuResources {
 }
 
 struct GpuBuffers {
-    uniform_params: Buffer,
+    workgroup_collation: Buffer,
     shot_state: Buffer,
     state_vector: Buffer,
     ops_upload: Buffer,
@@ -76,9 +79,21 @@ struct RunParams {
     op_count: usize,
 }
 
+// The below structures are used to collate results across workgroups within a shot
 struct QubitProbabilities {
     zero: f32,
     one: f32,
+}
+
+// Each workgroup sums the probabilities for the entries it processed for each qubit
+struct WorkgroupSums {
+    qubits: [QubitProbabilities; MAX_QUBIT_COUNT as usize],
+}
+
+// Once the dispatch for the workgroup processing is done, the results from all workgroups
+// for all active shots are collated here for final processing in the next prepare_op step.
+struct WorkgroupCollationBuffer {
+    sums: [WorkgroupSums; MAX_PARTITIONED_WORKGROUPS],
 }
 
 impl GpuContext {
@@ -248,10 +263,10 @@ impl GpuContext {
     }
 
     fn create_buffers(&mut self) -> GpuBuffers {
-        let uniform_params = self.device.create_buffer(&wgpu::wgt::BufferDescriptor {
-            label: Some("Uniform Params Buffer"),
-            size: std::mem::size_of::<UniformParams>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        let workgroup_collation = self.device.create_buffer(&wgpu::wgt::BufferDescriptor {
+            label: Some("Workgroup Collation Buffer"),
+            size: std::mem::size_of::<WorkgroupCollationBuffer>() as u64,
+            usage: wgpu::BufferUsages::STORAGE,
             mapped_at_creation: false,
         });
 
@@ -288,7 +303,7 @@ impl GpuContext {
         });
 
         GpuBuffers {
-            uniform_params,
+            workgroup_collation,
             shot_state,
             state_vector,
             ops_upload,
@@ -307,7 +322,7 @@ impl GpuContext {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: buffers.uniform_params.as_entire_binding(),
+                    resource: buffers.workgroup_collation.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -439,7 +454,7 @@ impl GpuContext {
 
         compute_pass.set_bind_group(0, &resources.bind_group, &[]);
 
-        // Currently always 1 workgroup per shot for the prepare_op stage
+        // Currently always 1 workgroup per shot (assume 1 thread per workgroup) for the prepare_op stage
         let prepare_workgroup_count = u32::try_from(self.run_params.shots_per_batch)
             .expect("shots_per_batch should fit in u32");
         // Workgroups for execute_op depends on qubit count
@@ -521,29 +536,23 @@ impl GpuContext {
 
 fn create_bind_group_layout(device: &Device) -> BindGroupLayout {
     let buffers = [
-        ("Params", 0, true, true),
-        ("ShotState", 1, false, false),
-        ("Ops", 2, true, false),
-        ("StateVector", 3, false, false),
-        ("Results", 4, false, false),
+        ("WorkgroupCollation", 0, false),
+        ("ShotState", 1, false),
+        ("Ops", 2, true),
+        ("StateVector", 3, false),
+        ("Results", 4, false),
     ]
     .into_iter()
-    .map(
-        |(_, binding, read_only, uniform)| wgpu::BindGroupLayoutEntry {
-            binding,
-            visibility: wgpu::ShaderStages::COMPUTE,
-            ty: wgpu::BindingType::Buffer {
-                ty: (if uniform {
-                    wgpu::BufferBindingType::Uniform
-                } else {
-                    wgpu::BufferBindingType::Storage { read_only }
-                }),
-                has_dynamic_offset: false,
-                min_binding_size: None,
-            },
-            count: None,
+    .map(|(_, binding, read_only)| wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::COMPUTE,
+        ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Storage { read_only },
+            has_dynamic_offset: false,
+            min_binding_size: None,
         },
-    )
+        count: None,
+    })
     .collect::<Vec<_>>();
 
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {

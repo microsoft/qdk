@@ -1,11 +1,12 @@
 # GPU simulator TODOs
 
-Glossary:
+Glossary to help understand the terminology used in the code and notes:
 
 - 'thread' is a single execution unit on the GPU that is part of a workgroup.
 - 'workgroup' is a group of GPU threads that run in sync on one GPU core and can share workgroup memory.
-- 'shot' is a single execution of the quantum circuit.
+- 'shot' is a single execution of a quantum circuit.
 - 'state vector' is the array representing the quantum state of the system, perhaps for multiple shots.
+- 'entries' are the individual complex amplitudes in the state vector.
 - 'chunk' is a contiguous segment of the state vector that a thread updates.
 - 'batch' is a collection of shots processed concurrently on the GPU.
 - 'prepare' kernel updates the shot state in between 'execute' kernel invocations (single-threaded per shot)
@@ -14,10 +15,11 @@ Glossary:
 ## Open questions/decisions
 
 - How to do noise on a 2-qubit gate?
-  - Have a noise call for both qubits after the gate (i.e. non-correlated noise).
+  - For now, have a noise call for both qubits after the gate (i.e. non-correlated noise).
 - How to do SPAM noise?
   - Model by adding an 'Id' gate with noise after reset or before measurement.
 - How to correlate measurement results back into the reported result?
+  - Just do MResetZ with a result id for now.
   - Return all measurement results along with their result id, and correlate back on the CPU.
   - Support only Result[] for now.
 - How to minimize shader logic?
@@ -31,6 +33,9 @@ Glossary:
     - Construct a unitary with `|0><0|*[OP]` (or `|1><1|`), set renormalize value in shot state. Dispatch MAT2Q.
 
 ## Next steps
+
+- Update probabilities after each 2 qubit gate in the 'execute' kernel.
+- Write tests for the above using different size and permutations of circuits.
 
 Gates to add:
 
