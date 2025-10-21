@@ -24,7 +24,7 @@ pub(crate) fn call(
     name_span: PackageSpan,
     arg: Value,
     arg_span: PackageSpan,
-    sim: &mut dyn Backend<ResultType = impl Into<val::Result>>,
+    sim: &mut impl Backend,
     rng: &mut StdRng,
     out: &mut dyn Receiver,
 ) -> Result<Value, Error> {
@@ -196,8 +196,7 @@ pub(crate) fn call(
                 .unwrap_qubit()
                 .try_deref()
                 .ok_or(Error::QubitUsedAfterRelease(arg_span))?
-                .0)
-                .into(),
+                .0),
         )),
         "__quantum__qis__mresetz__body" => Ok(Value::Result(
             sim.mresetz(
@@ -205,8 +204,7 @@ pub(crate) fn call(
                     .try_deref()
                     .ok_or(Error::QubitUsedAfterRelease(arg_span))?
                     .0,
-            )
-            .into(),
+            ),
         )),
         "__quantum__rt__read_loss" => Ok(Value::Bool(arg == Value::Result(val::Result::Loss))),
         _ => {

@@ -11,7 +11,10 @@ use crate::{
 use num_bigint::BigUint;
 use num_complex::Complex;
 use qsc_data_structures::index_map::IndexMap;
-use qsc_eval::{backend::Backend, val::Value};
+use qsc_eval::{
+    backend::Backend,
+    val::{self, Value},
+};
 use std::{fmt::Write, mem::take, rc::Rc};
 
 /// Backend implementation that builds a circuit representation.
@@ -23,8 +26,6 @@ pub struct Builder {
 }
 
 impl Backend for Builder {
-    type ResultType = usize;
-
     fn ccx(&mut self, ctl0: usize, ctl1: usize, q: usize) {
         let ctl0 = self.map(ctl0);
         let ctl1 = self.map(ctl1);
@@ -55,17 +56,17 @@ impl Backend for Builder {
         self.push_gate(gate("H", [q]));
     }
 
-    fn m(&mut self, q: usize) -> Self::ResultType {
+    fn m(&mut self, q: usize) -> val::Result {
         let mapped_q = self.map(q);
         // In the Circuit schema, result id is per-qubit
         let res_id = self.num_measurements_for_qubit(mapped_q);
         let id = self.remapper.m(q);
 
         self.push_gate(measurement_gate(mapped_q.0, res_id));
-        id
+        id.into()
     }
 
-    fn mresetz(&mut self, q: usize) -> Self::ResultType {
+    fn mresetz(&mut self, q: usize) -> val::Result {
         let mapped_q = self.map(q);
         // In the Circuit schema, result id is per-qubit
         let res_id = self.num_measurements_for_qubit(mapped_q);
@@ -78,7 +79,7 @@ impl Backend for Builder {
         // a measurement and a reset gate.
         self.push_gate(measurement_gate(mapped_q.0, res_id));
         self.push_gate(ket_gate("0", [mapped_q]));
-        id
+        id.into()
     }
 
     fn reset(&mut self, q: usize) {

@@ -8,7 +8,8 @@ use num_bigint::BigUint;
 use num_complex::Complex;
 use num_traits::Zero;
 use qdk_simulators::QuantumSim;
-use rand::{Rng, RngCore, SeedableRng, rngs::StdRng};
+use rand::{Rng, RngCore};
+use rand::{SeedableRng, rngs::StdRng};
 
 #[cfg(test)]
 mod noise_tests;
@@ -16,8 +17,6 @@ mod noise_tests;
 /// The trait that must be implemented by a quantum backend, whose functions will be invoked when
 /// quantum intrinsics are called.
 pub trait Backend {
-    type ResultType;
-
     fn ccx(&mut self, _ctl0: usize, _ctl1: usize, _q: usize) {
         unimplemented!("ccx gate");
     }
@@ -33,10 +32,10 @@ pub trait Backend {
     fn h(&mut self, _q: usize) {
         unimplemented!("h gate");
     }
-    fn m(&mut self, _q: usize) -> Self::ResultType {
+    fn m(&mut self, _q: usize) -> val::Result {
         unimplemented!("m operation");
     }
-    fn mresetz(&mut self, _q: usize) -> Self::ResultType {
+    fn mresetz(&mut self, _q: usize) -> val::Result {
         unimplemented!("mresetz operation");
     }
     fn reset(&mut self, _q: usize) {
@@ -222,8 +221,6 @@ impl SparseSim {
 }
 
 impl Backend for SparseSim {
-    type ResultType = val::Result;
-
     fn ccx(&mut self, ctl0: usize, ctl1: usize, q: usize) {
         match (
             self.is_qubit_lost(ctl0),
@@ -283,7 +280,7 @@ impl Backend for SparseSim {
         self.apply_noise(q);
     }
 
-    fn m(&mut self, q: usize) -> Self::ResultType {
+    fn m(&mut self, q: usize) -> val::Result {
         self.apply_noise(q);
         if self.is_qubit_lost(q) {
             // If the qubit is lost, we cannot measure it.
@@ -295,7 +292,7 @@ impl Backend for SparseSim {
         val::Result::Val(self.sim.measure(q))
     }
 
-    fn mresetz(&mut self, q: usize) -> Self::ResultType {
+    fn mresetz(&mut self, q: usize) -> val::Result {
         self.apply_noise(q); // Applying noise before measurement
         if self.is_qubit_lost(q) {
             // If the qubit is lost, we cannot measure it.
@@ -665,190 +662,236 @@ fn unwrap_matrix_as_array2(matrix: Value, qubits: &[usize]) -> Array2<Complex<f6
     })
 }
 
-/// Simple struct that chains two backends together so that the chained
-/// backend is called before the main backend.
-/// For any intrinsics that return a value,
-/// the value returned by the chained backend is ignored.
-/// The value returned by the main backend is returned.
-pub struct Chain<T1, T2> {
-    pub main: T1,
-    pub chained: T2,
+pub struct TracingBackend<'a> {
+    backend: &'a mut dyn Backend,
+    tracer: Option<&'a mut dyn Backend>,
 }
 
-impl<T1, T2> Chain<T1, T2>
-where
-    T1: Backend,
-    T2: Backend,
-{
-    pub fn new(primary: T1, chained: T2) -> Chain<T1, T2> {
-        Chain {
-            main: primary,
-            chained,
+impl<'a> TracingBackend<'a> {
+    pub fn sim_and_optional_trace(
+        backend: &'a mut SparseSim,
+        tracer: &'a mut Option<impl Backend>,
+    ) -> Self {
+        Self {
+            backend,
+            tracer: tracer.as_mut().map(|t| t as &mut dyn Backend),
+        }
+    }
+
+    pub fn sim_and_trace(backend: &'a mut dyn Backend, tracer: &'a mut dyn Backend) -> Self {
+        Self {
+            backend,
+            tracer: Some(tracer),
         }
     }
 }
 
-impl<T1, T2> Backend for Chain<T1, T2>
-where
-    T1: Backend,
-    T2: Backend,
-{
-    type ResultType = T1::ResultType;
-
+impl Backend for TracingBackend<'_> {
     fn ccx(&mut self, ctl0: usize, ctl1: usize, q: usize) {
-        self.chained.ccx(ctl0, ctl1, q);
-        self.main.ccx(ctl0, ctl1, q);
+        self.backend.ccx(ctl0, ctl1, q);
+        if let Some(tracer) = &mut self.tracer {
+            tracer.ccx(ctl0, ctl1, q);
+        }
     }
 
     fn cx(&mut self, ctl: usize, q: usize) {
-        self.chained.cx(ctl, q);
-        self.main.cx(ctl, q);
+        self.backend.cx(ctl, q);
+        if let Some(tracer) = &mut self.tracer {
+            tracer.cx(ctl, q);
+        }
     }
 
     fn cy(&mut self, ctl: usize, q: usize) {
-        self.chained.cy(ctl, q);
-        self.main.cy(ctl, q);
+        self.backend.cy(ctl, q);
+        if let Some(tracer) = &mut self.tracer {
+            tracer.cy(ctl, q);
+        }
     }
 
     fn cz(&mut self, ctl: usize, q: usize) {
-        self.chained.cz(ctl, q);
-        self.main.cz(ctl, q);
+        self.backend.cz(ctl, q);
+        if let Some(tracer) = &mut self.tracer {
+            tracer.cz(ctl, q);
+        }
     }
 
     fn h(&mut self, q: usize) {
-        self.chained.h(q);
-        self.main.h(q);
+        self.backend.h(q);
+        if let Some(tracer) = &mut self.tracer {
+            tracer.h(q);
+        }
     }
 
-    fn m(&mut self, q: usize) -> Self::ResultType {
-        let _ = self.chained.m(q);
-        self.main.m(q)
+    fn m(&mut self, q: usize) -> val::Result {
+        let r = self.backend.m(q);
+        if let Some(tracer) = &mut self.tracer {
+            tracer.m(q);
+        }
+        r
     }
 
-    fn mresetz(&mut self, q: usize) -> Self::ResultType {
-        let _ = self.chained.mresetz(q);
-        self.main.mresetz(q)
+    fn mresetz(&mut self, q: usize) -> val::Result {
+        let r = self.backend.mresetz(q);
+        if let Some(tracer) = &mut self.tracer {
+            tracer.mresetz(q);
+        }
+        r
     }
 
     fn reset(&mut self, q: usize) {
-        self.chained.reset(q);
-        self.main.reset(q);
+        self.backend.reset(q);
+        if let Some(tracer) = &mut self.tracer {
+            tracer.reset(q);
+        }
     }
 
     fn rx(&mut self, theta: f64, q: usize) {
-        self.chained.rx(theta, q);
-        self.main.rx(theta, q);
+        self.backend.rx(theta, q);
+        if let Some(tracer) = &mut self.tracer {
+            tracer.rx(theta, q);
+        }
     }
 
     fn rxx(&mut self, theta: f64, q0: usize, q1: usize) {
-        self.chained.rxx(theta, q0, q1);
-        self.main.rxx(theta, q0, q1);
+        self.backend.rxx(theta, q0, q1);
+        if let Some(tracer) = &mut self.tracer {
+            tracer.rxx(theta, q0, q1);
+        }
     }
 
     fn ry(&mut self, theta: f64, q: usize) {
-        self.chained.ry(theta, q);
-        self.main.ry(theta, q);
+        self.backend.ry(theta, q);
+        if let Some(tracer) = &mut self.tracer {
+            tracer.ry(theta, q);
+        }
     }
 
     fn ryy(&mut self, theta: f64, q0: usize, q1: usize) {
-        self.chained.ryy(theta, q0, q1);
-        self.main.ryy(theta, q0, q1);
+        self.backend.ryy(theta, q0, q1);
+        if let Some(tracer) = &mut self.tracer {
+            tracer.ryy(theta, q0, q1);
+        }
     }
 
     fn rz(&mut self, theta: f64, q: usize) {
-        self.chained.rz(theta, q);
-        self.main.rz(theta, q);
+        self.backend.rz(theta, q);
+        if let Some(tracer) = &mut self.tracer {
+            tracer.rz(theta, q);
+        }
     }
 
     fn rzz(&mut self, theta: f64, q0: usize, q1: usize) {
-        self.chained.rzz(theta, q0, q1);
-        self.main.rzz(theta, q0, q1);
+        self.backend.rzz(theta, q0, q1);
+        if let Some(tracer) = &mut self.tracer {
+            tracer.rzz(theta, q0, q1);
+        }
     }
 
     fn sadj(&mut self, q: usize) {
-        self.chained.sadj(q);
-        self.main.sadj(q);
+        self.backend.sadj(q);
+        if let Some(tracer) = &mut self.tracer {
+            tracer.sadj(q);
+        }
     }
 
     fn s(&mut self, q: usize) {
-        self.chained.s(q);
-        self.main.s(q);
+        self.backend.s(q);
+        if let Some(tracer) = &mut self.tracer {
+            tracer.s(q);
+        }
     }
 
     fn sx(&mut self, q: usize) {
-        self.chained.sx(q);
-        self.main.sx(q);
+        self.backend.sx(q);
+        if let Some(tracer) = &mut self.tracer {
+            tracer.sx(q);
+        }
     }
 
     fn swap(&mut self, q0: usize, q1: usize) {
-        self.chained.swap(q0, q1);
-        self.main.swap(q0, q1);
+        self.backend.swap(q0, q1);
+        if let Some(tracer) = &mut self.tracer {
+            tracer.swap(q0, q1);
+        }
     }
 
     fn tadj(&mut self, q: usize) {
-        self.chained.tadj(q);
-        self.main.tadj(q);
+        self.backend.tadj(q);
+        if let Some(tracer) = &mut self.tracer {
+            tracer.tadj(q);
+        }
     }
 
     fn t(&mut self, q: usize) {
-        self.chained.t(q);
-        self.main.t(q);
+        self.backend.t(q);
+        if let Some(tracer) = &mut self.tracer {
+            tracer.t(q);
+        }
     }
 
     fn x(&mut self, q: usize) {
-        self.chained.x(q);
-        self.main.x(q);
+        self.backend.x(q);
+        if let Some(tracer) = &mut self.tracer {
+            tracer.x(q);
+        }
     }
 
     fn y(&mut self, q: usize) {
-        self.chained.y(q);
-        self.main.y(q);
+        self.backend.y(q);
+        if let Some(tracer) = &mut self.tracer {
+            tracer.y(q);
+        }
     }
 
     fn z(&mut self, q: usize) {
-        self.chained.z(q);
-        self.main.z(q);
+        self.backend.z(q);
+        if let Some(tracer) = &mut self.tracer {
+            tracer.z(q);
+        }
     }
 
     fn qubit_allocate(&mut self) -> usize {
-        // Warning: we use the qubit id allocated by the
-        // main backend, even for later calls into the chained
-        // backend. This is not an issue today, but could
-        // become an issue if the qubit ids differ between
-        // the two backends.
-        let _ = self.chained.qubit_allocate();
-        self.main.qubit_allocate()
+        let q = self.backend.qubit_allocate();
+        if let Some(tracer) = &mut self.tracer {
+            tracer.qubit_allocate(); // ignored
+        }
+        q
     }
 
     fn qubit_release(&mut self, q: usize) -> bool {
-        let _ = self.chained.qubit_release(q);
-        self.main.qubit_release(q)
+        let b = self.backend.qubit_release(q);
+        if let Some(tracer) = &mut self.tracer {
+            tracer.qubit_release(q);
+        }
+        b
     }
 
     fn qubit_swap_id(&mut self, q0: usize, q1: usize) {
-        self.chained.qubit_swap_id(q0, q1);
-        self.main.qubit_swap_id(q0, q1);
+        self.backend.qubit_swap_id(q0, q1);
+        if let Some(tracer) = &mut self.tracer {
+            tracer.qubit_swap_id(q0, q1);
+        }
     }
 
     fn capture_quantum_state(
         &mut self,
     ) -> (Vec<(num_bigint::BigUint, num_complex::Complex<f64>)>, usize) {
-        let _ = self.chained.capture_quantum_state();
-        self.main.capture_quantum_state()
+        self.backend.capture_quantum_state()
     }
 
     fn qubit_is_zero(&mut self, q: usize) -> bool {
-        let _ = self.chained.qubit_is_zero(q);
-        self.main.qubit_is_zero(q)
+        self.backend.qubit_is_zero(q)
     }
 
     fn custom_intrinsic(&mut self, name: &str, arg: Value) -> Option<Result<Value, String>> {
-        let _ = self.chained.custom_intrinsic(name, arg.clone());
-        self.main.custom_intrinsic(name, arg)
+        let res = self.backend.custom_intrinsic(name, arg.clone());
+        if let Some(tracer) = &mut self.tracer {
+            tracer.custom_intrinsic(name, arg);
+        }
+        res
     }
 
     fn set_seed(&mut self, seed: Option<u64>) {
-        self.chained.set_seed(seed);
-        self.main.set_seed(seed);
+        self.backend.set_seed(seed);
     }
 }

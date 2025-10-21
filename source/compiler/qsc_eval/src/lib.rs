@@ -288,7 +288,7 @@ pub fn eval(
     exec_graph: ExecGraph,
     globals: &impl PackageStoreLookup,
     env: &mut Env,
-    sim: &mut impl Backend<ResultType = impl Into<val::Result>>,
+    sim: &mut impl Backend,
     receiver: &mut impl Receiver,
 ) -> Result<Value, (Error, Vec<Frame>)> {
     let mut state = State::new(package, exec_graph, seed, ErrorBehavior::FailOnError);
@@ -310,7 +310,7 @@ pub fn invoke(
     seed: Option<u64>,
     globals: &impl PackageStoreLookup,
     env: &mut Env,
-    sim: &mut impl Backend<ResultType = impl Into<val::Result>>,
+    sim: &mut impl Backend,
     receiver: &mut impl Receiver,
     callable: Value,
     args: Value,
@@ -716,7 +716,7 @@ impl State {
         &mut self,
         globals: &impl PackageStoreLookup,
         env: &mut Env,
-        sim: &mut impl Backend<ResultType = impl Into<val::Result>>,
+        sim: &mut impl Backend,
         out: &mut impl Receiver,
         breakpoints: &[StmtId],
         step: StepAction,
@@ -909,7 +909,7 @@ impl State {
     fn eval_expr(
         &mut self,
         env: &mut Env,
-        sim: &mut impl Backend<ResultType = impl Into<val::Result>>,
+        sim: &mut impl Backend,
         globals: &impl PackageStoreLookup,
         out: &mut impl Receiver,
         expr: ExprId,
@@ -1148,7 +1148,7 @@ impl State {
     fn eval_call(
         &mut self,
         env: &mut Env,
-        sim: &mut impl Backend<ResultType = impl Into<val::Result>>,
+        sim: &mut impl Backend,
         globals: &impl PackageStoreLookup,
         callable_span: Span,
         arg_span: Span,
@@ -1250,7 +1250,7 @@ impl State {
         callee_id: StoreItemId,
         functor: FunctorApp,
         callee: &fir::CallableDecl,
-        sim: &mut impl Backend<ResultType = impl Into<val::Result>>,
+        sim: &mut impl Backend,
         callee_span: PackageSpan,
         arg: Value,
         arg_span: PackageSpan,

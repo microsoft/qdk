@@ -230,6 +230,7 @@ def init(
     target_name: Optional[str] = None,
     project_root: Optional[str] = None,
     language_features: Optional[List[str]] = None,
+    trace_circuit: Optional[bool] = None,
 ) -> Config:
     """
     Initializes the Q# interpreter.
@@ -243,6 +244,8 @@ def init(
 
     :param project_root: An optional path to a root directory with a Q# project to include.
         It must contain a qsharp.json project manifest.
+
+    :param trace_circuit: If true, enables tracing of circuit generation during execution via `eval`.
     """
     from ._fs import read_file, list_directory, exists, join, resolve
     from ._http import fetch_github
@@ -309,6 +312,7 @@ def init(
         fetch_github,
         _make_callable,
         _make_class,
+        trace_circuit,
     )
 
     _config = Config(target_profile, language_features, manifest_contents, project_root)
