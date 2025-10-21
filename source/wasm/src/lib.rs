@@ -12,7 +12,7 @@ use num_complex::Complex64;
 use project_system::{ProgramConfig, into_openqasm_arg, into_qsc_args, is_openqasm_program};
 use qsc::{
     LanguageFeatures, PackageStore, PackageType, PauliNoise, SourceContents, SourceMap, SourceName,
-    SparseSim, TargetCapabilityFlags, TracingBackend,
+    SparseSim, TargetCapabilityFlags,
     compile::{self, Dependencies, package_store_with_stdlib},
     format_state_id, get_matrix_latex, get_state_latex,
     hir::PackageId,
@@ -168,30 +168,30 @@ pub fn get_circuit(
     operation: Option<IOperationInfo>,
     config: Option<ICircuitConfig>, // TODO: make this required
 ) -> Result<JsValue, String> {
-    let config = config.map_or(
-        qsc::circuit::Config {
-            generation_method: qsc::circuit::GenerationMethod::ClassicalEval,
-            tracer_config: Default::default(),
-        },
+    let (method, config) = config.map_or(
+        (
+            qsc::interpret::CircuitGenerationMethod::ClassicalEval,
+            Default::default(),
+        ),
         |c| {
             let c: CircuitConfig = c.into();
-            qsc::circuit::Config {
-                generation_method: match c.generation_method.as_str() {
-                    "simulate" => qsc::circuit::GenerationMethod::Simulate,
-                    "classicalEval" => qsc::circuit::GenerationMethod::ClassicalEval,
-                    "static" => qsc::circuit::GenerationMethod::Static,
+            (
+                match c.generation_method.as_str() {
+                    "simulate" => qsc::interpret::CircuitGenerationMethod::Simulate,
+                    "classicalEval" => qsc::interpret::CircuitGenerationMethod::ClassicalEval,
+                    "static" => qsc::interpret::CircuitGenerationMethod::Static,
                     _ => {
                         panic!("Invalid generation method option: {}", c.generation_method)
                     }
                 },
-                tracer_config: qsc::circuit::TracerConfig {
+                qsc::circuit::TracerConfig {
                     locations: c.locations,
                     max_operations: c.max_operations,
                     loop_detection: c.loop_detection,
                     group_scopes: c.group_scopes,
                     collapse_qubit_registers: c.collapse_qubit_registers,
                 },
-            }
+            )
         },
     );
     if is_openqasm_program(&program) {
@@ -199,7 +199,7 @@ pub fn get_circuit(
         let (_, mut interpreter) = get_interpreter_from_openqasm(&sources, capabilities)?;
 
         let circuit = interpreter
-            .circuit(CircuitEntryPoint::EntryPoint, config)
+            .circuit(CircuitEntryPoint::EntryPoint, method, config)
             .map_err(interpret_errors_into_qsharp_errors_json)?;
         serde_wasm_bindgen::to_value(&circuit).map_err(|e| e.to_string())
     } else {
@@ -229,7 +229,7 @@ pub fn get_circuit(
         .map_err(interpret_errors_into_qsharp_errors_json)?;
 
         let circuit = interpreter
-            .circuit(entry_point, config)
+            .circuit(entry_point, method, config)
             .map_err(interpret_errors_into_qsharp_errors_json)?;
 
         serde_wasm_bindgen::to_value(&circuit).map_err(|e| e.to_string())
@@ -473,7 +473,7 @@ where
         let result = {
             let mut sim = SparseSim::new_with_noise(pauliNoise);
             sim.set_loss(qubitLoss);
-            interpreter.eval_entry_with_sim(&mut TracingBackend::new_no_trace(&mut sim), &mut out)
+            interpreter.eval_entry_with_sim(&mut sim, &mut out)
         };
         let mut success = true;
         let msg: serde_json::Value = match result {
@@ -573,8 +573,7 @@ pub fn runWithNoise(
             let result = {
                 let mut sim = SparseSim::new_with_noise(&noise);
                 sim.set_loss(qubitLoss);
-                interpreter
-                    .eval_entry_with_sim(&mut TracingBackend::new_no_trace(&mut sim), &mut out)
+                interpreter.eval_entry_with_sim(&mut sim, &mut out)
             };
             let mut success = true;
             let msg: serde_json::Value = match result {

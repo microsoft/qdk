@@ -4,10 +4,13 @@
 #![allow(clippy::unicode_not_nfc)]
 
 use super::{CircuitEntryPoint, Debugger, Interpreter};
-use crate::{interpret::Error, target::Profile};
+use crate::{
+    interpret::{CircuitGenerationMethod, Error},
+    target::Profile,
+};
 use expect_test::expect;
 use miette::Diagnostic;
-use qsc_circuit::{Circuit, Config, GenerationMethod, TracerConfig};
+use qsc_circuit::{Circuit, TracerConfig};
 use qsc_data_structures::language_features::LanguageFeatures;
 use qsc_eval::output::GenericReceiver;
 use qsc_frontend::compile::SourceMap;
@@ -17,7 +20,7 @@ fn interpreter(code: &str, profile: Profile, trace_circuit: bool) -> Interpreter
     let sources = SourceMap::new([("test.qs".into(), code.into())], None);
     let (std_id, store) = crate::compile::package_store_with_stdlib(profile.into());
     if trace_circuit {
-        Interpreter::new_with_circuit_tracer(
+        Interpreter::new_with_circuit_trace(
             sources,
             PackageType::Exe,
             profile.into(),
@@ -40,17 +43,19 @@ fn interpreter(code: &str, profile: Profile, trace_circuit: bool) -> Interpreter
 }
 
 fn circuit_both_ways(code: &str, entry: CircuitEntryPoint) -> String {
-    let eval_config = Config {
-        generation_method: GenerationMethod::ClassicalEval,
-        tracer_config: Default::default(),
-    };
-    let static_config = Config {
-        generation_method: GenerationMethod::Static,
-        tracer_config: Default::default(),
-    };
+    let eval_circ = circuit(
+        code,
+        entry.clone(),
+        CircuitGenerationMethod::ClassicalEval,
+        Default::default(),
+    );
 
-    let eval_circ = circuit(code, entry.clone(), eval_config);
-    let static_circ = circuit(code, entry, static_config);
+    let static_circ = circuit(
+        code,
+        entry,
+        CircuitGenerationMethod::Static,
+        Default::default(),
+    );
 
     format!("Eval:\n{eval_circ}\nStatic:\n{static_circ}")
 }
@@ -61,36 +66,51 @@ fn circuit_both_ways_with_config(
     entry: CircuitEntryPoint,
     tracer_config: TracerConfig,
 ) -> String {
-    let eval_config = Config {
-        generation_method: GenerationMethod::ClassicalEval,
+    let eval_circ = circuit(
+        code,
+        entry.clone(),
+        CircuitGenerationMethod::ClassicalEval,
         tracer_config,
-    };
-    let static_config = Config {
-        generation_method: GenerationMethod::Static,
-        tracer_config,
-    };
+    );
 
-    let eval_circ = circuit(code, entry.clone(), eval_config);
-    let static_circ = circuit(code, entry, static_config);
+    let static_circ = circuit(
+        code,
+        entry.clone(),
+        CircuitGenerationMethod::Static,
+        tracer_config,
+    );
+
     format!("Eval:\n{eval_circ}\nStatic:\n{static_circ}")
 }
 
-fn circuit(code: &str, entry: CircuitEntryPoint, config: Config) -> Circuit {
+fn circuit(
+    code: &str,
+    entry: CircuitEntryPoint,
+    method: CircuitGenerationMethod,
+    config: TracerConfig,
+) -> Circuit {
     let profile = if config.generation_method == GenerationMethod::Static {
         Profile::AdaptiveRIF
     } else {
         Profile::Unrestricted
     };
-    circuit_with_profile(code, entry, config, profile)
+    circuit_with_profile(code, entry, method, config, profile)
 }
 
-fn circuit_err(code: &str, entry: CircuitEntryPoint, config: Config) -> Vec<Error> {
+fn circuit_err(
+    code: &str,
+    entry: CircuitEntryPoint,
+    method: CircuitGenerationMethod,
+    tracer_config: TracerConfig,
+) -> Vec<Error> {
     let profile = if config.generation_method == GenerationMethod::Static {
         Profile::AdaptiveRIF
     } else {
         Profile::Unrestricted
     };
-    circuit_inner(code, entry, config, profile).expect_err("circuit generation should fail")
+
+    circuit_inner(code, entry, method, tracer_config, profile)
+        .expect_err("circuit generation should fail")
 }
 
 fn circuit_with_profile_both_ways(
@@ -98,17 +118,21 @@ fn circuit_with_profile_both_ways(
     entry: CircuitEntryPoint,
     profile: Profile,
 ) -> String {
-    let eval_config = Config {
-        generation_method: GenerationMethod::ClassicalEval,
-        tracer_config: Default::default(),
-    };
-    let static_config = Config {
-        generation_method: GenerationMethod::Static,
-        tracer_config: Default::default(),
-    };
+    let eval_circ = circuit_with_profile(
+        code,
+        entry.clone(),
+        CircuitGenerationMethod::ClassicalEval,
+        Default::default(),
+        profile,
+    );
 
-    let eval_circ = circuit_with_profile(code, entry.clone(), eval_config, profile);
-    let static_circ = circuit_with_profile(code, entry, static_config, profile);
+    let static_circ = circuit_with_profile(
+        code,
+        entry,
+        CircuitGenerationMethod::Static,
+        Default::default(),
+        profile,
+    );
 
     format!("Eval:\n{eval_circ}\nStatic:\n{static_circ}")
 }
@@ -116,21 +140,23 @@ fn circuit_with_profile_both_ways(
 fn circuit_with_profile(
     code: &str,
     entry: CircuitEntryPoint,
-    config: Config,
+    method: CircuitGenerationMethod,
+    config: TracerConfig,
     profile: Profile,
 ) -> Circuit {
-    circuit_inner(code, entry, config, profile).expect("circuit generation should succeed")
+    circuit_inner(code, entry, method, config, profile).expect("circuit generation should succeed")
 }
 
 fn circuit_inner(
     code: &str,
     entry: CircuitEntryPoint,
-    config: Config,
+    method: CircuitGenerationMethod,
+    config: TracerConfig,
     profile: Profile,
 ) -> Result<Circuit, Vec<Error>> {
     let mut interpreter = interpreter(code, profile, false);
     interpreter.set_quantum_seed(Some(2));
-    interpreter.circuit(entry, config)
+    interpreter.circuit(entry, method, config)
 }
 
 #[test]
@@ -782,10 +808,8 @@ fn eval_method_result_comparison() {
     let circuit_err = interpreter
         .circuit(
             CircuitEntryPoint::EntryPoint,
-            Config {
-                generation_method: GenerationMethod::ClassicalEval,
-                tracer_config: Default::default(),
-            },
+            CircuitGenerationMethod::ClassicalEval,
+            Default::default(),
         )
         .expect_err("circuit should return error")
         .pop()
@@ -809,10 +833,8 @@ fn eval_method_result_comparison() {
     let circ = interpreter
         .circuit(
             CircuitEntryPoint::EntryPoint,
-            Config {
-                generation_method: GenerationMethod::Simulate,
-                tracer_config: Default::default(),
-            },
+            CircuitGenerationMethod::Simulate,
+            Default::default(),
         )
         .expect("circuit generation should succeed");
 
@@ -862,10 +884,8 @@ fn result_comparison_to_literal() {
             }
         ",
         CircuitEntryPoint::EntryPoint,
-        Config {
-            generation_method: GenerationMethod::Static,
-            tracer_config: Default::default(),
-        },
+        GenerationMethod::Static,
+        Default::default(),
     );
 
     expect![[r#"
@@ -895,10 +915,8 @@ fn result_comparison_to_literal_zero() {
             }
         ",
         CircuitEntryPoint::EntryPoint,
-        Config {
-            generation_method: GenerationMethod::Static,
-            tracer_config: Default::default(),
-        },
+        GenerationMethod::Static,
+        Default::default(),
     );
 
     expect![[r#"
@@ -1223,12 +1241,8 @@ fn custom_intrinsic_mixed_args_classical_eval() {
         }
     }",
         CircuitEntryPoint::EntryPoint,
-        {
-            Config {
-                generation_method: GenerationMethod::ClassicalEval,
-                tracer_config: Default::default(),
-            }
-        },
+        CircuitGenerationMethod::ClassicalEval,
+        Default::default(),
     );
 
     expect![[r#"
@@ -1316,10 +1330,8 @@ fn custom_intrinsic_apply_idle_noise_classical_eval() {
         }
     }",
         CircuitEntryPoint::EntryPoint,
-        Config {
-            generation_method: GenerationMethod::ClassicalEval,
-            tracer_config: Default::default(),
-        },
+        CircuitGenerationMethod::ClassicalEval,
+        Default::default(),
     );
 
     expect![[r#"
@@ -1564,10 +1576,8 @@ fn controlled_operation() {
 
         }",
         CircuitEntryPoint::Operation("Controlled Test.SWAP".into()),
-        Config {
-            generation_method: GenerationMethod::ClassicalEval,
-            tracer_config: Default::default(),
-        },
+        CircuitGenerationMethod::ClassicalEval,
+        Default::default(),
     );
 
     // Controlled operations are not supported at the moment.
@@ -1628,10 +1638,8 @@ fn operation_with_non_qubit_args() {
 
         }",
         CircuitEntryPoint::Operation("Test.Test".into()),
-        Config {
-            generation_method: GenerationMethod::ClassicalEval,
-            tracer_config: Default::default(),
-        },
+        CircuitGenerationMethod::ClassicalEval,
+        Default::default(),
     );
 
     expect![[r"
@@ -1768,10 +1776,8 @@ fn operation_with_subsequent_qubits_no_double_rows() {
             }
         ",
         CircuitEntryPoint::EntryPoint,
-        Config {
-            generation_method: GenerationMethod::Static,
-            tracer_config: Default::default(),
-        },
+        CircuitGenerationMethod::Static,
+        Default::default(),
     );
 
     expect![[r#"
@@ -1804,10 +1810,8 @@ fn operation_with_subsequent_qubits_no_added_rows() {
             }
         ",
         CircuitEntryPoint::EntryPoint,
-        Config {
-            generation_method: GenerationMethod::Static,
-            tracer_config: Default::default(),
-        },
+        CircuitGenerationMethod::Static,
+        Default::default(),
     );
 
     expect![[r#"

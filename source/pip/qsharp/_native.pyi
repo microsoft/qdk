@@ -133,6 +133,7 @@ class Interpreter:
         fetch_github: Callable[[str, str, str, str], str],
         make_callable: Optional[Callable[[GlobalCallable, List[str], str], None]],
         make_class: Optional[Callable[[TypeIR, List[str], str], None]],
+        trace_circuit: Optional[bool],
     ) -> None:
         """
         Initializes the Q# interpreter.
@@ -143,6 +144,7 @@ class Interpreter:
         :param list_directory: A function that lists the contents of a directory.
         :param resolve_path: A function that joins path segments and normalizes the resulting path.
         :param make_callable: A function that registers a Q# callable in the in the environment module.
+        :param trace_circuit: Enables tracing of circuit generation during execution via `eval`.
         """
         ...
 

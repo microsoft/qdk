@@ -669,21 +669,31 @@ pub struct TracingBackend<'a> {
 }
 
 impl<'a> TracingBackend<'a> {
-    pub fn new(backend: &'a mut dyn Backend, tracer: &'a mut dyn Tracer) -> Self {
+    pub fn sim_and_optional_trace(
+        backend: &'a mut SparseSim,
+        tracer: &'a mut Option<impl Tracer>,
+    ) -> Self {
+        Self {
+            backend: OptionalBackend::Some(backend),
+            tracer: tracer.as_mut().map(|t| t as &mut dyn Tracer),
+        }
+    }
+
+    pub fn sim_and_trace(backend: &'a mut dyn Backend, tracer: &'a mut dyn Tracer) -> Self {
         Self {
             backend: OptionalBackend::Some(backend),
             tracer: Some(tracer),
         }
     }
 
-    pub fn new_no_trace(backend: &'a mut dyn Backend) -> Self {
+    pub fn no_trace(backend: &'a mut dyn Backend) -> Self {
         Self {
             backend: OptionalBackend::Some(backend),
             tracer: None,
         }
     }
 
-    pub fn new_no_sim(tracer: &'a mut dyn Tracer) -> Self {
+    pub fn no_sim(tracer: &'a mut dyn Tracer) -> Self {
         Self {
             backend: OptionalBackend::None(BasicAllocator::default()),
             tracer: Some(tracer),
@@ -1108,18 +1118,6 @@ pub trait Tracer {
     fn qubit_swap_id(&mut self, q0: usize, q1: usize, stack: &[Frame]);
     fn custom_intrinsic(&mut self, name: &str, arg: Value, stack: &[Frame]);
     fn is_stacks_enabled(&self) -> bool;
-}
-
-// TODO: reconcile with llvm debug metadata
-pub struct DebugMetadata {
-    pub stack: Vec<Frame>,
-}
-
-impl DebugMetadata {
-    #[must_use]
-    pub fn new(stack: Vec<Frame>) -> Self {
-        Self { stack }
-    }
 }
 
 pub struct GateInputs {
