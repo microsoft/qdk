@@ -1,5 +1,14 @@
 # Circuit diagram improvements
 
+## Branches
+
+```plaintext
+|- minestarks/circuit-folding
+  |- minestarks/circuit-source-links
+    |- minestarks/circuit-disable-tracing
+      |- minestarks/circuit-snapshot-tests
+```
+
 ## Inventory of current work (from PR)
 
 ### Rust
