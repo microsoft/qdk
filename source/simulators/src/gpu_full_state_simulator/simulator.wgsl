@@ -13,6 +13,7 @@
 // The number of qubits being simulated is provided as a specialization constant at pipeline creation time
 // See https://gpuweb.github.io/gpuweb/wgsl/#pipeline-overridable
 override QUBIT_COUNT: i32;
+override WORKGROUPS_PER_SHOT: i32;
 
 // Always use 32 threads per workgroup for max concurrency on most current GPU hardware
 const THREADS_PER_WORKGROUP: i32 = 32;
@@ -237,7 +238,7 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
     // If any qubits were updated in the last op, we may need to sum workgroup probabilities into the shot state
     // This is only needed if multiple workgroups were used for the shot execution. If not, then the
     // single workgroup for the shot would have written directly to the shot state already.
-    if (shot.qubits_updated_last_op_mask != 0 && (QUBIT_COUNT > MAX_QUBITS_PER_WORKGROUP)) {
+    if (shot.qubits_updated_last_op_mask != 0 && (WORKGROUPS_PER_SHOT > 1)) {
         // For each qubit that was updated in the last op
         for (var q: u32 = 0u; q < u32(QUBIT_COUNT); q++) {
             let qubit_mask: u32 = 1u << q;
@@ -245,10 +246,9 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
                 // Sum the workgroup collation entries for this qubit into the shot state
                 var total_zero: f32 = 0.0;
                 var total_one: f32 = 0.0;
-                let workgroups_per_shot: u32 = 1u << u32(max(0, QUBIT_COUNT - MAX_QUBITS_PER_WORKGROUP));
                 // Offset into workgroup collation buffer based on shot index
-                let offset = shot_buffer_idx * workgroups_per_shot;
-                for (var wkg_idx: u32 = 0u; wkg_idx < workgroups_per_shot; wkg_idx++) {
+                let offset = shot_buffer_idx * u32(WORKGROUPS_PER_SHOT);
+                for (var wkg_idx: u32 = 0u; wkg_idx < u32(WORKGROUPS_PER_SHOT); wkg_idx++) {
                     let sums = workgroup_collation.sums[wkg_idx + offset];
                     total_zero = total_zero + sums.qubits[q].x;
                     total_one = total_one + sums.qubits[q].y;
@@ -356,9 +356,8 @@ fn execute_op(
         @builtin(workgroup_id) workgroupId: vec3<u32>,
         @builtin(local_invocation_index) tid: u32) {
     // Workgroups are per shot if 22 or less qubits, else 2 workgroups for 23 qubits, 4 for 24, etc..
-    let workgroups_per_shot: i32 = 1 << u32(max(0, QUBIT_COUNT - MAX_QUBITS_PER_WORKGROUP));
-    let shot_buffer_idx: i32 = i32(workgroupId.x) / workgroups_per_shot;
-    let workgroup_idx_in_shot: i32 = i32(workgroupId.x) % workgroups_per_shot;
+    let shot_buffer_idx: i32 = i32(workgroupId.x) / WORKGROUPS_PER_SHOT;
+    let workgroup_idx_in_shot: i32 = i32(workgroupId.x) % WORKGROUPS_PER_SHOT;
 
     // If the shots spans workgroups, then the thread index is not just the workgroup index
     let thread_idx_in_shot: i32 = workgroup_idx_in_shot * THREADS_PER_WORKGROUP + i32(tid);
@@ -366,13 +365,13 @@ fn execute_op(
     // If using multiple workgroups per shot, each workgroup will write its partial sums here for later collation
     // Use -1 as a marker for single workgroup per shot case to indicate no collation needed (in which
     // case we should write directly to the shot).
-    let workgroup_collation_idx: i32 = select(-1, i32(workgroupId.x), workgroups_per_shot > 1);
+    let workgroup_collation_idx: i32 = select(-1, i32(workgroupId.x), WORKGROUPS_PER_SHOT > 1);
 
     let shot = &shots[shot_buffer_idx];
 
     // Here 'entries' refers to complex amplitudes in the state vector
     let entries_per_shot: i32 = 1 << u32(QUBIT_COUNT);
-    let entries_per_workgroup: i32 = entries_per_shot / workgroups_per_shot;
+    let entries_per_workgroup: i32 = entries_per_shot / WORKGROUPS_PER_SHOT;
     let entries_per_thread: i32 = entries_per_workgroup / THREADS_PER_WORKGROUP;
 
     let shot_state_vector_start: i32 = shot_buffer_idx * entries_per_shot;

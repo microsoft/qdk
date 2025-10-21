@@ -72,7 +72,9 @@ struct RunParams {
     ops_buffer_size: usize,
     state_vector_buffer_size: usize,
     results_buffer_size: usize,
-    entries_processed_per_thread: usize,
+    entries_per_shot: usize,
+    entries_per_workgroup: usize,
+    entries_per_thread: usize,
     batch_count: usize,
     shots_per_batch: usize,
     workgroups_per_shot: usize,
@@ -219,8 +221,8 @@ impl GpuContext {
         let state_vector_entry_size = std::mem::size_of::<f32>() * 2; // complex f32
         let op_size = std::mem::size_of::<Op>();
 
-        let state_vector_entries_per_shot: usize = 1 << qubit_count;
-        let state_vector_size_per_shot = state_vector_entries_per_shot * state_vector_entry_size;
+        let entries_per_shot: usize = 1 << qubit_count;
+        let state_vector_size_per_shot = entries_per_shot * state_vector_entry_size;
         let max_shot_state_vectors = MAX_BUFFER_SIZE / state_vector_size_per_shot;
 
         // How many of the structures would fit
@@ -245,16 +247,19 @@ impl GpuContext {
 
         let batch_count = (shot_count as usize - 1) / shots_per_batch + 1;
 
+        let entries_per_workgroup = entries_per_shot / workgroups_per_shot;
+
         // NOTE: There was always be min 10 qubits, so min 1024 entries
-        let entries_processed_per_thread =
-            ((1u32 << qubit_count.min(MAX_QUBITS_PER_WORKGROUP)) / THREADS_PER_WORKGROUP) as usize;
+        let entries_per_thread = entries_per_workgroup / THREADS_PER_WORKGROUP as usize;
 
         Ok(RunParams {
             shots_buffer_size,
             ops_buffer_size,
             state_vector_buffer_size,
             results_buffer_size,
-            entries_processed_per_thread,
+            entries_per_shot,
+            entries_per_workgroup,
+            entries_per_thread,
             batch_count,
             workgroups_per_shot,
             shots_per_batch,
@@ -360,7 +365,13 @@ impl GpuContext {
                     module: &self.shader_module,
                     entry_point: Some("prepare_op"),
                     compilation_options: wgpu::PipelineCompilationOptions {
-                        constants: &[("QUBIT_COUNT", f64::from(self.qubit_count))],
+                        constants: &[
+                            ("QUBIT_COUNT", f64::from(self.qubit_count)),
+                            (
+                                "WORKGROUPS_PER_SHOT",
+                                f64::from(self.run_params.workgroups_per_shot as u32),
+                            ),
+                        ],
                         ..Default::default()
                     },
                     cache: None,
@@ -374,7 +385,13 @@ impl GpuContext {
                     module: &self.shader_module,
                     entry_point: Some("execute_op"),
                     compilation_options: wgpu::PipelineCompilationOptions {
-                        constants: &[("QUBIT_COUNT", f64::from(self.qubit_count))],
+                        constants: &[
+                            ("QUBIT_COUNT", f64::from(self.qubit_count)),
+                            (
+                                "WORKGROUPS_PER_SHOT",
+                                f64::from(self.run_params.workgroups_per_shot as u32),
+                            ),
+                        ],
                         ..Default::default()
                     },
                     cache: None,
