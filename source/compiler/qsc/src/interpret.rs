@@ -177,7 +177,7 @@ pub struct TaggedItem {
 }
 
 impl Interpreter {
-    pub fn new_with_circuit_tracer(
+    pub fn new_with_circuit_trace(
         sources: SourceMap,
         package_type: PackageType,
         capabilities: TargetCapabilityFlags,

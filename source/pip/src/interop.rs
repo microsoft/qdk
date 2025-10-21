@@ -10,10 +10,9 @@ use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
-use qsc::circuit::TracerConfig;
 use qsc::hir::PackageId;
 use qsc::interpret::output::Receiver;
-use qsc::interpret::{CircuitEntryPoint, Interpreter, into_errors};
+use qsc::interpret::{CircuitEntryPoint, CircuitGenerationMethod, Interpreter, into_errors};
 use qsc::project::ProjectType;
 use qsc::qasm::compiler::compile_to_qsharp_ast_with_config;
 use qsc::qasm::semantic::QasmSemanticParseResult;
@@ -595,14 +594,11 @@ pub(crate) fn circuit_qasm_program(
         .set_entry_expr(&entry_expr)
         .map_err(|errors| map_entry_compilation_errors(errors, &signature))?;
 
-    // TODO: backcompat, for now
-    let method = qsc::interpret::CircuitGenerationMethod::ClassicalEval;
-    let config = TracerConfig {
-        locations: false,
-        ..Default::default()
-    };
-
-    match interpreter.circuit(CircuitEntryPoint::EntryExpr(entry_expr), method, config) {
+    match interpreter.circuit(
+        CircuitEntryPoint::EntryExpr(entry_expr),
+        CircuitGenerationMethod::ClassicalEval,
+        Default::default(),
+    ) {
         Ok(circuit) => crate::interpreter::Circuit(circuit).into_py_any(py),
         Err(errors) => Err(QSharpError::new_err(format_errors(errors))),
     }

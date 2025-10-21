@@ -450,7 +450,7 @@ def test_run_with_shots() -> None:
 
 def test_dump_circuit() -> None:
     # TODO: these locations look off
-    e = Interpreter(TargetProfile.Unrestricted)
+    e = Interpreter(TargetProfile.Unrestricted, trace_circuit=True)
     e.interpret(
         """
     use q1 = Qubit();
@@ -461,8 +461,8 @@ def test_dump_circuit() -> None:
     circuit = e.dump_circuit()
     assert str(circuit) == dedent(
         """\
-        q_0@line_0:4:4 ─ X@line_0:4:4 ──
-        q_1@line_0:4:4 ─────────────────
+        q_0    ── X ──
+        q_1    ───────
         """
     )
 
@@ -470,8 +470,8 @@ def test_dump_circuit() -> None:
     circuit = e.dump_circuit()
     assert str(circuit) == dedent(
         """\
-        q_0@line_1:0:6 ─ X@line_1:0:6 ──
-        q_1@line_1:0:6 ─ X@line_1:0:6 ──
+        q_0    ── X ──
+        q_1    ── X ──
         """
     )
 

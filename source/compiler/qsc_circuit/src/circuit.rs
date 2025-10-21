@@ -42,6 +42,29 @@ pub struct Circuit {
     pub component_grid: ComponentGrid,
 }
 
+impl Circuit {
+    #[must_use]
+    pub fn display_no_locations(&self) -> impl Display {
+        CircuitDisplay {
+            circuit: self,
+            render_locations: false,
+        }
+    }
+}
+
+impl Display for Circuit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            CircuitDisplay {
+                circuit: self,
+                render_locations: true,
+            }
+        )
+    }
+}
+
 /// Type alias for a grid of components.
 pub type ComponentGrid = Vec<ComponentColumn>;
 
@@ -314,6 +337,7 @@ struct Row {
     wire: Wire,
     objects: ObjectsByColumn,
     next_column: usize,
+    render_locations: bool,
 }
 
 enum Wire {
@@ -339,8 +363,10 @@ impl Row {
 
     fn add_measurement(&mut self, column: usize, source: Option<&SourceLocation>) {
         let mut gate_label = String::from("M");
-        if let Some(SourceLocation::Resolved(loc)) = source {
-            let _ = write!(&mut gate_label, "@{loc}");
+        if self.render_locations {
+            if let Some(SourceLocation::Resolved(loc)) = source {
+                let _ = write!(&mut gate_label, "@{loc}");
+            }
         }
         self.add(column, CircuitObject::Object(gate_label.to_string()));
     }
@@ -364,8 +390,10 @@ impl Row {
             let _ = write!(&mut gate_label, "({args})");
         }
 
-        if let Some(SourceLocation::Resolved(loc)) = source {
-            let _ = write!(&mut gate_label, "@{}:{}:{}", loc.file, loc.line, loc.column);
+        if self.render_locations {
+            if let Some(SourceLocation::Resolved(loc)) = source {
+                let _ = write!(&mut gate_label, "@{}:{}:{}", loc.file, loc.line, loc.column);
+            }
         }
 
         self.add_object(column, gate_label.as_str());
@@ -545,7 +573,12 @@ impl Column {
     }
 }
 
-impl Display for Circuit {
+struct CircuitDisplay<'a> {
+    circuit: &'a Circuit,
+    render_locations: bool,
+}
+
+impl Display for CircuitDisplay<'_> {
     /// Formats the circuit into a diagram.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut rows = vec![];
@@ -565,7 +598,12 @@ impl Display for Circuit {
         self.initialize_rows(&mut rows, &mut register_to_row, &qubits_with_gap_row_below);
 
         // Add operations to the diagram
-        Self::add_operations_to_diagram(1, &self.component_grid, &mut rows, &register_to_row);
+        Self::add_operations_to_diagram(
+            1,
+            &self.circuit.component_grid,
+            &mut rows,
+            &register_to_row,
+        );
 
         // Finalize the diagram by extending wires and formatting columns
         let columns = finalize_columns(&rows);
@@ -579,10 +617,10 @@ impl Display for Circuit {
     }
 }
 
-impl Circuit {
+impl CircuitDisplay<'_> {
     /// Identifies qubits that require gap rows for multi-qubit operations.
     fn identify_qubits_with_gap_rows(&self, qubits_with_gap_row_below: &mut FxHashSet<usize>) {
-        for col in &self.component_grid {
+        for col in &self.circuit.component_grid {
             for op in &col.components {
                 let targets = match op {
                     Operation::Measurement(m) => &m.qubits,
@@ -614,24 +652,27 @@ impl Circuit {
         register_to_row: &mut FxHashMap<(usize, Option<usize>), usize>,
         qubits_with_gap_row_below: &FxHashSet<usize>,
     ) {
-        for q in &self.qubits {
+        for q in &self.circuit.qubits {
             let mut label = format!("q_{}", q.id);
-            let mut first = true;
-            for loc in q.declarations.iter().flatten() {
-                if let SourceLocation::Resolved(loc) = loc {
-                    if first {
-                        label.push('@');
-                        first = false;
-                    } else {
-                        label.push_str(", ");
+            if self.render_locations {
+                let mut first = true;
+                for loc in q.declarations.iter().flatten() {
+                    if let SourceLocation::Resolved(loc) = loc {
+                        if first {
+                            label.push('@');
+                            first = false;
+                        } else {
+                            label.push_str(", ");
+                        }
+                        let _ = write!(&mut label, "{loc}");
                     }
-                    let _ = write!(&mut label, "{loc}");
                 }
             }
             rows.push(Row {
                 wire: Wire::Qubit { label },
                 objects: FxHashMap::default(),
                 next_column: 1,
+                render_locations: self.render_locations,
             });
 
             register_to_row.insert((q.id, None), rows.len() - 1);
@@ -650,6 +691,7 @@ impl Circuit {
                     wire: Wire::Classical { start_column: None },
                     objects: FxHashMap::default(),
                     next_column: 1,
+                    render_locations: self.render_locations,
                 });
 
                 register_to_row.insert((q.id, Some(i)), rows.len() - 1);

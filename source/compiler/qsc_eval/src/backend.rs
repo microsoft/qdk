@@ -1120,18 +1120,6 @@ pub trait Tracer {
     fn is_stacks_enabled(&self) -> bool;
 }
 
-// TODO: reconcile with llvm debug metadata
-pub struct DebugMetadata {
-    pub stack: Vec<Frame>,
-}
-
-impl DebugMetadata {
-    #[must_use]
-    pub fn new(stack: Vec<Frame>) -> Self {
-        Self { stack }
-    }
-}
-
 pub struct GateInputs {
     pub target_qubits: Vec<usize>,
     pub control_qubits: Vec<usize>,
