@@ -22,9 +22,8 @@ use miette::Diagnostic;
 use num_bigint::BigUint;
 use num_complex::Complex;
 use qsc_circuit::{
-    Circuit, Circuit, CircuitTracer, CircuitTracer, Config as CircuitConfig, GenerationMethod,
-    TracerConfig, TracerConfig, operations::entry_expr_for_qubit_operation,
-    operations::entry_expr_for_qubit_operation, rir_to_circuit::make_circuit,
+    Circuit, CircuitTracer, TracerConfig, operations::entry_expr_for_qubit_operation,
+    rir_to_circuit::make_circuit,
 };
 use qsc_codegen::qir::{fir_to_qir, fir_to_qir_from_callable, fir_to_rir};
 use qsc_data_structures::{
@@ -965,14 +964,33 @@ impl Interpreter {
             CircuitGenerationMethod::ClassicalEval => {
                 self.eval_with_tracing_backend(entry, &mut TracingBackend::no_sim(&mut tracer))?;
             }
-            GenerationMethod::Static => {
-                return self.static_circuit(
-                    entry_expr.as_deref(),
-                    invoke_params,
-                    config.tracer_config,
-                );
+            CircuitGenerationMethod::Static => {
+                let (entry_expr, invoke_params) = match &entry {
+                    CircuitEntryPoint::Operation(operation_expr) => {
+                        let (item, functor_app) = self.eval_to_operation(operation_expr)?;
+                        let expr =
+                            entry_expr_for_qubit_operation(item, functor_app, operation_expr)
+                                .map_err(|e| vec![e.into()])?;
+                        (Some(expr), None)
+                    }
+                    CircuitEntryPoint::EntryExpr(expr) => (Some(expr.clone()), None),
+                    CircuitEntryPoint::Callable(call_val, args_val) => {
+                        (None, Some((call_val, args_val)))
+                    }
+                    CircuitEntryPoint::EntryPoint => (None, None),
+                };
+                if invoke_params.is_some() {
+                    // TODO: Static circuit generation from a callable is not yet supported.
+                    self.eval_with_tracing_backend(
+                        entry,
+                        &mut TracingBackend::no_sim(&mut tracer),
+                    )?;
+                }
+                return self.static_circuit(entry_expr.as_deref(), tracer_config);
             }
-        };
+        }
+
+        let circuit = tracer.finish(Some(self.compiler.package_store()));
 
         Ok(circuit)
     }
@@ -980,31 +998,15 @@ impl Interpreter {
     fn static_circuit(
         &mut self,
         entry_expr: Option<&str>,
-        invoke_params: Option<(Value, Value)>,
         tracer_config: TracerConfig,
     ) -> std::result::Result<Circuit, Vec<Error>> {
         if self.capabilities == TargetCapabilityFlags::all() {
             return Err(vec![Error::UnsupportedRuntimeCapabilities]);
         }
 
-        if let Some((callable, args)) = invoke_params {
-            // TODO: Static circuit generation from a callable is not yet supported.
-            let mut tracer = CircuitTracer::new(tracer_config);
-            let mut sink = std::io::sink();
-            let mut out = GenericReceiver::new(&mut sink);
-
-            self.invoke_with_sim(
-                &mut TracingBackend::new_no_sim(&mut tracer),
-                &mut out,
-                callable,
-                args,
-            )?;
-            Ok(tracer.finish(Some(self.compiler.package_store())))
-        } else {
-            let program = self.compile_to_rir(entry_expr)?;
-            make_circuit(&program, self.compiler.package_store(), tracer_config)
-                .map_err(|e| vec![e.into()])
-        }
+        let program = self.compile_to_rir(entry_expr)?;
+        make_circuit(&program, self.compiler.package_store(), tracer_config)
+            .map_err(|e| vec![e.into()])
     }
 
     fn compile_to_rir(
