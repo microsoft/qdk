@@ -659,6 +659,8 @@ if build_pip and build_widgets and args.integration_tests:
         for dp, _, filenames in os.walk(samples_src)
         for f in filenames
         if f.endswith(".ipynb")
+        # Skip all Cirq sample notebooks under the cirq_samples folder
+        and "cirq_samples" not in dp
         and not (
             f.startswith("sample.")
             or f.startswith("azure_submission.")
