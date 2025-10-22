@@ -16,6 +16,8 @@ override QUBIT_COUNT: i32;
 override RESULT_COUNT: u32;
 override WORKGROUPS_PER_SHOT: i32;
 
+const DBG = true; // Enable to add extra checks
+
 // Always use 32 threads per workgroup for max concurrency on most current GPU hardware
 const THREADS_PER_WORKGROUP: i32 = 32;
 const MAX_QUBIT_COUNT: i32 = 27;
@@ -192,6 +194,9 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
     let op_idx = shot.next_op_idx;
     let op = &op[op_idx];
 
+    // Default to 1.0 renormalization (i.e., no renormalization needed). MResetZ will update this if needed.
+    shot.renormalize = 1.0;
+
     // *******************************
     // PHASE 1: If the op is a full batch reset (i.e. start of a new batch), clean the state and exit
     // *******************************
@@ -220,7 +225,6 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
         }
         shot.qubit_is_0_mask = (1u << u32(QUBIT_COUNT)) - 1u; // All qubits are |0>
         shot.qubit_is_1_mask = 0u;
-        shot.renormalize = 1.0;
         shot.qubits_updated_last_op_mask = 0;
 
         // Tell the execute_op stage about the op to execute
@@ -563,9 +567,6 @@ fn apply_cx_cz(
     // Each iteration processes 4 amplitudes (the four affected by the 2-qubit gate), so quarter as many iterations as chunk size
     let iterations = chunk_size >> 2;
 
-    // Being we are doing quarter as many iterations for each chunk, what is the start count for this chunk?
-    let start_count = chunk_idx * iterations;
-
     // Calculate masks to split the index into low, mid, and high bits around the two qubits
     let lowQubit = select(c, t, c > t);
     let hiQubit = select(c, t, c < t);
@@ -603,11 +604,22 @@ fn apply_cx_cz(
         let amp10: vec2f = scale * stateVector[shot_start_offset + offset10];
         let amp11: vec2f = scale * stateVector[shot_start_offset + offset11];
 
+        var result10: vec2f;
+        var result11: vec2f;
         if (is_cz) {
-            stateVector[shot_start_offset + offset11] = vec2f(-amp11.x, -amp11.y);
+            result10 = amp10;
+            result11 = vec2f(-amp11.x, -amp11.y);
+            stateVector[shot_start_offset + offset10] = result10;
+            stateVector[shot_start_offset + offset11] = result11;
         } else {
-            stateVector[shot_start_offset + offset10] = amp11;
-            stateVector[shot_start_offset + offset11] = amp10;
+            result10 = amp11;
+            result11 = amp10;
+            stateVector[shot_start_offset + offset10] = result10;
+            stateVector[shot_start_offset + offset11] = result11;
+        }
+        if (scale != 1.0) {
+            stateVector[shot_start_offset + offset00] = amp00;
+            stateVector[shot_start_offset + offset01] = amp01;
         }
 
         // Update the probabilities for the acted on qubits
@@ -615,9 +627,9 @@ fn apply_cx_cz(
         // as CZ doesn't change probabilities or modify 3 of the 4 states, and CX leaves the control
         // qubit probabilities unchanged and doesn't touch 2 of the 4 states.
         c_zero_probability += cplxmag2(amp00) + cplxmag2(amp01);
-        c_one_probability  += cplxmag2(amp10) + cplxmag2(amp11);
-        t_zero_probability += cplxmag2(amp00) + cplxmag2(amp10);
-        t_one_probability  += cplxmag2(amp01) + cplxmag2(amp11);
+        c_one_probability  += cplxmag2(result10) + cplxmag2(result11);
+        t_zero_probability += cplxmag2(amp00) + cplxmag2(result10);
+        t_one_probability  += cplxmag2(amp01) + cplxmag2(result11);
     }
     // Update this thread's totals for the two qubits in the workgroup storage
     qubitProbabilities[c].zero[tid] = c_zero_probability;
