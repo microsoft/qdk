@@ -79,6 +79,7 @@ struct RunParams {
     shots_per_batch: usize,
     workgroups_per_shot: usize,
     op_count: usize,
+    result_count: usize,
 }
 
 // The below structures are used to collate results across workgroups within a shot
@@ -264,6 +265,7 @@ impl GpuContext {
             workgroups_per_shot,
             shots_per_batch,
             op_count: op_count as usize,
+            result_count: result_count as usize,
         })
     }
 
@@ -371,6 +373,10 @@ impl GpuContext {
                                 "WORKGROUPS_PER_SHOT",
                                 f64::from(self.run_params.workgroups_per_shot as u32),
                             ),
+                            (
+                                "RESULT_COUNT",
+                                f64::from(self.run_params.result_count as u32),
+                            ),
                         ],
                         ..Default::default()
                     },
@@ -391,6 +397,10 @@ impl GpuContext {
                                 "WORKGROUPS_PER_SHOT",
                                 f64::from(self.run_params.workgroups_per_shot as u32),
                             ),
+                            (
+                                "RESULT_COUNT",
+                                f64::from(self.run_params.result_count as u32),
+                            ),
                         ],
                         ..Default::default()
                     },
@@ -405,7 +415,7 @@ impl GpuContext {
         });
     }
 
-    pub async fn run(&self) -> Vec<Result> {
+    pub async fn run(&self) -> Vec<u32> {
         let resources: &GpuResources = self.resources.as_ref().expect("Resources not initialized");
 
         let mut encoder = self
@@ -537,7 +547,7 @@ impl GpuContext {
 
         // Read, copy out, and unmap.
         let data = buffer_slice.get_mapped_range();
-        let results: Vec<Result> = bytemuck::cast_slice(&data).to_vec();
+        let results: Vec<u32> = bytemuck::cast_slice(&data).to_vec();
         drop(data);
         resources.buffers.download.unmap();
 

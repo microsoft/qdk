@@ -279,6 +279,17 @@ impl Op {
         op
     }
 
+    /// Reset gate: maps |0⟩ to |0⟩ and |1⟩ to |0⟩
+    /// Note: This is used with a qubit id of u32::MAX to indicate a reset of the entire system
+    #[must_use]
+    pub fn new_mresetz_gate(qubit: u32, result_id: u32) -> Self {
+        let mut op = Self::new_1q_gate(ops::MRESETZ, qubit);
+        // Store the result id in q2
+        op.q2 = result_id;
+        // Matrix will need to be determined in the simulator based on the measurement outcome
+        op
+    }
+
     /// X gate (Pauli-X): [[0, 1], [1, 0]]
     #[must_use]
     pub fn new_x_gate(qubit: u32) -> Self {

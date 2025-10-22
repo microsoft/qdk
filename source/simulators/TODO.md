@@ -18,10 +18,6 @@ Glossary to help understand the terminology used in the code and notes:
   - For now, have a noise call for both qubits after the gate (i.e. non-correlated noise).
 - How to do SPAM noise?
   - Model by adding an 'Id' gate with noise after reset or before measurement.
-- How to correlate measurement results back into the reported result?
-  - Just do MResetZ with a result id for now.
-  - Return all measurement results along with their result id, and correlate back on the CPU.
-  - Support only Result[] for now.
 - How to minimize shader logic?
   - Only gates in the shader should be: ID, RZ, RZZ, CZ, CX, SWAP, MAT1Q, MAT2Q, MRESETZ, SAMPLE, PROBS
     - ID can be elided, MZ,RESET,SAMPLE,PROBS have unique logic, and RZ,RZZ,CZ,CX,SWAP can be optimized nicely.
@@ -34,10 +30,12 @@ Glossary to help understand the terminology used in the code and notes:
 
 ## Next steps
 
-- Update probabilities after each 2 qubit gate in the 'execute' kernel.
+- Verify float accumulation precision issues (up to 27 qubits)
 - Write tests for the above using different size and permutations of circuits.
+- Write tests the permute qubits and verify results are the same.
+- Verify output statistically against sparse simulator and Qiskit for various circuits.
 
-Gates to add:
+Gates to add for various scenarios:
 
 - Add h & cx to test Bell pair, qrgn, maximum probability spread, and maximum entanglement.
   - Test float fidelity up to 27 qubits with H on all.

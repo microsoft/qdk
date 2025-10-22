@@ -57,7 +57,7 @@ pub fn run_gpu_shots(
     results: u32,
     ops: Vec<Op>,
     shots: u32,
-) -> Result<Vec<shader_types::Result>, String> {
+) -> Result<Vec<u32>, String> {
     futures::executor::block_on(async {
         let mut controller = gpu_controller::GpuContext::new(qubits, results, ops, shots, true)
             .await

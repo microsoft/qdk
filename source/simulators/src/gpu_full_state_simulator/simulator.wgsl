@@ -13,6 +13,7 @@
 // The number of qubits being simulated is provided as a specialization constant at pipeline creation time
 // See https://gpuweb.github.io/gpuweb/wgsl/#pipeline-overridable
 override QUBIT_COUNT: i32;
+override RESULT_COUNT: u32;
 override WORKGROUPS_PER_SHOT: i32;
 
 // Always use 32 threads per workgroup for max concurrency on most current GPU hardware
@@ -292,7 +293,10 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
     if (op.id == OPID_MRESETZ) {
         // Choose measurement result based on qubit probabilities and random number
         let qubit = op.q1;
+        let result_id = op.q2; // Result id to store the measurement result in is stored in q2
         let result = select(1u, 0u, shot.rand_measure < shot.qubit_state[qubit].zero_probability);
+
+        results[(shot_buffer_idx * RESULT_COUNT) + result_id] = result;
 
         // Construct the measurement instrument for MResetZ based on the measured result
         // Put the instrument into the shot buffer for the execute_op stage to apply
@@ -413,11 +417,17 @@ fn execute_op(
             false, // No need to update all qubit probabilities
             unitary);
         }
-      case OPID_CX {
-        apply_cx_cz(shot_state_vector_start, entries_per_thread, thread_idx_in_shot, op.q1, op.q2, false);
-      }
-      case OPID_CZ {
-        apply_cx_cz(shot_state_vector_start, entries_per_thread, thread_idx_in_shot, op.q1, op.q2, true);
+      case OPID_CX, OPID_CZ {
+        apply_cx_cz(
+            shot_state_vector_start,
+            entries_per_thread,
+            thread_idx_in_shot,
+            op.q1,
+            op.q2,
+            tid,
+            workgroup_collation_idx,
+            shot_buffer_idx,
+            op.id == OPID_CZ);
       }
       case OPID_MRESETZ {
         // The MResetZ instrument matrix for the result is stored in the shot buffer
@@ -512,7 +522,7 @@ fn apply_1q_unitary(
         zero_probability += (new0.x * new0.x + new0.y * new0.y);
         one_probability += (new1.x * new1.x + new1.y * new1.y);
 
-        // If updating all qubit probabilities (e.g., on measurement), do that now
+        // If updating all qubit probabilities (i.e., on measurement), do that now
         if (update_probs) {
             update_qubits_probs(u32(offset), new0, tid);
             update_qubits_probs(u32(offset + stride), new1, tid);
@@ -534,63 +544,120 @@ fn apply_1q_unitary(
     if (tid == 0) {
         for (var q: u32 = 0u; q < u32(QUBIT_COUNT); q++) {
             if (q == qubit || update_probs) {
-                var total_zero: f32 = 0.0;
-                var total_one: f32 = 0.0;
-                for (var j = 0; j < THREADS_PER_WORKGROUP; j++) {
-                    total_zero += qubitProbabilities[q].zero[j];
-                    total_one += qubitProbabilities[q].one[j];
-                }
-                if (wkg_collation_idx >= 0) {
-                    // Write to the workgroup collation buffer for later summation into the shot state
-                    workgroup_collation.sums[wkg_collation_idx].qubits[q] = vec2f(total_zero, total_one);
-                } else {
-                    // Single workgroup per shot case - write directly to the shot state
-                    shots[shot_buffer_idx].qubit_state[q].zero_probability = total_zero;
-                    shots[shot_buffer_idx].qubit_state[q].one_probability = total_one;
-                }
+                sum_thread_totals_to_shot(q, shot_buffer_idx, wkg_collation_idx);
             }
         }
     }
 }
 
-fn apply_cx_cz(shot_start_offset: i32, chunk_size: i32, chunk_idx: i32, c: u32, t: u32, is_cz: bool) {
+fn apply_cx_cz(
+        shot_start_offset: i32,
+        chunk_size: i32,
+        chunk_idx: i32,
+        c: u32,
+        t: u32,
+        tid: u32,
+        workgroup_collation_idx: i32,
+        shot_buffer_idx: i32,
+        is_cz: bool) {
     // Each iteration processes 4 amplitudes (the four affected by the 2-qubit gate), so quarter as many iterations as chunk size
     let iterations = chunk_size >> 2;
 
     // Being we are doing quarter as many iterations for each chunk, what is the start count for this chunk?
-    let start_count = shot_start_offset + chunk_idx * iterations;
-    let end_count = start_count + iterations;
+    let start_count = chunk_idx * iterations;
 
+    // Calculate masks to split the index into low, mid, and high bits around the two qubits
     let lowQubit = select(c, t, c > t);
     let hiQubit = select(c, t, c < t);
 
+    // Number of bits in each section
     let lowBitCount = lowQubit;
     let midBitCount = hiQubit - lowQubit - 1;
-    let hiBitCount = u32(MAX_QUBIT_COUNT) - hiQubit - 1;
+    let hiBitCount = u32(QUBIT_COUNT) - hiQubit - 1;
 
+    // The masks below help extract the low, mid, and high bits from the counter to use around the two qubits locations
     let lowMask = (1 << lowBitCount) - 1;
     let midMask = (1 << (lowBitCount + midBitCount)) - 1 - lowMask;
-    let hiMask = (1 << (lowBitCount + midBitCount + hiBitCount)) - 1 - midMask - lowMask;
+    let hiMask = (1 << u32(QUBIT_COUNT)) - 1 - midMask - lowMask;
 
-    for (var i: i32 = start_count; i < end_count; i++) {
+    // The counter is the monotonic index for all the iterations. Each iteration processes 4 amplitudes.
+    // As this is divided into chunks, we need to offset by the chunk start count.
+    let counter  = chunk_idx * iterations;
+    let end_count = counter + iterations;
+
+    var c_zero_probability: f32 = 0.0;
+    var c_one_probability: f32 = 0.0;
+    var t_zero_probability: f32 = 0.0;
+    var t_one_probability: f32 = 0.0;
+
+    for (var i: i32 = counter; i < end_count; i++) {
         // q1 is the control, q2 is the target
-        let offset10: i32 = (i & lowMask) | ((i & midMask) << 1) | ((i & hiMask) << 2) | (1 << c);
+        let offset00: i32 = (i & lowMask) | ((i & midMask) << 1) | ((i & hiMask) << 2);
+        let offset01: i32 = offset00 | (1 << t);
+        let offset10: i32 = offset00 | (1 << c);
         let offset11: i32 = offset10 | (1 << t);
 
+        let scale = shots[shot_buffer_idx].renormalize;
+        let amp00: vec2f = scale * stateVector[shot_start_offset + offset00];
+        let amp01: vec2f = scale * stateVector[shot_start_offset + offset01];
+        let amp10: vec2f = scale * stateVector[shot_start_offset + offset10];
+        let amp11: vec2f = scale * stateVector[shot_start_offset + offset11];
+
         if (is_cz) {
-            let old11 = stateVector[offset11];
-            stateVector[offset11] = vec2f(-old11.x, -old11.y);
-            // Probability densities don't change for CZ
+            stateVector[shot_start_offset + offset11] = vec2f(-amp11.x, -amp11.y);
         } else {
-            let old10 = stateVector[offset10];
-            stateVector[offset10] = stateVector[offset11];
-            stateVector[offset11] = old10;
-            // TODO: Update the [target] probabilities
+            stateVector[shot_start_offset + offset10] = amp11;
+            stateVector[shot_start_offset + offset11] = amp10;
         }
+
+        // Update the probabilities for the acted on qubits
+        // TODO: For CZ (and CX) when scale is 1.0, we could optimize out some reads and writes,
+        // as CZ doesn't change probabilities or modify 3 of the 4 states, and CX leaves the control
+        // qubit probabilities unchanged and doesn't touch 2 of the 4 states.
+        c_zero_probability += cplxmag2(amp00) + cplxmag2(amp01);
+        c_one_probability  += cplxmag2(amp10) + cplxmag2(amp11);
+        t_zero_probability += cplxmag2(amp00) + cplxmag2(amp10);
+        t_one_probability  += cplxmag2(amp01) + cplxmag2(amp11);
     }
+    // Update this thread's totals for the two qubits in the workgroup storage
+    qubitProbabilities[c].zero[tid] = c_zero_probability;
+    qubitProbabilities[c].one[tid] = c_one_probability;
+    qubitProbabilities[t].zero[tid] = t_zero_probability;
+    qubitProbabilities[t].one[tid] = t_one_probability;
 
     workgroupBarrier();
-    // TODO: Update the probabilities for both qubits (NOTE: Not needed for CZ... just target for CX?)
+
+    // If the workgroup is done updating, have the first thread reduce the per-thread probabilities into the
+    // totals for this workgroup. The subsequent 'prepare_op' will sum the workgroup entries into the shot state.
+    if (tid == 0) {
+        for (var q: u32 = 0u; q < u32(QUBIT_COUNT); q++) {
+            if (q == c || q == t) {
+                sum_thread_totals_to_shot(q, shot_buffer_idx, workgroup_collation_idx);
+            }
+        }
+    }
+}
+
+fn sum_thread_totals_to_shot(q: u32, shot_buffer_idx: i32, wkg_collation_idx: i32) {
+    var total_zero: f32 = 0.0;
+    var total_one: f32 = 0.0;
+    for (var j = 0; j < THREADS_PER_WORKGROUP; j++) {
+        total_zero += qubitProbabilities[q].zero[j];
+        total_one += qubitProbabilities[q].one[j];
+    }
+    if (wkg_collation_idx >= 0) {
+        // Write to the workgroup collation buffer for later summation into the shot state
+        workgroup_collation.sums[wkg_collation_idx].qubits[q] = vec2f(total_zero, total_one);
+    } else {
+        // Single workgroup per shot case - write directly to the shot state
+        shots[shot_buffer_idx].qubit_state[q].zero_probability = total_zero;
+        shots[shot_buffer_idx].qubit_state[q].one_probability = total_one;
+    }
+}
+
+// Complex number utilities
+fn cplxmag2(a: vec2f) -> f32 {
+    return (a.x * a.x + a.y * a.y);
 }
 
 fn cplxmul(a: vec2f, b: vec2f) -> vec2f {
