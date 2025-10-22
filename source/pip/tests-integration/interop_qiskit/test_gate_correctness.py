@@ -8,7 +8,10 @@ from interop_qiskit import QISKIT_AVAILABLE, SKIP_REASON
 
 if QISKIT_AVAILABLE:
     from qiskit import QuantumCircuit
+    from qiskit.qasm3 import dumps
     from qsharp.interop.qiskit import QSharpBackend
+    from qsharp.openqasm import run as run_qasm, OutputSemantics
+    from qsharp import set_quantum_seed, init
 
 from .test_circuits import (
     generate_repro_information,
@@ -114,12 +117,12 @@ def test_qiskit_qir_exercise_rzz() -> None:
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
 def test_qiskit_qir_exercise_barrier_delay() -> None:
-    _test_circuit(*exercise_barrier_delay())
+    _test_circuit(*exercise_barrier_delay(), check_raw_qasm=False)
 
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
 def test_qiskit_qir_exercise_initialize_prepare_state() -> None:
-    _test_circuit(*exercise_initialize_prepare_state())
+    _test_circuit(*exercise_initialize_prepare_state(), check_raw_qasm=False)
 
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
@@ -149,7 +152,7 @@ def test_qiskit_qir_exercise_p() -> None:
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
 def test_qiskit_qir_exercise_pauli() -> None:
-    _test_circuit(*exercise_pauli())
+    _test_circuit(*exercise_pauli(), check_raw_qasm=False)
 
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
@@ -238,7 +241,12 @@ def test_qiskit_qir_exercise_mcx() -> None:
 
 
 def _test_circuit(
-    circuit: "QuantumCircuit", peaks, results_len=1, num_shots=20, meas_level=2
+    circuit: "QuantumCircuit",
+    peaks,
+    results_len=1,
+    num_shots=20,
+    meas_level=2,
+    check_raw_qasm=True,
 ):
     target_profile = TargetProfile.Base
     seed = 42
@@ -271,6 +279,30 @@ def _test_circuit(
 
     # Check if the result is as expected
     assert _check_peaks(counts, peaks)
+
+    if check_raw_qasm:
+        # Now test the circuit as exported, untranspiled OpenQASM
+        qasm_str = dumps(circuit)
+        init()
+        set_quantum_seed(seed)
+        try:
+            result = run_qasm(
+                qasm_str,
+                shots=num_shots,
+                as_bitstring=True,
+                output_semantics=OutputSemantics.Qiskit,
+            )
+        except AssertionError:
+            raise
+        except Exception as ex:
+            raise RuntimeError(f"Failed running QASM:\n{qasm_str}") from ex
+        # Create counts dictionary
+        counts = {}
+        for bitstring in result:
+            counts[bitstring] = counts.get(bitstring, 0) + 1
+
+        # Check if the result is as expected
+        assert _check_peaks(counts, peaks)
 
 
 def _check_peaks(counts, peaks) -> bool:
