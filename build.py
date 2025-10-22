@@ -659,7 +659,7 @@ if build_pip and build_widgets and args.integration_tests:
         for dp, _, filenames in os.walk(samples_src)
         for f in filenames
         if f.endswith(".ipynb")
-        # Skip all Cirq sample notebooks under the cirq_samples folder
+        # Skip all Cirq sample notebooks under the cirq_samples folder, as cirq is not installed in the build machines.
         and "cirq_samples" not in dp
         and not (
             f.startswith("sample.")
