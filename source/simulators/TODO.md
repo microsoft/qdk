@@ -12,6 +12,16 @@ Glossary to help understand the terminology used in the code and notes:
 - 'prepare' kernel updates the shot state in between 'execute' kernel invocations (single-threaded per shot)
 - 'execute' kernel applies the quantum operations to the state vector and sums probabilties (multi-threaded per shot)
 
+# Today
+
+- Add the __qdk__sim__1q_pauli_noise operation and test.
+  - Will need an 'op_count' the excludes noise ops for the dispatch count (as noise will get combined in the kernels).
+- Add batching for multiple rounds of shots
+- Add 'error code' space at the end of the results and fill if any errors occur in the compute kernels
+- Add a 'random_teleport' test that generates random prepare/unprepare on random qubits with random states and does teleportation between them.
+- Add 'op chunking' for circuits that are too large for one command buffer
+- Add rzz and test the speed of Ising on 25 qubits. (Should be similar to apply_1q_gate and use op matrix)
+
 ## Open questions/decisions
 
 - How to do noise on a 2-qubit gate?
@@ -74,6 +84,7 @@ Features:
 - If base profile and no noise, just run one shot and sample the final state vector.
 - Support 'ccx' and 'ccz' gates.
 - Collapse consecutive ops on same qubits into a single op in the 'prepare' kernel.
+  - Could treat subsequent ops - if already dispatched by the CPU - as an ID and have the 'execute' kernel skip them.
 - Try reordering ops for better collapsing of consecutive ops on same qubits.
 - Add support for custom unitaries for gates, and kraus matrices for noise.
 - Test shots with more than 22 qubits (spaning workgroups, float fidelity, etc.)
