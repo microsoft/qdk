@@ -269,7 +269,7 @@ def exercise_rzz() -> Tuple["QuantumCircuit", List[str]]:
     return circuit, ["00", "11"]
 
 
-def exercise_barrier_delay() -> Tuple["QuantumCircuit", List[str]]:
+def exercise_barrier() -> Tuple["QuantumCircuit", List[str]]:
     """Expected result:
     (1)
     """
@@ -282,15 +282,23 @@ def exercise_barrier_delay() -> Tuple["QuantumCircuit", List[str]]:
     circuit.barrier()
     circuit.x(0)
 
+    circuit.measure(0, 0)
+
+    return circuit, ["1"]
+
+
+def exercise_delay() -> Tuple["QuantumCircuit", List[str]]:
+    """Expected result:
+    (0)
+    """
+    circuit = QuantumCircuit(1, 1)
+    circuit.name = "Test_delay"
+
     circuit.delay(100, 0, unit="ns")  # Introducing a delay of 100 nanoseconds
 
     circuit.measure(0, 0)
 
-    # Always transpile here to avoid issues with barrier/delay not being supported
-    # in OpenQASM conversion
-    circuit = QSharpBackend().transpile(circuit)
-
-    return circuit, ["1"]
+    return circuit, ["0"]
 
 
 def exercise_initialize_prepare_state() -> Tuple["QuantumCircuit", List[str]]:
@@ -306,10 +314,6 @@ def exercise_initialize_prepare_state() -> Tuple["QuantumCircuit", List[str]]:
     circuit.prepare_state([1 / np.sqrt(2), -1 / np.sqrt(2)], 1)
     circuit.h(1)
     circuit.measure(1, 1)
-
-    # Always transpile here to avoid issues with initialize/prepare_state not being supported
-    # in OpenQASM conversion
-    circuit = QSharpBackend().transpile(circuit)
 
     return circuit, ["11"]
 
@@ -390,10 +394,6 @@ def exercise_pauli() -> Tuple["QuantumCircuit", List[str]]:
     circuit.pauli("XZ", [0, 1])
     circuit.h(0)
     circuit.measure([0, 1], [0, 1])
-
-    # Always transpile here to avoid issues with pauli gate not being supported
-    # in OpenQASM conversion
-    circuit = QSharpBackend().transpile(circuit)
 
     return circuit, ["11"]
 

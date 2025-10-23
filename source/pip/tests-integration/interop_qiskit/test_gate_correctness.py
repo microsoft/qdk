@@ -31,7 +31,8 @@ from .test_circuits import (
     exercise_ecr,
     exercise_initialize_prepare_state,
     exercise_iswap,
-    exercise_barrier_delay,
+    exercise_barrier,
+    exercise_delay,
     exercise_ms,
     exercise_p,
     exercise_pauli,
@@ -116,13 +117,24 @@ def test_qiskit_qir_exercise_rzz() -> None:
 
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
-def test_qiskit_qir_exercise_barrier_delay() -> None:
-    _test_circuit(*exercise_barrier_delay())
+def test_qiskit_qir_exercise_barrier() -> None:
+    _test_circuit(*exercise_barrier())
+
+
+@pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
+def test_qiskit_qir_exercise_delay() -> None:
+    _test_circuit(
+        *exercise_delay(),
+        skip_transpilation_option_set=[False]  # Delay requires transpilation
+    )
 
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
 def test_qiskit_qir_exercise_initialize_prepare_state() -> None:
-    _test_circuit(*exercise_initialize_prepare_state())
+    _test_circuit(
+        *exercise_initialize_prepare_state(),
+        skip_transpilation_option_set=[False]  # prepare state requires transpilation
+    )
 
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
@@ -152,7 +164,10 @@ def test_qiskit_qir_exercise_p() -> None:
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
 def test_qiskit_qir_exercise_pauli() -> None:
-    _test_circuit(*exercise_pauli())
+    _test_circuit(
+        *exercise_pauli(),
+        skip_transpilation_option_set=[False]  # Pauli requires transpilation
+    )
 
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
@@ -246,9 +261,10 @@ def _test_circuit(
     results_len=1,
     num_shots=20,
     meas_level=2,
+    skip_transpilation_option_set=[False, True],
 ):
     # Test both with and without transpilation
-    for skip_transpilation in [False, True]:
+    for skip_transpilation in skip_transpilation_option_set:
         target_profile = TargetProfile.Base
         seed = 42
         backend = QSharpBackend(
