@@ -9,10 +9,23 @@ use std::time::Instant;
 
 fn main() {
     simple_bell_pair();
-    test_simple_rotation_and_entanglement();
     bell_at_scale();
     scale_teleport();
     test_pauli_noise();
+    test_simple_rotation_and_entanglement();
+}
+
+fn split_results(result_count: usize, results: &[u32]) -> (Vec<Vec<u32>>, Vec<u32>) {
+    let results_list = results
+        .chunks(result_count + 1)
+        .map(|chunk| chunk[..result_count].to_vec())
+        .collect::<Vec<Vec<u32>>>();
+    // Separate out every 3rd entry from results into 'error_codes'
+    let error_codes = results
+        .chunks(result_count + 1)
+        .map(|chunk| chunk[result_count])
+        .collect::<Vec<u32>>();
+    (results_list, error_codes)
 }
 
 fn simple_bell_pair() {
@@ -28,8 +41,10 @@ fn simple_bell_pair() {
         Op::new_mresetz_gate(11, 1), // 22, 11, 1
     ];
     let start = Instant::now();
-    let results = run_gpu_shots(12, 2, ops, 10);
+    let results = run_gpu_shots(12, 2, ops, 10).expect("GPU shots failed");
     let elapsed = start.elapsed();
+
+    let (results, _error_codes) = split_results(2, &results);
     println!("[GPU Runner]: Simple Bell Pair on 12 qubits for 10 shots: {results:?}");
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
 }
@@ -37,7 +52,7 @@ fn simple_bell_pair() {
 fn test_pauli_noise() {
     let mut init_op = Op::new_reset_gate(u32::MAX);
     init_op.q2 = 0xdead_beef;
-    let x_noise: f32 = 0.0;
+    let x_noise: f32 = 0.5;
 
     let ops: Vec<Op> = vec![
         init_op,
@@ -52,8 +67,18 @@ fn test_pauli_noise() {
         Op::new_mresetz_gate(2, 2),
     ];
     let start = Instant::now();
-    let results = run_gpu_shots(3, 3, ops, 10);
+    let results = run_gpu_shots(3, 3, ops, 10).expect("GPU shots failed");
     let elapsed = start.elapsed();
+    // Verify we get 30 results, of which 14 - 16 will have been flipped to 0. (14 with current rng)
+
+    let (results, _error_codes) = split_results(3, &results);
+
+    let num_flipped = results.iter().flatten().filter(|&&x| x == 0).count();
+    assert!(
+        (14..=16).contains(&num_flipped),
+        "Expected 14-16 results to be flipped to 0, got {num_flipped}"
+    );
+
     println!("[GPU Runner]: Run 10 shots of X with pauli noise of {x_noise}: {results:?}");
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
 }
@@ -112,8 +137,16 @@ fn scale_teleport() {
     let results = run_gpu_shots(3, 3, ops, 50000).expect("GPU shots failed");
     let elapsed = start.elapsed();
 
+    let (results, _error_codes) = split_results(3, &results);
+
     // Verify that Bob's qubit (every 3rd result) is always 0
-    let bob_results: Vec<u32> = results.iter().skip(2).step_by(3).copied().collect();
+    let bob_results: Vec<u32> = results
+        .iter()
+        .flatten()
+        .skip(2)
+        .step_by(3)
+        .copied()
+        .collect();
     let all_zeros = bob_results.iter().all(|&x| x == 0);
     let num_ones = bob_results.iter().filter(|&&x| x == 1).count();
 
@@ -165,8 +198,8 @@ fn test_simple_rotation_and_entanglement() {
     // At 22 qubits, 32 shots fits into 1GB of GPU memory.
     // At 25 qubits, 4 shots fits into 1GB of GPU memory.
     let start = Instant::now();
-    let results = run_gpu_shots(24, 3, ops, 8);
+    let results = run_gpu_shots(24, 3, ops, 1).expect("GPU shots failed");
     let elapsed = start.elapsed();
-    println!("[GPU Runner]: Results of GHZ state for 8 shots on 24 qubits: {results:?}");
+    println!("[GPU Runner]: Results of GHZ state for 1 shots on 24 qubits: {results:?}");
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
 }

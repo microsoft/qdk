@@ -79,6 +79,7 @@ struct RunParams {
     shots_per_batch: usize,
     workgroups_per_shot: usize,
     op_count: usize,
+    gate_op_count: usize,
     result_count: usize,
 }
 
@@ -158,7 +159,16 @@ impl GpuContext {
                 MAX_CIRCUIT_OPS
             ));
         }
+        // gate_op_count should filter out any ops with an ID >= 128 and < 256 (noise ops)
+        // These get combined and executed with the prior op at run time, so don't count towards dispatches
+        let gate_op_count: u32 = ops
+            .iter()
+            .filter(|op| (op.id) < 128)
+            .count()
+            .try_into()
+            .map_err(|_| "Too many operations")?;
         let op_count: u32 = ops.len().try_into().map_err(|_| "Too many operations")?;
+
         let qubit_count = qubit_count.max(MIN_QUBIT_COUNT);
         if qubit_count > MAX_QUBIT_COUNT {
             return Err(format!(
@@ -166,7 +176,14 @@ impl GpuContext {
             ));
         }
 
-        let run_params: RunParams = Self::get_params(qubit_count, result_count, op_count, shots)?;
+        // Add space in the results for an 'error code' per shot
+        let run_params: RunParams = Self::get_params(
+            qubit_count,
+            result_count + 1,
+            op_count,
+            gate_op_count,
+            shots,
+        )?;
 
         let adapter = wgpu::Instance::new(&wgpu::InstanceDescriptor::default())
             .request_adapter(&wgpu::RequestAdapterOptions::default())
@@ -217,6 +234,7 @@ impl GpuContext {
         qubit_count: u32,
         result_count: u32,
         op_count: u32,
+        gate_op_count: u32,
         shot_count: u32,
     ) -> std::result::Result<RunParams, String> {
         let state_vector_entry_size = std::mem::size_of::<f32>() * 2; // complex f32
@@ -242,7 +260,7 @@ impl GpuContext {
         let shots_buffer_size = shots_per_batch * SIZEOF_SHOTDATA;
         let ops_buffer_size = op_count as usize * op_size;
         let state_vector_buffer_size = shots_per_batch * state_vector_size_per_shot;
-        // Each result is an u32
+        // Each result is a u32, plus one extra on the end for the shader to set an 'error code' if needed
         let results_buffer_size =
             shots_per_batch * result_count as usize * std::mem::size_of::<u32>();
 
@@ -265,6 +283,7 @@ impl GpuContext {
             workgroups_per_shot,
             shots_per_batch,
             op_count: op_count as usize,
+            gate_op_count: gate_op_count as usize,
             result_count: result_count as usize,
         })
     }
@@ -490,7 +509,7 @@ impl GpuContext {
                 .expect("workgroups_per_shot * shots_per_batch should fit in u32");
 
         // Dispatch the compute shaders for each op for this batch of shots
-        for i in 0..self.run_params.op_count {
+        for i in 0..self.run_params.gate_op_count {
             compute_pass.set_pipeline(&resources.pipeline_prepare_op);
             compute_pass.dispatch_workgroups(prepare_workgroup_count, 1, 1);
 
