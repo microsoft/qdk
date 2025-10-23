@@ -190,16 +190,16 @@ fn test_simple_rotation_and_entanglement() {
         init_op, // 1, 0xFFFFFFFF, 0xDEADBEEF
         Op::new_rx_gate(2.25, 1),
         Op::new_cx_gate(1, 12),
-        Op::new_cx_gate(12, 24),
+        Op::new_cx_gate(12, 23),
         Op::new_mresetz_gate(1, 0),
         Op::new_mresetz_gate(12, 1),
-        Op::new_mresetz_gate(24, 2),
+        Op::new_mresetz_gate(23, 2),
     ];
-    // At 22 qubits, 32 shots fits into 1GB of GPU memory.
-    // At 25 qubits, 4 shots fits into 1GB of GPU memory.
+    // At 24 qubits, 8 shots fits into 1GB of GPU memory.
     let start = Instant::now();
-    let results = run_gpu_shots(24, 3, ops, 1).expect("GPU shots failed");
+    let results = run_gpu_shots(24, 3, ops, 8).expect("GPU shots failed");
     let elapsed = start.elapsed();
-    println!("[GPU Runner]: Results of GHZ state for 1 shots on 24 qubits: {results:?}");
+    let (results, _error_codes) = split_results(3, &results);
+    println!("[GPU Runner]: Results of GHZ state for 8 shots on 24 qubits: {results:?}");
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
 }
