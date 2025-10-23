@@ -152,14 +152,10 @@ def test_custom_qir_intrinsics_generates_qir():
 
     QuantumCircuit.my_gate = my_gate
 
-    class CustomTarget(QirTarget):
-        def __init__(self):
-            super().__init__()
-            self.add_instruction(
-                Gate(name="my_gate", num_qubits=1, params=[]), name="my_gate"
-            )
-
-    target = CustomTarget()
+    target = QirTarget.create_target()
+    target.add_instruction(
+        Gate(name="my_gate", num_qubits=1, params=[]), name="my_gate"
+    )
     circuit = QuantumCircuit(1, 1)
     circuit.my_gate(0)
     circuit.measure(0, 0)
@@ -183,14 +179,10 @@ def test_custom_qir_intrinsics_is_simulatable():
 
     QuantumCircuit.my_gate = my_gate
 
-    class CustomTarget(QirTarget):
-        def __init__(self):
-            super().__init__()
-            self.add_instruction(
-                Gate(name="my_gate", num_qubits=1, params=[]), name="my_gate"
-            )
-
-    target = CustomTarget()
+    target = QirTarget.create_target(1)
+    target.add_instruction(
+        Gate(name="my_gate", num_qubits=1, params=[]), name="my_gate"
+    )
     circuit = QuantumCircuit(1, 1)
     circuit.my_gate(0)
     circuit.measure(0, 0)
