@@ -122,10 +122,22 @@ export class QSharpTools {
       },
     );
 
-    if (result.failures && result.failures?.length > 0) {
-      throw new CopilotToolError(
-        `Program failed with compilation errors. ${JSON.stringify(result.failures)}`,
-      );
+    if (result.doneReason === "compilation error(s)") {
+      const failures = result.results
+        .map((r) => {
+          if (!r.success && r.result && typeof r.result !== "string") {
+            return r.result.errors;
+          }
+          return null;
+        })
+        .filter((e) => e !== null)
+        .flat();
+
+      if (failures && failures?.length > 0) {
+        throw new CopilotToolError(
+          `Program failed with compilation errors. ${JSON.stringify(failures)}`,
+        );
+      }
     }
 
     if (shots > 1) {
