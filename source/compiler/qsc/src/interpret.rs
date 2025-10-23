@@ -13,25 +13,6 @@ mod tests;
 
 use std::{cell::RefCell, rc::Rc};
 
-pub use qsc_eval::{
-    StepAction, StepResult,
-    debug::Frame,
-    noise::PauliNoise,
-    output::{self, GenericReceiver},
-    val::Closure,
-    val::Range as ValueRange,
-    val::Result,
-    val::Value,
-};
-use qsc_hir::{global, ty};
-use qsc_linter::{HirLint, Lint, LintKind, LintLevel};
-use qsc_lowerer::{
-    map_fir_local_item_to_hir, map_fir_package_to_hir, map_hir_local_item_to_fir,
-    map_hir_package_to_fir,
-};
-use qsc_partial_eval::ProgramEntry;
-use qsc_rca::PackageStoreComputeProperties;
-
 use crate::{
     error::{self, WithStack},
     incremental::Compiler,
@@ -55,9 +36,19 @@ use qsc_data_structures::{
 };
 use qsc_eval::{
     Env, ErrorBehavior, State, VariableInfo,
-    backend::{Backend, Chain as BackendChain, SparseSim},
+    backend::{Backend, SparseSim, TracingBackend},
     output::Receiver,
     val,
+};
+pub use qsc_eval::{
+    StepAction, StepResult,
+    debug::Frame,
+    noise::PauliNoise,
+    output::{self, GenericReceiver},
+    val::Closure,
+    val::Range as ValueRange,
+    val::Result,
+    val::Value,
 };
 use qsc_fir::fir::{self, ExecGraph, Global, PackageStoreLookup};
 use qsc_fir::{
@@ -69,7 +60,15 @@ use qsc_frontend::{
     error::WithSource,
     incremental::Increment,
 };
+use qsc_hir::{global, ty};
+use qsc_linter::{HirLint, Lint, LintKind, LintLevel};
+use qsc_lowerer::{
+    map_fir_local_item_to_hir, map_fir_package_to_hir, map_hir_local_item_to_fir,
+    map_hir_package_to_fir,
+};
+use qsc_partial_eval::ProgramEntry;
 use qsc_passes::{PackageType, PassContext};
+use qsc_rca::PackageStoreComputeProperties;
 use rustc_hash::FxHashSet;
 use thiserror::Error;
 
@@ -145,7 +144,7 @@ pub struct Interpreter {
     /// This ID is valid both for the FIR store and the `PackageStore`.
     source_package: PackageId,
     /// The default simulator backend.
-    sim: BackendChain<SparseSim, CircuitBuilder>,
+    sim: TracingBackend<SparseSim, CircuitBuilder>,
     /// The quantum seed, if any. This is cached here so that it can be used in calls to
     /// `run_internal` which use a passed instance of the simulator instead of the one above.
     quantum_seed: Option<u64>,
@@ -178,6 +177,26 @@ pub struct TaggedItem {
 }
 
 impl Interpreter {
+    pub fn new_with_circuit_trace(
+        sources: SourceMap,
+        package_type: PackageType,
+        capabilities: TargetCapabilityFlags,
+        language_features: LanguageFeatures,
+        store: PackageStore,
+        dependencies: &Dependencies,
+    ) -> std::result::Result<Self, Vec<Error>> {
+        Self::new_with_sources(
+            false,
+            sources,
+            package_type,
+            capabilities,
+            language_features,
+            store,
+            dependencies,
+            true,
+        )
+    }
+
     /// Creates a new incremental compiler, compiling the passed in sources.
     /// # Errors
     /// If compiling the sources fails, compiler errors are returned.
@@ -189,7 +208,7 @@ impl Interpreter {
         store: PackageStore,
         dependencies: &Dependencies,
     ) -> std::result::Result<Self, Vec<Error>> {
-        Self::new_internal(
+        Self::new_with_sources(
             false,
             sources,
             package_type,
@@ -197,6 +216,7 @@ impl Interpreter {
             language_features,
             store,
             dependencies,
+            false,
         )
     }
 
@@ -211,7 +231,7 @@ impl Interpreter {
         store: PackageStore,
         dependencies: &Dependencies,
     ) -> std::result::Result<Self, Vec<Error>> {
-        Self::new_internal(
+        Self::new_with_sources(
             true,
             sources,
             package_type,
@@ -219,10 +239,12 @@ impl Interpreter {
             language_features,
             store,
             dependencies,
+            true, // enable circuit tracing in debug mode
         )
     }
 
-    fn new_internal(
+    #[allow(clippy::too_many_arguments)]
+    fn new_with_sources(
         dbg: bool,
         sources: SourceMap,
         package_type: PackageType,
@@ -230,6 +252,7 @@ impl Interpreter {
         language_features: LanguageFeatures,
         store: PackageStore,
         dependencies: &Dependencies,
+        trace_circuit: bool,
     ) -> std::result::Result<Self, Vec<Error>> {
         let compiler = Compiler::new(
             sources,
@@ -241,56 +264,10 @@ impl Interpreter {
         )
         .map_err(into_errors)?;
 
-        let mut fir_store = fir::PackageStore::new();
-        for (id, unit) in compiler.package_store() {
-            let pkg = qsc_lowerer::Lowerer::new()
-                .with_debug(dbg)
-                .lower_package(&unit.package, &fir_store);
-            fir_store.insert(map_hir_package_to_fir(id), pkg);
-        }
-
-        let source_package_id = compiler.source_package_id();
-        let package_id = compiler.package_id();
-
-        let package = map_hir_package_to_fir(package_id);
-        if capabilities != TargetCapabilityFlags::all() {
-            let _ = PassContext::run_fir_passes_on_fir(
-                &fir_store,
-                map_hir_package_to_fir(source_package_id),
-                capabilities,
-            )
-            .map_err(|caps_errors| {
-                let source_package = compiler
-                    .package_store()
-                    .get(source_package_id)
-                    .expect("package should exist in the package store");
-
-                caps_errors
-                    .into_iter()
-                    .map(|error| Error::Pass(WithSource::from_map(&source_package.sources, error)))
-                    .collect::<Vec<_>>()
-            })?;
-        }
-
-        Ok(Self {
-            compiler,
-            lines: 0,
-            capabilities,
-            fir_store,
-            lowerer: qsc_lowerer::Lowerer::new().with_debug(dbg),
-            expr_graph: None,
-            angle_ty_cache: None.into(),
-            complex_ty_cache: None.into(),
-            env: Env::default(),
-            sim: sim_circuit_backend(),
-            quantum_seed: None,
-            classical_seed: None,
-            package,
-            source_package: map_hir_package_to_fir(source_package_id),
-        })
+        Self::with_compiler(dbg, capabilities, trace_circuit, compiler)
     }
 
-    pub fn from(
+    pub fn new_with_package_store(
         dbg: bool,
         store: PackageStore,
         source_package_id: qsc_hir::hir::PackageId,
@@ -307,6 +284,20 @@ impl Interpreter {
         )
         .map_err(into_errors)?;
 
+        Self::with_compiler(
+            dbg,
+            capabilities,
+            dbg, // enable circuit tracing if debug mode
+            compiler,
+        )
+    }
+
+    fn with_compiler(
+        dbg: bool,
+        capabilities: TargetCapabilityFlags,
+        trace_circuit: bool,
+        compiler: Compiler,
+    ) -> std::result::Result<Interpreter, Vec<Error>> {
         let mut fir_store = fir::PackageStore::new();
         for (id, unit) in compiler.package_store() {
             let mut lowerer = qsc_lowerer::Lowerer::new().with_debug(dbg);
@@ -347,7 +338,7 @@ impl Interpreter {
             angle_ty_cache: None.into(),
             complex_ty_cache: None.into(),
             env: Env::default(),
-            sim: sim_circuit_backend(),
+            sim: sim_circuit_backend(trace_circuit),
             quantum_seed: None,
             classical_seed: None,
             package,
@@ -844,7 +835,10 @@ impl Interpreter {
 
     /// Get the current circuit representation of the program.
     pub fn get_circuit(&self) -> Circuit {
-        self.sim.chained.snapshot()
+        self.sim.tracer
+            .as_ref()
+            .expect("to call get_circuit, the interpreter should be initialized with circuit tracing enabled")
+            .snapshot()
     }
 
     /// Performs QIR codegen using the given entry expression on a new instance of the environment
@@ -967,7 +961,7 @@ impl Interpreter {
         };
 
         let circuit = if simulate {
-            let mut sim = sim_circuit_backend();
+            let mut sim = sim_circuit_backend(true);
 
             match invoke_params {
                 Some((callable, args)) => {
@@ -979,7 +973,9 @@ impl Interpreter {
                 None => self.run_with_sim_no_output(entry_expr, &mut sim)?,
             }
 
-            sim.chained.finish()
+            sim.tracer
+                .expect("tracer should have been created")
+                .finish()
         } else {
             let mut sim = CircuitBuilder::new(CircuitConfig {
                 max_operations: CircuitConfig::DEFAULT_MAX_OPERATIONS,
@@ -1224,12 +1220,16 @@ impl Interpreter {
     }
 }
 
-fn sim_circuit_backend() -> BackendChain<SparseSim, CircuitBuilder> {
-    BackendChain::new(
+fn sim_circuit_backend(trace_circuit: bool) -> TracingBackend<SparseSim, CircuitBuilder> {
+    TracingBackend::new(
         SparseSim::new(),
-        CircuitBuilder::new(CircuitConfig {
-            max_operations: CircuitConfig::DEFAULT_MAX_OPERATIONS,
-        }),
+        if trace_circuit {
+            Some(CircuitBuilder::new(CircuitConfig {
+                max_operations: CircuitConfig::DEFAULT_MAX_OPERATIONS,
+            }))
+        } else {
+            None
+        },
     )
 }
 

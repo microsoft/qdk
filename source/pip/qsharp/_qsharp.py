@@ -230,6 +230,7 @@ def init(
     target_name: Optional[str] = None,
     project_root: Optional[str] = None,
     language_features: Optional[List[str]] = None,
+    trace_circuit: Optional[bool] = None,
 ) -> Config:
     """
     Initializes the Q# interpreter.
@@ -243,6 +244,10 @@ def init(
 
     :param project_root: An optional path to a root directory with a Q# project to include.
         It must contain a qsharp.json project manifest.
+
+    :param trace_circuit: Enables tracing of circuit during execution.
+        Passing `True` is required for the `dump_circuit` function to return a circuit.
+        The `circuit` function is *NOT* affected by this parameter will always generate a circuit.
     """
     from ._fs import read_file, list_directory, exists, join, resolve
     from ._http import fetch_github
@@ -309,6 +314,7 @@ def init(
         fetch_github,
         _make_callable,
         _make_class,
+        trace_circuit,
     )
 
     _config = Config(target_profile, language_features, manifest_contents, project_root)
@@ -974,11 +980,13 @@ def dump_machine() -> StateDump:
 
 
 def dump_circuit() -> Circuit:
-    """
-    Dumps the current circuit state of the interpreter.
+        """
+        Dumps a circuit showing the current state of the simulator.
 
-    This circuit will contain the gates that have been applied
-    in the simulator up to the current point.
-    """
+        This circuit will contain the gates that have been applied
+        in the simulator up to the current point.
+
+        Requires the interpreter to be initialized with `trace_circuit=True`.
+        """
     ipython_helper()
     return get_interpreter().dump_circuit()
