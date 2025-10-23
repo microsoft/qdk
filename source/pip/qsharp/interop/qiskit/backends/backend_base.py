@@ -112,6 +112,7 @@ class BackendBase(BackendV2, ABC):
         transpile_options: Optional[Dict[str, Any]] = None,
         qasm_export_options: Optional[Dict[str, Any]] = None,
         skip_transpilation: bool = False,
+        num_qubits: Union[int, None] = None,
         **fields,
     ):
         """
@@ -120,6 +121,7 @@ class BackendBase(BackendV2, ABC):
             qiskit_pass_options (Dict): Options for the Qiskit passes.
             transpile_options (Dict): Options for the transpiler.
             qasm_export_options (Dict): Options for the QASM3 exporter.
+            num_qubits: optional number of qubits for the default target if not supplied
             **options: Additional keyword arguments to pass to the
                 execution used by subclasses.
         """
@@ -164,7 +166,7 @@ class BackendBase(BackendV2, ABC):
 
             self._target = target
         else:
-            self._target = self._create_target()
+            self._target = self._create_target(num_qubits)
 
         self._transpile_options = {}
 
@@ -197,10 +199,11 @@ class BackendBase(BackendV2, ABC):
         if qasm_export_options is not None:
             self._qasm_export_options.update(**qasm_export_options)
 
-    def _create_target(self) -> Target:
+    def _create_target(self, num_qubits: Union[int, None]) -> Target:
         supports_barrier = self._qiskit_pass_options["supports_barrier"]
         supports_delay = self._qiskit_pass_options["supports_delay"]
-        return QirTarget(
+        return QirTarget.create_target(
+            num_qubits,
             target_profile=self._options["target_profile"],
             supports_barrier=supports_barrier,
             supports_delay=supports_delay,
