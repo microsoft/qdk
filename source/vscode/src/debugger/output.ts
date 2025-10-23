@@ -1,7 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { QscEventTarget, VSDiagnostic } from "qsharp-lang";
+import { QscEventTarget } from "qsharp-lang";
+import { getSourceUri } from "../utils";
 
 function formatComplex(real: number, imag: number) {
   // Format -0 as 0
@@ -75,11 +76,38 @@ export function createDebugConsoleEventTarget(
   });
 
   eventTarget.addEventListener("Result", (evt) => {
-    // sometimes these are VS Diagnostics
-    if ((evt.detail.value as VSDiagnostic).message !== undefined) {
-      out(`${(evt.detail.value as VSDiagnostic).message}`);
-    } else {
+    if (evt.detail.success) {
       out(`${evt.detail.value}`);
+    } else {
+      const errorMessages = [];
+      for (const error of evt.detail.value.errors) {
+        if (error.stack) {
+          const stack = error.stack
+            .split("\n")
+            .map((l) => {
+              const match = l.match(/^(\s*)at (.*) in (.*):(\d+):(\d+)/);
+              if (match) {
+                const [, leadingWs, callable, doc, line, column] = match;
+                const uri = getSourceUri(doc);
+                const displayPath = uri.scheme === "file" ? uri.fsPath : uri;
+                return `${leadingWs}at ${callable} in ${displayPath}:${line}:${column}`;
+              } else {
+                return l;
+              }
+            })
+            .join("\n");
+
+          errorMessages.push(stack);
+        } else {
+          const uri = getSourceUri(error.document);
+          const displayPath = uri.scheme === "file" ? uri.fsPath : uri;
+          const diag = error.diagnostic;
+          const location = `${displayPath}:${diag.range.start.line + 1}:${diag.range.start.character + 1}`;
+          const message = `(${diag.code}) ${diag.message}`;
+          errorMessages.push(`${location}: ${message}`);
+        }
+      }
+      out(errorMessages.join("\n"));
     }
   });
 

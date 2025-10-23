@@ -13,6 +13,7 @@ import {
 } from "../programConfig";
 import { getRandomGuid } from "../utils";
 import { QscDebugSession } from "./session";
+import { runProgram } from "../run";
 
 let debugServiceWorkerFactory: () => IDebugServiceWorker;
 
@@ -52,10 +53,11 @@ function registerCommands(context: vscode.ExtensionContext) {
         if (typeof expr !== "string") {
           expr = undefined;
         }
-        startQdkDebugging(
-          resource,
-          { name: "QDK: Run Program", stopOnEntry: false, entry: expr },
-          { noDebug: true },
+        runCommand(
+          context.extensionUri,
+          resource || getActiveQdkDocumentUri(),
+          "QDK: Run Program",
+          expr,
         );
       },
     ),
@@ -87,6 +89,90 @@ function registerCommands(context: vscode.ExtensionContext) {
           { noDebug: true },
         ),
     ),
+  );
+}
+
+export function runCommand(
+  extensionUri: vscode.Uri,
+  documentResource: vscode.Uri,
+  terminalName: string,
+  entry: string | undefined,
+) {
+  clearCommandDiagnostics();
+  const targetResource = documentResource || getActiveQdkDocumentUri();
+  if (!targetResource) {
+    // No active document
+    return;
+  }
+
+  if (targetResource) {
+    const writeEmitter = new vscode.EventEmitter<string>();
+    const closeEmitter = new vscode.EventEmitter<void>();
+    const pty: vscode.Pseudoterminal = {
+      onDidWrite: writeEmitter.event,
+      onDidClose: closeEmitter.event,
+      open: async () => {
+        await runTask(targetResource, extensionUri, entry || "", writeEmitter);
+        writeEmitter.fire(
+          "\r\nProgram execution complete. Press any key to close this terminal.\r\n",
+        );
+      },
+      close: () => {
+        // TODO: cleanup
+      },
+      handleInput: (data: string) => {
+        closeEmitter.fire();
+      },
+    };
+
+    const terminal = vscode.window.createTerminal({
+      name: terminalName,
+      pty,
+      iconPath: {
+        light: vscode.Uri.joinPath(
+          extensionUri,
+          "resources",
+          "file-icon-light.svg",
+        ),
+        dark: vscode.Uri.joinPath(
+          extensionUri,
+          "resources",
+          "file-icon-dark.svg",
+        ),
+      },
+      isTransient: true,
+    });
+
+    terminal.show();
+  }
+}
+
+async function runTask(
+  targetResource: vscode.Uri,
+  extensionUri: vscode.Uri,
+  entry: string,
+  output: vscode.EventEmitter<string>,
+) {
+  const programUri = targetResource.toString();
+  const uri = vscode.Uri.parse(programUri);
+  const file = await vscode.workspace.openTextDocument(uri);
+
+  const program = await getProgramForDocument(file);
+  if (!program.success) {
+    throw new Error(program.errorMsg);
+  }
+
+  await runProgram(
+    extensionUri,
+    program.programConfig,
+    entry,
+    1,
+    (msg) => {
+      // replace \n with \r\n for proper terminal display
+      msg = msg.replace(/\n/g, "\r\n");
+      output.fire(msg + "\r\n");
+    },
+    () => {},
   );
 }
 
