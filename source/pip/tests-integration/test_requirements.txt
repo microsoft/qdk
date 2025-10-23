@@ -2,4 +2,5 @@ pytest==8.2.2
 qirrunner==0.8.3
 pyqir==0.10.2
 qiskit-aer==0.17
+qiskit_qasm3_import==0.6.0
 # Qiskit distributions are installed per test run by build.py.
