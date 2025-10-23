@@ -374,10 +374,8 @@
       },
       {
         "command": "qsharp-vscode.runProgram",
-        "title": "Run",
-        "category": "Debug",
-        "enablement": "!inDebugMode",
-        "icon": "$(play)"
+        "title": "Run program",
+        "category": "QDK"
       },
       {
         "command": "qsharp-vscode.runEditorContentsWithCircuit",
