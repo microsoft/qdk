@@ -13,6 +13,8 @@ def generate_repro_information(
     message += "\n"
     message += f"Profile: {profile_name}"
     message += "\n"
+    message += f"Options: {options}"
+    message += "\n"
 
     try:
         qasm_source = backend._qasm(circuit, **options)
