@@ -243,11 +243,9 @@ def _test_circuit(
     target_profile = TargetProfile.Base
     seed = 42
     backend = QSharpBackend(
+        num_qubits=circuit.num_qubits,
         target_profile=target_profile,
         seed=seed,
-        transpile_options={
-            "optimization_level": 0  # Use no optimization to get consistent results in simulations
-        },
     )
     try:
         job = backend.run(circuit, shots=num_shots)

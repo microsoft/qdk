@@ -39,18 +39,14 @@ class ResourceEstimatorBackend(BackendBase):
     # pylint: disable=useless-parent-delegation
     def __init__(
         self,
-        target: Optional[Target] = None,
+        num_qubits: Union[int, None] = 0,
         qiskit_pass_options: Optional[Dict[str, Any]] = None,
-        transpile_options: Optional[Dict[str, Any]] = None,
         qasm_export_options: Optional[Dict[str, Any]] = None,
-        skip_transpilation: bool = False,
         **fields,
     ):
         """
         Parameters:
-            target (Target): The target to use for the backend.
             qiskit_pass_options (Dict): Options for the Qiskit passes.
-            transpile_options (Dict): Options for the transpiler.
             qasm_export_options (Dict): Options for the QASM3 exporter.
             **options: Additional options for the execution.
                 - params (EstimatorParams): Configuration values for resource estimation.
@@ -62,11 +58,9 @@ class ResourceEstimatorBackend(BackendBase):
         """
 
         super().__init__(
-            target,
+            num_qubits,
             qiskit_pass_options,
-            transpile_options,
             qasm_export_options,
-            skip_transpilation,
             **fields,
         )
 

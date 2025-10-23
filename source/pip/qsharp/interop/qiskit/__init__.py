@@ -25,8 +25,7 @@ def estimate(
     :**options: Additional options for the execution.
         - Any options for the transpiler, exporter, or Qiskit passes
             configuration. Defaults to backend config values. Common
-            values include: 'optimization_level', 'basis_gates',
-            'includes', 'search_path'.
+            values include: 'basis_gates', 'includes', 'search_path'.
     :raises QasmError: If there is an error generating or parsing QASM.
 
     :returns `EstimatorResult`: The estimated resources.
@@ -34,6 +33,6 @@ def estimate(
     from ..._qsharp import ipython_helper
 
     ipython_helper()
-    backend = ResourceEstimatorBackend()
+    backend = ResourceEstimatorBackend(circuit.num_qubits)
     job = backend.run(circuit, params=params, **options)
     return job.result()

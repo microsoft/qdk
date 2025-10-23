@@ -18,6 +18,7 @@ if QISKIT_AVAILABLE:
     from .test_circuits import (
         generate_repro_information,
     )
+    from qiskit import transpile
     from qiskit.circuit import QuantumCircuit, Parameter
     from qiskit.circuit.library import RGQFTMultiplier
     from qsharp.interop.qiskit import ResourceEstimatorBackend
@@ -38,7 +39,7 @@ def test_qsharp_estimation_with_single_params() -> None:
     for index in range(10):
         circuit.t(index)
         circuit.measure(index, index)
-    sim = ResourceEstimatorBackend(transpile_options={"optimization_level": 0})
+    sim = ResourceEstimatorBackend(circuit.num_qubits)
     res = sim.run(circuit, params=params).result()
 
     assert res["status"] == "success"
@@ -60,39 +61,18 @@ def test_qsharp_estimation_with_single_params() -> None:
 def test_estimate_qiskit_rgqft_multiplier() -> None:
     bitwidth = 4
     circuit = RGQFTMultiplier(num_state_qubits=bitwidth)
+    sim = ResourceEstimatorBackend(circuit.num_qubits)
+    circuit = transpile(circuit, sim)
     params = EstimatorParams()
-    sim = ResourceEstimatorBackend()
-    job = sim.run(circuit, params=params, optimization_level=0)
+    job = sim.run(circuit, params=params)
     res = job.result()
     assert res["status"] == "success"
     assert res.logical_counts == LogicalCounts(
         {
             "numQubits": 16,
-            "tCount": 90,
-            "rotationCount": 972,
-            "rotationDepth": 666,
-            "cczCount": 0,
-            "ccixCount": 0,
-            "measurementCount": 0,
-        }
-    )
-
-
-@pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
-def test_estimate_qiskit_rgqft_multiplier_without_tranpspile() -> None:
-    bitwidth = 4
-    circuit = RGQFTMultiplier(num_state_qubits=bitwidth)
-    params = EstimatorParams()
-    sim = ResourceEstimatorBackend(skip_transpilation=True)
-    job = sim.run(circuit, params=params, optimization_level=0)
-    res = job.result()
-    assert res["status"] == "success"
-    assert res.logical_counts == LogicalCounts(
-        {
-            "numQubits": 16,
-            "tCount": 76,
-            "rotationCount": 936,
-            "rotationDepth": 665,
+            "tCount": 138,
+            "rotationCount": 514,
+            "rotationDepth": 323,
             "cczCount": 0,
             "ccixCount": 0,
             "measurementCount": 0,
@@ -104,20 +84,19 @@ def test_estimate_qiskit_rgqft_multiplier_without_tranpspile() -> None:
 def test_estimate_qiskit_rgqft_multiplier_in_threadpool() -> None:
     bitwidth = 4
     circuit = RGQFTMultiplier(num_state_qubits=bitwidth)
-    params = EstimatorParams()
     executor = ThreadPoolExecutor(max_workers=1)
-    sim = ResourceEstimatorBackend(
-        executor=executor, transpile_options={"optimization_level": 0}
-    )
+    sim = ResourceEstimatorBackend(circuit.num_qubits, executor=executor)
+    circuit = transpile(circuit, sim)
+    params = EstimatorParams()
     job = sim.run(circuit, params=params)
     res = job.result()
     assert res["status"] == "success"
     assert res.logical_counts == LogicalCounts(
         {
             "numQubits": 16,
-            "tCount": 90,
-            "rotationCount": 972,
-            "rotationDepth": 666,
+            "tCount": 138,
+            "rotationCount": 514,
+            "rotationDepth": 323,
             "cczCount": 0,
             "ccixCount": 0,
             "measurementCount": 0,
@@ -134,7 +113,7 @@ def test_estimating_with_unbound_param_raises():
     circuit.rx(theta, 0)
     circuit.measure_all()
 
-    backend = ResourceEstimatorBackend()
+    backend = ResourceEstimatorBackend(circuit.num_qubits)
     try:
         with pytest.raises(QSharpError) as ex:
             _ = backend.run(circuit).result()

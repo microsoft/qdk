@@ -10,6 +10,8 @@ from interop_qiskit import QISKIT_AVAILABLE, SKIP_REASON
 
 if QISKIT_AVAILABLE:
     from qiskit.circuit import QuantumCircuit
+    from qiskit import transpile
+    from qsharp.interop.qiskit import QSharpBackend
 
 
 def random_bit() -> Tuple["QuantumCircuit", List[str]]:
@@ -302,6 +304,8 @@ def exercise_initialize_prepare_state() -> Tuple["QuantumCircuit", List[str]]:
     circuit.h(1)
     circuit.measure(1, 1)
 
+    circuit = transpile(circuit, QSharpBackend(circuit.num_qubits))
+
     return circuit, ["11"]
 
 
@@ -381,6 +385,8 @@ def exercise_pauli() -> Tuple["QuantumCircuit", List[str]]:
     circuit.pauli("XZ", [0, 1])
     circuit.h(0)
     circuit.measure([0, 1], [0, 1])
+
+    circuit = transpile(circuit, QSharpBackend(circuit.num_qubits))
 
     return circuit, ["11"]
 

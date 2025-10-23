@@ -8,11 +8,9 @@ from time import monotonic
 from typing import Dict, Any, List, Optional, Union
 from warnings import warn
 
-from qiskit import transpile
 from qiskit.circuit import (
     QuantumCircuit,
 )
-from qiskit.version import get_version_info
 
 from qiskit.qasm3.exporter import Exporter
 from qiskit.providers import BackendV2, Options
@@ -91,11 +89,6 @@ def filter_kwargs(func, **kwargs) -> Dict[str, Any]:
     return extracted_kwargs
 
 
-def get_transpile_options(**kwargs) -> Dict[str, Any]:
-    args = filter_kwargs(transpile, **kwargs)
-    return args
-
-
 def get_exporter_options(**kwargs) -> Dict[str, Any]:
     return filter_kwargs(Exporter.__init__, **kwargs)
 
@@ -107,18 +100,14 @@ class BackendBase(BackendV2, ABC):
 
     def __init__(
         self,
-        target: Optional[Target] = None,
+        num_qubits: Union[int, None] = 0,
         qiskit_pass_options: Optional[Dict[str, Any]] = None,
-        transpile_options: Optional[Dict[str, Any]] = None,
         qasm_export_options: Optional[Dict[str, Any]] = None,
-        skip_transpilation: bool = False,
         **fields,
     ):
         """
         Parameters:
-            target (Target): The target to use for the backend.
             qiskit_pass_options (Dict): Options for the Qiskit passes.
-            transpile_options (Dict): Options for the transpiler.
             qasm_export_options (Dict): Options for the QASM3 exporter.
             **options: Additional keyword arguments to pass to the
                 execution used by subclasses.
@@ -127,6 +116,17 @@ class BackendBase(BackendV2, ABC):
             name="QSharpBackend",
             description="A virtual BackendV2 for transpiling to a Q# compatible format.",
             backend_version="0.0.1",
+        )
+
+        self._num_qubits = num_qubits
+        self._target = fields.pop(
+            "target",
+            QirTarget.create_target(
+                num_qubits=num_qubits,
+                target_profile=fields.get("target_profile", TargetProfile.Base),
+                supports_barrier=fields.get("supports_barrier", False),
+                supports_delay=fields.get("supports_delay", False),
+            ),
         )
 
         if fields is not None:
@@ -147,39 +147,10 @@ class BackendBase(BackendV2, ABC):
             supports_delay=False,
             remove_reset_in_zero_state=True,
         )
-        self._skip_transpilation = skip_transpilation
 
-        # we need to set the target after the options are set
-        # so that the target_profile can be used to determine
-        # which gates/instructions are available
-        if target is not None:
-            # update the properties so that we are internally consistent
-            self._qiskit_pass_options.update_options(
-                **{
-                    "supports_barrier": target.instruction_supported("barrier"),
-                    "supports_delay": target.instruction_supported("delay"),
-                    "remove_reset_in_zero_state": True,
-                }
-            )
-
-            self._target = target
-        else:
-            self._target = self._create_target()
-
-        self._transpile_options = {}
-
-        basis_gates = None
+        basis_gates = []
         if qasm_export_options is not None and "basis_gates" in qasm_export_options:
             basis_gates = qasm_export_options.pop("basis_gates")
-        else:
-            # here we get the gates that are in the target but not in qasm's
-            # stdgates so that we can build the basis gates list for the exporter.
-            # A user can override this list by passing in a basis_gates list
-            # We also remove any non-gate instructions from the list.
-            target_gates = set(self.target.operation_names)
-            target_gates -= set(_QISKIT_NON_GATE_INSTRUCTIONS)
-            target_gates -= set(_QISKIT_STDGATES)
-            basis_gates = list(target_gates)
 
         # set the default options for the exporter
         self._qasm_export_options = {
@@ -192,19 +163,8 @@ class BackendBase(BackendV2, ABC):
 
         if qiskit_pass_options is not None:
             self._qiskit_pass_options.update_options(**qiskit_pass_options)
-        if transpile_options is not None:
-            self._transpile_options.update(**transpile_options)
         if qasm_export_options is not None:
             self._qasm_export_options.update(**qasm_export_options)
-
-    def _create_target(self) -> Target:
-        supports_barrier = self._qiskit_pass_options["supports_barrier"]
-        supports_delay = self._qiskit_pass_options["supports_delay"]
-        return QirTarget(
-            target_profile=self._options["target_profile"],
-            supports_barrier=supports_barrier,
-            supports_delay=supports_delay,
-        )
 
     @property
     def target(self) -> Target:
@@ -284,7 +244,6 @@ class BackendBase(BackendV2, ABC):
         output["config"] = {
             "qasm_export_options": str(self._build_qasm_export_options(**options)),
             "qiskit_pass_options": str(self._build_qiskit_pass_options(**options)),
-            "transpile_options": str(self._build_transpile_options(**options)),
         }
         output["header"] = {}
         return self._create_results(output)
@@ -313,33 +272,6 @@ class BackendBase(BackendV2, ABC):
     @abstractmethod
     def _create_results(self, output: Dict[str, Any]) -> Any:
         pass
-
-    def _transpile(self, circuit: QuantumCircuit, **options) -> QuantumCircuit:
-        if options.get("skip_transpilation", self._skip_transpilation):
-            return circuit
-
-        circuit = self.run_qiskit_passes(circuit, options)
-
-        transpile_options = self._build_transpile_options(**options)
-        backend = transpile_options.pop("backend", self)
-        target = transpile_options.pop("target", self.target)
-        if get_version_info().startswith("1.2"):
-            # The older Qiskit version does not support the `qubits_initially_zero` option
-            transpiled_circuit = transpile(
-                circuit,
-                backend=backend,
-                target=target,
-                **transpile_options,
-            )
-        else:
-            transpiled_circuit = transpile(
-                circuit,
-                backend=backend,
-                target=target,
-                qubits_initially_zero=True,
-                **transpile_options,
-            )
-        return transpiled_circuit
 
     def run_qiskit_passes(self, circuit, options):
         pass_options = self._build_qiskit_pass_options(**options)
@@ -373,14 +305,6 @@ class BackendBase(BackendV2, ABC):
 
         return params
 
-    def _build_transpile_options(self, **kwargs) -> Dict[str, Any]:
-        # create the default options from the backend
-        args = self._transpile_options.copy()
-        # gather any remaining options that are not in the default list
-        transpile_args = get_transpile_options(**kwargs)
-        args.update(transpile_args)
-        return args
-
     def _build_qasm_export_options(self, **kwargs) -> Dict[str, Any]:
         # Disable aliasing until we decide want to support it
         # The exporter defaults to only having the U gate.
@@ -403,20 +327,15 @@ class BackendBase(BackendV2, ABC):
         args.update(exporter_args)
         return args
 
-    def transpile(self, circuit: QuantumCircuit, **options) -> QuantumCircuit:
-        transpiled_circuit = self._transpile(circuit, **options)
-        return transpiled_circuit
-
     def _qasm(self, circuit: QuantumCircuit, **options) -> str:
         """Converts a Qiskit QuantumCircuit to QASM 3 for the current backend.
 
         Args:
             circuit (QuantumCircuit): The QuantumCircuit to be executed.
             **options: Additional options for the execution.
-              - Any options for the transpiler, exporter, or Qiskit passes
+              - Any options for the exporter, or Qiskit passes
                   configuration. Defaults to backend config values. Common
-                  values include: 'optimization_level', 'basis_gates',
-                  'includes', 'search_path'.
+                  values include: 'basis_gates', 'includes', 'search_path'.
 
         Returns:
             str: The converted QASM code as a string. Any supplied includes
@@ -424,11 +343,11 @@ class BackendBase(BackendV2, ABC):
 
         :raises QasmError: If there is an error generating or parsing QASM.
         """
-        transpiled_circuit = self.transpile(circuit, **options)
+        circuit = self.run_qiskit_passes(circuit, options)
         try:
             export_options = self._build_qasm_export_options(**options)
             exporter = Exporter(**export_options)
-            qasm3_source = exporter.dumps(transpiled_circuit)
+            qasm3_source = exporter.dumps(circuit)
             # Qiskit QASM exporter doesn't handle experimental features correctly and always emits
             # OPENQASM 3.0; even though switch case is not supported in QASM 3.0, so we bump
             # the version to 3.1 for now.
@@ -449,10 +368,9 @@ class BackendBase(BackendV2, ABC):
         Args:
             circuit (QuantumCircuit): The QuantumCircuit to be executed.
             **options: Additional options for the execution. Defaults to backend config values.
-              - Any options for the transpiler, exporter, or Qiskit passes
+              - Any options for the exporter, or Qiskit passes
                   configuration. Defaults to backend config values. Common
-                  values include: 'optimization_level', 'basis_gates',
-                  'includes', 'search_path'.
+                  values include: 'basis_gates', 'includes', 'search_path'.
               - output_semantics (OutputSemantics, optional): The output semantics for the compilation.
         Returns:
             str: The converted QASM code as a string. Any supplied includes

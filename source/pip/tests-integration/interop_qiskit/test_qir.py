@@ -18,7 +18,6 @@ if QISKIT_AVAILABLE:
         OutputSemantics,
         QSharpBackend,
         QasmError,
-        QirTarget,
     )
     from qiskit.circuit import QuantumCircuit, Parameter, Gate
     from qiskit.circuit.quantumcircuit import QubitSpecifier
@@ -152,14 +151,6 @@ def test_custom_qir_intrinsics_generates_qir():
 
     QuantumCircuit.my_gate = my_gate
 
-    class CustomTarget(QirTarget):
-        def __init__(self):
-            super().__init__()
-            self.add_instruction(
-                Gate(name="my_gate", num_qubits=1, params=[]), name="my_gate"
-            )
-
-    target = CustomTarget()
     circuit = QuantumCircuit(1, 1)
     circuit.my_gate(0)
     circuit.measure(0, 0)
@@ -169,9 +160,10 @@ def test_custom_qir_intrinsics_generates_qir():
     options = {
         "search_path": get_resource_path(),
         "includes": ("stdgates.inc", "custom_intrinsics.inc"),
+        "basis_gates": ["my_gate"],
     }
 
-    backend = QSharpBackend(target_profile=target_profile, target=target)
+    backend = QSharpBackend(target_profile=target_profile)
     qir = backend.qir(circuit, **options)
     assert qir == expected_qir
 
@@ -183,14 +175,6 @@ def test_custom_qir_intrinsics_is_simulatable():
 
     QuantumCircuit.my_gate = my_gate
 
-    class CustomTarget(QirTarget):
-        def __init__(self):
-            super().__init__()
-            self.add_instruction(
-                Gate(name="my_gate", num_qubits=1, params=[]), name="my_gate"
-            )
-
-    target = CustomTarget()
     circuit = QuantumCircuit(1, 1)
     circuit.my_gate(0)
     circuit.measure(0, 0)
@@ -200,9 +184,10 @@ def test_custom_qir_intrinsics_is_simulatable():
     options = {
         "search_path": get_resource_path(),
         "includes": ("stdgates.inc", "custom_intrinsics.inc"),
+        "basis_gates": ["my_gate"],
     }
 
-    backend = QSharpBackend(target_profile=target_profile, target=target)
+    backend = QSharpBackend(target_profile=target_profile)
     result = backend.run(circuit, **options).result()
     assert result.get_counts() == {"1": 1024}
 

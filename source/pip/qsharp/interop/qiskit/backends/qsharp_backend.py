@@ -49,18 +49,15 @@ class QSharpBackend(BackendBase):
     # pylint: disable=useless-parent-delegation
     def __init__(
         self,
-        target: Optional[Target] = None,
+        num_qubits: Optional[int] = None,
         qiskit_pass_options: Optional[Dict[str, Any]] = None,
-        transpile_options: Optional[Dict[str, Any]] = None,
         qasm_export_options: Optional[Dict[str, Any]] = None,
-        skip_transpilation: bool = False,
         **fields,
     ):
         """
         Parameters:
             target (Target): The target to use for the backend.
             qiskit_pass_options (Dict): Options for the Qiskit passes.
-            transpile_options (Dict): Options for the transpiler.
             qasm_export_options (Dict): Options for the QASM3 exporter.
             **options: Additional options for the execution.
               - name (str): The name of the circuit. This is used as the entry point for the program.
@@ -77,11 +74,9 @@ class QSharpBackend(BackendBase):
         """
 
         super().__init__(
-            target,
+            num_qubits,
             qiskit_pass_options,
-            transpile_options,
             qasm_export_options,
-            skip_transpilation,
             **fields,
         )
 
@@ -211,9 +206,6 @@ def _run_qasm(
     Runs the supplied OpenQASM 3 program.
     Gates defined by stdgates.inc will be overridden with definitions
     from the Q# compiler.
-
-    Any gates, such as matrix unitaries, that are not able to be
-    transpiled will result in an error.
 
     Parameters:
     source (str): The input OpenQASM 3 string to be processed.

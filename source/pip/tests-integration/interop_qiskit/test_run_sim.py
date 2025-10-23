@@ -16,7 +16,8 @@ if QISKIT_AVAILABLE:
     from qiskit.qasm3 import loads as from_qasm3
     from qiskit.providers import JobStatus
     from qiskit import ClassicalRegister
-    from qsharp.interop.qiskit import QSharpBackend
+    from qiskit import transpile
+    from qsharp.interop.qiskit import QSharpBackend, QirTarget
     from .test_circuits import (
         generate_repro_information,
     )
@@ -47,7 +48,9 @@ def test_run_state_prep_smoke() -> None:
     circuit = QuantumCircuit(1)
     circuit.initialize([0.6, 0.8])
     circuit.measure_all()
-    backend = QSharpBackend()
+    backend = QSharpBackend(num_qubits=2)
+    target = QirTarget.create_target(num_qubits=2)
+    circuit = transpile(circuit, backend=backend, target=target, optimization_level=0)
     res = backend.run(circuit, shots=1).result()
     assert res is not None
 

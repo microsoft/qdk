@@ -16,9 +16,6 @@ def run_transpile_test(
 ) -> None:
     circuit = QuantumCircuit(3, 3)
     operation(circuit)
-    if "optimization_level" not in options:
-        # Use no optimization so gate transpilation is consistent
-        options["optimization_level"] = 0
     info = QSharpBackend()._qasm(circuit, **options)
     lines = info.splitlines()
     # remove the first four lines, which are the header
@@ -67,7 +64,11 @@ def test_gate_rx_transpiles() -> None:
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
 def test_gate_rxx_transpiles() -> None:
-    run_transpile_test(lambda circuit: circuit.rxx(0.5, 2, 0), "rxx(0.5) q[2], q[0];")
+    run_transpile_test(
+        lambda circuit: circuit.rxx(0.5, 2, 0),
+        "rxx(0.5) q[2], q[0];",
+        basis_gates=["rxx"],
+    )
 
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
@@ -77,7 +78,11 @@ def test_gate_ry_transpiles() -> None:
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
 def test_gate_ryy_transpiles() -> None:
-    run_transpile_test(lambda circuit: circuit.ryy(0.5, 1, 2), "ryy(0.5) q[1], q[2];")
+    run_transpile_test(
+        lambda circuit: circuit.ryy(0.5, 1, 2),
+        "ryy(0.5) q[1], q[2];",
+        basis_gates=["ryy"],
+    )
 
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
@@ -87,7 +92,11 @@ def test_gate_rz_transpiles() -> None:
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
 def test_gate_rzz_transpiles() -> None:
-    run_transpile_test(lambda circuit: circuit.rzz(0.5, 0, 2), "rzz(0.5) q[0], q[2];")
+    run_transpile_test(
+        lambda circuit: circuit.rzz(0.5, 0, 2),
+        "rzz(0.5) q[0], q[2];",
+        basis_gates=["rzz"],
+    )
 
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
@@ -159,7 +168,7 @@ def test_gate_crz_transpiles() -> None:
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
 def test_gate_id_transpiles() -> None:
-    run_transpile_test(lambda circuit: circuit.id(1), "id q[1];", optimization_level=0)
+    run_transpile_test(lambda circuit: circuit.id(1), "id q[1];")
 
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
