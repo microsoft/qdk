@@ -392,7 +392,7 @@ function errorsToHtml(errors: IQSharpError[]) {
         .split("\n")
         .map((l) => {
           // Link-ify the document names in the stack trace
-          const match = l.match(/^(\s*)at (.*) in (.*)/);
+          const match = l.match(/^(\s*)at (.*) in (.*):(\d+):(\d+)/);
           if (match) {
             const [, leadingWs, callable, doc] = match;
             return `${leadingWs}at ${escapeHtml(callable)} in ${documentHtml(false, doc)}`;
