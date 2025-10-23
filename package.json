@@ -7,7 +7,7 @@
   ],
   "license": "MIT",
   "engines": {
-    "node": ">=20.18.2"
+    "node": ">=22.14.0"
   },
   "scripts": {
     "eslint:check": "eslint -c ./eslint.config.mjs --max-warnings 0 ./",
@@ -23,7 +23,7 @@
     "@types/chai": "^4.3.8",
     "@types/markdown-it": "^14.1.1",
     "@types/mocha": "^10.0.2",
-    "@types/node": "^20.17",
+    "@types/node": "^22.14",
     "@types/vscode": "^1.99.1",
     "@types/vscode-webview": "^1.57.5",
     "@vscode/codicons": "^0.0.36",
@@ -32,6 +32,7 @@
     "@vscode/extension-telemetry": "^0.9.8",
     "@vscode/markdown-it-katex": "^1.0.0",
     "@vscode/test-web": "^0.0.71",
+    "canvas": "^3.2.0",
     "chai": "^4.3.10",
     "dompurify": "^3.2.5",
     "esbuild": "^0.25.0",
@@ -41,6 +42,7 @@
     "globals": "^15.9.0",
     "highlight.js": "^11.10.0",
     "highlightjs-copy": "^1.0.6",
+    "jsdom": "^27.0.0",
     "markdown-it": "^14.1.0",
     "mocha": "^10.8.2",
     "modern-normalize": "^2.0.0",
