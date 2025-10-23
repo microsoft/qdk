@@ -10,6 +10,7 @@ from interop_qiskit import QISKIT_AVAILABLE, SKIP_REASON
 
 if QISKIT_AVAILABLE:
     from qiskit.circuit import QuantumCircuit
+    from qsharp.interop.qiskit import QSharpBackend
 
 
 def random_bit() -> Tuple["QuantumCircuit", List[str]]:
@@ -285,6 +286,10 @@ def exercise_barrier_delay() -> Tuple["QuantumCircuit", List[str]]:
 
     circuit.measure(0, 0)
 
+    # Always transpile here to avoid issues with barrier/delay not being supported
+    # in OpenQASM conversion
+    circuit = QSharpBackend().transpile(circuit)
+
     return circuit, ["1"]
 
 
@@ -301,6 +306,10 @@ def exercise_initialize_prepare_state() -> Tuple["QuantumCircuit", List[str]]:
     circuit.prepare_state([1 / np.sqrt(2), -1 / np.sqrt(2)], 1)
     circuit.h(1)
     circuit.measure(1, 1)
+
+    # Always transpile here to avoid issues with initialize/prepare_state not being supported
+    # in OpenQASM conversion
+    circuit = QSharpBackend().transpile(circuit)
 
     return circuit, ["11"]
 
@@ -381,6 +390,10 @@ def exercise_pauli() -> Tuple["QuantumCircuit", List[str]]:
     circuit.pauli("XZ", [0, 1])
     circuit.h(0)
     circuit.measure([0, 1], [0, 1])
+
+    # Always transpile here to avoid issues with pauli gate not being supported
+    # in OpenQASM conversion
+    circuit = QSharpBackend().transpile(circuit)
 
     return circuit, ["11"]
 

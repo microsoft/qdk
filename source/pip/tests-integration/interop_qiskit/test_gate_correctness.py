@@ -117,12 +117,12 @@ def test_qiskit_qir_exercise_rzz() -> None:
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
 def test_qiskit_qir_exercise_barrier_delay() -> None:
-    _test_circuit(*exercise_barrier_delay(), check_raw_qasm=False)
+    _test_circuit(*exercise_barrier_delay())
 
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
 def test_qiskit_qir_exercise_initialize_prepare_state() -> None:
-    _test_circuit(*exercise_initialize_prepare_state(), check_raw_qasm=False)
+    _test_circuit(*exercise_initialize_prepare_state())
 
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
@@ -152,7 +152,7 @@ def test_qiskit_qir_exercise_p() -> None:
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
 def test_qiskit_qir_exercise_pauli() -> None:
-    _test_circuit(*exercise_pauli(), check_raw_qasm=False)
+    _test_circuit(*exercise_pauli())
 
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
@@ -246,60 +246,41 @@ def _test_circuit(
     results_len=1,
     num_shots=20,
     meas_level=2,
-    check_raw_qasm=True,
 ):
-    target_profile = TargetProfile.Base
-    seed = 42
-    backend = QSharpBackend(
-        target_profile=target_profile,
-        seed=seed,
-        transpile_options={
-            "optimization_level": 0  # Use no optimization to get consistent results in simulations
-        },
-    )
-    try:
-        job = backend.run(circuit, shots=num_shots)
-        result = job.result()
-    except AssertionError:
-        raise
-    except Exception as ex:
-        additional_info = generate_repro_information(circuit, backend)
-        raise RuntimeError(additional_info) from ex
-
-    results = result.results
-
-    assert len(results) == results_len
-    assert results[0].shots == num_shots
-    assert results[0].success
-    assert results[0].meas_level == meas_level
-    assert hasattr(results[0].data, "counts")
-    assert hasattr(results[0].data, "probabilities")
-
-    counts = result.get_counts()
-
-    # Check if the result is as expected
-    assert _check_peaks(counts, peaks)
-
-    if check_raw_qasm:
-        # Now test the circuit as exported, untranspiled OpenQASM
-        qasm_str = dumps(circuit)
-        init()
-        set_quantum_seed(seed)
+    # Test both with and without transpilation
+    for skip_transpilation in [False, True]:
+        target_profile = TargetProfile.Base
+        seed = 42
+        backend = QSharpBackend(
+            target_profile=target_profile,
+            seed=seed,
+            transpile_options={
+                "optimization_level": 0  # Use no optimization to get consistent results in simulations
+            },
+        )
         try:
-            result = run_qasm(
-                qasm_str,
-                shots=num_shots,
-                as_bitstring=True,
-                output_semantics=OutputSemantics.Qiskit,
+            job = backend.run(
+                circuit, shots=num_shots, skip_transpilation=skip_transpilation
             )
+            result = job.result()
         except AssertionError:
             raise
         except Exception as ex:
-            raise RuntimeError(f"Failed running QASM:\n{qasm_str}") from ex
-        # Create counts dictionary
-        counts = {}
-        for bitstring in result:
-            counts[bitstring] = counts.get(bitstring, 0) + 1
+            additional_info = generate_repro_information(
+                circuit, backend, skip_transpilation=skip_transpilation
+            )
+            raise RuntimeError(additional_info) from ex
+
+        results = result.results
+
+        assert len(results) == results_len
+        assert results[0].shots == num_shots
+        assert results[0].success
+        assert results[0].meas_level == meas_level
+        assert hasattr(results[0].data, "counts")
+        assert hasattr(results[0].data, "probabilities")
+
+        counts = result.get_counts()
 
         # Check if the result is as expected
         assert _check_peaks(counts, peaks)
