@@ -36,7 +36,6 @@ def mock_qsharp() -> List[str]:
         stub.set_quantum_seed = _not_impl
         stub.set_classical_seed = _not_impl
         stub.dump_machine = _not_impl
-        stub.dump_circuit = _not_impl
         stub.init = _not_impl
 
         class _T:  # placeholder types
@@ -57,7 +56,6 @@ def mock_qsharp() -> List[str]:
             "set_quantum_seed",
             "set_classical_seed",
             "dump_machine",
-            "dump_circuit",
             "init",
             "Result",
             "TargetProfile",
