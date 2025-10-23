@@ -1,20 +1,109 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { IQSharpError } from "qsharp-lang";
+import { IQSharpError, ShotResult } from "qsharp-lang";
 import vscode from "vscode";
 import { loadCompilerWorker } from "./common";
 import { createDebugConsoleEventTarget } from "./debugger/output";
-import { FullProgramConfig } from "./programConfig";
+import { FullProgramConfig, getProgramForDocument } from "./programConfig";
+import { clearCommandDiagnostics } from "./diagnostics";
 
+/**
+ * Runs a program in a VS Code terminal using a custom pseudoterminal.
+ *
+ * @param extensionUri - The URI of the extension, used for resource paths.
+ * @param document - The URI of the document to run.
+ * @param terminalName - The name to display for the terminal.
+ * @param entry - The entry point for the program execution.
+ */
+export function runProgramInTerminal(
+  extensionUri: vscode.Uri,
+  document: vscode.Uri,
+  terminalName: string,
+  entry: string,
+) {
+  clearCommandDiagnostics();
+
+  if (document) {
+    const output = new vscode.EventEmitter<string>();
+    const closeEmitter = new vscode.EventEmitter<void>();
+    const pty: vscode.Pseudoterminal = {
+      onDidWrite: output.event,
+      onDidClose: closeEmitter.event,
+      open: async () => {
+        const programUri = document.toString();
+        const uri = vscode.Uri.parse(programUri);
+        const file = await vscode.workspace.openTextDocument(uri);
+
+        const program = await getProgramForDocument(file);
+        if (!program.success) {
+          throw new Error(program.errorMsg);
+        }
+
+        await runProgram(
+          extensionUri,
+          program.programConfig,
+          entry,
+          1,
+          (msg) => {
+            // replace \n with \r\n for proper terminal display
+            msg = msg.replace(/\n/g, "\r\n");
+            output.fire(msg + "\r\n");
+          },
+          () => {},
+        );
+        output.fire("\r\nPress any key to close this terminal.\r\n");
+      },
+      close: () => {
+        // TODO: cleanup
+      },
+      handleInput: () => {
+        // Any key press closes the terminal after program completion
+        closeEmitter.fire();
+      },
+    };
+
+    const terminal = vscode.window.createTerminal({
+      name: terminalName,
+      pty,
+      iconPath: {
+        light: vscode.Uri.joinPath(
+          extensionUri,
+          "resources",
+          "file-icon-light.svg",
+        ),
+        dark: vscode.Uri.joinPath(
+          extensionUri,
+          "resources",
+          "file-icon-dark.svg",
+        ),
+      },
+      isTransient: true,
+    });
+
+    terminal.show();
+  }
+}
+
+/**
+ * Executes a Q# program using a compiler worker, collects results, and updates the UI.
+ *
+ * @param extensionUri - The URI of the extension, used for resource paths.
+ * @param program - The full program configuration to run.
+ * @param entry - The entry point for the program; an empty string indicates the default entry point.
+ * @param shots - The number of times to run the program.
+ * @param out - Callback for output messages.
+ * @param resultUpdate - Progress callback for updating result histograms and reporting failures.
+ * @returns A promise that resolves with the final list of results.
+ */
 export async function runProgram(
   extensionUri: vscode.Uri,
   program: FullProgramConfig,
-  entry: string, // can be ""
+  entry: string, // can be "" to indicate default entrypoint
   shots: number,
   out: (message: string) => void,
   resultUpdate: (histogram: HistogramData, failures: IQSharpError[]) => void,
-): Promise<{ failures?: IQSharpError[] }> {
+): Promise<{ results: ShotResult[] }> {
   let histogram: HistogramData | undefined;
   const evtTarget = createDebugConsoleEventTarget((msg) => {
     out(msg);
@@ -67,20 +156,16 @@ export async function runProgram(
     // information to be useful. So wait for the one that comes through the event target.
     await allShotsDone;
 
-    const failures = evtTarget
-      .getResults()
-      .filter((result) => !result.success)
-      .flatMap(
-        (result) => (result.result as { errors: IQSharpError[] }).errors,
-      );
+    const results = evtTarget.getResults();
 
     return {
-      failures,
+      results,
     };
   }
   clearTimeout(compilerTimeout);
   worker.terminate();
-  return {};
+  const results = evtTarget.getResults();
+  return { results };
 }
 
 /**

@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 import * as vscode from "vscode";
-import { runCommand } from "./debugger/activate";
+import { runProgramInTerminal } from "./run";
 
 export class CircuitEditorProvider implements vscode.CustomTextEditorProvider {
   private static readonly viewType = "qsharp-webview.circuit";
@@ -40,7 +40,7 @@ export class CircuitEditorProvider implements vscode.CustomTextEditorProvider {
           return;
         case "run": {
           const entry = await generateQubitCircuitExpression(document.uri);
-          runCommand(
+          runProgramInTerminal(
             this.context.extensionUri,
             document.uri,
             "QDK: Run Circuit File",
