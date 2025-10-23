@@ -41,6 +41,7 @@ pub enum OpID {
     Matrix = 25,
     Matrix2Q = 26,
     SAMPLE = 27, // Take a probabilistic sample of all qubits
+    PauliNoise1Q = 128,
 }
 
 impl OpID {
@@ -89,6 +90,7 @@ impl TryFrom<u32> for OpID {
             25 => Ok(Self::Matrix),
             26 => Ok(Self::Matrix2Q),
             27 => Ok(Self::SAMPLE),
+            128 => Ok(Self::PauliNoise1Q),
             invalid => Err(invalid),
         }
     }
@@ -124,6 +126,7 @@ pub mod ops {
     pub const MATRIX: u32 = super::OpID::Matrix.as_u32();
     pub const MATRIX_2Q: u32 = super::OpID::Matrix2Q.as_u32();
     pub const SAMPLE: u32 = super::OpID::SAMPLE.as_u32(); // Take a probabilistic sample of all qubits
+    pub const PAULI_NOISE_1Q: u32 = super::OpID::PauliNoise1Q.as_u32();
 }
 
 pub(super) const OP_PADDING: usize = 100;
@@ -499,6 +502,15 @@ impl Op {
         op._10i = 0.0;
         op._11r = half_angle.cos(); // |1⟩⟨1| coefficient (real part of e^(iθ/2))
         op._11i = half_angle.sin(); // |1⟩⟨1| coefficient (imaginary part of e^(iθ/2))
+        op
+    }
+
+    #[must_use]
+    pub fn new_pauli_noise_1q(qubit: u32, p_x: f32, p_y: f32, p_z: f32) -> Self {
+        let mut op = Self::new_1q_gate(ops::PAULI_NOISE_1Q, qubit);
+        op._00r = p_x;
+        op._01r = p_y;
+        op._02r = p_z;
         op
     }
 

@@ -12,6 +12,7 @@ fn main() {
     test_simple_rotation_and_entanglement();
     bell_at_scale();
     scale_teleport();
+    test_pauli_noise();
 }
 
 fn simple_bell_pair() {
@@ -30,6 +31,30 @@ fn simple_bell_pair() {
     let results = run_gpu_shots(12, 2, ops, 10);
     let elapsed = start.elapsed();
     println!("[GPU Runner]: Simple Bell Pair on 12 qubits for 10 shots: {results:?}");
+    println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
+}
+
+fn test_pauli_noise() {
+    let mut init_op = Op::new_reset_gate(u32::MAX);
+    init_op.q2 = 0xdead_beef;
+    let x_noise: f32 = 0.0;
+
+    let ops: Vec<Op> = vec![
+        init_op,
+        Op::new_x_gate(0),
+        Op::new_pauli_noise_1q(0, x_noise, 0.0, 0.0),
+        Op::new_mresetz_gate(0, 0),
+        Op::new_x_gate(1),
+        Op::new_pauli_noise_1q(1, x_noise, 0.0, 0.0),
+        Op::new_mresetz_gate(1, 1),
+        Op::new_x_gate(2),
+        Op::new_pauli_noise_1q(2, x_noise, 0.0, 0.0),
+        Op::new_mresetz_gate(2, 2),
+    ];
+    let start = Instant::now();
+    let results = run_gpu_shots(3, 3, ops, 10);
+    let elapsed = start.elapsed();
+    println!("[GPU Runner]: Run 10 shots of X with pauli noise of {x_noise}: {results:?}");
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
 }
 

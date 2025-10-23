@@ -101,6 +101,7 @@ impl<'a> SequenceBuilder<'a> {
                     self.ops.push(op);
                 }
             }
+            OpID::PauliNoise1Q => unimplemented!("Can't apply noise to a noise op"),
         }
     }
 

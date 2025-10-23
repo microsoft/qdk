@@ -54,6 +54,8 @@ const OPID_MAT1Q   = 25u;
 const OPID_MAT2Q   = 26u;
 const OPID_SAMPLE  = 27u;
 
+const OPID_PAULI_NOISE_1Q = 128u;
+
 // If the application of noise results in a custom matrix, it will have been stored in the shot buffer
 // These OPIDs indicate to use that matrix and for how many qubits. (The qubit ids are in the original Op)
 const OPID_SHOT_BUFF_1Q = 256u;
@@ -146,7 +148,7 @@ struct Op {
 } // size: 6 * 4 + 16 * 8 + 4 + 25 * 4 = 256 bytes
 
 @group(0) @binding(2)
-var<storage, read> op: array<Op>;
+var<storage, read> ops: array<Op>;
 
 // The one large buffer of state vector amplitudes. (Partitioned into multiple shots)
 @group(0) @binding(3)
@@ -192,7 +194,7 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
 
     // WebGPU guarantees that buffers are zero-initialized, so next_op_idx will correctly be 0 on the first dispatch
     let op_idx = shot.next_op_idx;
-    let op = &op[op_idx];
+    let op = &ops[op_idx];
 
     // Default to 1.0 renormalization (i.e., no renormalization needed). MResetZ will update this if needed.
     shot.renormalize = 1.0;
@@ -291,8 +293,6 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
     shot.rand_measure = next_rand_f32(shot_buffer_idx);
     shot.rand_loss = next_rand_f32(shot_buffer_idx);
 
-    // TODO: Apply noise based on probabilities and random numbers. (NOTE: Loss acts like an MResetZ)
-
     // Handle MResetZ operations
     if (op.id == OPID_MRESETZ) {
         // Choose measurement result based on qubit probabilities and random number
@@ -344,12 +344,64 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
         return;
     }
 
+    // *****
+    // PHASE 4: Add any noise to the next op
+    // *****
+    if (arrayLength(&ops) > (op_idx + 1) && ops[op_idx + 1].id == OPID_PAULI_NOISE_1Q) {
+        let noise_op = &ops[op_idx + 1];
+        // NOTE: Assumes that whatever prepared the program ensured that noise_op.q1 matches op.q1 and that op is a 1-qubit gate
+
+        // Apply 1-qubit Pauli noise based on the probabilities in the op data, which are stored in
+        // the real part (x) of the first 3 vec2 entries of the unitary array.
+        let p_x = noise_op.unitary[0].x;
+        let p_y = noise_op.unitary[1].x;
+        let p_z = noise_op.unitary[2].x;
+
+        // Copy the matrix of the original op into the shot buffer for execute_op to use
+
+        let rand = shot.rand_pauli;
+        if (rand < p_x) {
+            // Apply the X permutation (basically swap the rows)
+            shots[shot_buffer_idx].unitary[0] = op.unitary[4];
+            shots[shot_buffer_idx].unitary[1] = op.unitary[5];
+            shots[shot_buffer_idx].unitary[4] = op.unitary[0];
+            shots[shot_buffer_idx].unitary[5] = op.unitary[1];
+        } else if (rand < (p_x + p_y)) {
+            // Apply the Y permutation (swap rows with negated |0> state)
+            shots[shot_buffer_idx].unitary[0] = cplxNeg(op.unitary[4]);
+            shots[shot_buffer_idx].unitary[1] = cplxNeg(op.unitary[5]);
+            shots[shot_buffer_idx].unitary[4] = op.unitary[0];
+            shots[shot_buffer_idx].unitary[5] = op.unitary[1];
+        } else if (rand < (p_x + p_y + p_z)) {
+            // Apply Z error (negate |1> state)
+            shots[shot_buffer_idx].unitary[0] = op.unitary[0];
+            shots[shot_buffer_idx].unitary[1] = op.unitary[1];
+            shots[shot_buffer_idx].unitary[4] = cplxNeg(op.unitary[4]);
+            shots[shot_buffer_idx].unitary[5] = cplxNeg(op.unitary[5]);
+        } else {
+            // No error to apply. Skip the noise op by advancing the op index and return
+            shot.op_idx = op_idx;
+            shot.next_op_idx = op_idx + 2u;
+            shot.op_type = op.id;
+            shot.qubits_updated_last_op_mask = 1u << op.q1;
+            return;
+        }
+
+        shot.op_type = OPID_SHOT_BUFF_1Q; // Indicate to use the matrix in the shot buffer
+        shot.op_idx = op_idx;
+        shot.next_op_idx = op_idx + 2u; // Skip over the noise op next time
+        shot.qubits_updated_last_op_mask = 1u << op.q1;
+        // TODO: What about multiple noise ops in a row? Loop somehow
+        return;
+    }
+
     // *******************************
-    // PHASE 4: Advance the state ready for the next op
+    // PHASE 5: Advance the state ready for the next op
     // *******************************
     // TODO: Figure out exactly what to set here for the execute_op stage to pick up and run with
     shot.op_idx = op_idx;
     shot.next_op_idx = op_idx + 1u;
+    shot.op_type = op.id;
 
     // Set this so the next prepare_op stage knows which qubits to update probabilities for
     shot.qubits_updated_last_op_mask = 1u << op.q1;
@@ -388,7 +440,7 @@ fn execute_op(
                                 i32(tid) * entries_per_thread;
 
     let op_idx = shot.op_idx;
-    let op = &op[op_idx];
+    let op = &ops[op_idx];
 
     if (shot.op_type == OPID_RESET && op.q1 == ALL_QUBITS) {
         // Set the state vector to |0...0> by zeroing all amplitudes except the first one
@@ -401,15 +453,22 @@ fn execute_op(
         }
         return;
     }
-    switch (op.id) {
+    switch (shot.op_type) {
       case OPID_ID, OPID_X, OPID_Y, OPID_Z, OPID_H,
            OPID_S, OPID_SAJD, OPID_T, OPID_TAJD, OPID_SX, OPID_SXAJD,
-           OPID_RX, OPID_RY, OPID_RZ {
+           OPID_RX, OPID_RY, OPID_RZ, OPID_SHOT_BUFF_1Q {
         // All these default gates have the matrix in the op data
-        let unitary = array<vec2f, 4>(
+        var unitary = array<vec2f, 4>(
             op.unitary[0], op.unitary[1],
             op.unitary[4], op.unitary[5]
         );
+        if (shot.op_type == OPID_SHOT_BUFF_1Q) {
+            // For transformed gates, use the matrix stored in the shot buffer
+            unitary[0] = shot.unitary[0];
+            unitary[1] = shot.unitary[1];
+            unitary[2] = shot.unitary[4];
+            unitary[3] = shot.unitary[5];
+        }
         apply_1q_unitary(
             shot_state_vector_start,
             entries_per_thread,
@@ -677,6 +736,10 @@ fn cplxmul(a: vec2f, b: vec2f) -> vec2f {
         a.x * b.x - a.y * b.y,
         a.x * b.y + a.y * b.x
     );
+}
+
+fn cplxNeg(a: vec2f) -> vec2f {
+    return vec2f(-a.x, -a.y);
 }
 
 // See https://www.reedbeta.com/blog/hash-functions-for-gpu-rendering/
