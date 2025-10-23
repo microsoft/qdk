@@ -25,6 +25,8 @@ export function runProgramInTerminal(
   clearCommandDiagnostics();
 
   if (document) {
+    const cancellationTokenSource = new vscode.CancellationTokenSource();
+
     const output = new vscode.EventEmitter<string>();
     const closeEmitter = new vscode.EventEmitter<void>();
     const pty: vscode.Pseudoterminal = {
@@ -40,7 +42,7 @@ export function runProgramInTerminal(
           throw new Error(program.errorMsg);
         }
 
-        await runProgram(
+        const result = await runProgram(
           extensionUri,
           program.programConfig,
           entry,
@@ -51,7 +53,13 @@ export function runProgramInTerminal(
             output.fire(msg + "\r\n");
           },
           () => {},
+          cancellationTokenSource.token,
         );
+        if (result.doneReason !== "all shots done") {
+          output.fire(
+            `\r\nProgram terminated due to ${result.doneReason}.\r\n`,
+          );
+        }
         output.fire("\r\nPress any key to close this terminal.\r\n");
       },
       close: () => {
@@ -86,14 +94,14 @@ export function runProgramInTerminal(
 }
 
 /**
- * Executes a Q# program using a compiler worker, collects results, and updates the UI.
+ * Executes a Q# program using a compiler worker, collects results, and streams output.
  *
  * @param extensionUri - The URI of the extension, used for resource paths.
  * @param program - The full program configuration to run.
  * @param entry - The entry point for the program; an empty string indicates the default entry point.
  * @param shots - The number of times to run the program.
- * @param out - Callback for output messages.
- * @param resultUpdate - Progress callback for updating result histograms and reporting failures.
+ * @param onOutput - Callback for output messages.
+ * @param onResults - Progress callback for updating result histograms and reporting failures.
  * @returns A promise that resolves with the final list of results.
  */
 export async function runProgram(
@@ -101,12 +109,20 @@ export async function runProgram(
   program: FullProgramConfig,
   entry: string, // can be "" to indicate default entrypoint
   shots: number,
-  out: (message: string) => void,
-  resultUpdate: (histogram: HistogramData, failures: IQSharpError[]) => void,
-): Promise<{ results: ShotResult[] }> {
+  onOutput: (message: string) => void,
+  onResults: (histogram: HistogramData, failures: IQSharpError[]) => void,
+  cancellationToken?: vscode.CancellationToken,
+): Promise<{
+  results: ShotResult[];
+  doneReason:
+    | "all shots done"
+    | "compilation error(s)"
+    | "timeout"
+    | "cancellation";
+}> {
   let histogram: HistogramData | undefined;
   const evtTarget = createDebugConsoleEventTarget((msg) => {
-    out(msg);
+    onOutput(msg);
   }, true /* captureEvents */);
 
   // create a promise that we'll resolve when the run is done
@@ -135,16 +151,26 @@ export async function runProgram(
       buckets: Array.from(buckets.entries()) as [string, number][],
       shotCount: resultCount,
     };
-    resultUpdate(histogram!, failures);
+    onResults(histogram!, failures);
     if (shots === resultCount || failures.length > 0) {
       resolvePromise();
     }
   });
 
+  let doneReason:
+    | "all shots done"
+    | "timeout"
+    | "cancellation"
+    | "compilation error(s)" = "all shots done";
   const compilerRunTimeoutMs = 1000 * 60 * 5; // 5 minutes
   const compilerTimeout = setTimeout(() => {
+    doneReason = "timeout";
     worker.terminate();
   }, compilerRunTimeoutMs);
+  cancellationToken?.onCancellationRequested(() => {
+    doneReason = "cancellation";
+    worker.terminate();
+  });
   const worker = loadCompilerWorker(extensionUri!);
 
   try {
@@ -156,16 +182,11 @@ export async function runProgram(
     // information to be useful. So wait for the one that comes through the event target.
     await allShotsDone;
 
-    const results = evtTarget.getResults();
-
-    return {
-      results,
-    };
+    doneReason = "compilation error(s)";
   }
   clearTimeout(compilerTimeout);
   worker.terminate();
-  const results = evtTarget.getResults();
-  return { results };
+  return { results: evtTarget.getResults(), doneReason };
 }
 
 /**
