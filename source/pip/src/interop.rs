@@ -670,7 +670,7 @@ fn create_interpreter_from_ast(
     unit.expose();
     let source_package_id = store.insert(unit);
 
-    interpret::Interpreter::from(
+    interpret::Interpreter::new_with_package_store(
         false,
         store,
         source_package_id,

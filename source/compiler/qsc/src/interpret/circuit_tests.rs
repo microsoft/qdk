@@ -26,6 +26,20 @@ fn interpreter(code: &str, profile: Profile) -> Interpreter {
     .expect("interpreter creation should succeed")
 }
 
+fn interpreter_with_circuit_trace(code: &str, profile: Profile) -> Interpreter {
+    let sources = SourceMap::new([("test.qs".into(), code.into())], None);
+    let (std_id, store) = crate::compile::package_store_with_stdlib(profile.into());
+    Interpreter::new_with_circuit_trace(
+        sources,
+        PackageType::Exe,
+        profile.into(),
+        LanguageFeatures::default(),
+        store,
+        &[(std_id, None)],
+    )
+    .expect("interpreter creation should succeed")
+}
+
 #[test]
 fn empty() {
     let mut interpreter = interpreter(
@@ -295,7 +309,7 @@ fn mresetz_base_profile() {
 
 #[test]
 fn unrestricted_profile_result_comparison() {
-    let mut interpreter = interpreter(
+    let mut interpreter = interpreter_with_circuit_trace(
         r"
             namespace Test {
                 import Std.Measurement.*;
