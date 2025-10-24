@@ -49,7 +49,7 @@ fn compile_and_run_internal(sources: SourceMap, debug: bool) -> String {
     let (std_id, store) = compile::package_store_with_stdlib(TargetCapabilityFlags::all());
 
     let mut interpreter = match if debug {
-        Interpreter::new_with_debug(
+        Interpreter::with_debug(
             sources,
             PackageType::Exe,
             TargetCapabilityFlags::all(),
