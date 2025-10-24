@@ -14,6 +14,7 @@ Glossary to help understand the terminology used in the code and notes:
 
 ## TODO
 
+- Add shot_id tracing and a Trace buffer to record ShotState at various points.
 - Add option for multiple noise ops per op.
 - Add qubit loss for single and two qubit gates and test.
   - To simplify logic for 2-qubit gate loss, just do the 2-qubit gate, and add an ID op with loss on

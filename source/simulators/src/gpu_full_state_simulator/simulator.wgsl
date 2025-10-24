@@ -15,6 +15,7 @@
 override QUBIT_COUNT: i32;
 override RESULT_COUNT: u32;
 override WORKGROUPS_PER_SHOT: i32;
+override ENTRIES_PER_THREAD: i32;
 
 const DBG = true; // Enable to add extra checks
 
@@ -507,19 +508,18 @@ fn execute_op(
     // Here 'entries' refers to complex amplitudes in the state vector
     let entries_per_shot: i32 = 1 << u32(QUBIT_COUNT);
     let entries_per_workgroup: i32 = entries_per_shot / WORKGROUPS_PER_SHOT;
-    let entries_per_thread: i32 = entries_per_workgroup / THREADS_PER_WORKGROUP;
 
     let shot_state_vector_start: i32 = shot_idx * entries_per_shot;
     let thread_start_idx: i32 = shot_state_vector_start +
                                 workgroup_idx_in_shot * entries_per_workgroup +
-                                i32(tid) * entries_per_thread;
+                                i32(tid) * ENTRIES_PER_THREAD;
 
     let op_idx = shot.op_idx;
     let op = &ops[op_idx];
 
     if (shot.op_type == OPID_RESET && op.q1 == ALL_QUBITS) {
         // Set the state vector to |0...0> by zeroing all amplitudes except the first one
-        for(var i: i32 = 0; i < entries_per_thread; i++) {
+        for(var i: i32 = 0; i < ENTRIES_PER_THREAD; i++) {
             stateVector[thread_start_idx + i] = vec2f(0.0, 0.0);
         }
         // Set the |0...0> amplitude to 1.0 from the first workgroup & thread for the shot
@@ -546,7 +546,6 @@ fn execute_op(
         }
         apply_1q_unitary(
             shot_state_vector_start,
-            entries_per_thread,
             thread_idx_in_shot,
             op.q1,
             tid,
@@ -559,7 +558,6 @@ fn execute_op(
       case OPID_CX, OPID_CZ, OPID_SHOT_BUFF_2Q {
         apply_2q_unitary(
             shot_state_vector_start,
-            entries_per_thread,
             thread_idx_in_shot,
             op.q1,
             op.q2,
@@ -591,7 +589,6 @@ fn update_all_qubit_probs(stateVectorIndex: u32, amplitude: vec2f, tid: u32) {
 
 fn apply_1q_unitary(
         shot_start_offset: i32, // The starting index of the shot in the state vector
-        chunk_size: i32,        // The number of amplitudes ths call should process
         chunk_idx: i32,         // The index of this chunk within the shot
         qubit: u32,             // The target qubit to apply the 1-qubit gate to
         tid: u32,               // Workgroup thread index to index into the per workgroup probability storage
@@ -609,7 +606,7 @@ fn apply_1q_unitary(
 
 
     // Each iteration processes 2 amplitudes (the pair affected by the 1-qubit gate), so half as many iterations as chunk size
-    let iterations = chunk_size >> 1;
+    let iterations = ENTRIES_PER_THREAD >> 1;
 
     // Being we are doing half as many iterations for each chunk, what is the start count for this chunk?
     let start_count = chunk_idx * iterations;
@@ -682,7 +679,6 @@ fn apply_1q_unitary(
 
 fn apply_2q_unitary(
         shot_start_offset: i32,
-        chunk_size: i32,
         chunk_idx: i32,
         c: u32,
         t: u32,
@@ -691,7 +687,7 @@ fn apply_2q_unitary(
         shot_idx: i32,
         opid: u32) {
     // Each iteration processes 4 amplitudes (the four affected by the 2-qubit gate), so quarter as many iterations as chunk size
-    let iterations = chunk_size >> 2;
+    let iterations = ENTRIES_PER_THREAD >> 2;
 
     // Calculate masks to split the index into low, mid, and high bits around the two qubits
     let lowQubit = select(c, t, c > t);
@@ -817,10 +813,13 @@ fn sum_thread_totals_to_shot(q: u32, shot_idx: i32, wkg_collation_idx: i32) {
 }
 
 // Complex number utilities
+
+// Get the magnitude squared of a complex number
 fn cplxMag2(a: vec2f) -> f32 {
     return (a.x * a.x + a.y * a.y);
 }
 
+// Complex multiplication
 fn cplxMul(a: vec2f, b: vec2f) -> vec2f {
     return vec2f(
         a.x * b.x - a.y * b.y,
@@ -828,10 +827,12 @@ fn cplxMul(a: vec2f, b: vec2f) -> vec2f {
     );
 }
 
+// Complex negation
 fn cplxNeg(a: vec2f) -> vec2f {
     return vec2f(-a.x, -a.y);
 }
 
+// Negate all elements in a 4-element row of complex numbers
 fn rowNeg(a: array<vec2f, 4>) -> array<vec2f, 4> {
     return array<vec2f, 4>(
         cplxNeg(a[0]),
@@ -840,10 +841,10 @@ fn rowNeg(a: array<vec2f, 4>) -> array<vec2f, 4> {
         cplxNeg(a[3]));
 }
 
+// Compute the inner product of two 4-element rows of complex numbers
 fn innerProduct(a: array<vec2f, 4>, b: array<vec2f, 4>) -> vec2f {
     var result: vec2f = vec2f(0.0, 0.0);
     for (var i: u32 = 0u; i < 4u; i++) {
-        // TODO: Check we don't need to conjugate a or b here
         result += cplxMul(a[i], b[i]);
     }
     return result;
@@ -875,13 +876,7 @@ fn setUnitaryRow(shot_idx: u32, row: u32, newRow: array<vec2f, 4>) {
     shot.unitary[row * 4 + 3] = newRow[3];
 }
 
-fn negateRow(row: array<vec2f, 4>) -> array<vec2f, 4> {
-    return array<vec2f, 4>(
-        cplxNeg(row[0]),
-        cplxNeg(row[1]),
-        cplxNeg(row[2]),
-        cplxNeg(row[3]));
-}
+// Hash and random number generation functions
 
 // See https://www.reedbeta.com/blog/hash-functions-for-gpu-rendering/
 // Use PCG hash function to generate a well-distributed hash from a simple integer input (e.g., shot id)

@@ -386,6 +386,17 @@ impl GpuContext {
                     push_constant_ranges: &[],
                 });
 
+        // Overrides needs to be passed as an f64 due to wgpu restrictions
+        let qubit_count = f64::from(self.qubit_count);
+        let workgroups_per_shot = f64::from(
+            u32::try_from(self.run_params.workgroups_per_shot).expect("invalid conversion"),
+        );
+        let result_count =
+            f64::from(u32::try_from(self.run_params.result_count).expect("invalid conversion"));
+        let entries_per_thread = f64::from(
+            u32::try_from(self.run_params.entries_per_thread).expect("invalid conversion"),
+        );
+
         let pipeline_prepare_op =
             self.device
                 .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -395,15 +406,10 @@ impl GpuContext {
                     entry_point: Some("prepare_op"),
                     compilation_options: wgpu::PipelineCompilationOptions {
                         constants: &[
-                            ("QUBIT_COUNT", f64::from(self.qubit_count)),
-                            (
-                                "WORKGROUPS_PER_SHOT",
-                                f64::from(self.run_params.workgroups_per_shot as u32),
-                            ),
-                            (
-                                "RESULT_COUNT",
-                                f64::from(self.run_params.result_count as u32),
-                            ),
+                            ("QUBIT_COUNT", qubit_count),
+                            ("WORKGROUPS_PER_SHOT", workgroups_per_shot),
+                            ("RESULT_COUNT", result_count),
+                            ("ENTRIES_PER_THREAD", entries_per_thread),
                         ],
                         ..Default::default()
                     },
@@ -419,15 +425,10 @@ impl GpuContext {
                     entry_point: Some("execute_op"),
                     compilation_options: wgpu::PipelineCompilationOptions {
                         constants: &[
-                            ("QUBIT_COUNT", f64::from(self.qubit_count)),
-                            (
-                                "WORKGROUPS_PER_SHOT",
-                                f64::from(self.run_params.workgroups_per_shot as u32),
-                            ),
-                            (
-                                "RESULT_COUNT",
-                                f64::from(self.run_params.result_count as u32),
-                            ),
+                            ("QUBIT_COUNT", qubit_count),
+                            ("WORKGROUPS_PER_SHOT", workgroups_per_shot),
+                            ("RESULT_COUNT", result_count),
+                            ("ENTRIES_PER_THREAD", entries_per_thread),
                         ],
                         ..Default::default()
                     },
