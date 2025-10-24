@@ -199,14 +199,15 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
     let op_idx = shot.next_op_idx;
     let op = &ops[op_idx];
 
-    // Default to 1.0 renormalization (i.e., no renormalization needed). MResetZ will update this if needed.
+    // Default to 1.0 renormalization (i.e., no renormalization needed). MResetZ or noise affecting the
+    // overall probability distribution (e.g. loss or amplitude damping) will update this if needed.
     shot.renormalize = 1.0;
 
     // *******************************
     // PHASE 1: If the op is a full batch reset (i.e. start of a new batch), clean the state and exit
     // *******************************
 
-      if (op.id == OPID_RESET && op.q1 == ALL_QUBITS) {
+    if (op.id == OPID_RESET && op.q1 == ALL_QUBITS) {
         let rng_seed: u32 = op.q2; // The rng seed is passed in q2
         let shot_offset: u32 = op.q3; // The shot offset (e.g. first shot_id in the new batch) is passed in q3
 
@@ -601,11 +602,11 @@ fn execute_op(
 }
 
 // For the state vector index and amplitude probability, update all the qubit probabilities for this thread
-fn update_qubits_probs(stateVectorIndex: u32, amplitude: vec2f, tid: u32) {
+fn update_all_qubit_probs(stateVectorIndex: u32, amplitude: vec2f, tid: u32) {
     var mask: u32 = 1u;
     for (var q: u32 = 0u; q < u32(QUBIT_COUNT); q++) {
         let is_one: bool = (stateVectorIndex & mask) != 0u;
-        let prob: f32 = amplitude.x * amplitude.x + amplitude.y * amplitude.y;
+        let prob: f32 = cplxMag2(amplitude);
         if (is_one) {
             qubitProbabilities[q].one[tid] += prob;
         } else {
@@ -659,21 +660,21 @@ fn apply_1q_unitary(
         let amp1: vec2f = stateVector[offset + stride];
 
         // Apply renormalization scaling from prior measurement/noise ops (will be 1.0 if none needed)
-        let new0: vec2f = scale * (cplxmul(amp0, unitary[0]) + cplxmul(amp1, unitary[1]));
-        let new1: vec2f = scale * (cplxmul(amp0, unitary[2]) + cplxmul(amp1, unitary[3]));
+        let new0: vec2f = scale * (cplxMul(amp0, unitary[0]) + cplxMul(amp1, unitary[1]));
+        let new1: vec2f = scale * (cplxMul(amp0, unitary[2]) + cplxMul(amp1, unitary[3]));
 
         if (!zero_untouched) { stateVector[offset] = new0; }
         stateVector[offset + stride] = new1;
 
         // Update the probabilities for the acted on qubit
         // TODO: Check the float precision here is sufficient
-        zero_probability += (new0.x * new0.x + new0.y * new0.y);
-        one_probability += (new1.x * new1.x + new1.y * new1.y);
+        zero_probability += cplxMag2(new0);
+        one_probability += cplxMag2(new1);
 
-        // If updating all qubit probabilities (i.e., on measurement), do that now
+        // If updating all qubit probabilities (e.g., on measurement), do that now
         if (update_probs) {
-            update_qubits_probs(u32(offset), new0, tid);
-            update_qubits_probs(u32(offset + stride), new1, tid);
+            update_all_qubit_probs(u32(offset), new0, tid);
+            update_all_qubit_probs(u32(offset + stride), new1, tid);
         }
 
         offset += 1;
@@ -793,10 +794,10 @@ fn apply_2q_unitary(
         }
 
         // Update the probabilities for the acted on qubits
-        c_zero_probability += cplxmag2(result00) + cplxmag2(result01);
-        c_one_probability  += cplxmag2(result10) + cplxmag2(result11);
-        t_zero_probability += cplxmag2(result00) + cplxmag2(result10);
-        t_one_probability  += cplxmag2(result01) + cplxmag2(result11);
+        c_zero_probability += cplxMag2(result00) + cplxMag2(result01);
+        c_one_probability  += cplxMag2(result10) + cplxMag2(result11);
+        t_zero_probability += cplxMag2(result00) + cplxMag2(result10);
+        t_one_probability  += cplxMag2(result01) + cplxMag2(result11);
     }
     // Update this thread's totals for the two qubits in the workgroup storage
     qubitProbabilities[c].zero[tid] = c_zero_probability;
@@ -835,11 +836,11 @@ fn sum_thread_totals_to_shot(q: u32, shot_buffer_idx: i32, wkg_collation_idx: i3
 }
 
 // Complex number utilities
-fn cplxmag2(a: vec2f) -> f32 {
+fn cplxMag2(a: vec2f) -> f32 {
     return (a.x * a.x + a.y * a.y);
 }
 
-fn cplxmul(a: vec2f, b: vec2f) -> vec2f {
+fn cplxMul(a: vec2f, b: vec2f) -> vec2f {
     return vec2f(
         a.x * b.x - a.y * b.y,
         a.x * b.y + a.y * b.x
@@ -862,7 +863,7 @@ fn innerProduct(a: array<vec2f, 4>, b: array<vec2f, 4>) -> vec2f {
     var result: vec2f = vec2f(0.0, 0.0);
     for (var i: u32 = 0u; i < 4u; i++) {
         // TODO: Check we don't need to conjugate a or b here
-        result += cplxmul(a[i], b[i]);
+        result += cplxMul(a[i], b[i]);
     }
     return result;
 }

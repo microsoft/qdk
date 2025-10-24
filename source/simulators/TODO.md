@@ -16,7 +16,13 @@ Glossary to help understand the terminology used in the code and notes:
 
 - Add tests for 2-qubit Pauli noise.
 - Add qubit loss for single and two qubit gates and test.
+  - To simplify logic for 2-qubit gate loss, just do the 2-qubit gate, and add an ID op with loss on
+    each qubit after it. Ensure the 'execute' kernel is optimized to do nothing on 'id' gate. (This assumes
+    most 'loss' will occur on move and idle gates, thus loss will rarely be configured on CX or CZ gates.
+    Revisit this assumption later if needed)
 - Add the Python pass to insert noise and loss operations into circuits from a NoiseConfig object.
+- Add flags to shot (noise was applied to q1/q2, loss occurred on q1/q2) etc. and 'trace' buffer
+  - In the trace buffer, for a specific shot, record the ShotState at the end of each 'prepare' for the shot.
 - Try out the chemistry circuits at this point.
 - Add custom 2q unitaries (e.g. rzz) and test.
 - Add 'dispatch chunking' for circuits that are too large for one command buffer
