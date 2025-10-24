@@ -2152,7 +2152,7 @@ mod given_interpreter {
             assert!(errors.is_empty(), "compilation failed: {}", errors[0]);
             let package_id = store.insert(unit);
 
-            let mut interpreter = Interpreter::from(
+            let mut interpreter = Interpreter::with_package_store(
                 false,
                 store,
                 package_id,
