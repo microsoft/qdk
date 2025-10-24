@@ -180,27 +180,6 @@ pub struct TaggedItem {
 }
 
 impl Interpreter {
-    pub fn new_with_circuit_trace(
-        sources: SourceMap,
-        package_type: PackageType,
-        capabilities: TargetCapabilityFlags,
-        language_features: LanguageFeatures,
-        store: PackageStore,
-        dependencies: &Dependencies,
-        circuit_tracer_config: TracerConfig,
-    ) -> std::result::Result<Self, Vec<Error>> {
-        Self::with_sources(
-            false,
-            sources,
-            package_type,
-            capabilities,
-            language_features,
-            store,
-            dependencies,
-            Some(circuit_tracer_config),
-        )
-    }
-
     /// Creates a new incremental compiler, compiling the passed in sources.
     /// # Errors
     /// If compiling the sources fails, compiler errors are returned.
@@ -224,10 +203,31 @@ impl Interpreter {
         )
     }
 
+    pub fn with_circuit_tracer(
+        sources: SourceMap,
+        package_type: PackageType,
+        capabilities: TargetCapabilityFlags,
+        language_features: LanguageFeatures,
+        store: PackageStore,
+        dependencies: &Dependencies,
+        circuit_tracer_config: TracerConfig,
+    ) -> std::result::Result<Self, Vec<Error>> {
+        Self::with_sources(
+            false,
+            sources,
+            package_type,
+            capabilities,
+            language_features,
+            store,
+            dependencies,
+            Some(circuit_tracer_config),
+        )
+    }
+
     /// Creates a new incremental compiler with debugging stmts enabled, compiling the passed in sources.
     /// # Errors
     /// If compiling the sources fails, compiler errors are returned.
-    pub fn new_with_debug(
+    pub fn with_debug(
         sources: SourceMap,
         package_type: PackageType,
         capabilities: TargetCapabilityFlags,
@@ -281,7 +281,7 @@ impl Interpreter {
         dependencies: &Dependencies,
         circuit_tracer_config: Option<TracerConfig>,
     ) -> std::result::Result<Self, Vec<Error>> {
-        let compiler = Compiler::from(
+        let compiler = Compiler::with_package_store(
             store,
             source_package_id,
             capabilities,
@@ -1426,7 +1426,7 @@ impl Debugger {
         dependencies: &Dependencies,
         circuit_config: Option<TracerConfig>,
     ) -> std::result::Result<Self, Vec<Error>> {
-        let interpreter = Interpreter::new_with_debug(
+        let interpreter = Interpreter::with_debug(
             sources,
             PackageType::Exe,
             capabilities,
