@@ -14,7 +14,7 @@ Glossary to help understand the terminology used in the code and notes:
 
 ## TODO
 
-- Add tests for 2-qubit Pauli noise.
+- Add option for multiple noise ops per op.
 - Add qubit loss for single and two qubit gates and test.
   - To simplify logic for 2-qubit gate loss, just do the 2-qubit gate, and add an ID op with loss on
     each qubit after it. Ensure the 'execute' kernel is optimized to do nothing on 'id' gate. (This assumes

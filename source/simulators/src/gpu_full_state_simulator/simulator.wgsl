@@ -318,25 +318,14 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
             1.0 / sqrt(shot.qubit_state[qubit].one_probability),
             result == 1u);
 
-        shot.qubit_state[qubit].zero_probability = select(1.0, 0.0, result == 1u);
-        shot.qubit_state[qubit].one_probability = select(0.0, 1.0, result == 1u);
 
-        // Update the qubit masks
-        shot.qubit_is_0_mask = select(
-            shot.qubit_is_0_mask | (1u << qubit),
-            shot.qubit_is_0_mask & ~(1u << qubit),
-            result == 1u);
-        shot.qubit_is_1_mask = select(
-            shot.qubit_is_1_mask & ~(1u << qubit),
-            shot.qubit_is_1_mask | (1u << qubit),
-            result == 1u);
-
-        // Set the qubits_updated_last_op_mask to all except the measured qubit, and those that were
-        // already in a definite state (so we don't waste time updating probabilities that are already known)
+        // Set the qubits_updated_last_op_mask to all except those that were already in a definite
+        // state (so we don't waste time updating probabilities that are already known). Note that
+        // next 'prepare_op' should set the just measuremed qubit into a definite 0 or 1 state.
         shot.qubits_updated_last_op_mask =
             // // A mask with all qubits set
             ((1u << u32(QUBIT_COUNT)) - 1u)
-            // Exclude qubits already in definite states (which will include the just measured qubit)
+            // Exclude qubits already in definite states
              & ~(shot.qubit_is_0_mask | shot.qubit_is_1_mask);
 
         // The workgroup will sum from its threads into the collation buffer (for multi-workgroup shots)
@@ -542,18 +531,18 @@ fn execute_op(
     switch (shot.op_type) {
       case OPID_ID, OPID_X, OPID_Y, OPID_Z, OPID_H,
            OPID_S, OPID_SAJD, OPID_T, OPID_TAJD, OPID_SX, OPID_SXAJD,
-           OPID_RX, OPID_RY, OPID_RZ, OPID_SHOT_BUFF_1Q {
+           OPID_RX, OPID_RY, OPID_RZ, OPID_SHOT_BUFF_1Q, OPID_MRESETZ {
         // All these default gates have the matrix in the op data
         var unitary = array<vec2f, 4>(
             op.unitary[0], op.unitary[1],
             op.unitary[4], op.unitary[5]
         );
-        if (shot.op_type == OPID_SHOT_BUFF_1Q) {
+        if (shot.op_type == OPID_SHOT_BUFF_1Q || shot.op_type == OPID_MRESETZ) {
             // For transformed gates, use the matrix stored in the shot buffer
-            unitary[0] = shot.unitary[0];
-            unitary[1] = shot.unitary[1];
-            unitary[2] = shot.unitary[4];
-            unitary[3] = shot.unitary[5];
+            unitary = array<vec2f, 4>(
+                shot.unitary[0], shot.unitary[1],
+                shot.unitary[4], shot.unitary[5]
+            );
         }
         apply_1q_unitary(
             shot_state_vector_start,
@@ -563,7 +552,7 @@ fn execute_op(
             tid,
             workgroup_collation_idx,
             shot_buffer_idx,
-            false, // No need to update all qubit probabilities
+            shot.op_type == OPID_MRESETZ, // Update all probabilities on MRESETZ
             shot.op_type,
             unitary);
         }
@@ -578,24 +567,6 @@ fn execute_op(
             workgroup_collation_idx,
             shot_buffer_idx,
             shot.op_type);
-      }
-      case OPID_MRESETZ {
-        // The MResetZ instrument matrix for the result is stored in the shot buffer
-        let instrument = array<vec2f, 4>(
-            shot.unitary[0], shot.unitary[1],
-            shot.unitary[4], shot.unitary[5]
-        );
-        apply_1q_unitary(
-            shot_state_vector_start,
-            entries_per_thread,
-            thread_idx_in_shot,
-            op.q1,
-            tid,
-            workgroup_collation_idx,
-            shot_buffer_idx,
-            true, // Update all qubit probabilities
-            shot.op_type,
-            instrument);
       }
       default {
         // Oops

@@ -13,6 +13,7 @@ fn main() {
     scale_teleport();
     test_pauli_noise();
     test_simple_rotation_and_entanglement();
+    test_2q_pauli_noise();
 }
 
 fn split_results(result_count: usize, results: &[u32]) -> (Vec<Vec<u32>>, Vec<u32>) {
@@ -201,5 +202,45 @@ fn test_simple_rotation_and_entanglement() {
     let elapsed = start.elapsed();
     let (results, _error_codes) = split_results(3, &results);
     println!("[GPU Runner]: Results of GHZ state for 8 shots on 24 qubits: {results:?}");
+    println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
+}
+
+fn test_2q_pauli_noise() {
+    let mut init_op = Op::new_reset_gate(u32::MAX);
+    init_op.q2 = 0xdead_beef;
+
+    let ops: Vec<Op> = vec![
+        init_op, // 1, 0xFFFFFFFF, 0xDEADBEEF
+        Op::new_h_gate(0),
+        Op::new_cx_gate(0, 1),
+        // Op::new_pauli_noise_2q(0, 1, 0.1, 0.1, 0.1),
+        Op::new_cx_gate(1, 2),
+        // Op::new_pauli_noise_2q(1, 2, 0.1, 0.1, 0.1),
+        Op::new_cx_gate(2, 3),
+        // Op::new_pauli_noise_2q(2, 3, 0.1, 0.1, 0.1),
+        Op::new_cx_gate(3, 4),
+        Op::new_pauli_noise_2q(3, 4, 0.1, 0.1, 0.1),
+        Op::new_cx_gate(4, 5),
+        Op::new_pauli_noise_2q(4, 5, 0.1, 0.1, 0.1),
+        Op::new_cx_gate(5, 6),
+        Op::new_pauli_noise_2q(5, 6, 0.1, 0.1, 0.1),
+        Op::new_cx_gate(6, 7),
+        Op::new_pauli_noise_2q(6, 7, 0.1, 0.1, 0.1),
+        Op::new_mresetz_gate(0, 0),
+        Op::new_mresetz_gate(1, 1),
+        Op::new_mresetz_gate(2, 2),
+        Op::new_mresetz_gate(3, 3),
+        Op::new_mresetz_gate(4, 4),
+        Op::new_mresetz_gate(5, 5),
+        Op::new_mresetz_gate(6, 6),
+        Op::new_mresetz_gate(7, 7),
+    ];
+    let start = Instant::now();
+    let results = run_gpu_shots(8, 8, ops, 20).expect("GPU shots failed");
+    let elapsed = start.elapsed();
+    let (results, _error_codes) = split_results(8, &results);
+    // Check the results: The first 3 qubits should always agree, the 4th usually with the first 3,
+    // and after that it gets messy.
+    println!("[GPU Runner]: Results of 2q Pauli noise: {results:?}");
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
 }
