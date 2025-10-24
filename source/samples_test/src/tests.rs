@@ -145,7 +145,7 @@ fn compile_and_run_qasm_internal(source: &str, debug: bool) -> String {
     unit.expose();
     let source_package_id = store.insert(unit);
 
-    let mut interpreter = match Interpreter::from(
+    let mut interpreter = match Interpreter::new_with_package_store(
         debug,
         store,
         source_package_id,
