@@ -564,6 +564,7 @@ fn execute_op(
             workgroup_collation_idx,
             shot_buffer_idx,
             false, // No need to update all qubit probabilities
+            shot.op_type,
             unitary);
         }
       case OPID_CX, OPID_CZ, OPID_SHOT_BUFF_2Q {
@@ -576,7 +577,7 @@ fn execute_op(
             tid,
             workgroup_collation_idx,
             shot_buffer_idx,
-            op.id);
+            shot.op_type);
       }
       case OPID_MRESETZ {
         // The MResetZ instrument matrix for the result is stored in the shot buffer
@@ -593,6 +594,7 @@ fn execute_op(
             workgroup_collation_idx,
             shot_buffer_idx,
             true, // Update all qubit probabilities
+            shot.op_type,
             instrument);
       }
       default {
@@ -625,7 +627,16 @@ fn apply_1q_unitary(
         wkg_collation_idx: i32, // If >=0, the index in the workgroup collation buffer to write partial sums to
         shot_buffer_idx: i32,   // The index of the shot in the shot buffer
         update_probs: bool,     // Whether to update all qubit probabilities or not (e.g. on measurement)
+        opid: u32,              // The operation ID (to check for ID gate optimization)
         unitary: array<vec2f, 4>) {
+    // First, exit early if we don't need to do any work. If the operation is an ID, there is no renormalization,
+    // and we are not updating probabilities, then there is nothing to do.
+    let scale = shots[shot_buffer_idx].renormalize;
+    if (opid == OPID_ID && scale == 1.0 && !update_probs) {
+        return;
+    }
+
+
     // Each iteration processes 2 amplitudes (the pair affected by the 1-qubit gate), so half as many iterations as chunk size
     let iterations = chunk_size >> 1;
 
@@ -643,7 +654,6 @@ fn apply_1q_unitary(
     // - This effectively interleaves the chunks to index only amplitudes where target qubit = 0
     var offset = shot_start_offset + ((start_count >> qubit) << (qubit + 1)) + (start_count & ((1 << qubit) - 1));
 
-    let scale = shots[shot_buffer_idx].renormalize;
 
     // Optimize for phase operations (e.g., Z, S, T, Rz, etc.) where we can skip half the memory writes
     let zero_untouched = unitary[0].x == 1.0 && unitary[0].y == 0.0 &&
