@@ -12,15 +12,18 @@ Glossary to help understand the terminology used in the code and notes:
 - 'prepare' kernel updates the shot state in between 'execute' kernel invocations (single-threaded per shot)
 - 'execute' kernel applies the quantum operations to the state vector and sums probabilties (multi-threaded per shot)
 
-# Today
+## TODO
 
-- Add the __qdk__sim__1q_pauli_noise operation and test.
-  - Will need an 'op_count' the excludes noise ops for the dispatch count (as noise will get combined in the kernels).
-- Add batching for multiple rounds of shots
-- Add 'error code' space at the end of the results and fill if any errors occur in the compute kernels
-- Add a 'random_teleport' test that generates random prepare/unprepare on random qubits with random states and does teleportation between them.
-- Add 'op chunking' for circuits that are too large for one command buffer
-- Add rzz and test the speed of Ising on 25 qubits. (Should be similar to apply_1q_gate and use op matrix)
+- Add qubit loss for single and two qubit gates and test.
+- Add the Python pass to insert noise and loss operations into circuits from a NoiseConfig object.
+- Try out the chemistry circuits at this point.
+- Add custom 2q unitaries (e.g. rzz) and test.
+- Add 'dispatch chunking' for circuits that are too large for one command buffer
+- Add batching for multiple rounds of shots.
+- Test the giant Ising circuits (4x4 and 5x5) end-to-end.
+- Add amplitude damping & dephasing noise
+- Add 'gradual rotation' noise.
+- Add logic to skip state vector entries that are known to be zero/one.
 
 ## Open questions/decisions
 

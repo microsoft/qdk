@@ -42,6 +42,8 @@ pub enum OpID {
     Matrix2Q = 26,
     SAMPLE = 27, // Take a probabilistic sample of all qubits
     PauliNoise1Q = 128,
+    PauliNoise2Q = 129,
+    LossNoise = 130,
 }
 
 impl OpID {
@@ -91,6 +93,8 @@ impl TryFrom<u32> for OpID {
             26 => Ok(Self::Matrix2Q),
             27 => Ok(Self::SAMPLE),
             128 => Ok(Self::PauliNoise1Q),
+            129 => Ok(Self::PauliNoise2Q),
+            130 => Ok(Self::LossNoise),
             invalid => Err(invalid),
         }
     }
@@ -127,6 +131,8 @@ pub mod ops {
     pub const MATRIX_2Q: u32 = super::OpID::Matrix2Q.as_u32();
     pub const SAMPLE: u32 = super::OpID::SAMPLE.as_u32(); // Take a probabilistic sample of all qubits
     pub const PAULI_NOISE_1Q: u32 = super::OpID::PauliNoise1Q.as_u32();
+    pub const PAULI_NOISE_2Q: u32 = super::OpID::PauliNoise2Q.as_u32();
+    pub const LOSS_NOISE: u32 = super::OpID::LossNoise.as_u32();
 }
 
 pub(super) const OP_PADDING: usize = 100;
@@ -514,6 +520,22 @@ impl Op {
         op
     }
 
+    #[must_use]
+    pub fn new_pauli_noise_2q(q1: u32, q2: u32, p_x: f32, p_y: f32, p_z: f32) -> Self {
+        let mut op = Self::new_2q_gate(ops::PAULI_NOISE_2Q, q1, q2);
+        op._00r = p_x;
+        op._01r = p_y;
+        op._02r = p_z;
+        op
+    }
+
+    #[must_use]
+    pub fn new_loss_noise(qubit: u32, p_loss: f32) -> Self {
+        let mut op = Self::new_1q_gate(ops::LOSS_NOISE, qubit);
+        op._00r = p_loss;
+        op
+    }
+
     /// Create a new 2-qubit gate Op with default values
     fn new_2q_gate(op_id: u32, control: u32, target: u32) -> Self {
         Self {
@@ -528,14 +550,24 @@ impl Op {
     /// Matrix representation is handled in the shader for 2-qubit gates
     #[must_use]
     pub fn new_cx_gate(control: u32, target: u32) -> Self {
-        Self::new_2q_gate(ops::CX, control, target)
+        let mut op = Self::new_2q_gate(ops::CX, control, target);
+        op._00r = 1.0;
+        op._11r = 1.0;
+        op._23r = 1.0;
+        op._32r = 1.0;
+        op
     }
 
     /// CZ gate (Controlled-Z): Controlled-Z gate
     /// Matrix representation is handled in the shader for 2-qubit gates
     #[must_use]
     pub fn new_cz_gate(control: u32, target: u32) -> Self {
-        Self::new_2q_gate(ops::CZ, control, target)
+        let mut op = Self::new_2q_gate(ops::CZ, control, target);
+        op._00r = 1.0;
+        op._11r = 1.0;
+        op._22r = 1.0;
+        op._33r = -1.0;
+        op
     }
 
     /// RXX gate: Two-qubit rotation around XX

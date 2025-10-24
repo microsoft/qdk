@@ -186,7 +186,11 @@ impl GpuContext {
         )?;
 
         let adapter = wgpu::Instance::new(&wgpu::InstanceDescriptor::default())
-            .request_adapter(&wgpu::RequestAdapterOptions::default())
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: None,
+                force_fallback_adapter: false,
+            })
             .await
             .map_err(|e| e.to_string())?;
 

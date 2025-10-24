@@ -102,6 +102,8 @@ impl<'a> SequenceBuilder<'a> {
                 }
             }
             OpID::PauliNoise1Q => unimplemented!("Can't apply noise to a noise op"),
+            OpID::PauliNoise2Q => unimplemented!("Can't apply noise to a noise op"),
+            OpID::LossNoise => unimplemented!("Can't apply noise to a noise op"),
         }
     }
 

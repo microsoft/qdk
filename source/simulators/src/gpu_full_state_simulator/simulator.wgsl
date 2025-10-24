@@ -55,6 +55,8 @@ const OPID_MAT2Q   = 26u;
 const OPID_SAMPLE  = 27u;
 
 const OPID_PAULI_NOISE_1Q = 128u;
+const OPID_PAULI_NOISE_2Q = 129u;
+const OPID_LOSS_NOISE = 130u;
 
 // If the application of noise results in a custom matrix, it will have been stored in the shot buffer
 // These OPIDs indicate to use that matrix and for how many qubits. (The qubit ids are in the original Op)
@@ -123,10 +125,11 @@ struct ShotData {
     qubit_state: array<QubitState, MAX_QUBIT_COUNT>, // 27 x 16 bytes = 432 bytes
     // 512 bytes to this point
 
-    // Making this large enough to hold a 3-qubit gate (8x8 matrix) such as Toffoli for when we add it.
-    unitary: array<vec2f, 64>, // For MAT1Q and MAT2Q ops. 64 x 8 = 512 bytes
+    // Map this to the Op structure for ease of use
+    unitary: array<vec2f, 16>, // For MAT1Q and MAT2Q ops.
+    padding: array<vec2f, 48>, // Including the above array, 64 x 8 = 512 bytes
 }
-// Total struct size = 1024 bytes
+// Total struct size = 1024 bytes (including 384 of padding at the end)
 // See https://www.w3.org/TR/WGSL/#structure-member-layout for alignment rules
 
 @group(0) @binding(1)
@@ -380,11 +383,7 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
             shots[shot_buffer_idx].unitary[5] = cplxNeg(op.unitary[5]);
         } else {
             // No error to apply. Skip the noise op by advancing the op index and return
-            shot.op_idx = op_idx;
-            shot.next_op_idx = op_idx + 2u;
-            shot.op_type = op.id;
-            shot.qubits_updated_last_op_mask = 1u << op.q1;
-            return;
+            shots[shot_buffer_idx].unitary = op.unitary;
         }
 
         shot.op_type = OPID_SHOT_BUFF_1Q; // Indicate to use the matrix in the shot buffer
@@ -394,6 +393,92 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
         // TODO: What about multiple noise ops in a row? Loop somehow
         return;
     }
+    // 2 qubit Pauli noise
+    if (arrayLength(&ops) > (op_idx + 1) && ops[op_idx + 1].id == OPID_PAULI_NOISE_2Q) {
+        let noise_op = &ops[op_idx + 1];
+
+        // Non correlated noise for now. Just apply the 1Q noise to each qubit in turn
+        let p_x = noise_op.unitary[0].x;
+        let p_y = noise_op.unitary[1].x;
+        let p_z = noise_op.unitary[2].x;
+
+        // If doing a 2 qubit gate, we're not doing a measurement, so 'steal' that random number for qubit 2
+        let q1_rand = shot.rand_pauli;
+        let q2_rand = shot.rand_measure;
+
+        // Only apply noise if needed
+        if (q1_rand < (p_x + p_y + p_z ) || q2_rand < (p_x + p_y + p_z )) {
+            // Get the rows of the 2 qubit unitary
+            var op_row_0 = getOpRow(op_idx, 0);
+            var op_row_1 = getOpRow(op_idx, 1);
+            var op_row_2 = getOpRow(op_idx, 2);
+            var op_row_3 = getOpRow(op_idx, 3);
+
+            // Apply the Paulis to the matrices. Note this is just permuting the rows, and appliction
+            // commutes, so we can apply them in any order. High order bit is q1. Low order bit is q2.
+            //   X on q1 is rows  2<>0 and  3<>1, X on q2 is rows  1<>0 and  3<>2, etc.
+            //   Y on q1 is rows -2<>0 and -3<>1, Y on q2 is rows -1<>0 and -3<>2
+            //   Z on q1 is -2 and -3, Z on q2 is -1 and -3
+
+            // Apply the q1 permutations as needed
+            if (q1_rand < p_x) {
+                // Apply the X permutation
+                let old_row_0 = op_row_0;
+                let old_row_1 = op_row_1;
+                op_row_0 = op_row_2;
+                op_row_1 = op_row_3;
+                op_row_2 = old_row_0;
+                op_row_3 = old_row_1;
+            } else if (q1_rand < (p_x + p_y)) {
+                // Apply the Y permutation
+                let old_row_0 = op_row_0;
+                let old_row_1 = op_row_1;
+                op_row_0 = rowNeg(op_row_2);
+                op_row_1 = rowNeg(op_row_3);
+                op_row_2 = old_row_0;
+                op_row_3 = old_row_1;
+            } else if (q1_rand < (p_x + p_y + p_z)) {
+                // Apply Z permutation
+                op_row_2 = rowNeg(op_row_2);
+                op_row_3 = rowNeg(op_row_3);
+            }
+            // Apply the q2 permutations as needed
+            if (q2_rand < p_x) {
+                // Apply the X permutation
+                let old_row_0 = op_row_0;
+                let old_row_2 = op_row_2;
+                op_row_0 = op_row_1;
+                op_row_2 = op_row_3;
+                op_row_1 = old_row_0;
+                op_row_3 = old_row_2;
+            } else if (q2_rand < (p_x + p_y)) {
+                // Apply the Y permutation
+                let old_row_0 = op_row_0;
+                let old_row_2 = op_row_2;
+                op_row_0 = rowNeg(op_row_1);
+                op_row_2 = rowNeg(op_row_3);
+                op_row_1 = old_row_0;
+                op_row_3 = old_row_2;
+            } else if (q2_rand < (p_x + p_y + p_z)) {
+                // Apply Z permutation
+                op_row_1 = rowNeg(op_row_1);
+                op_row_3 = rowNeg(op_row_3);
+            }
+            // Write the rows back to the shot buffer unitary
+            setUnitaryRow(shot_buffer_idx, 0u, op_row_0);
+            setUnitaryRow(shot_buffer_idx, 1u, op_row_1);
+            setUnitaryRow(shot_buffer_idx, 2u, op_row_2);
+            setUnitaryRow(shot_buffer_idx, 3u, op_row_3);
+
+            shot.op_type = OPID_SHOT_BUFF_2Q; // Indicate to use the matrix in the shot buffer
+            shot.op_idx = op_idx;
+            shot.next_op_idx = op_idx + 2u; // Skip over the noise op next time
+            shot.qubits_updated_last_op_mask = (1u << op.q1 ) | (1u << op.q2);
+            return;
+            // TODO: What about multiple noise ops in a row? Loop somehow
+        }
+    }
+
 
     // *******************************
     // PHASE 5: Advance the state ready for the next op
@@ -480,8 +565,8 @@ fn execute_op(
             false, // No need to update all qubit probabilities
             unitary);
         }
-      case OPID_CX, OPID_CZ {
-        apply_cx_cz(
+      case OPID_CX, OPID_CZ, OPID_SHOT_BUFF_2Q {
+        apply_2q_unitary(
             shot_state_vector_start,
             entries_per_thread,
             thread_idx_in_shot,
@@ -490,7 +575,7 @@ fn execute_op(
             tid,
             workgroup_collation_idx,
             shot_buffer_idx,
-            op.id == OPID_CZ);
+            op.id);
       }
       case OPID_MRESETZ {
         // The MResetZ instrument matrix for the result is stored in the shot buffer
@@ -613,7 +698,7 @@ fn apply_1q_unitary(
     }
 }
 
-fn apply_cx_cz(
+fn apply_2q_unitary(
         shot_start_offset: i32,
         chunk_size: i32,
         chunk_idx: i32,
@@ -622,7 +707,7 @@ fn apply_cx_cz(
         tid: u32,
         workgroup_collation_idx: i32,
         shot_buffer_idx: i32,
-        is_cz: bool) {
+        opid: u32) {
     // Each iteration processes 4 amplitudes (the four affected by the 2-qubit gate), so quarter as many iterations as chunk size
     let iterations = chunk_size >> 2;
 
@@ -650,6 +735,13 @@ fn apply_cx_cz(
     var t_zero_probability: f32 = 0.0;
     var t_one_probability: f32 = 0.0;
 
+    // Not needed for CZ and CX, but will be for general 2-qubit unitaries
+    // And it's outside the loop so cheap(ish) to read
+    let row0 = getUnitaryRow(shot_buffer_idx, 0);
+    let row1 = getUnitaryRow(shot_buffer_idx, 1);
+    let row2 = getUnitaryRow(shot_buffer_idx, 2);
+    let row3 = getUnitaryRow(shot_buffer_idx, 3);
+
     for (var i: i32 = counter; i < end_count; i++) {
         // q1 is the control, q2 is the target
         let offset00: i32 = (i & lowMask) | ((i & midMask) << 1) | ((i & hiMask) << 2);
@@ -663,32 +755,48 @@ fn apply_cx_cz(
         let amp10: vec2f = scale * stateVector[shot_start_offset + offset10];
         let amp11: vec2f = scale * stateVector[shot_start_offset + offset11];
 
-        var result10: vec2f;
-        var result11: vec2f;
-        if (is_cz) {
-            result10 = amp10;
-            result11 = vec2f(-amp11.x, -amp11.y);
+        // Initialize result as per CZ (as likely most common)
+        var result00: vec2f = amp00;
+        var result01: vec2f = amp01;
+        var result10: vec2f = amp10;
+        var result11: vec2f = vec2f(-amp11.x, -amp11.y);
+
+        if (opid == OPID_CZ) {
+            if (scale != 1.0) {
+                // Only update first 3 states if scaling is needed
+                stateVector[shot_start_offset + offset00] = result00;
+                stateVector[shot_start_offset + offset01] = result01;
+                stateVector[shot_start_offset + offset10] = result10;
+            }
+            // This was already negated above
+            stateVector[shot_start_offset + offset11] = result11;
+        } else if (opid == OPID_CX) {
+            result10 = amp11;
+            result11 = amp10;
+            if (scale != 1.0) {
+                stateVector[shot_start_offset + offset00] = result00;
+                stateVector[shot_start_offset + offset01] = result01;
+            }
             stateVector[shot_start_offset + offset10] = result10;
             stateVector[shot_start_offset + offset11] = result11;
         } else {
-            result10 = amp11;
-            result11 = amp10;
+            // Assume OPID_SHOT_BUFF_2Q
+            let states = array<vec2f,4>(amp00, amp01, amp10, amp11);
+            result00 = innerProduct(row0, states);
+            result01 = innerProduct(row1, states);
+            result10 = innerProduct(row2, states);
+            result11 = innerProduct(row3, states);
+            stateVector[shot_start_offset + offset00] = result00;
+            stateVector[shot_start_offset + offset01] = result01;
             stateVector[shot_start_offset + offset10] = result10;
             stateVector[shot_start_offset + offset11] = result11;
         }
-        if (scale != 1.0) {
-            stateVector[shot_start_offset + offset00] = amp00;
-            stateVector[shot_start_offset + offset01] = amp01;
-        }
 
         // Update the probabilities for the acted on qubits
-        // TODO: For CZ (and CX) when scale is 1.0, we could optimize out some reads and writes,
-        // as CZ doesn't change probabilities or modify 3 of the 4 states, and CX leaves the control
-        // qubit probabilities unchanged and doesn't touch 2 of the 4 states.
-        c_zero_probability += cplxmag2(amp00) + cplxmag2(amp01);
+        c_zero_probability += cplxmag2(result00) + cplxmag2(result01);
         c_one_probability  += cplxmag2(result10) + cplxmag2(result11);
-        t_zero_probability += cplxmag2(amp00) + cplxmag2(result10);
-        t_one_probability  += cplxmag2(amp01) + cplxmag2(result11);
+        t_zero_probability += cplxmag2(result00) + cplxmag2(result10);
+        t_one_probability  += cplxmag2(result01) + cplxmag2(result11);
     }
     // Update this thread's totals for the two qubits in the workgroup storage
     qubitProbabilities[c].zero[tid] = c_zero_probability;
@@ -740,6 +848,57 @@ fn cplxmul(a: vec2f, b: vec2f) -> vec2f {
 
 fn cplxNeg(a: vec2f) -> vec2f {
     return vec2f(-a.x, -a.y);
+}
+
+fn rowNeg(a: array<vec2f, 4>) -> array<vec2f, 4> {
+    return array<vec2f, 4>(
+        cplxNeg(a[0]),
+        cplxNeg(a[1]),
+        cplxNeg(a[2]),
+        cplxNeg(a[3]));
+}
+
+fn innerProduct(a: array<vec2f, 4>, b: array<vec2f, 4>) -> vec2f {
+    var result: vec2f = vec2f(0.0, 0.0);
+    for (var i: u32 = 0u; i < 4u; i++) {
+        // TODO: Check we don't need to conjugate a or b here
+        result += cplxmul(a[i], b[i]);
+    }
+    return result;
+}
+
+fn getOpRow(op_idx: u32, row: u32) -> array<vec2f, 4> {
+    let op = &ops[op_idx];
+    return array<vec2f, 4>(
+        op.unitary[row * 4 + 0],
+        op.unitary[row * 4 + 1],
+        op.unitary[row * 4 + 2],
+        op.unitary[row * 4 + 3]);
+}
+
+fn getUnitaryRow(shot_idx: i32, row: u32) -> array<vec2f, 4> {
+    let shot = &shots[shot_idx];
+    return array<vec2f, 4>(
+        shot.unitary[row * 4 + 0],
+        shot.unitary[row * 4 + 1],
+        shot.unitary[row * 4 + 2],
+        shot.unitary[row * 4 + 3]);
+}
+
+fn setUnitaryRow(shot_idx: u32, row: u32, newRow: array<vec2f, 4>) {
+    let shot = &shots[shot_idx];
+    shot.unitary[row * 4 + 0] = newRow[0];
+    shot.unitary[row * 4 + 1] = newRow[1];
+    shot.unitary[row * 4 + 2] = newRow[2];
+    shot.unitary[row * 4 + 3] = newRow[3];
+}
+
+fn negateRow(row: array<vec2f, 4>) -> array<vec2f, 4> {
+    return array<vec2f, 4>(
+        cplxNeg(row[0]),
+        cplxNeg(row[1]),
+        cplxNeg(row[2]),
+        cplxNeg(row[3]));
 }
 
 // See https://www.reedbeta.com/blog/hash-functions-for-gpu-rendering/
