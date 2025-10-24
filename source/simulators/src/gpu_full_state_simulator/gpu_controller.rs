@@ -23,7 +23,11 @@ const MAX_QUBITS_PER_WORKGROUP: u32 = 22; // Max qubits to be processed by a sin
 const MAX_PARTITIONED_WORKGROUPS: usize = 1 << (MAX_QUBIT_COUNT - MAX_QUBITS_PER_WORKGROUP);
 const MAX_SHOTS_PER_BATCH: u32 = 65535; // To align with max workgroups per dimension WebGPU default
 const THREADS_PER_WORKGROUP: u32 = 32; // 32 gives good occupancy across various GPUs
-const MIN_QUBIT_COUNT: u32 = 10; // Round up circuit qubits if smaller to enable to optimizations re unrolling, etc.
+
+// Round up circuit qubits if smaller to enable to optimizations re unrolling, etc.
+// With min qubit count of 8, this means min 256 entries per shot. Spread across 32 threads = 8 entries per thread.
+// With each iteration in each thread processing 2 or 4 entries, that means 2 or 4 iterations per thread minimum.
+const MIN_QUBIT_COUNT: u32 = 8;
 const MAX_CIRCUIT_OPS: usize = MAX_BUFFER_SIZE / std::mem::size_of::<Op>();
 const SIZEOF_SHOTDATA: usize = 1024; // Size of ShotData struct on the GPU in bytes
 const MAX_SHOT_ENTRIES: usize = MAX_BUFFER_SIZE / SIZEOF_SHOTDATA;

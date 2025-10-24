@@ -14,6 +14,7 @@ Glossary to help understand the terminology used in the code and notes:
 
 ## TODO
 
+- Add tests for 2-qubit Pauli noise.
 - Add qubit loss for single and two qubit gates and test.
 - Add the Python pass to insert noise and loss operations into circuits from a NoiseConfig object.
 - Try out the chemistry circuits at this point.
@@ -23,7 +24,8 @@ Glossary to help understand the terminology used in the code and notes:
 - Test the giant Ising circuits (4x4 and 5x5) end-to-end.
 - Add amplitude damping & dephasing noise
 - Add 'gradual rotation' noise.
-- Add logic to skip state vector entries that are known to be zero/one.
+- Add chunk skipping logic for qubits of known zero or one state.
+- Add pass to move initial ops on high order qubits as late as possible, and measurements on high order qubits to as early as possible
 
 ## Open questions/decisions
 
