@@ -29,7 +29,7 @@ fn interpreter(code: &str, profile: Profile) -> Interpreter {
 fn interpreter_with_circuit_trace(code: &str, profile: Profile) -> Interpreter {
     let sources = SourceMap::new([("test.qs".into(), code.into())], None);
     let (std_id, store) = crate::compile::package_store_with_stdlib(profile.into());
-    Interpreter::new_with_circuit_trace(
+    Interpreter::with_circuit_trace(
         sources,
         PackageType::Exe,
         profile.into(),

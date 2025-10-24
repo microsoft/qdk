@@ -404,7 +404,7 @@ impl Interpreter {
 
         let trace_circuit = trace_circuit.unwrap_or(false);
         let interpreter = if trace_circuit {
-            interpret::Interpreter::new_with_circuit_trace(
+            interpret::Interpreter::with_circuit_trace(
                 SourceMap::new(buildable_program.user_code.sources, None),
                 PackageType::Lib,
                 target,
