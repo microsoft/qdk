@@ -18,6 +18,7 @@ override WORKGROUPS_PER_SHOT: i32;
 override ENTRIES_PER_THREAD: i32;
 
 const DBG = true; // Enable to add extra checks
+const OPT_SKIP_DEFINITE_STATES = true; // Enable to skip processing state vector entries that are definitely 0.0 due to other qubits being in definite states
 
 // Always use 32 threads per workgroup for max concurrency on most current GPU hardware
 const THREADS_PER_WORKGROUP: i32 = 32;
@@ -250,7 +251,7 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
     // If any qubits were updated in the last op, we may need to sum workgroup probabilities into the shot state
     // This is only needed if multiple workgroups were used for the shot execution. If not, then the
     // single workgroup for the shot would have written directly to the shot state already.
-    if (shot.qubits_updated_last_op_mask != 0 && (WORKGROUPS_PER_SHOT > 1)) {
+    if (shot.qubits_updated_last_op_mask != 0) {
         // For each qubit that was updated in the last op
         for (var q: u32 = 0u; q < u32(QUBIT_COUNT); q++) {
             let qubit_mask: u32 = 1u << q;
@@ -258,13 +259,21 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
                 // Sum the workgroup collation entries for this qubit into the shot state
                 var total_zero: f32 = 0.0;
                 var total_one: f32 = 0.0;
-                // Offset into workgroup collation buffer based on shot index
-                let offset = shot_idx * u32(WORKGROUPS_PER_SHOT);
-                for (var wkg_idx: u32 = 0u; wkg_idx < u32(WORKGROUPS_PER_SHOT); wkg_idx++) {
-                    let sums = workgroup_collation.sums[wkg_idx + offset];
-                    total_zero = total_zero + sums.qubits[q].x;
-                    total_one = total_one + sums.qubits[q].y;
+
+                if (WORKGROUPS_PER_SHOT > 1) {
+                    // Offset into workgroup collation buffer based on shot index
+                    let offset = shot_idx * u32(WORKGROUPS_PER_SHOT);
+                    for (var wkg_idx: u32 = 0u; wkg_idx < u32(WORKGROUPS_PER_SHOT); wkg_idx++) {
+                        let sums = workgroup_collation.sums[wkg_idx + offset];
+                        total_zero = total_zero + sums.qubits[q].x;
+                        total_one = total_one + sums.qubits[q].y;
+                    }
+                } else {
+                    // Single workgroup per shot case - just read directly from the shot
+                    total_zero = shot.qubit_state[q].zero_probability;
+                    total_one = shot.qubit_state[q].one_probability;
                 }
+
                 // Update the shot state with the summed probabilities
                 // Round to 0 or 1 if extremely close to mitigate minor floating point errors
                 if (total_zero < 0.000001) { total_zero = 0.0; }
@@ -322,7 +331,7 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
 
         // Set the qubits_updated_last_op_mask to all except those that were already in a definite
         // state (so we don't waste time updating probabilities that are already known). Note that
-        // next 'prepare_op' should set the just measuremed qubit into a definite 0 or 1 state.
+        // next 'prepare_op' should set the just measured qubit into a definite 0 or 1 state.
         shot.qubits_updated_last_op_mask =
             // // A mask with all qubits set
             ((1u << u32(QUBIT_COUNT)) - 1u)
@@ -482,7 +491,7 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
     // Set this so the next prepare_op stage knows which qubits to update probabilities for
     shot.qubits_updated_last_op_mask = 1u << op.q1;
     // Update the below condition list if more 2-qubit gates are added (e.g. Rzz, Swap, etc.)
-    if (op.id == OPID_CX || op.id == OPID_CZ) {
+    if (op.id == OPID_CX || op.id == OPID_CZ || op.id == OPID_SHOT_BUFF_2Q) {
         shot.qubits_updated_last_op_mask = shot.qubits_updated_last_op_mask | (1u << op.q2);
     }
 }
@@ -620,8 +629,7 @@ fn apply_1q_unitary(
     // - Low part: (start_count & ((1 << qubit) - 1)) = bits below the target qubit (stay as-is)
     // - High part: (start_count >> qubit) << (qubit + 1) = bits above the target qubit (shift left by qubit+1 to create the stride gap)
     // - This effectively interleaves the chunks to index only amplitudes where target qubit = 0
-    var offset = shot_start_offset + ((start_count >> qubit) << (qubit + 1)) + (start_count & ((1 << qubit) - 1));
-
+    var offset = ((start_count >> qubit) << (qubit + 1)) + (start_count & ((1 << qubit) - 1));
 
     // Optimize for phase operations (e.g., Z, S, T, Rz, etc.) where we can skip half the memory writes
     let zero_untouched = unitary[0].x == 1.0 && unitary[0].y == 0.0 &&
@@ -632,27 +640,38 @@ fn apply_1q_unitary(
     var zero_probability: f32 = 0.0;
     var one_probability: f32 = 0.0;
 
+    let qubit_is_0: u32 = shots[shot_idx].qubit_is_0_mask;
+    let qubit_is_1: u32 = shots[shot_idx].qubit_is_1_mask;
+
     // This loop is where all the real work happens. Try to keep this tight and efficient.
     for (var i: i32 = 0; i < iterations; i++) {
-        let amp0: vec2f = stateVector[offset];
-        let amp1: vec2f = stateVector[offset + stride];
+        // See if we can skip doing any work for this pair, because the state vector entries to processes
+        // are both definitely 0.0, as we know they are for states where other qubits are in definite opposite state.
+        let skip_processing = OPT_SKIP_DEFINITE_STATES &&
+            ((u32(offset) & qubit_is_0) != 0) ||
+            ((~(u32(offset) | (1u << qubit)) & qubit_is_1) != 0);
 
-        // Apply renormalization scaling from prior measurement/noise ops (will be 1.0 if none needed)
-        let new0: vec2f = scale * (cplxMul(amp0, unitary[0]) + cplxMul(amp1, unitary[1]));
-        let new1: vec2f = scale * (cplxMul(amp0, unitary[2]) + cplxMul(amp1, unitary[3]));
+        if (!skip_processing) {
+            let amp0: vec2f = stateVector[shot_start_offset + offset];
+            let amp1: vec2f = stateVector[shot_start_offset + offset + stride];
 
-        if (!zero_untouched) { stateVector[offset] = new0; }
-        stateVector[offset + stride] = new1;
+            // Apply renormalization scaling from prior measurement/noise ops (will be 1.0 if none needed)
+            let new0: vec2f = scale * (cplxMul(amp0, unitary[0]) + cplxMul(amp1, unitary[1]));
+            let new1: vec2f = scale * (cplxMul(amp0, unitary[2]) + cplxMul(amp1, unitary[3]));
 
-        // Update the probabilities for the acted on qubit
-        // TODO: Check the float precision here is sufficient
-        zero_probability += cplxMag2(new0);
-        one_probability += cplxMag2(new1);
+            if (!zero_untouched) { stateVector[shot_start_offset + offset] = new0; }
+            stateVector[shot_start_offset + offset + stride] = new1;
 
-        // If updating all qubit probabilities (e.g., on measurement), do that now
-        if (update_probs) {
-            update_all_qubit_probs(u32(offset), new0, tid);
-            update_all_qubit_probs(u32(offset + stride), new1, tid);
+            // Update the probabilities for the acted on qubit
+            // TODO: Check the float precision here is sufficient
+            zero_probability += cplxMag2(new0);
+            one_probability += cplxMag2(new1);
+
+            // If updating all qubit probabilities (e.g., on measurement), do that now
+            if (update_probs) {
+                update_all_qubit_probs(u32(offset), new0, tid);
+                update_all_qubit_probs(u32(offset + stride), new1, tid);
+            }
         }
 
         offset += 1;
@@ -720,12 +739,20 @@ fn apply_2q_unitary(
     let row2 = getUnitaryRow(shot_idx, 2);
     let row3 = getUnitaryRow(shot_idx, 3);
 
+    let qubit_is_0: u32 = shots[shot_idx].qubit_is_0_mask;
+    let qubit_is_1: u32 = shots[shot_idx].qubit_is_1_mask;
+
     for (var i: i32 = counter; i < end_count; i++) {
         // q1 is the control, q2 is the target
         let offset00: i32 = (i & lowMask) | ((i & midMask) << 1) | ((i & hiMask) << 2);
         let offset01: i32 = offset00 | (1 << t);
         let offset10: i32 = offset00 | (1 << c);
         let offset11: i32 = offset10 | (1 << t);
+
+        let can_skip_processing = OPT_SKIP_DEFINITE_STATES &&
+            ((u32(offset00) & qubit_is_0) != 0) ||
+            ((~(u32(offset11)) & qubit_is_1) != 0);
+        if (can_skip_processing) { continue; }
 
         let scale = shots[shot_idx].renormalize;
         let amp00: vec2f = scale * stateVector[shot_start_offset + offset00];
