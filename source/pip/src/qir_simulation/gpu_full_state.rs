@@ -30,6 +30,47 @@ pub fn try_create_gpu_adapter() -> PyResult<()> {
 }
 
 #[pyfunction]
+pub fn run_parallel_shots<'py>(
+    py: Python<'py>,
+    input: &Bound<'py, PyList>,
+    shots: u32,
+    noise_config: Option<&Bound<'py, NoiseConfig>>,
+    seed: Option<u32>,
+) -> PyResult<PyObject> {
+    try_create_gpu_adapter()?;
+
+    // Get the list of QirInstructions from the Python input list
+    let mut instructions: Vec<QirInstruction> = vec![];
+    for item in input.iter() {
+        let item = <QirInstruction as FromPyObject>::extract_bound(&item).map_err(|e| {
+            PyValueError::new_err(format!("expected QirInstruction, got {item:?}: {e}"))
+        })?;
+        instructions.push(item);
+    }
+
+    // If a NoiseConfig is provided, run a pass to insert the noise operations into the op sequence
+
+    // Extract the number of qubits and results needed, and a mapping of result index to output
+    // array index. (Only program return type of Result[] is supported for now)
+
+    // Run the final op sequence on the GPU for the specified number of shots
+
+    // Collect and format the results into a Python list of strings
+    let mut array = Vec::with_capacity(shots as usize);
+    let dummy_results = vec!["01L"; shots as usize]; // Placeholder results
+    for str in dummy_results {
+        {
+            array.push(str.into_py_any(py).map_err(|e| {
+                PyValueError::new_err(format!("failed to create Python string: {e}"))
+            })?);
+        }
+    }
+    PyList::new(py, array)
+        .map_err(|e| PyValueError::new_err(format!("failed to create Python list: {e}")))?
+        .into_py_any(py)
+}
+
+#[pyfunction]
 pub fn run_gpu_shot<'py>(
     py: Python<'py>,
     input: &Bound<'py, PyList>,

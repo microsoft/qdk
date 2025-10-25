@@ -837,3 +837,12 @@ def run_gpu_shot(
 ) -> Tuple[str, float]:
     """ """
     ...
+
+def run_parallel_shots(
+    input: List[QirInstruction],
+    shots: int,
+    noise: Optional[NoiseConfig],
+    seed: Optional[int],
+) -> List[str]:
+    """ """
+    ...

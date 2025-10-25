@@ -9,6 +9,7 @@ from ._native import (
     run_clifford,
     run_gpu_full_state,
     run_gpu_shot,
+    run_parallel_shots,
     NoiseConfig,
 )
 from ._qsharp import Result
@@ -325,7 +326,8 @@ def run_qir_gpu(
     noise: Optional[Union[Tuple[float, float, float], NoiseConfig]] = None,
     loss: Optional[float] = None,
     seed: Optional[int] = None,
-) -> str:
+    sim: Optional[str] = None,
+) -> str | List[str]:
     context = pyqir.Context()
     if isinstance(input, str):
         mod = pyqir.Module.from_ir(context, input)
@@ -347,9 +349,13 @@ def run_qir_gpu(
     if isinstance(noise, tuple):
         pauli_noise = noise
 
-    return run_gpu_full_state(
-        gates, required_num_qubits, shots, pauli_noise, loss, noise_config, seed
-    )
+    if sim == "parallel":
+        # TODO: Error if pauli_noise set. Parallel sim only supports NoiseConfig for now.
+        return run_parallel_shots(gates, shots, noise_config, seed)
+    else:
+        return run_gpu_full_state(
+            gates, required_num_qubits, shots, pauli_noise, loss, noise_config, seed
+        )
 
 
 def run_shot_gpu(
