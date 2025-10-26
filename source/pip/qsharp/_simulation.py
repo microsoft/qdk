@@ -12,6 +12,13 @@ from ._native import (
     run_parallel_shots,
     NoiseConfig,
 )
+from pyqir import (
+    Function,
+    FunctionType,
+    Type,
+    qubit_type,
+    Linkage,
+)
 from ._qsharp import Result
 
 
@@ -285,6 +292,93 @@ class OutputRecordingPass(pyqir.QirModuleVisitor):
         self._counters.append(value.value)
 
 
+class DecomposeCcxPass(pyqir.QirModuleVisitor):
+
+    h_func: Function
+    t_func: Function
+    tadj_func: Function
+    cz_func: Function
+
+    def __init__(self):
+        super().__init__()
+
+    def _on_module(self, module):
+        void = Type.void(module.context)
+        qubit_ty = qubit_type(module.context)
+
+        # Find or create all the needed functions.
+        for func in module.functions:
+            match func.name:
+                case "__quantum__qis__h__body":
+                    self.h_func = func
+                case "__quantum__qis__t__body":
+                    self.t_func = func
+                case "__quantum__qis__t__adj":
+                    self.tadj_func = func
+                case "__quantum__qis__cz__body":
+                    self.cz_func = func
+        if not hasattr(self, "h_func"):
+            self.h_func = Function(
+                FunctionType(void, [qubit_ty]),
+                Linkage.EXTERNAL,
+                "__quantum__qis__h__body",
+                module,
+            )
+        if not hasattr(self, "t_func"):
+            self.t_func = Function(
+                FunctionType(void, [qubit_ty]),
+                Linkage.EXTERNAL,
+                "__quantum__qis__t__body",
+                module,
+            )
+        if not hasattr(self, "tadj_func"):
+            self.tadj_func = Function(
+                FunctionType(void, [qubit_ty]),
+                Linkage.EXTERNAL,
+                "__quantum__qis__t__adj",
+                module,
+            )
+        if not hasattr(self, "cz_func"):
+            self.cz_func = Function(
+                FunctionType(void, [qubit_ty, qubit_ty]),
+                Linkage.EXTERNAL,
+                "__quantum__qis__cz__body",
+                module,
+            )
+        super()._on_module(module)
+
+    def _on_qis_ccx(self, call, ctrl1, ctrl2, target):
+        self.builder.insert_before(call)
+        self.builder.call(self.h_func, [target])
+        self.builder.call(self.tadj_func, [ctrl1])
+        self.builder.call(self.tadj_func, [ctrl2])
+        self.builder.call(self.h_func, [ctrl1])
+        self.builder.call(self.cz_func, [target, ctrl1])
+        self.builder.call(self.h_func, [ctrl1])
+        self.builder.call(self.t_func, [ctrl1])
+        self.builder.call(self.h_func, [target])
+        self.builder.call(self.cz_func, [ctrl2, target])
+        self.builder.call(self.h_func, [target])
+        self.builder.call(self.h_func, [ctrl1])
+        self.builder.call(self.cz_func, [ctrl2, ctrl1])
+        self.builder.call(self.h_func, [ctrl1])
+        self.builder.call(self.t_func, [target])
+        self.builder.call(self.tadj_func, [ctrl1])
+        self.builder.call(self.h_func, [target])
+        self.builder.call(self.cz_func, [ctrl2, target])
+        self.builder.call(self.h_func, [target])
+        self.builder.call(self.h_func, [ctrl1])
+        self.builder.call(self.cz_func, [target, ctrl1])
+        self.builder.call(self.h_func, [ctrl1])
+        self.builder.call(self.tadj_func, [target])
+        self.builder.call(self.t_func, [ctrl1])
+        self.builder.call(self.h_func, [ctrl1])
+        self.builder.call(self.cz_func, [ctrl2, ctrl1])
+        self.builder.call(self.h_func, [ctrl1])
+        self.builder.call(self.h_func, [target])
+        call.erase()
+
+
 def run_qir(
     input: Union[str, bytes],
     shots: Optional[int] = 1,
@@ -334,6 +428,9 @@ def run_qir_gpu(
     else:
         mod = pyqir.Module.from_bitcode(context, input)
 
+    # Ccx is not support in the GPU simulator, decompose it
+    DecomposeCcxPass().run(mod)
+
     passtoRun = AggregateGatesPass()
     (gates, required_num_qubits, required_num_results) = passtoRun.run(mod)
 
@@ -350,7 +447,10 @@ def run_qir_gpu(
         pauli_noise = noise
 
     if sim == "parallel":
-        # TODO: Error if pauli_noise set. Parallel sim only supports NoiseConfig for now.
+        if pauli_noise is not None:
+            raise ValueError(
+                "Specifying Pauli noise via a tuple is not supported for parallel shot simulation. Use a NoiseConfig instead."
+            )
         return run_parallel_shots(
             gates, shots, required_num_qubits, required_num_results, noise_config, seed
         )

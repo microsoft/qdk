@@ -36,7 +36,7 @@ pub fn run_parallel_shots<'py>(
     shots: u32,
     qubit_count: u32,
     result_count: u32,
-    noise_config: Option<&Bound<'py, NoiseConfig>>,
+    _noise_config: Option<&Bound<'py, NoiseConfig>>,
     seed: Option<u32>,
 ) -> PyResult<PyObject> {
     try_create_gpu_adapter()?;

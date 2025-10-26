@@ -27,7 +27,7 @@ operation Main() : Result[] {
     // than optimal. In this case, the algorithm will find the marked state
     // with lower probability.
     let nIterations = IterationsToMarked(nQubits);
-    Message($"Number of iterations: {nIterations}");
+    // Message($"Number of iterations: {nIterations}");
 
     // Use Grover's algorithm to find a particular marked state. The marked state
     // we are looking for in this sample is |01010⟩, which is represented
@@ -82,7 +82,7 @@ function IterationsToMarked(nQubits : Int) : Int {
 /// Reflects about the basis state marked by alternating zeros and ones.
 /// This operation defines what input we are trying to find in the search.
 operation ReflectAboutMarked(inputQubits : Qubit[]) : Unit {
-    Message("Reflecting about marked state...");
+    // Message("Reflecting about marked state...");
     use outputQubit = Qubit();
     within {
         // We initialize the outputQubit to (|0⟩ - |1⟩) / √2, so that

@@ -499,15 +499,19 @@ impl Op {
         op.rzi = angle.sin();
 
         // In case we need to return to a uniform processing based on 2x2 matrix
-        let half_angle = angle / 2.0;
-        op._00r = (-half_angle).cos(); // |0⟩⟨0| coefficient (real part of e^(-iθ/2))
-        op._00i = (-half_angle).sin(); // |0⟩⟨0| coefficient (imaginary part of e^(-iθ/2))
+        // let half_angle = angle / 2.0;
+        // op._00r = (-half_angle).cos(); // |0⟩⟨0| coefficient (real part of e^(-iθ/2))
+        // op._00i = (-half_angle).sin(); // |0⟩⟨0| coefficient (imaginary part of e^(-iθ/2))
+        op._00r = 1.0;
+        op._00i = 0.0;
         op._01r = 0.0; // |0⟩⟨1| coefficient
         op._01i = 0.0;
         op._10r = 0.0; // |1⟩⟨0| coefficient
         op._10i = 0.0;
-        op._11r = half_angle.cos(); // |1⟩⟨1| coefficient (real part of e^(iθ/2))
-        op._11i = half_angle.sin(); // |1⟩⟨1| coefficient (imaginary part of e^(iθ/2))
+        op._11r = op.rzr; // |1⟩⟨1| coefficient (real part of e^(iθ/2))
+        op._11i = op.rzi; // |1⟩⟨1| coefficient (imaginary part of e^(iθ/2))
+        // op._11r = half_angle.cos(); // |1⟩⟨1| coefficient (real part of e^(iθ/2))
+        // op._11i = half_angle.sin(); // |1⟩⟨1| coefficient (imaginary part of e^(iθ/2))
         op
     }
 
