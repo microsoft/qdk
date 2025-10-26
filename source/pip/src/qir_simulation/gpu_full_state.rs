@@ -34,6 +34,8 @@ pub fn run_parallel_shots<'py>(
     py: Python<'py>,
     input: &Bound<'py, PyList>,
     shots: u32,
+    qubit_count: u32,
+    result_count: u32,
     noise_config: Option<&Bound<'py, NoiseConfig>>,
     seed: Option<u32>,
 ) -> PyResult<PyObject> {
@@ -48,24 +50,53 @@ pub fn run_parallel_shots<'py>(
         instructions.push(item);
     }
 
+    let mut ops = Vec::with_capacity(instructions.len() + 1);
+
+    // Add the 'initialize' op
+    let mut init_op = Op::new_reset_gate(u32::MAX);
+    init_op.q2 = seed.unwrap_or(0xdead_beef);
+    ops.push(init_op);
+
+    for inst in instructions {
+        let op = map_instruction(&inst, true);
+        if let Some(op) = op {
+            ops.push(op);
+        }
+    }
+
     // If a NoiseConfig is provided, run a pass to insert the noise operations into the op sequence
 
     // Extract the number of qubits and results needed, and a mapping of result index to output
     // array index. (Only program return type of Result[] is supported for now)
 
     // Run the final op sequence on the GPU for the specified number of shots
+    let sim_results = qdk_simulators::run_parallel_shots(qubit_count, result_count, ops, shots)
+        .map_err(PyRuntimeError::new_err)?;
 
     // Collect and format the results into a Python list of strings
-    let mut array = Vec::with_capacity(shots as usize);
-    let dummy_results = vec!["01L"; shots as usize]; // Placeholder results
-    for str in dummy_results {
-        {
-            array.push(str.into_py_any(py).map_err(|e| {
-                PyValueError::new_err(format!("failed to create Python string: {e}"))
-            })?);
-        }
-    }
-    PyList::new(py, array)
+
+    // Turn each shot's results into a string, with '0' for 0, '1' for 1, and 'L' for lost qubits
+    // The results are a flat list of u32, with each shot's results in sequence + one error code,
+    // so we need to chunk them up accordingly
+    let str_results = sim_results
+        .chunks((result_count + 1) as usize)
+        .map(|chunk| &chunk[..result_count as usize])
+        .map(|shot_results| {
+            let mut bitstring = String::with_capacity(result_count as usize);
+            for idx in 0..result_count {
+                let res = shot_results[idx as usize];
+                let char = match res {
+                    0 => '0',
+                    1 => '1',
+                    _ => 'L', // lost qubit
+                };
+                bitstring.push(char);
+            }
+            bitstring
+        })
+        .collect::<Vec<String>>();
+
+    PyList::new(py, str_results)
         .map_err(|e| PyValueError::new_err(format!("failed to create Python list: {e}")))?
         .into_py_any(py)
 }
@@ -232,7 +263,7 @@ fn get_probabilities(
 fn map_instructions(qir_inst: Vec<QirInstruction>, sample: bool, rng_val: f32) -> Vec<Op> {
     let mut ops = Vec::with_capacity(qir_inst.len());
     for inst in qir_inst {
-        let op = map_instruction(&inst);
+        let op = map_instruction(&inst, false /* supports_mz */);
         if let Some(op) = op {
             ops.push(op);
         }
@@ -246,7 +277,10 @@ fn map_instructions(qir_inst: Vec<QirInstruction>, sample: bool, rng_val: f32) -
     ops
 }
 
-fn map_instruction(qir_inst: &QirInstruction) -> Option<qdk_simulators::shader_types::Op> {
+fn map_instruction(
+    qir_inst: &QirInstruction,
+    supports_mz: bool,
+) -> Option<qdk_simulators::shader_types::Op> {
     let op = match qir_inst {
         QirInstruction::OneQubitGate(id, qubit) => match id {
             QirInstructionId::I => Op::new_id_gate(*qubit),
@@ -264,22 +298,20 @@ fn map_instruction(qir_inst: &QirInstruction) -> Option<qdk_simulators::shader_t
                 panic!("unsupported one-qubit gate: {id:?} on qubit {qubit}");
             }
         },
-        QirInstruction::TwoQubitGate(id, control, target) => {
-            if matches!(
-                id,
-                QirInstructionId::M | QirInstructionId::MZ | QirInstructionId::MResetZ
-            ) {
-                // measurement gates are not supported in the full state simulator yet
-                return None;
-            }
-            match id {
-                QirInstructionId::CX => Op::new_cx_gate(*control, *target),
-                QirInstructionId::CZ => Op::new_cz_gate(*control, *target),
-                _ => {
-                    panic!("unsupported two-qubit gate: {id:?} on qubits {control}, {target}");
+        QirInstruction::TwoQubitGate(id, control, target) => match id {
+            QirInstructionId::M | QirInstructionId::MZ | QirInstructionId::MResetZ => {
+                if supports_mz {
+                    Op::new_mresetz_gate(*control, *target)
+                } else {
+                    return None;
                 }
             }
-        }
+            QirInstructionId::CX => Op::new_cx_gate(*control, *target),
+            QirInstructionId::CZ => Op::new_cz_gate(*control, *target),
+            _ => {
+                panic!("unsupported two-qubit gate: {id:?} on qubits {control}, {target}");
+            }
+        },
         QirInstruction::OneQubitRotationGate(id, angle, qubit) => {
             #[allow(clippy::cast_possible_truncation)]
             let angle = *angle as f32;

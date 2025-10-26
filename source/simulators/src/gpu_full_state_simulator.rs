@@ -52,7 +52,7 @@ pub fn run_gpu_shot(qubits: u32, ops: Vec<Op>) -> Result<shader_types::Result, S
     Ok(results.remove(0))
 }
 
-pub fn run_gpu_shots(
+pub fn run_parallel_shots(
     qubits: u32,
     results: u32,
     ops: Vec<Op>,

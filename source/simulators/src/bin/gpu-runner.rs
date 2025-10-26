@@ -3,7 +3,7 @@
 // Run with: cargo run --bin gpu-runner [--release]
 // Build with: cargo build --bin gpu-runner [--release]
 
-use qdk_simulators::run_gpu_shots;
+use qdk_simulators::run_parallel_shots;
 use qdk_simulators::shader_types::Op;
 use std::time::Instant;
 
@@ -42,7 +42,7 @@ fn simple_bell_pair() {
         Op::new_mresetz_gate(11, 1), // 22, 11, 1
     ];
     let start = Instant::now();
-    let results = run_gpu_shots(12, 2, ops, 10).expect("GPU shots failed");
+    let results = run_parallel_shots(12, 2, ops, 10).expect("GPU shots failed");
     let elapsed = start.elapsed();
 
     let (results, _error_codes) = split_results(2, &results);
@@ -68,7 +68,7 @@ fn test_pauli_noise() {
         Op::new_mresetz_gate(2, 2),
     ];
     let start = Instant::now();
-    let results = run_gpu_shots(3, 3, ops, 100).expect("GPU shots failed");
+    let results = run_parallel_shots(3, 3, ops, 100).expect("GPU shots failed");
     let elapsed = start.elapsed();
     // Verify we get 30 results, of which 14 - 16 will have been flipped to 0. (14 with current rng)
 
@@ -136,7 +136,7 @@ fn scale_teleport() {
     ];
 
     let start = Instant::now();
-    let results = run_gpu_shots(3, 3, ops, 50000).expect("GPU shots failed");
+    let results = run_parallel_shots(3, 3, ops, 50000).expect("GPU shots failed");
     let elapsed = start.elapsed();
 
     let (results, _error_codes) = split_results(3, &results);
@@ -175,7 +175,7 @@ fn bell_at_scale() {
         Op::new_mresetz_gate(1, 1),
     ];
     let start = Instant::now();
-    let results = run_gpu_shots(2, 2, ops, 60000).expect("GPU shots failed");
+    let results = run_parallel_shots(2, 2, ops, 60000).expect("GPU shots failed");
     let elapsed = start.elapsed();
     println!(
         "[GPU Runner]: 60,000 shots of Bell Pair completed, results length: {}",
@@ -199,7 +199,7 @@ fn test_simple_rotation_and_entanglement() {
     ];
     // At 24 qubits, 8 shots fits into 1GB of GPU memory.
     let start = Instant::now();
-    let results = run_gpu_shots(24, 3, ops, 8).expect("GPU shots failed");
+    let results = run_parallel_shots(24, 3, ops, 8).expect("GPU shots failed");
     let elapsed = start.elapsed();
     let (results, _error_codes) = split_results(3, &results);
     println!("[GPU Runner]: Results of GHZ state for 8 shots on 24 qubits: {results:?}");
@@ -237,7 +237,7 @@ fn test_2q_pauli_noise() {
         Op::new_mresetz_gate(7, 7),
     ];
     let start = Instant::now();
-    let results = run_gpu_shots(8, 8, ops, 20).expect("GPU shots failed");
+    let results = run_parallel_shots(8, 8, ops, 20).expect("GPU shots failed");
     let elapsed = start.elapsed();
     let (results, _error_codes) = split_results(8, &results);
     // Check the results: The first 3 qubits should always agree, the 4th usually with the first 3,

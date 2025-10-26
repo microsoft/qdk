@@ -12,8 +12,21 @@ Glossary to help understand the terminology used in the code and notes:
 - 'prepare' kernel updates the shot state in between 'execute' kernel invocations (single-threaded per shot)
 - 'execute' kernel applies the quantum operations to the state vector and sums probabilties (multi-threaded per shot)
 
+## Python calling
+
+- GPU driver lives in `source/simulators/src/gpu_full_state_simulator/gpu_controller.rs`
+- Add to code in `source/simulators/src/gpu_full_state_simulator/per_gate_pauli_noise.rs` to insert noise ops.
+- Add the GPU execution to `source/simulators/src/gpu_full_state_simulator.rs`
+- Add a `#[pyfunction]` to `source/pip/src/qir_simulation/gpu_full_state.rs` to drive the above
+  - Inject noise based on NoiseConfig if provided in here.
+- Document it in 'source/pip/qsharp/\_native.pyi'
+- Add user facing API in `source/pip/qsharp/_simulation.py`
+- Bind it in `source/pip/src/interpreter.rs`
+- QirInstruction is defined in `source/pip/src/qir_simulation.rs`
+
 ## TODO
 
+- Wire up to Python with noise addition from NoiseConfig.
 - Add shot_id tracing and a Trace buffer to record ShotState at various points.
 - Add option for multiple noise ops per op.
 - Add qubit loss for single and two qubit gates and test.

@@ -335,7 +335,7 @@ def run_qir_gpu(
         mod = pyqir.Module.from_bitcode(context, input)
 
     passtoRun = AggregateGatesPass()
-    (gates, required_num_qubits, _) = passtoRun.run(mod)
+    (gates, required_num_qubits, required_num_results) = passtoRun.run(mod)
 
     if shots is None:
         shots = 1
@@ -351,7 +351,9 @@ def run_qir_gpu(
 
     if sim == "parallel":
         # TODO: Error if pauli_noise set. Parallel sim only supports NoiseConfig for now.
-        return run_parallel_shots(gates, shots, noise_config, seed)
+        return run_parallel_shots(
+            gates, shots, required_num_qubits, required_num_results, noise_config, seed
+        )
     else:
         return run_gpu_full_state(
             gates, required_num_qubits, shots, pauli_noise, loss, noise_config, seed
