@@ -7,14 +7,14 @@ from qsharp import init, eval, compile, TargetProfile, run
 from qsharp._simulation import run_qir_gpu, NoiseConfig
 from qsharp._device._atom import AC1000
 
-decompose = False
-shots = 1000
+decompose = True
+shots = 100
 circuit = "grover"
 gpu_sim = "parallel"
 run_sparse = False
 
 noise = NoiseConfig()
-noise.sx.set_depolarizing(0.03)
+noise.sx.set_depolarizing(0.001)
 
 init(target_profile=TargetProfile.Base)
 

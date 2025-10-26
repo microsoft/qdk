@@ -36,7 +36,7 @@ pub fn run_parallel_shots<'py>(
     shots: u32,
     qubit_count: u32,
     result_count: u32,
-    _noise_config: Option<&Bound<'py, NoiseConfig>>,
+    noise_config: Option<&Bound<'py, NoiseConfig>>,
     seed: Option<u32>,
 ) -> PyResult<PyObject> {
     try_create_gpu_adapter()?;
@@ -57,10 +57,18 @@ pub fn run_parallel_shots<'py>(
     init_op.q2 = seed.unwrap_or(0xdead_beef);
     ops.push(init_op);
 
+    let noise = noise_config.map(|noise_config| unbind_noise_config(py, noise_config));
+
     for inst in instructions {
         let op = map_instruction(&inst, true);
         if let Some(op) = op {
             ops.push(op);
+            // If there's a NoiseConfig, and we get noise for this op, append it
+            if let Some(noise) = noise {
+                if let Some(noise_ops) = get_noise_ops(&op, &noise) {
+                    ops.extend(noise_ops);
+                }
+            }
         }
     }
 
@@ -99,6 +107,29 @@ pub fn run_parallel_shots<'py>(
     PyList::new(py, str_results)
         .map_err(|e| PyValueError::new_err(format!("failed to create Python list: {e}")))?
         .into_py_any(py)
+}
+
+fn get_noise_ops(
+    op: &Op,
+    noise_config: &qdk_simulators::noise_config::NoiseConfig,
+) -> Option<Vec<Op>> {
+    match op.id {
+        shader_types::ops::SX => {
+            if noise_config.sx.has_pauli_noise() {
+                Some(vec![Op::new_pauli_noise_1q(
+                    op.q1,
+                    noise_config.sx.x,
+                    noise_config.sx.y,
+                    noise_config.sx.z,
+                )])
+                // TODO: Append loss noise if configured
+            } else {
+                None
+            }
+        }
+        _ => None,
+        // TODO: Add other ops, maybe panic on no match
+    }
 }
 
 #[pyfunction]
