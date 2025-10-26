@@ -488,10 +488,17 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
     shot.next_op_idx = op_idx + 1u;
     shot.op_type = op.id;
 
+    // Turn any Rxx, Ryy, or Rzz gates into a gate from the shot buffer
+    // NOTE: Should probably just do this for all gates
+    if (op.id == OPID_RXX || op.id == OPID_RYY || op.id == OPID_RZZ) {
+        shots[shot_idx].unitary = op.unitary;
+        shot.op_type = OPID_SHOT_BUFF_2Q; // Indicate to use the matrix in the shot buffer
+    }
+
     // Set this so the next prepare_op stage knows which qubits to update probabilities for
     shot.qubits_updated_last_op_mask = 1u << op.q1;
     // Update the below condition list if more 2-qubit gates are added (e.g. Rzz, Swap, etc.)
-    if (op.id == OPID_CX || op.id == OPID_CZ || op.id == OPID_SHOT_BUFF_2Q) {
+    if (op.id == OPID_CX || op.id == OPID_CZ || shot.op_type == OPID_SHOT_BUFF_2Q) {
         shot.qubits_updated_last_op_mask = shot.qubits_updated_last_op_mask | (1u << op.q2);
     }
 }
