@@ -178,6 +178,12 @@ pub struct TaggedItem {
     pub namespace: Vec<Rc<str>>,
 }
 
+#[derive(PartialEq, Eq, Copy, Clone)]
+pub enum TraceCircuitOption {
+    Enabled,
+    Disabled,
+}
+
 impl Interpreter {
     /// Creates a new incremental compiler, compiling the passed in sources.
     /// # Errors

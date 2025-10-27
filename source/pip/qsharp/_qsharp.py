@@ -247,7 +247,9 @@ def init(
     :param project_root: An optional path to a root directory with a Q# project to include.
         It must contain a qsharp.json project manifest.
 
-    :param trace_circuit: If true, enables tracing of circuit generation during execution via `eval`.
+    :param trace_circuit: Enables tracing of circuit during execution.
+        Passing `True` is required for the `dump_circuit` function to return a circuit.
+        The `circuit` function is *NOT* affected by this parameter will always generate a circuit.
     """
     from ._fs import read_file, list_directory, exists, join, resolve
     from ._http import fetch_github
@@ -990,10 +992,12 @@ def dump_machine() -> StateDump:
 
 def dump_circuit() -> Circuit:
     """
-    Dumps the current circuit state of the interpreter.
+    Dumps a circuit showing the current state of the simulator.
 
     This circuit will contain the gates that have been applied
     in the simulator up to the current point.
+
+    Requires the interpreter to be initialized with `trace_circuit=True`.
     """
     ipython_helper()
     return get_interpreter().dump_circuit()

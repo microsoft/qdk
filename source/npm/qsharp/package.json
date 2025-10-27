@@ -37,6 +37,8 @@
   "type": "module",
   "files": [
     "dist",
+    "!dist/ux",
+    "!dist/src",
     "docs",
     "lib",
     "ux"

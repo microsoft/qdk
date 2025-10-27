@@ -450,7 +450,6 @@ def test_run_with_shots() -> None:
 
 
 def test_dump_circuit() -> None:
-    # TODO: these locations look off
     e = Interpreter(TargetProfile.Unrestricted, trace_circuit=True)
     e.interpret(
         """

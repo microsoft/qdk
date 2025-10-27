@@ -632,10 +632,12 @@ impl Interpreter {
         StateDumpData(DisplayableState(state, qubit_count))
     }
 
-    /// Dumps the current circuit state of the interpreter.
+    /// Dumps a circuit showing the current state of the simulator.
     ///
     /// This circuit will contain the gates that have been applied
     /// in the simulator up to the current point.
+    ///
+    /// Requires the interpreter to be initialized with `trace_circuit=True`.
     fn dump_circuit(&mut self, py: Python) -> PyResult<PyObject> {
         if !self.trace_circuit {
             return Err(QSharpError::new_err(
