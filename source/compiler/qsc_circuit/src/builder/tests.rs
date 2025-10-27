@@ -8,7 +8,7 @@ use expect_test::expect;
 fn exceed_max_operations() {
     let mut builder = CircuitTracer::new(TracerConfig {
         max_operations: 2,
-        locations: false,
+        source_locations: false,
     });
 
     let tracer: &mut dyn Tracer = &mut builder;
@@ -32,7 +32,7 @@ fn exceed_max_operations() {
 fn exceed_max_operations_deferred_measurements() {
     let mut builder = CircuitTracer::new(TracerConfig {
         max_operations: 2,
-        locations: false,
+        source_locations: false,
     });
 
     // TODO: ugh...

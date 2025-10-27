@@ -274,8 +274,8 @@ async function getCircuitOrError(
   try {
     const circuit = await worker.getCircuit(
       params.program,
-      params.operation,
       config,
+      params.operation,
     );
     return {
       result: "success",
@@ -309,7 +309,7 @@ export function getConfig() {
   const defaultConfig = {
     maxOperations: 10001,
     generationMethod: "classicalEval" as const,
-    locations: true,
+    sourceLocations: true,
   };
 
   const config = workspace
@@ -327,10 +327,10 @@ export function getConfig() {
       ["simulate", "classicalEval"].includes(config.generationMethod)
         ? (config.generationMethod as "simulate" | "classicalEval")
         : defaultConfig.generationMethod,
-    locations:
-      "locations" in config && typeof config.locations === "boolean"
-        ? config.locations
-        : defaultConfig.locations,
+    sourceLocations:
+      "sourceLocations" in config && typeof config.sourceLocations === "boolean"
+        ? config.sourceLocations
+        : defaultConfig.sourceLocations,
   };
 
   log.debug("Using circuit config: ", configObject);

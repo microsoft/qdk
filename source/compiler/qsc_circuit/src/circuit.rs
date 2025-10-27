@@ -306,9 +306,9 @@ pub struct Qubit {
 pub struct TracerConfig {
     /// Maximum number of operations the builder will add to the circuit
     pub max_operations: usize,
-    /// Show the source code locations of operations and qubit declarations
+    /// Capture the source code locations of operations and qubit declarations
     /// in the circuit diagram
-    pub locations: bool,
+    pub source_locations: bool,
 }
 
 impl TracerConfig {
@@ -325,7 +325,7 @@ impl Default for TracerConfig {
     fn default() -> Self {
         Self {
             max_operations: Self::DEFAULT_MAX_OPERATIONS,
-            locations: true,
+            source_locations: true,
         }
     }
 }

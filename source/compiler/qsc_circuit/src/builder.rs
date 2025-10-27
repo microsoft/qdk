@@ -131,7 +131,7 @@ impl Tracer for CircuitTracer {
     }
 
     fn is_stack_tracing_enabled(&self) -> bool {
-        self.config.locations
+        self.config.source_locations
     }
 }
 
@@ -299,7 +299,7 @@ impl CircuitTracer {
         &mut self,
         stack: &[Frame],
     ) -> Option<InstructionMetadata> {
-        if !self.config.locations {
+        if !self.config.source_locations {
             return None;
         }
 

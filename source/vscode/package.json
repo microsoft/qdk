@@ -103,7 +103,7 @@
           "default": {
             "maxOperations": 10001,
             "generationMethod": "classicalEval",
-            "locations": true
+            "sourceLocations": true
           },
           "properties": {
             "maxOperations": {
@@ -121,7 +121,7 @@
               ],
               "description": "The method to use for generating the circuit diagram. 'classicalEval' uses only classical evaluation, and 'simulate' uses quantum simulation."
             },
-            "locations": {
+            "sourceLocations": {
               "type": "boolean",
               "default": true,
               "description": "Show the source code locations of operations and qubit declarations in the circuit diagram."

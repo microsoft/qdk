@@ -935,7 +935,7 @@ impl Interpreter {
 
     /// Generates a circuit representation for the program.
     ///
-    /// For `entry` options, see [`CircuitEntryPoint`]. For `config` options, see [`CircuitConfig`].
+    /// For `entry` options, see [`CircuitEntryPoint`]. For `tracer_config` options, see [`TracerConfig`].
     pub fn circuit(
         &mut self,
         entry: CircuitEntryPoint,

@@ -71,8 +71,8 @@ export interface ICompiler {
 
   getCircuit(
     program: ProgramConfig,
+    config: ICircuitConfig,
     operation?: IOperationInfo,
-    config?: ICircuitConfig,
   ): Promise<CircuitData>;
 
   getDocumentation(additionalProgram?: ProgramConfig): Promise<IDocFile[]>;
@@ -224,8 +224,8 @@ export class Compiler implements ICompiler {
 
   async getCircuit(
     program: ProgramConfig,
+    config: ICircuitConfig,
     operation?: IOperationInfo,
-    config?: ICircuitConfig,
   ): Promise<CircuitData> {
     const circuit = await callAndTransformExceptions(async () =>
       this.wasm.get_circuit(

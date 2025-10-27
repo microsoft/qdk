@@ -14,6 +14,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { fileURLToPath } from "node:url";
+import prettier from "prettier";
 import { getCompiler } from "../dist/main.js";
 import { draw } from "../dist/ux/circuit-vis/index.js";
 
@@ -130,14 +131,20 @@ function htmlSnapshotPath(name) {
  * @param {test.TestContext} t
  * @param {string} name
  */
-function checkDocumentSnapshot(t, name) {
-  t.assert.fileSnapshot(
-    new XMLSerializer().serializeToString(document) + "\n",
-    htmlSnapshotPath(name),
-    {
-      serializers: [(s) => String(s)],
-    },
-  );
+async function checkDocumentSnapshot(t, name) {
+  const rawHtml = new XMLSerializer().serializeToString(document) + "\n";
+
+  // Format with prettier for readable snapshots
+  const formattedHtml = await prettier.format(rawHtml, {
+    parser: "html",
+    printWidth: 80,
+    tabWidth: 2,
+    useTabs: false,
+  });
+
+  t.assert.fileSnapshot(formattedHtml, htmlSnapshotPath(name), {
+    serializers: [(s) => String(s)],
+  });
 }
 
 /**
@@ -201,14 +208,14 @@ test("circuit snapshot tests - .qsc files", async (t) => {
 
   for (const file of files) {
     const relName = path.basename(file);
-    await t.test(relName, (tt) => {
+    await t.test(relName, async (tt) => {
       const circuit = loadCircuit(file);
       const container = createContainerElement(`circuit`);
       draw(circuit, container, {
         isEditable: true,
         renderLocations,
       });
-      checkDocumentSnapshot(tt, tt.name);
+      await checkDocumentSnapshot(tt, tt.name);
     });
   }
 });
@@ -234,11 +241,10 @@ test("circuit snapshot tests - .qs files", async (t) => {
             languageFeatures: [],
             profile: "adaptive_rif",
           },
-          undefined,
           {
             generationMethod: "classicalEval",
             maxOperations: 100,
-            locations: true,
+            sourceLocations: true,
           },
         );
 
@@ -254,7 +260,7 @@ test("circuit snapshot tests - .qs files", async (t) => {
         container.appendChild(pre);
       }
 
-      checkDocumentSnapshot(tt, tt.name);
+      await checkDocumentSnapshot(tt, tt.name);
     });
   }
 });
