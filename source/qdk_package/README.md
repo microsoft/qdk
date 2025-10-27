@@ -1,6 +1,6 @@
 # qdk
 
-Preview package for the Quantum Development Kit (QDK) that bundles the `qsharp` Python package together with optional extras under a single top level package.
+Package for the Quantum Development Kit (QDK) that bundles the `qsharp` Python package together with optional extras under a single top level package.
 
 ## Install
 
@@ -82,7 +82,6 @@ For convenience, the following helpers and types are also importable directly fr
 | `set_quantum_seed`   | function | `qsharp.set_quantum_seed`   | Deterministic seed for quantum randomness (simulators).             |
 | `set_classical_seed` | function | `qsharp.set_classical_seed` | Deterministic seed for classical host RNG.                          |
 | `dump_machine`       | function | `qsharp.dump_machine`       | Emit a structured dump of full quantum state (simulator dependent). |
-| `dump_circuit`       | function | `qsharp.dump_circuit`       | Produce a circuit representation / diagram (when supported).        |
 | `Result`             | class    | `qsharp.Result`             | Measurement result token.                                           |
 | `TargetProfile`      | class    | `qsharp.TargetProfile`      | Target capability / profile descriptor.                             |
 | `StateDump`          | class    | `qsharp.StateDump`          | Structured state dump object.                                       |

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "qdk"
 version = "0.0.0"
-description = "Unified Quantum Development Kit Python meta-package (wraps qsharp and optional extras)"
+description = "Quantum Development Kit Python meta-package"
 readme = "README.md"
 authors = [ { name = "Microsoft" } ]
 license = { file = "LICENSE.txt" }
