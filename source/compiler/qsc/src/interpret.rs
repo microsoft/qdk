@@ -651,7 +651,7 @@ impl Interpreter {
             self.compiler.package_store(),
             &self.fir_store,
             &mut Env::default(),
-            &mut TracingBackend::sim_and_optional_trace(&mut self.sim, &mut self.circuit_tracer),
+            &mut TracingBackend::new(&mut self.sim, self.circuit_tracer.as_mut()),
             receiver,
         )
     }
@@ -663,7 +663,7 @@ impl Interpreter {
         sim: &mut impl Backend,
         receiver: &mut impl Receiver,
     ) -> InterpretResult {
-        let mut tracing_backend = TracingBackend::no_trace(sim);
+        let mut tracing_backend = TracingBackend::no_tracer(sim);
         let graph = self.get_entry_exec_graph()?;
         self.expr_graph = Some(graph.clone());
         if self.quantum_seed.is_some() {
@@ -757,7 +757,7 @@ impl Interpreter {
             self.compiler.package_store(),
             &self.fir_store,
             &mut self.env,
-            &mut TracingBackend::sim_and_optional_trace(&mut self.sim, &mut self.circuit_tracer),
+            &mut TracingBackend::new(&mut self.sim, self.circuit_tracer.as_mut()),
             receiver,
         )
     }
@@ -774,7 +774,7 @@ impl Interpreter {
             self.classical_seed,
             &self.fir_store,
             &mut self.env,
-            &mut TracingBackend::sim_and_optional_trace(&mut self.sim, &mut self.circuit_tracer),
+            &mut TracingBackend::new(&mut self.sim, self.circuit_tracer.as_mut()),
             receiver,
             callable,
             args,
@@ -946,11 +946,14 @@ impl Interpreter {
                 let mut sim = SparseSim::new();
                 self.eval_with_tracing_backend(
                     entry,
-                    &mut TracingBackend::sim_and_trace(&mut sim, &mut tracer),
+                    &mut TracingBackend::new(&mut sim, Some(&mut tracer)),
                 )?;
             }
             CircuitGenerationMethod::ClassicalEval => {
-                self.eval_with_tracing_backend(entry, &mut TracingBackend::no_sim(&mut tracer))?;
+                self.eval_with_tracing_backend(
+                    entry,
+                    &mut TracingBackend::no_backend(&mut tracer),
+                )?;
             }
         }
         let circuit = tracer.finish(Some(self.compiler.package_store()));
@@ -972,7 +975,7 @@ impl Interpreter {
         receiver: &mut impl Receiver,
         expr: Option<&str>,
     ) -> InterpretResult {
-        let mut tracing_backend = TracingBackend::no_trace(sim);
+        let mut tracing_backend = TracingBackend::no_tracer(sim);
         let graph = if let Some(expr) = expr {
             let (graph, _) = self.compile_entry_expr(expr)?;
             self.expr_graph = Some(graph.clone());
@@ -1056,7 +1059,7 @@ impl Interpreter {
         args: Value,
     ) -> InterpretResult {
         self.invoke_with_tracing_backend(
-            &mut TracingBackend::no_trace(sim),
+            &mut TracingBackend::no_tracer(sim),
             receiver,
             callable,
             args,
@@ -1354,9 +1357,9 @@ impl Debugger {
             .eval(
                 &self.interpreter.fir_store,
                 &mut self.interpreter.env,
-                &mut TracingBackend::sim_and_optional_trace(
+                &mut TracingBackend::new(
                     &mut self.interpreter.sim,
-                    &mut self.interpreter.circuit_tracer,
+                    self.interpreter.circuit_tracer.as_mut(),
                 ),
                 receiver,
                 breakpoints,

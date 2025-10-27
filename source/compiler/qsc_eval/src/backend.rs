@@ -663,39 +663,33 @@ fn unwrap_matrix_as_array2(matrix: Value, qubits: &[usize]) -> Array2<Complex<f6
     })
 }
 
+/// Backend wrapper that forwards execution to a concrete `Backend` while
+/// optionally recording operations (qubit allocation/release, gates, measurements)
+/// via a `Tracer`. When constructed with `no_backend`, it uses a fallback
+/// allocator and emits trace events without performing real simulation.
 pub struct TracingBackend<'a> {
     backend: OptionalBackend<'a>,
     tracer: Option<&'a mut dyn Tracer>,
 }
 
 impl<'a> TracingBackend<'a> {
-    pub fn sim_and_optional_trace(
-        backend: &'a mut SparseSim,
-        tracer: &'a mut Option<impl Tracer>,
-    ) -> Self {
+    pub fn new(backend: &'a mut dyn Backend, tracer: Option<&'a mut impl Tracer>) -> Self {
         Self {
             backend: OptionalBackend::Some(backend),
-            tracer: tracer.as_mut().map(|t| t as &mut dyn Tracer),
+            tracer: tracer.map(|t| t as &mut dyn Tracer),
         }
     }
 
-    pub fn sim_and_trace(backend: &'a mut dyn Backend, tracer: &'a mut dyn Tracer) -> Self {
-        Self {
-            backend: OptionalBackend::Some(backend),
-            tracer: Some(tracer),
-        }
-    }
-
-    pub fn no_trace(backend: &'a mut dyn Backend) -> Self {
+    pub fn no_tracer(backend: &'a mut dyn Backend) -> Self {
         Self {
             backend: OptionalBackend::Some(backend),
             tracer: None,
         }
     }
 
-    pub fn no_sim(tracer: &'a mut dyn Tracer) -> Self {
+    pub fn no_backend(tracer: &'a mut dyn Tracer) -> Self {
         Self {
-            backend: OptionalBackend::None(BasicAllocator::default()),
+            backend: OptionalBackend::None(SequentialAllocator::default()),
             tracer: Some(tracer),
         }
     }
@@ -710,6 +704,9 @@ impl<'a> TracingBackend<'a> {
     }
 
     pub fn ccx(&mut self, ctl0: usize, ctl1: usize, q: usize, stack: &[Frame]) {
+        if let OptionalBackend::Some(backend) = &mut self.backend {
+            backend.ccx(ctl0, ctl1, q);
+        }
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "X",
@@ -719,12 +716,12 @@ impl<'a> TracingBackend<'a> {
                 stack,
             );
         }
-        if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.ccx(ctl0, ctl1, q);
-        }
     }
 
     pub fn cx(&mut self, ctl: usize, q: usize, stack: &[Frame]) {
+        if let OptionalBackend::Some(backend) = &mut self.backend {
+            backend.cx(ctl, q);
+        }
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "X",
@@ -734,12 +731,12 @@ impl<'a> TracingBackend<'a> {
                 stack,
             );
         }
-        if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.cx(ctl, q);
-        }
     }
 
     pub fn cy(&mut self, ctl: usize, q: usize, stack: &[Frame]) {
+        if let OptionalBackend::Some(backend) = &mut self.backend {
+            backend.cy(ctl, q);
+        }
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "Y",
@@ -749,12 +746,12 @@ impl<'a> TracingBackend<'a> {
                 stack,
             );
         }
-        if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.cy(ctl, q);
-        }
     }
 
     pub fn cz(&mut self, ctl: usize, q: usize, stack: &[Frame]) {
+        if let OptionalBackend::Some(backend) = &mut self.backend {
+            backend.cz(ctl, q);
+        }
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(
                 "Z",
@@ -764,24 +761,21 @@ impl<'a> TracingBackend<'a> {
                 stack,
             );
         }
-        if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.cz(ctl, q);
-        }
     }
 
     pub fn h(&mut self, q: usize, stack: &[Frame]) {
-        if let Some(tracer) = &mut self.tracer {
-            tracer.gate("H", false, GateInputs::with_targets(vec![q]), vec![], stack);
-        }
         if let OptionalBackend::Some(backend) = &mut self.backend {
             backend.h(q);
+        }
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate("H", false, GateInputs::with_targets(vec![q]), vec![], stack);
         }
     }
 
     pub fn m(&mut self, q: usize, stack: &[Frame]) -> val::Result {
         let r = match &mut self.backend {
             OptionalBackend::Some(backend) => backend.m(q),
-            OptionalBackend::None(fake) => fake.m(q),
+            OptionalBackend::None(fallback) => fallback.result_allocate(),
         };
         if let Some(tracer) = &mut self.tracer {
             tracer.m(q, &r, stack);
@@ -792,7 +786,7 @@ impl<'a> TracingBackend<'a> {
     pub fn mresetz(&mut self, q: usize, stack: &[Frame]) -> val::Result {
         let r = match &mut self.backend {
             OptionalBackend::Some(backend) => backend.mresetz(q),
-            OptionalBackend::None(fake) => fake.mresetz(q),
+            OptionalBackend::None(fallback) => fallback.result_allocate(),
         };
         if let Some(tracer) = &mut self.tracer {
             tracer.mresetz(q, &r, stack);
@@ -995,7 +989,7 @@ impl<'a> TracingBackend<'a> {
     pub fn qubit_allocate(&mut self, stack: &[Frame]) -> usize {
         let q = match &mut self.backend {
             OptionalBackend::Some(backend) => backend.qubit_allocate(),
-            OptionalBackend::None(fake) => fake.qubit_allocate(),
+            OptionalBackend::None(fallback) => fallback.qubit_allocate(),
         };
         if let Some(tracer) = &mut self.tracer {
             tracer.qubit_allocate(q, stack);
@@ -1006,7 +1000,7 @@ impl<'a> TracingBackend<'a> {
     pub fn qubit_release(&mut self, q: usize, stack: &[Frame]) -> bool {
         let b = match &mut self.backend {
             OptionalBackend::Some(backend) => backend.qubit_release(q),
-            OptionalBackend::None(fake) => fake.qubit_release(q),
+            OptionalBackend::None(fallback) => fallback.qubit_release(q),
         };
         if let Some(tracer) = &mut self.tracer {
             tracer.qubit_release(q, stack);
@@ -1015,11 +1009,11 @@ impl<'a> TracingBackend<'a> {
     }
 
     pub fn qubit_swap_id(&mut self, q0: usize, q1: usize, stack: &[Frame]) {
-        if let Some(tracer) = &mut self.tracer {
-            tracer.qubit_swap_id(q0, q1, stack);
-        }
         if let OptionalBackend::Some(backend) = &mut self.backend {
             backend.qubit_swap_id(q0, q1);
+        }
+        if let Some(tracer) = &mut self.tracer {
+            tracer.qubit_swap_id(q0, q1, stack);
         }
     }
 
@@ -1069,23 +1063,21 @@ impl<'a> TracingBackend<'a> {
 }
 
 enum OptionalBackend<'a> {
-    None(BasicAllocator),
+    None(SequentialAllocator),
     Some(&'a mut dyn Backend),
 }
 
 #[derive(Default)]
-struct BasicAllocator {
+/// Fallback allocator used when there is no concrete backend (`OptionalBackend::None`).
+/// Provides monotonically increasing identifiers for qubits and measurement result
+/// values so program can run without a full simulator implementation.
+struct SequentialAllocator {
     next_result_id: usize,
     next_qubit_id: usize,
 }
 
-impl BasicAllocator {
-    fn m(&mut self, _q: usize) -> val::Result {
-        let id = self.next_result_id;
-        self.next_result_id += 1;
-        id.into()
-    }
-    fn mresetz(&mut self, _q: usize) -> val::Result {
+impl SequentialAllocator {
+    fn result_allocate(&mut self) -> val::Result {
         let id = self.next_result_id;
         self.next_result_id += 1;
         id.into()
@@ -1096,6 +1088,8 @@ impl BasicAllocator {
         id
     }
     fn qubit_release(&mut self, _q: usize) -> bool {
+        // This pattern only works when sets of qubits are released
+        // in reverse order to allocation.
         self.next_qubit_id -= 1;
         true
     }
@@ -1108,7 +1102,7 @@ pub trait Tracer {
         &mut self,
         name: &str,
         is_adjoint: bool,
-        gate_inputs: GateInputs,
+        inputs: GateInputs,
         args: Vec<String>,
         stack: &[Frame],
     );

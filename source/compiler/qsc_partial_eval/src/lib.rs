@@ -1108,7 +1108,7 @@ impl<'a> PartialEvaluator<'a> {
         let classical_result = state.eval(
             self.package_store,
             &mut scope.env,
-            &mut TracingBackend::no_trace(&mut self.backend),
+            &mut TracingBackend::no_tracer(&mut self.backend),
             &mut GenericReceiver::new(&mut std::io::sink()),
             &[],
             StepAction::Continue,
