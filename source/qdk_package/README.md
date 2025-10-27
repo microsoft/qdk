@@ -1,6 +1,6 @@
 # qdk
 
-Package for the Quantum Development Kit (QDK) that bundles the `qsharp` Python package together with optional extras under a single top level package.
+The Quantum Development Kit (QDK) provides a single, cohesive Python entry point for compiling, simulating, and estimating resources for quantum programs (Q# and OpenQASM), with optional extras for visualization, cloud workflows, and Qiskit interoperability.
 
 ## Install
 
