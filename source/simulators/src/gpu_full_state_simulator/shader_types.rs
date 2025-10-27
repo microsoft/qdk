@@ -41,6 +41,7 @@ pub enum OpID {
     Matrix = 25,
     Matrix2Q = 26,
     SAMPLE = 27, // Take a probabilistic sample of all qubits
+    Move = 28,
     PauliNoise1Q = 128,
     PauliNoise2Q = 129,
     LossNoise = 130,
@@ -92,6 +93,7 @@ impl TryFrom<u32> for OpID {
             25 => Ok(Self::Matrix),
             26 => Ok(Self::Matrix2Q),
             27 => Ok(Self::SAMPLE),
+            28 => Ok(Self::Move),
             128 => Ok(Self::PauliNoise1Q),
             129 => Ok(Self::PauliNoise2Q),
             130 => Ok(Self::LossNoise),
@@ -130,6 +132,7 @@ pub mod ops {
     pub const MATRIX: u32 = super::OpID::Matrix.as_u32();
     pub const MATRIX_2Q: u32 = super::OpID::Matrix2Q.as_u32();
     pub const SAMPLE: u32 = super::OpID::SAMPLE.as_u32(); // Take a probabilistic sample of all qubits
+    pub const MOVE: u32 = super::OpID::Move.as_u32();
     pub const PAULI_NOISE_1Q: u32 = super::OpID::PauliNoise1Q.as_u32();
     pub const PAULI_NOISE_2Q: u32 = super::OpID::PauliNoise2Q.as_u32();
     pub const LOSS_NOISE: u32 = super::OpID::LossNoise.as_u32();
@@ -269,6 +272,14 @@ impl Op {
         op._10i = 0.0; // |1⟩⟨0| coefficient (imaginary)
         op._11r = 1.0; // |1⟩⟨1| coefficient (real)
         op._11i = 0.0; // |1⟩⟨1| coefficient (imaginary)
+        op
+    }
+
+    #[must_use]
+    pub fn new_move_gate(qubit: u32) -> Self {
+        // Treat is like an identity for now
+        let mut op = Self::new_id_gate(qubit);
+        op.id = ops::MOVE;
         op
     }
 

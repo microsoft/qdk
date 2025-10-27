@@ -7,14 +7,15 @@ from qsharp import init, eval, compile, TargetProfile, run
 from qsharp._simulation import run_qir_gpu, NoiseConfig
 from qsharp._device._atom import AC1000
 
-decompose = True
+decompose = False
 shots = 100
 circuit = "grover"
 gpu_sim = "parallel"
-run_sparse = False
+run_sparse = True
 
 noise = NoiseConfig()
-noise.sx.set_depolarizing(0.001)
+# noise.sx.set_depolarizing(0.001)
+noise.mov.set_bitflip(0.001)
 
 init(target_profile=TargetProfile.Base)
 
@@ -34,7 +35,7 @@ eval(src_grover if circuit == "grover" else src_ccx)
 qir = compile("Main()")
 
 device = AC1000()
-ac1000_qir = device.compile(qir) if decompose == True else qir
+ac1000_qir = device.compile(qir, schedule=True) if decompose == True else qir
 
 # Get a (rought) count of the gates
 gate_count = ac1000_qir._ll_str.count("\n") + 1

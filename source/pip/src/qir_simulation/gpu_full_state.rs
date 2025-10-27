@@ -62,12 +62,22 @@ pub fn run_parallel_shots<'py>(
     for inst in instructions {
         let op = map_instruction(&inst, true);
         if let Some(op) = op {
-            ops.push(op);
+            let mut add_ops: Vec<Op> = vec![op];
             // If there's a NoiseConfig, and we get noise for this op, append it
             if let Some(noise) = noise {
                 if let Some(noise_ops) = get_noise_ops(&op, &noise) {
-                    ops.extend(noise_ops);
+                    add_ops.extend(noise_ops);
                 }
+            }
+            // Convert 'mov' ops to identity, and don't add the ops if it's just a
+            // single identity (but do add if it has noise)
+            if add_ops[0].id == shader_types::ops::MOVE {
+                add_ops[0].id = shader_types::ops::ID;
+            }
+            if add_ops.len() == 1 && add_ops[0].id == shader_types::ops::ID {
+                // skip identity
+            } else {
+                ops.extend(add_ops);
             }
         }
     }
@@ -113,23 +123,61 @@ fn get_noise_ops(
     op: &Op,
     noise_config: &qdk_simulators::noise_config::NoiseConfig,
 ) -> Option<Vec<Op>> {
-    match op.id {
-        shader_types::ops::SX => {
-            if noise_config.sx.has_pauli_noise() {
-                Some(vec![Op::new_pauli_noise_1q(
-                    op.q1,
-                    noise_config.sx.x,
-                    noise_config.sx.y,
-                    noise_config.sx.z,
-                )])
-                // TODO: Append loss noise if configured
-            } else {
-                None
-            }
-        }
-        _ => None,
-        // TODO: Add other ops, maybe panic on no match
+    let noise_table = match op.id {
+        shader_types::ops::ID => &noise_config.i,
+        shader_types::ops::X => &noise_config.x,
+        shader_types::ops::Y => &noise_config.y,
+        shader_types::ops::Z => &noise_config.z,
+        shader_types::ops::H => &noise_config.h,
+        shader_types::ops::S => &noise_config.s,
+        shader_types::ops::S_ADJ => &noise_config.s_adj,
+        shader_types::ops::T => &noise_config.t,
+        shader_types::ops::T_ADJ => &noise_config.t_adj,
+        shader_types::ops::SX => &noise_config.sx,
+        shader_types::ops::SX_ADJ => &noise_config.sx_adj,
+        shader_types::ops::RX => &noise_config.rx,
+        shader_types::ops::RY => &noise_config.ry,
+        shader_types::ops::RZ => &noise_config.rz,
+        shader_types::ops::CX => &noise_config.cx,
+        shader_types::ops::CZ => &noise_config.cz,
+        shader_types::ops::RXX => &noise_config.rxx,
+        shader_types::ops::RYY => &noise_config.ryy,
+        shader_types::ops::RZZ => &noise_config.rzz,
+        shader_types::ops::SWAP => &noise_config.swap,
+        shader_types::ops::MOVE => &noise_config.mov,
+        shader_types::ops::MRESETZ => &noise_config.mresetz,
+        _ => return None,
+    };
+    if noise_table.is_noiseless() {
+        return None;
     }
+    let mut results = vec![];
+    if noise_table.has_pauli_noise() {
+        // TODO: Clean up the OpID ranges or add helpers to determine qubit count in a cleaner way
+        if op.id < shader_types::OpID::Cx.as_u32()
+            || op.id == shader_types::OpID::Move.as_u32()
+            || op.id == shader_types::OpID::MResetZ.as_u32()
+        {
+            results.push(Op::new_pauli_noise_1q(
+                op.q1,
+                noise_table.x,
+                noise_table.y,
+                noise_table.z,
+            ));
+        } else {
+            results.push(Op::new_pauli_noise_2q(
+                op.q1,
+                op.q2,
+                noise_table.x,
+                noise_table.y,
+                noise_table.z,
+            ));
+        }
+    }
+    if noise_table.loss > 0.0 {
+        results.push(Op::new_loss_noise(op.q1, noise_table.loss));
+    }
+    Some(results)
 }
 
 #[pyfunction]
@@ -315,6 +363,7 @@ fn map_instruction(
     let op = match qir_inst {
         QirInstruction::OneQubitGate(id, qubit) => match id {
             QirInstructionId::I => Op::new_id_gate(*qubit),
+            QirInstructionId::Move => Op::new_move_gate(*qubit),
             QirInstructionId::H => Op::new_h_gate(*qubit),
             QirInstructionId::X => Op::new_x_gate(*qubit),
             QirInstructionId::Y => Op::new_y_gate(*qubit),

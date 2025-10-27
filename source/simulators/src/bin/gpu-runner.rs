@@ -14,6 +14,7 @@ fn main() {
     test_pauli_noise();
     test_simple_rotation_and_entanglement();
     test_2q_pauli_noise();
+    test_move_noise();
 }
 
 fn split_results(result_count: usize, results: &[u32]) -> (Vec<Vec<u32>>, Vec<u32>) {
@@ -243,5 +244,34 @@ fn test_2q_pauli_noise() {
     // Check the results: The first 3 qubits should always agree, the 4th usually with the first 3,
     // and after that it gets messy.
     println!("[GPU Runner]: Results of 2q Pauli noise: {results:?}");
+    println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
+}
+
+fn test_move_noise() {
+    let mut init_op = Op::new_reset_gate(u32::MAX);
+    init_op.q2 = 0xdead_beef;
+
+    let ops: Vec<Op> = vec![
+        init_op, // 1, 0xFFFFFFFF, 0xDEADBEEF
+        // Move to interaction zone
+        Op::new_move_gate(0),
+        Op::new_pauli_noise_1q(0, 0.1, 0.0, 0.0),
+        // Do 2 SX gates (i.e. one X gate)
+        Op::new_sx_gate(0),
+        Op::new_sx_gate(0),
+        // Move back
+        Op::new_move_gate(0),
+        Op::new_pauli_noise_1q(0, 0.1, 0.0, 0.0),
+        // Move to measurement one
+        Op::new_mresetz_gate(0, 0),
+        Op::new_move_gate(0),
+        Op::new_pauli_noise_1q(0, 0.1, 0.0, 0.0),
+    ];
+    // At 24 qubits, 8 shots fits into 1GB of GPU memory.
+    let start = Instant::now();
+    let results = run_parallel_shots(1, 1, ops, 100).expect("GPU shots failed");
+    let elapsed = start.elapsed();
+    let (results, _error_codes) = split_results(1, &results);
+    println!("[GPU Runner]: Results of move op: {results:?}");
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
 }

@@ -81,6 +81,7 @@ impl<'a> SequenceBuilder<'a> {
             OpID::Ccx => unimplemented!("ccx gate"),
             OpID::Mz | OpID::MResetZ => unimplemented!("measurement"),
             OpID::SAMPLE => self.ops.push(op),
+            OpID::Move => self.apply_1q_gate(op, self.noise.mov),
             OpID::MEveryZ => {
                 // not a real op
                 self.ops.push(op);
