@@ -1,19 +1,15 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-pub mod bipartite_normal_form;
 pub mod bits;
 pub mod clifford;
 pub mod operations;
-pub mod outcome_complete_simulation;
 pub mod outcome_specific_simulation;
 pub mod pauli;
 pub mod quantum_core;
 pub mod setwise;
 
 pub use operations::UnitaryOp;
-
-// mod utils;
 
 type Tuple2<T> = (T, T);
 type Tuple4<T> = (T, T, T, T);
