@@ -471,12 +471,15 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
             setUnitaryRow(shot_idx, 3u, op_row_3);
 
             shot.op_type = OPID_SHOT_BUFF_2Q; // Indicate to use the matrix in the shot buffer
-            shot.op_idx = op_idx;
-            shot.next_op_idx = op_idx + 2u; // Skip over the noise op next time
-            shot.qubits_updated_last_op_mask = (1u << op.q1 ) | (1u << op.q2);
-            return;
             // TODO: What about multiple noise ops in a row? Loop somehow
+        } else {
+            // No noise to apply. Skip the noise op by advancing the op index and return
+            shot.op_type = op.id;
         }
+        shot.op_idx = op_idx;
+        shot.next_op_idx = op_idx + 2u; // Skip over the noise op next time
+        shot.qubits_updated_last_op_mask = (1u << op.q1 ) | (1u << op.q2);
+        return;
     }
 
 

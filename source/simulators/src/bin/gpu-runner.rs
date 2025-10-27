@@ -15,6 +15,7 @@ fn main() {
     test_simple_rotation_and_entanglement();
     test_2q_pauli_noise();
     test_move_noise();
+    test_benzene();
 }
 
 fn split_results(result_count: usize, results: &[u32]) -> (Vec<Vec<u32>>, Vec<u32>) {
@@ -274,4 +275,52 @@ fn test_move_noise() {
     let (results, _error_codes) = split_results(1, &results);
     println!("[GPU Runner]: Results of move op: {results:?}");
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
+}
+
+fn test_benzene() {
+    let mut init_op = Op::new_reset_gate(u32::MAX);
+    init_op.q2 = 0xdead_beef;
+
+    let ops: Vec<Op> = vec![
+        init_op, // 1, 0xFFFFFFFF, 0xDEADBEEF
+        Op::new_h_gate(2),
+        Op::new_pauli_noise_1q(2, 0.000166, 0.000166, 0.000166),
+        Op::new_rz_gate(1.87, 2),
+        Op::new_pauli_noise_1q(2, 0.000233, 0.000233, 0.000233),
+        Op::new_h_gate(2),
+        Op::new_pauli_noise_1q(2, 0.000166, 0.000166, 0.000166),
+        Op::new_s_adj_gate(2),
+        Op::new_pauli_noise_1q(2, 0.000166, 0.000166, 0.000166),
+        Op::new_x_gate(0),
+        Op::new_cx_gate(0, 7),
+        Op::new_pauli_noise_2q(0, 7, 0.000166, 0.000166, 0.000166),
+        Op::new_cx_gate(0, 6),
+        Op::new_pauli_noise_2q(0, 6, 0.000166, 0.000166, 0.000166),
+        Op::new_cx_gate(0, 1),
+        Op::new_pauli_noise_2q(0, 1, 0.000166, 0.000166, 0.000166),
+        Op::new_x_gate(3),
+        Op::new_cx_gate(2, 3),
+        Op::new_pauli_noise_2q(2, 3, 0.000166, 0.000166, 0.000166),
+        Op::new_cx_gate(2, 8),
+        Op::new_pauli_noise_2q(2, 8, 0.000166, 0.000166, 0.000166),
+        Op::new_cx_gate(3, 9),
+        Op::new_pauli_noise_2q(3, 9, 0.000166, 0.000166, 0.000166),
+        Op::new_h_gate(2),
+        Op::new_pauli_noise_1q(2, 0.000166, 0.000166, 0.000166),
+        Op::new_h_gate(3),
+        Op::new_pauli_noise_1q(3, 0.000166, 0.000166, 0.000166),
+        Op::new_h_gate(8),
+        Op::new_pauli_noise_1q(8, 0.000166, 0.000166, 0.000166),
+        Op::new_h_gate(9),
+        Op::new_pauli_noise_1q(9, 0.000166, 0.000166, 0.000166),
+        Op::new_mresetz_gate(2, 0),
+        Op::new_mresetz_gate(3, 1),
+        Op::new_mresetz_gate(8, 2),
+        Op::new_mresetz_gate(9, 3),
+    ];
+    let start = Instant::now();
+    let results = run_parallel_shots(10, 4, ops, 1024).expect("GPU shots failed");
+    let elapsed = start.elapsed();
+    let (_results, _error_codes) = split_results(4, &results);
+    println!("[GPU Runner]: Benzene elapsed time for 1024 shots: {elapsed:.2?}");
 }

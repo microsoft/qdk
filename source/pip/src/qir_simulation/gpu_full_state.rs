@@ -69,6 +69,12 @@ pub fn run_parallel_shots<'py>(
                     add_ops.extend(noise_ops);
                 }
             }
+            // If it's an MResetZ with noise, change to an Id with noise, followed by MResetZ
+            if op.id == shader_types::ops::MRESETZ && add_ops.len() > 1 {
+                let mz_copy = add_ops[0];
+                add_ops[0] = Op::new_id_gate(op.q1);
+                add_ops.push(mz_copy);
+            }
             // Convert 'mov' ops to identity, and don't add the ops if it's just a
             // single identity (but do add if it has noise)
             if add_ops[0].id == shader_types::ops::MOVE {
