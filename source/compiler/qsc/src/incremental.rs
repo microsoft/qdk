@@ -80,7 +80,7 @@ impl Compiler {
         })
     }
 
-    pub fn from(
+    pub fn with_package_store(
         store: PackageStore,
         source_package_id: PackageId,
         capabilities: TargetCapabilityFlags,
