@@ -2,7 +2,6 @@
 // Licensed under the MIT License.
 
 use qsc_data_structures::debug::InstructionMetadata;
-use qsc_eval::backend::GateInputs;
 
 use crate::{
     builder::RegisterMap,
@@ -71,22 +70,19 @@ impl CircuitBuilder {
         &mut self,
         register_map: &RegisterMap,
         gate_label: &GateLabel,
-        inputs: GateInputs,
+        inputs: &GateInputs,
         control_results: &[usize],
         args: Vec<String>,
         metadata: Option<InstructionMetadata>,
     ) {
-        let GateInputs {
-            target_qubits,
-            control_qubits,
-        } = inputs;
-
-        let target_qubits = target_qubits
+        let target_qubits = inputs
+            .targets
             .iter()
             .map(|q| register_map.qubit_register(*q))
             .collect();
 
-        let control_qubits = control_qubits
+        let control_qubits = inputs
+            .controls
             .iter()
             .map(|q| register_map.qubit_register(*q))
             .collect();
@@ -203,4 +199,9 @@ impl CircuitBuilder {
             args: vec![],
         });
     }
+}
+
+pub struct GateInputs<'a> {
+    pub targets: &'a [usize],
+    pub controls: &'a [usize],
 }

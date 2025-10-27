@@ -115,6 +115,389 @@ pub trait Backend {
     fn set_seed(&mut self, _seed: Option<u64>) {}
 }
 
+/// Trait receiving trace events for quantum execution. Each method records
+/// an operation along with the current call stack when stack/source location
+/// tracing is enabled. If stack tracing is disabled, the stack parameter
+/// will be ignored.
+pub trait Tracer {
+    fn qubit_allocate(&mut self, stack: &[Frame], q: usize);
+    fn qubit_release(&mut self, stack: &[Frame], q: usize);
+    fn qubit_swap_id(&mut self, stack: &[Frame], q0: usize, q1: usize);
+    fn gate(
+        &mut self,
+        stack: &[Frame],
+        name: &str,
+        is_adjoint: bool,
+        targets: &[usize],
+        controls: &[usize],
+        theta: Option<f64>,
+    );
+    fn measure(&mut self, stack: &[Frame], name: &str, q: usize, r: &val::Result);
+    fn reset(&mut self, stack: &[Frame], q: usize);
+    fn custom_intrinsic(&mut self, stack: &[Frame], name: &str, arg: Value);
+    fn is_stack_tracing_enabled(&self) -> bool;
+}
+
+/// Backend wrapper that forwards execution to a concrete `Backend` while
+/// optionally recording operations (qubit allocation/release, gates, measurements)
+/// via a `Tracer`. When constructed with `no_backend`, it uses a fallback
+/// allocator and emits trace events without performing real simulation.
+pub struct TracingBackend<'a> {
+    backend: OptionalBackend<'a>,
+    tracer: Option<&'a mut dyn Tracer>,
+}
+
+impl<'a> TracingBackend<'a> {
+    pub fn new(backend: &'a mut dyn Backend, tracer: Option<&'a mut impl Tracer>) -> Self {
+        Self {
+            backend: OptionalBackend::Some(backend),
+            tracer: tracer.map(|t| t as &mut dyn Tracer),
+        }
+    }
+
+    pub fn no_tracer(backend: &'a mut dyn Backend) -> Self {
+        Self {
+            backend: OptionalBackend::Some(backend),
+            tracer: None,
+        }
+    }
+
+    pub fn no_backend(tracer: &'a mut dyn Tracer) -> Self {
+        Self {
+            backend: OptionalBackend::None(SequentialAllocator::default()),
+            tracer: Some(tracer),
+        }
+    }
+
+    #[must_use]
+    pub fn is_stacks_enabled(&self) -> bool {
+        if let Some(tracer) = &self.tracer {
+            tracer.is_stack_tracing_enabled()
+        } else {
+            false
+        }
+    }
+
+    pub fn ccx(&mut self, ctl0: usize, ctl1: usize, q: usize, stack: &[Frame]) {
+        if let OptionalBackend::Some(backend) = &mut self.backend {
+            backend.ccx(ctl0, ctl1, q);
+        }
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate(stack, "X", false, &[q], &[ctl0, ctl1], None);
+        }
+    }
+
+    pub fn cx(&mut self, ctl: usize, q: usize, stack: &[Frame]) {
+        if let OptionalBackend::Some(backend) = &mut self.backend {
+            backend.cx(ctl, q);
+        }
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate(stack, "X", false, &[q], &[ctl], None);
+        }
+    }
+
+    pub fn cy(&mut self, ctl: usize, q: usize, stack: &[Frame]) {
+        if let OptionalBackend::Some(backend) = &mut self.backend {
+            backend.cy(ctl, q);
+        }
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate(stack, "Y", false, &[q], &[ctl], None);
+        }
+    }
+
+    pub fn cz(&mut self, ctl: usize, q: usize, stack: &[Frame]) {
+        if let OptionalBackend::Some(backend) = &mut self.backend {
+            backend.cz(ctl, q);
+        }
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate(stack, "Z", false, &[q], &[ctl], None);
+        }
+    }
+
+    pub fn h(&mut self, q: usize, stack: &[Frame]) {
+        if let OptionalBackend::Some(backend) = &mut self.backend {
+            backend.h(q);
+        }
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate(stack, "H", false, &[q], &[], None);
+        }
+    }
+
+    pub fn m(&mut self, q: usize, stack: &[Frame]) -> val::Result {
+        let r = match &mut self.backend {
+            OptionalBackend::Some(backend) => backend.m(q),
+            OptionalBackend::None(fallback) => fallback.result_allocate(),
+        };
+        if let Some(tracer) = &mut self.tracer {
+            tracer.measure(stack, "M", q, &r);
+        }
+        r
+    }
+
+    pub fn mresetz(&mut self, q: usize, stack: &[Frame]) -> val::Result {
+        let r = match &mut self.backend {
+            OptionalBackend::Some(backend) => backend.mresetz(q),
+            OptionalBackend::None(fallback) => fallback.result_allocate(),
+        };
+        if let Some(tracer) = &mut self.tracer {
+            tracer.measure(stack, "MResetZ", q, &r);
+        }
+        r
+    }
+
+    pub fn reset(&mut self, q: usize, stack: &[Frame]) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.reset(stack, q);
+        }
+        if let OptionalBackend::Some(backend) = &mut self.backend {
+            backend.reset(q);
+        }
+    }
+
+    pub fn rx(&mut self, theta: f64, q: usize, stack: &[Frame]) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate(stack, "Rx", false, &[q], &[], Some(theta));
+        }
+        if let OptionalBackend::Some(backend) = &mut self.backend {
+            backend.rx(theta, q);
+        }
+    }
+
+    pub fn rxx(&mut self, theta: f64, q0: usize, q1: usize, stack: &[Frame]) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate(stack, "Rxx", false, &[q0, q1], &[], Some(theta));
+        }
+        if let OptionalBackend::Some(backend) = &mut self.backend {
+            backend.rxx(theta, q0, q1);
+        }
+    }
+
+    pub fn ry(&mut self, theta: f64, q: usize, stack: &[Frame]) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate(stack, "Ry", false, &[q], &[], Some(theta));
+        }
+        if let OptionalBackend::Some(backend) = &mut self.backend {
+            backend.ry(theta, q);
+        }
+    }
+
+    pub fn ryy(&mut self, theta: f64, q0: usize, q1: usize, stack: &[Frame]) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate(stack, "Ryy", false, &[q0, q1], &[], Some(theta));
+        }
+        if let OptionalBackend::Some(backend) = &mut self.backend {
+            backend.ryy(theta, q0, q1);
+        }
+    }
+
+    pub fn rz(&mut self, theta: f64, q: usize, stack: &[Frame]) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate(stack, "Rz", false, &[q], &[], Some(theta));
+        }
+        if let OptionalBackend::Some(backend) = &mut self.backend {
+            backend.rz(theta, q);
+        }
+    }
+
+    pub fn rzz(&mut self, theta: f64, q0: usize, q1: usize, stack: &[Frame]) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate(stack, "Rzz", false, &[q0, q1], &[], Some(theta));
+        }
+        if let OptionalBackend::Some(backend) = &mut self.backend {
+            backend.rzz(theta, q0, q1);
+        }
+    }
+
+    pub fn sadj(&mut self, q: usize, stack: &[Frame]) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate(stack, "S", true, &[q], &[], None);
+        }
+        if let OptionalBackend::Some(backend) = &mut self.backend {
+            backend.sadj(q);
+        }
+    }
+
+    pub fn s(&mut self, q: usize, stack: &[Frame]) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate(stack, "S", false, &[q], &[], None);
+        }
+        if let OptionalBackend::Some(backend) = &mut self.backend {
+            backend.s(q);
+        }
+    }
+
+    pub fn sx(&mut self, q: usize, stack: &[Frame]) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate(stack, "SX", false, &[q], &[], None);
+        }
+        if let OptionalBackend::Some(backend) = &mut self.backend {
+            backend.sx(q);
+        }
+    }
+
+    pub fn swap(&mut self, q0: usize, q1: usize, stack: &[Frame]) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate(stack, "SWAP", false, &[q0, q1], &[], None);
+        }
+        if let OptionalBackend::Some(backend) = &mut self.backend {
+            backend.swap(q0, q1);
+        }
+    }
+
+    pub fn tadj(&mut self, q: usize, stack: &[Frame]) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate(stack, "T", true, &[q], &[], None);
+        }
+        if let OptionalBackend::Some(backend) = &mut self.backend {
+            backend.tadj(q);
+        }
+    }
+
+    pub fn t(&mut self, q: usize, stack: &[Frame]) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate(stack, "T", false, &[q], &[], None);
+        }
+        if let OptionalBackend::Some(backend) = &mut self.backend {
+            backend.t(q);
+        }
+    }
+
+    pub fn x(&mut self, q: usize, stack: &[Frame]) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate(stack, "X", false, &[q], &[], None);
+        }
+        if let OptionalBackend::Some(backend) = &mut self.backend {
+            backend.x(q);
+        }
+    }
+
+    pub fn y(&mut self, q: usize, stack: &[Frame]) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate(stack, "Y", false, &[q], &[], None);
+        }
+        if let OptionalBackend::Some(backend) = &mut self.backend {
+            backend.y(q);
+        }
+    }
+
+    pub fn z(&mut self, q: usize, stack: &[Frame]) {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate(stack, "Z", false, &[q], &[], None);
+        }
+        if let OptionalBackend::Some(backend) = &mut self.backend {
+            backend.z(q);
+        }
+    }
+
+    pub fn qubit_allocate(&mut self, stack: &[Frame]) -> usize {
+        let q = match &mut self.backend {
+            OptionalBackend::Some(backend) => backend.qubit_allocate(),
+            OptionalBackend::None(fallback) => fallback.qubit_allocate(),
+        };
+        if let Some(tracer) = &mut self.tracer {
+            tracer.qubit_allocate(stack, q);
+        }
+        q
+    }
+
+    pub fn qubit_release(&mut self, q: usize, stack: &[Frame]) -> bool {
+        let b = match &mut self.backend {
+            OptionalBackend::Some(backend) => backend.qubit_release(q),
+            OptionalBackend::None(fallback) => fallback.qubit_release(q),
+        };
+        if let Some(tracer) = &mut self.tracer {
+            tracer.qubit_release(stack, q);
+        }
+        b
+    }
+
+    pub fn qubit_swap_id(&mut self, q0: usize, q1: usize, stack: &[Frame]) {
+        if let OptionalBackend::Some(backend) = &mut self.backend {
+            backend.qubit_swap_id(q0, q1);
+        }
+        if let Some(tracer) = &mut self.tracer {
+            tracer.qubit_swap_id(stack, q0, q1);
+        }
+    }
+
+    pub fn capture_quantum_state(
+        &mut self,
+    ) -> (Vec<(num_bigint::BigUint, num_complex::Complex<f64>)>, usize) {
+        match &mut self.backend {
+            OptionalBackend::Some(backend) => backend.capture_quantum_state(),
+            OptionalBackend::None(_) => (Vec::new(), 0),
+        }
+    }
+
+    pub fn qubit_is_zero(&mut self, q: usize) -> bool {
+        match &mut self.backend {
+            OptionalBackend::Some(backend) => backend.qubit_is_zero(q),
+            OptionalBackend::None(_) => true,
+        }
+    }
+
+    pub fn custom_intrinsic(
+        &mut self,
+        name: &str,
+        arg: Value,
+        stack: &[Frame],
+    ) -> Option<Result<Value, String>> {
+        if let Some(tracer) = &mut self.tracer {
+            tracer.custom_intrinsic(stack, name, arg.clone());
+        }
+        match &mut self.backend {
+            OptionalBackend::Some(backend) => backend.custom_intrinsic(name, arg),
+            OptionalBackend::None(_) => {
+                match name {
+                    // Special case this known intrinsic to match the simulator
+                    // behavior, so that our samples will work
+                    "BeginEstimateCaching" => Some(Ok(Value::Bool(true))),
+                    _ => Some(Ok(Value::unit())),
+                }
+            }
+        }
+    }
+
+    pub fn set_seed(&mut self, seed: Option<u64>) {
+        if let OptionalBackend::Some(backend) = &mut self.backend {
+            backend.set_seed(seed);
+        }
+    }
+}
+
+enum OptionalBackend<'a> {
+    None(SequentialAllocator),
+    Some(&'a mut dyn Backend),
+}
+
+#[derive(Default)]
+/// Fallback allocator used when there is no concrete backend (`OptionalBackend::None`).
+/// Provides monotonically increasing identifiers for qubits and measurement result
+/// values so program can run without a full simulator implementation.
+struct SequentialAllocator {
+    next_result_id: usize,
+    next_qubit_id: usize,
+}
+
+impl SequentialAllocator {
+    fn result_allocate(&mut self) -> val::Result {
+        let id = self.next_result_id;
+        self.next_result_id += 1;
+        id.into()
+    }
+    fn qubit_allocate(&mut self) -> usize {
+        let id = self.next_qubit_id;
+        self.next_qubit_id += 1;
+        id
+    }
+    fn qubit_release(&mut self, _q: usize) -> bool {
+        // This pattern only works when qubits (or sets of qubits)
+        // are released in reverse order to allocation.
+        self.next_qubit_id -= 1;
+        true
+    }
+}
+
 /// Default backend used when targeting sparse simulation.
 pub struct SparseSim {
     /// Noiseless Sparse simulator to be used by this instance.
@@ -661,481 +1044,4 @@ fn unwrap_matrix_as_array2(matrix: Value, qubits: &[usize]) -> Array2<Complex<f6
     Array2::from_shape_fn((1 << qubits.len(), 1 << qubits.len()), |(i, j)| {
         matrix[i][j]
     })
-}
-
-/// Backend wrapper that forwards execution to a concrete `Backend` while
-/// optionally recording operations (qubit allocation/release, gates, measurements)
-/// via a `Tracer`. When constructed with `no_backend`, it uses a fallback
-/// allocator and emits trace events without performing real simulation.
-pub struct TracingBackend<'a> {
-    backend: OptionalBackend<'a>,
-    tracer: Option<&'a mut dyn Tracer>,
-}
-
-impl<'a> TracingBackend<'a> {
-    pub fn new(backend: &'a mut dyn Backend, tracer: Option<&'a mut impl Tracer>) -> Self {
-        Self {
-            backend: OptionalBackend::Some(backend),
-            tracer: tracer.map(|t| t as &mut dyn Tracer),
-        }
-    }
-
-    pub fn no_tracer(backend: &'a mut dyn Backend) -> Self {
-        Self {
-            backend: OptionalBackend::Some(backend),
-            tracer: None,
-        }
-    }
-
-    pub fn no_backend(tracer: &'a mut dyn Tracer) -> Self {
-        Self {
-            backend: OptionalBackend::None(SequentialAllocator::default()),
-            tracer: Some(tracer),
-        }
-    }
-
-    #[must_use]
-    pub fn is_stacks_enabled(&self) -> bool {
-        if let Some(tracer) = &self.tracer {
-            tracer.is_stacks_enabled()
-        } else {
-            false
-        }
-    }
-
-    pub fn ccx(&mut self, ctl0: usize, ctl1: usize, q: usize, stack: &[Frame]) {
-        if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.ccx(ctl0, ctl1, q);
-        }
-        if let Some(tracer) = &mut self.tracer {
-            tracer.gate(
-                "X",
-                false,
-                GateInputs::with_targets_and_controls(vec![q], vec![ctl0, ctl1]),
-                vec![],
-                stack,
-            );
-        }
-    }
-
-    pub fn cx(&mut self, ctl: usize, q: usize, stack: &[Frame]) {
-        if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.cx(ctl, q);
-        }
-        if let Some(tracer) = &mut self.tracer {
-            tracer.gate(
-                "X",
-                false,
-                GateInputs::with_targets_and_controls(vec![q], vec![ctl]),
-                vec![],
-                stack,
-            );
-        }
-    }
-
-    pub fn cy(&mut self, ctl: usize, q: usize, stack: &[Frame]) {
-        if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.cy(ctl, q);
-        }
-        if let Some(tracer) = &mut self.tracer {
-            tracer.gate(
-                "Y",
-                false,
-                GateInputs::with_targets_and_controls(vec![q], vec![ctl]),
-                vec![],
-                stack,
-            );
-        }
-    }
-
-    pub fn cz(&mut self, ctl: usize, q: usize, stack: &[Frame]) {
-        if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.cz(ctl, q);
-        }
-        if let Some(tracer) = &mut self.tracer {
-            tracer.gate(
-                "Z",
-                false,
-                GateInputs::with_targets_and_controls(vec![q], vec![ctl]),
-                vec![],
-                stack,
-            );
-        }
-    }
-
-    pub fn h(&mut self, q: usize, stack: &[Frame]) {
-        if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.h(q);
-        }
-        if let Some(tracer) = &mut self.tracer {
-            tracer.gate("H", false, GateInputs::with_targets(vec![q]), vec![], stack);
-        }
-    }
-
-    pub fn m(&mut self, q: usize, stack: &[Frame]) -> val::Result {
-        let r = match &mut self.backend {
-            OptionalBackend::Some(backend) => backend.m(q),
-            OptionalBackend::None(fallback) => fallback.result_allocate(),
-        };
-        if let Some(tracer) = &mut self.tracer {
-            tracer.m(q, &r, stack);
-        }
-        r
-    }
-
-    pub fn mresetz(&mut self, q: usize, stack: &[Frame]) -> val::Result {
-        let r = match &mut self.backend {
-            OptionalBackend::Some(backend) => backend.mresetz(q),
-            OptionalBackend::None(fallback) => fallback.result_allocate(),
-        };
-        if let Some(tracer) = &mut self.tracer {
-            tracer.mresetz(q, &r, stack);
-        }
-        r
-    }
-
-    pub fn reset(&mut self, q: usize, stack: &[Frame]) {
-        if let Some(tracer) = &mut self.tracer {
-            tracer.reset(q, stack);
-        }
-        if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.reset(q);
-        }
-    }
-
-    pub fn rx(&mut self, theta: f64, q: usize, stack: &[Frame]) {
-        if let Some(tracer) = &mut self.tracer {
-            tracer.gate(
-                "Rx",
-                false,
-                GateInputs::with_targets(vec![q]),
-                vec![format!("{theta:.4}")],
-                stack,
-            );
-        }
-        if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.rx(theta, q);
-        }
-    }
-
-    pub fn rxx(&mut self, theta: f64, q0: usize, q1: usize, stack: &[Frame]) {
-        if let Some(tracer) = &mut self.tracer {
-            tracer.gate(
-                "Rxx",
-                false,
-                GateInputs::with_targets(vec![q0, q1]),
-                vec![format!("{theta:.4}")],
-                stack,
-            );
-        }
-        if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.rxx(theta, q0, q1);
-        }
-    }
-
-    pub fn ry(&mut self, theta: f64, q: usize, stack: &[Frame]) {
-        if let Some(tracer) = &mut self.tracer {
-            tracer.gate(
-                "Ry",
-                false,
-                GateInputs::with_targets(vec![q]),
-                vec![format!("{theta:.4}")],
-                stack,
-            );
-        }
-        if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.ry(theta, q);
-        }
-    }
-
-    pub fn ryy(&mut self, theta: f64, q0: usize, q1: usize, stack: &[Frame]) {
-        if let Some(tracer) = &mut self.tracer {
-            tracer.gate(
-                "Ryy",
-                false,
-                GateInputs::with_targets(vec![q0, q1]),
-                vec![format!("{theta:.4}")],
-                stack,
-            );
-        }
-        if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.ryy(theta, q0, q1);
-        }
-    }
-
-    pub fn rz(&mut self, theta: f64, q: usize, stack: &[Frame]) {
-        if let Some(tracer) = &mut self.tracer {
-            tracer.gate(
-                "Rz",
-                false,
-                GateInputs::with_targets(vec![q]),
-                vec![format!("{theta:.4}")],
-                stack,
-            );
-        }
-        if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.rz(theta, q);
-        }
-    }
-
-    pub fn rzz(&mut self, theta: f64, q0: usize, q1: usize, stack: &[Frame]) {
-        if let Some(tracer) = &mut self.tracer {
-            tracer.gate(
-                "Rzz",
-                false,
-                GateInputs::with_targets(vec![q0, q1]),
-                vec![format!("{theta:.4}")],
-                stack,
-            );
-        }
-        if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.rzz(theta, q0, q1);
-        }
-    }
-
-    pub fn sadj(&mut self, q: usize, stack: &[Frame]) {
-        if let Some(tracer) = &mut self.tracer {
-            tracer.gate("S", true, GateInputs::with_targets(vec![q]), vec![], stack);
-        }
-        if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.sadj(q);
-        }
-    }
-
-    pub fn s(&mut self, q: usize, stack: &[Frame]) {
-        if let Some(tracer) = &mut self.tracer {
-            tracer.gate("S", false, GateInputs::with_targets(vec![q]), vec![], stack);
-        }
-        if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.s(q);
-        }
-    }
-
-    pub fn sx(&mut self, q: usize, stack: &[Frame]) {
-        if let Some(tracer) = &mut self.tracer {
-            tracer.gate(
-                "SX",
-                false,
-                GateInputs::with_targets(vec![q]),
-                vec![],
-                stack,
-            );
-        }
-        if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.sx(q);
-        }
-    }
-
-    pub fn swap(&mut self, q0: usize, q1: usize, stack: &[Frame]) {
-        if let Some(tracer) = &mut self.tracer {
-            tracer.gate(
-                "SWAP",
-                false,
-                GateInputs::with_targets(vec![q0, q1]),
-                vec![],
-                stack,
-            );
-        }
-        if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.swap(q0, q1);
-        }
-    }
-
-    pub fn tadj(&mut self, q: usize, stack: &[Frame]) {
-        if let Some(tracer) = &mut self.tracer {
-            tracer.gate("T", true, GateInputs::with_targets(vec![q]), vec![], stack);
-        }
-        if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.tadj(q);
-        }
-    }
-
-    pub fn t(&mut self, q: usize, stack: &[Frame]) {
-        if let Some(tracer) = &mut self.tracer {
-            tracer.gate("T", false, GateInputs::with_targets(vec![q]), vec![], stack);
-        }
-        if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.t(q);
-        }
-    }
-
-    pub fn x(&mut self, q: usize, stack: &[Frame]) {
-        if let Some(tracer) = &mut self.tracer {
-            tracer.gate("X", false, GateInputs::with_targets(vec![q]), vec![], stack);
-        }
-        if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.x(q);
-        }
-    }
-
-    pub fn y(&mut self, q: usize, stack: &[Frame]) {
-        if let Some(tracer) = &mut self.tracer {
-            tracer.gate("Y", false, GateInputs::with_targets(vec![q]), vec![], stack);
-        }
-        if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.y(q);
-        }
-    }
-
-    pub fn z(&mut self, q: usize, stack: &[Frame]) {
-        if let Some(tracer) = &mut self.tracer {
-            tracer.gate("Z", false, GateInputs::with_targets(vec![q]), vec![], stack);
-        }
-        if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.z(q);
-        }
-    }
-
-    pub fn qubit_allocate(&mut self, stack: &[Frame]) -> usize {
-        let q = match &mut self.backend {
-            OptionalBackend::Some(backend) => backend.qubit_allocate(),
-            OptionalBackend::None(fallback) => fallback.qubit_allocate(),
-        };
-        if let Some(tracer) = &mut self.tracer {
-            tracer.qubit_allocate(q, stack);
-        }
-        q
-    }
-
-    pub fn qubit_release(&mut self, q: usize, stack: &[Frame]) -> bool {
-        let b = match &mut self.backend {
-            OptionalBackend::Some(backend) => backend.qubit_release(q),
-            OptionalBackend::None(fallback) => fallback.qubit_release(q),
-        };
-        if let Some(tracer) = &mut self.tracer {
-            tracer.qubit_release(q, stack);
-        }
-        b
-    }
-
-    pub fn qubit_swap_id(&mut self, q0: usize, q1: usize, stack: &[Frame]) {
-        if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.qubit_swap_id(q0, q1);
-        }
-        if let Some(tracer) = &mut self.tracer {
-            tracer.qubit_swap_id(q0, q1, stack);
-        }
-    }
-
-    pub fn capture_quantum_state(
-        &mut self,
-    ) -> (Vec<(num_bigint::BigUint, num_complex::Complex<f64>)>, usize) {
-        match &mut self.backend {
-            OptionalBackend::Some(backend) => backend.capture_quantum_state(),
-            OptionalBackend::None(_) => (Vec::new(), 0),
-        }
-    }
-
-    pub fn qubit_is_zero(&mut self, q: usize) -> bool {
-        match &mut self.backend {
-            OptionalBackend::Some(backend) => backend.qubit_is_zero(q),
-            OptionalBackend::None(_) => true,
-        }
-    }
-
-    pub fn custom_intrinsic(
-        &mut self,
-        name: &str,
-        arg: Value,
-        stack: &[Frame],
-    ) -> Option<Result<Value, String>> {
-        if let Some(tracer) = &mut self.tracer {
-            tracer.custom_intrinsic(name, arg.clone(), stack);
-        }
-        match &mut self.backend {
-            OptionalBackend::Some(backend) => backend.custom_intrinsic(name, arg),
-            OptionalBackend::None(_) => {
-                match name {
-                    // Special case this known intrinsic to match the simulator
-                    // behavior, so that our samples will work
-                    "BeginEstimateCaching" => Some(Ok(Value::Bool(true))),
-                    _ => Some(Ok(Value::unit())),
-                }
-            }
-        }
-    }
-
-    pub fn set_seed(&mut self, seed: Option<u64>) {
-        if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.set_seed(seed);
-        }
-    }
-}
-
-enum OptionalBackend<'a> {
-    None(SequentialAllocator),
-    Some(&'a mut dyn Backend),
-}
-
-#[derive(Default)]
-/// Fallback allocator used when there is no concrete backend (`OptionalBackend::None`).
-/// Provides monotonically increasing identifiers for qubits and measurement result
-/// values so program can run without a full simulator implementation.
-struct SequentialAllocator {
-    next_result_id: usize,
-    next_qubit_id: usize,
-}
-
-impl SequentialAllocator {
-    fn result_allocate(&mut self) -> val::Result {
-        let id = self.next_result_id;
-        self.next_result_id += 1;
-        id.into()
-    }
-    fn qubit_allocate(&mut self) -> usize {
-        let id = self.next_qubit_id;
-        self.next_qubit_id += 1;
-        id
-    }
-    fn qubit_release(&mut self, _q: usize) -> bool {
-        // This pattern only works when sets of qubits are released
-        // in reverse order to allocation.
-        self.next_qubit_id -= 1;
-        true
-    }
-}
-
-pub trait Tracer {
-    fn qubit_allocate(&mut self, q: usize, stack: &[Frame]);
-    fn qubit_release(&mut self, q: usize, stack: &[Frame]);
-    fn gate(
-        &mut self,
-        name: &str,
-        is_adjoint: bool,
-        inputs: GateInputs,
-        args: Vec<String>,
-        stack: &[Frame],
-    );
-    fn m(&mut self, q: usize, r: &val::Result, stack: &[Frame]);
-    fn mresetz(&mut self, q: usize, r: &val::Result, stack: &[Frame]);
-    fn reset(&mut self, q: usize, stack: &[Frame]);
-    fn qubit_swap_id(&mut self, q0: usize, q1: usize, stack: &[Frame]);
-    fn custom_intrinsic(&mut self, name: &str, arg: Value, stack: &[Frame]);
-    fn is_stacks_enabled(&self) -> bool;
-}
-
-pub struct GateInputs {
-    pub target_qubits: Vec<usize>,
-    pub control_qubits: Vec<usize>,
-}
-
-impl GateInputs {
-    #[must_use]
-    pub fn with_targets(target_qubits: Vec<usize>) -> Self {
-        Self {
-            target_qubits,
-            control_qubits: Vec::new(),
-        }
-    }
-
-    #[must_use]
-    pub fn with_targets_and_controls(
-        target_qubits: Vec<usize>,
-        control_qubits: Vec<usize>,
-    ) -> Self {
-        Self {
-            target_qubits,
-            control_qubits,
-        }
-    }
 }

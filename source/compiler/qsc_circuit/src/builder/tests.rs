@@ -12,11 +12,11 @@ fn exceed_max_operations() {
     });
 
     let tracer: &mut dyn Tracer = &mut builder;
-    tracer.qubit_allocate(0, &[]);
+    tracer.qubit_allocate(&[], 0);
 
-    tracer.gate("X", false, GateInputs::with_targets(vec![0]), vec![], &[]);
-    tracer.gate("X", false, GateInputs::with_targets(vec![0]), vec![], &[]);
-    tracer.gate("X", false, GateInputs::with_targets(vec![0]), vec![], &[]);
+    tracer.gate(&[], "X", false, &[0], &[], None);
+    tracer.gate(&[], "X", false, &[0], &[], None);
+    tracer.gate(&[], "X", false, &[0], &[], None);
 
     let circuit = builder.finish(None);
 
@@ -37,11 +37,11 @@ fn exceed_max_operations_deferred_measurements() {
 
     // TODO: ugh...
     let tracer: &mut dyn Tracer = &mut builder;
-    tracer.qubit_allocate(0, &[]);
+    tracer.qubit_allocate(&[], 0);
 
-    tracer.gate("X", false, GateInputs::with_targets(vec![0]), vec![], &[]);
-    tracer.m(0, &(0.into()), &[]);
-    tracer.gate("X", false, GateInputs::with_targets(vec![0]), vec![], &[]);
+    tracer.gate(&[], "X", false, &[0], &[], None);
+    tracer.measure(&[], "M", 0, &(0.into()));
+    tracer.gate(&[], "X", false, &[0], &[], None);
 
     let circuit = builder.finish(None);
 
