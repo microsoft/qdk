@@ -26,7 +26,15 @@ fn qubit(id: usize) -> Qubit {
     Qubit {
         id,
         num_results: 0,
-        declarations: None,
+        declarations: vec![],
+    }
+}
+
+fn qubit_with_results(id: usize, num_results: usize) -> Qubit {
+    Qubit {
+        id,
+        num_results,
+        declarations: vec![],
     }
 }
 
@@ -138,18 +146,7 @@ fn bell() {
         measurement(0, 0),
         measurement(1, 0),
     ];
-    let qubits = vec![
-        Qubit {
-            id: 0,
-            num_results: 1,
-            declarations: None,
-        },
-        Qubit {
-            id: 1,
-            num_results: 1,
-            declarations: None,
-        },
-    ];
+    let qubits = vec![qubit_with_results(0, 1), qubit_with_results(1, 1)];
     let component_grid = operation_list_to_grid(operations, &qubits);
     let c = Circuit {
         qubits,
@@ -172,15 +169,7 @@ fn control_classical() {
         ctl_unitary("X", vec![q_reg(2)], vec![c_reg(0, 0)]),
         ctl_unitary("X", vec![q_reg(2)], vec![q_reg(0)]),
     ];
-    let qubits = vec![
-        Qubit {
-            id: 0,
-            num_results: 1,
-            declarations: None,
-        },
-        qubit(1),
-        qubit(2),
-    ];
+    let qubits = vec![qubit_with_results(0, 1), qubit(1), qubit(2)];
     let component_grid = operation_list_to_grid(operations, &qubits);
     let c = Circuit {
         qubits,
@@ -199,11 +188,7 @@ fn control_classical() {
 #[test]
 fn two_measurements() {
     let operations = vec![measurement(0, 0), measurement(0, 1)];
-    let qubits = vec![Qubit {
-        id: 0,
-        num_results: 2,
-        declarations: None,
-    }];
+    let qubits = vec![qubit_with_results(0, 2)];
     let component_grid = operation_list_to_grid(operations, &qubits);
     let c = Circuit {
         qubits,
@@ -220,15 +205,7 @@ fn two_measurements() {
 
 #[test]
 fn left_align_operations() {
-    let qubits = vec![
-        Qubit {
-            id: 0,
-            num_results: 1,
-            declarations: None,
-        },
-        qubit(1),
-        qubit(2),
-    ];
+    let qubits = vec![qubit_with_results(0, 1), qubit(1), qubit(2)];
     let operations = vec![
         measurement(0, 0),
         ctl_unitary("X", vec![q_reg(0)], vec![]),

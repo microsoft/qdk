@@ -323,9 +323,7 @@ pub(crate) fn finish_circuit(
             resolve_location_if_unresolved(dbg_info, d);
         }
 
-        if !declarations.is_empty() {
-            q.declarations = Some(declarations.iter().filter_map(to_source_location).collect());
-        }
+        q.declarations = declarations.iter().filter_map(to_source_location).collect();
     }
 
     let mut qubits = qubits.into_iter().map(|(q, _)| q).collect::<Vec<_>>();
@@ -339,10 +337,8 @@ pub(crate) fn finish_circuit(
         fill_in_dbg_metadata(&mut operations, package_store);
 
         for q in &mut qubits {
-            if let Some(declarations) = &mut q.declarations {
-                for source_location in declarations {
-                    resolve_source_location_if_unresolved(source_location, package_store);
-                }
+            for source_location in &mut q.declarations {
+                resolve_source_location_if_unresolved(source_location, package_store);
             }
         }
     }
@@ -402,7 +398,7 @@ impl RegisterMap {
                 Qubit {
                     id: i,
                     num_results,
-                    declarations: None,
+                    declarations: vec![],
                 },
                 declarations.clone(),
             ));

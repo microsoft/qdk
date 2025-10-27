@@ -47,9 +47,11 @@ pub use qsc_eval::{
     val::Result,
     val::Value,
 };
-use qsc_fir::fir::{self, ExecGraph, Global, PackageStoreLookup};
 use qsc_fir::{
-    fir::{Block, BlockId, Expr, ExprId, Package, PackageId, Pat, PatId, Stmt, StmtId},
+    fir::{
+        self, Block, BlockId, ExecGraph, Expr, ExprId, Global, Package, PackageId,
+        PackageStoreLookup, Pat, PatId, Stmt, StmtId,
+    },
     visit::{self, Visitor},
 };
 use qsc_frontend::{
@@ -143,7 +145,7 @@ pub struct Interpreter {
     source_package: PackageId,
     /// The default simulator backend.
     sim: SparseSim,
-    /// The tracer that records the circuit being built.
+    /// When circuit tracing is enabled, the tracer that records the circuit during evaluation.
     circuit_tracer: Option<CircuitTracer>,
     /// The quantum seed, if any. This is cached here so that it can be used in calls to
     /// `run_internal` which use a passed instance of the simulator instead of the one above.

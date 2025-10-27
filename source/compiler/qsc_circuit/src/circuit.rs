@@ -297,10 +297,9 @@ pub struct Qubit {
     #[serde(rename = "numResults")]
     #[serde(default)]
     pub num_results: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     #[serde(default)]
-    // TODO: idk if this should be an Option
-    pub declarations: Option<Vec<SourceLocation>>,
+    pub declarations: Vec<SourceLocation>,
 }
 
 #[derive(Clone, Debug, Copy)]
@@ -656,7 +655,7 @@ impl CircuitDisplay<'_> {
             let mut label = format!("q_{}", q.id);
             if self.render_locations {
                 let mut first = true;
-                for loc in q.declarations.iter().flatten() {
+                for loc in &q.declarations {
                     if let SourceLocation::Resolved(loc) = loc {
                         if first {
                             label.push('@');
@@ -1080,12 +1079,7 @@ fn get_qubit_map(
             if let Some(group_idx) = group_idx {
                 qubit_map.insert(q.id, group_idx);
                 new_qubits[group_idx].num_results += q.num_results;
-                if let Some(d) = q.declarations {
-                    match &mut new_qubits[group_idx].declarations {
-                        Some(v) => v.extend(d.clone()),
-                        None => new_qubits[group_idx].declarations = Some(d.clone()),
-                    }
-                }
+                new_qubits[group_idx].declarations.extend(q.declarations);
             } else {
                 group_idx = Some(new_qubits.len());
                 qubit_map.insert(q.id, new_qubits.len());
