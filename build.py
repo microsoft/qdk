@@ -659,8 +659,6 @@ if build_pip and build_widgets and args.integration_tests:
         for dp, _, filenames in os.walk(samples_src)
         for f in filenames
         if f.endswith(".ipynb")
-        # Skip all Cirq sample notebooks under the cirq_samples folder, as cirq is not installed in the build machines.
-        and "cirq_samples" not in dp
         and not (
             f.startswith("sample.")
             or f.startswith("azure_submission.")
@@ -669,6 +667,7 @@ if build_pip and build_widgets and args.integration_tests:
             or f.startswith("repeat_until_success.")
             or f.startswith("python-deps.")
             or f.startswith("submit_qiskit_circuit_to_azure.")
+            or f.startswith("cirq_submission_to_azure.")
         )
     ]
     python_bin = use_python_env(samples_src)
