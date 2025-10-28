@@ -696,7 +696,6 @@ fn create_interpreter_from_ast(
         capabilities,
         language_features,
         &dependencies,
-        None,
     )
 }
 

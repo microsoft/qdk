@@ -2159,7 +2159,6 @@ mod given_interpreter {
                 capabilities,
                 language_features,
                 &dependencies,
-                None,
             )
             .expect("interpreter should be created");
             let (result, output) = entry(&mut interpreter);

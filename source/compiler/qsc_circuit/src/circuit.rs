@@ -4,7 +4,7 @@
 #[cfg(test)]
 mod tests;
 
-use qsc_eval::PackageSpan;
+use qsc_data_structures::debug::DbgLocationId;
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -82,7 +82,7 @@ pub type Component = Operation;
 pub enum SourceLocation {
     Resolved(ResolvedSourceLocation),
     #[serde(skip)]
-    Unresolved(PackageSpan),
+    Unresolved(DbgLocationId),
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]

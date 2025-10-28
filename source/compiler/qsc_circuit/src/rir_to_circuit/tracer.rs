@@ -5,7 +5,7 @@ use qsc_data_structures::debug::InstructionMetadata;
 
 use crate::{
     builder::RegisterMap,
-    rir_to_circuit::{DbgLocationKind, Op, OperationKind},
+    rir_to_circuit::{Op, OperationKind},
 };
 
 pub(crate) struct CircuitBuilder {
@@ -93,11 +93,7 @@ impl CircuitBuilder {
             .collect();
 
         self.push(Op {
-            kind: OperationKind::Unitary {
-                location: metadata
-                    .and_then(|md| md.dbg_location)
-                    .map(DbgLocationKind::Unresolved),
-            },
+            kind: OperationKind::Unitary,
             label: gate_label.name.to_string(),
             target_qubits,
             control_qubits,
@@ -105,6 +101,7 @@ impl CircuitBuilder {
             control_results,
             is_adjoint: gate_label.is_adjoint,
             args,
+            location: metadata.and_then(|md| md.dbg_location),
         });
     }
 
@@ -120,11 +117,7 @@ impl CircuitBuilder {
         let results = vec![register_map.result_register(result)];
 
         self.push(Op {
-            kind: OperationKind::Measurement {
-                location: metadata
-                    .and_then(|md| md.dbg_location)
-                    .map(DbgLocationKind::Unresolved),
-            },
+            kind: OperationKind::Measurement,
             label: "M".to_string(),
             target_qubits: vec![],
             control_qubits: qubits,
@@ -132,6 +125,7 @@ impl CircuitBuilder {
             control_results: vec![],
             is_adjoint: false,
             args: vec![],
+            location: metadata.and_then(|md| md.dbg_location),
         });
     }
 
@@ -147,12 +141,7 @@ impl CircuitBuilder {
         let result_registers = vec![register_map.result_register(result)];
 
         self.push(Op {
-            kind: OperationKind::Measurement {
-                location: metadata
-                    .as_ref()
-                    .and_then(|md| md.dbg_location)
-                    .map(DbgLocationKind::Unresolved),
-            },
+            kind: OperationKind::Measurement,
             label: "MResetZ".to_string(),
             target_qubits: vec![],
             control_qubits: qubits.clone(),
@@ -160,14 +149,11 @@ impl CircuitBuilder {
             control_results: vec![],
             is_adjoint: false,
             args: vec![],
+            location: metadata.as_ref().and_then(|md| md.dbg_location),
         });
 
         self.push(Op {
-            kind: OperationKind::Ket {
-                location: metadata
-                    .and_then(|md| md.dbg_location)
-                    .map(DbgLocationKind::Unresolved),
-            },
+            kind: OperationKind::Ket,
             label: "0".to_string(),
             target_qubits: qubits,
             control_qubits: vec![],
@@ -175,6 +161,7 @@ impl CircuitBuilder {
             control_results: vec![],
             is_adjoint: false,
             args: vec![],
+            location: metadata.and_then(|md| md.dbg_location),
         });
     }
 
@@ -185,11 +172,7 @@ impl CircuitBuilder {
         metadata: Option<InstructionMetadata>,
     ) {
         self.push(Op {
-            kind: OperationKind::Ket {
-                location: metadata
-                    .and_then(|md| md.dbg_location)
-                    .map(DbgLocationKind::Unresolved),
-            },
+            kind: OperationKind::Ket,
             label: "0".to_string(),
             target_qubits: vec![register_map.qubit_register(qubit)],
             control_qubits: vec![],
@@ -197,6 +180,7 @@ impl CircuitBuilder {
             control_results: vec![],
             is_adjoint: false,
             args: vec![],
+            location: metadata.and_then(|md| md.dbg_location),
         });
     }
 }

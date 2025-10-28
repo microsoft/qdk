@@ -160,7 +160,6 @@ fn compile_and_run_qasm_internal(source: &str, debug: bool) -> String {
         capabilities,
         language_features,
         &dependencies,
-        None,
     ) {
         Ok(interpreter) => interpreter,
         Err(errors) => {
