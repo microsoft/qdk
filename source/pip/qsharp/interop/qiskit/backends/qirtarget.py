@@ -56,14 +56,99 @@ logger = logging.getLogger(__name__)
 class QirTarget:
     """Factory for QIR-compatible Qiskit ``Target`` instances."""
 
+    def __init__(
+        self,
+        num_qubits=None,
+        target_profile=TargetProfile.Base,
+        supports_barrier=False,
+        supports_delay=False,
+    ) -> None:
+        logger.warning(
+            "QirTarget should not be instantiated directly. Use the 'build_target' class method"
+            + " instead. This will be enforced in a future release. You can replace"
+            + " 'QirTarget(...)' with 'QirTarget.build_target(...)'."
+        )
+        self._target = self.build_target(
+            num_qubits=num_qubits,
+            target_profile=target_profile,
+            supports_barrier=supports_barrier,
+            supports_delay=supports_delay,
+        )
+
+    def __getattr__(self, item):
+        """
+        Delegate attribute access to the underlying _target object.
+
+        This method is called when an attribute is not found in the current instance.
+        It forwards the attribute lookup to the internal _target object, effectively
+        making this class act as a proxy or wrapper around the target.
+
+        Args:
+            item (str): The name of the attribute being accessed.
+
+        Returns:
+            Any: The value of the requested attribute from the _target object.
+
+        Raises:
+            AttributeError: If the requested item is "_target" or if the attribute
+                           does not exist on the _target object.
+
+        Note:
+            The special handling of "_target" prevents infinite recursion and
+            maintains proper encapsulation of the internal target object.
+        """
+        if item == "_target":
+            raise AttributeError(item)
+        return getattr(self._target, item)
+
+    def to_target(self) -> Target:
+        """Return the underlying Qiskit Target instance."""
+        return self._target
+
     @classmethod
-    def create_target(
+    def build_target(
         cls,
         num_qubits: Union[int, None] = None,
         target_profile=TargetProfile.Base,
         supports_barrier=False,
         supports_delay=False,
     ) -> Target:
+        """
+        Create a Qiskit Target object with quantum gates and operations for QIR compilation.
+
+        This class method creates a Target instance that defines the available quantum
+        operations and gates that can be used when compiling Q#/OpenQASM code to QIR (Quantum
+        Intermediate Representation) format.
+
+        Args:
+            num_qubits (Union[int, None], optional): The number of qubits for the target.
+                If None, the target will support any number of qubits. Defaults to None.
+            target_profile (TargetProfile, optional): The target profile that determines
+                which control flow operations are supported. If not TargetProfile.Base,
+                adds control flow operations like if_else, switch_case, and while_loop.
+                Defaults to TargetProfile.Base.
+            supports_barrier (bool, optional): Whether to include barrier operations
+                in the target. Defaults to False.
+            supports_delay (bool, optional): Whether to include delay operations
+                in the target. Defaults to False.
+
+        Returns:
+            Target: A Qiskit Target object configured with quantum gates and operations
+                including:
+                - Basic single-qubit gates (X, Y, Z, H, S, T, SX, I)
+                - Rotation gates (RX, RY, RZ) with parameters
+                - Two-qubit gates (CX, CY, CZ, SWAP, controlled rotations)
+                - Three-qubit gates (CCX)
+                - Multi-qubit rotation gates (RXX, RYY, RZZ)
+                - Measurement and reset operations
+                - Control flow operations (if target_profile != Base)
+                - Optional barrier and delay operations
+
+        Note:
+            The target includes reset operations even for base profile since the
+            compiler can implement workarounds using decompositions.
+        """
+
         target = Target(num_qubits=num_qubits)
 
         if target_profile != TargetProfile.Base:

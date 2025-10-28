@@ -166,7 +166,7 @@ class BackendBase(BackendV2, ABC):
 
             self._target = target
         else:
-            self._target = self._create_target(num_qubits)
+            self._target = self._build_target(num_qubits)
 
         self._transpile_options = {}
 
@@ -199,10 +199,10 @@ class BackendBase(BackendV2, ABC):
         if qasm_export_options is not None:
             self._qasm_export_options.update(**qasm_export_options)
 
-    def _create_target(self, num_qubits: Union[int, None]) -> Target:
+    def _build_target(self, num_qubits: Union[int, None]) -> Target:
         supports_barrier = self._qiskit_pass_options["supports_barrier"]
         supports_delay = self._qiskit_pass_options["supports_delay"]
-        return QirTarget.create_target(
+        return QirTarget.build_target(
             num_qubits,
             target_profile=self._options["target_profile"],
             supports_barrier=supports_barrier,
