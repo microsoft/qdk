@@ -1151,7 +1151,7 @@ fn make_scope_metadata(dbg_info: &DbgInfo, scope_stack: &ScopeStack) -> DbgLocat
         DbgMetadataScope::SubProgram { location: span, .. } => span,
     };
 
-    DbgLocationKind::Resolved(scope_location.clone())
+    DbgLocationKind::Resolved(*scope_location)
 }
 
 fn add_scoped_op(
@@ -1550,7 +1550,7 @@ fn extend_block_with_branch_instruction_vars_only(
     let metadata = instruction_metadata
         .as_ref()
         .and_then(|md| md.dbg_location)
-        .map(|l| dbg_info.dbg_locations[l].location.clone())
+        .map(|l| dbg_info.dbg_locations[l].location)
         .map(DbgLocationKind::Resolved);
     let branch = Branch {
         condition: variable,
@@ -1580,7 +1580,7 @@ fn extend_block_with_branch_instruction(
     let metadata = instruction_metadata
         .as_ref()
         .and_then(|md| md.dbg_location)
-        .map(|l| dbg_info.dbg_locations[l].location.clone())
+        .map(|l| dbg_info.dbg_locations[l].location)
         .map(DbgLocationKind::Resolved);
     let branch = Branch {
         condition: variable,

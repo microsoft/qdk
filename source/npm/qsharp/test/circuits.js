@@ -251,6 +251,12 @@ test("circuit snapshot tests - .qs files", async (t) => {
   }
 });
 
+/**
+ * @param {string} name
+ * @param {string} circuitSource
+ * @param {string} id
+ * @param {"static" | "classicalEval" | "simulate"} generationMethod
+ */
 async function generateAndDrawCircuit(
   name,
   circuitSource,
@@ -267,15 +273,15 @@ async function generateAndDrawCircuit(
         languageFeatures: [],
         profile: "adaptive_rif",
       },
-      undefined,
       {
         generationMethod,
         collapseQubitRegisters: false,
         groupScopes: true,
         loopDetection: false,
         maxOperations: 100,
-        locations: true,
+        sourceLocations: true,
       },
+      undefined,
     );
 
     // Render the circuit

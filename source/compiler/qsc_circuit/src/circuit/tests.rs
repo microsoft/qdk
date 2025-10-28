@@ -38,14 +38,6 @@ fn qubit_with_results(id: usize, num_results: usize) -> Qubit {
     }
 }
 
-fn qubit_with_results(id: usize, num_results: usize) -> Qubit {
-    Qubit {
-        id,
-        num_results,
-        declarations: None,
-    }
-}
-
 fn q_reg(id: usize) -> Register {
     Register::quantum(id)
 }
@@ -303,18 +295,7 @@ fn respect_column_info() {
 #[test]
 fn classical_controlled_group() {
     let c = Circuit {
-        qubits: vec![
-            Qubit {
-                id: 0,
-                num_results: 1,
-                declarations: None,
-            },
-            Qubit {
-                id: 1,
-                num_results: 1,
-                declarations: None,
-            },
-        ],
+        qubits: vec![qubit_with_results(0, 1), qubit_with_results(1, 1)],
         component_grid: vec![
             ComponentColumn {
                 components: vec![unitary("H", vec![q_reg(0)])],

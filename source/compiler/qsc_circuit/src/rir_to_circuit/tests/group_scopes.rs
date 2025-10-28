@@ -8,9 +8,10 @@ use crate::rir_to_circuit::{
 };
 use expect_test::{Expect, expect};
 use qsc_data_structures::{
-    debug::{DbgInfo, DbgLocation, DbgMetadataScope, InstructionMetadata, MetadataPackageSpan},
+    debug::{DbgInfo, DbgLocation, DbgMetadataScope, InstructionMetadata},
     span::Span,
 };
+use qsc_eval::PackageSpan;
 
 #[allow(clippy::needless_pass_by_value)]
 fn check(instructions: Vec<Instruction>, expect: Expect) {
@@ -46,8 +47,8 @@ fn program(instructions: Vec<Instruction>) -> (DbgInfo, Vec<Op>) {
                 if scope_index.is_none() {
                     scopes.push(DbgMetadataScope::SubProgram {
                         name: Rc::from(loc.scope.as_str()),
-                        location: MetadataPackageSpan {
-                            package: 2,
+                        location: PackageSpan {
+                            package: 2.into(), // TODO: uh oh
                             span: Span {
                                 lo: loc.offset,
                                 hi: loc.offset + 1,
@@ -60,7 +61,7 @@ fn program(instructions: Vec<Instruction>) -> (DbgInfo, Vec<Op>) {
                 // use existing location if it exists
                 // (we could do this more efficiently with a map)
                 let location_index = locations.iter().position(|l: &DbgLocation| {
-                    l.location.package == 2
+                    l.location.package == 2.into() // TODO: uh oh
                         && l.location.span.lo == loc.offset
                         && l.location.span.hi == loc.offset + 1
                         && l.scope == scope_index
@@ -71,8 +72,8 @@ fn program(instructions: Vec<Instruction>) -> (DbgInfo, Vec<Op>) {
                 }
 
                 locations.push(DbgLocation {
-                    location: MetadataPackageSpan {
-                        package: 2,
+                    location: PackageSpan {
+                        package: 2.into(),
                         span: Span {
                             lo: loc.offset,
                             hi: loc.offset + 1,
