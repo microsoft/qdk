@@ -25,7 +25,7 @@ class SurfaceCode:
         two_qubit_gate_time: Union[str, List[str]] = "two_qubit_gate_time",
         two_qubit_gate_error_rate: Union[str, List[str]] = "two_qubit_gate_error_rate",
         physical_qubits_formula: str = "2*distance**2",
-        logical_cycle_time_formula: str = "(one_qubit_gate_tine + measurement_time + 4 * two_qubit_gate_time) * distance",
+        logical_cycle_time_formula: str = "(one_qubit_gate_time + measurement_time + 4 * two_qubit_gate_time) * distance",
         max_distance: int = 149,
     ):
         """
