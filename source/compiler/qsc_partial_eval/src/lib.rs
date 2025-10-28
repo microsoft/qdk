@@ -16,7 +16,7 @@ use evaluation_context::{Arg, BlockNode, EvalControlFlow, EvaluationContext, Sco
 use management::{QuantumIntrinsicsChecker, ResourceManager};
 use miette::Diagnostic;
 use qsc_data_structures::{
-    debug::{DbgLocation, DbgMetadataScope, InstructionMetadata},
+    debug::{DbgLocation, DbgLocationId, DbgMetadataScope, DbgScopeId, InstructionMetadata},
     functors::FunctorApp,
     span::Span,
     target::TargetCapabilityFlags,
@@ -2010,7 +2010,7 @@ impl<'a> PartialEvaluator<'a> {
         })
     }
 
-    fn current_dbg_location_idx(&mut self) -> usize {
+    fn current_dbg_location_idx(&mut self) -> DbgLocationId {
         let call_expr = self.eval_context.get_current_scope().current_expr;
         let Some(call_expr_id) = call_expr else {
             panic!("expected current expr id because this is a call");
@@ -2018,13 +2018,13 @@ impl<'a> PartialEvaluator<'a> {
 
         let current_package = self.package_store.get(self.get_current_package_id());
 
-        let current_subprogram_scope = {
+        let current_subprogram_scope: DbgScopeId = {
             let current_callable = self.eval_context.get_current_scope().callable;
-            current_callable.map_or(0, |c| {
+            current_callable.map_or(0.into(), |c| {
                 let s = self.eval_context.dbg_callable_to_scope.get(&c.0).copied();
 
                 if let Some(s) = s {
-                    s
+                    s.into()
                 } else {
                     let (name, span) = match &current_package
                         .items
@@ -2047,7 +2047,7 @@ impl<'a> PartialEvaluator<'a> {
                     self.program.dbg_info.dbg_metadata_scopes.push(scope);
                     let i = self.program.dbg_info.dbg_metadata_scopes.len() - 1;
                     self.eval_context.dbg_callable_to_scope.insert(c.0, i);
-                    i
+                    i.into()
                 }
             }) // magic entry scope
         };
@@ -2070,9 +2070,7 @@ impl<'a> PartialEvaluator<'a> {
             inlined_at,
         };
 
-        self.program.dbg_info.dbg_locations.push(new_location);
-
-        self.program.dbg_info.dbg_locations.len() - 1
+        self.program.dbg_info.add_location(new_location)
     }
 
     fn eval_expr_if_with_classical_condition(

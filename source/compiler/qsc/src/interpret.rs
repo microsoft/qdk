@@ -287,7 +287,6 @@ impl Interpreter {
         capabilities: TargetCapabilityFlags,
         language_features: LanguageFeatures,
         dependencies: &Dependencies,
-        circuit_tracer_config: Option<TracerConfig>,
     ) -> std::result::Result<Self, Vec<Error>> {
         let compiler = Compiler::with_package_store(
             store,
@@ -297,6 +296,9 @@ impl Interpreter {
             dependencies,
         )
         .map_err(into_errors)?;
+
+        // Always enable circuit tracing along with debugging.
+        let circuit_tracer_config = if dbg { Some(Default::default()) } else { None };
 
         Self::with_compiler(dbg, capabilities, circuit_tracer_config, compiler)
     }
@@ -682,11 +684,10 @@ impl Interpreter {
         sim: &mut impl Backend,
         receiver: &mut impl Receiver,
     ) -> InterpretResult {
-        let mut tracing_backend = TracingBackend::no_tracer(sim);
         let graph = self.get_entry_exec_graph()?;
         self.expr_graph = Some(graph.clone());
         if self.quantum_seed.is_some() {
-            tracing_backend.set_seed(self.quantum_seed);
+            sim.set_seed(self.quantum_seed);
         }
         eval(
             self.source_package,
@@ -695,7 +696,7 @@ impl Interpreter {
             self.compiler.package_store(),
             &self.fir_store,
             &mut Env::default(),
-            &mut tracing_backend,
+            &mut TracingBackend::no_tracer(sim),
             receiver,
         )
     }
@@ -960,41 +961,56 @@ impl Interpreter {
         method: CircuitGenerationMethod,
         tracer_config: TracerConfig,
     ) -> std::result::Result<Circuit, Vec<Error>> {
+        let (entry_expr, invoke_params) = match entry {
+            CircuitEntryPoint::Operation(ref operation_expr) => {
+                let (item, functor_app) = self.eval_to_operation(operation_expr)?;
+                let expr = entry_expr_for_qubit_operation(item, functor_app, operation_expr)
+                    .map_err(|e| vec![e.into()])?;
+                (Some(expr), None)
+            }
+            CircuitEntryPoint::EntryExpr(expr) => (Some(expr), None),
+            CircuitEntryPoint::Callable(call_val, args_val) => (None, Some((call_val, args_val))),
+            CircuitEntryPoint::EntryPoint => (None, None),
+        };
+
+        let mut sink = std::io::sink();
+        let mut out = GenericReceiver::new(&mut sink);
         let mut tracer = CircuitTracer::new(tracer_config);
         match method {
             CircuitGenerationMethod::Simulate => {
                 let mut sim = SparseSim::new();
-                self.eval_with_tracing_backend(
-                    entry,
-                    &mut TracingBackend::new(&mut sim, Some(&mut tracer)),
-                )?;
+                let mut tracing_backend = TracingBackend::new(&mut sim, Some(&mut tracer));
+                if let Some((callable, args)) = invoke_params {
+                    self.invoke_with_tracing_backend(
+                        &mut tracing_backend,
+                        &mut out,
+                        callable,
+                        args,
+                    )?;
+                } else {
+                    self.run_with_tracing_backend(
+                        &mut tracing_backend,
+                        &mut out,
+                        entry_expr.as_deref(),
+                    )?;
+                }
             }
             CircuitGenerationMethod::ClassicalEval => {
-                self.eval_with_tracing_backend(
-                    entry,
-                    &mut TracingBackend::no_backend(&mut tracer),
-                )?;
+                let mut tracer = TracingBackend::no_backend(&mut tracer);
+                if let Some((callable, args)) = invoke_params {
+                    self.invoke_with_tracing_backend(&mut tracer, &mut out, callable, args)?;
+                } else {
+                    self.run_with_tracing_backend(&mut tracer, &mut out, entry_expr.as_deref())?;
+                }
             }
             CircuitGenerationMethod::Static => {
-                let (entry_expr, invoke_params) = match &entry {
-                    CircuitEntryPoint::Operation(operation_expr) => {
-                        let (item, functor_app) = self.eval_to_operation(operation_expr)?;
-                        let expr =
-                            entry_expr_for_qubit_operation(item, functor_app, operation_expr)
-                                .map_err(|e| vec![e.into()])?;
-                        (Some(expr), None)
-                    }
-                    CircuitEntryPoint::EntryExpr(expr) => (Some(expr.clone()), None),
-                    CircuitEntryPoint::Callable(call_val, args_val) => {
-                        (None, Some((call_val, args_val)))
-                    }
-                    CircuitEntryPoint::EntryPoint => (None, None),
-                };
-                if invoke_params.is_some() {
+                if let Some((callable, args)) = invoke_params {
                     // TODO: Static circuit generation from a callable is not yet supported.
-                    self.eval_with_tracing_backend(
-                        entry,
+                    self.invoke_with_tracing_backend(
                         &mut TracingBackend::no_backend(&mut tracer),
+                        &mut out,
+                        callable,
+                        args,
                     )?;
                 }
                 return self.static_circuit(entry_expr.as_deref(), tracer_config);
@@ -1131,53 +1147,33 @@ impl Interpreter {
         )
     }
 
-    fn eval_with_tracing_backend(
+    fn run_with_tracing_backend(
         &mut self,
-        entry: CircuitEntryPoint,
         tracing_backend: &mut TracingBackend,
-    ) -> std::result::Result<(), Vec<Error>> {
-        let (entry_expr, invoke_params) = match entry {
-            CircuitEntryPoint::Operation(operation_expr) => {
-                let (item, functor_app) = self.eval_to_operation(&operation_expr)?;
-                let expr = entry_expr_for_qubit_operation(item, functor_app, &operation_expr)
-                    .map_err(|e| vec![e.into()])?;
-                (Some(expr), None)
-            }
-            CircuitEntryPoint::EntryExpr(expr) => (Some(expr), None),
-            CircuitEntryPoint::Callable(call_val, args_val) => (None, Some((call_val, args_val))),
-            CircuitEntryPoint::EntryPoint => (None, None),
-        };
-
-        let mut sink = std::io::sink();
-        let mut out = GenericReceiver::new(&mut sink);
-        if let Some((callable, args)) = invoke_params {
-            self.invoke_with_tracing_backend(tracing_backend, &mut out, callable, args)?;
+        out: &mut GenericReceiver,
+        entry_expr: Option<&str>,
+    ) -> InterpretResult {
+        let (package_id, graph) = if let Some(entry_expr) = entry_expr {
+            // entry expression is provided
+            let (graph, _) = self.compile_entry_expr(entry_expr)?;
+            (self.package, graph)
         } else {
-            let (package_id, graph) = if let Some(entry_expr) = entry_expr {
-                // entry expression is provided
-                let (graph, _) = self.compile_entry_expr(&entry_expr)?;
-                (self.package, graph)
-            } else {
-                // no entry expression, use the entrypoint in the package
-                (self.source_package, self.get_entry_exec_graph()?)
-            };
-
-            if self.quantum_seed.is_some() {
-                tracing_backend.set_seed(self.quantum_seed);
-            }
-
-            eval(
-                package_id,
-                self.classical_seed,
-                graph,
-                self.compiler.package_store(),
-                &self.fir_store,
-                &mut Env::default(),
-                tracing_backend,
-                &mut out,
-            )?;
+            // no entry expression, use the entrypoint in the package
+            (self.source_package, self.get_entry_exec_graph()?)
+        };
+        if self.quantum_seed.is_some() {
+            tracing_backend.set_seed(self.quantum_seed);
         }
-        Ok(())
+        eval(
+            package_id,
+            self.classical_seed,
+            graph,
+            self.compiler.package_store(),
+            &self.fir_store,
+            &mut Env::default(),
+            tracing_backend,
+            out,
+        )
     }
 
     /// Invokes the given callable with the given arguments on the given simulator with a new instance of the environment
@@ -1349,7 +1345,7 @@ impl Interpreter {
 pub enum CircuitEntryPoint {
     /// An operation. This must be a callable name or a lambda
     /// expression that only takes qubits as arguments.
-    /// e.g. `Sample.Main` , `qs => H(qs[0])`
+    /// e.g. "Sample.Main" , "qs => H(qs[0])"
     /// The callable name must be visible in the current package.
     Operation(String),
     /// An explicitly provided entry expression.
@@ -1364,13 +1360,9 @@ pub enum CircuitEntryPoint {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CircuitGenerationMethod {
     /// Simulate the program and trace the actual gate calls. Nondeterministic.
-    /// circuit is returned (a.k.a. trace mode).
-    /// Nondeterministic
     Simulate,
-    /// Evaluate the classical parts. Will fail if branching on measurement occurs
-    /// the circuit is generated without
-    /// simulation. In this case circuit generation may fail if the program contains dynamic
-    /// behavior (quantum operations that are dependent on measurement results).
+    /// Evaluate the classical parts of the program. No quantum simulation.
+    /// Will fail if a measurement comparison occurs during evaluation.
     ClassicalEval,
     /// Compile the program and transform to a circuit without any evaluation.
     /// Only works for `AdaptiveRIF` compliant programs.
@@ -1425,7 +1417,6 @@ impl Debugger {
         let source_package_id = interpreter.source_package;
         let unit = interpreter.fir_store.get(source_package_id);
         let entry_exec_graph = unit.entry_exec_graph.clone();
-
         Self {
             interpreter,
             position_encoding,

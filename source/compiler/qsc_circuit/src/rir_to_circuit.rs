@@ -20,7 +20,7 @@ use crate::{
 };
 use log::{debug, warn};
 use qsc_data_structures::{
-    debug::{DbgInfo, DbgLocation, DbgMetadataScope, InstructionMetadata},
+    debug::{DbgInfo, DbgLocationId, DbgMetadataScope, DbgScopeId, InstructionMetadata},
     index_map::IndexMap,
     span::PackageSpan,
 };
@@ -34,17 +34,11 @@ use qsc_partial_eval::{
 use rustc_hash::FxHashSet;
 
 #[derive(Clone, Debug)]
-pub(crate) enum DbgLocationKind {
-    Resolved(PackageSpan),
-    Unresolved(usize),
-}
-
-#[derive(Clone, Debug)]
 struct Branch {
     condition: Variable,
     true_block: BlockId,
     false_block: BlockId,
-    metadata: Option<DbgLocationKind>,
+    metadata: Option<PackageSpan>,
     cond_expr_instruction_metadata: Option<InstructionMetadata>,
 }
 
@@ -58,6 +52,7 @@ pub(crate) struct Op {
     control_results: Vec<ResultRegister>,
     is_adjoint: bool,
     args: Vec<String>,
+    location: Option<DbgLocationId>,
 }
 
 impl Op {
@@ -66,17 +61,14 @@ impl Op {
     }
 }
 
-type DbgLocationId = usize;
-type DbgScopeId = usize;
-
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct InstructionStack(Vec<DbgLocationId>); // Can be empty
 
 impl InstructionStack {
-    fn scope_stack(&self, dbg_locations: &[DbgLocation]) -> Option<ScopeStack> {
+    fn scope_stack(&self, dbg_info: &DbgInfo) -> Option<ScopeStack> {
         self.0.split_last().map(|(top, prefix)| ScopeStack {
             caller: InstructionStack(prefix.to_vec()),
-            scope: dbg_locations[*top].scope,
+            scope: dbg_info.get_location(*top).scope,
         })
     }
 }
@@ -89,25 +81,18 @@ struct ScopeStack {
 
 #[derive(Clone, Debug)]
 enum OperationKind {
-    Unitary {
-        location: Option<DbgLocationKind>,
-    },
-    Measurement {
-        location: Option<DbgLocationKind>,
-    },
-    Ket {
-        location: Option<DbgLocationKind>,
-    },
+    Unitary,
+    Measurement,
+    Ket,
     Group {
         children: Vec<Op>,
         scope_stack: Option<ScopeStack>,
-        location: Option<DbgLocationKind>,
-        location_fallback: Option<DbgLocationKind>, // TODO: why tho
+        scope_span: Option<PackageSpan>,
     },
 }
 
-impl From<Op> for Operation {
-    fn from(value: Op) -> Self {
+impl Op {
+    pub(crate) fn into_operation(dbg_info: &DbgInfo, value: Op) -> Operation {
         let args = value.args.into_iter().collect();
 
         let targets = value
@@ -145,17 +130,22 @@ impl From<Op> for Operation {
             )
             .collect();
 
-        let dbg_location = match &value.kind {
-            OperationKind::Unitary { location }
-            | OperationKind::Measurement { location }
-            | OperationKind::Ket { location }
-            | OperationKind::Group { location, .. } => location,
-        };
+        let source = value
+            .location
+            .and_then(|l| resolve_location(dbg_info, l))
+            .or(
+                // fall back to scope span for groups
+                if let OperationKind::Group { scope_span, .. } = &value.kind {
+                    *scope_span
+                } else {
+                    None
+                },
+            );
 
-        let source = dbg_location.as_ref().and_then(to_source_location);
+        let source = source.map(SourceLocation::Unresolved);
 
         match value.kind {
-            OperationKind::Unitary { .. } => Operation::Unitary(Unitary {
+            OperationKind::Unitary => Operation::Unitary(Unitary {
                 gate: value.label,
                 args,
                 children: vec![],
@@ -164,7 +154,7 @@ impl From<Op> for Operation {
                 is_adjoint: value.is_adjoint,
                 source,
             }),
-            OperationKind::Measurement { .. } => Operation::Measurement(Measurement {
+            OperationKind::Measurement => Operation::Measurement(Measurement {
                 gate: value.label,
                 args,
                 children: vec![],
@@ -172,7 +162,7 @@ impl From<Op> for Operation {
                 results: targets,
                 source,
             }),
-            OperationKind::Ket { .. } => Operation::Ket(Ket {
+            OperationKind::Ket => Operation::Ket(Ket {
                 gate: value.label,
                 args,
                 children: vec![],
@@ -183,7 +173,10 @@ impl From<Op> for Operation {
                 gate: value.label,
                 args,
                 children: vec![ComponentColumn {
-                    components: children.into_iter().map(Into::into).collect(),
+                    components: children
+                        .into_iter()
+                        .map(|o| Self::into_operation(dbg_info, o))
+                        .collect(),
                 }],
                 targets,
                 controls,
@@ -191,14 +184,6 @@ impl From<Op> for Operation {
                 source,
             }),
         }
-    }
-}
-
-pub(crate) fn to_source_location(d: &DbgLocationKind) -> Option<SourceLocation> {
-    if let DbgLocationKind::Resolved(location) = d {
-        Some(SourceLocation::Unresolved(*location))
-    } else {
-        None
     }
 }
 
@@ -294,7 +279,7 @@ pub fn make_circuit(
 
     let circuit = finish_circuit(
         qubits,
-        operations,
+        &operations,
         &program.dbg_info,
         Some(package_store),
         config.loop_detection,
@@ -304,53 +289,10 @@ pub fn make_circuit(
     Ok(circuit)
 }
 
-pub(crate) fn resolve_location_metadata(operations: &mut [Op], dbg_info: &DbgInfo) {
-    for op in operations {
-        if let OperationKind::Group { children, .. } = &mut op.kind {
-            resolve_location_metadata(children, dbg_info);
-        }
-
-        match &mut op.kind {
-            OperationKind::Unitary { location }
-            | OperationKind::Measurement { location }
-            | OperationKind::Ket { location } => {
-                if let Some(l) = location {
-                    resolve_location_if_unresolved(dbg_info, l);
-                }
-            }
-            OperationKind::Group {
-                children: _,
-                scope_stack: _,
-                location_fallback, // TODO: no fallback
-                location,
-            } => {
-                if let Some(l) = location.as_mut() {
-                    resolve_location_if_unresolved(dbg_info, l);
-                } else {
-                    if let Some(l) = location_fallback.as_mut() {
-                        resolve_location_if_unresolved(dbg_info, l);
-                    }
-                    *location = location_fallback.clone();
-                }
-            }
-        }
-    }
-}
-
-pub(crate) fn resolve_location_if_unresolved(dbg_info: &DbgInfo, location: &mut DbgLocationKind) {
-    let resolved = match location {
-        DbgLocationKind::Resolved(_) => None,
-        DbgLocationKind::Unresolved(dbg_location) => resolve_location(dbg_info, *dbg_location),
-    };
-    if let Some(resolved) = resolved {
-        *location = DbgLocationKind::Resolved(resolved);
-    }
-}
-
-fn resolve_location(dbg_info: &DbgInfo, dbg_location: usize) -> Option<PackageSpan> {
+fn resolve_location(dbg_info: &DbgInfo, dbg_location: DbgLocationId) -> Option<PackageSpan> {
     instruction_logical_stack(dbg_info, dbg_location)
         .and_then(|s| s.0.last().copied())
-        .map(|l| dbg_info.dbg_locations[l].location)
+        .map(|l| dbg_info.get_location(l).location)
 }
 
 /// true result means done
@@ -545,8 +487,7 @@ fn make_group_op(
         kind: OperationKind::Group {
             children,
             scope_stack: None,
-            location_fallback: None,
-            location: None,
+            scope_span: None,
         },
         label: label.into(),
         args: vec![],
@@ -555,6 +496,7 @@ fn make_group_op(
         target_results: vec![],
         control_results: control_results.to_vec(),
         is_adjoint: false,
+        location: None,
     }
 }
 
@@ -836,17 +778,17 @@ fn expand_branch(
     let args = vec![branch_block.cond_expr.to_string().clone()];
     let label = "check ".to_string();
 
+    let location = branch
+        .cond_expr_instruction_metadata
+        .as_ref()
+        .and_then(|md| md.dbg_location);
+
     Ok(ExpandedBranchBlock {
         grouped_operation: Op {
             kind: OperationKind::Group {
                 children: children.into_iter().collect(),
                 scope_stack: None,
-                location_fallback: branch.metadata.clone(),
-                location: branch
-                    .cond_expr_instruction_metadata
-                    .as_ref()
-                    .and_then(|md| md.dbg_location)
-                    .map(DbgLocationKind::Unresolved),
+                scope_span: branch.metadata,
             },
             label,
             target_qubits,
@@ -855,6 +797,7 @@ fn expand_branch(
             control_results: control_results.clone(),
             is_adjoint: false,
             args,
+            location,
         },
         unconditional_successor: branch_block.unconditional_successor.block_id,
     })
@@ -919,21 +862,8 @@ fn operations_in_block(
 fn group_operations(dbg_info: &DbgInfo, new_operations: Vec<Op>) -> Vec<Op> {
     let mut operations = vec![];
     for op in new_operations {
-        let instruction_metadata = match &op.kind {
-            OperationKind::Unitary { location: metadata }
-            | OperationKind::Measurement { location: metadata }
-            | OperationKind::Ket { location: metadata }
-            | OperationKind::Group {
-                location: metadata, ..
-            } => metadata.as_ref(),
-        };
+        let instruction_metadata = &op.location.as_ref();
         let instruction_stack = instruction_metadata
-            .map(|md| match md {
-                DbgLocationKind::Resolved(_) => {
-                    panic!("location should not have been resolved already")
-                }
-                DbgLocationKind::Unresolved(dbg_location) => dbg_location,
-            })
             .and_then(|dbg_location| instruction_logical_stack(dbg_info, *dbg_location));
 
         add_op(&mut operations, op, dbg_info, instruction_stack.as_ref());
@@ -981,23 +911,20 @@ fn add_op(
 
 fn instruction_logical_stack(
     dbg_info: &DbgInfo,
-    dbg_location_idx: usize,
+    dbg_location_idx: DbgLocationId,
 ) -> Option<InstructionStack> {
     let mut location_stack = vec![];
     let mut current_location_idx = Some(dbg_location_idx);
 
     while let Some(location_idx) = current_location_idx {
         location_stack.push(location_idx);
-        let location = dbg_info
-            .dbg_locations
-            .get(location_idx)
-            .expect("dbg location should exist");
+        let location = dbg_info.get_location(location_idx);
         current_location_idx = location.inlined_at;
     }
 
     // filter out scopes in std and core
     location_stack.retain(|location| {
-        let scope = &dbg_info.dbg_metadata_scopes[dbg_info.dbg_locations[*location].scope];
+        let scope = &dbg_info.get_scope(dbg_info.get_location(*location).scope);
         match scope {
             DbgMetadataScope::SubProgram { name: _, location } => {
                 let package_id = location.package;
@@ -1012,20 +939,20 @@ fn instruction_logical_stack(
 }
 
 fn scope_label(dbg_info: &DbgInfo, scope_stack: &ScopeStack) -> String {
-    scope_name(&dbg_info.dbg_metadata_scopes, scope_stack.scope)
+    scope_name(dbg_info, scope_stack.scope)
 }
 
 fn loc_name(dbg_info: &DbgInfo, location: DbgLocationId) -> (String, u32) {
-    let dbg_location = &dbg_info.dbg_locations[location];
+    let dbg_location = &dbg_info.get_location(location);
     let scope_id: DbgScopeId = dbg_location.scope;
-    let scope_name = scope_name(&dbg_info.dbg_metadata_scopes, scope_id);
+    let scope_name = scope_name(dbg_info, scope_id);
     let offset = dbg_location.location.span.lo;
 
     (scope_name, offset)
 }
 
-fn scope_name(dbg_metadata_scopes: &[DbgMetadataScope], scope_id: usize) -> String {
-    let scope = &dbg_metadata_scopes[scope_id];
+fn scope_name(dbg_info: &DbgInfo, scope_id: DbgScopeId) -> String {
+    let scope = dbg_info.get_scope(scope_id);
 
     match scope {
         DbgMetadataScope::SubProgram { name, location: _ } => name.to_string(),
@@ -1040,7 +967,7 @@ fn fmt_scope_stack(dbg_info: &DbgInfo, stack: &ScopeStack) -> String {
         .iter()
         .map(|loc| fmt_loc(dbg_info, *loc))
         .collect();
-    names.push(scope_name(&dbg_info.dbg_metadata_scopes, stack.scope));
+    names.push(scope_name(dbg_info, stack.scope));
     names.join("->")
 }
 
@@ -1054,8 +981,7 @@ fn fmt_ops(dbg_info: &DbgInfo, ops: &[Op]) -> String {
                 OperationKind::Group {
                     children,
                     scope_stack: stack,
-                    location_fallback: _metadata,
-                    location: _,
+                    scope_span: _,
                 } => {
                     format!(
                         "{}children={}",
@@ -1102,8 +1028,7 @@ fn fmt_ops_with_trailing_comma(dbg_info: &DbgInfo, ops: &[Op]) -> String {
                 OperationKind::Group {
                     children,
                     scope_stack: stack,
-                    location_fallback: _metadata,
-                    location: _,
+                    scope_span: _,
                 } => {
                     format!(
                         "{}children={}",
@@ -1140,18 +1065,18 @@ fn fmt_ops_with_trailing_comma(dbg_info: &DbgInfo, ops: &[Op]) -> String {
     )
 }
 
-fn fmt_loc(dbg_info: &DbgInfo, location: usize) -> String {
+fn fmt_loc(dbg_info: &DbgInfo, location: DbgLocationId) -> String {
     let (name, offset) = loc_name(dbg_info, location);
     format!("{name}@{offset}")
 }
 
-fn make_scope_metadata(dbg_info: &DbgInfo, scope_stack: &ScopeStack) -> DbgLocationKind {
-    let scope_location = &dbg_info.dbg_metadata_scopes[scope_stack.scope];
+fn make_scope_metadata(dbg_info: &DbgInfo, scope_stack: &ScopeStack) -> PackageSpan {
+    let scope_location = &dbg_info.get_scope(scope_stack.scope);
     let scope_location = match scope_location {
         DbgMetadataScope::SubProgram { location: span, .. } => span,
     };
 
-    DbgLocationKind::Resolved(*scope_location)
+    *scope_location
 }
 
 fn add_scoped_op(
@@ -1163,12 +1088,8 @@ fn add_scoped_op(
     target_qubits: Vec<WireId>,
     target_results: Vec<ResultRegister>,
 ) {
-    let full_instruction_stack = concat_stacks(
-        &dbg_info.dbg_locations,
-        current_scope.as_ref(),
-        instruction_stack,
-    );
-    let scope_stack = instruction_stack.scope_stack(&dbg_info.dbg_locations);
+    let full_instruction_stack = concat_stacks(dbg_info, current_scope.as_ref(), instruction_stack);
+    let scope_stack = instruction_stack.scope_stack(dbg_info);
 
     if let Some(scope_stack) = scope_stack
         && Some(&scope_stack) != current_scope.as_ref()
@@ -1178,8 +1099,7 @@ fn add_scoped_op(
             if let OperationKind::Group {
                 children: last_scope_children,
                 scope_stack: Some(last_scope_stack),
-                location_fallback: _,
-                location: _,
+                scope_span: _,
             } = &mut last_op.kind
             {
                 if let Some(rest) =
@@ -1213,7 +1133,7 @@ fn add_scoped_op(
         let scope_metadata = make_scope_metadata(dbg_info, &scope_stack);
         let label = scope_label(dbg_info, &scope_stack);
         let full_scope_stack = full_instruction_stack
-            .scope_stack(&dbg_info.dbg_locations)
+            .scope_stack(dbg_info)
             .expect("we got here because we had a scope, so what the hell is this");
 
         if current_scope != Some(full_scope_stack.clone()) {
@@ -1221,8 +1141,7 @@ fn add_scoped_op(
                 kind: OperationKind::Group {
                     children: vec![op],
                     scope_stack: Some(full_scope_stack),
-                    location_fallback: Some(scope_metadata),
-                    location: None,
+                    scope_span: Some(scope_metadata),
                 },
                 label,
                 target_qubits,
@@ -1231,6 +1150,7 @@ fn add_scoped_op(
                 control_results: vec![],
                 is_adjoint: false,
                 args: vec![],
+                location: None,
             };
 
             // create container for the prefix, and add to it
@@ -1251,7 +1171,7 @@ fn add_scoped_op(
 }
 
 fn concat_stacks(
-    dbg_locations: &[DbgLocation],
+    dbg_info: &DbgInfo,
     scope: Option<&ScopeStack>,
     tail: &InstructionStack,
 ) -> InstructionStack {
@@ -1259,7 +1179,8 @@ fn concat_stacks(
         Some(prefix) => {
             if let Some(first) = tail.0.first() {
                 assert_eq!(
-                    dbg_locations[*first].scope, prefix.scope,
+                    dbg_info.get_location(*first).scope,
+                    prefix.scope,
                     "concatenating stacks that don't seem to match"
                 );
             }
@@ -1277,7 +1198,7 @@ fn strip_stack_prefix(
     if full.0.len() > prefix.caller.0.len() {
         if let Some(rest) = full.0.strip_prefix(prefix.caller.0.as_slice()) {
             let next_location = rest[0];
-            let next_scope = dbg_info.dbg_locations[next_location].scope;
+            let next_scope = dbg_info.get_location(next_location).scope;
             if next_scope == prefix.scope {
                 return Some(InstructionStack(rest.to_vec()));
             }
@@ -1550,8 +1471,7 @@ fn extend_block_with_branch_instruction_vars_only(
     let metadata = instruction_metadata
         .as_ref()
         .and_then(|md| md.dbg_location)
-        .map(|l| dbg_info.dbg_locations[l].location)
-        .map(DbgLocationKind::Resolved);
+        .map(|l| dbg_info.get_location(l).location);
     let branch = Branch {
         condition: variable,
         true_block: block_id_1,
@@ -1580,8 +1500,7 @@ fn extend_block_with_branch_instruction(
     let metadata = instruction_metadata
         .as_ref()
         .and_then(|md| md.dbg_location)
-        .map(|l| dbg_info.dbg_locations[l].location)
-        .map(DbgLocationKind::Resolved);
+        .map(|l| dbg_info.get_location(l).location);
     let branch = Branch {
         condition: variable,
         true_block: block_id_1,

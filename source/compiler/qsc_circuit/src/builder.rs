@@ -6,16 +6,15 @@ mod tests;
 
 use crate::{
     Qubit,
-    circuit::{Circuit, TracerConfig, operation_list_to_grid},
+    circuit::{Circuit, SourceLocation, TracerConfig, operation_list_to_grid},
     group_qubits,
     rir_to_circuit::{
-        DbgLocationKind, Op, fill_in_dbg_metadata, resolve_location_if_unresolved,
-        resolve_location_metadata, resolve_source_location_if_unresolved, to_source_location,
+        Op, fill_in_dbg_metadata, resolve_source_location_if_unresolved,
         tracer::{CircuitBuilder, GateInputs, GateLabel, ResultRegister, WireId},
     },
 };
 use qsc_data_structures::{
-    debug::{DbgInfo, DbgLocation, DbgMetadataScope, InstructionMetadata},
+    debug::{DbgInfo, DbgLocation, DbgLocationId, DbgMetadataScope, InstructionMetadata},
     index_map::IndexMap,
     span::{PackageSpan, Span},
 };
@@ -139,21 +138,20 @@ impl Tracer for CircuitTracer {
 impl CircuitTracer {
     #[must_use]
     pub fn new(config: TracerConfig) -> Self {
+        let mut dbg_info = DbgInfo::default();
+        // TODO: remember top level scope
+        dbg_info.add_scope(DbgMetadataScope::SubProgram {
+            name: "program".into(),
+            location: PackageSpan {
+                package: 2.into(),           // TODO: - pass in user package ofc
+                span: Span { lo: 0, hi: 0 }, // pass in whole program or whatever
+            },
+        });
         CircuitTracer {
             config,
             register_map_builder: RegisterMapBuilder::default(),
             circuit_builder: CircuitBuilder::new(config.max_operations),
-            dbg_info: DbgInfo {
-                dbg_metadata_scopes: vec![DbgMetadataScope::SubProgram {
-                    name: "program".into(),
-                    location: PackageSpan {
-                        package: 2.into(),           // TODO: - pass in user package ofc
-                        span: Span { lo: 0, hi: 0 }, // pass in whole program or whatever
-                    },
-                }],
-
-                ..Default::default()
-            },
+            dbg_info,
         }
     }
 
@@ -176,7 +174,7 @@ impl CircuitTracer {
     fn finish_circuit(&self, operations: &[Op], dbg_lookup: Option<&PackageStore>) -> Circuit {
         finish_circuit(
             self.register_map_builder.register_map.to_qubits(),
-            operations.to_vec(),
+            operations,
             &self.dbg_info,
             dbg_lookup,
             self.config.loop_detection,
@@ -257,7 +255,7 @@ impl CircuitTracer {
         }
     }
 
-    fn push_dbg_location(&mut self, stack: &[Frame]) -> Option<usize> {
+    fn push_dbg_location(&mut self, stack: &[Frame]) -> Option<DbgLocationId> {
         let mut user_frame: Option<(PackageId, Span)> = None;
         let mut grab_span_and_stop = false;
         for frame in stack.iter().rev() {
@@ -280,13 +278,12 @@ impl CircuitTracer {
         let (package, span) = user_frame?;
 
         let location = PackageSpan { package, span };
-        let md = DbgLocation {
+        let loc = DbgLocation {
             location,
-            scope: 0, // TODO: fill in correct scope
+            scope: 0.into(), // TODO: fill in correct scope
             inlined_at: None,
         };
-        self.dbg_info.dbg_locations.push(md);
-        Some(self.dbg_info.dbg_locations.len() - 1)
+        Some(self.dbg_info.add_location(loc))
     }
 
     fn convert_metadata(&mut self, stack: &[Frame]) -> InstructionMetadata {
@@ -311,28 +308,27 @@ impl CircuitTracer {
 }
 
 pub(crate) fn finish_circuit(
-    mut qubits: Vec<(Qubit, Vec<DbgLocationKind>)>,
-    mut operations: Vec<Op>,
+    mut qubits: Vec<(Qubit, Vec<DbgLocationId>)>, // qubits and locations
+    operations: &[Op],
     dbg_info: &DbgInfo,
     dbg_lookup: Option<&PackageStore>,
     loop_detection: bool,
     collapse_qubit_registers: bool,
 ) -> Circuit {
-    resolve_location_metadata(&mut operations, dbg_info);
+    // resolve_location_metadata(&mut operations, dbg_info);
 
     for (q, declarations) in &mut qubits {
-        for d in declarations.iter_mut() {
-            resolve_location_if_unresolved(dbg_info, d);
-        }
-
-        q.declarations = declarations.iter().filter_map(to_source_location).collect();
+        q.declarations = declarations
+            .iter()
+            .map(|u| SourceLocation::Unresolved(dbg_info.get_location(*u).location))
+            .collect();
     }
 
     let mut qubits = qubits.into_iter().map(|(q, _)| q).collect::<Vec<_>>();
 
     let mut operations = operations
         .iter()
-        .map(|o| o.clone().into())
+        .map(|o| Op::into_operation(dbg_info, o.clone()))
         .collect::<Vec<_>>();
 
     if let Some(package_store) = dbg_lookup {
@@ -368,7 +364,7 @@ pub(crate) struct RegisterMapBuilder {
 #[derive(Default)]
 pub(crate) struct RegisterMap {
     qubit_map: IndexMap<usize, WireId>, // QubitType -> WireId
-    qubit_measurements: IndexMap<WireId, (Vec<DbgLocationKind>, Vec<usize>)>, // WireId -> Vec<ResultType>
+    qubit_measurements: IndexMap<WireId, (Vec<DbgLocationId>, Vec<usize>)>, // WireId -> (Vec<location>, Vec<ResultType>)
 }
 
 impl Default for RegisterMapBuilder {
@@ -399,7 +395,7 @@ impl RegisterMap {
             .expect("result should already be mapped")
     }
 
-    pub fn to_qubits(&self) -> Vec<(Qubit, Vec<DbgLocationKind>)> {
+    pub fn to_qubits(&self) -> Vec<(Qubit, Vec<DbgLocationId>)> {
         let mut qubits = vec![];
         for (WireId(i), (declarations, rs)) in self.qubit_measurements.iter() {
             let num_results = rs.len();
@@ -423,9 +419,7 @@ impl RegisterMapBuilder {
     }
 
     pub fn map_qubit(&mut self, qubit: usize, metadata: Option<InstructionMetadata>) {
-        let location = metadata
-            .and_then(|md| md.dbg_location)
-            .map(DbgLocationKind::Unresolved);
+        let location = metadata.and_then(|md| md.dbg_location);
         let mapped = self.next_qubit_wire_id;
         self.next_qubit_wire_id.0 += 1;
         self.register_map.qubit_map.insert(qubit, mapped);

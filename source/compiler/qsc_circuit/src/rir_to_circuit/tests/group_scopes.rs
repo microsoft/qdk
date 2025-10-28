@@ -3,12 +3,12 @@
 
 use std::rc::Rc;
 
-use crate::rir_to_circuit::{
-    DbgLocationKind, Op, OperationKind, fmt_ops, group_operations, tracer::WireId,
-};
+use crate::rir_to_circuit::{Op, OperationKind, fmt_ops, group_operations, tracer::WireId};
 use expect_test::{Expect, expect};
 use qsc_data_structures::{
-    debug::{DbgInfo, DbgLocation, DbgMetadataScope, InstructionMetadata},
+    debug::{
+        DbgInfo, DbgLocation, DbgLocationId, DbgMetadataScope, DbgScopeId, InstructionMetadata,
+    },
     span::Span,
 };
 use qsc_eval::PackageSpan;
@@ -41,9 +41,12 @@ fn program(instructions: Vec<Instruction>) -> (DbgInfo, Vec<Op>) {
             let mut last_location = None;
             for loc in stack {
                 // use existing scope if it exsists
-                let scope_index = scopes.iter().position(|s| match s {
-                    DbgMetadataScope::SubProgram { name, .. } => name.as_ref() == loc.scope,
-                });
+                let scope_index: Option<DbgScopeId> = scopes
+                    .iter()
+                    .position(|s| match s {
+                        DbgMetadataScope::SubProgram { name, .. } => name.as_ref() == loc.scope,
+                    })
+                    .map(std::convert::Into::into);
                 if scope_index.is_none() {
                     scopes.push(DbgMetadataScope::SubProgram {
                         name: Rc::from(loc.scope.as_str()),
@@ -56,16 +59,19 @@ fn program(instructions: Vec<Instruction>) -> (DbgInfo, Vec<Op>) {
                         },
                     });
                 }
-                let scope_index = scope_index.unwrap_or(scopes.len() - 1);
+                let scope_index = scope_index.unwrap_or((scopes.len() - 1).into());
 
                 // use existing location if it exists
                 // (we could do this more efficiently with a map)
-                let location_index = locations.iter().position(|l: &DbgLocation| {
-                    l.location.package == 2.into() // TODO: uh oh
+                let location_index: Option<DbgLocationId> = locations
+                    .iter()
+                    .position(|l: &DbgLocation| {
+                        l.location.package == 2.into() // TODO: uh oh
                         && l.location.span.lo == loc.offset
                         && l.location.span.hi == loc.offset + 1
                         && l.scope == scope_index
-                });
+                    })
+                    .map(std::convert::Into::into);
                 if location_index.is_some() {
                     last_location = location_index;
                     continue;
@@ -82,13 +88,13 @@ fn program(instructions: Vec<Instruction>) -> (DbgInfo, Vec<Op>) {
                     scope: scope_index,
                     inlined_at: last_location,
                 });
-                last_location = Some(locations.len() - 1);
+                last_location = Some((locations.len() - 1).into());
             }
             ops.push(unitary(
                 i.name,
                 i.qubits,
                 Some(InstructionMetadata {
-                    dbg_location: Some(locations.len() - 1),
+                    dbg_location: Some((locations.len() - 1).into()),
                 }),
             ));
         } else {
@@ -107,11 +113,7 @@ fn program(instructions: Vec<Instruction>) -> (DbgInfo, Vec<Op>) {
 
 fn unitary(label: String, qubits: Vec<WireId>, metadata: Option<InstructionMetadata>) -> Op {
     Op {
-        kind: OperationKind::Unitary {
-            location: metadata
-                .and_then(|md| md.dbg_location)
-                .map(DbgLocationKind::Unresolved),
-        },
+        kind: OperationKind::Unitary,
         label,
         target_qubits: qubits,
         control_qubits: vec![],
@@ -119,6 +121,7 @@ fn unitary(label: String, qubits: Vec<WireId>, metadata: Option<InstructionMetad
         control_results: vec![],
         is_adjoint: false,
         args: vec![],
+        location: metadata.and_then(|md| md.dbg_location),
     }
 }
 

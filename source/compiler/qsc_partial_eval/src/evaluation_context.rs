@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use qsc_data_structures::functors::FunctorApp;
+use qsc_data_structures::{debug::DbgLocationId, functors::FunctorApp};
 use qsc_eval::{
     Env, PackageSpan, Variable,
     val::{Result, Value},
@@ -128,7 +128,7 @@ pub struct Scope {
     active_block_count: usize,
     /// The current expression being evaluated, if any.
     /// index into `dbg_locations` in `Program`
-    pub current_distinct_dbg_location: Option<usize>,
+    pub current_distinct_dbg_location: Option<DbgLocationId>,
     /// The current expression being evaluated, if any.
     pub current_expr: Option<ExprId>,
     _caller_expr_span: Option<PackageSpan>,
