@@ -4,7 +4,7 @@
 #[cfg(test)]
 mod tests;
 
-use qsc_data_structures::debug::MetadataPackageSpan;
+use qsc_eval::PackageSpan;
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -82,7 +82,7 @@ pub type Component = Operation;
 pub enum SourceLocation {
     Resolved(ResolvedSourceLocation),
     #[serde(skip)]
-    Unresolved(MetadataPackageSpan),
+    Unresolved(PackageSpan),
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]

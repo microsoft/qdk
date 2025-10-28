@@ -10,13 +10,16 @@ use crate::{
     circuit::{ResolvedSourceLocation, SourceLocation},
     rir_to_circuit::tracer::{ResultRegister, WireId},
 };
-use qsc_data_structures::debug::{DbgInfo, DbgMetadataScope, MetadataPackageSpan};
+use qsc_data_structures::{
+    debug::{DbgInfo, DbgMetadataScope},
+    span::PackageSpan,
+};
 use qsc_frontend::{compile::PackageStore, location::Location};
 use qsc_hir::hir::PackageId;
 
 #[derive(Clone, Debug)]
 pub(crate) enum DbgLocationKind {
-    Resolved(MetadataPackageSpan),
+    Resolved(PackageSpan),
     Unresolved(usize),
 }
 
@@ -129,7 +132,7 @@ impl From<Op> for Operation {
 
 pub(crate) fn to_source_location(d: &DbgLocationKind) -> Option<SourceLocation> {
     if let DbgLocationKind::Resolved(location) = d {
-        Some(SourceLocation::Unresolved(location.clone()))
+        Some(SourceLocation::Unresolved(*location))
     } else {
         None
     }
@@ -159,10 +162,10 @@ pub(crate) fn resolve_location_if_unresolved(dbg_info: &DbgInfo, location: &mut 
     }
 }
 
-fn resolve_location(dbg_info: &DbgInfo, dbg_location: usize) -> Option<MetadataPackageSpan> {
+fn resolve_location(dbg_info: &DbgInfo, dbg_location: usize) -> Option<PackageSpan> {
     instruction_logical_stack(dbg_info, dbg_location)
         .and_then(|s| s.0.last().copied())
-        .map(|l| dbg_info.dbg_locations[l].location.clone())
+        .map(|l| dbg_info.dbg_locations[l].location)
 }
 
 pub(crate) fn fill_in_dbg_metadata(operations: &mut [Operation], package_store: &PackageStore) {
@@ -185,15 +188,13 @@ pub(crate) fn resolve_source_location_if_unresolved(
 ) {
     let location = match source {
         SourceLocation::Resolved(_) => None,
-        SourceLocation::Unresolved(metadata_package_span) => Some(metadata_package_span.clone()),
+        SourceLocation::Unresolved(metadata_package_span) => Some(*metadata_package_span),
     };
 
     if let Some(location) = &location {
         let location = Location::from(
             location.span,
-            usize::try_from(location.package)
-                .expect("package id should fit into usize")
-                .into(),
+            location.package,
             package_store,
             qsc_data_structures::line_column::Encoding::Utf8,
         );
@@ -226,10 +227,8 @@ fn instruction_logical_stack(
         let scope = &dbg_info.dbg_metadata_scopes[dbg_info.dbg_locations[*location].scope];
         match scope {
             DbgMetadataScope::SubProgram { name: _, location } => {
-                let package_id =
-                    usize::try_from(location.package).expect("package id should fit in usize");
-                package_id != usize::from(PackageId::CORE)
-                    && package_id != usize::from(PackageId::CORE.successor())
+                let package_id = location.package;
+                package_id != PackageId::CORE && package_id != PackageId::CORE.successor()
             }
         }
     });

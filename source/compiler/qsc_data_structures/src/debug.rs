@@ -6,11 +6,11 @@ use std::{
     rc::Rc,
 };
 
-use crate::span::Span;
+use crate::span::PackageSpan;
 
 #[derive(Clone, Debug)]
 pub struct DbgLocation {
-    pub location: MetadataPackageSpan,
+    pub location: PackageSpan,
     /// Index into the `dbg_metadata_scopes` vector in the `Program`.
     pub scope: usize,
     /// Index into the `dbg_locations` vector in the `Program`
@@ -39,7 +39,7 @@ pub enum DbgMetadataScope {
     /// Corresponds to a callable.
     SubProgram {
         name: Rc<str>,
-        location: MetadataPackageSpan,
+        location: PackageSpan,
     },
     // TODO: LexicalBlockFile
 }
@@ -69,18 +69,5 @@ impl Display for InstructionMetadata {
             write!(f, " dbg_location={dbg_location}")?;
         }
         Ok(())
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct MetadataPackageSpan {
-    // TODO: just make PackageId a common data type already
-    pub package: u32,
-    pub span: Span,
-}
-
-impl Display for MetadataPackageSpan {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "package_id={} span={}", self.package, self.span)
     }
 }

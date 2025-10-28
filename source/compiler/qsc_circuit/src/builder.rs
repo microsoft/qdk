@@ -14,9 +14,9 @@ use crate::{
     },
 };
 use qsc_data_structures::{
-    debug::{DbgInfo, DbgLocation, DbgMetadataScope, InstructionMetadata, MetadataPackageSpan},
+    debug::{DbgInfo, DbgLocation, DbgMetadataScope, InstructionMetadata},
     index_map::IndexMap,
-    span::Span,
+    span::{PackageSpan, Span},
 };
 use qsc_eval::{
     backend::Tracer,
@@ -145,8 +145,8 @@ impl CircuitTracer {
             dbg_info: DbgInfo {
                 dbg_metadata_scopes: vec![DbgMetadataScope::SubProgram {
                     name: "program".into(),
-                    location: MetadataPackageSpan {
-                        package: 2,                  // TODO: - pass in user package ofc
+                    location: PackageSpan {
+                        package: 2.into(),           // TODO: - pass in user package ofc
                         span: Span { lo: 0, hi: 0 }, // pass in whole program or whatever
                     },
                 }],
@@ -276,10 +276,7 @@ impl CircuitTracer {
 
         let (package, span) = user_frame?;
 
-        let location = MetadataPackageSpan {
-            package: u32::try_from(usize::from(package)).expect("package id should fit in u32"),
-            span,
-        };
+        let location = PackageSpan { package, span };
         let md = DbgLocation {
             location,
             scope: 0, // TODO: fill in correct scope
