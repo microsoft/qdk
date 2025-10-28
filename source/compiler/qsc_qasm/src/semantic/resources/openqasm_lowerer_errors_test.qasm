@@ -17,7 +17,7 @@ qubit[2] qreg_2;
 }
 
 // This error is currently in the resolver. We should move it to the
-// lowerer, so that we can contruct the error with the right span.
+// lowerer, so that we can construct the error with the right span.
 include "missing_file";
 
 // StdGateCalledButNotIncluded

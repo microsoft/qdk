@@ -101,7 +101,7 @@ operation PrepareAnsatzState(qs : Qubit[], thetas : Double[]) : Unit {
 }
 
 /// # Summary
-/// Bosonic exitation circuit from the referenced paper.
+/// Bosonic excitation circuit from the referenced paper.
 operation BosonicExitationTerm(
     theta : Double,
     moX : Qubit,
@@ -117,7 +117,7 @@ operation BosonicExitationTerm(
 }
 
 /// # Summary
-/// Non-bosonic exitation circuit from the referenced paper.
+/// Non-bosonic excitation circuit from the referenced paper.
 operation NonBosonicExitataionTerm(
     theta : Double,
     moXsoX : Qubit,

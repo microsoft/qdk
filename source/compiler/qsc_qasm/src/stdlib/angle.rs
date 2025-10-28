@@ -68,7 +68,7 @@ impl Angle {
         assert!(size > 0, "Size must be > 0");
 
         // If the size is > f64::MANTISSA_DIGITS, the cast to f64
-        // on the next lines will loose precission.
+        // on the next lines will loose precision.
         if size > f64::MANTISSA_DIGITS {
             return Self::from_f64_sized_edge_case(val, size);
         }

@@ -86,7 +86,11 @@ impl Overhead for LogicalResourceCounts {
                 * self.rotation_count)
     }
 
-    fn prune_error_budget(&self, budget: &mut ErrorBudget, strategy: ErrorBudgetStrategy) {
+    fn prune_error_budget(
+        &self,
+        budget: &mut ErrorBudget,
+        strategy: ErrorBudgetStrategy,
+    ) -> Result<(), String> {
         if matches![strategy, ErrorBudgetStrategy::PruneLogicalAndRotations] {
             if let Some(num_ts_per_rotation) = self.num_ts_per_rotation(budget.rotations()) {
                 let new_rotations_budget = (self.rotation_count as f64)
@@ -100,6 +104,8 @@ impl Overhead for LogicalResourceCounts {
                 budget.set_magic_states(budget.magic_states() + diff);
             }
         }
+
+        Ok(())
     }
 }
 

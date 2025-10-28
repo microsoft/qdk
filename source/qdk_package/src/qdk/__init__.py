@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-"""qdk bundling meta-package.
+"""qdk bundling top-level package.
 
 Design goals:
     * Provide a single import root `qdk` that exposes bundled quantum tooling as
@@ -25,7 +25,6 @@ from qsharp import (
     set_quantum_seed,
     set_classical_seed,
     dump_machine,
-    dump_circuit,
     init,
     Result,
     TargetProfile,
@@ -43,7 +42,6 @@ __all__ = [
     "set_quantum_seed",
     "set_classical_seed",
     "dump_machine",
-    "dump_circuit",
     "init",
     "Result",
     "TargetProfile",

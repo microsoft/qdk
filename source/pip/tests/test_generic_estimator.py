@@ -195,3 +195,71 @@ def test_with_factory_builder():
 
     assert "physical_qubits" in result["factoryParts"][0]["factory"]
     assert "duration" in result["factoryParts"][0]["factory"]
+
+
+def test_with_trivial_factory_unit():
+    def _trivial_distillation_unit(self, code, qubit, max_code_parameter):
+        return {
+            "num_input_states": 1,
+            "physical_qubits": lambda _: 1,
+            "duration": lambda _: qubit["gate_time"],
+            "output_error_rate": lambda input_error_rate: input_error_rate,
+            "failure_probability": lambda _: 0.0,
+        }
+
+    result = qsharp.estimate_custom(
+        SampleAlgorithm(),
+        {**sample_qubit(), "error_rate": 1e-6},
+        SampleCode(),
+        [SampleFactoryBuilder()],
+    )
+
+    # No override for special case, runtime is 500 ns
+    assert result["factoryParts"][0]["factory"]["duration"] == 500
+
+    # Apply override to return T gate directly if error rate is low enough
+    SampleFactoryBuilder.trivial_distillation_unit = _trivial_distillation_unit
+
+    result = qsharp.estimate_custom(
+        SampleAlgorithm(),
+        {**sample_qubit(), "error_rate": 1e-6},
+        SampleCode(),
+        [SampleFactoryBuilder()],
+    )
+
+    # With override, runtime is 50 ns
+    assert result["factoryParts"][0]["factory"]["duration"] == 50
+
+    del SampleFactoryBuilder.trivial_distillation_unit
+
+
+def test_prune_error_budget():
+    result = qsharp.estimate_custom(SampleAlgorithm(), sample_qubit(), SampleCode())
+
+    assert abs(result["errorBudget"]["logical"] - 0.01 / 3) < 1e-6
+    assert abs(result["errorBudget"]["rotations"] - 0.01 / 3) < 1e-6
+    assert abs(result["errorBudget"]["magic_states"] - 0.01 / 3) < 1e-6
+
+    result = qsharp.estimate_custom(
+        SampleAlgorithm(), sample_qubit(), SampleCode(), error_budget=0.1
+    )
+
+    assert abs(result["errorBudget"]["logical"] - 0.1 / 3) < 1e-6
+    assert abs(result["errorBudget"]["rotations"] - 0.1 / 3) < 1e-6
+    assert abs(result["errorBudget"]["magic_states"] - 0.1 / 3) < 1e-6
+
+    def _prune_error_budget(self, budget, _):
+        rotations = budget["rotations"]
+        budget["logical"] += rotations / 2
+        budget["magic_states"] += rotations / 2
+        budget["rotations"] = 0.0
+
+    SampleAlgorithm.prune_error_budget = _prune_error_budget
+
+    result = qsharp.estimate_custom(SampleAlgorithm(), sample_qubit(), SampleCode())
+
+    assert abs(result["errorBudget"]["logical"] - 0.01 / 2) < 1e-6
+    assert abs(result["errorBudget"]["rotations"]) < 1e-6
+    assert abs(result["errorBudget"]["magic_states"] - 0.01 / 2) < 1e-6
+
+    del SampleAlgorithm.prune_error_budget

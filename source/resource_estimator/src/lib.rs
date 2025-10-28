@@ -4,7 +4,7 @@
 //! A Q# backend to compute logical overheads to compute the overhead based on
 //! the PSSPC layout method.
 
-// This crate uses lots of converstions between floating point numbers and integers, so this helps
+// This crate uses lots of conversions between floating point numbers and integers, so this helps
 // avoid many needed allow statements. Comment out individual lines to see where they are needed.
 #![allow(
     clippy::cast_possible_truncation,

@@ -334,7 +334,7 @@ pub struct TyDef {
 }
 
 impl TyDef {
-    /// Returns true if the tye definition satisfies the conditions for a struct.
+    /// Returns true if the type definition satisfies the conditions for a struct.
     /// Conditions for a struct are that the `TyDef` is a tuple with all its top-level fields named.
     /// Otherwise, returns false.
     #[must_use]

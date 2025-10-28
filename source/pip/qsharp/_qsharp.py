@@ -59,7 +59,7 @@ def lower_python_obj(obj: object, visited: Optional[Set[object]] = None) -> Any:
     if isinstance(obj, tuple):
         return tuple(lower_python_obj(elt, visited) for elt in obj)
 
-    # Recusive case: Dict
+    # Recursive case: Dict
     if isinstance(obj, dict):
         return {name: lower_python_obj(val, visited) for name, val in obj.items()}
 
@@ -176,6 +176,12 @@ class Config:
     ) -> Dict[str, Dict[str, str]]:
         return {"application/x.qsharp-config": self._config}
 
+    def get_target_profile(self) -> str:
+        """
+        Returns the target profile as a string, or "unspecified" if not set.
+        """
+        return self._config.get("targetProfile", "unspecified")
+
 
 class PauliNoise(Tuple[float, float, float]):
     """
@@ -224,6 +230,7 @@ def init(
     target_name: Optional[str] = None,
     project_root: Optional[str] = None,
     language_features: Optional[List[str]] = None,
+    trace_circuit: Optional[bool] = None,
 ) -> Config:
     """
     Initializes the Q# interpreter.
@@ -237,6 +244,10 @@ def init(
 
     :param project_root: An optional path to a root directory with a Q# project to include.
         It must contain a qsharp.json project manifest.
+
+    :param trace_circuit: Enables tracing of circuit during execution.
+        Passing `True` is required for the `dump_circuit` function to return a circuit.
+        The `circuit` function is *NOT* affected by this parameter will always generate a circuit.
     """
     from ._fs import read_file, list_directory, exists, join, resolve
     from ._http import fetch_github
@@ -303,6 +314,7 @@ def init(
         fetch_github,
         _make_callable,
         _make_class,
+        trace_circuit,
     )
 
     _config = Config(target_profile, language_features, manifest_contents, project_root)
@@ -322,6 +334,19 @@ def get_interpreter() -> Interpreter:
         init()
         assert _interpreter is not None, "Failed to initialize the Q# interpreter."
     return _interpreter
+
+
+def get_config() -> Config:
+    """
+    Returns the Q# interpreter configuration.
+
+    :returns: The Q# interpreter configuration.
+    """
+    global _config
+    if _config is None:
+        init()
+        assert _config is not None, "Failed to initialize the Q# interpreter."
+    return _config
 
 
 class StateDump:
@@ -480,10 +505,10 @@ def eval(
 
 # Helper function that knows how to create a function that invokes a callable. This will be
 # used by the underlying native code to create functions for callables on the fly that know
-# how to get the currently intitialized global interpreter instance.
+# how to get the currently initialized global interpreter instance.
 def _make_callable(callable: GlobalCallable, namespace: List[str], callable_name: str):
     module = code
-    # Create a name that will be used to collect the hierachy of namespace identifiers if they exist and use that
+    # Create a name that will be used to collect the hierarchy of namespace identifiers if they exist and use that
     # to register created modules with the system.
     accumulated_namespace = "qsharp.code"
     accumulated_namespace += "."
@@ -579,7 +604,7 @@ def make_class_rec(qsharp_type: TypeIR) -> type:
             elif prim_kind == PrimitiveKind.Result:
                 ty = Result
             else:
-                raise QSharpError(f"unknown primtive {prim_kind}")
+                raise QSharpError(f"unknown primitive {prim_kind}")
         elif kind == TypeKind.Tuple:
             # Special case Value::UNIT maps to None.
             if not field[1].unwrap_tuple():
@@ -608,7 +633,7 @@ def _make_class(qsharp_type: TypeIR, namespace: List[str], class_name: str):
     """
 
     module = code
-    # Create a name that will be used to collect the hierachy of namespace identifiers if they exist and use that
+    # Create a name that will be used to collect the hierarchy of namespace identifiers if they exist and use that
     # to register created modules with the system.
     accumulated_namespace = "qsharp.code"
     accumulated_namespace += "."
@@ -787,16 +812,16 @@ def compile(entry_expr: Union[str, Callable], *args) -> QirInputData:
     """
     ipython_helper()
     start = monotonic()
-    global _config
-    target_profile = _config._config.get("targetProfile", "unspecified")
+    interpreter = get_interpreter()
+    target_profile = get_config().get_target_profile()
     telemetry_events.on_compile(target_profile)
     if isinstance(entry_expr, Callable) and hasattr(entry_expr, "__global_callable"):
         args = python_args_to_interpreter_args(args)
-        ll_str = get_interpreter().qir(
+        ll_str = interpreter.qir(
             entry_expr=None, callable=entry_expr.__global_callable, args=args
         )
     else:
-        ll_str = get_interpreter().qir(entry_expr=entry_expr)
+        ll_str = interpreter.qir(entry_expr=entry_expr)
     res = QirInputData("main", ll_str)
     durationMs = (monotonic() - start) * 1000
     telemetry_events.on_compile_end(durationMs, target_profile)
@@ -956,10 +981,12 @@ def dump_machine() -> StateDump:
 
 def dump_circuit() -> Circuit:
     """
-    Dumps the current circuit state of the interpreter.
+    Dumps a circuit showing the current state of the simulator.
 
     This circuit will contain the gates that have been applied
     in the simulator up to the current point.
+
+    Requires the interpreter to be initialized with `trace_circuit=True`.
     """
     ipython_helper()
     return get_interpreter().dump_circuit()

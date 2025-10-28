@@ -133,6 +133,7 @@ class Interpreter:
         fetch_github: Callable[[str, str, str, str], str],
         make_callable: Optional[Callable[[GlobalCallable, List[str], str], None]],
         make_class: Optional[Callable[[TypeIR, List[str], str], None]],
+        trace_circuit: Optional[bool],
     ) -> None:
         """
         Initializes the Q# interpreter.
@@ -143,6 +144,9 @@ class Interpreter:
         :param list_directory: A function that lists the contents of a directory.
         :param resolve_path: A function that joins path segments and normalizes the resulting path.
         :param make_callable: A function that registers a Q# callable in the in the environment module.
+        :param trace_circuit: Enables tracing of circuit during execution.
+            Passing `True` is required for the `dump_circuit` function to return a circuit.
+            The `circuit` function is *NOT* affected by this parameter will always generate a circuit.
         """
         ...
 
@@ -307,10 +311,12 @@ class Interpreter:
 
     def dump_circuit(self) -> Circuit:
         """
-        Dumps the current circuit state of the interpreter.
+        Dumps a circuit showing the current state of the simulator.
 
         This circuit will contain the gates that have been applied
         in the simulator up to the current point.
+
+        Requires the interpreter to be initialized with `trace_circuit=True`.
         """
         ...
 
@@ -684,7 +690,7 @@ class TypeKind(Enum):
 
 class PrimitiveKind(Enum):
     """
-    A Q# primtive.
+    A Q# primitive.
     """
 
     Bool: int

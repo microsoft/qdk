@@ -133,7 +133,7 @@ macro_rules! unwrap_lit {
 }
 
 /// Tries to implicitly cast all inputs to the signature of the overload being
-/// considered in dispatch. Returns Some(_) if all the inputs can be succesfully
+/// considered in dispatch. Returns Some(_) if all the inputs can be successfully
 /// cast to match the signature of the overload, and None otherwise.
 fn try_implicit_cast_inputs(
     inputs: &[Expr],
