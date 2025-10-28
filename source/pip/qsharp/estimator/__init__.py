@@ -18,6 +18,10 @@ from ._estimator import (
     EstimatorParams,
 )
 
+from ._layout_psspc import PSSPCEstimator
+from ._qec_surface_code import SurfaceCode
+from ._factory_round_based import RoundBasedFactory
+
 __all__ = [
     "EstimatorError",
     "LogicalCounts",
@@ -33,4 +37,7 @@ __all__ = [
     "EstimatorConstraints",
     "EstimatorInputParamsItem",
     "EstimatorParams",
+    "PSSPCEstimator",
+    "SurfaceCode",
+    "RoundBasedFactory",
 ]
