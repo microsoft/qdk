@@ -8,6 +8,7 @@ from qsharp._native import (
     Pauli,
     QSharpError,
     TargetProfile,
+    CircuitConfig,
 )
 from qsharp._qsharp import qsharp_value_to_python_value
 import pytest
@@ -44,7 +45,7 @@ def check_run(entry_expr: str, expect: str):
 
 def check_circuit(entry_expr: str, expect):
     e = Interpreter(TargetProfile.Unrestricted)
-    value = e.circuit(entry_expr)
+    value = e.circuit(CircuitConfig(), entry_expr)
     assert str(value) == expect
 
 
@@ -449,7 +450,6 @@ def test_run_with_shots() -> None:
 
 
 def test_dump_circuit() -> None:
-    # TODO: these locations look off
     e = Interpreter(TargetProfile.Unrestricted, trace_circuit=True)
     e.interpret(
         """
@@ -479,7 +479,7 @@ def test_dump_circuit() -> None:
 def test_entry_expr_circuit() -> None:
     e = Interpreter(TargetProfile.Unrestricted)
     e.interpret("operation Foo() : Result { use q = Qubit(); H(q); return M(q) }")
-    circuit = e.circuit("Foo()")
+    circuit = e.circuit(CircuitConfig(), "Foo()")
     assert str(circuit) == dedent(
         """\
         q_0    ── H ──── M ──
@@ -493,7 +493,7 @@ def test_swap_label_circuit() -> None:
     e.interpret(
         "operation Foo() : Unit { use q1 = Qubit(); use q2 = Qubit(); X(q1); Relabel([q1, q2], [q2, q1]); X(q2); }"
     )
-    circuit = e.circuit("Foo()")
+    circuit = e.circuit(CircuitConfig(), "Foo()")
     assert str(circuit) == dedent(
         """\
         q_0    ── X ──── X ──
@@ -689,7 +689,7 @@ def test_base_qir_can_be_generated() -> None:
 def test_operation_circuit() -> None:
     e = Interpreter(TargetProfile.Unrestricted)
     e.interpret("operation Foo(q: Qubit) : Result { H(q); return M(q) }")
-    circuit = e.circuit(operation="Foo")
+    circuit = e.circuit(CircuitConfig(), operation="Foo")
     assert str(circuit) == dedent(
         """\
         q_0    ── H ──── M ──
@@ -702,7 +702,7 @@ def test_unsupported_operation_circuit() -> None:
     e = Interpreter(TargetProfile.Unrestricted)
     e.interpret("operation Foo(n: Int) : Result { return One }")
     with pytest.raises(QSharpError) as excinfo:
-        circuit = e.circuit(operation="Foo")
+        circuit = e.circuit(CircuitConfig(), operation="Foo")
     assert (
         str(excinfo.value).find(
             "expression does not evaluate to an operation that takes qubit parameters"

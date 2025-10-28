@@ -106,7 +106,7 @@
             "groupScopes": true,
             "generationMethod": "static",
             "collapseQubitRegisters": false,
-            "locations": true
+            "sourceLocations": true
           },
           "properties": {
             "maxOperations": {
@@ -140,7 +140,7 @@
               "default": false,
               "description": "Whether to collapse qubit registers into single lines in the circuit diagram."
             },
-            "locations": {
+            "sourceLocations": {
               "type": "boolean",
               "default": true,
               "description": "Show the source code locations of operations and qubit declarations in the circuit diagram."

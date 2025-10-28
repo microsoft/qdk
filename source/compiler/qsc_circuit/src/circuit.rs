@@ -5,7 +5,7 @@
 mod tests;
 
 use log::warn;
-use qsc_data_structures::debug::MetadataPackageSpan;
+use qsc_eval::PackageSpan;
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -83,7 +83,7 @@ pub type Component = Operation;
 pub enum SourceLocation {
     Resolved(ResolvedSourceLocation),
     #[serde(skip)]
-    Unresolved(MetadataPackageSpan),
+    Unresolved(PackageSpan),
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -306,8 +306,9 @@ pub struct Qubit {
     #[serde(rename = "numResults")]
     #[serde(default)]
     pub num_results: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub declarations: Option<Vec<SourceLocation>>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
+    pub declarations: Vec<SourceLocation>,
 }
 
 #[derive(Clone, Debug, Copy)]
@@ -315,9 +316,9 @@ pub struct Qubit {
 pub struct TracerConfig {
     /// Maximum number of operations the builder will add to the circuit
     pub max_operations: usize,
-    /// Show the source code locations of operations and qubit declarations
+    /// Capture the source code locations of operations and qubit declarations
     /// in the circuit diagram
-    pub locations: bool,
+    pub source_locations: bool,
     /// Detect repeated motifs in the circuit and group them into sub-circuits
     pub loop_detection: bool,
     pub group_scopes: bool,
@@ -339,7 +340,7 @@ impl Default for TracerConfig {
     fn default() -> Self {
         Self {
             max_operations: Self::DEFAULT_MAX_OPERATIONS,
-            locations: true,
+            source_locations: true,
             loop_detection: false,
             group_scopes: true,
             collapse_qubit_registers: false,
@@ -672,7 +673,7 @@ impl CircuitDisplay<'_> {
             let mut label = format!("q_{}", q.id);
             if self.render_locations {
                 let mut first = true;
-                for loc in q.declarations.iter().flatten() {
+                for loc in &q.declarations {
                     if let SourceLocation::Resolved(loc) = loc {
                         if first {
                             label.push('@');
@@ -1535,12 +1536,7 @@ fn get_qubit_map(
             if let Some(group_idx) = group_idx {
                 qubit_map.insert(q.id, group_idx);
                 new_qubits[group_idx].num_results += q.num_results;
-                if let Some(d) = q.declarations {
-                    match &mut new_qubits[group_idx].declarations {
-                        Some(v) => v.extend(d.clone()),
-                        None => new_qubits[group_idx].declarations = Some(d.clone()),
-                    }
-                }
+                new_qubits[group_idx].declarations.extend(q.declarations);
             } else {
                 group_idx = Some(new_qubits.len());
                 qubit_map.insert(q.id, new_qubits.len());

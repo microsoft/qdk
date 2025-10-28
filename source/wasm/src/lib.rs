@@ -151,7 +151,7 @@ serializable_type! {
         group_scopes: bool,
         generation_method: String,
         collapse_qubit_registers: bool,
-        locations: bool,
+        source_locations: bool,
     },
     r#"export interface ICircuitConfig {
         maxOperations: number;
@@ -159,7 +159,7 @@ serializable_type! {
         groupScopes: boolean;
         generationMethod: "simulate" | "classicalEval" | "static";
         collapseQubitRegisters: boolean;
-        locations: boolean;
+        sourceLocations: boolean;
     }"#,
     ICircuitConfig
 }
@@ -168,40 +168,34 @@ serializable_type! {
 pub fn get_circuit(
     program: ProgramConfig,
     operation: Option<IOperationInfo>,
-    config: Option<ICircuitConfig>, // TODO: make this required
+    config: ICircuitConfig,
 ) -> Result<JsValue, String> {
-    let (method, config) = config.map_or(
-        (
-            qsc::interpret::CircuitGenerationMethod::ClassicalEval,
-            Default::default(),
-        ),
-        |c| {
-            let c: CircuitConfig = c.into();
-            (
-                match c.generation_method.as_str() {
-                    "simulate" => qsc::interpret::CircuitGenerationMethod::Simulate,
-                    "classicalEval" => qsc::interpret::CircuitGenerationMethod::ClassicalEval,
-                    "static" => qsc::interpret::CircuitGenerationMethod::Static,
-                    _ => {
-                        panic!("Invalid generation method option: {}", c.generation_method)
-                    }
-                },
-                qsc::circuit::TracerConfig {
-                    locations: c.locations,
-                    max_operations: c.max_operations,
-                    loop_detection: c.loop_detection,
-                    group_scopes: c.group_scopes,
-                    collapse_qubit_registers: c.collapse_qubit_registers,
-                },
+    let config: CircuitConfig = config.into();
+    let method = match config.generation_method.as_str() {
+        "simulate" => qsc::interpret::CircuitGenerationMethod::Simulate,
+        "classicalEval" => qsc::interpret::CircuitGenerationMethod::ClassicalEval,
+        "static" => qsc::interpret::CircuitGenerationMethod::Static,
+        _ => {
+            panic!(
+                "Invalid generation method option: {}",
+                config.generation_method
             )
-        },
-    );
+        }
+    };
+    let tracer_config = qsc::circuit::TracerConfig {
+        source_locations: config.source_locations,
+        max_operations: config.max_operations,
+        loop_detection: config.loop_detection,
+        group_scopes: config.group_scopes,
+        collapse_qubit_registers: config.collapse_qubit_registers,
+    };
+
     if is_openqasm_program(&program) {
         let (sources, capabilities) = into_openqasm_arg(program);
         let (_, mut interpreter) = get_interpreter_from_openqasm(&sources, capabilities)?;
 
         let circuit = interpreter
-            .circuit(CircuitEntryPoint::EntryPoint, method, config)
+            .circuit(CircuitEntryPoint::EntryPoint, method, tracer_config)
             .map_err(interpret_errors_into_qsharp_errors_json)?;
         serde_wasm_bindgen::to_value(&circuit).map_err(|e| e.to_string())
     } else {
@@ -231,7 +225,7 @@ pub fn get_circuit(
         .map_err(interpret_errors_into_qsharp_errors_json)?;
 
         let circuit = interpreter
-            .circuit(entry_point, method, config)
+            .circuit(entry_point, method, tracer_config)
             .map_err(interpret_errors_into_qsharp_errors_json)?;
 
         serde_wasm_bindgen::to_value(&circuit).map_err(|e| e.to_string())

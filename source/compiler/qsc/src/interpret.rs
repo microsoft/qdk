@@ -48,9 +48,11 @@ pub use qsc_eval::{
     val::Result,
     val::Value,
 };
-use qsc_fir::fir::{self, ExecGraph, Global, PackageStoreLookup};
 use qsc_fir::{
-    fir::{Block, BlockId, Expr, ExprId, Package, PackageId, Pat, PatId, Stmt, StmtId},
+    fir::{
+        self, Block, BlockId, ExecGraph, Expr, ExprId, Global, Package, PackageId,
+        PackageStoreLookup, Pat, PatId, Stmt, StmtId,
+    },
     visit::{self, Visitor},
 };
 use qsc_frontend::{
@@ -146,7 +148,7 @@ pub struct Interpreter {
     source_package: PackageId,
     /// The default simulator backend.
     sim: SparseSim,
-    /// The tracer that records the circuit being built.
+    /// When circuit tracing is enabled, the tracer that records the circuit during evaluation.
     circuit_tracer: Option<CircuitTracer>,
     /// The quantum seed, if any. This is cached here so that it can be used in calls to
     /// `run_internal` which use a passed instance of the simulator instead of the one above.
@@ -179,6 +181,12 @@ pub struct TaggedItem {
     pub namespace: Vec<Rc<str>>,
 }
 
+#[derive(PartialEq, Eq, Copy, Clone)]
+pub enum TraceCircuitOption {
+    Enabled,
+    Disabled,
+}
+
 impl Interpreter {
     /// Creates a new incremental compiler, compiling the passed in sources.
     /// # Errors
@@ -203,7 +211,7 @@ impl Interpreter {
         )
     }
 
-    pub fn with_circuit_tracer(
+    pub fn with_circuit_trace(
         sources: SourceMap,
         package_type: PackageType,
         capabilities: TargetCapabilityFlags,
@@ -234,7 +242,7 @@ impl Interpreter {
         language_features: LanguageFeatures,
         store: PackageStore,
         dependencies: &Dependencies,
-        trace_circuit_config: Option<TracerConfig>,
+        trace_circuit_config: TracerConfig,
     ) -> std::result::Result<Self, Vec<Error>> {
         Self::with_sources(
             true,
@@ -244,7 +252,7 @@ impl Interpreter {
             language_features,
             store,
             dependencies,
-            trace_circuit_config,
+            Some(trace_circuit_config),
         )
     }
 
@@ -662,7 +670,7 @@ impl Interpreter {
             self.compiler.package_store(),
             &self.fir_store,
             &mut Env::default(),
-            &mut TracingBackend::sim_and_optional_trace(&mut self.sim, &mut self.circuit_tracer),
+            &mut TracingBackend::new(&mut self.sim, self.circuit_tracer.as_mut()),
             receiver,
         )
     }
@@ -674,7 +682,7 @@ impl Interpreter {
         sim: &mut impl Backend,
         receiver: &mut impl Receiver,
     ) -> InterpretResult {
-        let mut tracing_backend = TracingBackend::no_trace(sim);
+        let mut tracing_backend = TracingBackend::no_tracer(sim);
         let graph = self.get_entry_exec_graph()?;
         self.expr_graph = Some(graph.clone());
         if self.quantum_seed.is_some() {
@@ -768,7 +776,7 @@ impl Interpreter {
             self.compiler.package_store(),
             &self.fir_store,
             &mut self.env,
-            &mut TracingBackend::sim_and_optional_trace(&mut self.sim, &mut self.circuit_tracer),
+            &mut TracingBackend::new(&mut self.sim, self.circuit_tracer.as_mut()),
             receiver,
         )
     }
@@ -785,7 +793,7 @@ impl Interpreter {
             self.classical_seed,
             &self.fir_store,
             &mut self.env,
-            &mut TracingBackend::sim_and_optional_trace(&mut self.sim, &mut self.circuit_tracer),
+            &mut TracingBackend::new(&mut self.sim, self.circuit_tracer.as_mut()),
             receiver,
             callable,
             args,
@@ -850,7 +858,7 @@ impl Interpreter {
         self.circuit_tracer
             .as_ref()
             .expect("to call get_circuit, the interpreter should be initialized with circuit tracing enabled")
-            .snapshot(Some(self.compiler.package_store())) // TODO: defer the location to source resolving?
+            .snapshot(Some(self.compiler.package_store()))
     }
 
     /// Performs QIR codegen using the given entry expression on a new instance of the environment
@@ -945,7 +953,7 @@ impl Interpreter {
 
     /// Generates a circuit representation for the program.
     ///
-    /// For `entry` options, see [`CircuitEntryPoint`]. For `config` options, see [`CircuitConfig`].
+    /// For `entry` options, see [`CircuitEntryPoint`]. For `tracer_config` options, see [`TracerConfig`].
     pub fn circuit(
         &mut self,
         entry: CircuitEntryPoint,
@@ -958,11 +966,14 @@ impl Interpreter {
                 let mut sim = SparseSim::new();
                 self.eval_with_tracing_backend(
                     entry,
-                    &mut TracingBackend::sim_and_trace(&mut sim, &mut tracer),
+                    &mut TracingBackend::new(&mut sim, Some(&mut tracer)),
                 )?;
             }
             CircuitGenerationMethod::ClassicalEval => {
-                self.eval_with_tracing_backend(entry, &mut TracingBackend::no_sim(&mut tracer))?;
+                self.eval_with_tracing_backend(
+                    entry,
+                    &mut TracingBackend::no_backend(&mut tracer),
+                )?;
             }
             CircuitGenerationMethod::Static => {
                 let (entry_expr, invoke_params) = match &entry {
@@ -983,7 +994,7 @@ impl Interpreter {
                     // TODO: Static circuit generation from a callable is not yet supported.
                     self.eval_with_tracing_backend(
                         entry,
-                        &mut TracingBackend::no_sim(&mut tracer),
+                        &mut TracingBackend::no_backend(&mut tracer),
                     )?;
                 }
                 return self.static_circuit(entry_expr.as_deref(), tracer_config);
@@ -1095,7 +1106,7 @@ impl Interpreter {
         receiver: &mut impl Receiver,
         expr: Option<&str>,
     ) -> InterpretResult {
-        let mut tracing_backend = TracingBackend::no_trace(sim);
+        let mut tracing_backend = TracingBackend::no_tracer(sim);
         let graph = if let Some(expr) = expr {
             let (graph, _) = self.compile_entry_expr(expr)?;
             self.expr_graph = Some(graph.clone());
@@ -1179,7 +1190,7 @@ impl Interpreter {
         args: Value,
     ) -> InterpretResult {
         self.invoke_with_tracing_backend(
-            &mut TracingBackend::no_trace(sim),
+            &mut TracingBackend::no_tracer(sim),
             receiver,
             callable,
             args,
@@ -1378,26 +1389,6 @@ pub struct Debugger {
 }
 
 impl Debugger {
-    pub fn new_with_circuit_trace(
-        sources: SourceMap,
-        capabilities: TargetCapabilityFlags,
-        position_encoding: Encoding,
-        language_features: LanguageFeatures,
-        store: PackageStore,
-        dependencies: &Dependencies,
-        trace_circuit_config: TracerConfig,
-    ) -> std::result::Result<Self, Vec<Error>> {
-        Self::with_options(
-            sources,
-            capabilities,
-            position_encoding,
-            language_features,
-            store,
-            dependencies,
-            Some(trace_circuit_config),
-        )
-    }
-
     pub fn new(
         sources: SourceMap,
         capabilities: TargetCapabilityFlags,
@@ -1406,26 +1397,6 @@ impl Debugger {
         store: PackageStore,
         dependencies: &Dependencies,
     ) -> std::result::Result<Self, Vec<Error>> {
-        Self::with_options(
-            sources,
-            capabilities,
-            position_encoding,
-            language_features,
-            store,
-            dependencies,
-            None,
-        )
-    }
-
-    fn with_options(
-        sources: SourceMap,
-        capabilities: TargetCapabilityFlags,
-        position_encoding: Encoding,
-        language_features: LanguageFeatures,
-        store: PackageStore,
-        dependencies: &Dependencies,
-        circuit_config: Option<TracerConfig>,
-    ) -> std::result::Result<Self, Vec<Error>> {
         let interpreter = Interpreter::with_debug(
             sources,
             PackageType::Exe,
@@ -1433,7 +1404,7 @@ impl Debugger {
             language_features,
             store,
             dependencies,
-            circuit_config,
+            TracerConfig::default(),
         )?;
         let source_package_id = interpreter.source_package;
         let unit = interpreter.fir_store.get(source_package_id);
@@ -1480,9 +1451,9 @@ impl Debugger {
             .eval(
                 &self.interpreter.fir_store,
                 &mut self.interpreter.env,
-                &mut TracingBackend::sim_and_optional_trace(
+                &mut TracingBackend::new(
                     &mut self.interpreter.sim,
-                    &mut self.interpreter.circuit_tracer,
+                    self.interpreter.circuit_tracer.as_mut(),
                 ),
                 receiver,
                 breakpoints,

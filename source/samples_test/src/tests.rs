@@ -56,7 +56,7 @@ fn compile_and_run_internal(sources: SourceMap, debug: bool) -> String {
             LanguageFeatures::default(),
             store,
             &[(std_id, None)],
-            None,
+            Default::default(),
         )
     } else {
         Interpreter::new(

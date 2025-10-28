@@ -16,6 +16,8 @@ from ._native import (  # type: ignore
     TypeIR,
     TypeKind,
     PrimitiveKind,
+    CircuitConfig,
+    CircuitGenerationMethod,
 )
 from typing import (
     Any,
@@ -245,7 +247,9 @@ def init(
     :param project_root: An optional path to a root directory with a Q# project to include.
         It must contain a qsharp.json project manifest.
 
-    :param trace_circuit: If true, enables tracing of circuit generation during execution via `eval`.
+    :param trace_circuit: Enables tracing of circuit during execution.
+        Passing `True` is required for the `dump_circuit` function to return a circuit.
+        The `circuit` function is *NOT* affected by this parameter will always generate a circuit.
     """
     from ._fs import read_file, list_directory, exists, join, resolve
     from ._http import fetch_github
@@ -830,6 +834,9 @@ def circuit(
     entry_expr: Optional[Union[str, Callable]] = None,
     *args,
     operation: Optional[str] = None,
+    generation_method: Optional[CircuitGenerationMethod] = None,
+    max_operations: Optional[int] = None,
+    source_locations: bool = False,
 ) -> Circuit:
     """
     Synthesizes a circuit for a Q# program. Either an entry
@@ -849,13 +856,19 @@ def circuit(
     ipython_helper()
     start = monotonic()
     telemetry_events.on_circuit()
+    config = CircuitConfig(
+        max_operations=max_operations,
+        generation_method=generation_method,
+        source_locations=source_locations,
+    )
+
     if isinstance(entry_expr, Callable) and hasattr(entry_expr, "__global_callable"):
         args = python_args_to_interpreter_args(args)
         res = get_interpreter().circuit(
-            callable=entry_expr.__global_callable, args=args
+            config=config, callable=entry_expr.__global_callable, args=args
         )
     else:
-        res = get_interpreter().circuit(entry_expr, operation)
+        res = get_interpreter().circuit(config, entry_expr, operation=operation)
 
     durationMs = (monotonic() - start) * 1000
     telemetry_events.on_circuit_end(durationMs)
@@ -979,10 +992,12 @@ def dump_machine() -> StateDump:
 
 def dump_circuit() -> Circuit:
     """
-    Dumps the current circuit state of the interpreter.
+    Dumps a circuit showing the current state of the simulator.
 
     This circuit will contain the gates that have been applied
     in the simulator up to the current point.
+
+    Requires the interpreter to be initialized with `trace_circuit=True`.
     """
     ipython_helper()
     return get_interpreter().dump_circuit()

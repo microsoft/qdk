@@ -15,15 +15,15 @@ use crate::{
     builder::{RegisterMap, finish_circuit},
     circuit::{ResolvedSourceLocation, SourceLocation},
     rir_to_circuit::tracer::{
-        CircuitBuilder, FixedQubitRegisterMapBuilder, GateLabel, ResultRegister, WireId,
+        CircuitBuilder, FixedQubitRegisterMapBuilder, GateInputs, GateLabel, ResultRegister, WireId,
     },
 };
 use log::{debug, warn};
 use qsc_data_structures::{
-    debug::{DbgInfo, DbgLocation, DbgMetadataScope, InstructionMetadata, MetadataPackageSpan},
+    debug::{DbgInfo, DbgLocation, DbgMetadataScope, InstructionMetadata},
     index_map::IndexMap,
+    span::PackageSpan,
 };
-use qsc_eval::backend::GateInputs;
 use qsc_frontend::{compile::PackageStore, location::Location};
 use qsc_hir::hir::PackageId;
 use qsc_partial_eval::{
@@ -35,7 +35,7 @@ use rustc_hash::FxHashSet;
 
 #[derive(Clone, Debug)]
 pub(crate) enum DbgLocationKind {
-    Resolved(MetadataPackageSpan),
+    Resolved(PackageSpan),
     Unresolved(usize),
 }
 
@@ -196,7 +196,7 @@ impl From<Op> for Operation {
 
 pub(crate) fn to_source_location(d: &DbgLocationKind) -> Option<SourceLocation> {
     if let DbgLocationKind::Resolved(location) = d {
-        Some(SourceLocation::Unresolved(location.clone()))
+        Some(SourceLocation::Unresolved(*location))
     } else {
         None
     }
@@ -347,10 +347,10 @@ pub(crate) fn resolve_location_if_unresolved(dbg_info: &DbgInfo, location: &mut 
     }
 }
 
-fn resolve_location(dbg_info: &DbgInfo, dbg_location: usize) -> Option<MetadataPackageSpan> {
+fn resolve_location(dbg_info: &DbgInfo, dbg_location: usize) -> Option<PackageSpan> {
     instruction_logical_stack(dbg_info, dbg_location)
         .and_then(|s| s.0.last().copied())
-        .map(|l| dbg_info.dbg_locations[l].location.clone())
+        .map(|l| dbg_info.dbg_locations[l].location)
 }
 
 /// true result means done
@@ -730,15 +730,13 @@ pub(crate) fn resolve_source_location_if_unresolved(
 ) {
     let location = match source {
         SourceLocation::Resolved(_) => None,
-        SourceLocation::Unresolved(metadata_package_span) => Some(metadata_package_span.clone()),
+        SourceLocation::Unresolved(metadata_package_span) => Some(*metadata_package_span),
     };
 
     if let Some(location) = &location {
         let location = Location::from(
             location.span,
-            usize::try_from(location.package)
-                .expect("package id should fit into usize")
-                .into(),
+            location.package,
             package_store,
             qsc_data_structures::line_column::Encoding::Utf8,
         );
@@ -1002,10 +1000,8 @@ fn instruction_logical_stack(
         let scope = &dbg_info.dbg_metadata_scopes[dbg_info.dbg_locations[*location].scope];
         match scope {
             DbgMetadataScope::SubProgram { name: _, location } => {
-                let package_id =
-                    usize::try_from(location.package).expect("package id should fit in usize");
-                package_id != usize::from(PackageId::CORE)
-                    && package_id != usize::from(PackageId::CORE.successor())
+                let package_id = location.package;
+                package_id != PackageId::CORE && package_id != PackageId::CORE.successor()
             }
         }
     });
@@ -2166,9 +2162,9 @@ fn trace_gate(
         builder_ctx.builder.gate(
             builder_ctx.register_map,
             &GateLabel { name, is_adjoint },
-            GateInputs {
-                target_qubits,
-                control_qubits,
+            &GateInputs {
+                targets: &target_qubits,
+                controls: &control_qubits,
             },
             &control_results,
             args,

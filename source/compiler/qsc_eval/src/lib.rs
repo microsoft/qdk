@@ -19,7 +19,6 @@ mod tests;
 
 pub mod backend;
 pub mod debug;
-mod error;
 pub mod intrinsic;
 pub mod noise;
 pub mod output;
@@ -32,6 +31,9 @@ use crate::val::{
 };
 use core::panic;
 use debug::{CallStack, Frame};
+mod error {
+    pub use qsc_data_structures::span::PackageSpan;
+}
 pub use error::PackageSpan;
 use miette::Diagnostic;
 use num_bigint::BigInt;

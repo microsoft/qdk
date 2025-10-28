@@ -33,7 +33,7 @@ use qsc::{
     fir::{self},
     hir::ty::{Prim, Ty},
     interpret::{
-        self, CircuitEntryPoint, CircuitGenerationMethod, PauliNoise, TaggedItem, Value,
+        self, CircuitEntryPoint, PauliNoise, TaggedItem, Value,
         output::{Error, Receiver},
     },
     packages::BuildableProgram,
@@ -70,6 +70,8 @@ fn verify_classes_are_sendable() {
     is_send::<Pauli>();
     is_send::<Output>();
     is_send::<StateDumpData>();
+    is_send::<CircuitConfig>();
+    is_send::<CircuitGenerationMethod>();
     is_send::<Circuit>();
     is_send::<UdtValue>();
     is_send::<UdtFields>();
@@ -90,6 +92,8 @@ fn _native<'a>(py: Python<'a>, m: &Bound<'a, PyModule>) -> PyResult<()> {
     m.add_class::<Pauli>()?;
     m.add_class::<Output>()?;
     m.add_class::<StateDumpData>()?;
+    m.add_class::<CircuitConfig>()?;
+    m.add_class::<CircuitGenerationMethod>()?;
     m.add_class::<Circuit>()?;
     m.add_class::<GlobalCallable>()?;
     m.add_class::<UdtValue>()?;
@@ -403,7 +407,7 @@ impl Interpreter {
 
         let trace_circuit = trace_circuit.unwrap_or(false);
         let interpreter = if trace_circuit {
-            interpret::Interpreter::with_circuit_tracer(
+            interpret::Interpreter::with_circuit_trace(
                 SourceMap::new(buildable_program.user_code.sources, None),
                 PackageType::Lib,
                 target,
@@ -628,10 +632,12 @@ impl Interpreter {
         StateDumpData(DisplayableState(state, qubit_count))
     }
 
-    /// Dumps the current circuit state of the interpreter.
+    /// Dumps a circuit showing the current state of the simulator.
     ///
     /// This circuit will contain the gates that have been applied
     /// in the simulator up to the current point.
+    ///
+    /// Requires the interpreter to be initialized with `trace_circuit=True`.
     fn dump_circuit(&mut self, py: Python) -> PyResult<PyObject> {
         if !self.trace_circuit {
             return Err(QSharpError::new_err(
@@ -745,6 +751,8 @@ impl Interpreter {
     /// Synthesizes a circuit for a Q# program. Either an entry
     /// expression or an operation must be provided.
     ///
+    /// :param config: Circuit generation options.
+    ///
     /// :param entry_expr: An entry expression.
     ///
     /// :param operation: The operation to synthesize. This can be a name of
@@ -756,10 +764,11 @@ impl Interpreter {
     /// :param args: The arguments to pass to the callable.
     ///
     /// :raises QSharpError: If there is an error synthesizing the circuit.
-    #[pyo3(signature=(entry_expr=None, operation=None, callable=None, args=None))]
+    #[pyo3(signature=(config, entry_expr=None,*, operation=None, callable=None, args=None))]
     fn circuit(
         &mut self,
         py: Python,
+        config: &CircuitConfig,
         entry_expr: Option<String>,
         operation: Option<String>,
         callable: Option<GlobalCallable>,
@@ -783,11 +792,24 @@ impl Interpreter {
             }
         };
 
-        match self.interpreter.circuit(
-            entrypoint,
-            CircuitGenerationMethod::ClassicalEval,
-            Default::default(),
-        ) {
+        let mut tracer_config = qsc::circuit::TracerConfig::default();
+        if let Some(max_ops) = config.max_operations {
+            tracer_config.max_operations = max_ops;
+        }
+        if let Some(locations) = config.source_locations {
+            tracer_config.source_locations = locations;
+        }
+
+        let generation_method = if let Some(generation_method) = config.generation_method {
+            generation_method.into()
+        } else {
+            qsc::interpret::CircuitGenerationMethod::ClassicalEval
+        };
+
+        match self
+            .interpreter
+            .circuit(entrypoint, generation_method, tracer_config)
+        {
             Ok(circuit) => Circuit(circuit).into_py_any(py),
             Err(errors) => Err(QSharpError::new_err(format_errors(errors))),
         }
@@ -1263,11 +1285,58 @@ impl Receiver for OptionalCallbackReceiver<'_> {
 }
 
 #[pyclass]
+pub(crate) struct CircuitConfig {
+    #[pyo3(get, set)]
+    pub(crate) max_operations: Option<usize>,
+    #[pyo3(get, set)]
+    pub(crate) generation_method: Option<CircuitGenerationMethod>,
+    #[pyo3(get, set)]
+    pub(crate) source_locations: Option<bool>,
+}
+
+#[pymethods]
+impl CircuitConfig {
+    #[new]
+    #[pyo3(signature=(*,max_operations=None, generation_method=None, source_locations=None))]
+    fn new(
+        max_operations: Option<usize>,
+        generation_method: Option<CircuitGenerationMethod>,
+        source_locations: Option<bool>,
+    ) -> Self {
+        Self {
+            max_operations,
+            generation_method,
+            source_locations,
+        }
+    }
+}
+
+#[pyclass]
+#[derive(Clone, Copy)]
+pub(crate) enum CircuitGenerationMethod {
+    ClassicalEval,
+    Simulate,
+}
+
+impl From<CircuitGenerationMethod> for qsc::interpret::CircuitGenerationMethod {
+    fn from(value: CircuitGenerationMethod) -> Self {
+        match value {
+            CircuitGenerationMethod::ClassicalEval => {
+                qsc::interpret::CircuitGenerationMethod::ClassicalEval
+            }
+            CircuitGenerationMethod::Simulate => qsc::interpret::CircuitGenerationMethod::Simulate,
+        }
+    }
+}
+
+#[pyclass]
 pub(crate) struct Circuit(pub qsc::circuit::Circuit);
 
 #[pymethods]
 impl Circuit {
     fn __repr__(&self) -> String {
+        // Disable rendering source locations for user-facing string representation,
+        // as they make the circuit look cluttered.
         self.0.display_no_locations().to_string()
     }
 

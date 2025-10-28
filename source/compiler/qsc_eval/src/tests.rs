@@ -33,7 +33,7 @@ pub(super) fn eval_graph(
     let StepResult::Return(value) = state.eval(
         globals,
         env,
-        &mut TracingBackend::no_trace(sim),
+        &mut TracingBackend::no_tracer(sim),
         out,
         &[],
         StepAction::Continue,

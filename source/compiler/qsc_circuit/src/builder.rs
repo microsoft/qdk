@@ -11,16 +11,16 @@ use crate::{
     rir_to_circuit::{
         DbgLocationKind, Op, fill_in_dbg_metadata, resolve_location_if_unresolved,
         resolve_location_metadata, resolve_source_location_if_unresolved, to_source_location,
-        tracer::{CircuitBuilder, GateLabel, ResultRegister, WireId},
+        tracer::{CircuitBuilder, GateInputs, GateLabel, ResultRegister, WireId},
     },
 };
 use qsc_data_structures::{
-    debug::{DbgInfo, DbgLocation, DbgMetadataScope, InstructionMetadata, MetadataPackageSpan},
+    debug::{DbgInfo, DbgLocation, DbgMetadataScope, InstructionMetadata},
     index_map::IndexMap,
-    span::Span,
+    span::{PackageSpan, Span},
 };
 use qsc_eval::{
-    backend::{GateInputs, Tracer},
+    backend::Tracer,
     debug::Frame,
     val::{self, Value},
 };
@@ -38,70 +38,63 @@ pub struct CircuitTracer {
 }
 
 impl Tracer for CircuitTracer {
+    fn qubit_allocate(&mut self, stack: &[Frame], q: usize) {
+        let metadata = self.convert_if_source_locations_enabled(stack);
+        self.register_map_builder.map_qubit(q, metadata);
+    }
+
+    fn qubit_release(&mut self, _stack: &[Frame], q: usize) {
+        self.register_map_builder.qubit_release(q);
+    }
+
+    fn qubit_swap_id(&mut self, _stack: &[Frame], q0: usize, q1: usize) {
+        self.register_map_builder.swap(q0, q1);
+    }
+
     fn gate(
         &mut self,
+        stack: &[Frame],
         name: &str,
         is_adjoint: bool,
-        GateInputs {
-            target_qubits,
-            control_qubits,
-        }: GateInputs,
-        args: Vec<String>,
-        stack: &[Frame],
+        targets: &[usize],
+        controls: &[usize],
+        theta: Option<f64>,
     ) {
         let metadata = self.convert_if_source_locations_enabled(stack);
+        let display_args: Vec<String> = theta.map(|p| format!("{p:.4}")).into_iter().collect();
         self.circuit_builder.gate(
             self.register_map_builder.current(),
             &GateLabel { name, is_adjoint },
-            GateInputs {
-                target_qubits,
-                control_qubits,
-            },
+            &GateInputs { targets, controls },
             &[],
-            args,
+            display_args,
             metadata,
         );
     }
 
-    fn m(&mut self, q: usize, val: &val::Result, stack: &[Frame]) {
+    fn measure(&mut self, stack: &[Frame], name: &str, q: usize, val: &val::Result) {
         let metadata = self.convert_if_source_locations_enabled(stack);
         let r = match val {
             val::Result::Id(id) => *id,
             val::Result::Loss | val::Result::Val(_) => self.register_map_builder.result_allocate(),
         };
         self.register_map_builder.link_result_to_qubit(q, r);
-        self.circuit_builder
-            .m(self.register_map_builder.current(), q, r, metadata);
+        if name == "MResetZ" {
+            self.circuit_builder
+                .mresetz(self.register_map_builder.current(), q, r, metadata);
+        } else {
+            self.circuit_builder
+                .m(self.register_map_builder.current(), q, r, metadata);
+        }
     }
 
-    fn mresetz(&mut self, q: usize, val: &val::Result, stack: &[Frame]) {
-        let metadata = self.convert_if_source_locations_enabled(stack);
-        let r = match val {
-            val::Result::Id(id) => *id,
-            val::Result::Loss | val::Result::Val(_) => self.register_map_builder.result_allocate(),
-        };
-        self.register_map_builder.link_result_to_qubit(q, r);
-        self.circuit_builder
-            .mresetz(self.register_map_builder.current(), q, r, metadata);
-    }
-
-    fn reset(&mut self, q: usize, stack: &[Frame]) {
+    fn reset(&mut self, stack: &[Frame], q: usize) {
         let metadata = self.convert_if_source_locations_enabled(stack);
         self.circuit_builder
             .reset(self.register_map_builder.current(), q, metadata);
     }
 
-    fn qubit_allocate(&mut self, q: usize, stack: &[Frame]) {
-        let metadata = self.convert_if_source_locations_enabled(stack);
-        self.register_map_builder.map_qubit(q, metadata);
-    }
-
-    fn qubit_swap_id(&mut self, q0: usize, q1: usize, _stack: &[Frame]) {
-        // TODO: metadata would be neat to add to the circuit
-        self.register_map_builder.swap(q0, q1);
-    }
-
-    fn custom_intrinsic(&mut self, name: &str, arg: Value, stack: &[Frame]) {
+    fn custom_intrinsic(&mut self, stack: &[Frame], name: &str, arg: Value) {
         // The qubit arguments are treated as the targets for custom gates.
         // Any remaining arguments will be kept in the display_args field
         // to be shown as part of the gate label when the circuit is rendered.
@@ -124,9 +117,9 @@ impl Tracer for CircuitTracer {
                 name,
                 is_adjoint: false,
             },
-            GateInputs {
-                target_qubits: qubit_args,
-                control_qubits: vec![],
+            &GateInputs {
+                targets: &qubit_args,
+                controls: &[],
             },
             &[],
             if classical_args.is_empty() {
@@ -138,13 +131,8 @@ impl Tracer for CircuitTracer {
         );
     }
 
-    fn qubit_release(&mut self, q: usize, _stack: &[Frame]) {
-        // TODO: metadata would be neat to add to the circuit
-        self.register_map_builder.qubit_release(q);
-    }
-
-    fn is_stacks_enabled(&self) -> bool {
-        self.config.locations
+    fn is_stack_tracing_enabled(&self) -> bool {
+        self.config.source_locations
     }
 }
 
@@ -158,8 +146,8 @@ impl CircuitTracer {
             dbg_info: DbgInfo {
                 dbg_metadata_scopes: vec![DbgMetadataScope::SubProgram {
                     name: "program".into(),
-                    location: MetadataPackageSpan {
-                        package: 2,                  // TODO: - pass in user package ofc
+                    location: PackageSpan {
+                        package: 2.into(),           // TODO: - pass in user package ofc
                         span: Span { lo: 0, hi: 0 }, // pass in whole program or whatever
                     },
                 }],
@@ -291,10 +279,7 @@ impl CircuitTracer {
 
         let (package, span) = user_frame?;
 
-        let location = MetadataPackageSpan {
-            package: u32::try_from(usize::from(package)).expect("package id should fit in u32"),
-            span,
-        };
+        let location = PackageSpan { package, span };
         let md = DbgLocation {
             location,
             scope: 0, // TODO: fill in correct scope
@@ -314,7 +299,7 @@ impl CircuitTracer {
         &mut self,
         stack: &[Frame],
     ) -> Option<InstructionMetadata> {
-        if !self.config.locations {
+        if !self.config.source_locations {
             return None;
         }
 
@@ -340,9 +325,7 @@ pub(crate) fn finish_circuit(
             resolve_location_if_unresolved(dbg_info, d);
         }
 
-        if !declarations.is_empty() {
-            q.declarations = Some(declarations.iter().filter_map(to_source_location).collect());
-        }
+        q.declarations = declarations.iter().filter_map(to_source_location).collect();
     }
 
     let mut qubits = qubits.into_iter().map(|(q, _)| q).collect::<Vec<_>>();
@@ -356,10 +339,8 @@ pub(crate) fn finish_circuit(
         fill_in_dbg_metadata(&mut operations, package_store);
 
         for q in &mut qubits {
-            if let Some(declarations) = &mut q.declarations {
-                for source_location in declarations {
-                    resolve_source_location_if_unresolved(source_location, package_store);
-                }
+            for source_location in &mut q.declarations {
+                resolve_source_location_if_unresolved(source_location, package_store);
             }
         }
     }
@@ -426,7 +407,7 @@ impl RegisterMap {
                 Qubit {
                     id: i,
                     num_results,
-                    declarations: None,
+                    declarations: vec![],
                 },
                 declarations.clone(),
             ));

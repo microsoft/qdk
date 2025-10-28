@@ -3,9 +3,9 @@
 
 use indenter::{Indented, indented};
 use qsc_data_structures::{
-    debug::{DbgInfo, DbgMetadataScope, InstructionMetadata, MetadataPackageSpan},
+    debug::{DbgInfo, DbgMetadataScope, InstructionMetadata},
     index_map::IndexMap,
-    span::Span,
+    span::{PackageSpan, Span},
     target::TargetCapabilityFlags,
 };
 use std::fmt::{self, Display, Formatter, Write};
@@ -154,8 +154,8 @@ impl Program {
             .dbg_metadata_scopes
             .push(DbgMetadataScope::SubProgram {
                 name: "entry".into(),
-                location: MetadataPackageSpan {
-                    package: 0, // TODO: wrong, obviously
+                location: PackageSpan {
+                    package: 0.into(), // TODO: wrong, obviously
                     span: Span::default(),
                 },
             });

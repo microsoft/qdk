@@ -16,7 +16,7 @@ use evaluation_context::{Arg, BlockNode, EvalControlFlow, EvaluationContext, Sco
 use management::{QuantumIntrinsicsChecker, ResourceManager};
 use miette::Diagnostic;
 use qsc_data_structures::{
-    debug::{DbgLocation, DbgMetadataScope, InstructionMetadata, MetadataPackageSpan},
+    debug::{DbgLocation, DbgMetadataScope, InstructionMetadata},
     functors::FunctorApp,
     span::Span,
     target::TargetCapabilityFlags,
@@ -1156,7 +1156,7 @@ impl<'a> PartialEvaluator<'a> {
         let classical_result = state.eval(
             self.package_store,
             &mut scope.env,
-            &mut TracingBackend::no_trace(&mut self.backend),
+            &mut TracingBackend::no_tracer(&mut self.backend),
             &mut GenericReceiver::new(&mut std::io::sink()),
             &[],
             StepAction::Continue,
@@ -3704,11 +3704,9 @@ impl<'a> PartialEvaluator<'a> {
     }
 }
 
-fn into_metadata_package_span(location: PackageSpan) -> MetadataPackageSpan {
-    MetadataPackageSpan {
-        package: usize::from(location.package)
-            .try_into()
-            .expect("package ID should fit into u32"),
+fn into_metadata_package_span(location: PackageSpan) -> PackageSpan {
+    PackageSpan {
+        package: location.package,
         span: location.span,
     }
 }
