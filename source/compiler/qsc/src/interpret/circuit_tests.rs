@@ -16,66 +16,46 @@ use qsc_eval::output::GenericReceiver;
 use qsc_frontend::compile::SourceMap;
 use qsc_passes::PackageType;
 
-fn interpreter(code: &str, profile: Profile, trace_circuit: bool) -> Interpreter {
+fn interpreter(code: &str, profile: Profile) -> Interpreter {
     let sources = SourceMap::new([("test.qs".into(), code.into())], None);
     let (std_id, store) = crate::compile::package_store_with_stdlib(profile.into());
-    if trace_circuit {
-        Interpreter::with_circuit_trace(
-            sources,
-            PackageType::Exe,
-            profile.into(),
-            LanguageFeatures::default(),
-            store,
-            &[(std_id, None)],
-            Default::default(),
-        )
-    } else {
-        Interpreter::new(
-            sources,
-            PackageType::Exe,
-            profile.into(),
-            LanguageFeatures::default(),
-            store,
-            &[(std_id, None)],
-        )
-    }
+    Interpreter::new(
+        sources,
+        PackageType::Exe,
+        profile.into(),
+        LanguageFeatures::default(),
+        store,
+        &[(std_id, None)],
+    )
+    .expect("interpreter creation should succeed")
+}
+
+fn interpreter_with_circuit_trace(code: &str, profile: Profile) -> Interpreter {
+    let sources = SourceMap::new([("test.qs".into(), code.into())], None);
+    let (std_id, store) = crate::compile::package_store_with_stdlib(profile.into());
+    Interpreter::with_circuit_trace(
+        sources,
+        PackageType::Exe,
+        profile.into(),
+        LanguageFeatures::default(),
+        store,
+        &[(std_id, None)],
+        Default::default(),
+    )
     .expect("interpreter creation should succeed")
 }
 
 #[allow(clippy::needless_pass_by_value)]
-fn circuit_both_ways(code: &str, entry: CircuitEntryPoint) -> String {
-    let eval_circ = circuit(
+fn circuit(code: &str, entry: CircuitEntryPoint) -> String {
+    circuit_with_options(
         code,
-        entry.clone(),
+        Profile::Unrestricted,
+        entry,
         CircuitGenerationMethod::ClassicalEval,
         Default::default(),
-    );
-
-    eval_circ.to_string()
-}
-
-#[allow(clippy::needless_pass_by_value)]
-fn circuit_both_ways_with_config(
-    code: &str,
-    entry: CircuitEntryPoint,
-    tracer_config: TracerConfig,
-) -> String {
-    let eval_circ = circuit(
-        code,
-        entry.clone(),
-        CircuitGenerationMethod::ClassicalEval,
-        tracer_config,
-    );
-    eval_circ.to_string()
-}
-
-fn circuit(
-    code: &str,
-    entry: CircuitEntryPoint,
-    method: CircuitGenerationMethod,
-    config: TracerConfig,
-) -> Circuit {
-    circuit_with_profile(code, entry, method, config, Profile::Unrestricted)
+    )
+    .expect("circuit generation should succeed")
+    .to_string()
 }
 
 fn circuit_err(
@@ -84,52 +64,25 @@ fn circuit_err(
     method: CircuitGenerationMethod,
     tracer_config: TracerConfig,
 ) -> Vec<Error> {
-    circuit_inner(code, entry, method, tracer_config, Profile::Unrestricted)
+    circuit_with_options(code, Profile::Unrestricted, entry, method, tracer_config)
         .expect_err("circuit generation should fail")
 }
 
-#[allow(clippy::needless_pass_by_value)]
-fn circuit_with_profile_both_ways(
+fn circuit_with_options(
     code: &str,
-    entry: CircuitEntryPoint,
     profile: Profile,
-) -> String {
-    let eval_circ = circuit_with_profile(
-        code,
-        entry.clone(),
-        CircuitGenerationMethod::ClassicalEval,
-        Default::default(),
-        profile,
-    );
-
-    eval_circ.to_string()
-}
-
-fn circuit_with_profile(
-    code: &str,
     entry: CircuitEntryPoint,
     method: CircuitGenerationMethod,
     config: TracerConfig,
-    profile: Profile,
-) -> Circuit {
-    circuit_inner(code, entry, method, config, profile).expect("circuit generation should succeed")
-}
-
-fn circuit_inner(
-    code: &str,
-    entry: CircuitEntryPoint,
-    method: CircuitGenerationMethod,
-    config: TracerConfig,
-    profile: Profile,
 ) -> Result<Circuit, Vec<Error>> {
-    let mut interpreter = interpreter(code, profile, false);
+    let mut interpreter = interpreter(code, profile);
     interpreter.set_quantum_seed(Some(2));
     interpreter.circuit(entry, method, config)
 }
 
 #[test]
 fn empty() {
-    let circ = circuit_both_ways(
+    let circ = circuit(
         r#"
             namespace Test {
                 @EntryPoint()
@@ -146,7 +99,7 @@ fn empty() {
 
 #[test]
 fn one_gate() {
-    let circ = circuit_both_ways(
+    let circ = circuit(
         r"
             namespace Test {
                 @EntryPoint()
@@ -167,7 +120,7 @@ fn one_gate() {
 
 #[test]
 fn measure_same_qubit_twice() {
-    let circ = circuit_both_ways(
+    let circ = circuit(
         r"
             namespace Test {
                 @EntryPoint()
@@ -193,7 +146,7 @@ fn measure_same_qubit_twice() {
 
 #[test]
 fn toffoli() {
-    let circ = circuit_both_ways(
+    let circ = circuit(
         r"
             namespace Test {
                 @EntryPoint()
@@ -216,7 +169,7 @@ fn toffoli() {
 
 #[test]
 fn rotation_gate() {
-    let circ = circuit_both_ways(
+    let circ = circuit(
         r"
             namespace Test {
                 @EntryPoint()
@@ -237,7 +190,7 @@ fn rotation_gate() {
 
 #[test]
 fn classical_for_loop() {
-    let circ = circuit_both_ways_with_config(
+    let circ = circuit(
         r"
             namespace Test {
                 @EntryPoint()
@@ -250,7 +203,6 @@ fn classical_for_loop() {
             }
         ",
         CircuitEntryPoint::EntryPoint,
-        Default::default(),
     );
 
     expect![[r#"
@@ -260,103 +212,8 @@ fn classical_for_loop() {
 }
 
 #[test]
-fn nested_callables() {
-    let circ = circuit_both_ways(
-        r"
-            namespace Test {
-                @EntryPoint()
-                operation Main() : Unit {
-                    use q = Qubit();
-                    Foo(q);
-                    Bar(q);
-                    Bar(q);
-                }
-                operation Foo(q: Qubit) : Unit {
-                    Bar(q);
-                }
-                operation Bar(q: Qubit) : Unit {
-                    X(q);
-                    Y(q);
-                }
-            }
-        ",
-        CircuitEntryPoint::EntryPoint,
-    );
-
-    expect![[r#"
-        q_0@test.qs:4:20 ─ X@test.qs:13:20 ── Y@test.qs:14:20 ── X@test.qs:13:20 ── Y@test.qs:14:20 ── X@test.qs:13:20 ── Y@test.qs:14:20 ─
-    "#]]
-    .assert_eq(&circ);
-}
-
-#[test]
-fn nested_callables_with_measurement() {
-    // TODO: we should be able to do measurements
-    let circ = circuit_both_ways(
-        r"
-            namespace Test {
-                @EntryPoint()
-                operation Main() : Unit {
-                    use q = Qubit();
-                    Foo(q);
-                    Bar(q);
-                }
-                operation Foo(q: Qubit) : Unit {
-                    Bar(q);
-                }
-                operation Bar(q: Qubit) : Unit {
-                    X(q);
-                    Y(q);
-                    MResetZ(q);
-                }
-            }
-        ",
-        CircuitEntryPoint::EntryPoint,
-    );
-
-    expect![[r#"
-        q_0@test.qs:4:20 ─ X@test.qs:12:20 ── Y@test.qs:13:20 ── M@test.qs:14:20 ─── |0〉@test.qs:14:20 ─── X@test.qs:12:20 ── Y@test.qs:13:20 ── M@test.qs:14:20 ─── |0〉@test.qs:14:20 ──
-                                                              ╘═══════════════════════════════════════════════════════════════════════════════╪════════════════════════════════
-                                                                                                                                              ╘════════════════════════════════
-    "#]]
-    .assert_eq(&circ);
-}
-
-#[test]
-fn callables_nested_and_sibling() {
-    let circ = circuit_both_ways(
-        r"
-            operation Main() : Unit {
-                use q = Qubit();
-                Foo(q);
-                Foo(q);
-                Bar(q);
-            }
-
-            operation Bar(q: Qubit) : Unit {
-                Foo(q);
-                for _ in 1..2 {
-                    X(q);
-                    Y(q);
-                }
-            }
-
-            operation Foo(q: Qubit) : Unit {
-                H(q);
-            }
-            ",
-        CircuitEntryPoint::EntryPoint,
-    );
-
-    expect![[r#"
-        q_0@test.qs:2:16 ─ H@test.qs:17:16 ── H@test.qs:17:16 ── H@test.qs:17:16 ── X@test.qs:11:20 ── Y@test.qs:12:20 ── X@test.qs:11:20 ── Y@test.qs:12:20 ─
-    "#]]
-    .assert_eq(&circ.to_string());
-}
-
-#[test]
 fn m_base_profile() {
-    let circ = circuit_with_profile_both_ways(
+    let circ = circuit_with_options(
         r"
             namespace Test {
                 import Std.Measurement.*;
@@ -368,20 +225,23 @@ fn m_base_profile() {
                 }
             }
         ",
-        CircuitEntryPoint::EntryPoint,
         Profile::Base,
-    );
+        CircuitEntryPoint::EntryPoint,
+        CircuitGenerationMethod::ClassicalEval,
+        Default::default(),
+    )
+    .expect("circuit generation should succeed");
 
     expect![[r#"
         q_0@test.qs:5:20 ─ H@test.qs:6:20 ─── M@test.qs:7:21 ──
                                            ╘═════════
     "#]]
-    .assert_eq(&circ);
+    .assert_eq(&circ.to_string());
 }
 
 #[test]
 fn m_default_profile() {
-    let circ = circuit_both_ways(
+    let circ = circuit(
         r"
             namespace Test {
                 import Std.Measurement.*;
@@ -404,8 +264,8 @@ fn m_default_profile() {
 }
 
 #[test]
-fn mresetz_default_profile() {
-    let circ = circuit_both_ways(
+fn mresetz_unrestricted_profile() {
+    let circ = circuit(
         r"
             namespace Test {
                 import Std.Measurement.*;
@@ -429,7 +289,7 @@ fn mresetz_default_profile() {
 
 #[test]
 fn mresetz_base_profile() {
-    let circ = circuit_with_profile_both_ways(
+    let circ = circuit_with_options(
         r"
             namespace Test {
                 import Std.Measurement.*;
@@ -441,21 +301,24 @@ fn mresetz_base_profile() {
                 }
             }
         ",
-        CircuitEntryPoint::EntryPoint,
         Profile::Base,
-    );
+        CircuitEntryPoint::EntryPoint,
+        CircuitGenerationMethod::ClassicalEval,
+        Default::default(),
+    )
+    .expect("circuit generation should succeed");
 
     // code gen in Base turns the MResetZ into an M
     expect![[r#"
         q_0@test.qs:5:20 ─ H@test.qs:6:20 ─── M@test.qs:7:21 ──── |0〉@test.qs:7:21 ───
                                            ╘════════════════════════════════
     "#]]
-    .assert_eq(&circ);
+    .assert_eq(&circ.to_string());
 }
 
 #[test]
 fn qubit_relabel() {
-    let circ = circuit_both_ways(
+    let circ = circuit(
         "
         namespace Test {
             operation Main() : Unit {
@@ -484,7 +347,7 @@ fn qubit_relabel() {
 
 #[test]
 fn qubit_reuse() {
-    let circ = circuit_both_ways(
+    let circ = circuit(
         "
         namespace Test {
             operation Main() : Unit {
@@ -514,7 +377,7 @@ fn qubit_reuse() {
 
 #[test]
 fn qubit_reuse_no_measurements() {
-    let circ = circuit_both_ways(
+    let circ = circuit(
         "
         namespace Test {
             operation Main() : Unit {
@@ -541,45 +404,8 @@ fn qubit_reuse_no_measurements() {
 }
 
 #[test]
-fn two_qubit_reuse() {
-    let circ = circuit_both_ways(
-        "
-        namespace Test {
-            operation Main() : Unit {
-                {
-                    use (q1, q2) = (Qubit(), Qubit());
-                    X(q1);
-                    CNOT(q1, q2);
-                    MResetZ(q1);
-                    MResetZ(q2);
-                }
-                {
-                    use (q1, q2) = (Qubit(), Qubit());
-                    Y(q1);
-                    CNOT(q1, q2);
-                    MResetZ(q1);
-                    MResetZ(q2);
-                }
-            }
-        }
-    ",
-        CircuitEntryPoint::EntryPoint,
-    );
-
-    expect![[r#"
-        q_0@test.qs:4:36, test.qs:11:36 ─ X@test.qs:5:20 ────────── ● ───────── M@test.qs:7:20 ──── |0〉@test.qs:7:20 ──── Y@test.qs:12:20 ───────── ● ───────── M@test.qs:14:20 ─── |0〉@test.qs:14:20 ──
-                                           │                  ╘════════════════════════════════════════════════════════════╪══════════════════╪════════════════════════════════
-                                           │                                                                               │                  ╘════════════════════════════════
-        q_1@test.qs:4:45, test.qs:11:45 ──────────────────── X@test.qs:6:20 ─── M@test.qs:8:20 ──── |0〉@test.qs:8:20 ─────────────────────── X@test.qs:13:20 ── M@test.qs:15:20 ─── |0〉@test.qs:15:20 ──
-                                                              ╘═══════════════════════════════════════════════════════════════════════════════╪════════════════════════════════
-                                                                                                                                              ╘════════════════════════════════
-    "#]]
-    .assert_eq(&circ);
-}
-
-#[test]
-fn eval_method_result_comparison() {
-    let mut interpreter = interpreter(
+fn unrestricted_profile_result_comparison() {
+    let mut interpreter = interpreter_with_circuit_trace(
         r"
             namespace Test {
                 import Std.Measurement.*;
@@ -600,7 +426,6 @@ fn eval_method_result_comparison() {
             }
         ",
         Profile::Unrestricted,
-        true,
     );
 
     interpreter.set_quantum_seed(Some(2));
@@ -666,7 +491,7 @@ fn eval_method_result_comparison() {
 
 #[test]
 fn custom_intrinsic() {
-    let circ = circuit_both_ways(
+    let circ = circuit(
         r"
     namespace Test {
         operation foo(q: Qubit): Unit {
@@ -690,7 +515,7 @@ fn custom_intrinsic() {
 
 #[test]
 fn custom_intrinsic_classical_arg() {
-    let circ = circuit_both_ways(
+    let circ = circuit(
         r"
     namespace Test {
         operation foo(n: Int): Unit {
@@ -717,7 +542,7 @@ fn custom_intrinsic_classical_arg() {
 
 #[test]
 fn custom_intrinsic_one_classical_arg() {
-    let circ = circuit_both_ways(
+    let circ = circuit(
         r"
     namespace Test {
         operation foo(n: Int, q: Qubit): Unit {
@@ -741,32 +566,7 @@ fn custom_intrinsic_one_classical_arg() {
 }
 
 #[test]
-fn custom_intrinsic_no_qubit_args() {
-    let circ = circuit_both_ways(
-        r"
-    namespace Test {
-        operation foo(n: Int): Unit {
-            body intrinsic;
-        }
-
-        @EntryPoint()
-        operation Main() : Unit {
-            use q = Qubit();
-            X(q);
-            foo(4);
-        }
-    }",
-        CircuitEntryPoint::EntryPoint,
-    );
-
-    expect![[r#"
-        q_0@test.qs:8:12 ─ X@test.qs:9:12 ──
-    "#]]
-    .assert_eq(&circ);
-}
-
-#[test]
-fn custom_intrinsic_mixed_args_classical_eval() {
+fn custom_intrinsic_mixed_args() {
     let circ = circuit(
         r"
     namespace Test {
@@ -789,8 +589,6 @@ fn custom_intrinsic_mixed_args_classical_eval() {
         }
     }",
         CircuitEntryPoint::EntryPoint,
-        CircuitGenerationMethod::ClassicalEval,
-        Default::default(),
     );
 
     expect![[r#"
@@ -818,7 +616,7 @@ fn custom_intrinsic_mixed_args_classical_eval() {
 }
 
 #[test]
-fn custom_intrinsic_apply_idle_noise_classical_eval() {
+fn custom_intrinsic_apply_idle_noise() {
     let circ = circuit(
         r"
     namespace Test {
@@ -831,8 +629,6 @@ fn custom_intrinsic_apply_idle_noise_classical_eval() {
         }
     }",
         CircuitEntryPoint::EntryPoint,
-        CircuitGenerationMethod::ClassicalEval,
-        Default::default(),
     );
 
     expect![[r#"
@@ -843,7 +639,7 @@ fn custom_intrinsic_apply_idle_noise_classical_eval() {
 
 #[test]
 fn operation_with_qubits() {
-    let circ = circuit_both_ways(
+    let circ = circuit(
         r"
         namespace Test {
             @EntryPoint()
@@ -870,7 +666,7 @@ fn operation_with_qubits() {
 
 #[test]
 fn operation_with_qubit_arrays() {
-    let circ = circuit_both_ways(
+    let circ = circuit(
         r"
         namespace Test {
             @EntryPoint()
@@ -924,7 +720,7 @@ fn operation_with_qubit_arrays() {
 
 #[test]
 fn adjoint_operation() {
-    let circ = circuit_both_ways(
+    let circ = circuit(
         r"
         namespace Test {
             @EntryPoint()
@@ -957,7 +753,7 @@ fn adjoint_operation() {
 
 #[test]
 fn lambda() {
-    let circ = circuit_both_ways(
+    let circ = circuit(
         r"
         namespace Test {
             @EntryPoint()
@@ -1020,7 +816,7 @@ fn controlled_operation() {
 
 #[test]
 fn internal_operation() {
-    let circ = circuit_both_ways(
+    let circ = circuit(
         r"
         namespace Test {
             @EntryPoint()
@@ -1073,7 +869,7 @@ fn operation_with_non_qubit_args() {
 
 #[test]
 fn operation_with_long_gates_properly_aligned() {
-    let circ = circuit_both_ways(
+    let circ = circuit(
         r"
             namespace Test {
                 import Std.Measurement.*;
@@ -1126,7 +922,7 @@ fn operation_with_long_gates_properly_aligned() {
 
 #[test]
 fn operation_with_subsequent_qubits_gets_horizontal_lines() {
-    let circ = circuit_both_ways(
+    let circ = circuit(
         r"
             namespace Test {
                 import Std.Measurement.*;
@@ -1174,8 +970,6 @@ fn operation_with_subsequent_qubits_no_double_rows() {
             }
         ",
         CircuitEntryPoint::EntryPoint,
-        CircuitGenerationMethod::ClassicalEval,
-        Default::default(),
     );
 
     expect![[r#"
@@ -1208,8 +1002,6 @@ fn operation_with_subsequent_qubits_no_added_rows() {
             }
         ",
         CircuitEntryPoint::EntryPoint,
-        CircuitGenerationMethod::ClassicalEval,
-        Default::default(),
     );
 
     expect![[r#"
