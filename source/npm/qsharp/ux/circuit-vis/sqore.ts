@@ -1,10 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { formatInputs } from "./formatters/inputFormatter";
-import { formatGates } from "./formatters/gateFormatter";
-import { formatRegisters } from "./formatters/registerFormatter";
-import { processOperations } from "./process";
+import { formatInputs } from "./formatters/inputFormatter.js";
+import { formatGates } from "./formatters/gateFormatter.js";
+import { formatRegisters } from "./formatters/registerFormatter.js";
+import { processOperations } from "./process.js";
 import {
   ConditionalRender,
   Circuit,
@@ -12,13 +12,17 @@ import {
   ComponentGrid,
   Operation,
   Column,
-} from "./circuit";
-import { GateRenderData, GateType } from "./gateRenderData";
-import { createUUID } from "./utils";
-import { gateHeight, minGateWidth, minToolboxHeight, svgNS } from "./constants";
-import { createDropzones } from "./draggable";
-import { enableEvents } from "./events";
-import { createPanel, enableRunButton } from "./panel";
+} from "./circuit.js";
+import { GateRenderData, GateType } from "./gateRenderData.js";
+import {
+  gateHeight,
+  minGateWidth,
+  minToolboxHeight,
+  svgNS,
+} from "./constants.js";
+import { createDropzones } from "./draggable.js";
+import { enableEvents } from "./events.js";
+import { createPanel, enableRunButton } from "./panel.js";
 
 /**
  * Contains render data for visualization.
@@ -133,7 +137,7 @@ export class Sqore {
     const composedSqore: ComposedSqore = this.compose(_circuit);
     const svg: SVGElement = this.generateSvg(composedSqore);
     this.setViewBox(svg);
-    const previousSvg = container.querySelector("svg[id]");
+    const previousSvg = container.querySelector("svg.qviz");
     if (previousSvg == null) {
       container.appendChild(svg);
     } else {
@@ -231,10 +235,8 @@ export class Sqore {
    */
   private generateSvg(composedSqore: ComposedSqore): SVGElement {
     const { width, height, elements } = composedSqore;
-    const uuid: string = createUUID();
 
     const svg: SVGElement = document.createElementNS(svgNS, "svg");
-    svg.setAttribute("id", uuid);
     svg.setAttribute("class", "qviz");
     svg.setAttribute("width", width.toString());
     svg.setAttribute("height", height.toString());

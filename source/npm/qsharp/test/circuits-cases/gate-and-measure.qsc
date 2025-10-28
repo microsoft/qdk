@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "circuits": [
+    {
+      "qubits": [
+        {
+          "id": 0,
+          "numResults": 1
+        }
+      ],
+      "componentGrid": [
+        {
+          "components": [
+            {
+              "gate": "H",
+              "kind": "unitary",
+              "targets": [
+                {
+                  "qubit": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "components": [
+            {
+              "gate": "M",
+              "kind": "measurement",
+              "qubits": [
+                {
+                  "qubit": 0
+                }
+              ],
+              "results": [
+                {
+                  "qubit": 0,
+                  "result": 0
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
