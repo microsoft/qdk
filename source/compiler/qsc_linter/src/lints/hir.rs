@@ -371,7 +371,6 @@ impl HirLintPass for AmbiguousUnaryOperatorAfterIf {
                 && let StmtKind::Expr(next_expr) = &block.stmts[i + 1].kind
                 && matches!(next_expr.kind, ExprKind::UnOp(UnOp::Pos | UnOp::Neg, _))
                 && expr.ty != Ty::UNIT
-                && next_expr.ty != Ty::UNIT
             {
                 buffer.push(lint!(self, next_expr.span));
             }

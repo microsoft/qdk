@@ -828,9 +828,19 @@ fn ambiguous_unary_operator_after_if() {
 }
 
 #[test]
-fn ambiguous_unary_operator_after_if_fixed_by_parens() {
+fn ambiguous_unary_operator_after_if_fixed_by_parens_around_if() {
     check(
         &wrap_in_callable("(if true { 42 } else { 0 }) - 1", CallableKind::Function),
+        &expect![[r#"
+            []
+        "#]],
+    );
+}
+
+#[test]
+fn ambiguous_unary_operator_after_if_fixed_by_parens_around_all() {
+    check(
+        &wrap_in_callable("(if true { 42 } else { 0 } - 1)", CallableKind::Function),
         &expect![[r#"
             []
         "#]],
