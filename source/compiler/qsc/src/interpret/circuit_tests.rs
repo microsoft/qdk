@@ -20,7 +20,7 @@ fn interpreter(code: &str, profile: Profile, trace_circuit: bool) -> Interpreter
     let sources = SourceMap::new([("test.qs".into(), code.into())], None);
     let (std_id, store) = crate::compile::package_store_with_stdlib(profile.into());
     if trace_circuit {
-        Interpreter::with_circuit_tracer(
+        Interpreter::with_circuit_trace(
             sources,
             PackageType::Exe,
             profile.into(),
@@ -1239,14 +1239,13 @@ mod debugger_stepping {
     fn generate_circuit_steps(code: &str, profile: Profile) -> String {
         let sources = SourceMap::new([("test.qs".into(), code.into())], None);
         let (std_id, store) = crate::compile::package_store_with_stdlib(profile.into());
-        let mut debugger = Debugger::new_with_circuit_trace(
+        let mut debugger = Debugger::new(
             sources,
             profile.into(),
             Encoding::Utf8,
             LanguageFeatures::default(),
             store,
             &[(std_id, None)],
-            Default::default(),
         )
         .expect("debugger creation should succeed");
 

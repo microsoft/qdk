@@ -208,7 +208,7 @@ impl Interpreter {
         )
     }
 
-    pub fn with_circuit_tracer(
+    pub fn with_circuit_trace(
         sources: SourceMap,
         package_type: PackageType,
         capabilities: TargetCapabilityFlags,
@@ -239,7 +239,7 @@ impl Interpreter {
         language_features: LanguageFeatures,
         store: PackageStore,
         dependencies: &Dependencies,
-        trace_circuit_config: Option<TracerConfig>,
+        trace_circuit_config: TracerConfig,
     ) -> std::result::Result<Self, Vec<Error>> {
         Self::with_sources(
             true,
@@ -249,7 +249,7 @@ impl Interpreter {
             language_features,
             store,
             dependencies,
-            trace_circuit_config,
+            Some(trace_circuit_config),
         )
     }
 
@@ -1263,26 +1263,6 @@ pub struct Debugger {
 }
 
 impl Debugger {
-    pub fn new_with_circuit_trace(
-        sources: SourceMap,
-        capabilities: TargetCapabilityFlags,
-        position_encoding: Encoding,
-        language_features: LanguageFeatures,
-        store: PackageStore,
-        dependencies: &Dependencies,
-        trace_circuit_config: TracerConfig,
-    ) -> std::result::Result<Self, Vec<Error>> {
-        Self::with_options(
-            sources,
-            capabilities,
-            position_encoding,
-            language_features,
-            store,
-            dependencies,
-            Some(trace_circuit_config),
-        )
-    }
-
     pub fn new(
         sources: SourceMap,
         capabilities: TargetCapabilityFlags,
@@ -1291,26 +1271,6 @@ impl Debugger {
         store: PackageStore,
         dependencies: &Dependencies,
     ) -> std::result::Result<Self, Vec<Error>> {
-        Self::with_options(
-            sources,
-            capabilities,
-            position_encoding,
-            language_features,
-            store,
-            dependencies,
-            None,
-        )
-    }
-
-    fn with_options(
-        sources: SourceMap,
-        capabilities: TargetCapabilityFlags,
-        position_encoding: Encoding,
-        language_features: LanguageFeatures,
-        store: PackageStore,
-        dependencies: &Dependencies,
-        circuit_config: Option<TracerConfig>,
-    ) -> std::result::Result<Self, Vec<Error>> {
         let interpreter = Interpreter::with_debug(
             sources,
             PackageType::Exe,
@@ -1318,7 +1278,7 @@ impl Debugger {
             language_features,
             store,
             dependencies,
-            circuit_config,
+            TracerConfig::default(),
         )?;
         let source_package_id = interpreter.source_package;
         let unit = interpreter.fir_store.get(source_package_id);
