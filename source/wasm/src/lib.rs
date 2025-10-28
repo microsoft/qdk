@@ -731,8 +731,6 @@ fn get_configured_interpreter_from_openqasm(
     let sig = sig.expect("msg: there should be a signature");
     let language_features = LanguageFeatures::default();
     let entry_expr = sig.create_entry_expr_from_params(String::new());
-    // Always enable circuit tracing along with debugging.
-    let trace_circuit_config = if dbg { Some(Default::default()) } else { None };
     let interpreter = interpret::Interpreter::with_package_store(
         dbg,
         store,
@@ -740,7 +738,6 @@ fn get_configured_interpreter_from_openqasm(
         capabilities,
         language_features,
         &dependencies,
-        trace_circuit_config,
     )
     .map_err(interpret_errors_into_qsharp_errors_json)?;
 

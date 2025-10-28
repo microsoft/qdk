@@ -284,7 +284,6 @@ impl Interpreter {
         capabilities: TargetCapabilityFlags,
         language_features: LanguageFeatures,
         dependencies: &Dependencies,
-        circuit_tracer_config: Option<TracerConfig>,
     ) -> std::result::Result<Self, Vec<Error>> {
         let compiler = Compiler::with_package_store(
             store,
@@ -294,6 +293,9 @@ impl Interpreter {
             dependencies,
         )
         .map_err(into_errors)?;
+
+        // Always enable circuit tracing along with debugging.
+        let circuit_tracer_config = if dbg { Some(Default::default()) } else { None };
 
         Self::with_compiler(dbg, capabilities, circuit_tracer_config, compiler)
     }
