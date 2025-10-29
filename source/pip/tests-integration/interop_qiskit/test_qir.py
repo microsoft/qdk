@@ -179,7 +179,7 @@ def test_custom_qir_intrinsics_is_simulatable():
 
     QuantumCircuit.my_gate = my_gate
 
-    target = QirTarget.build_target(1)
+    target = QirTarget.build_target()
     target.add_instruction(
         Gate(name="my_gate", num_qubits=1, params=[]), name="my_gate"
     )
