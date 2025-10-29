@@ -16,6 +16,8 @@ from ._native import (  # type: ignore
     TypeIR,
     TypeKind,
     PrimitiveKind,
+    CircuitConfig,
+    CircuitGenerationMethod,
 )
 from typing import (
     Any,
@@ -832,6 +834,9 @@ def circuit(
     entry_expr: Optional[Union[str, Callable]] = None,
     *args,
     operation: Optional[str] = None,
+    generation_method: Optional[CircuitGenerationMethod] = None,
+    max_operations: Optional[int] = None,
+    source_locations: bool = False,
 ) -> Circuit:
     """
     Synthesizes a circuit for a Q# program. Either an entry
@@ -851,13 +856,19 @@ def circuit(
     ipython_helper()
     start = monotonic()
     telemetry_events.on_circuit()
+    config = CircuitConfig(
+        max_operations=max_operations,
+        generation_method=generation_method,
+        source_locations=source_locations,
+    )
+
     if isinstance(entry_expr, Callable) and hasattr(entry_expr, "__global_callable"):
         args = python_args_to_interpreter_args(args)
         res = get_interpreter().circuit(
-            callable=entry_expr.__global_callable, args=args
+            config=config, callable=entry_expr.__global_callable, args=args
         )
     else:
-        res = get_interpreter().circuit(entry_expr, operation)
+        res = get_interpreter().circuit(config, entry_expr, operation=operation)
 
     durationMs = (monotonic() - start) * 1000
     telemetry_events.on_circuit_end(durationMs)

@@ -224,14 +224,18 @@ class Interpreter:
 
     def circuit(
         self,
-        entry_expr: Optional[str],
-        operation: Optional[str],
-        callable: Optional[GlobalCallable],
-        args: Optional[Any],
+        config: CircuitConfig,
+        entry_expr: Optional[str] = None,
+        *,
+        operation: Optional[str] = None,
+        callable: Optional[GlobalCallable] = None,
+        args: Optional[Any] = None,
     ) -> Circuit:
         """
         Synthesizes a circuit for a Q# program. Either an entry
         expression or an operation must be provided.
+
+        :param config: Circuit generation options.
 
         :param entry_expr: An entry expression.
 
@@ -408,6 +412,49 @@ class StateDumpData:
     def __str__(self) -> str: ...
     def _repr_markdown_(self) -> str: ...
     def _repr_latex_(self) -> Optional[str]: ...
+
+class CircuitConfig:
+    def __init__(
+        self,
+        *,
+        max_operations: Optional[int] = None,
+        generation_method: Optional["CircuitGenerationMethod"] = None,
+        source_locations: Optional[bool] = None,
+    ) -> None: ...
+
+    """
+    Configuration options for circuit generation.
+    """
+
+    max_operations: Optional[int]
+    """
+    The maximum number of operations to include in the generated circuit.
+    """
+
+    generation_method: Optional[CircuitGenerationMethod]
+    """
+    The method to use for circuit generation.
+    """
+
+    source_locations: Optional[bool]
+    """
+    Whether to include source locations in the generated circuit.
+    """
+
+class CircuitGenerationMethod(Enum):
+    """
+    The method to use for circuit generation.
+    """
+
+    ClassicalEval: CircuitGenerationMethod
+    """
+    Use classical evaluation to generate the circuit.
+    """
+
+    Simulate: CircuitGenerationMethod
+    """
+    Use simulation to generate the circuit.
+    """
 
 class Circuit:
     def json(self) -> str: ...

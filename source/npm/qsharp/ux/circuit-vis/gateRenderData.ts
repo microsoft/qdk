@@ -55,4 +55,6 @@ export interface GateRenderData {
   children?: GateRenderData[][] | GateRenderData[][][];
   /** Custom data attributes to attach to gate element. */
   dataAttributes?: DataAttributes;
+  /** Link href and title for clickable gate. */
+  link?: { href: string; title: string };
 }

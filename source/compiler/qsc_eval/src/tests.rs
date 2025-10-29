@@ -3,11 +3,10 @@
 
 use crate::{
     Env, Error, ErrorBehavior, State, StepAction, StepResult, Value,
-    backend::{Backend, SparseSim},
+    backend::{Backend, SparseSim, TracingBackend},
     debug::Frame,
     exec_graph_section,
     output::{GenericReceiver, Receiver},
-    val,
 };
 use expect_test::{Expect, expect};
 use indoc::indoc;
@@ -24,15 +23,21 @@ use qsc_passes::{PackageType, run_core_passes, run_default_passes};
 /// Returns the first error encountered during execution.
 pub(super) fn eval_graph(
     graph: ExecGraph,
-    sim: &mut impl Backend<ResultType = impl Into<val::Result>>,
+    sim: &mut impl Backend,
     globals: &impl PackageStoreLookup,
     package: PackageId,
     env: &mut Env,
     out: &mut impl Receiver,
 ) -> Result<Value, (Error, Vec<Frame>)> {
     let mut state = State::new(package, graph, None, ErrorBehavior::FailOnError);
-    let StepResult::Return(value) =
-        state.eval(globals, env, sim, out, &[], StepAction::Continue)?
+    let StepResult::Return(value) = state.eval(
+        globals,
+        env,
+        &mut TracingBackend::no_tracer(sim),
+        out,
+        &[],
+        StepAction::Continue,
+    )?
     else {
         unreachable!("eval_expr should always return a value");
     };

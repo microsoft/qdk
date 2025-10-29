@@ -14,6 +14,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { fileURLToPath } from "node:url";
+import prettier from "prettier";
 import { getCompiler } from "../dist/main.js";
 import { draw } from "../dist/ux/circuit-vis/index.js";
 
@@ -130,14 +131,20 @@ function htmlSnapshotPath(name) {
  * @param {test.TestContext} t
  * @param {string} name
  */
-function checkDocumentSnapshot(t, name) {
-  t.assert.fileSnapshot(
-    new XMLSerializer().serializeToString(document) + "\n",
-    htmlSnapshotPath(name),
-    {
-      serializers: [(s) => String(s)],
-    },
-  );
+async function checkDocumentSnapshot(t, name) {
+  const rawHtml = new XMLSerializer().serializeToString(document) + "\n";
+
+  // Format with prettier for readable snapshots
+  const formattedHtml = await prettier.format(rawHtml, {
+    parser: "html",
+    printWidth: 80,
+    tabWidth: 2,
+    useTabs: false,
+  });
+
+  t.assert.fileSnapshot(formattedHtml, htmlSnapshotPath(name), {
+    serializers: [(s) => String(s)],
+  });
 }
 
 /**
@@ -156,6 +163,41 @@ function loadCircuit(file) {
   }
 }
 
+/**
+ * @param {{ file: string; line: number; column: number; }[]} locations
+ */
+function renderLocations(locations) {
+  let locs = locations.map((loc) => renderLocation(loc));
+  return {
+    title: locs.map((l) => l.title).join("\n"),
+    href: "#",
+  };
+}
+
+/**
+ * @param {{ file: string; line: number; column: number; }} location
+ */
+function renderLocation(location) {
+  // Read the file and extract the specific line
+  try {
+    const filePath = path.join(getCasesDirectory(), location.file);
+    const fileContent = fs.readFileSync(filePath, "utf8");
+    const lines = fileContent.split("\n");
+    const targetLine = lines[location.line] || "";
+    const snippet = targetLine.trim();
+
+    return {
+      title: `${location.file}:${location.line + 1}:${location.column + 1}\n${snippet.replace(/'/g, "\\'")}`,
+      href: "#",
+    };
+  } catch {
+    return {
+      title: `Error loading ${location.file}:${location.line + 1}`,
+      href: "#",
+    };
+  }
+}
+
 test("circuit snapshot tests - .qsc files", async (t) => {
   const files = findFilesWithExtension(getCasesDirectory(), ".qsc");
   if (files.length === 0) {
@@ -165,11 +207,14 @@ test("circuit snapshot tests - .qsc files", async (t) => {
 
   for (const file of files) {
     const relName = path.basename(file);
-    await t.test(relName, (tt) => {
+    await t.test(relName, async (tt) => {
       const circuit = loadCircuit(file);
       const container = createContainerElement(`circuit`);
-      draw(circuit, container, 0, true /* isEditable */);
-      checkDocumentSnapshot(tt, tt.name);
+      draw(circuit, container, {
+        isEditable: true,
+        renderLocations,
+      });
+      await checkDocumentSnapshot(tt, tt.name);
     });
   }
 });
@@ -195,11 +240,17 @@ test("circuit snapshot tests - .qs files", async (t) => {
             languageFeatures: [],
             profile: "adaptive_rif",
           },
-          false,
+          {
+            generationMethod: "classicalEval",
+            maxOperations: 100,
+            sourceLocations: true,
+          },
         );
 
         // Render the circuit
-        draw(circuit, container);
+        draw(circuit, container, {
+          renderLocations,
+        });
       } catch (e) {
         const pre = document.createElement("pre");
         pre.appendChild(
@@ -208,7 +259,7 @@ test("circuit snapshot tests - .qs files", async (t) => {
         container.appendChild(pre);
       }
 
-      checkDocumentSnapshot(tt, tt.name);
+      await checkDocumentSnapshot(tt, tt.name);
     });
   }
 });

@@ -10,6 +10,7 @@ from .._qsharp import (
     get_interpreter,
     ipython_helper,
     Circuit,
+    CircuitConfig,
     python_args_to_interpreter_args,
 )
 from .. import telemetry_events
@@ -18,7 +19,7 @@ from .. import telemetry_events
 def circuit(
     source: Optional[Union[str, Callable]] = None,
     *args,
-    **kwargs: Optional[Dict[str, Any]],
+    **kwargs: Any,
 ) -> Circuit:
     """
     Synthesizes a circuit for an OpenQASM program. Either a program string or
@@ -43,9 +44,21 @@ def circuit(
     ipython_helper()
     start = monotonic()
     telemetry_events.on_circuit_qasm()
+
+    max_operations = kwargs.pop("max_operations", None)
+    generation_method = kwargs.pop("generation_method", None)
+    source_locations = kwargs.pop("source_locations", None)
+    config = CircuitConfig(
+        max_operations=max_operations,
+        generation_method=generation_method,
+        source_locations=source_locations,
+    )
+
     if isinstance(source, Callable) and hasattr(source, "__global_callable"):
         args = python_args_to_interpreter_args(args)
-        res = get_interpreter().circuit(callable=source.__global_callable, args=args)
+        res = get_interpreter().circuit(
+            config, callable=source.__global_callable, args=args
+        )
     else:
         # remove any entries from kwargs with a None key or None value
         kwargs = {k: v for k, v in kwargs.items() if k is not None and v is not None}
@@ -55,6 +68,7 @@ def circuit(
 
         res = circuit_qasm_program(
             source,
+            config,
             read_file,
             list_directory,
             resolve,
