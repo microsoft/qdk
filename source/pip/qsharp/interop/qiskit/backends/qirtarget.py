@@ -141,7 +141,7 @@ class QirTarget:
                 - Three-qubit gates (CCX)
                 - Multi-qubit rotation gates (RXX, RYY, RZZ)
                 - Measurement and reset operations
-                - Control flow operations (if target_profile != Base)
+                - Control flow operations (when target_profile != Base)
                 - Optional barrier and delay operations
 
         Note:
