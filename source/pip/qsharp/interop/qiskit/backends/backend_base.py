@@ -120,7 +120,6 @@ class BackendBase(BackendV2, ABC):
             qiskit_pass_options (Dict): Options for the Qiskit passes.
             transpile_options (Dict): Options for the transpiler.
             qasm_export_options (Dict): Options for the QASM3 exporter.
-            num_qubits: optional number of qubits for the default target if not supplied
             **options: Additional keyword arguments to pass to the
                 execution used by subclasses.
         """
