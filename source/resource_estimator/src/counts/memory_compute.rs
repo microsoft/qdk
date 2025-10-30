@@ -6,17 +6,17 @@ use std::hash::Hash;
 mod tests;
 
 pub enum CachingStrategy {
-    LeastRecentlyUsed(LruPQ<usize>),
-    LeastFrequentlyUsed(LfuPQ<usize>),
+    LeastRecentlyUsed(LeastRecentlyUsedPriorityQueue<usize>),
+    LeastFrequentlyUsed(LeastFrequentlyUsedPriorityQueue<usize>),
 }
 
 impl CachingStrategy {
     pub fn least_recently_used(capacity: usize) -> Self {
-        CachingStrategy::LeastRecentlyUsed(LruPQ::new(capacity))
+        CachingStrategy::LeastRecentlyUsed(LeastRecentlyUsedPriorityQueue::new(capacity))
     }
 
     pub fn least_frequently_used(capacity: usize) -> Self {
-        CachingStrategy::LeastFrequentlyUsed(LfuPQ::new(capacity))
+        CachingStrategy::LeastFrequentlyUsed(LeastFrequentlyUsedPriorityQueue::new(capacity))
     }
 }
 
@@ -79,7 +79,7 @@ impl MemoryComputeInfo {
 /// LRU priority queue / set. Maintains up to `capacity` distinct keys; eviction
 /// removes the least recently used key.
 #[derive(Debug)]
-pub struct LruPQ<K> {
+pub struct LeastRecentlyUsedPriorityQueue<K> {
     // Set of keys for O(1) membership testing.
     map: FxHashSet<K>,
     // Deque of keys in recency order (most recent at front).
@@ -94,7 +94,7 @@ pub struct LruPQ<K> {
     max_size: usize,
 }
 
-impl<K: Eq + Hash + Clone> LruPQ<K> {
+impl<K: Eq + Hash + Clone> LeastRecentlyUsedPriorityQueue<K> {
     pub fn new(capacity: usize) -> Self {
         Self {
             map: FxHashSet::with_capacity_and_hasher(capacity, Default::default()),
@@ -178,7 +178,7 @@ impl<K: Eq + Hash + Clone> LruPQ<K> {
 /// LFU priority queue / set. Maintains up to `capacity` distinct keys; eviction
 /// removes the key with lowest frequency (ties broken by oldest insertion among
 /// that frequency bucket).
-pub struct LfuPQ<K> {
+pub struct LeastFrequentlyUsedPriorityQueue<K> {
     // Map of keys to their frequencies.
     map: FxHashMap<K, u64>,
     // Same-frequency buckets with ordered keys (oldest at front).
@@ -195,7 +195,7 @@ pub struct LfuPQ<K> {
     max_size: usize,
 }
 
-impl<K: Eq + Hash + Clone> LfuPQ<K> {
+impl<K: Eq + Hash + Clone> LeastFrequentlyUsedPriorityQueue<K> {
     pub fn new(capacity: usize) -> Self {
         Self {
             map: FxHashMap::with_capacity_and_hasher(capacity, Default::default()),

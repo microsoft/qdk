@@ -1,9 +1,9 @@
-use super::{LfuPQ, LruPQ};
+use super::{LeastFrequentlyUsedPriorityQueue, LeastRecentlyUsedPriorityQueue};
 
 // ---------------- LRU tests -----------------
 #[test]
 fn lru_insert_all_all_existing() {
-    let mut lru = LruPQ::new(4);
+    let mut lru = LeastRecentlyUsedPriorityQueue::new(4);
     lru.insert_all(["a", "b", "c"]);
     assert_eq!(lru.inserted_new_count(), 3);
     assert_eq!(lru.removed_count(), 0);
@@ -15,7 +15,7 @@ fn lru_insert_all_all_existing() {
 
 #[test]
 fn lru_insert_all_some_new_no_eviction() {
-    let mut lru = LruPQ::new(5);
+    let mut lru = LeastRecentlyUsedPriorityQueue::new(5);
     lru.insert_all(["a", "b"]);
     lru.insert_all(["b", "c", "d"]); // adds c,d
     assert_eq!(lru.inserted_new_count(), 4); // a,b,c,d
@@ -25,7 +25,7 @@ fn lru_insert_all_some_new_no_eviction() {
 
 #[test]
 fn lru_insert_all_with_eviction() {
-    let mut lru = LruPQ::new(3);
+    let mut lru = LeastRecentlyUsedPriorityQueue::new(3);
     lru.insert_all(["a", "b"]);
     lru.insert_all(["b", "c", "d"]); // evicts a, inserts c,d
     assert_eq!(lru.inserted_new_count(), 4); // a,b,c,d
@@ -36,7 +36,7 @@ fn lru_insert_all_with_eviction() {
 
 #[test]
 fn lru_insert_all_complex_eviction() {
-    let mut lru = LruPQ::new(4);
+    let mut lru = LeastRecentlyUsedPriorityQueue::new(4);
     lru.insert_all(["a", "b", "c"]);
     // Touch a to make it most recent, order (a, c, b, ... LRU is b)
     lru.insert_all(["a"]);
@@ -48,7 +48,7 @@ fn lru_insert_all_complex_eviction() {
 
 #[test]
 fn lru_insert_all_duplicates_in_input() {
-    let mut lru = LruPQ::new(5);
+    let mut lru = LeastRecentlyUsedPriorityQueue::new(5);
     lru.insert_all(["a", "b", "b", "c", "a", "d"]); // duplicates should not inflate count
     assert_eq!(lru.inserted_new_count(), 4); // a,b,c,d
     assert_eq!(lru.removed_count(), 0);
@@ -57,7 +57,7 @@ fn lru_insert_all_duplicates_in_input() {
 
 #[test]
 fn lru_insert_all_recency_update_only() {
-    let mut lru = LruPQ::new(3);
+    let mut lru = LeastRecentlyUsedPriorityQueue::new(3);
     lru.insert_all(["x", "y", "z"]);
     assert_eq!(lru.inserted_new_count(), 3);
     lru.insert_all(["z", "y"]); // no new insertions
@@ -73,7 +73,7 @@ fn lru_insert_all_recency_update_only() {
 // ---------------- LFU tests -----------------
 #[test]
 fn lfu_basic_frequency_eviction() {
-    let mut lfu = LfuPQ::new(3);
+    let mut lfu = LeastFrequentlyUsedPriorityQueue::new(3);
     lfu.insert_all(["a"]);
     lfu.insert_all(["b"]);
     lfu.insert_all(["c"]);
@@ -90,7 +90,7 @@ fn lfu_basic_frequency_eviction() {
 
 #[test]
 fn lfu_update_existing_value() {
-    let mut lfu = LfuPQ::new(1);
+    let mut lfu = LeastFrequentlyUsedPriorityQueue::new(1);
     lfu.insert_all(["a"]);
     lfu.insert_all(["a"]); // bump freq
     assert!(lfu.map.contains_key(&"a"));
@@ -101,7 +101,7 @@ fn lfu_update_existing_value() {
 
 #[test]
 fn lfu_zero_capacity() {
-    let mut lfu: LfuPQ<&str> = LfuPQ::new(0);
+    let mut lfu: LeastFrequentlyUsedPriorityQueue<&str> = LeastFrequentlyUsedPriorityQueue::new(0);
     lfu.insert_all(["a"]); // ignored
     assert_eq!(lfu.inserted_new_count(), 0);
     assert_eq!(lfu.removed_count(), 0);
@@ -110,7 +110,7 @@ fn lfu_zero_capacity() {
 
 #[test]
 fn lfu_eviction_prefers_lowest_freq_oldest() {
-    let mut lfu = LfuPQ::new(3);
+    let mut lfu = LeastFrequentlyUsedPriorityQueue::new(3);
     lfu.insert_all(["x"]);
     lfu.insert_all(["y"]);
     lfu.insert_all(["z"]);
@@ -127,7 +127,7 @@ fn lfu_eviction_prefers_lowest_freq_oldest() {
 
 #[test]
 fn lfu_insert_all() {
-    let mut lfu = LfuPQ::new(3);
+    let mut lfu = LeastFrequentlyUsedPriorityQueue::new(3);
     lfu.insert_all(["a"]);
     lfu.insert_all(["b"]);
     lfu.insert_all(["b"]); // bump b
@@ -145,7 +145,7 @@ fn lfu_insert_all() {
 
 #[test]
 fn lfu_counters() {
-    let mut lfu = LfuPQ::new(3);
+    let mut lfu = LeastFrequentlyUsedPriorityQueue::new(3);
     lfu.insert_all(["a"]);
     lfu.insert_all(["b"]);
     lfu.insert_all(["c"]);
@@ -165,7 +165,7 @@ fn lfu_counters() {
 
 #[test]
 fn lfu_max_size_tracking() {
-    let mut lfu = LfuPQ::new(4);
+    let mut lfu = LeastFrequentlyUsedPriorityQueue::new(4);
     assert_eq!(lfu.max_size(), 0);
     lfu.insert_all(["a"]);
     lfu.insert_all(["b"]);
