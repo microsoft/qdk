@@ -1,15 +1,15 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { GateRenderData, GateType } from "./gateRenderData";
+import { GateRenderData, GateType } from "./gateRenderData.js";
 import {
   minGateWidth,
   labelPadding,
   labelFontSize,
   argsFontSize,
-} from "./constants";
-import { ComponentGrid, Operation } from "./circuit";
-import { Register } from "./register";
+} from "./constants.js";
+import { ComponentGrid, Operation } from "./circuit.js";
+import { Register } from "./register.js";
 
 /**
  * Performs a deep equality check between two objects or arrays.
@@ -48,20 +48,6 @@ const deepEqual = (obj1: unknown, obj2: unknown): boolean => {
 
   return true;
 };
-
-/**
- * Generate a UUID using `Math.random`.
- * Note: this implementation came from https://stackoverflow.com/questions/105034/how-to-create-guid-uuid
- * and is not cryptographically secure but works for our use case.
- *
- * @returns UUID string.
- */
-const createUUID = (): string =>
-  "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
-    const r = (Math.random() * 16) | 0,
-      v = c == "x" ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
 
 /**
  * Calculate the width of a gate, given its render data.
@@ -388,7 +374,7 @@ const getToolboxElems = (container: HTMLElement): SVGGraphicsElement[] => {
  * @returns An array of SVG graphics elements representing the host elements.
  */
 const getHostElems = (container: HTMLElement): SVGGraphicsElement[] => {
-  const circuitSvg = container.querySelector("svg[id]");
+  const circuitSvg = container.querySelector("svg.qviz");
   return circuitSvg != null
     ? Array.from(
         circuitSvg.querySelectorAll<SVGGraphicsElement>(
@@ -405,7 +391,7 @@ const getHostElems = (container: HTMLElement): SVGGraphicsElement[] => {
  * @returns An array of SVG graphics elements representing the gate elements.
  */
 const getGateElems = (container: HTMLElement): SVGGraphicsElement[] => {
-  const circuitSvg = container.querySelector("svg[id]");
+  const circuitSvg = container.querySelector("svg.qviz");
   return circuitSvg != null
     ? Array.from(circuitSvg.querySelectorAll<SVGGraphicsElement>(".gate"))
     : [];
@@ -418,7 +404,7 @@ const getGateElems = (container: HTMLElement): SVGGraphicsElement[] => {
  * @returns An array of SVGTextElement representing the qubit labels.
  */
 const getQubitLabelElems = (container: HTMLElement): SVGTextElement[] => {
-  const circuitSvg = container.querySelector("svg[id]");
+  const circuitSvg = container.querySelector("svg.qviz");
   if (!circuitSvg) return [];
   const labelGroup = circuitSvg.querySelector("g.qubit-input-states");
   if (!labelGroup) return [];
@@ -440,7 +426,6 @@ const mathChars = {
 
 export {
   deepEqual,
-  createUUID,
   getGateWidth,
   getChildTargets,
   locationStringToIndexes,

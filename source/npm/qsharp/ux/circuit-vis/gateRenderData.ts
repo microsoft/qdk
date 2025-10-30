@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { DataAttributes } from "./circuit";
+import { DataAttributes } from "./circuit.js";
 
 /**
  * Enum for the various gate operations handled.
