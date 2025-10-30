@@ -12,6 +12,7 @@ import {
   ReData,
   Circuit,
   setRenderer,
+  MoleculeViewer,
 } from "qsharp-lang/ux";
 import markdownIt from "markdown-it";
 import "./widgets.css";
@@ -75,6 +76,9 @@ export function render({ model, el }: RenderArgs) {
       break;
     case "Circuit":
       renderCircuit({ model, el });
+      break;
+    case "MoleculeViewer":
+      renderMoleculeViewer({ model, el });
       break;
     default:
       throw new Error(`Unknown component type ${componentType}`);
@@ -244,4 +248,14 @@ function renderCircuit({ model, el }: RenderArgs) {
 
   onChange();
   model.on("change:circuit_json", onChange);
+}
+
+function renderMoleculeViewer({ model, el }: RenderArgs) {
+  const onChange = () => {
+    const moleculeData = model.get("molecule_data") as string;
+    prender(<MoleculeViewer moleculeData={moleculeData}></MoleculeViewer>, el);
+  };
+
+  onChange();
+  model.on("change:molecule_data", onChange);
 }

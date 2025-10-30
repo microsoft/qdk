@@ -180,3 +180,21 @@ class Circuit(anywidget.AnyWidget):
         super().__init__()
         self.circuit_json = circuit.json()
         self.layout.overflow = "visible scroll"
+
+
+class MoleculeViewer(anywidget.AnyWidget):
+    _esm = pathlib.Path(__file__).parent / "static" / "index.js"
+    _css = pathlib.Path(__file__).parent / "static" / "index.css"
+
+    comp = traitlets.Unicode("MoleculeViewer").tag(sync=True)
+    molecule_data = traitlets.Unicode().tag(sync=True)
+
+    def __init__(self, molecule_data):
+        """
+        This function generates a 3D molecule viewer for the provided molecular data in XYZ format.
+
+        Parameters:
+        - molecule_data: string containing the molecular data in XYZ format.
+        """
+        super().__init__()
+        self.molecule_data = molecule_data
