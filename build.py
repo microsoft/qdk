@@ -152,6 +152,17 @@ wheels_dir = os.path.join(root_dir, "target", "wheels")
 vscode_src = os.path.join(qdk_src_dir, "vscode")
 jupyterlab_src = os.path.join(qdk_src_dir, "jupyterlab")
 
+QISKIT_VERSION_MATRIX = [
+    {
+        "label": "qiskit>=1.3.0,<2.0.0",
+        "requirements": ["qiskit>=1.3.0,<2.0.0"],
+    },
+    {
+        "label": "qiskit>=2.0.0,<3.0.0",
+        "requirements": ["qiskit>=2.0.0,<3.0.0"],
+    },
+]
+
 
 def step_start(description):
     global start_time
@@ -329,8 +340,12 @@ def repair_manylinux_wheels(cwd, wheelhouse, interpreter):
 def install_python_test_requirements(cwd, interpreter, check: bool = True):
     requirements_file_path = os.path.join(cwd, "test_requirements.txt")
     with open(requirements_file_path, "r", encoding="utf-8") as f:
-        # Skip empty lines
-        requirements = [line for line in f if line.strip()]
+        # Skip empty or commented lines so version-specific packages can be injected separately.
+        requirements = [
+            line.strip()
+            for line in f
+            if line.strip() and not line.strip().startswith("#")
+        ]
     for requirement in requirements:
         command_args = [
             interpreter,
@@ -439,15 +454,30 @@ if build_pip:
         step_end()
 
     if args.integration_tests:
-        step_start("Running integration tests for the pip package")
         test_dir = os.path.join(pip_src, "tests-integration")
-
         install_python_test_requirements(test_dir, python_bin, check=False)
-        install_qsharp_python_package(pip_src, wheels_dir, python_bin)
 
-        run_python_integration_tests(test_dir, python_bin)
+        for version in QISKIT_VERSION_MATRIX:
+            step_start(
+                f"Running integration tests for the pip package ({version['label']})"
+            )
 
-        step_end()
+            version_install_args = [
+                python_bin,
+                "-m",
+                "pip",
+                "install",
+                "--upgrade",
+                "--upgrade-strategy",
+                "eager",
+            ] + version["requirements"]
+            subprocess.run(version_install_args, check=True, text=True, cwd=test_dir)
+
+            install_qsharp_python_package(pip_src, wheels_dir, python_bin)
+
+            run_python_integration_tests(test_dir, python_bin)
+
+            step_end()
 
     if args.manylinux:
         step_start("Repairing manylinux wheels")
@@ -710,37 +740,68 @@ if build_pip and build_widgets and args.integration_tests:
         "nbconvert",
         "pandas",
         "qutip",
-        "qiskit>=1.3.0,<2.0.0",
     ]
     subprocess.run(pip_install_args, check=True, text=True, cwd=root_dir, env=pip_env)
 
-    for notebook in notebook_files:
-        print(f"Running {notebook}")
-        # Run the notebook process, capturing stdout and only displaying it if there is an error
-        result = subprocess.run(
-            [
+    qiskit_notebooks = [
+        notebook
+        for notebook in notebook_files
+        if "qiskit" in os.path.basename(notebook).lower()
+    ]
+    other_notebooks = [
+        notebook for notebook in notebook_files if notebook not in qiskit_notebooks
+    ]
+
+    def _run_notebooks(files):
+        for notebook in files:
+            print(f"Running {notebook}")
+            # Run the notebook process, capturing stdout and only displaying it if there is an error
+            result = subprocess.run(
+                [
+                    python_bin,
+                    "-m",
+                    "nbconvert",
+                    "--to",
+                    "notebook",
+                    "--stdout",
+                    "--ExecutePreprocessor.timeout=60",
+                    "--sanitize-html",
+                    "--execute",
+                    notebook,
+                ],
+                check=False,
+                text=True,
+                cwd=root_dir,
+                env=pip_env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                encoding="utf-8",
+            )
+            if result.returncode != 0:
+                print(result.stdout)
+                raise Exception(f"Error running {notebook}")
+
+    if other_notebooks:
+        print("Executing notebooks")
+        _run_notebooks(other_notebooks)
+
+    if qiskit_notebooks:
+        for version in QISKIT_VERSION_MATRIX:
+            print(f"Executing Qiskit notebooks with {version['label']}")
+            version_install_args = [
                 python_bin,
                 "-m",
-                "nbconvert",
-                "--to",
-                "notebook",
-                "--stdout",
-                "--ExecutePreprocessor.timeout=60",
-                "--sanitize-html",
-                "--execute",
-                notebook,
-            ],
-            check=False,
-            text=True,
-            cwd=root_dir,
-            env=pip_env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            encoding="utf-8",
-        )
-        if result.returncode != 0:
-            print(result.stdout)
-            raise Exception(f"Error running {notebook}")
+                "pip",
+                "install",
+                "--upgrade",
+                "--upgrade-strategy",
+                "eager",
+            ] + version["requirements"]
+            subprocess.run(
+                version_install_args, check=True, text=True, cwd=root_dir, env=pip_env
+            )
+
+            _run_notebooks(qiskit_notebooks)
 
     step_end()
 
