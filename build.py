@@ -698,6 +698,7 @@ if build_pip and build_widgets and args.integration_tests:
             or f.startswith("python-deps.")
             or f.startswith("submit_qiskit_circuit_to_azure.")
             or f.startswith("cirq_submission_to_azure.")
+            or f.startswith("pennylane_submission_to_azure.")
         )
     ]
     python_bin = use_python_env(samples_src)
