@@ -658,9 +658,35 @@ if build_vscode:
     subprocess.run(vscode_args, check=True, text=True, cwd=vscode_src)
     step_end()
     if args.integration_tests:
+        step_start("Initializing the VS Code integration tests")
+        # Retry the empty suite initialization up to 3 times in case of transient failures.
+        last_err = None
+        for attempt in range(1, 4):
+            try:
+                subprocess.run(
+                    [npm_cmd, "test", "--", "--suite=empty"],
+                    check=True,
+                    text=True,
+                    cwd=vscode_src,
+                )
+                break
+            except subprocess.CalledProcessError as e:
+                last_err = e
+                if attempt < 3:
+                    print(
+                        f"VS Code integration test initialization failed (attempt {attempt}/3). Retrying..."
+                    )
+                    # Short sleep to avoid hammering
+                    time.sleep(2)
+                else:
+                    print(
+                        f"VS Code integration test initialization failed after {attempt} attempts."
+                    )
+                    raise
+        step_end()
+
         step_start("Running the VS Code integration tests")
-        vscode_args = [npm_cmd, "test"]
-        subprocess.run(vscode_args, check=True, text=True, cwd=vscode_src)
+        subprocess.run([npm_cmd, "test"], check=True, text=True, cwd=vscode_src)
         step_end()
 
 

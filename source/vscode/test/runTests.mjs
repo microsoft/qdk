@@ -49,7 +49,7 @@ const thisDir = dirname(fileURLToPath(import.meta.url));
 const extensionDevelopmentPath = join(thisDir, "..");
 
 try {
-  const suites = ["language-service", "debugger"];
+  const suites = ["language-service", "debugger", "empty"];
   const toRun =
     selectedSuite && suites.includes(selectedSuite) ? [selectedSuite] : suites;
 

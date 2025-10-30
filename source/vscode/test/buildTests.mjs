@@ -14,6 +14,7 @@ const buildOptions = {
   entryPoints: [
     join(thisDir, "suites", "language-service", "index.ts"),
     join(thisDir, "suites", "debugger", "index.ts"),
+    join(thisDir, "suites", "empty", "index.ts"),
   ],
   outdir: join(thisDir, "out"),
   bundle: true,
