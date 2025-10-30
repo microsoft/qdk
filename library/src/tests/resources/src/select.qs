@@ -60,6 +60,29 @@ namespace Test {
         Fact(equal, "Select+Unselect should be equivalent to identity up to global phase.");
     }
 
+    internal operation TestSelectLongerAddress() : Unit {
+        use addressRegister = Qubit[5];
+        use targetRegister = Qubit[4];
+
+        // Could be random, but fixed for reproducibility
+        let data = [
+            [false, false, false, false],
+            [false, false, true, false],
+            [true, true, false, false],
+            [false, true, false, false],
+        ];
+
+        // Select followed by unselect. This should be equivalent to identity.
+        within {
+            Select(data, addressRegister, targetRegister);
+        } apply {
+            // Do nothing.
+        }
+
+        Fact(CheckAllZero(targetRegister), "Target register must be in |0⟩ state after unlookup.");
+        Fact(CheckAllZero(addressRegister), "Address register must be in |0⟩ state after unlookup.");
+    }
+
     internal operation TestSelectFuzz(rounds : Int) : Unit {
         for _ in 1..rounds {
             let addressBits = DrawRandomInt(2, 6);
