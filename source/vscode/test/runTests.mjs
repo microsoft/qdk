@@ -18,17 +18,17 @@
 //                          Q# extension logs are usually more relevant for debugging tests.
 //                          To control the Q# extension log level see: suites/extensionUtils.ts
 
-import { runTests } from "@vscode/test-web";
+// import { runTests } from "@vscode/test-web";
 import { readFileSync } from "node:fs";
 import { SourceMap } from "node:module";
 import path, { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const attachArgName = "--waitForDebugger=";
-const verboseArgName = "--verbose";
+// const verboseArgName = "--verbose";
 const suiteArgName = "--suite=";
 
-const verbose = process.argv.includes(verboseArgName);
+// const verbose = process.argv.includes(verboseArgName);
 const waitForDebugger = process.argv.find((arg) =>
   arg.startsWith(attachArgName),
 );
@@ -46,7 +46,7 @@ if (waitForDebugger && !selectedSuite) {
 
 const thisDir = dirname(fileURLToPath(import.meta.url));
 // The folder containing the Extension Manifest package.json
-const extensionDevelopmentPath = join(thisDir, "..");
+// const extensionDevelopmentPath = join(thisDir, "..");
 
 try {
   const suites = ["language-service", "debugger"];
@@ -63,8 +63,8 @@ try {
 }
 
 async function runSuite(name) {
-  const extensionTestsPath = join(thisDir, "out", name, "index");
-  const workspacePath = join(thisDir, "suites", name, "test-workspace");
+  // const extensionTestsPath = join(thisDir, "out", name, "index");
+  // const workspacePath = join(thisDir, "suites", name, "test-workspace");
 
   // Capture console output before running tests,
   // so that we can map stack traces to original source files.
@@ -74,6 +74,7 @@ async function runSuite(name) {
     // Start a web server that serves VS Code in a browser, run the tests
     // TODO: reenable tests once network failures are addressed
     // (https://github.com/microsoft/qdk/pull/2764)
+    void name;
     // await runTests({
     //   headless: true, // pass false to see VS Code UI
     //   browserType: "chromium",
