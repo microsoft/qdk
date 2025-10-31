@@ -8,6 +8,7 @@ use crate::{
 use miette::{Diagnostic, LabeledSpan, Severity};
 use qsc::{self, SourceName, Span, error::WithSource, interpret, project};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::{fmt::Write, iter};
 use wasm_bindgen::prelude::*;
 
@@ -69,15 +70,8 @@ impl VSDiagnostic {
         serde_json::to_value(self).expect("serializing VSDiagnostic should succeed")
     }
 
-    /// Creates a [`VSDiagnostic`] from an interpreter error. See `VSDiagnostic::new()` for details.
-    pub(crate) fn from_interpret_error(source_name: &str, err: &interpret::Error) -> Self {
-        let labels = interpret_error_labels(err);
-
-        Self::new(labels, source_name, err)
-    }
-
     /// Creates a [`VSDiagnostic`] from a compiler error. See `VSDiagnostic::new()` for details.
-    pub(crate) fn from_compile_error(source_name: &str, err: &qsc::compile::Error) -> Self {
+    fn from_compile_error(source_name: &str, err: &qsc::compile::Error) -> Self {
         let labels = error_labels(err);
 
         Self::new(labels, source_name, err)
@@ -215,6 +209,24 @@ where
         range,
         message: labeled_span.label().map(ToString::to_string),
     }
+}
+
+/// The JSON object returned here is of type
+/// `VSDiagnostic & { errors: IQSharpError[] }`
+///
+/// `VSDiagnostic` is only the first error, and is returned
+/// only for backward compatibility with versions of the WASM API
+/// that returned a single diagnostic.
+///
+/// The `errors` field contains all the errors and richer information.
+pub fn interpret_errors_to_run_result(errs: &[interpret::Error]) -> serde_json::Value {
+    let qsharp_errors = interpret_errors_into_qsharp_errors(errs);
+    let mut vs_diagnostic = qsharp_errors[0].diagnostic.json();
+    vs_diagnostic
+        .as_object_mut()
+        .expect("VSDiagnostic should be an object")
+        .insert("errors".to_string(), json!(qsharp_errors));
+    vs_diagnostic
 }
 
 /// Converts interpreter errors into the error type that is suitable for

@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use crate::diagnostic::interpret_errors_to_run_result;
 use crate::line_column::{Location, Range};
 use crate::project_system::{ProgramConfig, into_qsc_args};
 use crate::{
@@ -166,12 +167,8 @@ impl DebugService {
                 _ => None,
             },
             Err(errors) => {
-                // TODO: handle multiple errors
-                // https://github.com/microsoft/qsharp/issues/149
                 success = false;
-                errors[0]
-                    .stack_trace()
-                    .map(|arg0: &std::string::String| serde_json::Value::String(arg0.clone()))
+                Some(interpret_errors_to_run_result(errors))
             }
         };
         if let Some(value) = msg {

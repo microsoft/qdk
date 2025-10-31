@@ -183,6 +183,26 @@ pub enum TraceCircuitOption {
 }
 
 impl Interpreter {
+    pub fn new_with_circuit_trace(
+        sources: SourceMap,
+        package_type: PackageType,
+        capabilities: TargetCapabilityFlags,
+        language_features: LanguageFeatures,
+        store: PackageStore,
+        dependencies: &Dependencies,
+    ) -> std::result::Result<Self, Vec<Error>> {
+        Self::new_with_sources(
+            false,
+            sources,
+            package_type,
+            capabilities,
+            language_features,
+            store,
+            dependencies,
+            true,
+        )
+    }
+
     /// Creates a new incremental compiler, compiling the passed in sources.
     /// # Errors
     /// If compiling the sources fails, compiler errors are returned.
