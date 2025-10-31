@@ -110,7 +110,7 @@ export function getPythonCodeForWorkspace(
 # should be configured and used for authentication. For more information, see
 # https://learn.microsoft.com/en-us/azure/developer/python/sdk/authentication-overview
 
-from azure.quantum import Workspace
+from qdk.azure import Workspace
 
 # If using an access key, replace the below with: Workspace.from_connection_string(connection_string)
 # Or set the "AZURE_QUANTUM_CONNECTION_STRING" environment variable and just use: Workspace()

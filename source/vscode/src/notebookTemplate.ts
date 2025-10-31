@@ -13,23 +13,23 @@ export const notebookTemplate: vscode.NotebookData = {
       languageId: "markdown",
       value: `## Azure Quantum Q# notebook
 
-To use Jupyter Notebooks with Q#, the "qsharp" and "jupyterlab" Python packages should be installed.
+To use Jupyter Notebooks with Q#, the "qdk" Python package should be installed with the "jupyter" extra.
 
 To render charts as shown in this notebook, Matplotlib with notebook widgets support should be installed via "ipympl".
 
-To submit to Azure Quantum as shown in this notebook, the "azure-quantum" package needs to be installed.
+To submit to Azure Quantum as shown in this notebook, the "azure" extra of the "qdk" package needs to be installed.
 
 You can install all the above packages in your Python environment by running the below in your terminal:
 
 \`\`\`bash
-pip install jupyterlab qsharp ipympl azure-quantum
+pip install qdk[jupyter,azure] ipympl
 \`\`\``,
     },
     {
       kind: vscode.NotebookCellKind.Code,
       languageId: "python",
       value: `# Run this cell first to enable the "%%qsharp" magic command used in later cells
-import qsharp
+from qdk import qsharp
 `,
     },
     {
@@ -123,12 +123,12 @@ plt.show()
       languageId: "markdown",
       value: `## Q# widgets
 
-You can also use the \`qsharp_widgets\` package to visualize data. Install with \`pip install qsharp-widgets\``,
+You can also use the widgets to visualize data.`,
     },
     {
       kind: vscode.NotebookCellKind.Code,
       languageId: "python",
-      value: `from qsharp_widgets import Histogram
+      value: `from qdk.widgets import Histogram
 
 Histogram(results)
 `,
@@ -136,7 +136,7 @@ Histogram(results)
     {
       kind: vscode.NotebookCellKind.Code,
       languageId: "python",
-      value: `from qsharp_widgets import EstimatesPanel
+      value: `from qdk.widgets import EstimatesPanel
 
 estimate = qsharp.estimate("RandomBit()", [
     {"errorBudget": 0.333, "qubitParams": {"name": "qubit_gate_ns_e3"}},
@@ -154,7 +154,7 @@ EstimatesPanel(estimate)
 Different quantum hardware supports different capabilities, but all Azure Quantum providers support the 'base profile'
 as defined in the 'Quantum Intermediate Representation' (QIR) specification. (For more details see <https://aka.ms/qdk.qir>)
 
-To develop code using this base profile, reintialize the Q# compiler, connect to your Azure Quantum workspace, and submit the job.
+To develop code using this base profile, reinitialize the Q# compiler, connect to your Azure Quantum workspace, and submit the job.
 `,
     },
     {
