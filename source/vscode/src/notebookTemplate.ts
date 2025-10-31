@@ -22,7 +22,7 @@ To submit to Azure Quantum as shown in this notebook, the "azure" extra of the "
 You can install all the above packages in your Python environment by running the below in your terminal:
 
 \`\`\`bash
-pip install qdk[jupyter,azure] ipympl
+pip install "qdk[jupyter,azure]" ipympl
 \`\`\``,
     },
     {
