@@ -13,6 +13,7 @@ import
     Std.Arithmetic.ApplyIfGreaterLE,
     Std.Arithmetic.ApplyIfGreaterL,
     Std.Arithmetic.ReflectAboutInteger,
+    Std.ArithmeticUtils.ApplyAsSinglyControlled,
     Std.Convert.IntAsBigInt,
     Std.Math.*,
     Std.Arrays.*;
@@ -351,7 +352,8 @@ operation ApproximatelyMultiplexZ(
         ApproximatelyMultiplexZ(tolerance, coefficients0, control, target);
         if AnyOutsideToleranceD(tolerance, coefficients1) {
             within {
-                Controlled X(controlRegister, target);
+                // Reduce circuit complexity by using aux qubits.
+                Controlled ApplyAsSinglyControlled(controlRegister, (X, target));
             } apply {
                 ApproximatelyMultiplexZ(tolerance, coefficients1, control, target);
             }
