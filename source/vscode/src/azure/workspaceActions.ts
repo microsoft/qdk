@@ -577,6 +577,18 @@ export async function submitJob(
   return { jobId, storageUris, quantumUris, token };
 }
 
+export async function cancelPendingJob(
+  workspace: WorkspaceConnection,
+  token: string,
+  jobId: string,
+): Promise<void> {
+  const quantumUris = new QuantumUris(workspace.endpointUri, workspace.id);
+
+  const cancelJobUri = quantumUris.jobs(jobId);
+
+  await azureRequest(cancelJobUri, token, undefined, "DELETE", undefined);
+}
+
 async function putJobData(
   quantumUris: QuantumUris,
   storageUris: StorageUris,

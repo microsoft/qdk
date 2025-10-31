@@ -1,8 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { Sqore } from "./sqore";
-import { CircuitGroup } from "./circuit";
+import { Sqore } from "./sqore.js";
+import { CircuitGroup } from "./circuit.js";
 
 /**
  * Render `circuit` into `container` at the specified layer depth.
@@ -34,4 +34,4 @@ export type {
   Column,
   Qubit,
   Operation,
-} from "./circuit";
+} from "./circuit.js";
