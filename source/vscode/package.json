@@ -238,6 +238,10 @@
           "when": "qsharp-vscode.treeItemSupportsDownload"
         },
         {
+          "command": "qsharp-vscode.cancelJob",
+          "when": "qsharp-vscode.treeItemIsCancelable"
+        },
+        {
           "command": "qsharp-vscode.getQir",
           "when": "resourceLangId == qsharp || resourceLangId == openqasm"
         },
@@ -303,6 +307,11 @@
           "command": "qsharp-vscode.targetSubmit",
           "group": "inline",
           "when": "view == quantum-workspaces && viewItem == qir-target"
+        },
+        {
+          "command": "qsharp-vscode.cancelJob",
+          "group": "inline",
+          "when": "view == quantum-workspaces && viewItem == job-cancelable"
         },
         {
           "command": "qsharp-vscode.downloadResults",
@@ -458,6 +467,12 @@
         "category": "QDK",
         "title": "Download Azure Quantum job results as text",
         "icon": "$(output)"
+      },
+      {
+        "command": "qsharp-vscode.cancelJob",
+        "category": "QDK",
+        "title": "Cancel Azure Quantum job",
+        "icon": "$(stop-circle)"
       },
       {
         "command": "qsharp-vscode.createNotebook",

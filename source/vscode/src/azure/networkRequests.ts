@@ -49,10 +49,16 @@ export async function azureRequest(
     }
 
     log.debug(`Got response ${response.status} ${response.statusText}`);
-    const result = await response.json();
-    log.trace("Response value: ", result);
 
-    return result;
+    // No payload is expected from delete requests
+    if (method === "DELETE") {
+      return;
+    } else {
+      const result = await response.json();
+      log.trace("Response value: ", result);
+
+      return result;
+    }
   } catch (e) {
     if (associationId) {
       sendTelemetryEvent(

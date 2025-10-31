@@ -1673,6 +1673,7 @@ impl<'a> PartialEvaluator<'a> {
             | "AccountForEstimatesInternal"
             | "BeginRepeatEstimatesInternal"
             | "EndRepeatEstimatesInternal"
+            | "EnableMemoryComputeArchitecture"
             | "ApplyIdleNoise"
             | "GlobalPhase" => Ok(Value::unit()),
             "CheckZero" => Err(Error::UnsupportedSimulationIntrinsic(
