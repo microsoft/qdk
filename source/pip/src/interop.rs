@@ -26,8 +26,8 @@ use qsc::{
 use crate::fs::file_system;
 use crate::interpreter::data_interop::value_to_pyobj;
 use crate::interpreter::{
-    OptionalCallbackReceiver, OutputSemantics, ProgramType, QSharpError, QasmError, TargetProfile,
-    format_error, format_errors,
+    CircuitConfig, OptionalCallbackReceiver, OutputSemantics, ProgramType, QSharpError, QasmError,
+    TargetProfile, format_error, format_errors,
 };
 
 use resource_estimator as re;
@@ -542,11 +542,12 @@ fn estimate_qasm(
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
 #[pyo3(
-    signature = (source, read_file, list_directory, resolve_path, fetch_github, **kwargs)
+    signature = (source, config, read_file, list_directory, resolve_path, fetch_github, **kwargs)
 )]
 pub(crate) fn circuit_qasm_program(
     py: Python,
     source: &str,
+    config: &CircuitConfig,
     read_file: Option<PyObject>,
     list_directory: Option<PyObject>,
     resolve_path: Option<PyObject>,
@@ -594,7 +595,25 @@ pub(crate) fn circuit_qasm_program(
         .set_entry_expr(&entry_expr)
         .map_err(|errors| map_entry_compilation_errors(errors, &signature))?;
 
-    match interpreter.circuit(CircuitEntryPoint::EntryExpr(entry_expr), false) {
+    let mut tracer_config = qsc::circuit::TracerConfig::default();
+    if let Some(max_ops) = config.max_operations {
+        tracer_config.max_operations = max_ops;
+    }
+    if let Some(locations) = config.source_locations {
+        tracer_config.source_locations = locations;
+    }
+
+    let generation_method = if let Some(generation_method) = config.generation_method {
+        generation_method.into()
+    } else {
+        qsc::interpret::CircuitGenerationMethod::ClassicalEval
+    };
+
+    match interpreter.circuit(
+        CircuitEntryPoint::EntryExpr(entry_expr),
+        generation_method,
+        tracer_config,
+    ) {
         Ok(circuit) => crate::interpreter::Circuit(circuit).into_py_any(py),
         Err(errors) => Err(QSharpError::new_err(format_errors(errors))),
     }

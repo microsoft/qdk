@@ -23,7 +23,19 @@ pub fn op_grid_to_comp_grid(operations: Vec<Vec<Operation>>) -> ComponentGrid {
 }
 
 fn qubit(id: usize) -> Qubit {
-    Qubit { id, num_results: 0 }
+    Qubit {
+        id,
+        num_results: 0,
+        declarations: vec![],
+    }
+}
+
+fn qubit_with_results(id: usize, num_results: usize) -> Qubit {
+    Qubit {
+        id,
+        num_results,
+        declarations: vec![],
+    }
 }
 
 fn q_reg(id: usize) -> Register {
@@ -41,6 +53,7 @@ fn measurement(q_id: usize, c_id: usize) -> Operation {
         qubits: vec![Register::quantum(q_id)],
         results: vec![Register::classical(q_id, c_id)],
         children: vec![],
+        source: None,
     })
 }
 
@@ -52,6 +65,7 @@ fn unitary(gate: &str, targets: Vec<Register>) -> Operation {
         controls: vec![],
         targets,
         children: vec![],
+        source: None,
     })
 }
 
@@ -63,6 +77,7 @@ fn ctl_unitary(gate: &str, targets: Vec<Register>, controls: Vec<Register>) -> O
         controls,
         targets,
         children: vec![],
+        source: None,
     })
 }
 
@@ -131,18 +146,11 @@ fn bell() {
         measurement(0, 0),
         measurement(1, 0),
     ];
+    let qubits = vec![qubit_with_results(0, 1), qubit_with_results(1, 1)];
+    let component_grid = operation_list_to_grid(operations, qubits.len());
     let c = Circuit {
-        qubits: vec![
-            Qubit {
-                id: 0,
-                num_results: 1,
-            },
-            Qubit {
-                id: 1,
-                num_results: 1,
-            },
-        ],
-        component_grid: operation_list_to_grid(operations, 2),
+        qubits,
+        component_grid,
     };
 
     expect![[r"
@@ -161,16 +169,11 @@ fn control_classical() {
         ctl_unitary("X", vec![q_reg(2)], vec![c_reg(0, 0)]),
         ctl_unitary("X", vec![q_reg(2)], vec![q_reg(0)]),
     ];
+    let qubits = vec![qubit_with_results(0, 1), qubit(1), qubit(2)];
+    let component_grid = operation_list_to_grid(operations, qubits.len());
     let c = Circuit {
-        qubits: vec![
-            Qubit {
-                id: 0,
-                num_results: 1,
-            },
-            qubit(1),
-            qubit(2),
-        ],
-        component_grid: operation_list_to_grid(operations, 3),
+        qubits,
+        component_grid,
     };
 
     expect![[r"
@@ -185,12 +188,11 @@ fn control_classical() {
 #[test]
 fn two_measurements() {
     let operations = vec![measurement(0, 0), measurement(0, 1)];
+    let qubits = vec![qubit_with_results(0, 2)];
+    let component_grid = operation_list_to_grid(operations, qubits.len());
     let c = Circuit {
-        qubits: vec![Qubit {
-            id: 0,
-            num_results: 2,
-        }],
-        component_grid: operation_list_to_grid(operations, 1),
+        qubits,
+        component_grid,
     };
 
     expect![[r"
@@ -212,6 +214,7 @@ fn with_args() {
             controls: vec![],
             targets: vec![Register::quantum(0)],
             children: vec![],
+            source: None,
         })]]),
     };
 
@@ -232,6 +235,7 @@ fn two_targets() {
             controls: vec![],
             targets: vec![Register::quantum(0), Register::quantum(2)],
             children: vec![],
+            source: None,
         })]]),
     };
 
