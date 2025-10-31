@@ -13,25 +13,25 @@ pip install qdk
 To include the Jupyter extra, which adds visualizations using Jupyter Widgets in the `qdk.widgets` submodule and syntax highlighting for Jupyter notebooks in the browser:
 
 ```bash
-pip install qdk[jupyter]
+pip install "qdk[jupyter]"
 ```
 
 To add the Azure Quantum extra, which includes functionality for working with the Azure Quantum service in the `qdk.azure` submodule:
 
 ```bash
-pip install qdk[azure]
+pip install "qdk[azure]"
 ```
 
 For Qiskit integration, which exposes Qiskit interop utilities in the `qdk.qiskit` submodule:
 
 ```bash
-pip install qdk[qiskit]
+pip install "qdk[qiskit]"
 ```
 
 To easily install all the above extras:
 
 ```bash
-pip install qdk[all]
+pip install "qdk[all]"
 ```
 
 ## Quick Start
