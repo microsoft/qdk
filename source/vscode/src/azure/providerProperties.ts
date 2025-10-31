@@ -29,9 +29,11 @@ export function shouldExcludeProvider(provider: string) {
 }
 
 export function getPreferredTargetProfile(target: string): TargetProfile {
-  if (!target.startsWith("ionq") && !target.startsWith("rigetti")) {
+  if (target.startsWith("ionq") || target.startsWith("rigetti")) {
+    return "base";
+  } else if (target.startsWith("quantinuum") && target.includes(".h2")) {
     return "adaptive_ri";
   } else {
-    return "base";
+    return "adaptive_rif";
   }
 }
