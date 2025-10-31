@@ -222,6 +222,7 @@ function renderHistogram({ model, el }: RenderArgs) {
     const buckets = model.get("buckets") as { [key: string]: number };
     const bucketMap = new Map(Object.entries(buckets));
     const shot_count = model.get("shot_count") as number;
+    const shot_header = model.get("shot_header") as boolean;
 
     prender(
       <Histogram
@@ -229,7 +230,7 @@ function renderHistogram({ model, el }: RenderArgs) {
         shotCount={shot_count}
         filter={""}
         onFilter={() => undefined}
-        shotsHeader={true}
+        shotsHeader={shot_header}
       ></Histogram>,
       el,
     );

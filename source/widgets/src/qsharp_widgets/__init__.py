@@ -117,6 +117,7 @@ class Histogram(anywidget.AnyWidget):
     comp = traitlets.Unicode("Histogram").tag(sync=True)
     buckets = traitlets.Dict().tag(sync=True)
     shot_count = traitlets.Integer().tag(sync=True)
+    shot_header = traitlets.Bool(True).tag(sync=True)
 
     def _update_ui(self):
         self.buckets = self._new_buckets.copy()
@@ -133,12 +134,13 @@ class Histogram(anywidget.AnyWidget):
         if time.time() - self._last_message >= 0.1:
             self._update_ui()
 
-    def __init__(self, results=None):
+    def __init__(self, results=None, shot_header=True):
         super().__init__()
 
         self._new_buckets = {}
         self._new_count = 0
         self._last_message = time.time()
+        self.shot_header = shot_header
 
         # If provided a list of results, count the buckets and update.
         # Need to distinguish between the case where we're provided a list of results
