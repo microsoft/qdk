@@ -254,9 +254,17 @@ function renderCircuit({ model, el }: RenderArgs) {
 function renderMoleculeViewer({ model, el }: RenderArgs) {
   const onChange = () => {
     const moleculeData = model.get("molecule_data") as string;
-    prender(<MoleculeViewer moleculeData={moleculeData}></MoleculeViewer>, el);
+    const cubeData = model.get("cube_data") as { [key: string]: string };
+    prender(
+      <MoleculeViewer
+        moleculeData={moleculeData}
+        cubeData={cubeData || {}}
+      ></MoleculeViewer>,
+      el,
+    );
   };
 
   onChange();
   model.on("change:molecule_data", onChange);
+  model.on("change:cube_data", onChange);
 }

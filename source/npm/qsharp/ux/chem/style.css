@@ -22,8 +22,50 @@
   position: absolute;
   top: 10px; /* distance from bottom */
   left: 10px; /* distance from right */
+  height: 20px;
   padding: 10px;
   border-radius: 4px;
   z-index: 10;
   font-family: system-ui;
+}
+
+#viewSelector {
+  padding-left: 4px;
+}
+
+.view-option label {
+  margin-right: 6px;
+}
+
+.view-option select,
+.view-option input[type="range"] {
+  position: absolute;
+  left: 10em;
+}
+
+#cube-dropdown-container {
+  position: absolute;
+  top: 40px; /* distance from bottom */
+  left: 10px; /* distance from right */
+  padding: 10px;
+  height: 20px;
+  border-radius: 4px;
+  z-index: 10;
+  font-family: system-ui;
+}
+
+#isoval-slider-container {
+  position: absolute;
+  top: 70px; /* distance from bottom */
+  left: 10px; /* distance from right */
+  padding: 10px;
+  height: 40px;
+  border-radius: 4px;
+  z-index: 10;
+  font-family: system-ui;
+}
+
+#isovalSlider {
+  width: 150px;
+  outline: none;
 }
