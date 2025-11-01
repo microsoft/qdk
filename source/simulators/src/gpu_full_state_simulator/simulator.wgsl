@@ -188,6 +188,42 @@ var<workgroup> qubitProbabilities: array<QubitProbabilityPerThread, QUBIT_COUNT>
 // starts, and all buffer writes are visible to the next dispatch.
 // *******************************
 
+fn reset_all(shot_idx: u32, op_idx: u32) {
+    let shot = &shots[shot_idx];
+    let op = &ops[op_idx];
+
+    let rng_seed: u32 = op.q2; // The rng seed is passed in q2
+    let shot_offset: u32 = op.q3; // The shot offset (e.g. first shot_id in the new batch) is passed in q3
+
+    // Zero init all the existing shot data
+    *shot = ShotData();
+    // Set the shot_id and rng_state based on the op data
+    shot.shot_id = shot_offset + shot_idx;
+    shot.rng_state.x[0] = rng_seed ^ hash_pcg(shot.shot_id);
+    shot.rng_state.x[1] = rng_seed ^ hash_pcg(shot.shot_id + 1);
+    shot.rng_state.x[2] = rng_seed ^ hash_pcg(shot.shot_id + 2);
+    shot.rng_state.x[3] = rng_seed ^ hash_pcg(shot.shot_id + 3);
+    shot.rng_state.x[4] = rng_seed ^ hash_pcg(shot.shot_id + 4);
+    shot.duration = 0.0;
+
+    // Initialize all qubit probabilities to 100% |0>
+    for (var i: i32 = 0; i < QUBIT_COUNT; i++) {
+        shot.qubit_state[i].zero_probability = 1.0;
+        shot.qubit_state[i].one_probability = 0.0;
+        shot.qubit_state[i].heat = 0.0;
+        shot.qubit_state[i].idle_since = 0.0;
+    }
+    shot.qubit_is_0_mask = (1u << u32(QUBIT_COUNT)) - 1u; // All qubits are |0>
+    shot.qubit_is_1_mask = 0u;
+    shot.qubits_updated_last_op_mask = 0;
+
+    // Tell the execute_op stage about the op to execute
+    shot.op_idx = op_idx;
+    shot.op_type = op.id;
+
+    // Advance to the next op for the next 'prepare' dispatch
+    shot.next_op_idx = op_idx + 1u;
+}
 
 // NOTE: Run with workgroup size of 1 for now, as threads may diverge too much in prepare_op stage causing performance issues.
 // TODO: Try to increase later if lack of parallelism is a bottleneck. (Update the dispatch call accordingly).
@@ -208,39 +244,8 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
     // *******************************
     // PHASE 1: If the op is a full batch reset (i.e. start of a new batch), clean the state and exit
     // *******************************
-
     if (op.id == OPID_RESET && op.q1 == ALL_QUBITS) {
-        let rng_seed: u32 = op.q2; // The rng seed is passed in q2
-        let shot_offset: u32 = op.q3; // The shot offset (e.g. first shot_id in the new batch) is passed in q3
-
-        // Zero init all the existing shot data
-        *shot = ShotData();
-        // Set the shot_id and rng_state based on the op data
-        shot.shot_id = shot_offset + shot_idx;
-        shot.rng_state.x[0] = rng_seed ^ hash_pcg(shot.shot_id);
-        shot.rng_state.x[1] = rng_seed ^ hash_pcg(shot.shot_id + 1);
-        shot.rng_state.x[2] = rng_seed ^ hash_pcg(shot.shot_id + 2);
-        shot.rng_state.x[3] = rng_seed ^ hash_pcg(shot.shot_id + 3);
-        shot.rng_state.x[4] = rng_seed ^ hash_pcg(shot.shot_id + 4);
-        shot.duration = 0.0;
-
-        // Initialize all qubit probabilities to 100% |0>
-        for (var i: i32 = 0; i < QUBIT_COUNT; i++) {
-            shot.qubit_state[i].zero_probability = 1.0;
-            shot.qubit_state[i].one_probability = 0.0;
-            shot.qubit_state[i].heat = 0.0;
-            shot.qubit_state[i].idle_since = 0.0;
-        }
-        shot.qubit_is_0_mask = (1u << u32(QUBIT_COUNT)) - 1u; // All qubits are |0>
-        shot.qubit_is_1_mask = 0u;
-        shot.qubits_updated_last_op_mask = 0;
-
-        // Tell the execute_op stage about the op to execute
-        shot.op_idx = op_idx;
-        shot.op_type = op.id;
-
-        // Advance to the next op for the next 'prepare' dispatch
-        shot.next_op_idx = op_idx + 1u;
+        reset_all(shot_idx, op_idx);
         return;
     }
 
