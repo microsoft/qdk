@@ -225,6 +225,54 @@ fn reset_all(shot_idx: u32, op_idx: u32) {
     shot.next_op_idx = op_idx + 1u;
 }
 
+fn update_qubit_state(shot_idx: u32) {
+    let shot = &shots[shot_idx];
+
+    // For each qubit that was updated in the last op
+    for (var q: u32 = 0u; q < u32(QUBIT_COUNT); q++) {
+        let qubit_mask: u32 = 1u << q;
+        if ((shot.qubits_updated_last_op_mask & qubit_mask) != 0u) {
+            // Sum the workgroup collation entries for this qubit into the shot state
+            var total_zero: f32 = 0.0;
+            var total_one: f32 = 0.0;
+
+            if (WORKGROUPS_PER_SHOT > 1) {
+                // Offset into workgroup collation buffer based on shot index
+                let offset = shot_idx * u32(WORKGROUPS_PER_SHOT);
+                for (var wkg_idx: u32 = 0u; wkg_idx < u32(WORKGROUPS_PER_SHOT); wkg_idx++) {
+                    let sums = workgroup_collation.sums[wkg_idx + offset];
+                    total_zero = total_zero + sums.qubits[q].x;
+                    total_one = total_one + sums.qubits[q].y;
+                }
+            } else {
+                // Single workgroup per shot case - just read directly from the shot
+                total_zero = shot.qubit_state[q].zero_probability;
+                total_one = shot.qubit_state[q].one_probability;
+            }
+
+            // Update the shot state with the summed probabilities
+            // Round to 0 or 1 if extremely close to mitigate minor floating point errors
+            if (total_zero < 0.000001) { total_zero = 0.0; }
+            if (total_one < 0.000001) { total_one = 0.0; }
+            if (total_zero > 0.999999) { total_zero = 1.0; }
+            if (total_one > 0.999999) { total_one = 1.0; }
+
+            shot.qubit_state[q].zero_probability = total_zero;
+            shot.qubit_state[q].one_probability = total_one;
+
+            // Update the masks for definite states
+            shot.qubit_is_0_mask = select(
+                shot.qubit_is_0_mask & ~qubit_mask,
+                shot.qubit_is_0_mask | qubit_mask,
+                total_zero == 1.0);
+            shot.qubit_is_1_mask = select(
+                shot.qubit_is_1_mask & ~qubit_mask,
+                shot.qubit_is_1_mask | qubit_mask,
+                total_one == 1.0);
+        }
+    }
+}
+
 // NOTE: Run with workgroup size of 1 for now, as threads may diverge too much in prepare_op stage causing performance issues.
 // TODO: Try to increase later if lack of parallelism is a bottleneck. (Update the dispatch call accordingly).
 @compute @workgroup_size(1)
@@ -257,49 +305,7 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
     // This is only needed if multiple workgroups were used for the shot execution. If not, then the
     // single workgroup for the shot would have written directly to the shot state already.
     if (shot.qubits_updated_last_op_mask != 0) {
-        // For each qubit that was updated in the last op
-        for (var q: u32 = 0u; q < u32(QUBIT_COUNT); q++) {
-            let qubit_mask: u32 = 1u << q;
-            if ((shot.qubits_updated_last_op_mask & qubit_mask) != 0u) {
-                // Sum the workgroup collation entries for this qubit into the shot state
-                var total_zero: f32 = 0.0;
-                var total_one: f32 = 0.0;
-
-                if (WORKGROUPS_PER_SHOT > 1) {
-                    // Offset into workgroup collation buffer based on shot index
-                    let offset = shot_idx * u32(WORKGROUPS_PER_SHOT);
-                    for (var wkg_idx: u32 = 0u; wkg_idx < u32(WORKGROUPS_PER_SHOT); wkg_idx++) {
-                        let sums = workgroup_collation.sums[wkg_idx + offset];
-                        total_zero = total_zero + sums.qubits[q].x;
-                        total_one = total_one + sums.qubits[q].y;
-                    }
-                } else {
-                    // Single workgroup per shot case - just read directly from the shot
-                    total_zero = shot.qubit_state[q].zero_probability;
-                    total_one = shot.qubit_state[q].one_probability;
-                }
-
-                // Update the shot state with the summed probabilities
-                // Round to 0 or 1 if extremely close to mitigate minor floating point errors
-                if (total_zero < 0.000001) { total_zero = 0.0; }
-                if (total_one < 0.000001) { total_one = 0.0; }
-                if (total_zero > 0.999999) { total_zero = 1.0; }
-                if (total_one > 0.999999) { total_one = 1.0; }
-
-                shot.qubit_state[q].zero_probability = total_zero;
-                shot.qubit_state[q].one_probability = total_one;
-
-                // Update the masks for definite states
-                shot.qubit_is_0_mask = select(
-                    shot.qubit_is_0_mask & ~qubit_mask,
-                    shot.qubit_is_0_mask | qubit_mask,
-                    total_zero == 1.0);
-                shot.qubit_is_1_mask = select(
-                    shot.qubit_is_1_mask & ~qubit_mask,
-                    shot.qubit_is_1_mask | qubit_mask,
-                    total_one == 1.0);
-            }
-        }
+        update_qubit_state(shot_idx);
     }
 
     // *******************************
