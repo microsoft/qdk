@@ -273,6 +273,46 @@ fn update_qubit_state(shot_idx: u32) {
     }
 }
 
+fn prep_mresetz(shot_idx: u32, op_idx: u32) {
+    let shot = &shots[shot_idx];
+    let op = &ops[op_idx];
+
+    // Choose measurement result based on qubit probabilities and random number
+    let qubit = op.q1;
+    let result_id = op.q2; // Result id to store the measurement result in is stored in q2
+    let result = select(1u, 0u, shot.rand_measure < shot.qubit_state[qubit].zero_probability);
+
+    results[(shot_idx * RESULT_COUNT) + result_id] = result;
+
+    // Construct the measurement instrument for MResetZ based on the measured result
+    // Put the instrument into the shot buffer for the execute_op stage to apply
+    shot.unitary[0] = select(vec2f(1.0, 0.0), vec2f(0.0, 0.0), result == 1u);
+    shot.unitary[1] = select(vec2f(0.0, 0.0), vec2f(1.0, 0.0), result == 1u);
+    shot.unitary[4] = vec2f();
+    shot.unitary[5] = vec2f();
+
+    shot.renormalize = select(
+        1.0 / sqrt(shot.qubit_state[qubit].zero_probability),
+        1.0 / sqrt(shot.qubit_state[qubit].one_probability),
+        result == 1u);
+
+    // Set the qubits_updated_last_op_mask to all except those that were already in a definite
+    // state (so we don't waste time updating probabilities that are already known). Note that
+    // next 'prepare_op' should set the just measured qubit into a definite 0 or 1 state.
+    shot.qubits_updated_last_op_mask =
+        // // A mask with all qubits set
+        ((1u << u32(QUBIT_COUNT)) - 1u)
+        // Exclude qubits already in definite states
+            & ~(shot.qubit_is_0_mask | shot.qubit_is_1_mask);
+
+    // The workgroup will sum from its threads into the collation buffer (for multi-workgroup shots)
+    // or directly into the shot (if single workgroup shots) during execute_op, so no need to zero it here.
+
+    shot.op_idx = op_idx;
+    shot.op_type = op.id;
+    shot.next_op_idx = op_idx + 1u;
+}
+
 // NOTE: Run with workgroup size of 1 for now, as threads may diverge too much in prepare_op stage causing performance issues.
 // TODO: Try to increase later if lack of parallelism is a bottleneck. (Update the dispatch call accordingly).
 @compute @workgroup_size(1)
@@ -318,43 +358,9 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
     shot.rand_measure = next_rand_f32(shot_idx);
     shot.rand_loss = next_rand_f32(shot_idx);
 
-    // Handle MResetZ operations
+    // Handle MResetZ operations. These have unique handling and no associated noise ops.
     if (op.id == OPID_MRESETZ) {
-        // Choose measurement result based on qubit probabilities and random number
-        let qubit = op.q1;
-        let result_id = op.q2; // Result id to store the measurement result in is stored in q2
-        let result = select(1u, 0u, shot.rand_measure < shot.qubit_state[qubit].zero_probability);
-
-        results[(shot_idx * RESULT_COUNT) + result_id] = result;
-
-        // Construct the measurement instrument for MResetZ based on the measured result
-        // Put the instrument into the shot buffer for the execute_op stage to apply
-        shots[shot_idx].unitary[0] = select(vec2f(1.0, 0.0), vec2f(0.0, 0.0), result == 1u);
-        shots[shot_idx].unitary[1] = select(vec2f(0.0, 0.0), vec2f(1.0, 0.0), result == 1u);
-        shots[shot_idx].unitary[4] = vec2f();
-        shots[shot_idx].unitary[5] = vec2f();
-
-        shot.renormalize = select(
-            1.0 / sqrt(shot.qubit_state[qubit].zero_probability),
-            1.0 / sqrt(shot.qubit_state[qubit].one_probability),
-            result == 1u);
-
-
-        // Set the qubits_updated_last_op_mask to all except those that were already in a definite
-        // state (so we don't waste time updating probabilities that are already known). Note that
-        // next 'prepare_op' should set the just measured qubit into a definite 0 or 1 state.
-        shot.qubits_updated_last_op_mask =
-            // // A mask with all qubits set
-            ((1u << u32(QUBIT_COUNT)) - 1u)
-            // Exclude qubits already in definite states
-             & ~(shot.qubit_is_0_mask | shot.qubit_is_1_mask);
-
-        // The workgroup will sum from its threads into the collation buffer (for multi-workgroup shots)
-        // or directly into the shot (if single workgroup shots) during execute_op, so no need to zero it here.
-
-        shot.op_idx = op_idx;
-        shot.op_type = op.id;
-        shot.next_op_idx = op_idx + 1u;
+        prep_mresetz(shot_idx, op_idx);
         return;
     }
 
