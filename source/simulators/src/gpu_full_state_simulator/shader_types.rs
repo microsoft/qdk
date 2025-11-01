@@ -136,6 +136,41 @@ pub mod ops {
     pub const PAULI_NOISE_1Q: u32 = super::OpID::PauliNoise1Q.as_u32();
     pub const PAULI_NOISE_2Q: u32 = super::OpID::PauliNoise2Q.as_u32();
     pub const LOSS_NOISE: u32 = super::OpID::LossNoise.as_u32();
+
+    #[must_use]
+    pub fn is_1q_op(op_id: u32) -> bool {
+        matches!(
+            op_id,
+            ID | RESET
+                | X
+                | Y
+                | Z
+                | H
+                | S
+                | S_ADJ
+                | T
+                | T_ADJ
+                | SX
+                | SX_ADJ
+                | RX
+                | RY
+                | RZ
+                | MZ
+                | MRESETZ
+                | MATRIX
+                | MOVE
+        )
+    }
+
+    #[must_use]
+    pub fn is_2q_op(op_id: u32) -> bool {
+        matches!(op_id, CX | CZ | RXX | RYY | RZZ | SWAP | MATRIX_2Q)
+    }
+
+    #[must_use]
+    pub fn is_noise_op(op_id: u32) -> bool {
+        matches!(op_id, PAULI_NOISE_1Q | PAULI_NOISE_2Q | LOSS_NOISE)
+    }
 }
 
 pub(super) const OP_PADDING: usize = 100;

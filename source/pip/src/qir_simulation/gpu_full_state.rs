@@ -81,14 +81,12 @@ pub fn run_parallel_shots<'py>(
                 add_ops[0].id = shader_types::ops::ID;
             }
             if add_ops.len() == 1 && add_ops[0].id == shader_types::ops::ID {
-                // skip identity
+                // skip lone identity gates
             } else {
                 ops.extend(add_ops);
             }
         }
     }
-
-    // If a NoiseConfig is provided, run a pass to insert the noise operations into the op sequence
 
     // Extract the number of qubits and results needed, and a mapping of result index to output
     // array index. (Only program return type of Result[] is supported for now)
@@ -159,18 +157,14 @@ fn get_noise_ops(
     }
     let mut results = vec![];
     if noise_table.has_pauli_noise() {
-        // TODO: Clean up the OpID ranges or add helpers to determine qubit count in a cleaner way
-        if op.id < shader_types::OpID::Cx.as_u32()
-            || op.id == shader_types::OpID::Move.as_u32()
-            || op.id == shader_types::OpID::MResetZ.as_u32()
-        {
+        if shader_types::ops::is_1q_op(op.id) {
             results.push(Op::new_pauli_noise_1q(
                 op.q1,
                 noise_table.x,
                 noise_table.y,
                 noise_table.z,
             ));
-        } else {
+        } else if shader_types::ops::is_2q_op(op.id) {
             results.push(Op::new_pauli_noise_2q(
                 op.q1,
                 op.q2,
@@ -178,10 +172,23 @@ fn get_noise_ops(
                 noise_table.y,
                 noise_table.z,
             ));
+        } else {
+            panic!("unsupported op for pauli noise: {op:?}");
         }
     }
     if noise_table.loss > 0.0 {
-        results.push(Op::new_loss_noise(op.q1, noise_table.loss));
+        if shader_types::ops::is_2q_op(op.id) {
+            // For two-qubit gates, doing loss inline is hard, so just append an Id gate with loss for each qubit
+            results.push(Op::new_id_gate(op.q1));
+            results.push(Op::new_loss_noise(op.q1, noise_table.loss));
+            results.push(Op::new_id_gate(op.q2));
+            results.push(Op::new_loss_noise(op.q2, noise_table.loss));
+        } else if shader_types::ops::is_1q_op(op.id) {
+            // For one-qubit gates, just add the loss noise on the one qubit operation
+            results.push(Op::new_loss_noise(op.q1, noise_table.loss));
+        } else {
+            panic!("unsupported op for loss noise: {op:?}");
+        }
     }
     Some(results)
 }
