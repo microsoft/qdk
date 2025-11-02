@@ -83,7 +83,7 @@ var<storage, read_write> workgroup_collation: WorkgroupCollationBuffer;
 struct QubitState {
     zero_probability: f32,
     one_probability: f32,
-    heat: f32,
+    heat: f32, // -1.0 = lost
     idle_since: f32,
 }
 
@@ -173,20 +173,20 @@ struct QubitProbabilityPerThread {
 var<workgroup> qubitProbabilities: array<QubitProbabilityPerThread, QUBIT_COUNT>;
 // Workgroup memory size: QUBIT_COUNT (max 27) * 256 = max 6,912 bytes.
 
+fn shot_init_per_op(shot_idx: u32) {
+    let shot = &shots[shot_idx];
 
-// *******************************
-// PREPARE OP
-// This stage prepares the shot state for the next operation to execute (and any updates needed from the prior op)
-//
-// Each op is prepared by one thread. This is how we deal with some of the challenges with synchronization
-// when multiple workgroups with multiple threads are used for a shot in the EXECUTE stage. The 'execute_op'
-// does work that is 'embarrassingly parallel' across the state vector amplitudes, but the PREPARE_OP stage
-// deal with preparing for that work, and collating results back into the shot state afterwards.
-//
-// This allows us to use the GPU 'dispatch' mechanism to ensure consistencty across shots without complex,
-// synchronization code, as the GPU guarantees that all threads in a dispatch complete before the next dispatch
-// starts, and all buffer writes are visible to the next dispatch.
-// *******************************
+    // Default to 1.0 renormalization (i.e., no renormalization needed). MResetZ or noise affecting the
+    // overall probability distribution (e.g. loss or amplitude damping) will update this if needed.
+    shot.renormalize = 1.0;
+
+    // Generate the next set of random numbers to use for noise and measurement
+    shot.rand_pauli = next_rand_f32(shot_idx);
+    shot.rand_damping = next_rand_f32(shot_idx);
+    shot.rand_dephase = next_rand_f32(shot_idx);
+    shot.rand_measure = next_rand_f32(shot_idx);
+    shot.rand_loss = next_rand_f32(shot_idx);
+}
 
 fn reset_all(shot_idx: u32, op_idx: u32) {
     let shot = &shots[shot_idx];
@@ -228,11 +228,17 @@ fn reset_all(shot_idx: u32, op_idx: u32) {
 fn update_qubit_state(shot_idx: u32) {
     let shot = &shots[shot_idx];
 
+    // If any qubits were updated in the last op, we may need to sum workgroup probabilities into the shot state
+    // This is only needed if multiple workgroups were used for the shot execution. If not, then the
+    // single workgroup for the shot would have written directly to the shot state already.
+
     // For each qubit that was updated in the last op
     for (var q: u32 = 0u; q < u32(QUBIT_COUNT); q++) {
         let qubit_mask: u32 = 1u << q;
         if ((shot.qubits_updated_last_op_mask & qubit_mask) != 0u) {
             // Sum the workgroup collation entries for this qubit into the shot state
+            // Note: We ignore the fact a qubit may be 'lost' here. It should already be
+            // in the |0> state if lost, so summing the probabilities is still valid.
             var total_zero: f32 = 0.0;
             var total_one: f32 = 0.0;
 
@@ -273,16 +279,32 @@ fn update_qubit_state(shot_idx: u32) {
     }
 }
 
-fn prep_mresetz(shot_idx: u32, op_idx: u32) {
+fn prep_mresetz(shot_idx: u32, op_idx: u32, is_loss: bool) {
     let shot = &shots[shot_idx];
     let op = &ops[op_idx];
 
     // Choose measurement result based on qubit probabilities and random number
     let qubit = op.q1;
-    let result_id = op.q2; // Result id to store the measurement result in is stored in q2
     let result = select(1u, 0u, shot.rand_measure < shot.qubit_state[qubit].zero_probability);
 
-    results[(shot_idx * RESULT_COUNT) + result_id] = result;
+    // If this is being called due to loss noise, we don't write the result back to the results buffer
+    // Instead, mark the qubit as lost by setting the heat to -1.0
+    if !is_loss {
+        let result_id = op.q2; // Result id to store the measurement result in is stored in q2
+
+        // If the qubit is already marked as lost, just report that and exit. It's already in the zero
+        // state so nothing to update or renormalize. The execute op shoud be a no-op (ID)
+        if shot.qubit_state[qubit].heat == -1.0 {
+            results[(shot_idx * RESULT_COUNT) + result_id] = 2;
+            shot.op_type = OPID_ID;
+            shot.op_idx = op_idx;
+            return;
+        } else {
+            results[(shot_idx * RESULT_COUNT) + result_id] = result;
+        }
+    } else {
+        shot.qubit_state[qubit].heat = -1.0;
+    }
 
     // Construct the measurement instrument for MResetZ based on the measured result
     // Put the instrument into the shot buffer for the execute_op stage to apply
@@ -305,13 +327,187 @@ fn prep_mresetz(shot_idx: u32, op_idx: u32) {
         // Exclude qubits already in definite states
             & ~(shot.qubit_is_0_mask | shot.qubit_is_1_mask);
 
+    // We want to ensure the state of this qubit is updated, and also that's it's not marked as
+    // in the definite |1> state, as loss or reset take it out of that state.
+    shot.qubits_updated_last_op_mask = shot.qubits_updated_last_op_mask | (1u << qubit);
+    shot.qubit_is_1_mask = shot.qubit_is_1_mask & ~(1u << qubit);
+
     // The workgroup will sum from its threads into the collation buffer (for multi-workgroup shots)
     // or directly into the shot (if single workgroup shots) during execute_op, so no need to zero it here.
 
     shot.op_idx = op_idx;
-    shot.op_type = op.id;
-    shot.next_op_idx = op_idx + 1u;
+    shot.op_type = OPID_MRESETZ;
 }
+
+// Starting from the given index, return the next index if pauli noise, else 0
+fn get_pauli_noise_idx(op_idx: u32) -> u32 {
+    if (arrayLength(&ops) > (op_idx + 1)) {
+        let op = &ops[op_idx + 1];
+        if (op.id == OPID_PAULI_NOISE_1Q || op.id == OPID_PAULI_NOISE_2Q) {
+            return op_idx + 1u;
+        }
+    }
+    return 0u;
+}
+
+// From the starting index given, return the next index if loss noise, else 0
+fn get_loss_idx(op_idx: u32) -> u32 {
+    if (arrayLength(&ops) > (op_idx + 1)) {
+        let op = &ops[op_idx + 1];
+        if (op.id == OPID_LOSS_NOISE) {
+            return op_idx + 1u;
+        }
+    }
+    return 0u;
+}
+
+fn apply_1q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
+    // NOTE: Assumes that whatever prepared the program ensured that noise_op.q1 matches op.q1 and
+    // that op is a 1-qubit gate
+    let shot = &shots[shot_idx];
+    let op = &ops[op_idx];
+    let noise_op = &ops[noise_idx];
+
+
+    // Apply 1-qubit Pauli noise based on the probabilities in the op data, which are stored in
+    // the real part (x) of the first 3 vec2 entries of the unitary array.
+    let p_x = noise_op.unitary[0].x;
+    let p_y = noise_op.unitary[1].x;
+    let p_z = noise_op.unitary[2].x;
+
+    // Copy the matrix of the original op into the shot buffer for execute_op to use
+
+    let rand = shot.rand_pauli;
+    if (rand < p_x) {
+        // Apply the X permutation (basically swap the rows)
+        shot.unitary[0] = op.unitary[4];
+        shot.unitary[1] = op.unitary[5];
+        shot.unitary[4] = op.unitary[0];
+        shot.unitary[5] = op.unitary[1];
+        shot.op_type = OPID_SHOT_BUFF_1Q; // Indicate to use the matrix in the shot buffer
+    } else if (rand < (p_x + p_y)) {
+        // Apply the Y permutation (swap rows with negated |0> state)
+        shot.unitary[0] = cplxNeg(op.unitary[4]);
+        shot.unitary[1] = cplxNeg(op.unitary[5]);
+        shot.unitary[4] = op.unitary[0];
+        shot.unitary[5] = op.unitary[1];
+        shot.op_type = OPID_SHOT_BUFF_1Q; // Indicate to use the matrix in the shot buffer
+    } else if (rand < (p_x + p_y + p_z)) {
+        // Apply Z error (negate |1> state)
+        shot.unitary[0] = op.unitary[0];
+        shot.unitary[1] = op.unitary[1];
+        shot.unitary[4] = cplxNeg(op.unitary[4]);
+        shot.unitary[5] = cplxNeg(op.unitary[5]);
+        shot.op_type = OPID_SHOT_BUFF_1Q; // Indicate to use the matrix in the shot buffer
+    } else {
+        // No error to apply. Skip the noise op by advancing the op index and return
+        shot.op_type = op.id;
+    }
+
+    shot.op_idx = op_idx;
+    shot.qubits_updated_last_op_mask = 1u << op.q1;
+}
+
+fn apply_2q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
+    let shot = &shots[shot_idx];
+    let op = &ops[op_idx];
+    let noise_op = &ops[noise_idx];
+
+    // Non correlated noise for now. Just apply the 1Q noise to each qubit in turn
+    let p_x = noise_op.unitary[0].x;
+    let p_y = noise_op.unitary[1].x;
+    let p_z = noise_op.unitary[2].x;
+
+    // If doing a 2 qubit gate, we're not doing a measurement, so 'steal' that random number for qubit 2
+    let q1_rand = shot.rand_pauli;
+    let q2_rand = shot.rand_measure;
+
+    // Only apply noise if needed
+    if (q1_rand < (p_x + p_y + p_z ) || q2_rand < (p_x + p_y + p_z )) {
+        // Get the rows of the 2 qubit unitary
+        var op_row_0 = getOpRow(op_idx, 0);
+        var op_row_1 = getOpRow(op_idx, 1);
+        var op_row_2 = getOpRow(op_idx, 2);
+        var op_row_3 = getOpRow(op_idx, 3);
+
+        // Apply the Paulis to the matrices. Note this is just permuting the rows, and appliction
+        // commutes, so we can apply them in any order. High order bit is q1. Low order bit is q2.
+        //   X on q1 is rows  2<>0 and  3<>1, X on q2 is rows  1<>0 and  3<>2, etc.
+        //   Y on q1 is rows -2<>0 and -3<>1, Y on q2 is rows -1<>0 and -3<>2
+        //   Z on q1 is -2 and -3, Z on q2 is -1 and -3
+
+        // Apply the q1 permutations as needed
+        if (q1_rand < p_x) {
+            // Apply the X permutation
+            let old_row_0 = op_row_0;
+            let old_row_1 = op_row_1;
+            op_row_0 = op_row_2;
+            op_row_1 = op_row_3;
+            op_row_2 = old_row_0;
+            op_row_3 = old_row_1;
+        } else if (q1_rand < (p_x + p_y)) {
+            // Apply the Y permutation
+            let old_row_0 = op_row_0;
+            let old_row_1 = op_row_1;
+            op_row_0 = rowNeg(op_row_2);
+            op_row_1 = rowNeg(op_row_3);
+            op_row_2 = old_row_0;
+            op_row_3 = old_row_1;
+        } else if (q1_rand < (p_x + p_y + p_z)) {
+            // Apply Z permutation
+            op_row_2 = rowNeg(op_row_2);
+            op_row_3 = rowNeg(op_row_3);
+        }
+        // Apply the q2 permutations as needed
+        if (q2_rand < p_x) {
+            // Apply the X permutation
+            let old_row_0 = op_row_0;
+            let old_row_2 = op_row_2;
+            op_row_0 = op_row_1;
+            op_row_2 = op_row_3;
+            op_row_1 = old_row_0;
+            op_row_3 = old_row_2;
+        } else if (q2_rand < (p_x + p_y)) {
+            // Apply the Y permutation
+            let old_row_0 = op_row_0;
+            let old_row_2 = op_row_2;
+            op_row_0 = rowNeg(op_row_1);
+            op_row_2 = rowNeg(op_row_3);
+            op_row_1 = old_row_0;
+            op_row_3 = old_row_2;
+        } else if (q2_rand < (p_x + p_y + p_z)) {
+            // Apply Z permutation
+            op_row_1 = rowNeg(op_row_1);
+            op_row_3 = rowNeg(op_row_3);
+        }
+        // Write the rows back to the shot buffer unitary
+        setUnitaryRow(shot_idx, 0u, op_row_0);
+        setUnitaryRow(shot_idx, 1u, op_row_1);
+        setUnitaryRow(shot_idx, 2u, op_row_2);
+        setUnitaryRow(shot_idx, 3u, op_row_3);
+
+        shot.op_type = OPID_SHOT_BUFF_2Q; // Indicate to use the matrix in the shot buffer
+    } else {
+        // No noise to apply. Skip the noise op by advancing the op index and return
+        shot.op_type = op.id;
+    }
+    shot.op_idx = op_idx;
+    shot.qubits_updated_last_op_mask = (1u << op.q1 ) | (1u << op.q2);
+}
+
+// *******************************
+// PREPARE OP
+// This stage prepares the shot state for the next operation to execute (and any updates needed from the prior op)
+//
+// Each op is prepared by one thread. This is how we deal with some of the challenges with synchronization
+// when multiple workgroups with multiple threads are used for a shot in the EXECUTE stage. The 'execute_op'
+// does work that is 'embarrassingly parallel' across the state vector amplitudes, but the PREPARE_OP stage
+// deal with preparing for that work, and collating results back into the shot state afterwards.
+//
+// This allows us to use the GPU 'dispatch' mechanism to ensure consistencty across shots without complex,
+// synchronization code, as the GPU guarantees that all threads in a dispatch complete before the next dispatch
+// starts, and all buffer writes are visible to the next dispatch.
+// *******************************
 
 // NOTE: Run with workgroup size of 1 for now, as threads may diverge too much in prepare_op stage causing performance issues.
 // TODO: Try to increase later if lack of parallelism is a bottleneck. (Update the dispatch call accordingly).
@@ -323,201 +519,92 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
 
     // WebGPU guarantees that buffers are zero-initialized, so next_op_idx will correctly be 0 on the first dispatch
     let op_idx = shot.next_op_idx;
+
+    // If we've gone past the end, set the op type to id and exit, so the execute stage is a no-op
+    if (op_idx >= u32(arrayLength(&ops))) {
+        shot.op_type = OPID_ID;
+        shot.renormalize = 1.0;
+        return;
+    }
+
     let op = &ops[op_idx];
 
-    // Default to 1.0 renormalization (i.e., no renormalization needed). MResetZ or noise affecting the
-    // overall probability distribution (e.g. loss or amplitude damping) will update this if needed.
-    shot.renormalize = 1.0;
+    shot_init_per_op(shot_idx);
 
-    // *******************************
-    // PHASE 1: If the op is a full batch reset (i.e. start of a new batch), clean the state and exit
-    // *******************************
+    //  If the op is a full batch reset (i.e. start of a new batch), clean the state and exit
     if (op.id == OPID_RESET && op.q1 == ALL_QUBITS) {
         reset_all(shot_idx, op_idx);
         return;
     }
 
-    // *******************************
-    // PHASE 2: Update the shot state based on the results of the last executed op (if needed)
-    // *******************************
-
-    // If any qubits were updated in the last op, we may need to sum workgroup probabilities into the shot state
-    // This is only needed if multiple workgroups were used for the shot execution. If not, then the
-    // single workgroup for the shot would have written directly to the shot state already.
+    // Update the shot state based on the results of the last executed op (if needed)
     if (shot.qubits_updated_last_op_mask != 0) {
         update_qubit_state(shot_idx);
     }
 
-    // *******************************
-    // PHASE 3: Generate the next set of random numbers to use for noise and measurement and apply.
-    // *******************************
-
-    shot.rand_pauli = next_rand_f32(shot_idx);
-    shot.rand_damping = next_rand_f32(shot_idx);
-    shot.rand_dephase = next_rand_f32(shot_idx);
-    shot.rand_measure = next_rand_f32(shot_idx);
-    shot.rand_loss = next_rand_f32(shot_idx);
-
-    // Handle MResetZ operations. These have unique handling and no associated noise ops.
+    // Handle preparation MResetZ operations. These have unique handling and no associated noise ops, so prep and exit
     if (op.id == OPID_MRESETZ) {
-        prep_mresetz(shot_idx, op_idx);
+        prep_mresetz(shot_idx, op_idx, false /* is_loss */);
+        shot.next_op_idx = op_idx + 1u; // MResetZ has no associated noise ops, so just advance by 1
         return;
     }
 
-    // *****
-    // PHASE 4: Add any noise to the next op
-    // *****
-    if (arrayLength(&ops) > (op_idx + 1) && ops[op_idx + 1].id == OPID_PAULI_NOISE_1Q) {
-        let noise_op = &ops[op_idx + 1];
-        // NOTE: Assumes that whatever prepared the program ensured that noise_op.q1 matches op.q1 and that op is a 1-qubit gate
+    /* Handle noise:
+       - For the 1-qubit op case, there could be pauli and loss noise after the op itself. We want to check for loss first and
+         only apply pauli noise if the qubit wasn't lost. (If lost, the pauli noise and even the gate itself don't matter).
+       - For the 2-qubit op case, there will only be optional pauli noise after the op itself. (Loss is applied via separate
+         Id ops on each qubit after the 2-qubit op).
+    */
 
-        // Apply 1-qubit Pauli noise based on the probabilities in the op data, which are stored in
-        // the real part (x) of the first 3 vec2 entries of the unitary array.
-        let p_x = noise_op.unitary[0].x;
-        let p_y = noise_op.unitary[1].x;
-        let p_z = noise_op.unitary[2].x;
+    let pauli_op_idx = get_pauli_noise_idx(op_idx);
+    let loss_op_idx = get_loss_idx(select(op_idx, pauli_op_idx, pauli_op_idx != 0u));
+    shot.next_op_idx = max(op_idx, max(pauli_op_idx, loss_op_idx)) + 1u;
 
-        // Copy the matrix of the original op into the shot buffer for execute_op to use
-
-        let rand = shot.rand_pauli;
-        if (rand < p_x) {
-            // Apply the X permutation (basically swap the rows)
-            shots[shot_idx].unitary[0] = op.unitary[4];
-            shots[shot_idx].unitary[1] = op.unitary[5];
-            shots[shot_idx].unitary[4] = op.unitary[0];
-            shots[shot_idx].unitary[5] = op.unitary[1];
-        } else if (rand < (p_x + p_y)) {
-            // Apply the Y permutation (swap rows with negated |0> state)
-            shots[shot_idx].unitary[0] = cplxNeg(op.unitary[4]);
-            shots[shot_idx].unitary[1] = cplxNeg(op.unitary[5]);
-            shots[shot_idx].unitary[4] = op.unitary[0];
-            shots[shot_idx].unitary[5] = op.unitary[1];
-        } else if (rand < (p_x + p_y + p_z)) {
-            // Apply Z error (negate |1> state)
-            shots[shot_idx].unitary[0] = op.unitary[0];
-            shots[shot_idx].unitary[1] = op.unitary[1];
-            shots[shot_idx].unitary[4] = cplxNeg(op.unitary[4]);
-            shots[shot_idx].unitary[5] = cplxNeg(op.unitary[5]);
-        } else {
-            // No error to apply. Skip the noise op by advancing the op index and return
-            shots[shot_idx].unitary = op.unitary;
-        }
-
-        shot.op_type = OPID_SHOT_BUFF_1Q; // Indicate to use the matrix in the shot buffer
+    // Before doing further work, if any qubit for the gate is lost, just skip by marking the op as ID
+    if (shot.qubit_state[op.q1].heat == -1.0) ||
+       (op.id == OPID_CX || op.id == OPID_CZ || op.id == OPID_SWAP || op.id == OPID_RXX || op.id == OPID_RYY || op.id == OPID_RZZ || op.id == OPID_MAT2Q) &&
+       (shot.qubit_state[op.q2].heat == -1.0) {
+        shot.op_type = OPID_ID;
         shot.op_idx = op_idx;
-        shot.next_op_idx = op_idx + 2u; // Skip over the noise op next time
-        shot.qubits_updated_last_op_mask = 1u << op.q1;
-        // TODO: What about multiple noise ops in a row? Loop somehow
         return;
     }
-    // 2 qubit Pauli noise
-    if (arrayLength(&ops) > (op_idx + 1) && ops[op_idx + 1].id == OPID_PAULI_NOISE_2Q) {
-        let noise_op = &ops[op_idx + 1];
 
-        // Non correlated noise for now. Just apply the 1Q noise to each qubit in turn
-        let p_x = noise_op.unitary[0].x;
-        let p_y = noise_op.unitary[1].x;
-        let p_z = noise_op.unitary[2].x;
-
-        // If doing a 2 qubit gate, we're not doing a measurement, so 'steal' that random number for qubit 2
-        let q1_rand = shot.rand_pauli;
-        let q2_rand = shot.rand_measure;
-
-        // Only apply noise if needed
-        if (q1_rand < (p_x + p_y + p_z ) || q2_rand < (p_x + p_y + p_z )) {
-            // Get the rows of the 2 qubit unitary
-            var op_row_0 = getOpRow(op_idx, 0);
-            var op_row_1 = getOpRow(op_idx, 1);
-            var op_row_2 = getOpRow(op_idx, 2);
-            var op_row_3 = getOpRow(op_idx, 3);
-
-            // Apply the Paulis to the matrices. Note this is just permuting the rows, and appliction
-            // commutes, so we can apply them in any order. High order bit is q1. Low order bit is q2.
-            //   X on q1 is rows  2<>0 and  3<>1, X on q2 is rows  1<>0 and  3<>2, etc.
-            //   Y on q1 is rows -2<>0 and -3<>1, Y on q2 is rows -1<>0 and -3<>2
-            //   Z on q1 is -2 and -3, Z on q2 is -1 and -3
-
-            // Apply the q1 permutations as needed
-            if (q1_rand < p_x) {
-                // Apply the X permutation
-                let old_row_0 = op_row_0;
-                let old_row_1 = op_row_1;
-                op_row_0 = op_row_2;
-                op_row_1 = op_row_3;
-                op_row_2 = old_row_0;
-                op_row_3 = old_row_1;
-            } else if (q1_rand < (p_x + p_y)) {
-                // Apply the Y permutation
-                let old_row_0 = op_row_0;
-                let old_row_1 = op_row_1;
-                op_row_0 = rowNeg(op_row_2);
-                op_row_1 = rowNeg(op_row_3);
-                op_row_2 = old_row_0;
-                op_row_3 = old_row_1;
-            } else if (q1_rand < (p_x + p_y + p_z)) {
-                // Apply Z permutation
-                op_row_2 = rowNeg(op_row_2);
-                op_row_3 = rowNeg(op_row_3);
-            }
-            // Apply the q2 permutations as needed
-            if (q2_rand < p_x) {
-                // Apply the X permutation
-                let old_row_0 = op_row_0;
-                let old_row_2 = op_row_2;
-                op_row_0 = op_row_1;
-                op_row_2 = op_row_3;
-                op_row_1 = old_row_0;
-                op_row_3 = old_row_2;
-            } else if (q2_rand < (p_x + p_y)) {
-                // Apply the Y permutation
-                let old_row_0 = op_row_0;
-                let old_row_2 = op_row_2;
-                op_row_0 = rowNeg(op_row_1);
-                op_row_2 = rowNeg(op_row_3);
-                op_row_1 = old_row_0;
-                op_row_3 = old_row_2;
-            } else if (q2_rand < (p_x + p_y + p_z)) {
-                // Apply Z permutation
-                op_row_1 = rowNeg(op_row_1);
-                op_row_3 = rowNeg(op_row_3);
-            }
-            // Write the rows back to the shot buffer unitary
-            setUnitaryRow(shot_idx, 0u, op_row_0);
-            setUnitaryRow(shot_idx, 1u, op_row_1);
-            setUnitaryRow(shot_idx, 2u, op_row_2);
-            setUnitaryRow(shot_idx, 3u, op_row_3);
-
-            shot.op_type = OPID_SHOT_BUFF_2Q; // Indicate to use the matrix in the shot buffer
-            // TODO: What about multiple noise ops in a row? Loop somehow
-        } else {
-            // No noise to apply. Skip the noise op by advancing the op index and return
-            shot.op_type = op.id;
+    // If there is loss noise to apply, do that now
+    if (loss_op_idx != 0u) {
+        let loss_op = &ops[loss_op_idx];
+        let p_loss = loss_op.unitary[0].x; // Loss probability is stored in the x part of first vec2
+        if (shot.rand_loss < p_loss) {
+            // Qubit is lost - perform MResetZ with is_loss = true
+            prep_mresetz(shot_idx, loss_op_idx, true /* is_loss */);
+            // There is no further noise of gate to apply, just the loss execution.
+            return;
         }
-        shot.op_idx = op_idx;
-        shot.next_op_idx = op_idx + 2u; // Skip over the noise op next time
-        shot.qubits_updated_last_op_mask = (1u << op.q1 ) | (1u << op.q2);
-        return;
     }
 
+    if pauli_op_idx != 0 {
+        if ops[pauli_op_idx].id == OPID_PAULI_NOISE_1Q {
+            apply_1q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
+            // This will have set up all the state we need.
+            return;
+        } else {
+            apply_2q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
+            return;
+        }
+    }
 
-    // *******************************
-    // PHASE 5: Advance the state ready for the next op
-    // *******************************
-    // TODO: Figure out exactly what to set here for the execute_op stage to pick up and run with
+    // No noise to apply, just set up the shot to execute the op as-is
     shot.op_idx = op_idx;
-    shot.next_op_idx = op_idx + 1u;
     shot.op_type = op.id;
 
     // Turn any Rxx, Ryy, or Rzz gates into a gate from the shot buffer
     // NOTE: Should probably just do this for all gates
-    if (op.id == OPID_RXX || op.id == OPID_RYY || op.id == OPID_RZZ) {
+    if (op.id == OPID_RXX || op.id == OPID_RYY || op.id == OPID_RZZ || op.id == OPID_MAT2Q || op.id == OPID_SWAP) {
         shots[shot_idx].unitary = op.unitary;
         shot.op_type = OPID_SHOT_BUFF_2Q; // Indicate to use the matrix in the shot buffer
     }
 
     // Set this so the next prepare_op stage knows which qubits to update probabilities for
     shot.qubits_updated_last_op_mask = 1u << op.q1;
-    // Update the below condition list if more 2-qubit gates are added (e.g. Rzz, Swap, etc.)
     if (op.id == OPID_CX || op.id == OPID_CZ || shot.op_type == OPID_SHOT_BUFF_2Q) {
         shot.qubits_updated_last_op_mask = shot.qubits_updated_last_op_mask | (1u << op.q2);
     }
@@ -529,6 +616,13 @@ fn execute_op(
         @builtin(local_invocation_index) tid: u32) {
     // Workgroups are per shot if 22 or less qubits, else 2 workgroups for 23 qubits, 4 for 24, etc..
     let shot_idx: i32 = i32(workgroupId.x) / WORKGROUPS_PER_SHOT;
+    let shot = &shots[shot_idx];
+
+    // Exit early if an id op with no renomalization required
+    if (shot.op_type == OPID_ID && shot.renormalize == 1.0) {
+        return;
+    }
+
     let workgroup_idx_in_shot: i32 = i32(workgroupId.x) % WORKGROUPS_PER_SHOT;
 
     // If the shots spans workgroups, then the thread index is not just the workgroup index
@@ -539,7 +633,6 @@ fn execute_op(
     // case we should write directly to the shot).
     let workgroup_collation_idx: i32 = select(-1, i32(workgroupId.x), WORKGROUPS_PER_SHOT > 1);
 
-    let shot = &shots[shot_idx];
 
     // Here 'entries' refers to complex amplitudes in the state vector
     let entries_per_shot: i32 = 1 << u32(QUBIT_COUNT);
@@ -636,10 +729,6 @@ fn apply_1q_unitary(
     // First, exit early if we don't need to do any work. If the operation is an ID, there is no renormalization,
     // and we are not updating probabilities, then there is nothing to do.
     let scale = shots[shot_idx].renormalize;
-    if (opid == OPID_ID && scale == 1.0 && !update_probs) {
-        return;
-    }
-
 
     // Each iteration processes 2 amplitudes (the pair affected by the 1-qubit gate), so half as many iterations as chunk size
     let iterations = ENTRIES_PER_THREAD >> 1;
