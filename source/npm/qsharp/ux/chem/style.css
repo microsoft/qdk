@@ -41,6 +41,8 @@
 .view-option input[type="range"] {
   position: absolute;
   left: 10em;
+  color: var(--vscode-editor-foreground);
+  background-color: var(--vscode-editor-background);
 }
 
 #cube-dropdown-container {

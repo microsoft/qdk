@@ -6,6 +6,8 @@ import { createViewer, GLViewer } from "3dmol";
 
 import "./style.css";
 
+const themeAttribute = "data-vscode-theme-kind";
+
 export function MoleculeViewer(props: {
   moleculeData: string;
   cubeData: { [key: string]: string };
@@ -27,7 +29,13 @@ export function MoleculeViewer(props: {
   // Runs after the DOM has been created. Create the 3Dmol viewer and adds the model.
   useEffect(() => {
     if (props.moleculeData && viewerRef.current) {
-      const molViewer = viewer.current ?? createViewer(viewerRef.current);
+      const molViewer =
+        viewer.current ??
+        createViewer(viewerRef.current, {
+          backgroundColor: getComputedStyle(document.body).getPropertyValue(
+            "--vscode-editor-background",
+          ),
+        });
       try {
         molViewer.clear(); // If the model is being replaced, clear the old one. Perhaps should get and update instead?
         molViewer.addModel(props.moleculeData.trim(), "xyz", {
@@ -39,6 +47,23 @@ export function MoleculeViewer(props: {
       viewer.current = molViewer;
       viewer.current.zoomTo();
     }
+
+    // Respond to theme changes
+    const callback = (mutations: MutationRecord[]) => {
+      for (const mutation of mutations) {
+        if (mutation.attributeName === themeAttribute) {
+          const newBackgroundColor = getComputedStyle(
+            document.body,
+          ).getPropertyValue("--vscode-editor-background");
+          if (viewer.current) {
+            viewer.current.setBackgroundColor(newBackgroundColor, 1.0);
+            viewer.current.render();
+          }
+        }
+      }
+    };
+    const observer = new MutationObserver(callback);
+    observer.observe(document.body, { attributeFilter: [themeAttribute] });
   }, [props.moleculeData]);
 
   useEffect(() => {
