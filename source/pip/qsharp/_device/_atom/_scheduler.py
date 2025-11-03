@@ -57,9 +57,19 @@ def move_scale(move1: Move, move2: Move) -> tuple[bool | Fraction, bool | Fracti
 
 
 class ParallelCandidate:
+    """
+    Represents a parallel move set candidate. It has three fields:
+        moves[set]: A set of moves that can be performed in parallel.
+        move_scale[Optional[tuple[Fraction, Fraction]]]: A tuple of fractions
+            representing the scale factors in the row and col axes between
+            moves. `None`, if there is a single element in the move set.
+    """
+
     def __init__(self, moves: Iterable[Move]):
         self.moves = set(moves)
-        self.move_scale = move_scale(*islice(self.moves, 2))
+        self.move_scale = None
+        if len(self.moves) > 1:
+            self.move_scale = move_scale(*islice(self.moves, 2))
         self.ref_move = next(iter(self.moves))
 
     def __len__(self) -> int:
@@ -75,6 +85,10 @@ class ParallalelMoves:
     """
 
     def __init__(self, moves: list[Move]):
+        # Edge case in which there is a single move.
+        if len(moves) == 1:
+            self.parallel_candidates = [ParallelCandidate(moves)]
+            return
         pairs = combinations(moves, 2)
         self.parallel_candidates: list[ParallelCandidate] = []
         for pair in pairs:
@@ -412,6 +426,7 @@ class Schedule(QirModuleVisitor):
         while not parallel_moves_builder.is_empty():
             next_parallel_set = parallel_moves_builder.try_take(36)
             parallel_moves.append(next_parallel_set)
+        assert sum(len(s) for s in parallel_moves) == len(moves)
         return parallel_moves
 
     def insert_moves(self):
@@ -424,6 +439,7 @@ class Schedule(QirModuleVisitor):
         #    of those 4 sets into 4 other sets corresponding to moves
         #    with the same direction: left, right, up or down.
         disjoint_move_sets = self.split_moves_by_parity_and_direction()
+        assert sum(len(s) for s in disjoint_move_sets) == len(self.pending_moves)
 
         # 2. For each of the previous 16 disjoint sets of moves,
         #    we apply a movement parallelization algorithm.
