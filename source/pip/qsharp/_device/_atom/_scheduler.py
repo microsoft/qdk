@@ -34,17 +34,25 @@ def move_direction(source: Location, destination: Location) -> tuple[int, int]:
     return (int(source[0] < destination[0]), int(source[1] < destination[1]))
 
 
-def move_scale(move1: Move, move2: Move) -> tuple[Fraction, Fraction]:
+def move_scale(move1: Move, move2: Move) -> tuple[bool | Fraction, bool | Fraction]:
     """
     Returns a tuple representing the ratios between the row and col displacement
     of two moves.
     """
-    row_source_diff = move1[1][0] - move2[1][0]
-    row_destination_diff = move1[2][0] - move2[2][0]
-    row_displacement_ratio = Fraction(row_source_diff, row_destination_diff)
-    col_source_diff = move1[1][1] - move2[1][1]
-    col_destination_diff = move1[2][1] - move2[2][1]
-    col_displacement_ratio = Fraction(col_source_diff, col_destination_diff)
+    source_row_diff = move1[1][0] - move2[1][0]
+    destination_row_diff = move1[2][0] - move2[2][0]
+    row_displacement_ratio = (
+        True
+        if destination_row_diff == 0
+        else Fraction(source_row_diff, destination_row_diff)
+    )
+    source_col_diff = move1[1][1] - move2[1][1]
+    destination_col_diff = move1[2][1] - move2[2][1]
+    col_displacement_ratio = (
+        True
+        if destination_col_diff == 0
+        else Fraction(source_col_diff, destination_col_diff)
+    )
     return (row_displacement_ratio, col_displacement_ratio)
 
 
@@ -59,15 +67,22 @@ class ParallelCandidate:
 
 
 class ParallalelMoves:
+    """
+    A data structure that organizes moves into parallelizable sets.
+    It provides an `is_empty()` method to check if there are any moves
+    left, and a `try_take(n)` method to take up to `n` parallelizable
+    moves from the data structure.
+    """
+
     def __init__(self, moves: list[Move]):
         pairs = combinations(moves, 2)
-        self.parallel_candidates: list[ParallelCandidate] = [
-            ParallelCandidate(next(pairs))
-        ]
+        self.parallel_candidates: list[ParallelCandidate] = []
         for pair in pairs:
             s = move_scale(*pair)
             for pc in self.parallel_candidates:
-                if s == pc.move_scale and s == move_scale(pair[0], pc.ref_move):
+                if s == pc.move_scale and (
+                    pair[0] == pc.ref_move or s == move_scale(pair[0], pc.ref_move)
+                ):
                     pc.moves.add(pair[0])
                     pc.moves.add(pair[1])
                     break
@@ -77,7 +92,7 @@ class ParallalelMoves:
         self.parallel_candidates.sort(key=len, reverse=True)
 
     def is_empty(self) -> bool:
-        return not bool(self.parallel_candidates[0])
+        return not (self.parallel_candidates and bool(self.parallel_candidates[0]))
 
     def try_take(self, number_of_moves: int) -> list[Move]:
         # Take `number_of_moves` from the largest parallel candidate.
@@ -381,14 +396,16 @@ class Schedule(QirModuleVisitor):
         self,
     ) -> list[list[tuple[int, tuple[int, int], tuple[int, int]]]]:
         moves_by_parity_and_direction = [[] for _ in range(16)]
-        for qubit_id, destination in self.pending_moves:
-            source = self.device.get_home_loc(qubit_id)
+        for id, destination in self.pending_moves:
+            q_id = qubit_id(id)
+            assert q_id is not None, "Qubit id should be known"
+            source = self.device.get_home_loc(q_id)
             parity = move_parity(source, destination)
             direction = move_direction(source, destination)
             major_index = 2 * parity[0] + parity[1]
             minor_index = 2 * direction[0] + direction[1]
             index = 4 * major_index + minor_index
-            moves_by_parity_and_direction[index].append((qubit_id, source, destination))
+            moves_by_parity_and_direction[index].append((id, source, destination))
         return moves_by_parity_and_direction
 
     def parallelize_moves(
