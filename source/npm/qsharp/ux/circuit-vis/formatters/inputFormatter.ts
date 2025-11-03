@@ -93,7 +93,7 @@ const qubitInput = (
   el.setAttribute("text-anchor", "start");
   el.setAttribute("dominant-baseline", "middle");
   el.setAttribute("data-wire", wireIndex.toString());
-  el.classList.add("qs-maintext");
+  el.classList.add("qs-maintext", "qs-qubit-label");
 
   if (link) {
     const linkElem = createSvgElement("a", {

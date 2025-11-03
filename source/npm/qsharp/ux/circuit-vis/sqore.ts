@@ -89,7 +89,6 @@ export class Sqore {
    * Render circuit into `container` at the specified layer depth.
    *
    * @param container HTML element for rendering visualization into.
-   * @param renderDepth Initial layer depth at which to render gates.
    */
   draw(container: HTMLElement): void {
     // Inject into container
@@ -254,10 +253,8 @@ export class Sqore {
    */
   private generateSvg(composedSqore: ComposedSqore): SVGElement {
     const { width, height, elements } = composedSqore;
-    // const uuid: string = createUUID();
 
     const svg: SVGElement = document.createElementNS(svgNS, "svg");
-    // svg.setAttribute("id", uuid);
     svg.setAttribute("class", "qviz");
     svg.setAttribute("width", width.toString());
     svg.setAttribute("height", height.toString());

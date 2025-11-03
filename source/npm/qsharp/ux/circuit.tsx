@@ -430,7 +430,7 @@ export function CircuitPanel(props: CircuitProps) {
               const basename =
                 location.file.replace(/\/+$/, "").split("/").pop() ??
                 location.file;
-              const title = `${basename}:${location.line}:${location.column}`;
+              const title = `${basename}:${location.line + 1}:${location.column + 1}`;
               return title;
             });
             const title = titles.length > 1 ? `${titles[0]}, ...` : titles[0];

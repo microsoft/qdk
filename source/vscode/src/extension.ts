@@ -123,7 +123,6 @@ export async function activate(
           await vscode.window.showTextDocument(document, {
             viewColumn,
           });
-          // editor.revealRange(vscodeRange, vscode.TextEditorRevealType.InCenter);
         }
 
         vscode.commands.executeCommand(

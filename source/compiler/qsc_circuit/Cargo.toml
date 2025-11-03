@@ -20,6 +20,7 @@ qsc_frontend = { path = "../qsc_frontend" }
 qsc_fir = { path = "../qsc_fir" }
 qsc_hir = { path = "../qsc_hir" }
 qsc_partial_eval = { path = "../qsc_partial_eval" }
+qsc_lowerer = { path = "../qsc_lowerer" }
 regex-lite = { workspace = true }
 rustc-hash = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

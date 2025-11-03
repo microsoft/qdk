@@ -31,7 +31,7 @@ impl CallStack {
     }
 
     #[must_use]
-    pub fn frames(&self) -> Vec<Frame> {
+    pub fn to_frames(&self) -> Vec<Frame> {
         self.frames.clone()
     }
 

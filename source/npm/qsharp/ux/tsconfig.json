@@ -2,9 +2,7 @@
   "compilerOptions": {
     "outDir": "../dist",
     "declaration": true,
-    "declarationMap": true,
     "sourceMap": true,
-
     "module": "nodenext",
     "moduleResolution": "nodenext",
     "target": "ES2020",

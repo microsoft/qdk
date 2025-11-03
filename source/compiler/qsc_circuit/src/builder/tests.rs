@@ -6,20 +6,22 @@ use expect_test::expect;
 
 #[test]
 fn exceed_max_operations() {
-    let mut builder = CircuitTracer::new(TracerConfig {
-        max_operations: 2,
-        source_locations: false,
-        loop_detection: false,
-        group_scopes: false,
-        collapse_qubit_registers: false,
-    });
+    let mut builder = CircuitTracer::new(
+        TracerConfig {
+            max_operations: 2,
+            source_locations: false,
+            loop_detection: false,
+            group_scopes: false,
+            collapse_qubit_registers: false,
+        },
+        &[],
+    );
 
-    let tracer: &mut dyn Tracer = &mut builder;
-    tracer.qubit_allocate(&[], 0);
+    builder.qubit_allocate(&[], 0);
 
-    tracer.gate(&[], "X", false, &[0], &[], None);
-    tracer.gate(&[], "X", false, &[0], &[], None);
-    tracer.gate(&[], "X", false, &[0], &[], None);
+    builder.gate(&[], "X", false, &[0], &[], None);
+    builder.gate(&[], "X", false, &[0], &[], None);
+    builder.gate(&[], "X", false, &[0], &[], None);
 
     let circuit = builder.finish(None);
 
@@ -33,21 +35,22 @@ fn exceed_max_operations() {
 
 #[test]
 fn exceed_max_operations_deferred_measurements() {
-    let mut builder = CircuitTracer::new(TracerConfig {
-        max_operations: 2,
-        source_locations: false,
-        loop_detection: false,
-        group_scopes: false,
-        collapse_qubit_registers: false,
-    });
+    let mut builder = CircuitTracer::new(
+        TracerConfig {
+            max_operations: 2,
+            source_locations: false,
+            loop_detection: false,
+            group_scopes: false,
+            collapse_qubit_registers: false,
+        },
+        &[],
+    );
 
-    // TODO: ugh...
-    let tracer: &mut dyn Tracer = &mut builder;
-    tracer.qubit_allocate(&[], 0);
+    builder.qubit_allocate(&[], 0);
 
-    tracer.gate(&[], "X", false, &[0], &[], None);
-    tracer.measure(&[], "M", 0, &(0.into()));
-    tracer.gate(&[], "X", false, &[0], &[], None);
+    builder.gate(&[], "X", false, &[0], &[], None);
+    builder.measure(&[], "M", 0, &(0.into()));
+    builder.gate(&[], "X", false, &[0], &[], None);
 
     let circuit = builder.finish(None);
 

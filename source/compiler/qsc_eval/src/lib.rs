@@ -697,7 +697,7 @@ impl State {
 
     #[must_use]
     pub fn capture_stack(&self) -> Vec<Frame> {
-        let mut frames = self.call_stack.frames();
+        let mut frames = self.call_stack.to_frames();
 
         let mut span = self.current_span;
         for frame in frames.iter_mut().rev() {
@@ -1282,13 +1282,14 @@ impl State {
         arg_span: PackageSpan,
         out: &mut impl Receiver,
     ) -> Result<(), Error> {
+        let call_stack = self.capture_stack_if_trace_enabled(sim);
         self.push_frame(Vec::new().into(), callee_id, functor);
         self.current_span = callee_span.span;
         self.increment_call_count(callee_id, functor);
         let name = &callee.name.name;
         let val = match name.as_ref() {
             "__quantum__rt__qubit_allocate" => {
-                let q = sim.qubit_allocate(&self.capture_stack_if_trace_enabled(sim));
+                let q = sim.qubit_allocate(&call_stack);
                 let q = Rc::new(Qubit(q));
                 env.track_qubit(Rc::clone(&q));
                 if let Some(counter) = &mut self.qubit_counter {
@@ -1302,7 +1303,7 @@ impl State {
                     .try_deref()
                     .ok_or(Error::QubitDoubleRelease(arg_span))?;
                 env.release_qubit(&qubit);
-                if sim.qubit_release(qubit.0, &self.capture_stack_if_trace_enabled(sim)) {
+                if sim.qubit_release(qubit.0, &call_stack) {
                     Value::unit()
                 } else {
                     return Err(Error::ReleasedQubitNotZero(qubit.0, arg_span));
@@ -1314,7 +1315,7 @@ impl State {
                     callee_span,
                     arg,
                     arg_span,
-                    &self.capture_stack_if_trace_enabled(sim),
+                    &call_stack,
                     sim,
                     &mut self.rng.borrow_mut(),
                     out,

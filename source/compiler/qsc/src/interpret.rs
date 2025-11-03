@@ -22,7 +22,9 @@ use miette::Diagnostic;
 use num_bigint::BigUint;
 use num_complex::Complex;
 use qsc_circuit::{
-    Circuit, CircuitTracer, TracerConfig, operations::entry_expr_for_qubit_operation,
+    Circuit, Circuit, CircuitTracer, CircuitTracer, TracerConfig, TracerConfig,
+    operations::entry_expr_for_qubit_operation,
+    operations::{entry_expr_for_qubit_operation, qubit_param_info},
     rir_to_circuit::make_circuit,
 };
 use qsc_codegen::qir::{fir_to_qir, fir_to_qir_from_callable, fir_to_rir};
@@ -358,7 +360,12 @@ impl Interpreter {
             complex_ty_cache: None.into(),
             env: Env::default(),
             sim: SparseSim::new(),
-            circuit_tracer: circuit_tracer_config.map(CircuitTracer::new),
+            circuit_tracer: circuit_tracer_config.map(|config| {
+                CircuitTracer::new(
+                    config,
+                    &[package, map_hir_package_to_fir(source_package_id)],
+                )
+            }),
             quantum_seed: None,
             classical_seed: None,
             package,
@@ -961,21 +968,28 @@ impl Interpreter {
         method: CircuitGenerationMethod,
         tracer_config: TracerConfig,
     ) -> std::result::Result<Circuit, Vec<Error>> {
-        let (entry_expr, invoke_params) = match entry {
-            CircuitEntryPoint::Operation(ref operation_expr) => {
-                let (item, functor_app) = self.eval_to_operation(operation_expr)?;
-                let expr = entry_expr_for_qubit_operation(item, functor_app, operation_expr)
+        let (entry_expr, qubit_param_info, invoke_params) = match entry {
+            CircuitEntryPoint::Operation(operation_expr) => {
+                let (package_id, item, functor_app) = self.eval_to_operation(&operation_expr)?;
+                let qubit_param_info = qubit_param_info(item);
+                let expr = entry_expr_for_qubit_operation(item, functor_app, &operation_expr)
                     .map_err(|e| vec![e.into()])?;
-                (Some(expr), None)
+                (Some(expr), qubit_param_info.map(|i| (package_id, i)), None)
             }
-            CircuitEntryPoint::EntryExpr(expr) => (Some(expr), None),
-            CircuitEntryPoint::Callable(call_val, args_val) => (None, Some((call_val, args_val))),
-            CircuitEntryPoint::EntryPoint => (None, None),
+            CircuitEntryPoint::EntryExpr(expr) => (Some(expr), None, None),
+            CircuitEntryPoint::Callable(call_val, args_val) => {
+                (None, None, Some((call_val, args_val)))
+            }
+            CircuitEntryPoint::EntryPoint => (None, None, None),
         };
 
         let mut sink = std::io::sink();
         let mut out = GenericReceiver::new(&mut sink);
-        let mut tracer = CircuitTracer::new(tracer_config);
+        let mut tracer = CircuitTracer::with_qubit_input_params(
+            tracer_config,
+            &[self.package, self.source_package],
+            qubit_param_info,
+        );
         match method {
             CircuitGenerationMethod::Simulate => {
                 let mut sim = SparseSim::new();
@@ -1316,7 +1330,7 @@ impl Interpreter {
     fn eval_to_operation(
         &mut self,
         operation_expr: &str,
-    ) -> std::result::Result<(&qsc_hir::hir::Item, FunctorApp), Vec<Error>> {
+    ) -> std::result::Result<(PackageId, &qsc_hir::hir::Item, FunctorApp), Vec<Error>> {
         let mut sink = std::io::sink();
         let mut out = GenericReceiver::new(&mut sink);
         let (store_item_id, functor_app) = match self.eval_fragments(&mut out, operation_expr)? {
@@ -1336,7 +1350,7 @@ impl Interpreter {
             .items
             .get(local_item_id)
             .expect("item should exist in the package");
-        Ok((item, functor_app))
+        Ok((store_item_id.package, item, functor_app))
     }
 }
 

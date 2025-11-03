@@ -186,14 +186,13 @@ function renderLocation(location) {
     const targetLine = lines[location.line] || "";
     const snippet = targetLine.trim();
 
-    // Return a javascript: URL that shows the snippet as alert/tooltip
     return {
-      title: `${location.file}:${location.line}:${location.column}\n${snippet.replace(/'/g, "\\'")}`,
+      title: `${location.file}:${location.line + 1}:${location.column + 1}\n${snippet.replace(/'/g, "\\'")}`,
       href: "#",
     };
   } catch {
     return {
-      title: `Error loading ${location.file}:${location.line}`,
+      title: `Error loading ${location.file}:${location.line + 1}`,
       href: "#",
     };
   }

@@ -12,6 +12,13 @@ use std::{
     cmp::{self, max},
     fmt::{Display, Write},
     hash::{Hash, Hasher},
+use qsc_fir::fir::PackageId;
+use rustc_hash::{FxHashMap, FxHashSet};
+use serde::{Deserialize, Serialize};
+use std::{
+    cmp::{self},
+    fmt::{Display, Write},
+    hash::Hash,
     ops::Not,
     vec,
 };
@@ -311,40 +318,30 @@ pub struct Qubit {
     pub declarations: Vec<SourceLocation>,
 }
 
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(untagged)]
+pub enum SourceLocation {
+    Resolved(ResolvedSourceLocation),
+    #[serde(skip)]
+    Unresolved(PackageOffset),
+}
+
 #[derive(Clone, Debug, Copy)]
-#[allow(clippy::struct_excessive_bools)]
-pub struct TracerConfig {
-    /// Maximum number of operations the builder will add to the circuit
-    pub max_operations: usize,
-    /// Capture the source code locations of operations and qubit declarations
-    /// in the circuit diagram
-    pub source_locations: bool,
-    /// Detect repeated motifs in the circuit and group them into sub-circuits
-    pub loop_detection: bool,
-    pub group_scopes: bool,
-    /// Collapse qubit registers into single qubits
-    pub collapse_qubit_registers: bool,
+pub struct PackageOffset {
+    pub package_id: PackageId,
+    pub offset: u32,
 }
 
-impl TracerConfig {
-    /// Set to the current UI limit + 1 so that it still triggers
-    /// the "this circuit has too many gates" warning in the UI.
-    /// (see npm\qsharp\ux\circuit.tsx)
-    ///
-    /// A more refined way to do this might be to communicate the
-    /// "limit exceeded" state up to the UI somehow.
-    const DEFAULT_MAX_OPERATIONS: usize = 10001;
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct ResolvedSourceLocation {
+    pub file: String,
+    pub line: u32,
+    pub column: u32,
 }
 
-impl Default for TracerConfig {
-    fn default() -> Self {
-        Self {
-            max_operations: Self::DEFAULT_MAX_OPERATIONS,
-            source_locations: true,
-            loop_detection: false,
-            group_scopes: true,
-            collapse_qubit_registers: false,
-        }
+impl Display for ResolvedSourceLocation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}:{}", self.file, self.line, self.column)
     }
 }
 

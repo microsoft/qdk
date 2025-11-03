@@ -72,7 +72,7 @@
     fill: var(--vscode-button-secondaryForeground, #ffffff);
   }
 
-  a.qs-circuit-source-link .qs-maintext {
+  a.qs-circuit-source-link .qs-qubit-label {
     pointer-events: auto;
   }
 
@@ -86,7 +86,7 @@
     fill: var(--vscode-button-hoverBackground, #005a9e);
   }
 
-  a.qs-circuit-source-link:hover .qs-maintext {
+  a.qs-circuit-source-link:hover .qs-qubit-label {
     fill: var(--vscode-editorLink-activeForeground, #5d5d5d);
   }
 
@@ -136,7 +136,7 @@
   }
 
   /* Measurement gate icon */
-  .gate > g > line,
+  .qs-line-measure,
   .arc-measure {
     stroke: var(--vscode-button-foreground, #ffffff);
     fill: none;
