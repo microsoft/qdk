@@ -6,21 +6,11 @@ mod tests;
 
 use crate::{
     Qubit,
-    circuit::{Circuit, SourceLocation, TracerConfig, operation_list_to_grid},
-    group_qubits,
-    rir_to_circuit::{
-        Op, fill_in_dbg_metadata, resolve_source_location_if_unresolved,
-        tracer::{CircuitBuilder, GateInputs, GateLabel, ResultRegister, WireId},
-    },
-};
-use qsc_data_structures::{
-    debug::{DbgInfo, DbgLocation, DbgLocationId, DbgMetadataScope, InstructionMetadata},
-    index_map::IndexMap,
-    span::{PackageSpan, Span},
     circuit::{
-        Circuit, Ket, Measurement, Operation, PackageOffset, Qubit, Register,
-        ResolvedSourceLocation, SourceLocation, Unitary, operation_list_to_grid,
+        Circuit, Ket, Measurement, Operation, PackageOffset, Register, ResolvedSourceLocation,
+        SourceLocation, Unitary, operation_list_to_grid,
     },
+    group_qubits,
     operations::QubitParamInfo,
 };
 use qsc_data_structures::{
@@ -212,6 +202,8 @@ impl CircuitTracer {
             self.wire_map_builder.wire_map.to_qubits(),
             operations,
             dbg_lookup,
+            self.config.loop_detection,
+            self.config.collapse_qubit_registers,
         )
     }
 
@@ -307,25 +299,17 @@ fn first_user_code_location(
                 offset: frame.span.lo,
             });
         }
-
-        let (package, span) = user_frame?;
-
-        let location = PackageSpan { package, span };
-        let loc = DbgLocation {
-            location,
-            scope: 0.into(), // TODO: fill in correct scope
-            inlined_at: None,
-        };
-        Some(self.dbg_info.add_location(loc))
     }
 
     None
 }
 
-fn finish_circuit(
+pub(crate) fn finish_circuit(
     mut qubits: Vec<Qubit>,
     mut operations: Vec<Operation>,
     source_location_lookup: Option<&PackageStore>,
+    loop_detection: bool,
+    collapse_qubit_registers: bool,
 ) -> Circuit {
     if let Some(source_location_lookup) = source_location_lookup {
         resolve_locations(&mut operations, source_location_lookup);
@@ -364,7 +348,7 @@ fn resolve_locations(operations: &mut [Operation], source_location_lookup: &Pack
     }
 }
 
-fn resolve_source_location_if_unresolved(
+pub(crate) fn resolve_source_location_if_unresolved(
     source_location: &mut SourceLocation,
     package_store: &PackageStore,
 ) {
@@ -395,6 +379,7 @@ fn resolve_source_location_if_unresolved(
     }
 }
 
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug, Copy)]
 pub struct TracerConfig {
     /// Maximum number of operations the builder will add to the circuit
@@ -434,7 +419,7 @@ impl Default for TracerConfig {
 /// Maps qubit IDs to their corresponding wire IDs and tracks measurement results
 /// along with their source locations.
 #[derive(Default)]
-struct WireMap {
+pub(crate) struct WireMap {
     /// Maps qubit IDs to their assigned wire IDs.
     qubits: IndexMap<usize, QubitWire>,
     /// Maps wire IDs to their declaration locations and measurement result IDs.
@@ -442,14 +427,14 @@ struct WireMap {
 }
 
 impl WireMap {
-    fn qubit_wire(&self, qubit_id: usize) -> QubitWire {
+    pub fn qubit_wire(&self, qubit_id: usize) -> QubitWire {
         self.qubits
             .get(qubit_id)
             .expect("qubit should already be mapped")
             .to_owned()
     }
 
-    fn result_wire(&self, result_id: usize) -> ResultWire {
+    pub fn result_wire(&self, result_id: usize) -> ResultWire {
         self.qubit_wires
             .iter()
             .find_map(|(QubitWire(qubit_wire), (_, results))| {
@@ -459,7 +444,7 @@ impl WireMap {
             .expect("result should already be mapped")
     }
 
-    fn to_qubits(&self) -> Vec<Qubit> {
+    pub fn to_qubits(&self) -> Vec<Qubit> {
         let mut qubits = vec![];
         for (QubitWire(wire_id), (declarations, results)) in self.qubit_wires.iter() {
             qubits.push(Qubit {
@@ -476,11 +461,11 @@ impl WireMap {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ResultWire(pub usize, pub usize);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) struct ResultWire(pub usize, pub usize);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct QubitWire(pub usize);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) struct QubitWire(pub usize);
 
 impl From<usize> for QubitWire {
     fn from(value: usize) -> Self {
@@ -502,9 +487,18 @@ impl From<QubitWire> for usize {
 /// This implementation is similar to the partial evaluation resource manager,
 /// which is used in RIR/QIR generation, in its Qubit ID and Result ID management.
 /// (see `source/compiler/qsc_partial_eval/src/management.rs`)
-struct WireMapBuilder {
+pub(crate) struct WireMapBuilder {
     next_qubit_wire_id: QubitWire,
     wire_map: WireMap,
+}
+
+impl Default for WireMapBuilder {
+    fn default() -> Self {
+        Self {
+            next_qubit_wire_id: QubitWire(0),
+            wire_map: WireMap::default(),
+        }
+    }
 }
 
 impl WireMapBuilder {
@@ -523,11 +517,11 @@ impl WireMapBuilder {
         new
     }
 
-    fn current(&self) -> &WireMap {
+    pub fn current(&self) -> &WireMap {
         &self.wire_map
     }
 
-    fn map_qubit(&mut self, qubit: usize, declared_at: Option<PackageOffset>) {
+    pub fn map_qubit(&mut self, qubit: usize, declared_at: Option<PackageOffset>) {
         let mapped = self.next_qubit_wire_id;
         self.next_qubit_wire_id.0 += 1;
         self.wire_map.qubits.insert(qubit, mapped);
@@ -542,13 +536,17 @@ impl WireMapBuilder {
         }
     }
 
+    pub(crate) fn into_wire_map(self) -> WireMap {
+        self.wire_map
+    }
+
     fn unmap_qubit(&mut self, q: usize) {
         // Simple behavior assuming qubits are always released in reverse order of allocation
         self.next_qubit_wire_id.0 -= 1;
         self.wire_map.qubits.remove(q);
     }
 
-    fn link_result_to_qubit(&mut self, q: usize, r: usize) {
+    pub fn link_result_to_qubit(&mut self, q: usize, r: usize) {
         let mapped_q = self.wire_map.qubit_wire(q);
         let Some((_, measurements)) = self.wire_map.qubit_wires.get_mut(mapped_q) else {
             panic!("qubit should already be mapped");
@@ -564,20 +562,21 @@ impl WireMapBuilder {
         self.wire_map.qubits.insert(q0, q1_mapped);
         self.wire_map.qubits.insert(q1, q0_mapped);
     }
+}
 
 /// Builds a list of circuit operations with a maximum operation limit.
 /// Stops adding operations once the limit is exceeded.
 ///
 /// Methods take `WireMap` as a parameter to resolve qubit and result IDs
 /// to their corresponding wire positions in the circuit diagram.
-struct OperationListBuilder {
+pub(crate) struct OperationListBuilder {
     max_ops: usize,
     max_ops_exceeded: bool,
     operations: Vec<Operation>,
 }
 
 impl OperationListBuilder {
-    fn new(max_operations: usize) -> Self {
+    pub fn new(max_operations: usize) -> Self {
         Self {
             max_ops: max_operations,
             max_ops_exceeded: false,
@@ -599,7 +598,7 @@ impl OperationListBuilder {
         &self.operations
     }
 
-    fn into_operations(self) -> Vec<Operation> {
+    pub fn into_operations(self) -> Vec<Operation> {
         self.operations
     }
 
@@ -712,7 +711,7 @@ impl OperationListBuilder {
     }
 }
 
-struct GateInputs<'a> {
+pub(crate) struct GateInputs<'a> {
     targets: &'a [usize],
     controls: &'a [usize],
 }

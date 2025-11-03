@@ -5,16 +5,10 @@
 mod tests;
 
 use log::warn;
-use qsc_eval::PackageSpan;
-use rustc_hash::{FxHashMap, FxHashSet};
-use serde::{Deserialize, Serialize};
-use std::{
-    cmp::{self, max},
-    fmt::{Display, Write},
-    hash::{Hash, Hasher},
 use qsc_fir::fir::PackageId;
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
+use std::{cmp::max, hash::Hasher};
 use std::{
     cmp::{self},
     fmt::{Display, Write},
@@ -84,29 +78,6 @@ pub struct ComponentColumn {
 
 /// Union type for components.
 pub type Component = Operation;
-
-#[derive(Clone, Serialize, Deserialize, Debug)]
-#[serde(untagged)]
-pub enum SourceLocation {
-    Resolved(ResolvedSourceLocation),
-    #[serde(skip)]
-    Unresolved(PackageSpan),
-}
-
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct ResolvedSourceLocation {
-    // Use ILocation in wasm, this is hella confusing
-    pub file: String,
-    pub line: u32,
-    pub column: u32,
-}
-
-impl Display for ResolvedSourceLocation {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // TODO: pretty sure we have to add 1 here
-        write!(f, "{}:{}:{}", self.file, self.line, self.column)
-    }
-}
 
 /// Union type for operations.
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -193,6 +164,16 @@ impl Operation {
             Operation::Measurement(m) => &mut m.children,
             Operation::Unitary(u) => &mut u.children,
             Operation::Ket(k) => &mut k.children,
+        }
+    }
+
+    /// Returns the source location for the operation.
+    #[must_use]
+    pub fn source_location(&self) -> &Option<SourceLocation> {
+        match self {
+            Operation::Measurement(m) => &m.source,
+            Operation::Unitary(u) => &u.source,
+            Operation::Ket(k) => &k.source,
         }
     }
 

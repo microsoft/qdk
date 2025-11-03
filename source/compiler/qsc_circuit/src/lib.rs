@@ -5,14 +5,10 @@ mod builder;
 mod circuit;
 pub mod operations;
 
-pub use builder::CircuitTracer;
-pub use circuit::{
-    CURRENT_VERSION, Circuit, CircuitGroup, Component, ComponentColumn, ComponentGrid, Ket,
-    Measurement, Operation, Qubit, Register, TracerConfig, Unitary, group_qubits,
-    operation_list_to_grid,
 pub use builder::{CircuitTracer, TracerConfig};
 pub use circuit::{
-    CURRENT_VERSION, Circuit, CircuitGroup, ComponentColumn, Operation, operation_list_to_grid,
+    CURRENT_VERSION, Circuit, CircuitGroup, Component, ComponentColumn, ComponentGrid, Ket,
+    Measurement, Operation, Qubit, Register, Unitary, group_qubits, operation_list_to_grid,
 };
 pub use operations::Error;
 pub mod circuit_to_qsharp;

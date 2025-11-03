@@ -1366,9 +1366,9 @@ fn operation_with_qubits() {
 
     expect![[r#"
         Eval:
-        q_0@<entry>:5:9 ─ H@test.qs:6:16 ────────── ● ───────── M@test.qs:8:17 ──
+        q_0@test.qs:5:27 ─ H@test.qs:6:16 ────────── ● ───────── M@test.qs:8:17 ──
                                            │                  ╘═════════
-        q_1@<entry>:5:9 ──────────────────── X@test.qs:7:16 ─── M@test.qs:8:24 ──
+        q_1@test.qs:5:38 ──────────────────── X@test.qs:7:16 ─── M@test.qs:8:24 ──
                                                               ╘═════════
 
         Static:
@@ -1414,23 +1414,23 @@ fn operation_with_qubit_arrays() {
 
     expect![[r#"
         Eval:
-        q_0@<entry>:5:9 ─ H@test.qs:8:20 ─── M@test.qs:23:16 ─
+        q_0@test.qs:6:27 ─ H@test.qs:8:20 ─── M@test.qs:23:16 ─
                                            ╘═════════
-        q_1@<entry>:5:9 ─ H@test.qs:8:20 ─── M@test.qs:23:16 ─
+        q_1@test.qs:6:27 ─ H@test.qs:8:20 ─── M@test.qs:23:16 ─
                                            ╘═════════
-        q_2@<entry>:5:9 ─ X@test.qs:12:24 ────────────────────
-        q_3@<entry>:5:9 ─ X@test.qs:12:24 ────────────────────
-        q_4@<entry>:5:9 ─ X@test.qs:12:24 ────────────────────
-        q_5@<entry>:5:9 ─ X@test.qs:12:24 ────────────────────
-        q_6@<entry>:5:9 ─ Y@test.qs:18:28 ────────────────────
-        q_7@<entry>:5:9 ─ Y@test.qs:18:28 ────────────────────
-        q_8@<entry>:5:9 ─ Y@test.qs:18:28 ────────────────────
-        q_9@<entry>:5:9 ─ Y@test.qs:18:28 ────────────────────
-        q_10@<entry>:5:9 ─ Y@test.qs:18:28 ────────────────────
-        q_11@<entry>:5:9 ─ Y@test.qs:18:28 ────────────────────
-        q_12@<entry>:5:9 ─ Y@test.qs:18:28 ────────────────────
-        q_13@<entry>:5:9 ─ Y@test.qs:18:28 ────────────────────
-        q_14@<entry>:5:9 ─ X@test.qs:22:16 ────────────────────
+        q_2@test.qs:6:40 ─ X@test.qs:12:24 ────────────────────
+        q_3@test.qs:6:40 ─ X@test.qs:12:24 ────────────────────
+        q_4@test.qs:6:40 ─ X@test.qs:12:24 ────────────────────
+        q_5@test.qs:6:40 ─ X@test.qs:12:24 ────────────────────
+        q_6@test.qs:6:55 ─ Y@test.qs:18:28 ────────────────────
+        q_7@test.qs:6:55 ─ Y@test.qs:18:28 ────────────────────
+        q_8@test.qs:6:55 ─ Y@test.qs:18:28 ────────────────────
+        q_9@test.qs:6:55 ─ Y@test.qs:18:28 ────────────────────
+        q_10@test.qs:6:55 ─ Y@test.qs:18:28 ────────────────────
+        q_11@test.qs:6:55 ─ Y@test.qs:18:28 ────────────────────
+        q_12@test.qs:6:55 ─ Y@test.qs:18:28 ────────────────────
+        q_13@test.qs:6:55 ─ Y@test.qs:18:28 ────────────────────
+        q_14@test.qs:6:72 ─ X@test.qs:22:16 ────────────────────
 
         Static:
         q_0    ─ [[ ─── [Test@test.qs:6:12] ── H@test.qs:8:20 ─── M@test.qs:23:16 ── ]] ──
@@ -1495,7 +1495,7 @@ fn adjoint_operation() {
 
     expect![[r#"
         Eval:
-        q_0@<entry>:5:9 ─ Y@test.qs:13:20 ─
+        q_0@test.qs:5:27 ─ Y@test.qs:13:20 ─
 
         Static:
         q_0    ─ [[ ─── [Foo@test.qs:5:12] ─── Y@test.qs:13:20 ── ]] ──
@@ -1516,7 +1516,7 @@ fn lambda() {
 
     expect![[r#"
         Eval:
-        q_0@<entry>:5:9 ─ H@<entry>:2:18 ──
+        q_0@line_0:0:0 ─ H@<entry>:2:18 ──
 
         Static:
         q_0    ─ [[ ─── [<lambda>@<entry>:2:13] ── H@<entry>:2:18 ─── ]] ──
@@ -1589,9 +1589,9 @@ fn internal_operation() {
 
     expect![[r#"
         Eval:
-        q_0@<entry>:5:9 ─ H@test.qs:6:16 ────────── ● ───────── M@test.qs:8:17 ──
+        q_0@test.qs:5:36 ─ H@test.qs:6:16 ────────── ● ───────── M@test.qs:8:17 ──
                                            │                  ╘═════════
-        q_1@<entry>:5:9 ──────────────────── X@test.qs:7:16 ─── M@test.qs:8:24 ──
+        q_1@test.qs:5:47 ──────────────────── X@test.qs:7:16 ─── M@test.qs:8:24 ──
                                                               ╘═════════
 
         Static:

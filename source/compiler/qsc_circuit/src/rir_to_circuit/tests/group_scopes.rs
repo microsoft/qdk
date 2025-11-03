@@ -3,7 +3,10 @@
 
 use std::rc::Rc;
 
-use crate::rir_to_circuit::{Op, OperationKind, fmt_ops, group_operations, tracer::WireId};
+use crate::{
+    builder::QubitWire,
+    rir_to_circuit::{Op, OperationKind, fmt_ops, group_operations},
+};
 use expect_test::{Expect, expect};
 use qsc_data_structures::{
     debug::{
@@ -27,7 +30,7 @@ struct Location {
 
 struct Instruction {
     name: String,
-    qubits: Vec<WireId>,
+    qubits: Vec<QubitWire>,
     stack: Option<Vec<Location>>,
 }
 
@@ -111,7 +114,7 @@ fn program(instructions: Vec<Instruction>) -> (DbgInfo, Vec<Op>) {
     )
 }
 
-fn unitary(label: String, qubits: Vec<WireId>, metadata: Option<InstructionMetadata>) -> Op {
+fn unitary(label: String, qubits: Vec<QubitWire>, metadata: Option<InstructionMetadata>) -> Op {
     Op {
         kind: OperationKind::Unitary,
         label,
@@ -247,7 +250,7 @@ fn two_ops_same_parent_scope() {
         vec![
             Instruction {
                 name: "H".into(),
-                qubits: vec![WireId(0)],
+                qubits: vec![QubitWire(0)],
                 stack: Some(vec![
                     Location {
                         scope: "Main".into(),
@@ -261,7 +264,7 @@ fn two_ops_same_parent_scope() {
             },
             Instruction {
                 name: "X".into(),
-                qubits: vec![WireId(0)],
+                qubits: vec![QubitWire(0)],
                 stack: Some(vec![
                     Location {
                         scope: "Main".into(),

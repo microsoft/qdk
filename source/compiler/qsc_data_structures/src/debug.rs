@@ -10,7 +10,7 @@ use crate::span::PackageSpan;
 
 #[derive(Clone, Debug)]
 pub struct DbgLocation {
-    pub location: PackageSpan,
+    pub location: PackageSpan, // TODO: Change to PackageOffset
     /// Index into the `dbg_metadata_scopes` vector in the `Program`.
     pub scope: DbgScopeId,
     /// Index into the `dbg_locations` vector in the `Program`
