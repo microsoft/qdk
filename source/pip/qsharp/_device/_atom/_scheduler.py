@@ -36,8 +36,8 @@ def move_direction(source: Location, destination: Location) -> tuple[int, int]:
 
 def move_scale(move1: Move, move2: Move) -> tuple[bool | Fraction, bool | Fraction]:
     """
-    Returns a tuple representing the ratios between the row and col displacement
-    of two moves.
+    Returns a tuple of two elements, representing the row displacement ratio and column
+    displacement ratio between the moves.
     """
     source_row_diff = move1[1][0] - move2[1][0]
     destination_row_diff = move1[2][0] - move2[2][0]
@@ -392,9 +392,7 @@ class Schedule(QirModuleVisitor):
                 self.pending_moves = []
             return
 
-    def split_moves_by_parity_and_direction(
-        self,
-    ) -> list[list[tuple[int, tuple[int, int], tuple[int, int]]]]:
+    def split_moves_by_parity_and_direction(self) -> list[list[Move]]:
         moves_by_parity_and_direction = [[] for _ in range(16)]
         for id, destination in self.pending_moves:
             q_id = qubit_id(id)
@@ -408,9 +406,7 @@ class Schedule(QirModuleVisitor):
             moves_by_parity_and_direction[index].append((id, source, destination))
         return moves_by_parity_and_direction
 
-    def parallelize_moves(
-        self, moves: list[tuple[int, tuple[int, int], tuple[int, int]]]
-    ) -> list[list[tuple[int, tuple[int, int], tuple[int, int]]]]:
+    def parallelize_moves(self, moves: list[Move]) -> list[list[Move]]:
         parallel_moves_builder = ParallalelMoves(moves)
         parallel_moves = []
         while not parallel_moves_builder.is_empty():
