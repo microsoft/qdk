@@ -64,7 +64,6 @@ class ParallalelMoves:
         self.parallel_candidates: list[ParallelCandidate] = [
             ParallelCandidate(next(pairs))
         ]
-
         for pair in pairs:
             s = move_scale(*pair)
             for pc in self.parallel_candidates:
@@ -75,7 +74,6 @@ class ParallalelMoves:
             # This block of code executes if the loop finishes normally (doesn't break)
             else:
                 self.parallel_candidates.append(ParallelCandidate(pair))
-
         self.parallel_candidates.sort(key=len, reverse=True)
 
     def is_empty(self) -> bool:
@@ -86,14 +84,11 @@ class ParallalelMoves:
         largest_parallel_candidate = self.parallel_candidates[0]
         moves = list(islice(largest_parallel_candidate.moves, number_of_moves))
         moves_set = set(moves)
-
         # Remove the taken moves from all parallel candidates.
         for parallel_candidate in self.parallel_candidates:
             parallel_candidate.moves -= moves_set
-
         # Sort parallel candidates by number of elements in descending order.
         self.parallel_candidates.sort(key=len, reverse=True)
-
         return moves
 
 
@@ -104,7 +99,7 @@ class Schedule(QirModuleVisitor):
 
     begin_func: Function
     end_func: Function
-    move_func: Function
+    move_funcs: list[Function]
 
     def __init__(self, device: Device):
         super().__init__()
@@ -120,8 +115,6 @@ class Schedule(QirModuleVisitor):
                 self.begin_func = func
             elif func.name == "__quantum__rt__end_parallel":
                 self.end_func = func
-            elif func.name == "__quantum__qis__move__body":
-                self.move_func = func
         if not hasattr(self, "begin_func"):
             self.begin_func = Function(
                 FunctionType(
@@ -142,16 +135,44 @@ class Schedule(QirModuleVisitor):
                 "__quantum__rt__end_parallel",
                 module,
             )
-        if not hasattr(self, "move_func"):
-            self.move_func = Function(
+        self.move_funcs = [
+            Function(
                 FunctionType(
                     Type.void(module.context),
                     [qubit_type(module.context), i64_ty, i64_ty],
                 ),
                 Linkage.EXTERNAL,
-                "__quantum__qis__move__body",
+                "__quantum__qis__move1__body",
                 module,
-            )
+            ),
+            Function(
+                FunctionType(
+                    Type.void(module.context),
+                    [qubit_type(module.context), i64_ty, i64_ty],
+                ),
+                Linkage.EXTERNAL,
+                "__quantum__qis__move2__body",
+                module,
+            ),
+            Function(
+                FunctionType(
+                    Type.void(module.context),
+                    [qubit_type(module.context), i64_ty, i64_ty],
+                ),
+                Linkage.EXTERNAL,
+                "__quantum__qis__move3__body",
+                module,
+            ),
+            Function(
+                FunctionType(
+                    Type.void(module.context),
+                    [qubit_type(module.context), i64_ty, i64_ty],
+                ),
+                Linkage.EXTERNAL,
+                "__quantum__qis__move4__body",
+                module,
+            ),
+        ]
         super()._on_module(module)
 
     def _on_block(self, block):
@@ -410,15 +431,12 @@ class Schedule(QirModuleVisitor):
                 # move function.
                 for id, _, loc in parallel_set:
                     self.builder.call(
-                        self.move_func,
-                        [
-                            id,
-                            loc[0],
-                            loc[1],
-                        ],
+                        self.move_funcs[move_set_id], [id, loc[0], loc[1]]
                     )
 
+                # There 4 move sets, so we increment the id modulo 4.
                 move_set_id = (move_set_id + 1) % 4
+
                 # We can execute 4 movement sets in parallel, if
                 # this is the fourth one, end the parallel section.
                 if move_set_id == 0:
@@ -440,15 +458,12 @@ class Schedule(QirModuleVisitor):
             # move function.
             for id, home_loc, _ in parallel_set:
                 self.builder.call(
-                    self.move_func,
-                    [
-                        id,
-                        home_loc[0],
-                        home_loc[1],
-                    ],
+                    self.move_funcs[move_set_id], [id, home_loc[0], home_loc[1]]
                 )
 
+            # There 4 move sets, so we increment the id modulo 4.
             move_set_id = (move_set_id + 1) % 4
+
             # We can execute 4 movement sets in parallel, if
             # this is the fourth one, end the parallel section.
             if move_set_id == 0:
