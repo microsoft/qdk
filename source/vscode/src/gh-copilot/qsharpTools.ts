@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { TargetProfile, VSDiagnostic } from "qsharp-lang";
+import { IQSharpError, TargetProfile } from "qsharp-lang";
 import vscode from "vscode";
 import { CircuitOrError, showCircuitCommand } from "../circuit";
 import { loadCompilerWorker, toVsCodeDiagnostic } from "../common";
@@ -91,10 +91,11 @@ export class QSharpTools {
         const uniqueFailures = new Set<string>();
         sampleFailures = [];
         for (const failure of failures) {
-          const failureKey = `${failure.message}-${failure.range?.start.line}-${failure.range?.start.character}`;
+          const diagnostic = toVsCodeDiagnostic(failure.diagnostic);
+          const failureKey = `${diagnostic.message}-${diagnostic.range?.start.line}-${diagnostic.range?.start.character}`;
           if (!uniqueFailures.has(failureKey)) {
             uniqueFailures.add(failureKey);
-            sampleFailures.push(failure);
+            sampleFailures.push(diagnostic);
           }
           if (sampleFailures.length === 3) {
             break;
@@ -274,45 +275,39 @@ export class QSharpTools {
     program: FullProgramConfig,
     shots: number,
     out: (message: string) => void,
-    resultUpdate: (
-      histogram: HistogramData,
-      failures: vscode.Diagnostic[],
-    ) => void,
+    resultUpdate: (histogram: HistogramData, failures: IQSharpError[]) => void,
   ) {
     let histogram: HistogramData | undefined;
     const evtTarget = createDebugConsoleEventTarget((msg) => {
       out(msg);
     }, true /* captureEvents */);
 
-    // create a promise that we'll resolve when the run is done
-    let resolvePromise: () => void = () => {};
     const allShotsDone = new Promise<void>((resolve) => {
-      resolvePromise = resolve;
-    });
-
-    evtTarget.addEventListener("uiResultsRefresh", () => {
-      const results = evtTarget.getResults();
-      const resultCount = evtTarget.resultCount(); // compiler errors come through here too
-      const buckets = new Map();
-      const failures = [];
-      for (let i = 0; i < resultCount; ++i) {
-        const key = results[i].result;
-        const strKey = typeof key !== "string" ? "ERROR" : key;
-        const newValue = (buckets.get(strKey) || 0) + 1;
-        buckets.set(strKey, newValue);
-        if (!results[i].success) {
-          failures.push(toVsCodeDiagnostic(results[i].result as VSDiagnostic));
+      evtTarget.addEventListener("uiResultsRefresh", () => {
+        const results = evtTarget.getResults();
+        const resultCount = evtTarget.resultCount(); // compiler errors come through here too
+        const buckets = new Map();
+        const failures = [];
+        for (let i = 0; i < resultCount; ++i) {
+          const key = results[i].result;
+          const strKey = typeof key !== "string" ? "ERROR" : key;
+          const newValue = (buckets.get(strKey) || 0) + 1;
+          buckets.set(strKey, newValue);
+          if (!results[i].success) {
+            failures.push(
+              ...(results[i].result as { errors: IQSharpError[] }).errors,
+            );
+          }
         }
-      }
-      histogram = {
-        buckets: Array.from(buckets.entries()) as [string, number][],
-        shotCount: resultCount,
-      };
-      resultUpdate(histogram!, failures);
-      if (shots === resultCount || failures.length > 0) {
-        // TODO: ugh
-        resolvePromise();
-      }
+        histogram = {
+          buckets: Array.from(buckets.entries()) as [string, number][],
+          shotCount: resultCount,
+        };
+        resultUpdate(histogram!, failures);
+        if (shots === resultCount || failures.length > 0) {
+          resolve();
+        }
+      });
     });
 
     const compilerRunTimeoutMs = 1000 * 60 * 5; // 5 minutes
@@ -332,8 +327,11 @@ export class QSharpTools {
 
       const failures = evtTarget
         .getResults()
-        .filter((result) => !result.success)
-        .map((result) => toVsCodeDiagnostic(result.result as VSDiagnostic));
+        .flatMap((r) =>
+          !r.success && r.result && typeof r.result !== "string"
+            ? r.result.errors
+            : [],
+        );
 
       throw new CopilotToolError(
         `Program failed with compilation errors. ${JSON.stringify(failures)}`,

@@ -13,6 +13,9 @@ import Std.Math.*;
 import Std.Measurement.*;
 
 operation Main() : Int[] {
+    use q = Qubit();
+    CNOT(q, q);
+    fail "hi";
     // Consider a function 𝑓(𝑥⃗) on bitstrings 𝑥⃗ = (𝑥₀, …, 𝑥ₙ₋₁) of the form
     //     𝑓(𝑥⃗) ≔ Σᵢ 𝑥ᵢ 𝑟ᵢ
     // where 𝑟⃗ = (𝑟₀, …, 𝑟ₙ₋₁) is an unknown bitstring that determines the

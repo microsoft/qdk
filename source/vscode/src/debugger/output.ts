@@ -1,7 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { QscEventTarget, VSDiagnostic } from "qsharp-lang";
+import { IQSharpError, QscEventTarget } from "qsharp-lang";
+import { getSourceUri } from "../utils";
 
 function formatComplex(real: number, imag: number) {
   // Format -0 as 0
@@ -75,13 +76,56 @@ export function createDebugConsoleEventTarget(
   });
 
   eventTarget.addEventListener("Result", (evt) => {
-    // sometimes these are VS Diagnostics
-    if ((evt.detail.value as VSDiagnostic).message !== undefined) {
-      out(`${(evt.detail.value as VSDiagnostic).message}`);
-    } else {
+    if (evt.detail.success) {
       out(`${evt.detail.value}`);
+    } else {
+      out(formatErrors(evt.detail.value.errors));
     }
   });
 
   return eventTarget;
+}
+
+function formatErrorMessage(error: IQSharpError) {
+  let errorMessage;
+  if (error.stack) {
+    // For runtime errors, the stack trace includes the message and
+    // the string, but we need to parse out the document URIs to properly
+    // convert them to user-friendly file paths.
+    errorMessage = error.stack
+      .split("\n")
+      .map((l) => {
+        const match = l.match(/^(\s*)at (.*) in (.*):(\d+):(\d+)/);
+        if (match) {
+          const [, leadingWs, callable, doc, line, column] = match;
+          const displayPath = toDisplayPath(doc);
+          return `${leadingWs}at ${callable} in ${displayPath}:${line}:${column}`;
+        } else {
+          return l;
+        }
+      })
+      .join("\n");
+  } else {
+    const displayPath = toDisplayPath(error.document);
+    const diag = error.diagnostic;
+    const location = `${displayPath}:${diag.range.start.line + 1}:${diag.range.start.character + 1}`;
+    const message = `(${diag.code}) ${diag.message}`;
+    errorMessage = `${location}: ${message}`;
+  }
+  return errorMessage;
+}
+
+function toDisplayPath(doc: string) {
+  const uri = getSourceUri(doc);
+  const displayPath =  uri.fsPath : uri;
+  return displayPath;
+}
+
+function formatErrors(errors: IQSharpError[]) {
+  const errorMessages = [];
+  for (const error of errors) {
+    const errorMessage = formatErrorMessage(error);
+    errorMessages.push(errorMessage);
+  }
+  return errorMessages.join("\n");
 }
