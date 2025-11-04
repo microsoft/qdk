@@ -142,20 +142,20 @@ pub trait Tracer {
 /// optionally recording operations (qubit allocation/release, gates, measurements)
 /// via a `Tracer`. When constructed with `no_backend`, it uses a fallback
 /// allocator and emits trace events without performing real simulation.
-pub struct TracingBackend<'a> {
-    backend: OptionalBackend<'a>,
+pub struct TracingBackend<'a, B: Backend> {
+    backend: OptionalBackend<'a, B>,
     tracer: Option<&'a mut dyn Tracer>,
 }
 
-impl<'a> TracingBackend<'a> {
-    pub fn new(backend: &'a mut dyn Backend, tracer: Option<&'a mut impl Tracer>) -> Self {
+impl<'a, B: Backend> TracingBackend<'a, B> {
+    pub fn new(backend: &'a mut B, tracer: Option<&'a mut impl Tracer>) -> Self {
         Self {
             backend: OptionalBackend::Some(backend),
             tracer: tracer.map(|t| t as &mut dyn Tracer),
         }
     }
 
-    pub fn no_tracer(backend: &'a mut dyn Backend) -> Self {
+    pub fn no_tracer(backend: &'a mut B) -> Self {
         Self {
             backend: OptionalBackend::Some(backend),
             tracer: None,
@@ -465,9 +465,9 @@ impl<'a> TracingBackend<'a> {
     }
 }
 
-enum OptionalBackend<'a> {
+enum OptionalBackend<'a, B: Backend> {
     None(SequentialAllocator),
-    Some(&'a mut dyn Backend),
+    Some(&'a mut B),
 }
 
 #[derive(Default)]

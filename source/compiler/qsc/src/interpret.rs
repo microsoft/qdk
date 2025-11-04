@@ -997,7 +997,7 @@ impl Interpreter {
                 }
             }
             CircuitGenerationMethod::ClassicalEval => {
-                let mut tracer = TracingBackend::no_backend(&mut tracer);
+                let mut tracer = TracingBackend::<SparseSim>::no_backend(&mut tracer);
                 if let Some((callable, args)) = invoke_params {
                     self.invoke_with_tracing_backend(&mut tracer, &mut out, callable, args)?;
                 } else {
@@ -1049,9 +1049,9 @@ impl Interpreter {
         )
     }
 
-    fn run_with_tracing_backend(
+    fn run_with_tracing_backend<B: Backend>(
         &mut self,
-        tracing_backend: &mut TracingBackend,
+        tracing_backend: &mut TracingBackend<'_, B>,
         out: &mut GenericReceiver,
         entry_expr: Option<&str>,
     ) -> InterpretResult {
@@ -1095,9 +1095,9 @@ impl Interpreter {
         )
     }
 
-    fn invoke_with_tracing_backend(
+    fn invoke_with_tracing_backend<B: Backend>(
         &mut self,
-        tracing_backend: &mut TracingBackend,
+        tracing_backend: &mut TracingBackend<'_, B>,
         receiver: &mut impl Receiver,
         callable: Value,
         args: Value,
@@ -1446,14 +1446,14 @@ impl Debugger {
 
 /// Wrapper function for `qsc_eval::eval` that handles error conversion.
 #[allow(clippy::too_many_arguments)]
-fn eval(
+fn eval<B: Backend>(
     package: PackageId,
     classical_seed: Option<u64>,
     exec_graph: ExecGraph,
     package_store: &PackageStore,
     fir_store: &fir::PackageStore,
     env: &mut Env,
-    tracing_backend: &mut TracingBackend,
+    tracing_backend: &mut TracingBackend<'_, B>,
     receiver: &mut impl Receiver,
 ) -> InterpretResult {
     qsc_eval::eval(
