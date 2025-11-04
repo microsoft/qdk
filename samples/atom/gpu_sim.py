@@ -10,7 +10,6 @@ from qsharp._device._atom import AC1000
 decompose = False
 shots = 100
 circuit = "grover"
-gpu_sim = "parallel"
 run_sparse = True
 
 noise = NoiseConfig()
@@ -42,7 +41,7 @@ gate_count = ac1000_qir._ll_str.count("\n") + 1
 
 
 start = time.time()
-results = run_qir_gpu(ac1000_qir._ll_str, shots=shots, noise=noise, sim=gpu_sim)
+results = run_qir_gpu(ac1000_qir._ll_str, shots=shots, noise=noise)
 end = time.time()
 
 print(f"Ran {shots} shots of {gate_count} gates")

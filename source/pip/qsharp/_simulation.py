@@ -7,8 +7,6 @@ from ._native import (
     QirInstructionId,
     QirInstruction,
     run_clifford,
-    run_gpu_full_state,
-    run_gpu_shot,
     run_parallel_shots,
     NoiseConfig,
 )
@@ -446,35 +444,10 @@ def run_qir_gpu(
     if isinstance(noise, tuple):
         pauli_noise = noise
 
-    if sim == "parallel":
-        if pauli_noise is not None:
-            raise ValueError(
-                "Specifying Pauli noise via a tuple is not supported for parallel shot simulation. Use a NoiseConfig instead."
-            )
-        return run_parallel_shots(
-            gates, shots, required_num_qubits, required_num_results, noise_config, seed
+    if pauli_noise is not None:
+        raise ValueError(
+            "Specifying Pauli noise via a tuple is not supported for parallel shot simulation. Use a NoiseConfig instead."
         )
-    else:
-        return run_gpu_full_state(
-            gates, required_num_qubits, shots, pauli_noise, loss, noise_config, seed
-        )
-
-
-def run_shot_gpu(
-    input: Union[str, bytes],
-    noise: Optional[NoiseConfig] = None,
-    seed: Optional[int] = None,
-) -> Tuple[str, float]:
-    context = pyqir.Context()
-    if isinstance(input, str):
-        mod = pyqir.Module.from_ir(context, input)
-    else:
-        mod = pyqir.Module.from_bitcode(context, input)
-
-    passtoRun = AggregateGatesPass()
-    (gates, required_num_qubits, required_num_results) = passtoRun.run(mod)
-
-    if noise is None:
-        noise = NoiseConfig()
-
-    return run_gpu_shot(gates, required_num_qubits, required_num_results, noise, seed)
+    return run_parallel_shots(
+        gates, shots, required_num_qubits, required_num_results, noise_config, seed
+    )

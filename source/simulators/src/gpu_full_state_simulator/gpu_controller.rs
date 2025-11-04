@@ -105,6 +105,14 @@ struct WorkgroupCollationBuffer {
 }
 
 impl GpuContext {
+    pub async fn get_adapter() -> std::result::Result<Adapter, String> {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+        instance
+            .request_adapter(&wgpu::RequestAdapterOptions::default())
+            .await
+            .map_err(|e| e.to_string())
+    }
+
     fn validate_adapter_capabilities(adapter: &Adapter) -> std::result::Result<(), String> {
         let downlevel_capabilities = adapter.get_downlevel_capabilities();
         if !downlevel_capabilities

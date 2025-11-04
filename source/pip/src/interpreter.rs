@@ -20,9 +20,7 @@ use crate::{
     qir_simulation::{
         IdleNoiseParams, NoiseConfig, NoiseTable, QirInstruction, QirInstructionId,
         clifford::run_clifford,
-        gpu_full_state::{
-            run_gpu_full_state, run_gpu_shot, run_parallel_shots, try_create_gpu_adapter,
-        },
+        gpu_full_state::{run_parallel_shots, try_create_gpu_adapter},
     },
 };
 use miette::{Diagnostic, Report};
@@ -117,8 +115,6 @@ fn _native<'a>(py: Python<'a>, m: &Bound<'a, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(physical_estimates, m)?)?;
     m.add_function(wrap_pyfunction!(run_clifford, m)?)?;
     m.add_function(wrap_pyfunction!(try_create_gpu_adapter, m)?)?;
-    m.add_function(wrap_pyfunction!(run_gpu_full_state, m)?)?;
-    m.add_function(wrap_pyfunction!(run_gpu_shot, m)?)?;
     m.add_function(wrap_pyfunction!(run_parallel_shots, m)?)?;
     m.add("QSharpError", py.get_type::<QSharpError>())?;
     register_noisy_simulator_submodule(py, m)?;

@@ -44,9 +44,9 @@ harness = false
 name = "sim_mem"
 harness = false
 
-[[bench]]
-name = "gpu"
-harness = false
+# [[bench]]
+# name = "gpu"
+# harness = false
 
 [[bin]]
 name = "gpu-runner"

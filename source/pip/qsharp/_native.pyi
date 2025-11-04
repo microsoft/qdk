@@ -816,28 +816,6 @@ def try_create_gpu_adapter():
     """
     pass
 
-def run_gpu_full_state(
-    input: List[QirInstruction],
-    num_qubits: int,
-    shots: int,
-    pauli_noise: Optional[Tuple[float, float, float]],
-    loss: Optional[float],
-    noise_config: Optional[NoiseConfig],
-    seed: Optional[int],
-) -> str:
-    """ """
-    ...
-
-def run_gpu_shot(
-    input: List[QirInstruction],
-    num_qubits: int,
-    num_results: int,
-    noise: NoiseConfig,
-    seed: Optional[int],
-) -> Tuple[str, float]:
-    """ """
-    ...
-
 def run_parallel_shots(
     input: List[QirInstruction],
     shots: int,
