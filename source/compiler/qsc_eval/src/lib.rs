@@ -26,7 +26,7 @@ pub mod output;
 pub mod state;
 pub mod val;
 
-use crate::backend::TracingBackend;
+use crate::backend::{Backend, TracingBackend};
 use crate::val::{
     Value, index_array, make_range, slice_array, update_index_range, update_index_single,
 };
@@ -282,13 +282,13 @@ pub fn exec_graph_section(graph: &ExecGraph, range: ops::Range<usize>) -> ExecGr
 /// Returns the first error encountered during execution.
 /// # Panics
 /// On internal error where no result is returned.
-pub fn eval(
+pub fn eval<B: Backend>(
     package: PackageId,
     seed: Option<u64>,
     exec_graph: ExecGraph,
     globals: &impl PackageStoreLookup,
     env: &mut Env,
-    tracing_backend: &mut TracingBackend,
+    tracing_backend: &mut TracingBackend<'_, B>,
     receiver: &mut impl Receiver,
 ) -> Result<Value, (Error, Vec<Frame>)> {
     let mut state = State::new(package, exec_graph, seed, ErrorBehavior::FailOnError);
@@ -312,12 +312,12 @@ pub fn eval(
 /// # Panics
 /// On internal error where no result is returned.
 #[allow(clippy::too_many_arguments)]
-pub fn invoke(
+pub fn invoke<B: Backend>(
     package: PackageId,
     seed: Option<u64>,
     globals: &impl PackageStoreLookup,
     env: &mut Env,
-    tracing_backend: &mut TracingBackend,
+    tracing_backend: &mut TracingBackend<'_, B>,
     receiver: &mut impl Receiver,
     callable: Value,
     args: Value,
@@ -705,7 +705,10 @@ impl State {
     }
 
     #[must_use]
-    pub fn capture_stack_if_trace_enabled(&self, tracing_backend: &TracingBackend) -> Vec<Frame> {
+    pub fn capture_stack_if_trace_enabled<B: Backend>(
+        &self,
+        tracing_backend: &TracingBackend<'_, B>,
+    ) -> Vec<Frame> {
         if tracing_backend.is_stacks_enabled() {
             self.capture_stack()
         } else {
@@ -735,11 +738,11 @@ impl State {
     /// # Panics
     /// When returning a value in the middle of execution.
     #[allow(clippy::too_many_lines)]
-    pub fn eval(
+    pub fn eval<B: Backend>(
         &mut self,
         globals: &impl PackageStoreLookup,
         env: &mut Env,
-        tracing_backend: &mut TracingBackend,
+        tracing_backend: &mut TracingBackend<'_, B>,
         out: &mut impl Receiver,
         breakpoints: &[StmtId],
         step: StepAction,
@@ -929,10 +932,10 @@ impl State {
     }
 
     #[allow(clippy::similar_names)]
-    fn eval_expr(
+    fn eval_expr<B: Backend>(
         &mut self,
         env: &mut Env,
-        tracing_backend: &mut TracingBackend,
+        tracing_backend: &mut TracingBackend<'_, B>,
         globals: &impl PackageStoreLookup,
         out: &mut impl Receiver,
         expr: ExprId,
@@ -1168,10 +1171,10 @@ impl State {
         Ok(())
     }
 
-    fn eval_call(
+    fn eval_call<B: Backend>(
         &mut self,
         env: &mut Env,
-        tracing_backend: &mut TracingBackend,
+        tracing_backend: &mut TracingBackend<'_, B>,
         globals: &impl PackageStoreLookup,
         callable_span: Span,
         arg_span: Span,
@@ -1267,13 +1270,13 @@ impl State {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn eval_intrinsic(
+    fn eval_intrinsic<B: Backend>(
         &mut self,
         env: &mut Env,
         callee_id: StoreItemId,
         functor: FunctorApp,
         callee: &fir::CallableDecl,
-        sim: &mut TracingBackend,
+        sim: &mut TracingBackend<'_, B>,
         callee_span: PackageSpan,
         arg: Value,
         arg_span: PackageSpan,

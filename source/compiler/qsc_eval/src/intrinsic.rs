@@ -8,7 +8,7 @@ mod tests;
 
 use crate::{
     Error, Rc,
-    backend::TracingBackend,
+    backend::{Backend, TracingBackend},
     debug::Frame,
     error::PackageSpan,
     output::Receiver,
@@ -21,13 +21,13 @@ use std::convert::TryFrom;
 
 #[allow(clippy::too_many_lines)]
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn call(
+pub(crate) fn call<B: Backend>(
     name: &str,
     name_span: PackageSpan,
     arg: Value,
     arg_span: PackageSpan,
     call_stack: &[Frame],
-    sim: &mut TracingBackend,
+    sim: &mut TracingBackend<'_, B>,
     rng: &mut StdRng,
     out: &mut dyn Receiver,
 ) -> Result<Value, Error> {
