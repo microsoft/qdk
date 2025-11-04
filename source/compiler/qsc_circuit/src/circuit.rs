@@ -307,7 +307,7 @@ pub enum SourceLocation {
     Unresolved(PackageOffset),
 }
 
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Debug, Copy, PartialEq, Eq)]
 pub struct PackageOffset {
     pub package_id: PackageId,
     pub offset: u32,
@@ -490,14 +490,6 @@ fn fmt_qubit_label(label: &str) -> String {
 
 struct Column {
     column_width: usize,
-}
-
-impl Default for Column {
-    fn default() -> Self {
-        Self {
-            column_width: MIN_COLUMN_WIDTH,
-        }
-    }
 }
 
 impl Column {
@@ -895,6 +887,15 @@ fn finalize_columns(rows: &[Row]) -> Vec<Column> {
         .max_by_key(|r| r.next_column)
         .map_or(1, |r| r.next_column);
 
+    let longest_qubit_label = rows
+        .iter()
+        .filter_map(|r| match &r.wire {
+            Wire::Qubit { label } => Some(label.len() + 1), // +1 for space after label
+            Wire::Classical { .. } => None,
+        })
+        .max()
+        .unwrap_or(0);
+
     // To be able to fit long-named operations, we calculate the required width for each column,
     // based on the maximum length needed for gates, where a gate X is printed as "- X -".
     (0..end_column)
@@ -907,6 +908,7 @@ fn finalize_columns(rows: &[Row]) -> Vec<Column> {
                         _ => None,
                     })
                     .chain(std::iter::once(MIN_COLUMN_WIDTH))
+                    .chain(std::iter::once(longest_qubit_label))
                     .max()
                     .expect("Column width should be at least 1"),
             )

@@ -229,7 +229,7 @@ pub fn make_circuit(
         blocks: IndexMap::default(),
     };
 
-    let register_map = register_map_builder.into_register_map();
+    let wire_map = register_map_builder.into_register_map();
 
     let mut ops_remaining = config.max_operations;
 
@@ -237,7 +237,7 @@ pub fn make_circuit(
     for (id, block) in program.blocks.iter() {
         let block_operations = operations_in_block(
             &mut program_map,
-            &register_map,
+            &wire_map,
             &program.dbg_info,
             callables,
             block,
@@ -249,7 +249,7 @@ pub fn make_circuit(
         program_map.blocks.insert(id, block_operations);
     }
 
-    expand_branches(&mut program_map, &register_map, program)?;
+    expand_branches(&mut program_map, &wire_map, program)?;
 
     let entry_block = program
         .callables
@@ -272,10 +272,8 @@ pub fn make_circuit(
         operations
     };
 
-    let qubits = register_map.to_qubits();
-
     let circuit = finish_circuit(
-        qubits,
+        &wire_map,
         operations
             .into_iter()
             .map(|o| o.into_operation(&program.dbg_info))
@@ -872,6 +870,7 @@ fn add_op(
     }
 }
 
+/// Returns oldest->youngest
 fn instruction_logical_stack(
     dbg_info: &DbgInfo,
     dbg_location_idx: DbgLocationId,

@@ -23,7 +23,7 @@ fn exceed_max_operations() {
     builder.gate(&[], "X", false, &[0], &[], None);
     builder.gate(&[], "X", false, &[0], &[], None);
 
-    let circuit = builder.finish(None);
+    let circuit = builder.finish(None, None);
 
     // The current behavior is to silently truncate the circuit
     // if it exceeds the maximum allowed number of operations.
@@ -52,7 +52,7 @@ fn exceed_max_operations_deferred_measurements() {
     builder.measure(&[], "M", 0, &(0.into()));
     builder.gate(&[], "X", false, &[0], &[], None);
 
-    let circuit = builder.finish(None);
+    let circuit = builder.finish(None, None);
 
     // The current behavior is to silently truncate the circuit
     // if it exceeds the maximum allowed number of operations.

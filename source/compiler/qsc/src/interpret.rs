@@ -864,7 +864,7 @@ impl Interpreter {
         self.circuit_tracer
             .as_ref()
             .expect("to call get_circuit, the interpreter should be initialized with circuit tracing enabled")
-            .snapshot(Some(self.compiler.package_store()))
+            .snapshot(Some(self.compiler.package_store()), Some(&self.fir_store))
     }
 
     /// Performs QIR codegen using the given entry expression on a new instance of the environment
@@ -1029,7 +1029,7 @@ impl Interpreter {
             }
         }
 
-        let circuit = tracer.finish(Some(self.compiler.package_store()));
+        let circuit = tracer.finish(Some(self.compiler.package_store()), Some(&self.fir_store));
 
         Ok(circuit)
     }
