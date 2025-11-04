@@ -92,10 +92,10 @@ struct ResetValidator {
 
 impl<'a> Visitor<'a> for ResetValidator {
     fn visit_item(&mut self, item: &'a Item) {
-        if let ItemKind::Callable(callable) = &item.kind {
-            if item.attrs.contains(&Attr::Reset) {
-                validate_reset_declaration(callable, &item.attrs, &mut self.errors);
-            }
+        if let ItemKind::Callable(callable) = &item.kind
+            && item.attrs.contains(&Attr::Reset)
+        {
+            validate_reset_declaration(callable, &item.attrs, &mut self.errors);
         }
     }
 }

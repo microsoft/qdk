@@ -154,7 +154,7 @@ impl Iterator for PackageIter<'_> {
 }
 
 #[must_use]
-pub fn iter_package(id: Option<PackageId>, package: &Package) -> PackageIter {
+pub fn iter_package(id: Option<PackageId>, package: &'_ Package) -> PackageIter<'_> {
     PackageIter {
         id,
         package,

@@ -1341,7 +1341,7 @@ impl Idents {
     /// constructs an iterator over the elements of `self` as string slices.
     /// see [`Self::iter`] for an iterator over the [Ident]s.
     #[must_use]
-    pub fn str_iter(&self) -> IdentsStrIter {
+    pub fn str_iter(&self) -> IdentsStrIter<'_> {
         self.into()
     }
 

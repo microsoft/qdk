@@ -384,7 +384,7 @@ impl FactoryBuilder<Protocol> for TFactoryBuilder {
         _magic_state_type: usize,
         output_t_error_rate: f64,
         max_code_distance: &u64,
-    ) -> Result<Vec<Cow<Self::Factory>>, String> {
+    ) -> Result<Vec<Cow<'_, Self::Factory>>, String> {
         Ok(find_nondominated_tfactories(
             ftp,
             qubit,

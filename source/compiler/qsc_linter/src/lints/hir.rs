@@ -55,19 +55,18 @@ impl HirLintPass for DoubleEquality {
         // fcmp oeq value value
         // in LLVM because we only implemented the ord side of fcmp.
         // See https://llvm.org/docs/LangRef.html#id313 for more details.
-        if let ExprKind::BinOp(BinOp::Eq, ref lhs, ref rhs) = expr.kind {
-            if let (ExprKind::Var(lhs_id, _), ExprKind::Var(rhs_id, _)) = (&lhs.kind, &rhs.kind) {
-                if lhs_id == rhs_id {
-                    return;
-                }
-            }
+        if let ExprKind::BinOp(BinOp::Eq, ref lhs, ref rhs) = expr.kind
+            && let (ExprKind::Var(lhs_id, _), ExprKind::Var(rhs_id, _)) = (&lhs.kind, &rhs.kind)
+            && lhs_id == rhs_id
+        {
+            return;
         }
 
-        if let ExprKind::BinOp(BinOp::Eq | BinOp::Neq, ref lhs, ref rhs) = expr.kind {
-            if matches!(lhs.ty, Ty::Prim(Prim::Double)) && matches!(rhs.ty, Ty::Prim(Prim::Double))
-            {
-                buffer.push(lint!(self, expr.span));
-            }
+        if let ExprKind::BinOp(BinOp::Eq | BinOp::Neq, ref lhs, ref rhs) = expr.kind
+            && matches!(lhs.ty, Ty::Prim(Prim::Double))
+            && matches!(rhs.ty, Ty::Prim(Prim::Double))
+        {
+            buffer.push(lint!(self, expr.span));
         }
     }
 }
@@ -184,10 +183,10 @@ impl HirLintPass for DeprecatedFunctionConstructor {
     fn check_expr(&mut self, expr: &Expr, buffer: &mut Vec<Lint>, compilation: Compilation) {
         if let ExprKind::Var(Res::Item(item_id), _) = &expr.kind {
             let item = compilation.resolve_item_id(item_id);
-            if let ItemKind::Ty(_, udt) = &item.kind {
-                if udt.is_struct() {
-                    buffer.push(lint!(self, expr.span));
-                }
+            if let ItemKind::Ty(_, udt) = &item.kind
+                && udt.is_struct()
+            {
+                buffer.push(lint!(self, expr.span));
             }
         }
     }
@@ -214,33 +213,33 @@ impl HirLintPass for DeprecatedWithOperator {
             | ExprKind::AssignField(container, field, value) => {
                 if let Ty::Udt(ty_name, Res::Item(item_id)) = &container.ty {
                     let item = compilation.resolve_item_id(item_id);
-                    if let ItemKind::Ty(_, udt) = &item.kind {
-                        if udt.is_struct() {
-                            let field_name = if let Field::Path(path) = field {
-                                udt.find_field(path)
-                                    .expect("field should exist in struct")
-                                    .name
-                                    .as_ref()
-                                    .expect("struct fields always have names")
-                                    .clone()
-                            } else {
-                                panic!("field should be a path");
-                            };
-                            let field_value = Rc::from(compilation.get_source_code(value.span));
-                            let field_info = (field_name, field_value);
+                    if let ItemKind::Ty(_, udt) = &item.kind
+                        && udt.is_struct()
+                    {
+                        let field_name = if let Field::Path(path) = field {
+                            udt.find_field(path)
+                                .expect("field should exist in struct")
+                                .name
+                                .as_ref()
+                                .expect("struct fields always have names")
+                                .clone()
+                        } else {
+                            panic!("field should be a path");
+                        };
+                        let field_value = Rc::from(compilation.get_source_code(value.span));
+                        let field_info = (field_name, field_value);
 
-                            match &mut self.lint_info {
-                                Some(existing_info) => {
-                                    existing_info.field_assigns.push(field_info);
-                                }
-                                None => {
-                                    self.lint_info = Some(WithOperatorLint {
-                                        span: expr.span,
-                                        ty_name: ty_name.clone(),
-                                        is_w_eq: matches!(expr.kind, ExprKind::AssignField(..)),
-                                        field_assigns: vec![field_info],
-                                    });
-                                }
+                        match &mut self.lint_info {
+                            Some(existing_info) => {
+                                existing_info.field_assigns.push(field_info);
+                            }
+                            None => {
+                                self.lint_info = Some(WithOperatorLint {
+                                    span: expr.span,
+                                    ty_name: ty_name.clone(),
+                                    is_w_eq: matches!(expr.kind, ExprKind::AssignField(..)),
+                                    field_assigns: vec![field_info],
+                                });
                             }
                         }
                     }
@@ -327,17 +326,17 @@ impl HirLintPass for DeprecatedDoubleColonOperator {
                 }
             }
             _ => {
-                if self.lint_info.is_some() {
-                    if let Some(info) = self.lint_info.take() {
-                        buffer.push(lint!(
-                            self,
-                            info.full_lint_span,
-                            info.op_spans
-                                .into_iter()
-                                .map(|s| (".".to_string(), s))
-                                .collect()
-                        ));
-                    }
+                if self.lint_info.is_some()
+                    && let Some(info) = self.lint_info.take()
+                {
+                    buffer.push(lint!(
+                        self,
+                        info.full_lint_span,
+                        info.op_spans
+                            .into_iter()
+                            .map(|s| (".".to_string(), s))
+                            .collect()
+                    ));
                 }
             }
         }

@@ -182,10 +182,10 @@ impl<'a> CompilationStateUpdater<'a> {
 
         // If a document switched compilations, we may need to remove the compilation
         // it previously belonged to.
-        if let Some(prev_compilation_uri) = prev_compilation_uri {
-            if prev_compilation_uri != compilation_uri {
-                self.maybe_close_project(&prev_compilation_uri);
-            }
+        if let Some(prev_compilation_uri) = prev_compilation_uri
+            && prev_compilation_uri != compilation_uri
+        {
+            self.maybe_close_project(&prev_compilation_uri);
         }
 
         self.insert_buffer_aware_compilation(project);

@@ -157,11 +157,11 @@ impl<K: Eq + Hash + Clone> LeastRecentlyUsedPriorityQueue<K> {
                 }
             } else {
                 // Evict if at capacity
-                if self.map.len() == self.capacity {
-                    if let Some(key) = self.nodes.pop_back() {
-                        self.map.remove(&key);
-                        self.removed += 1;
-                    }
+                if self.map.len() == self.capacity
+                    && let Some(key) = self.nodes.pop_back()
+                {
+                    self.map.remove(&key);
+                    self.removed += 1;
                 }
                 self.map.insert(k.clone());
                 self.nodes.push_front(k);

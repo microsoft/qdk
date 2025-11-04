@@ -59,10 +59,10 @@ pub(super) fn resolve_top_level_imports(resolver: &mut Resolver, package: &Packa
             resolver,
             || {
                 package.nodes.iter().filter_map(|node| {
-                    if let TopLevelNode::Stmt(stmt) = node {
-                        if let StmtKind::Item(item) = &*stmt.kind {
-                            return Some(item.as_ref());
-                        }
+                    if let TopLevelNode::Stmt(stmt) = node
+                        && let StmtKind::Item(item) = &*stmt.kind
+                    {
+                        return Some(item.as_ref());
                     }
                     None
                 })
@@ -148,10 +148,10 @@ where
 
     // Now, attempt to resolve all imports, and exports if we're in a namespace scope
     for item in scope_items_iter() {
-        if let ItemKind::ImportOrExport(decl) = &*item.kind {
-            if try_resolve_import_or_export_decl(resolver, decl, attempted_imports) {
-                new_imports_added = true;
-            }
+        if let ItemKind::ImportOrExport(decl) = &*item.kind
+            && try_resolve_import_or_export_decl(resolver, decl, attempted_imports)
+        {
+            new_imports_added = true;
         }
     }
 
@@ -203,16 +203,16 @@ fn try_resolve_import_or_export_decl(
                 // conditionally compiled out will still fail. However, this is the only way to solve this
                 // problem without upleveling the preprocessor into the resolver, so it can do resolution-aware
                 // dropped_names population.
-                if valid_item.is_export {
-                    if let Some(current_namespace) = &current_namespace {
-                        let current_namespace_name =
-                            resolver.globals.format_namespace_name(*current_namespace);
-                        if resolver.dropped_names.contains(&TrackedName {
-                            name: valid_item.path.name.name.clone(),
-                            namespace: Rc::from(current_namespace_name),
-                        }) {
-                            continue;
-                        }
+                if valid_item.is_export
+                    && let Some(current_namespace) = &current_namespace
+                {
+                    let current_namespace_name =
+                        resolver.globals.format_namespace_name(*current_namespace);
+                    if resolver.dropped_names.contains(&TrackedName {
+                        name: valid_item.path.name.name.clone(),
+                        namespace: Rc::from(current_namespace_name),
+                    }) {
+                        continue;
                     }
                 }
 
@@ -292,29 +292,28 @@ fn bind_export(
         Entry::Occupied(existing) => {
             if let Importable::Callable(imported_item_id, _) | Importable::Ty(imported_item_id, _) =
                 imported_item
+                && existing.get().item_id() == Some(*imported_item_id)
             {
-                if existing.get().item_id() == Some(*imported_item_id) {
-                    // This is just a self-export, e.g.
-                    //
-                    // struct Foo {}
-                    // export Foo;
-                    //
-                    // This is not considered a duplicate name.
-                    // We won't bind the name here since it's already
-                    // bound to the original item. But we do
-                    // still need to check for duplicate self-exports.
-                    if let Some(existing_span) = global_scope
-                        .self_exported_item_ids
-                        .insert(*imported_item_id, name.span)
-                    {
-                        return Err(Error::DuplicateExport {
-                            name: name.name.to_string(),
-                            span: name.span,
-                            existing_span,
-                        });
-                    }
-                    return Ok(());
+                // This is just a self-export, e.g.
+                //
+                // struct Foo {}
+                // export Foo;
+                //
+                // This is not considered a duplicate name.
+                // We won't bind the name here since it's already
+                // bound to the original item. But we do
+                // still need to check for duplicate self-exports.
+                if let Some(existing_span) = global_scope
+                    .self_exported_item_ids
+                    .insert(*imported_item_id, name.span)
+                {
+                    return Err(Error::DuplicateExport {
+                        name: name.name.to_string(),
+                        span: name.span,
+                        existing_span,
+                    });
                 }
+                return Ok(());
             }
 
             return Err(Error::Duplicate(
