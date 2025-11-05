@@ -275,10 +275,10 @@ impl<
                 let num_cycles = num_cycles_required_for_magic_states
                     .max(num_cycles_required_by_layout_overhead);
 
-                if let Some(max_factories) = self.max_factories {
-                    if num_factories > max_factories {
-                        continue;
-                    }
+                if let Some(max_factories) = self.max_factories
+                    && num_factories > max_factories
+                {
+                    continue;
                 }
 
                 let result = PhysicalResourceEstimationResult::new(
@@ -426,10 +426,10 @@ impl<
                     continue;
                 }
 
-                if let Some(max_factories) = self.max_factories {
-                    if num_factories > max_factories {
-                        continue;
-                    }
+                if let Some(max_factories) = self.max_factories
+                    && num_factories > max_factories
+                {
+                    continue;
                 }
 
                 let result = PhysicalResourceEstimationResult::new(

@@ -19,7 +19,7 @@ schedules:
 
 variables:
   CARGO_TERM_COLOR: always
-  RUST_TOOLCHAIN_VERSION: "1.88"
+  RUST_TOOLCHAIN_VERSION: "1.90"
 
 resources:
   repositories:

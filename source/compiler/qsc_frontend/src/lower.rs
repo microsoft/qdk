@@ -158,7 +158,7 @@ impl Lowerer {
         self.items.clear();
     }
 
-    pub(super) fn drain_errors(&mut self) -> vec::Drain<Error> {
+    pub(super) fn drain_errors(&mut self) -> vec::Drain<'_, Error> {
         self.errors.drain(..)
     }
 
@@ -1180,25 +1180,25 @@ impl With<'_> {
 fn collapse_self_exports(items: &mut IndexMap<LocalItemId, hir::Item>) {
     let mut to_export = Vec::new();
     for (id, item) in &*items {
-        if let hir::ItemKind::Export(name, Res::Item(original_item_id)) = &item.kind {
-            if original_item_id.package.is_none() {
-                let original_item_id = original_item_id.item;
-                let original_item = items
-                    .get(original_item_id)
-                    .expect("expected to resolve item id");
-                if let Some(parent_id) = item.parent {
-                    let same_namespace = original_item.parent == item.parent;
-                    let same_name = same_namespace
-                        && match &original_item.kind {
-                            hir::ItemKind::Callable(callable_decl) => {
-                                callable_decl.name.name == name.name
-                            }
-                            hir::ItemKind::Ty(ident, _) => ident.name == name.name,
-                            _ => false,
-                        };
-                    if same_name {
-                        to_export.push((parent_id, id, original_item_id));
-                    }
+        if let hir::ItemKind::Export(name, Res::Item(original_item_id)) = &item.kind
+            && original_item_id.package.is_none()
+        {
+            let original_item_id = original_item_id.item;
+            let original_item = items
+                .get(original_item_id)
+                .expect("expected to resolve item id");
+            if let Some(parent_id) = item.parent {
+                let same_namespace = original_item.parent == item.parent;
+                let same_name = same_namespace
+                    && match &original_item.kind {
+                        hir::ItemKind::Callable(callable_decl) => {
+                            callable_decl.name.name == name.name
+                        }
+                        hir::ItemKind::Ty(ident, _) => ident.name == name.name,
+                        _ => false,
+                    };
+                if same_name {
+                    to_export.push((parent_id, id, original_item_id));
                 }
             }
         }
@@ -1208,10 +1208,10 @@ fn collapse_self_exports(items: &mut IndexMap<LocalItemId, hir::Item>) {
         // remove the export item
         items.remove(export_item_id);
         // remove the export item from its parent
-        if let Some(parent_item) = items.get_mut(parent_id) {
-            if let hir::ItemKind::Namespace(_, local_item_ids) = &mut parent_item.kind {
-                local_item_ids.retain(|&id| id != export_item_id);
-            }
+        if let Some(parent_item) = items.get_mut(parent_id)
+            && let hir::ItemKind::Namespace(_, local_item_ids) = &mut parent_item.kind
+        {
+            local_item_ids.retain(|&id| id != export_item_id);
         }
         // make the original item public
         items

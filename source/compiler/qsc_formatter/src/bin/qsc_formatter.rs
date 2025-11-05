@@ -257,12 +257,11 @@ fn main() -> Result<(), String> {
 }
 
 fn is_path_qs(path: &Path) -> bool {
-    if path.is_file() {
-        if let Some(ex) = path.extension() {
-            if ex == "qs" {
-                return true;
-            }
-        }
+    if path.is_file()
+        && let Some(ex) = path.extension()
+        && ex == "qs"
+    {
+        return true;
     }
     false
 }

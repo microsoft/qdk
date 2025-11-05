@@ -177,11 +177,11 @@ pub fn parse_namespaces_or_implicit(
             s,
         )
         .map(|x| vec![x])?;
-        if let Some(ref mut ns) = ns.get_mut(0) {
-            if let Some(x) = ns.items.get_mut(0) {
-                x.span.lo = lo;
-                x.doc = doc;
-            }
+        if let Some(ref mut ns) = ns.get_mut(0)
+            && let Some(x) = ns.items.get_mut(0)
+        {
+            x.span.lo = lo;
+            x.doc = doc;
         }
         Ok(ns)
     } else {

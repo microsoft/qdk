@@ -20,7 +20,7 @@ pub(crate) fn file_system(
     list_directory: PyObject,
     resolve_path: PyObject,
     fetch_github: PyObject,
-) -> impl FileSystem + '_ {
+) -> impl FileSystem {
     Py {
         py,
         fs_hooks: FsHooks {

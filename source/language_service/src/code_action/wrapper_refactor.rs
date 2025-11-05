@@ -314,10 +314,10 @@ fn detect_newline(contents: &str, op_offset: usize) -> &'static str {
         }
     };
 
-    if op_offset <= contents.len() {
-        if let Some(prev_nl) = contents[..op_offset].rfind('\n') {
-            return classify(prev_nl);
-        }
+    if op_offset <= contents.len()
+        && let Some(prev_nl) = contents[..op_offset].rfind('\n')
+    {
+        return classify(prev_nl);
     }
     if let Some(first_nl) = contents.find('\n') {
         return classify(first_nl);

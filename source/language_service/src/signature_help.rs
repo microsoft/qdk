@@ -108,23 +108,23 @@ impl<'a> Visitor<'a> for SignatureHelpFinder<'a> {
 
 impl SignatureHelpFinder<'_> {
     fn process_indirect_callee(&mut self, callee: &ast::Expr, args: &ast::Expr) {
-        if let Some(ty) = self.compilation.get_ty(callee.id) {
-            if let hir::ty::Ty::Arrow(arrow) = &ty {
-                let sig_info = SignatureInformation {
-                    label: ty.display(),
-                    documentation: None,
-                    parameters: get_type_params(&arrow.input.borrow()),
-                };
+        if let Some(ty) = self.compilation.get_ty(callee.id)
+            && let hir::ty::Ty::Arrow(arrow) = &ty
+        {
+            let sig_info = SignatureInformation {
+                label: ty.display(),
+                documentation: None,
+                parameters: get_type_params(&arrow.input.borrow()),
+            };
 
-                // Capture arrow.input structure in a fake HIR Pat.
-                let params = make_fake_pat(&arrow.input.borrow());
+            // Capture arrow.input structure in a fake HIR Pat.
+            let params = make_fake_pat(&arrow.input.borrow());
 
-                self.signature_help = Some(SignatureHelp {
-                    signatures: vec![sig_info],
-                    active_signature: 0,
-                    active_parameter: process_args(args, self.offset, &params),
-                });
-            }
+            self.signature_help = Some(SignatureHelp {
+                signatures: vec![sig_info],
+                active_signature: 0,
+                active_parameter: process_args(args, self.offset, &params),
+            });
         }
     }
 
@@ -326,19 +326,19 @@ fn try_get_direct_callee<'a>(
     compilation: &'a Compilation,
     callee: &ast::Expr,
 ) -> Option<(hir::PackageId, &'a hir::CallableDecl, &'a str)> {
-    if let ast::ExprKind::Path(PathKind::Ok(path)) = &*callee.kind {
-        if let Some(resolve::Res::Item(item_id, _)) = compilation.get_res(path.id) {
-            let (item, _, resolved_item_id) =
-                compilation.resolve_item_relative_to_user_package(item_id);
-            if let hir::ItemKind::Callable(callee_decl) = &item.kind {
-                return Some((
-                    resolved_item_id
-                        .package
-                        .expect("package id should be resolved"),
-                    callee_decl,
-                    &item.doc,
-                ));
-            }
+    if let ast::ExprKind::Path(PathKind::Ok(path)) = &*callee.kind
+        && let Some(resolve::Res::Item(item_id, _)) = compilation.get_res(path.id)
+    {
+        let (item, _, resolved_item_id) =
+            compilation.resolve_item_relative_to_user_package(item_id);
+        if let hir::ItemKind::Callable(callee_decl) = &item.kind {
+            return Some((
+                resolved_item_id
+                    .package
+                    .expect("package id should be resolved"),
+                callee_decl,
+                &item.doc,
+            ));
         }
     }
 

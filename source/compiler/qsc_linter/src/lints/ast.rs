@@ -44,12 +44,11 @@ struct DivisionByZero {
 
 impl AstLintPass for DivisionByZero {
     fn check_expr(&mut self, expr: &Expr, buffer: &mut Vec<Lint>, _compilation: Compilation) {
-        if let ExprKind::BinOp(BinOp::Div, _, ref rhs) = *expr.kind {
-            if let ExprKind::Lit(ref lit) = *rhs.kind {
-                if let Lit::Int(0) = **lit {
-                    buffer.push(lint!(self, expr.span));
-                }
-            }
+        if let ExprKind::BinOp(BinOp::Div, _, ref rhs) = *expr.kind
+            && let ExprKind::Lit(ref lit) = *rhs.kind
+            && let Lit::Int(0) = **lit
+        {
+            buffer.push(lint!(self, expr.span));
         }
     }
 }
@@ -66,14 +65,14 @@ impl NeedlessParens {
     /// parentheses are needless. Parentheses around a literal
     /// are also needless.
     fn push(&self, parent: &Expr, child: &Expr, buffer: &mut Vec<Lint>) {
-        if let ExprKind::Paren(expr) = &*child.kind {
-            if precedence(parent) < precedence(expr) {
-                buffer.push(lint!(
-                    self,
-                    child.span,
-                    Self::get_code_action_edits(child.span)
-                ));
-            }
+        if let ExprKind::Paren(expr) = &*child.kind
+            && precedence(parent) < precedence(expr)
+        {
+            buffer.push(lint!(
+                self,
+                child.span,
+                Self::get_code_action_edits(child.span)
+            ));
         }
     }
 
@@ -114,14 +113,14 @@ impl AstLintPass for NeedlessParens {
 
     /// Checks the assignment statements.
     fn check_stmt(&mut self, stmt: &Stmt, buffer: &mut Vec<Lint>, _compilation: Compilation) {
-        if let StmtKind::Local(_, _, right) = &*stmt.kind {
-            if let ExprKind::Paren(_) = &*right.kind {
-                buffer.push(lint!(
-                    self,
-                    right.span,
-                    Self::get_code_action_edits(right.span)
-                ));
-            }
+        if let StmtKind::Local(_, _, right) = &*stmt.kind
+            && let ExprKind::Paren(_) = &*right.kind
+        {
+            buffer.push(lint!(
+                self,
+                right.span,
+                Self::get_code_action_edits(right.span)
+            ));
         }
     }
 }
@@ -272,17 +271,17 @@ struct DeprecatedAssignUpdateExpr {
 
 impl AstLintPass for DeprecatedAssignUpdateExpr {
     fn check_expr(&mut self, expr: &Expr, buffer: &mut Vec<Lint>, compilation: Compilation) {
-        if let ExprKind::AssignUpdate(record, index, value) = expr.kind.as_ref() {
-            if let Some(Ty::Array(_)) = compilation.compile_unit.ast.tys.terms.get(record.id) {
-                let record_src = compilation.get_source_code(record.span);
-                let index_src = compilation.get_source_code(index.span);
-                let value_src = compilation.get_source_code(value.span);
-                let edit = vec![(
-                    format!("{record_src}[{index_src}] = {value_src}"),
-                    expr.span,
-                )];
-                buffer.push(lint!(self, expr.span, edit));
-            }
+        if let ExprKind::AssignUpdate(record, index, value) = expr.kind.as_ref()
+            && let Some(Ty::Array(_)) = compilation.compile_unit.ast.tys.terms.get(record.id)
+        {
+            let record_src = compilation.get_source_code(record.span);
+            let index_src = compilation.get_source_code(index.span);
+            let value_src = compilation.get_source_code(value.span);
+            let edit = vec![(
+                format!("{record_src}[{index_src}] = {value_src}"),
+                expr.span,
+            )];
+            buffer.push(lint!(self, expr.span, edit));
         }
     }
 }
@@ -294,10 +293,10 @@ struct DeprecatedUpdateExpr {
 
 impl AstLintPass for DeprecatedUpdateExpr {
     fn check_expr(&mut self, expr: &Expr, buffer: &mut Vec<Lint>, compilation: Compilation) {
-        if let ExprKind::TernOp(TernOp::Update, record, ..) = expr.kind.as_ref() {
-            if let Some(Ty::Array(_)) = compilation.compile_unit.ast.tys.terms.get(record.id) {
-                buffer.push(lint!(self, expr.span));
-            }
+        if let ExprKind::TernOp(TernOp::Update, record, ..) = expr.kind.as_ref()
+            && let Some(Ty::Array(_)) = compilation.compile_unit.ast.tys.terms.get(record.id)
+        {
+            buffer.push(lint!(self, expr.span));
         }
     }
 }

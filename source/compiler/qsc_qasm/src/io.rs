@@ -124,10 +124,10 @@ impl SourceResolverContext {
     /// the `current_path` to `path`.
     fn add_path_to_include_graph(&mut self, path: &Arc<str>) {
         // 1. Add path to the current file children.
-        if let Some(file) = self.current_file.as_ref() {
-            if let Some(node) = self.include_graph.get_mut(file) {
-                node.children.push(path.clone());
-            }
+        if let Some(file) = self.current_file.as_ref()
+            && let Some(node) = self.include_graph.get_mut(file)
+        {
+            node.children.push(path.clone());
         }
 
         // 2. Add path to the include graph.

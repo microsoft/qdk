@@ -211,10 +211,10 @@ impl<'a> Globals<'a> {
                 // Namespace already in open in the current scope
                 Some((namespace, Availability::InScope))
             } else if let Some(alias) = self.locals.iter().find_map(|local| {
-                if let Local::NamespaceImport(imported, Some(alias)) = local {
-                    if namespace == *imported {
-                        return Some(alias.clone());
-                    }
+                if let Local::NamespaceImport(imported, Some(alias)) = local
+                    && namespace == *imported
+                {
+                    return Some(alias.clone());
                 }
                 None
             }) {
@@ -302,10 +302,10 @@ impl<'a> Globals<'a> {
 
                         let availability = if namespace_availability != Availability::Qualified
                             && self.locals.iter().any(|local| {
-                                if let Local::Item(import_item_id, ..) = local {
-                                    if *import_item_id == item_id {
-                                        return true;
-                                    }
+                                if let Local::Item(import_item_id, ..) = local
+                                    && *import_item_id == item_id
+                                {
+                                    return true;
                                 }
                                 false
                             }) {

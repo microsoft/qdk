@@ -743,5 +743,7 @@ pub fn walk_path_kind(vis: &mut impl Visitor, path: &PathKind) {
 }
 
 pub fn walk_idents(vis: &mut impl Visitor, idents: &[Ident]) {
-    idents.iter().for_each(|i| vis.visit_ident(i));
+    for i in idents {
+        vis.visit_ident(i);
+    }
 }

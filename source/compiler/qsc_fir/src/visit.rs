@@ -131,7 +131,9 @@ pub fn walk_expr<'a>(vis: &mut impl Visitor<'a>, expr: ExprId) {
     let expr = vis.get_expr(expr);
     match &expr.kind {
         ExprKind::Array(exprs) | ExprKind::ArrayLit(exprs) => {
-            exprs.iter().for_each(|e| vis.visit_expr(*e));
+            for e in exprs {
+                vis.visit_expr(*e);
+            }
         }
         ExprKind::ArrayRepeat(item, size) => {
             vis.visit_expr(*item);
@@ -162,7 +164,9 @@ pub fn walk_expr<'a>(vis: &mut impl Visitor<'a>, expr: ExprId) {
         ExprKind::If(cond, body, otherwise) => {
             vis.visit_expr(*cond);
             vis.visit_expr(*body);
-            otherwise.iter().for_each(|e| vis.visit_expr(*e));
+            if let Some(e) = otherwise {
+                vis.visit_expr(*e);
+            }
         }
         ExprKind::Index(array, index) => {
             vis.visit_expr(*array);
@@ -172,15 +176,23 @@ pub fn walk_expr<'a>(vis: &mut impl Visitor<'a>, expr: ExprId) {
             vis.visit_expr(*expr);
         }
         ExprKind::Range(start, step, end) => {
-            start.iter().for_each(|s| vis.visit_expr(*s));
-            step.iter().for_each(|s| vis.visit_expr(*s));
-            end.iter().for_each(|e| vis.visit_expr(*e));
+            if let Some(s) = start {
+                vis.visit_expr(*s);
+            }
+            if let Some(s) = step {
+                vis.visit_expr(*s);
+            }
+            if let Some(e) = end {
+                vis.visit_expr(*e);
+            }
         }
         ExprKind::Struct(_, copy, fields) => {
-            copy.iter().for_each(|c| vis.visit_expr(*c));
-            fields
-                .iter()
-                .for_each(|FieldAssign { value, .. }| vis.visit_expr(*value));
+            if let Some(c) = copy {
+                vis.visit_expr(*c);
+            }
+            for FieldAssign { value, .. } in fields {
+                vis.visit_expr(*value);
+            }
         }
         ExprKind::String(components) => {
             for component in components {

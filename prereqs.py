@@ -13,10 +13,10 @@ import functools
 from pathlib import Path
 
 python_ver = (3, 11)  # Python support for Windows on ARM64 requires v3.11 or later
-rust_ver = (1, 88, 0)  # Ensure Rust version 1.88 or later is installed
+rust_ver = (1, 90, 0)  # Ensure Rust version 1.90 or later is installed
 node_ver = (22, 14, 0)
-rust_fmt_ver = (1, 8, 0)  # Current version when Rust 1.88 shipped
-clippy_ver = (0, 1, 88)
+rust_fmt_ver = (1, 8, 0)  # Current version when Rust 1.90 shipped
+clippy_ver = (0, 1, 90)
 wasm_bindgen_ver = (0, 2, 100)
 binaryen_ver = 123
 

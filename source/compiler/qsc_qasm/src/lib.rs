@@ -192,11 +192,11 @@ impl OperationSignature {
     pub fn create_entry_expr_from_params<S: AsRef<str>>(&self, params: S) -> String {
         let mut expr = String::new();
         if let Some(ns) = &self.ns {
-            write!(expr, "{ns}.").unwrap();
+            write!(expr, "{ns}.").expect("write should succeed");
         }
-        write!(expr, "{}(", self.name).unwrap();
-        write!(expr, "{}", params.as_ref()).unwrap();
-        write!(expr, ")").unwrap();
+        write!(expr, "{}(", self.name).expect("write should succeed");
+        write!(expr, "{}", params.as_ref()).expect("write should succeed");
+        write!(expr, ")").expect("write should succeed");
 
         expr
     }
@@ -208,9 +208,9 @@ impl OperationSignature {
         let mut expr = String::new();
         for (i, (name, ty)) in self.input.iter().enumerate() {
             if i > 0 {
-                write!(expr, ", ").unwrap();
+                write!(expr, ", ").expect("write should succeed");
             }
-            write!(expr, "{name}: {ty}").unwrap();
+            write!(expr, "{name}: {ty}").expect("write should succeed");
         }
         expr
     }

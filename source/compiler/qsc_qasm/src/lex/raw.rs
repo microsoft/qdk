@@ -295,22 +295,22 @@ impl<'a> Lexer<'a> {
         }
 
         let second = self.second();
-        if let Some(c1) = first {
-            if second.is_none() || second.is_some_and(|c1| c1 != '_' && !c1.is_alphanumeric()) {
-                let fragment = match (c, c1) {
-                    ('i', 'm') => Some(TokenKind::LiteralFragment(LiteralFragmentKind::Imag)),
-                    ('d', 't') => Some(TokenKind::LiteralFragment(LiteralFragmentKind::Dt)),
-                    ('n', 's') => Some(TokenKind::LiteralFragment(LiteralFragmentKind::Ns)),
-                    ('u' | 'µ', 's') => Some(TokenKind::LiteralFragment(LiteralFragmentKind::Us)),
-                    ('m', 's') => Some(TokenKind::LiteralFragment(LiteralFragmentKind::Ms)),
-                    _ => None,
-                };
+        if let Some(c1) = first
+            && (second.is_none() || second.is_some_and(|c1| c1 != '_' && !c1.is_alphanumeric()))
+        {
+            let fragment = match (c, c1) {
+                ('i', 'm') => Some(TokenKind::LiteralFragment(LiteralFragmentKind::Imag)),
+                ('d', 't') => Some(TokenKind::LiteralFragment(LiteralFragmentKind::Dt)),
+                ('n', 's') => Some(TokenKind::LiteralFragment(LiteralFragmentKind::Ns)),
+                ('u' | 'µ', 's') => Some(TokenKind::LiteralFragment(LiteralFragmentKind::Us)),
+                ('m', 's') => Some(TokenKind::LiteralFragment(LiteralFragmentKind::Ms)),
+                _ => None,
+            };
 
-                if fragment.is_some() {
-                    // Consume `first` before returning.
-                    self.chars.next();
-                    return fragment;
-                }
+            if fragment.is_some() {
+                // Consume `first` before returning.
+                self.chars.next();
+                return fragment;
             }
         }
 

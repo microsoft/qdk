@@ -616,7 +616,7 @@ impl Resolver {
         &self.globals
     }
 
-    pub(super) fn drain_errors(&mut self) -> vec::Drain<Error> {
+    pub(super) fn drain_errors(&mut self) -> vec::Drain<'_, Error> {
         self.errors.drain(..)
     }
 
@@ -1155,7 +1155,9 @@ impl AstVisitor<'_> for With<'_> {
                 if let Err(e) = self.resolver.resolve_path(NameKind::Ty, path) {
                     self.resolver.errors.push(e);
                 }
-                copy.iter().for_each(|c| self.visit_expr(c));
+                if let Some(c) = copy {
+                    self.visit_expr(c);
+                }
                 fields.iter().for_each(|f| self.visit_field_assign(f));
             }
             _ => ast_visit::walk_expr(self, expr),
@@ -1787,13 +1789,12 @@ fn check_scoped_resolutions(
     vars: &mut bool,
     scope: &Scope,
 ) -> Option<Result<Res, Error>> {
-    if provided_namespace_name.is_none() {
-        if let Some(res) =
+    if provided_namespace_name.is_none()
+        && let Some(res) =
             resolve_scope_locals(kind, globals, scope, *vars, &provided_symbol_name.name)
-        {
-            // Local declarations shadow everything.
-            return Some(Ok(res));
-        }
+    {
+        // Local declarations shadow everything.
+        return Some(Ok(res));
     }
 
     let aliases = scope
@@ -2026,10 +2027,10 @@ fn resolve_scope_locals(
         return Some(res);
     }
 
-    if let ScopeKind::Namespace(namespace) = &scope.kind {
-        if let Some(res) = globals.get(kind, *namespace, name) {
-            return Some(res.clone());
-        }
+    if let ScopeKind::Namespace(namespace) = &scope.kind
+        && let Some(res) = globals.get(kind, *namespace, name)
+    {
+        return Some(res.clone());
     }
 
     None

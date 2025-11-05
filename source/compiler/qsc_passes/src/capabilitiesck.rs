@@ -258,7 +258,9 @@ impl<'a> Checker<'a> {
         let pre_spans_with_missing_features_count = self.missing_features_map.len();
         self.visit_expr(condition_expr_id);
         self.visit_expr(body_expr_id);
-        otherwise_expr_id.iter().for_each(|e| self.visit_expr(*e));
+        if let Some(e) = otherwise_expr_id.as_ref() {
+            self.visit_expr(*e);
+        }
         let post_spans_with_missing_features_count = self.missing_features_map.len();
 
         // If no errors were added because of the individual expressions, check this expression as a whole.

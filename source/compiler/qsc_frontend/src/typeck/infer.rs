@@ -950,11 +950,11 @@ fn substituted_ty(solution: &Solution, mut ty: Ty) -> Ty {
 }
 
 fn substitute_functor(solution: &Solution, functors: &mut FunctorSet) {
-    if let &mut FunctorSet::Infer(infer) = functors {
-        if let Some(&new_functors) = solution.functors.get(infer) {
-            *functors = new_functors;
-            substitute_functor(solution, functors);
-        }
+    if let &mut FunctorSet::Infer(infer) = functors
+        && let Some(&new_functors) = solution.functors.get(infer)
+    {
+        *functors = new_functors;
+        substitute_functor(solution, functors);
     }
 }
 
@@ -1471,20 +1471,20 @@ fn check_unwrap(
     base: Ty,
     span: Span,
 ) -> (Vec<Constraint>, Vec<Error>) {
-    if let Ty::Udt(_, Res::Item(id)) = wrapper {
-        if let Some(udt) = udts.get(id) {
-            return (
-                vec![Constraint::Eq {
-                    expected: base,
-                    actual: id.package.map_or_else(
-                        || udt.get_pure_ty(),
-                        |package_id| udt.get_pure_ty().with_package(package_id),
-                    ),
-                    span,
-                }],
-                Vec::new(),
-            );
-        }
+    if let Ty::Udt(_, Res::Item(id)) = wrapper
+        && let Some(udt) = udts.get(id)
+    {
+        return (
+            vec![Constraint::Eq {
+                expected: base,
+                actual: id.package.map_or_else(
+                    || udt.get_pure_ty(),
+                    |package_id| udt.get_pure_ty().with_package(package_id),
+                ),
+                span,
+            }],
+            Vec::new(),
+        );
     }
 
     (

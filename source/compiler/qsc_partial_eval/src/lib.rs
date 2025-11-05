@@ -1512,16 +1512,15 @@ impl<'a> PartialEvaluator<'a> {
                     runtime_features,
                     self.program.config.capabilities,
                 ) & !RuntimeFeatureFlags::CallToUnresolvedCallee;
-                if !missing_features.is_empty() {
-                    if let Some(error) = generate_errors_from_runtime_features(
+                if !missing_features.is_empty()
+                    && let Some(error) = generate_errors_from_runtime_features(
                         missing_features,
                         self.get_expr(call_expr_id).span,
                     )
                     .drain(..)
                     .next()
-                    {
-                        return Err(Error::CapabilityError(error));
-                    }
+                {
+                    return Err(Error::CapabilityError(error));
                 }
 
                 // If the call produces a dynamic value, we treat it as an error because we know that later

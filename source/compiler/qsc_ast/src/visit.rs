@@ -117,7 +117,9 @@ pub fn walk_item<'a>(vis: &mut impl Visitor<'a>, item: &'a Item) {
         ItemKind::Callable(decl) => vis.visit_callable_decl(decl),
         ItemKind::Open(ns, alias) => {
             vis.visit_path_kind(ns);
-            alias.iter().for_each(|a| vis.visit_ident(a));
+            if let Some(a) = alias.as_ref() {
+                vis.visit_ident(a);
+            }
         }
         ItemKind::Ty(ident, def) => {
             vis.visit_ident(ident);
@@ -139,7 +141,9 @@ pub fn walk_attr<'a>(vis: &mut impl Visitor<'a>, attr: &'a Attr) {
 pub fn walk_ty_def<'a>(vis: &mut impl Visitor<'a>, def: &'a TyDef) {
     match &*def.kind {
         TyDefKind::Field(name, ty) => {
-            name.iter().for_each(|n| vis.visit_ident(n));
+            if let Some(n) = name.as_ref() {
+                vis.visit_ident(n);
+            }
             vis.visit_ty(ty);
         }
         TyDefKind::Paren(def) => vis.visit_ty_def(def),
@@ -217,7 +221,9 @@ pub fn walk_ty<'a>(vis: &mut impl Visitor<'a>, ty: &'a Ty) {
         TyKind::Arrow(_, lhs, rhs, functors) => {
             vis.visit_ty(lhs);
             vis.visit_ty(rhs);
-            functors.iter().for_each(|f| vis.visit_functor_expr(f));
+            if let Some(f) = functors.as_ref() {
+                vis.visit_functor_expr(f);
+            }
         }
         TyKind::Hole | TyKind::Err => {}
         TyKind::Paren(ty) => vis.visit_ty(ty),
@@ -258,11 +264,14 @@ pub fn walk_stmt<'a>(vis: &mut impl Visitor<'a>, stmt: &'a Stmt) {
         StmtKind::Qubit(_, pat, init, block) => {
             vis.visit_pat(pat);
             vis.visit_qubit_init(init);
-            block.iter().for_each(|b| vis.visit_block(b));
+            if let Some(b) = block.as_ref() {
+                vis.visit_block(b);
+            }
         }
     }
 }
 
+#[allow(clippy::too_many_lines)]
 pub fn walk_expr<'a>(vis: &mut impl Visitor<'a>, expr: &'a Expr) {
     match &*expr.kind {
         ExprKind::Array(exprs) => exprs.iter().for_each(|e| vis.visit_expr(e)),
@@ -305,7 +314,9 @@ pub fn walk_expr<'a>(vis: &mut impl Visitor<'a>, expr: &'a Expr) {
         ExprKind::If(cond, body, otherwise) => {
             vis.visit_expr(cond);
             vis.visit_block(body);
-            otherwise.iter().for_each(|e| vis.visit_expr(e));
+            if let Some(e) = otherwise.as_ref() {
+                vis.visit_expr(e);
+            }
         }
         ExprKind::Index(array, index) => {
             vis.visit_expr(array);
@@ -328,18 +339,28 @@ pub fn walk_expr<'a>(vis: &mut impl Visitor<'a>, expr: &'a Expr) {
         }
         ExprKind::Path(path) => vis.visit_path_kind(path),
         ExprKind::Range(start, step, end) => {
-            start.iter().for_each(|s| vis.visit_expr(s));
-            step.iter().for_each(|s| vis.visit_expr(s));
-            end.iter().for_each(|e| vis.visit_expr(e));
+            if let Some(s) = start.as_ref() {
+                vis.visit_expr(s);
+            }
+            if let Some(s) = step.as_ref() {
+                vis.visit_expr(s);
+            }
+            if let Some(e) = end.as_ref() {
+                vis.visit_expr(e);
+            }
         }
         ExprKind::Repeat(body, until, fixup) => {
             vis.visit_block(body);
             vis.visit_expr(until);
-            fixup.iter().for_each(|f| vis.visit_block(f));
+            if let Some(f) = fixup.as_ref() {
+                vis.visit_block(f);
+            }
         }
         ExprKind::Struct(name, copy, fields) => {
             vis.visit_path_kind(name);
-            copy.iter().for_each(|c| vis.visit_expr(c));
+            if let Some(c) = copy.as_ref() {
+                vis.visit_expr(c);
+            }
             fields.iter().for_each(|f| vis.visit_field_assign(f));
         }
         ExprKind::TernOp(_, e1, e2, e3) => {
@@ -365,7 +386,9 @@ pub fn walk_pat<'a>(vis: &mut impl Visitor<'a>, pat: &'a Pat) {
     match &*pat.kind {
         PatKind::Bind(name, ty) => {
             vis.visit_ident(name);
-            ty.iter().for_each(|t| vis.visit_ty(t));
+            if let Some(t) = ty.as_ref() {
+                vis.visit_ty(t);
+            }
         }
         PatKind::Discard(ty) => ty.iter().for_each(|t| vis.visit_ty(t)),
         PatKind::Elided | PatKind::Err => {}
@@ -401,5 +424,7 @@ pub fn walk_path_kind<'a>(vis: &mut impl Visitor<'a>, path: &'a PathKind) {
 }
 
 pub fn walk_idents<'a>(vis: &mut impl Visitor<'a>, idents: &'a [Ident]) {
-    idents.iter().for_each(|i| vis.visit_ident(i));
+    for i in idents {
+        vis.visit_ident(i);
+    }
 }
