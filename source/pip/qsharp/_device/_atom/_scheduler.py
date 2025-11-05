@@ -26,7 +26,7 @@ Move: TypeAlias = tuple[QubitId, Location, Location]
 
 def move_parity(source: Location, destination: Location) -> tuple[int, int]:
     """Returns a tuple representing the parities of the source and destination columns."""
-    return (source[0] % 2, destination[1] % 2)
+    return (source[1] % 2, destination[1] % 2)
 
 
 def move_direction(source: Location, destination: Location) -> tuple[int, int]:
@@ -69,8 +69,8 @@ class ParallelCandidate:
         self.moves = set(moves)
         self.move_scale = None
         if len(self.moves) > 1:
-            self.move_scale = move_scale(*islice(self.moves, 2))
-        self.ref_move = next(iter(self.moves))
+            self.move_scale = move_scale(*moves)
+        self.ref_move = next(iter(moves))
 
     def __len__(self) -> int:
         return len(self.moves)
