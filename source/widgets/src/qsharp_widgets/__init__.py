@@ -134,7 +134,7 @@ class Histogram(anywidget.AnyWidget):
         if time.time() - self._last_message >= 0.1:
             self._update_ui()
 
-    def __init__(self, results=None, shot_header=True):
+    def __init__(self, results=None, shot_header=True, bar_values=None):
         super().__init__()
 
         self._new_buckets = {}
@@ -154,6 +154,10 @@ class Histogram(anywidget.AnyWidget):
                     self._add_result({"result": result, "events": []})
 
             self._update_ui()
+        elif bar_values is not None:
+            self.buckets = bar_values
+            self.shot_count = 0
+            self.shot_header = False
 
     def run(self, entry_expr, shots):
         import qsharp

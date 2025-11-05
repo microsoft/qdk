@@ -262,10 +262,12 @@ export function Histogram(props: {
             const x = barBoxWidth * idx + barPaddingSize;
             const labelX = barBoxWidth * idx + barBoxWidth / 2 - fontOffset;
             const y = barAreaHeight + 15 - height;
-            const barLabel = `${label} at ${(
-              (entry[1] / totalAllBuckets) *
-              100
-            ).toFixed(2)}%`;
+            const barLabel =
+              props.shotCount == 0
+                ? `${entry[1]}`
+                : `${label} at ${((entry[1] / totalAllBuckets) * 100).toFixed(
+                    2,
+                  )}%`;
             let barClass = "bar";
 
             if (entry[0] === props.filter) {
