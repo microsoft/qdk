@@ -287,6 +287,12 @@ class Schedule(QirModuleVisitor):
                 col2 = col1 + 1
                 loc1 = (row + interaction_zone_row_offset, col1)
                 loc2 = (row + interaction_zone_row_offset, col2)
+                # Prefer using matching relative column ordering to home locations to reduce move crossings.
+                if (
+                    self.device.get_home_loc(gate["qubit_args"][0])[1]
+                    > self.device.get_home_loc(gate["qubit_args"][1])[1]
+                ):
+                    loc1, loc2 = loc2, loc1
                 self.pending_moves.append((instr.args[0], loc1))
                 self.pending_moves.append((instr.args[1], loc2))
 
