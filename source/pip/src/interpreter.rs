@@ -765,6 +765,7 @@ impl Interpreter {
     /// :param args: The arguments to pass to the callable.
     ///
     /// :raises QSharpError: If there is an error synthesizing the circuit.
+    #[allow(clippy::doc_markdown)]
     #[pyo3(signature=(config, entry_expr=None,*, operation=None, callable=None, args=None))]
     fn circuit(
         &mut self,

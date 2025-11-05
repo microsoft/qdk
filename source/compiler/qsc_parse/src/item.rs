@@ -265,11 +265,11 @@ fn validate_namespace_name(error_span: Span, name: &str) -> Result<Box<Ident>> {
     // we just directly use the ident parser here instead of trying to recreate
     // validation rules
     let ident = ident(&mut s)
-        .map_err(|_| Error::new(ErrorKind::InvalidFileName(error_span, name.to_string())))?;
+        .map_err(|_| Error::new(ErrorKind::InvalidFileName(error_span, name.clone())))?;
     if s.peek().kind != TokenKind::Eof {
         return Err(Error::new(ErrorKind::InvalidFileName(
             error_span,
-            name.to_string(),
+            name.clone(),
         )));
     }
     Ok(ident)

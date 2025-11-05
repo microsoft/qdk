@@ -710,7 +710,7 @@ fn map_errors_to_docs(
     for err in project_errors {
         let doc = err
             .path()
-            .map_or(compilation_uri.clone(), |path| path.to_string().into());
+            .map_or(compilation_uri.clone(), |path| path.clone().into());
 
         map.entry(doc.clone())
             .or_insert_with(Vec::new)

@@ -28,7 +28,7 @@ pub fn prepare_rename(
     }
 
     let range = into_range(position_encoding, symbol.span, &res.source_map);
-    let name = symbol.name.to_string();
+    let name = symbol.name.clone();
     trace!("prepare_rename: found symbol {name} at {range:?}");
     Some((range, name))
 }

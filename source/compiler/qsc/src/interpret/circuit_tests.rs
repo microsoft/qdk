@@ -138,8 +138,8 @@ fn measure_same_qubit_twice() {
 
     expect![[r#"
         q_0@test.qs:4:20 ─ H@test.qs:5:20 ─── M@test.qs:6:29 ─── M@test.qs:7:29 ──
-                                           ╘══════════════════╪═════════
-                                                              ╘═════════
+                                                     ╘══════════════════╪═════════
+                                                                        ╘═════════
     "#]]
     .assert_eq(&circ);
 }
@@ -234,7 +234,7 @@ fn m_base_profile() {
 
     expect![[r#"
         q_0@test.qs:5:20 ─ H@test.qs:6:20 ─── M@test.qs:7:21 ──
-                                           ╘═════════
+                                                     ╘═════════
     "#]]
     .assert_eq(&circ.to_string());
 }
@@ -258,9 +258,9 @@ fn m_default_profile() {
 
     expect![[r#"
         q_0@test.qs:5:20 ─ H@test.qs:6:20 ─── M@test.qs:7:21 ──
-                                           ╘═════════
+                                                     ╘═════════
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
@@ -282,7 +282,7 @@ fn mresetz_unrestricted_profile() {
 
     expect![[r#"
         q_0@test.qs:5:20 ─ H@test.qs:6:20 ─── M@test.qs:7:21 ──── |0〉@test.qs:7:21 ───
-                                           ╘════════════════════════════════
+                                                     ╘════════════════════════════════
     "#]]
     .assert_eq(&circ);
 }
@@ -311,7 +311,7 @@ fn mresetz_base_profile() {
     // code gen in Base turns the MResetZ into an M
     expect![[r#"
         q_0@test.qs:5:20 ─ H@test.qs:6:20 ─── M@test.qs:7:21 ──── |0〉@test.qs:7:21 ───
-                                           ╘════════════════════════════════
+                                                     ╘════════════════════════════════
     "#]]
     .assert_eq(&circ.to_string());
 }
@@ -338,9 +338,9 @@ fn qubit_relabel() {
 
     expect![[r#"
         q_0@test.qs:3:32 ─ H@test.qs:4:16 ────────── ● ──────────────────────────── X@test.qs:8:16 ─── M@test.qs:10:16 ─── |0〉@test.qs:10:16 ──
-                                           │                                     │                  ╘════════════════════════════════
+                                                     │                                     │                  ╘════════════════════════════════
         q_1@test.qs:3:41 ──────────────────── X@test.qs:5:16 ─── H@test.qs:7:16 ────────── ● ───────── M@test.qs:9:16 ──── |0〉@test.qs:9:16 ───
-                                                                                                    ╘════════════════════════════════
+                                                                                                              ╘════════════════════════════════
     "#]]
     .assert_eq(&circ);
 }
@@ -369,8 +369,8 @@ fn qubit_reuse() {
 
     expect![[r#"
         q_0@test.qs:4:20, test.qs:9:20 ─ X@test.qs:5:20 ─── M@test.qs:6:20 ──── |0〉@test.qs:6:20 ──── Y@test.qs:10:20 ── M@test.qs:11:20 ─── |0〉@test.qs:11:20 ──
-                                           ╘════════════════════════════════════════════════════════════╪════════════════════════════════
-                                                                                                        ╘════════════════════════════════
+                                                                   ╘════════════════════════════════════════════════════════════╪════════════════════════════════
+                                                                                                                                ╘════════════════════════════════
     "#]]
     .assert_eq(&circ);
 }
@@ -465,9 +465,9 @@ fn unrestricted_profile_result_comparison() {
 
     expect![[r#"
         q_0@test.qs:5:20 ─ H@test.qs:7:20 ─── M@test.qs:9:29 ───── X@test.qs:12:24 ───── |0〉@test.qs:14:20 ──
-                                           ╘═══════════════════════════════════════════════════════
+                                                     ╘═══════════════════════════════════════════════════════
         q_1@test.qs:6:20 ─ H@test.qs:8:20 ─── M@test.qs:10:29 ─── |0〉@test.qs:14:20 ─────────────────────────
-                                           ╘═══════════════════════════════════════════════════════
+                                                     ╘═══════════════════════════════════════════════════════
     "#]]
     .assert_eq(&circ.to_string());
 
@@ -482,9 +482,9 @@ fn unrestricted_profile_result_comparison() {
     let circuit = interpreter.get_circuit();
     expect![[r#"
         q_0@test.qs:5:20 ─ H@test.qs:7:20 ─── M@test.qs:9:29 ───── X@test.qs:12:24 ───── |0〉@test.qs:14:20 ──
-                                           ╘═══════════════════════════════════════════════════════
+                                                     ╘═══════════════════════════════════════════════════════
         q_1@test.qs:6:20 ─ H@test.qs:8:20 ─── M@test.qs:10:29 ─── |0〉@test.qs:14:20 ─────────────────────────
-                                           ╘═══════════════════════════════════════════════════════
+                                                     ╘═══════════════════════════════════════════════════════
     "#]]
     .assert_eq(&circuit.to_string());
 }
@@ -593,26 +593,26 @@ fn custom_intrinsic_mixed_args() {
 
     expect![[r#"
         q_0@test.qs:6:12 ─ AccountForEstimatesInternal([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], 1)@test.qs:7:12 ─
-                                                               ┆
+                                                                         ┆
         q_1@test.qs:6:12 ─ AccountForEstimatesInternal([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], 1)@test.qs:7:12 ─
-                                                               ┆
+                                                                         ┆
         q_2@test.qs:6:12 ─ AccountForEstimatesInternal([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], 1)@test.qs:7:12 ─
-                                                               ┆
+                                                                         ┆
         q_3@test.qs:6:12 ─ AccountForEstimatesInternal([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], 1)@test.qs:7:12 ─
-                                                               ┆
+                                                                         ┆
         q_4@test.qs:6:12 ─ AccountForEstimatesInternal([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], 1)@test.qs:7:12 ─
-                                                               ┆
+                                                                         ┆
         q_5@test.qs:6:12 ─ AccountForEstimatesInternal([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], 1)@test.qs:7:12 ─
-                                                               ┆
+                                                                         ┆
         q_6@test.qs:6:12 ─ AccountForEstimatesInternal([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], 1)@test.qs:7:12 ─
-                                                               ┆
+                                                                         ┆
         q_7@test.qs:6:12 ─ AccountForEstimatesInternal([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], 1)@test.qs:7:12 ─
-                                                               ┆
+                                                                         ┆
         q_8@test.qs:6:12 ─ AccountForEstimatesInternal([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], 1)@test.qs:7:12 ─
-                                                               ┆
+                                                                         ┆
         q_9@test.qs:6:12 ─ AccountForEstimatesInternal([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], 1)@test.qs:7:12 ─
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
@@ -634,7 +634,7 @@ fn custom_intrinsic_apply_idle_noise() {
     expect![[r#"
         q_0@test.qs:6:12 ─ ApplyIdleNoise@test.qs:7:12 ─
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
@@ -657,11 +657,11 @@ fn operation_with_qubits() {
 
     expect![[r#"
         q_0@test.qs:5:27 ─ H@test.qs:6:16 ────────── ● ───────── M@test.qs:8:17 ──
-                                           │                  ╘═════════
+                                                     │                  ╘═════════
         q_1@test.qs:5:38 ──────────────────── X@test.qs:7:16 ─── M@test.qs:8:24 ──
-                                                              ╘═════════
+                                                                        ╘═════════
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
@@ -698,9 +698,9 @@ fn operation_with_qubit_arrays() {
 
     expect![[r#"
         q_0@test.qs:6:27 ─ H@test.qs:8:20 ─── M@test.qs:23:16 ─
-                                           ╘═════════
+                                                     ╘═════════
         q_1@test.qs:6:27 ─ H@test.qs:8:20 ─── M@test.qs:23:16 ─
-                                           ╘═════════
+                                                     ╘═════════
         q_2@test.qs:6:40 ─ X@test.qs:12:24 ────────────────────
         q_3@test.qs:6:40 ─ X@test.qs:12:24 ────────────────────
         q_4@test.qs:6:40 ─ X@test.qs:12:24 ────────────────────
@@ -748,7 +748,7 @@ fn adjoint_operation() {
     expect![[r#"
         q_0@test.qs:5:27 ─ Y@test.qs:13:20 ─
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
@@ -765,7 +765,7 @@ fn lambda() {
     expect![[r#"
         q_0@line_0:0:0 ─ H@<entry>:2:18 ──
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
@@ -833,11 +833,11 @@ fn internal_operation() {
 
     expect![[r#"
         q_0@test.qs:5:36 ─ H@test.qs:6:16 ────────── ● ───────── M@test.qs:8:17 ──
-                                           │                  ╘═════════
+                                                     │                  ╘═════════
         q_1@test.qs:5:47 ──────────────────── X@test.qs:7:16 ─── M@test.qs:8:24 ──
-                                                              ╘═════════
+                                                                        ╘═════════
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
@@ -910,14 +910,14 @@ fn operation_with_long_gates_properly_aligned() {
 
     expect![[r#"
         q_0@test.qs:6:20 ─ H@test.qs:9:20 ───────────────────────────────────────────────────────────────────────── ● ────────────── M@test.qs:14:20 ─────────────────────────────────────────────────────────────────── ● ───────────────────────────
-                                                                                                          │                       ╘════════════════════════════════════════════════════════════════════════════╪════════════════════════════
+                                                                                                                    │                       ╘════════════════════════════════════════════════════════════════════════════╪════════════════════════════
         q_1@test.qs:7:20 ─ H@test.qs:10:20 ─────── X@test.qs:11:20 ─────── Ry(1.0000)@test.qs:12:20 ──────── X@test.qs:13:20 ─────────────────────────────────────────────────────── Rxx(1.0000)@test.qs:27:20 ──────────┼────────── M@test.qs:31:21 ─
-                                                                                                                                                                                       ┆                       │                  ╘═════════
+                                                                                                                                                                                                 ┆                       │                  ╘═════════
         q_2@test.qs:16:20 ─ H@test.qs:18:20 ── Rx(1.0000)@test.qs:19:20 ──────── H@test.qs:20:20 ─────── Rx(1.0000)@test.qs:21:20 ─── H@test.qs:22:20 ── Rx(1.0000)@test.qs:23:20 ────────────────┆───────────────────────┼────────────────────────────
         q_3@test.qs:25:20 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── Rxx(1.0000)@test.qs:27:20 ── X@test.qs:29:20 ── M@test.qs:31:28 ─
-                                                                                                                                                                                                                                  ╘═════════
+                                                                                                                                                                                                                                            ╘═════════
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
@@ -944,13 +944,13 @@ fn operation_with_subsequent_qubits_gets_horizontal_lines() {
 
     expect![[r#"
         q_0@test.qs:6:20 ─ Rxx(1.0000)@test.qs:8:20 ──
-                             ┆
+                                       ┆
         q_1@test.qs:7:20 ─ Rxx(1.0000)@test.qs:8:20 ──
         q_2@test.qs:10:20 ─ Rxx(1.0000)@test.qs:12:20 ─
-                             ┆
+                                       ┆
         q_3@test.qs:11:20 ─ Rxx(1.0000)@test.qs:12:20 ─
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
@@ -974,10 +974,10 @@ fn operation_with_subsequent_qubits_no_double_rows() {
 
     expect![[r#"
         q_0@test.qs:6:20 ─ Rxx(1.0000)@test.qs:8:20 ─── Rxx(1.0000)@test.qs:9:20 ──
-                             ┆                            ┆
+                                       ┆                            ┆
         q_1@test.qs:7:20 ─ Rxx(1.0000)@test.qs:8:20 ─── Rxx(1.0000)@test.qs:9:20 ──
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
@@ -1006,13 +1006,13 @@ fn operation_with_subsequent_qubits_no_added_rows() {
 
     expect![[r#"
         q_0@test.qs:6:20 ─ Rxx(1.0000)@test.qs:8:20 ─── M@test.qs:14:21 ─
-                             ┆                       ╘═════════
+                                       ┆                       ╘═════════
         q_1@test.qs:7:20 ─ Rxx(1.0000)@test.qs:8:20 ─────────────────────
         q_2@test.qs:10:20 ─ Rxx(1.0000)@test.qs:12:20 ── M@test.qs:14:28 ─
-                             ┆                       ╘═════════
+                                       ┆                       ╘═════════
         q_3@test.qs:11:20 ─ Rxx(1.0000)@test.qs:12:20 ────────────────────
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 /// Tests that invoke circuit generation through the debugger.
@@ -1089,16 +1089,16 @@ mod debugger_stepping {
             q_0@test.qs:5:24 ─ H@test.qs:6:24 ──
             step:
             q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ──
-                                               ╘═════════
+                                                         ╘═════════
             step:
             q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ──── |0〉@test.qs:8:24 ───
-                                               ╘════════════════════════════════
+                                                         ╘════════════════════════════════
             step:
             q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ──── |0〉@test.qs:8:24 ───
-                                               ╘════════════════════════════════
+                                                         ╘════════════════════════════════
             step:
             q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ──── |0〉@test.qs:8:24 ───
-                                               ╘════════════════════════════════
+                                                         ╘════════════════════════════════
         "#]]
         .assert_eq(&circs);
     }
@@ -1130,16 +1130,16 @@ mod debugger_stepping {
             q_0@test.qs:5:24 ─ H@test.qs:6:24 ──
             step:
             q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ──
-                                               ╘═════════
+                                                         ╘═════════
             step:
             q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ──── |0〉@test.qs:8:24 ───
-                                               ╘════════════════════════════════
+                                                         ╘════════════════════════════════
             step:
             q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ──── |0〉@test.qs:8:24 ───
-                                               ╘════════════════════════════════
+                                                         ╘════════════════════════════════
             step:
             q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ──── |0〉@test.qs:8:24 ───
-                                               ╘════════════════════════════════
+                                                         ╘════════════════════════════════
         "#]]
         .assert_eq(&circs);
     }
@@ -1177,22 +1177,22 @@ mod debugger_stepping {
             q_0@test.qs:5:24 ─ H@test.qs:6:24 ──
             step:
             q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ──
-                                               ╘═════════
+                                                         ╘═════════
             step:
             q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ──
-                                               ╘═════════
+                                                         ╘═════════
             step:
             q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ─── X@test.qs:9:28 ──
-                                               ╘════════════════════════════
+                                                         ╘════════════════════════════
             step:
             q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ─── X@test.qs:9:28 ──
-                                               ╘════════════════════════════
+                                                         ╘════════════════════════════
             step:
             q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ─── X@test.qs:9:28 ──
-                                               ╘════════════════════════════
+                                                         ╘════════════════════════════
             step:
             q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ─── X@test.qs:9:28 ──
-                                               ╘════════════════════════════
+                                                         ╘════════════════════════════
         "#]]
         .assert_eq(&circs);
     }
