@@ -418,8 +418,7 @@ def run_qir_gpu(
     noise: Optional[Union[Tuple[float, float, float], NoiseConfig]] = None,
     loss: Optional[float] = None,
     seed: Optional[int] = None,
-    sim: Optional[str] = None,
-) -> str | List[str]:
+) -> List[str]:
     context = pyqir.Context()
     if isinstance(input, str):
         mod = pyqir.Module.from_ir(context, input)

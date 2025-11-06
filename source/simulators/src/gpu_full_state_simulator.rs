@@ -5,9 +5,6 @@
 mod tests;
 
 mod gpu_controller;
-pub mod pauli_noise;
-
-pub mod per_gate_pauli_noise;
 
 pub mod shader_types;
 

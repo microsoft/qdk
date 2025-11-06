@@ -87,6 +87,7 @@ struct QubitState {
     idle_since: f32,
 }
 
+// Used to track state for the random number generator per shot. See `next_rand_f32` later for details.
 struct xorwow_state {
     counter: u32,
     x: array<u32, 5>

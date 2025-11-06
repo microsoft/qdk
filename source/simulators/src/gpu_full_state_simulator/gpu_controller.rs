@@ -65,12 +65,6 @@ struct GpuBuffers {
     download: Buffer,
 }
 
-#[repr(C)]
-#[derive(bytemuck::Pod, bytemuck::Zeroable, Copy, Clone, Debug)]
-struct UniformParams {
-    reserved: u32,
-}
-
 struct RunParams {
     shots_buffer_size: usize,
     ops_buffer_size: usize,
@@ -284,7 +278,6 @@ impl GpuContext {
 
         let entries_per_workgroup = entries_per_shot / workgroups_per_shot;
 
-        // NOTE: There was always be min 10 qubits, so min 1024 entries
         let entries_per_thread = entries_per_workgroup / THREADS_PER_WORKGROUP as usize;
 
         Ok(RunParams {
