@@ -461,7 +461,7 @@ pub trait PackageStoreLookup {
     /// Gets an expression.
     fn get_expr(&self, id: StoreExprId) -> &Expr;
     /// Gets a global.
-    fn get_global(&self, id: StoreItemId) -> Option<Global>;
+    fn get_global(&self, id: StoreItemId) -> Option<Global<'_>>;
     /// Gets a pat.
     fn get_pat(&self, id: StorePatId) -> &Pat;
     /// Gets a statement.
@@ -483,7 +483,7 @@ impl PackageStoreLookup for PackageStore {
         self.get(id.package).get_expr(id.expr)
     }
 
-    fn get_global(&self, id: StoreItemId) -> Option<Global> {
+    fn get_global(&self, id: StoreItemId) -> Option<Global<'_>> {
         self.get(id.package).get_global(id.item)
     }
 
@@ -520,7 +520,7 @@ impl PackageStore {
 
     /// Gets a package store iterator.
     #[must_use]
-    pub fn iter(&self) -> Iter<PackageId, Package> {
+    pub fn iter(&self) -> Iter<'_, PackageId, Package> {
         self.0.iter()
     }
 
@@ -547,7 +547,7 @@ pub trait PackageLookup {
     /// Gets an expression.
     fn get_expr(&self, id: ExprId) -> &Expr;
     /// Gets a global.
-    fn get_global(&self, id: LocalItemId) -> Option<Global>;
+    fn get_global(&self, id: LocalItemId) -> Option<Global<'_>>;
     /// Gets an item.
     fn get_item(&self, id: LocalItemId) -> &Item;
     /// Gets a pat.
@@ -639,7 +639,7 @@ impl PackageLookup for Package {
         self.exprs.get(id).expect("Expression not found")
     }
 
-    fn get_global(&self, id: LocalItemId) -> Option<Global> {
+    fn get_global(&self, id: LocalItemId) -> Option<Global<'_>> {
         match &self.items.get(id)?.kind {
             ItemKind::Callable(callable) => Some(Global::Callable(callable)),
             ItemKind::Namespace(..) => None,

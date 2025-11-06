@@ -180,14 +180,14 @@ fn to_operation(op: &mut Value) {
     let targets = map_register_field(op.get("targets"));
     let controls = map_register_field(op.get("controls"));
 
-    if let Some(children) = op.get_mut("children") {
-        if let Some(children_array) = children.as_array_mut() {
-            children_array.iter_mut().for_each(to_operation);
-            let component_column = serde_json::json!({
-                "components": children_array
-            });
-            op.insert("children".to_string(), Value::Array(vec![component_column]));
-        }
+    if let Some(children) = op.get_mut("children")
+        && let Some(children_array) = children.as_array_mut()
+    {
+        children_array.iter_mut().for_each(to_operation);
+        let component_column = serde_json::json!({
+            "components": children_array
+        });
+        op.insert("children".to_string(), Value::Array(vec![component_column]));
     }
 
     if let Some(display_args) = op.get("displayArgs") {

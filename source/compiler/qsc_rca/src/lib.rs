@@ -141,7 +141,7 @@ impl PackageStoreComputeProperties {
     }
 
     #[must_use]
-    pub fn iter(&self) -> Iter<PackageId, PackageComputeProperties> {
+    pub fn iter(&self) -> Iter<'_, PackageId, PackageComputeProperties> {
         self.0.iter()
     }
 

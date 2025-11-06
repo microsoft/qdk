@@ -253,7 +253,7 @@ impl PackageStore {
     }
 
     #[must_use]
-    pub fn iter(&self) -> Iter {
+    pub fn iter(&self) -> Iter<'_> {
         Iter(self.units.iter())
     }
 
