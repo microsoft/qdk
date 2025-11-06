@@ -1,6 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#![allow(
+    clippy::doc_markdown,
+    reason = "docstrings in this module conform to the python docstring format."
+)]
+
 pub(crate) mod data_interop;
 
 use crate::{
@@ -179,7 +184,7 @@ impl TargetProfile {
 
     /// Creates a target profile from a string.
     /// :param value: The string to parse.
-    /// :raises `ValueError`: If the string does not match any target profile.
+    /// :raises ValueError: If the string does not match any target profile.
     #[classmethod]
     #[allow(clippy::needless_pass_by_value)]
     fn from_str(_cls: &Bound<'_, PyType>, key: String) -> pyo3::PyResult<Self> {
@@ -215,7 +220,7 @@ impl From<TargetProfile> for Profile {
 #[derive(Clone, Copy, Default, PartialEq)]
 #[pyclass(eq, eq_int, module = "qsharp._native")]
 #[allow(non_camel_case_types)]
-/// Represents the output semantics for `OpenQASM` 3 compilation.
+/// Represents the output semantics for OpenQASM 3 compilation.
 /// Each has implications on the output of the compilation
 /// and the semantic checks that are performed.
 pub(crate) enum OutputSemantics {
@@ -455,11 +460,11 @@ impl Interpreter {
     /// Interprets Q# source code.
     ///
     /// :param input: The Q# source code to interpret.
-    /// :param `output_fn`: A callback function that will be called with each output.
+    /// :param output_fn: A callback function that will be called with each output.
     ///
     /// :returns value: The value returned by the last statement in the input.
     ///
-    /// :raises `QSharpError`: If there is an error interpreting the input.
+    /// :raises QSharpError: If there is an error interpreting the input.
     #[pyo3(signature=(input, callback=None))]
     fn interpret(
         &mut self,
@@ -502,28 +507,28 @@ impl Interpreter {
         }
     }
 
-    /// Imports `OpenQASM` source code into the active Q# interpreter.
+    /// Imports OpenQASM source code into the active Q# interpreter.
     ///
     /// Args:
-    ///     source (str): An `OpenQASM` program or fragment.
-    ///     `output_fn`: The function to handle the output of the execution.
-    ///     `read_file`: A callable that reads a file and returns its content and path.
-    ///     `list_directory`: A callable that lists the contents of a directory.
-    ///     `resolve_path`: A callable that resolves a file path given a base path and a relative path.
-    ///     `fetch_github`: A callable that fetches a file from GitHub.
+    ///     source (str): An OpenQASM program or fragment.
+    ///     output_fn: The function to handle the output of the execution.
+    ///     read_file: A callable that reads a file and returns its content and path.
+    ///     list_directory: A callable that lists the contents of a directory.
+    ///     resolve_path: A callable that resolves a file path given a base path and a relative path.
+    ///     fetch_github: A callable that fetches a file from GitHub.
     ///     **kwargs: Additional keyword arguments to pass to the execution.
     ///         - name (str): The name of the program. This is used as the entry point for the program.
-    ///         - `search_path` (Optional[str]): The optional search path for resolving file references.
-    ///         - `output_semantics` (`OutputSemantics`, optional): The output semantics for the compilation.
-    ///         - `program_type` (`ProgramType`, optional): The type of program compilation to perform.
+    ///         - search_path (Optional[str]): The optional search path for resolving file references.
+    ///         - output_semantics (OutputSemantics, optional): The output semantics for the compilation.
+    ///         - program_type (ProgramType, optional): The type of program compilation to perform.
     ///
     /// Returns:
     ///     value: The value returned by the last statement in the source code.
     ///
     /// Raises:
-    ///     `QasmError`: If there is an error generating, parsing, or analyzing the `OpenQASM` source.
-    ///     `QSharpError`: If there is an error compiling the program.
-    ///     `QSharpError`: If there is an error evaluating the source code.
+    ///     QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
+    ///     QSharpError: If there is an error compiling the program.
+    ///     QSharpError: If there is an error evaluating the source code.
     #[pyo3(signature=(input, output_fn, read_file, list_directory, resolve_path, fetch_github, **kwargs))]
     #[allow(clippy::needless_pass_by_value)]
     #[allow(clippy::too_many_arguments)]
@@ -621,7 +626,7 @@ impl Interpreter {
     }
 
     /// Dumps the quantum state of the interpreter.
-    /// Returns a tuple of (amplitudes, `num_qubits`), where amplitudes is a dictionary from integer indices to
+    /// Returns a tuple of (amplitudes, num_qubits), where amplitudes is a dictionary from integer indices to
     /// pairs of real and imaginary amplitudes.
     fn dump_machine(&mut self) -> StateDumpData {
         let (state, qubit_count) = self.interpreter.get_quantum_state();
@@ -747,7 +752,7 @@ impl Interpreter {
     /// Synthesizes a circuit for a Q# program. Either an entry
     /// expression or an operation must be provided.
     ///
-    /// :param `entry_expr`: An entry expression.
+    /// :param entry_expr: An entry expression.
     ///
     /// :param operation: The operation to synthesize. This can be a name of
     /// an operation of a lambda expression. The operation must take only
@@ -757,7 +762,7 @@ impl Interpreter {
     ///
     /// :param args: The arguments to pass to the callable.
     ///
-    /// :raises `QSharpError`: If there is an error synthesizing the circuit.
+    /// :raises QSharpError: If there is an error synthesizing the circuit.
     #[pyo3(signature=(entry_expr=None, operation=None, callable=None, args=None))]
     fn circuit(
         &mut self,

@@ -1,6 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#![allow(
+    clippy::doc_markdown,
+    reason = "docstrings in this module conform to the python docstring format."
+)]
+
 use std::fmt::Write;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -32,7 +37,7 @@ use crate::interpreter::{
 
 use resource_estimator as re;
 
-/// Runs the given `OpenQASM` program for the given number of shots.
+/// Runs the given OpenQASM program for the given number of shots.
 /// Each shot uses an independent instance of the simulator.
 ///
 /// Note:
@@ -41,18 +46,18 @@ use resource_estimator as re;
 ///     callbacks and other Python specific details.
 ///
 /// Args:
-///     source (str): The `OpenQASM` source code to execute.
-///     `output_fn` (Callable[[Output], None]): The function to handle the output of the execution.
+///     source (str): The OpenQASM source code to execute.
+///     output_fn (Callable[[Output], None]): The function to handle the output of the execution.
 ///     noise: The noise to use in simulation.
-///     `read_file` (Callable[[str], Tuple[str, str]]): The function to read a file and return its contents.
-///     `list_directory` (Callable[[str], List[Dict[str, str]]]): The function to list the contents of a directory.
-///     `resolve_path` (Callable[[str, str], str]): The function to resolve a path given a base path and a relative path.
-///     `fetch_github` (Callable[[str, str, str, str], str]): The function to fetch a file from GitHub.
+///     read_file (Callable[[str], Tuple[str, str]]): The function to read a file and return its contents.
+///     list_directory (Callable[[str], List[Dict[str, str]]]): The function to list the contents of a directory.
+///     resolve_path (Callable[[str, str], str]): The function to resolve a path given a base path and a relative path.
+///     fetch_github (Callable[[str, str, str, str], str]): The function to fetch a file from GitHub.
 ///     **kwargs: Additional keyword arguments to pass to the execution.
-///       - `target_profile` (TargetProfile): The target profile to use for execution.
+///       - target_profile (TargetProfile): The target profile to use for execution.
 ///       - name (str): The name of the circuit. This is used as the entry point for the program. Defaults to 'program'.
-///       - `search_path` (str): The optional search path for resolving imports.
-///       - `output_semantics` (`OutputSemantics`, optional): The output semantics for the compilation.
+///       - search_path (str): The optional search path for resolving imports.
+///       - output_semantics (OutputSemantics, optional): The output semantics for the compilation.
 ///       - shots (int): The number of shots to run the program for. Defaults to 1.
 ///       - seed (int): The seed to use for the random number generator.
 ///
@@ -60,8 +65,8 @@ use resource_estimator as re;
 ///     Any: The result of the execution.
 ///
 /// Raises:
-///     `QasmError`: If there is an error generating, parsing, or analyzing the `OpenQASM` source.
-///     `QSharpError`: If there is an error interpreting the input.
+///     QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
+///     QSharpError: If there is an error interpreting the input.
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
 #[pyo3(
@@ -167,7 +172,7 @@ pub(crate) fn run_ast(
     Ok(results)
 }
 
-/// Estimates the resource requirements for executing `OpenQASM` source code.
+/// Estimates the resource requirements for executing OpenQASM source code.
 ///
 /// Note:
 ///     This call while exported is not intended to be used directly by the user.
@@ -175,17 +180,17 @@ pub(crate) fn run_ast(
 ///     callbacks and other Python specific details.
 ///
 /// Args:
-///     source (str): The `OpenQASM` source code to estimate the resource requirements for.
-///     `job_params` (str): The parameters for the job.
-///     `read_file` (Callable[[str], Tuple[str, str]]): A callable that reads a file and returns its content and path.
-///     `list_directory` (Callable[[str], List[Dict[str, str]]]): A callable that lists the contents of a directory.
-///     `resolve_path` (Callable[[str, str], str]): A callable that resolves a file path given a base path and a relative path.
-///     `fetch_github` (Callable[[str, str, str, str], str]): A callable that fetches a file from GitHub.
+///     source (str): The OpenQASM source code to estimate the resource requirements for.
+///     job_params (str): The parameters for the job.
+///     read_file (Callable[[str], Tuple[str, str]]): A callable that reads a file and returns its content and path.
+///     list_directory (Callable[[str], List[Dict[str, str]]]): A callable that lists the contents of a directory.
+///     resolve_path (Callable[[str, str], str]): A callable that resolves a file path given a base path and a relative path.
+///     fetch_github (Callable[[str, str, str, str], str]): A callable that fetches a file from GitHub.
 ///     **kwargs: Additional keyword arguments to pass to the execution.
 ///       - name (str): The name of the circuit. This is used as the entry point for the program. Defaults to 'program'.
-///       - `search_path` (str): The optional search path for resolving imports.
+///       - search_path (str): The optional search path for resolving imports.
 /// Returns:
-///     str: The estimated resource requirements for executing the `OpenQASM` source code.
+///     str: The estimated resource requirements for executing the OpenQASM source code.
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
 #[pyo3(
@@ -249,7 +254,7 @@ pub(crate) fn resource_estimate_qasm_program(
     }
 }
 
-/// Compiles the `OpenQASM` source code into a program that can be submitted to a
+/// Compiles the OpenQASM source code into a program that can be submitted to a
 /// target as QIR (Quantum Intermediate Representation).
 ///
 /// Note:
@@ -258,23 +263,23 @@ pub(crate) fn resource_estimate_qasm_program(
 ///     callbacks and other Python specific details.
 ///
 /// Args:
-///     source (str): The `OpenQASM` source code to estimate the resource requirements for.
-///     `read_file` (Callable[[str], Tuple[str, str]]): A callable that reads a file and returns its content and path.
-///     `list_directory` (Callable[[str], List[Dict[str, str]]]): A callable that lists the contents of a directory.
-///     `resolve_path` (Callable[[str, str], str]): A callable that resolves a file path given a base path and a relative path.
-///     `fetch_github` (Callable[[str, str, str, str], str]): A callable that fetches a file from GitHub.
+///     source (str): The OpenQASM source code to estimate the resource requirements for.
+///     read_file (Callable[[str], Tuple[str, str]]): A callable that reads a file and returns its content and path.
+///     list_directory (Callable[[str], List[Dict[str, str]]]): A callable that lists the contents of a directory.
+///     resolve_path (Callable[[str, str], str]): A callable that resolves a file path given a base path and a relative path.
+///     fetch_github (Callable[[str, str, str, str], str]): A callable that fetches a file from GitHub.
 ///     **kwargs: Additional keyword arguments to pass to the compilation when source program is provided.
 ///       - name (str): The name of the circuit. This is used as the entry point for the program.
-///       - `target_profile` (TargetProfile): The target profile to use for code generation.
-///       - `search_path` (Optional[str]): The optional search path for resolving file references.
-///       - `output_semantics` (`OutputSemantics`, optional): The output semantics for the compilation.
+///       - target_profile (TargetProfile): The target profile to use for code generation.
+///       - search_path (Optional[str]): The optional search path for resolving file references.
+///       - output_semantics (OutputSemantics, optional): The output semantics for the compilation.
 ///
 /// Returns:
 ///     str: The converted QIR code as a string.
 ///
 /// Raises:
-///     `QasmError`: If there is an error generating, parsing, or analyzing the `OpenQASM` source.
-///     `QSharpError`: If there is an error compiling the program.
+///     QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
+///     QSharpError: If there is an error compiling the program.
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
 #[pyo3(
