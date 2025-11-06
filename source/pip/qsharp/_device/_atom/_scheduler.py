@@ -13,13 +13,15 @@ from pyqir import (
     qubit_type,
     qubit_id,
     IntType,
+    Value,
 )
 from .._device import Device
 from itertools import combinations, islice
 from typing import Iterable, TypeAlias
 from fractions import Fraction
+from functools import lru_cache
 
-QubitId: TypeAlias = int
+QubitId: TypeAlias = Value
 Location: TypeAlias = tuple[int, int]
 Move: TypeAlias = tuple[QubitId, Location, Location]
 
@@ -36,9 +38,9 @@ def move_direction(source: Location, destination: Location) -> tuple[int, int]:
 
 def is_invalid_move_pair(move1: Move, move2: Move) -> bool:
     """
-    Returns true if the two moves are incompatible, i.e., if the have the same source row then they
-    must have the same destination row, and if they have the same source column then they must have the same
-    destination column.
+    Returns true if the two moves are incompatible, i.e., if they have the same
+    source row then they must have the same destination row, and if they have the
+    same source column then they must have the same destination column.
     """
 
     source_row_diff = move1[1][0] - move2[1][0]
@@ -54,6 +56,11 @@ def is_invalid_move_pair(move1: Move, move2: Move) -> bool:
     )
 
 
+@lru_cache(maxsize=1 << 14)
+def move_scale_helper(source_diff, destination_diff):
+    return True if destination_diff == 0 else Fraction(source_diff, destination_diff)
+
+
 def move_scale(move1: Move, move2: Move) -> tuple[bool | Fraction, bool | Fraction]:
     """
     Returns a tuple of two elements, representing the row displacement ratio and column
@@ -61,19 +68,11 @@ def move_scale(move1: Move, move2: Move) -> tuple[bool | Fraction, bool | Fracti
     """
     source_row_diff = move1[1][0] - move2[1][0]
     destination_row_diff = move1[2][0] - move2[2][0]
-    row_displacement_ratio = (
-        True
-        if destination_row_diff == 0
-        else Fraction(source_row_diff, destination_row_diff)
-    )
     source_col_diff = move1[1][1] - move2[1][1]
     destination_col_diff = move1[2][1] - move2[2][1]
-    col_displacement_ratio = (
-        True
-        if destination_col_diff == 0
-        else Fraction(source_col_diff, destination_col_diff)
+    return move_scale_helper(source_row_diff, destination_row_diff), move_scale_helper(
+        source_col_diff, destination_col_diff
     )
-    return (row_displacement_ratio, col_displacement_ratio)
 
 
 class ParallelCandidate:
@@ -87,9 +86,7 @@ class ParallelCandidate:
 
     def __init__(self, moves: Iterable[Move]):
         self.moves = set(moves)
-        self.move_scale = None
-        if len(self.moves) > 1:
-            self.move_scale = move_scale(*moves)
+        self.move_scale = move_scale(*moves) if len(self.moves) > 1 else None
         self.ref_move = next(iter(moves))
 
     def __len__(self) -> int:
@@ -105,59 +102,57 @@ class ParallelMoves:
     """
 
     def __init__(self, moves: list[Move]):
-        remaining_moves = set(moves)
-
         # Edge case in which there is a single move.
         if len(moves) == 1:
             self.parallel_candidates = [ParallelCandidate(moves)]
             return
-        pairs = combinations(moves, 2)
-        self.parallel_candidates: list[ParallelCandidate] = []
         candidates = {}
-        for pair in pairs:
+        for pair in combinations(moves, 2):
             if is_invalid_move_pair(pair[0], pair[1]):
                 continue
-            s = move_scale(*pair)
-
+            s = move_scale(pair[0], pair[1])
             scaled_pairs = candidates.get(s, [])
             for pc in scaled_pairs:
-                if pair[0] == pc.ref_move or s == move_scale(pair[0], pc.ref_move):
+                if pair[0] in pc.moves:
+                    pc.moves.add(pair[1])
+                    break
+                elif pair[1] in pc.moves:
+                    pc.moves.add(pair[0])
+                    break
+                elif s == move_scale(pair[0], pc.ref_move):
                     pc.moves.add(pair[0])
                     pc.moves.add(pair[1])
                     break
             else:
                 scaled_pairs.append(ParallelCandidate(pair))
-            remaining_moves.discard(pair[0])
-            remaining_moves.discard(pair[1])
-            candidates[s] = scaled_pairs
+                candidates[s] = scaled_pairs
 
-        self.parallel_candidates = sum(candidates.values(), [])
+        self.parallel_candidates: list[ParallelCandidate] = sum(candidates.values(), [])
+
+        remaining_moves = set(moves)
+        for pc in self.parallel_candidates:
+            remaining_moves -= pc.moves
 
         for move in remaining_moves:
             for pc in self.parallel_candidates:
-                if move == pc.ref_move or pc.move_scale == move_scale(
-                    move, pc.ref_move
-                ):
+                if pc.move_scale == move_scale(move, pc.ref_move):
                     pc.moves.add(move)
                     break
             else:
                 self.parallel_candidates.append(ParallelCandidate([move]))
 
-        self.parallel_candidates.sort(key=len, reverse=True)
-
     def is_empty(self) -> bool:
-        return not (self.parallel_candidates and bool(self.parallel_candidates[0]))
+        return not any(s.moves for s in self.parallel_candidates)
 
     def try_take(self, number_of_moves: int) -> list[Move]:
         # Take `number_of_moves` from the largest parallel candidate.
-        largest_parallel_candidate = self.parallel_candidates[0]
+        largest_parallel_candidate = max(self.parallel_candidates, key=len)
         moves = list(islice(largest_parallel_candidate.moves, number_of_moves))
         moves_set = set(moves)
         # Remove the taken moves from all parallel candidates.
         for parallel_candidate in self.parallel_candidates:
             parallel_candidate.moves -= moves_set
         # Sort parallel candidates by number of elements in descending order.
-        self.parallel_candidates.sort(key=len, reverse=True)
         return moves
 
 
@@ -174,7 +169,7 @@ class Schedule(QirModuleVisitor):
         super().__init__()
         self.device = device
         self.num_qubits = len(self.device.home_locs)
-        self.pending_moves_back = []
+        self.pending_moves_back: list[list[Move]] = []
 
     def _on_module(self, module):
         i64_ty = IntType(module.context, 64)
