@@ -39,7 +39,7 @@ impl<Factory1: Factory, Factory2: Factory<Parameter = Factory1::Parameter>> Fact
         }
     }
 
-    fn max_code_parameter(&self) -> Option<Cow<Self::Parameter>> {
+    fn max_code_parameter(&self) -> Option<Cow<'_, Self::Parameter>> {
         match self {
             Self::Factory1(f) => f.max_code_parameter(),
             Self::Factory2(f) => f.max_code_parameter(),
@@ -76,7 +76,7 @@ impl<E: ErrorCorrection, Builder1: FactoryBuilder<E>, Builder2: FactoryBuilder<E
         magic_state_type: usize,
         output_error_rate: f64,
         max_code_parameter: &E::Parameter,
-    ) -> Result<Vec<Cow<Self::Factory>>, String> {
+    ) -> Result<Vec<Cow<'_, Self::Factory>>, String> {
         match magic_state_type {
             0 => self
                 .builder1

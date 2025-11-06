@@ -412,19 +412,19 @@ impl DurationAccumulator {
 
 impl Visitor for DurationAccumulator {
     fn visit_box_stmt(&mut self, stmt: &BoxStmt) {
-        if let Some(duration) = &stmt.duration {
-            if let Some(duration) = duration.get_const_duration() {
-                self.durations.push(duration);
-            }
+        if let Some(duration) = &stmt.duration
+            && let Some(duration) = duration.get_const_duration()
+        {
+            self.durations.push(duration);
         }
         super::visit::walk_box_stmt(self, stmt);
     }
 
     fn visit_gate_call_stmt(&mut self, stmt: &GateCall) {
-        if let Some(duration) = &stmt.duration {
-            if let Some(duration) = duration.get_const_duration() {
-                self.durations.push(duration);
-            }
+        if let Some(duration) = &stmt.duration
+            && let Some(duration) = duration.get_const_duration()
+        {
+            self.durations.push(duration);
         }
         super::visit::walk_gate_call_stmt(self, stmt);
     }

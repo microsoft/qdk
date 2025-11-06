@@ -492,13 +492,13 @@ impl ApplicationInstance {
 
             // If a dynamic application is provided, set the compute kind associated to the parameter accordingly.
             let mut compute_kind = ComputeKind::Classical;
-            if let Some((dynamic_param_index, dynamic_param_value_kind)) = dynamic_param {
-                if input_param_index == dynamic_param_index {
-                    compute_kind = ComputeKind::Quantum(QuantumProperties {
-                        runtime_features: RuntimeFeatureFlags::empty(),
-                        value_kind: dynamic_param_value_kind,
-                    });
-                }
+            if let Some((dynamic_param_index, dynamic_param_value_kind)) = dynamic_param
+                && input_param_index == dynamic_param_index
+            {
+                compute_kind = ComputeKind::Quantum(QuantumProperties {
+                    runtime_features: RuntimeFeatureFlags::empty(),
+                    value_kind: dynamic_param_value_kind,
+                });
             }
 
             locals_map.insert(

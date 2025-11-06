@@ -440,13 +440,13 @@ fn parse_include(s: &mut ParserContext) -> Result<StmtKind> {
     let lit = expr::lit(s)?;
     recovering_semi(s);
 
-    if let Some(lit) = lit {
-        if let LiteralKind::String(filename) = lit.kind {
-            return Ok(StmtKind::Include(IncludeStmt {
-                span: s.span(lo),
-                filename,
-            }));
-        }
+    if let Some(lit) = lit
+        && let LiteralKind::String(filename) = lit.kind
+    {
+        return Ok(StmtKind::Include(IncludeStmt {
+            span: s.span(lo),
+            filename,
+        }));
     }
     Err(Error::new(ErrorKind::Rule(
         "string literal",
@@ -1690,23 +1690,23 @@ fn reinterpret_index_expr(
         collection, index, ..
     } = index_expr;
 
-    if let Index::IndexList(set) = index {
-        if set.values.len() == 1 {
-            let first_elt: IndexListItem = (*set.values[0]).clone();
-            if let IndexListItem::Expr(expr) = first_elt {
-                if duration.is_none() {
-                    match *collection.kind {
-                        ExprKind::Ident(name) => {
-                            *duration = Some(expr);
-                            return Ok((name, Default::default()));
-                        }
-                        ExprKind::FunctionCall(FunctionCall { name, args, .. }) => {
-                            *duration = Some(expr);
-                            return Ok((name, args));
-                        }
-                        _ => (),
-                    }
+    if let Index::IndexList(set) = index
+        && set.values.len() == 1
+    {
+        let first_elt: IndexListItem = (*set.values[0]).clone();
+        if let IndexListItem::Expr(expr) = first_elt
+            && duration.is_none()
+        {
+            match *collection.kind {
+                ExprKind::Ident(name) => {
+                    *duration = Some(expr);
+                    return Ok((name, Default::default()));
                 }
+                ExprKind::FunctionCall(FunctionCall { name, args, .. }) => {
+                    *duration = Some(expr);
+                    return Ok((name, args));
+                }
+                _ => (),
             }
         }
     }
@@ -1819,13 +1819,13 @@ fn parse_calibration_grammar_stmt(s: &mut ParserContext) -> Result<CalibrationGr
     let lit = expr::lit(s)?;
 
     recovering_semi(s);
-    if let Some(lit) = lit {
-        if let LiteralKind::String(name) = lit.kind {
-            return Ok(CalibrationGrammarStmt {
-                span: s.span(lo),
-                name,
-            });
-        }
+    if let Some(lit) = lit
+        && let LiteralKind::String(name) = lit.kind
+    {
+        return Ok(CalibrationGrammarStmt {
+            span: s.span(lo),
+            name,
+        });
     }
 
     Err(Error::new(ErrorKind::Rule(

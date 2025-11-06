@@ -395,29 +395,26 @@ fn push_update(pending_updates: &mut Vec<Update>, update: Update) {
     // Dedup consecutive updates to the same document.
     match &update {
         Update::Document { uri, .. } => {
-            if let Some(last) = pending_updates.last_mut() {
-                if let Update::Document { uri: last_uri, .. } = last {
-                    if last_uri == uri {
-                        // overwrite the last element
-                        *last = update;
-                        return;
-                    }
-                }
+            if let Some(last) = pending_updates.last_mut()
+                && let Update::Document { uri: last_uri, .. } = last
+                && last_uri == uri
+            {
+                // overwrite the last element
+                *last = update;
+                return;
             }
         }
         Update::NotebookDocument { notebook_uri, .. } => {
-            if let Some(last) = pending_updates.last_mut() {
-                if let Update::NotebookDocument {
+            if let Some(last) = pending_updates.last_mut()
+                && let Update::NotebookDocument {
                     notebook_uri: last_uri,
                     ..
                 } = last
-                {
-                    if last_uri == notebook_uri {
-                        // overwrite the last element
-                        *last = update;
-                        return;
-                    }
-                }
+                && last_uri == notebook_uri
+            {
+                // overwrite the last element
+                *last = update;
+                return;
             }
         }
         Update::Configuration { .. }

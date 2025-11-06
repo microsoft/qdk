@@ -117,10 +117,10 @@ pub trait PackageSearch {
 impl PackageSearch for Package {
     fn find_callable_id_by_name(&self, name: &str) -> Option<LocalItemId> {
         for (item_id, item) in &self.items {
-            if let ItemKind::Callable(callable_decl) = &item.kind {
-                if callable_decl.name.name.as_ref() == name {
-                    return Some(item_id);
-                }
+            if let ItemKind::Callable(callable_decl) = &item.kind
+                && callable_decl.name.name.as_ref() == name
+            {
+                return Some(item_id);
             }
         }
 

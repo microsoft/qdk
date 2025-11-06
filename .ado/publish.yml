@@ -19,7 +19,7 @@ schedules:
 
 variables:
   CARGO_TERM_COLOR: always
-  RUST_TOOLCHAIN_VERSION: "1.88"
+  RUST_TOOLCHAIN_VERSION: "1.90"
 
 resources:
   repositories:
@@ -103,7 +103,7 @@ extends:
           # common init steps
           - task: RustInstaller@1
             inputs:
-              rustVersion: ms-$(RUST_TOOLCHAIN_VERSION)
+              rustVersion: ms-prod-$(RUST_TOOLCHAIN_VERSION)
               additionalTargets: wasm32-unknown-unknown
               cratesIoFeedOverride: $(cratesIoFeedOverride)
               toolchainFeed: $(toolchainFeed)
@@ -150,7 +150,7 @@ extends:
         # common init steps
         - task: RustInstaller@1
           inputs:
-            rustVersion: ms-$(RUST_TOOLCHAIN_VERSION)
+            rustVersion: ms-prod-$(RUST_TOOLCHAIN_VERSION)
             additionalTargets: wasm32-unknown-unknown
             cratesIoFeedOverride: $(cratesIoFeedOverride)
             toolchainFeed: $(toolchainFeed)
@@ -212,7 +212,7 @@ extends:
         # common init steps
         - task: RustInstaller@1
           inputs:
-            rustVersion: ms-$(RUST_TOOLCHAIN_VERSION)
+            rustVersion: ms-prod-$(RUST_TOOLCHAIN_VERSION)
             cratesIoFeedOverride: $(cratesIoFeedOverride)
             toolchainFeed: $(toolchainFeed)
           displayName: Install Rust toolchain
@@ -273,7 +273,7 @@ extends:
           # if we have additional rust targets, we need to install them
           - task: RustInstaller@1
             inputs:
-              rustVersion: ms-$(RUST_TOOLCHAIN_VERSION)
+              rustVersion: ms-prod-$(RUST_TOOLCHAIN_VERSION)
               additionalTargets: $(additionalRustTargets)
               cratesIoFeedOverride: $(cratesIoFeedOverride)
               toolchainFeed: $(toolchainFeed)
@@ -283,7 +283,7 @@ extends:
           # otherwise just install the default toolchain
           - task: RustInstaller@1
             inputs:
-              rustVersion: ms-$(RUST_TOOLCHAIN_VERSION)
+              rustVersion: ms-prod-$(RUST_TOOLCHAIN_VERSION)
               cratesIoFeedOverride: $(cratesIoFeedOverride)
               toolchainFeed: $(toolchainFeed)
             displayName: Install Rust toolchain

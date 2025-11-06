@@ -32,7 +32,7 @@ impl<'py> FactoryBuilder<PythonQEC<'py>> for PythonFactoryBuilderDispatch<'py> {
         magic_state_type: usize,
         output_error_rate: f64,
         max_code_parameter: &SerializableBound<'py>,
-    ) -> Result<Vec<Cow<Self::Factory>>, String> {
+    ) -> Result<Vec<Cow<'_, Self::Factory>>, String> {
         self[magic_state_type].find_factories(
             ftp,
             qubit,
