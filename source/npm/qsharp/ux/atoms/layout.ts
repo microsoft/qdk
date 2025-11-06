@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { appendChildren, createSvgElements, setAttributes } from "./utils";
+import { appendChildren, createSvgElements, setAttributes } from "./utils.js";
 
 // Zones will be rendered from top to bottom in array order
 type ZoneData = {

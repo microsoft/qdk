@@ -5,10 +5,10 @@ import {
   createPlayerControls,
   createScrubberControls,
   createZoomControls,
-} from "./controls";
+} from "./controls.js";
 import "./index.css";
-import { Layout, type ZoneLayout, type TraceData } from "./layout";
-import { addChildWithClass } from "./utils";
+import { Layout, type ZoneLayout, type TraceData } from "./layout.js";
+import { addChildWithClass } from "./utils.js";
 
 export type { TraceData, ZoneLayout };
 
