@@ -96,7 +96,7 @@ pub struct IdleNoiseParams {
 impl IdleNoiseParams {
     pub const NOISELESS: Self = Self { s_probability: 0.0 };
 
-    fn s_probability(&self, steps: u32) -> f32 {
+    fn s_probability(self, steps: u32) -> f32 {
         (self.s_probability + 1.0).powi(i32::try_from(steps).expect("steps should fit in 31 bits"))
             - 1.0
     }

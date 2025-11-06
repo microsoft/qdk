@@ -5,7 +5,7 @@ use super::QubitID;
 
 /// An extension of the Clifford gates, also including a `Move` operation.
 /// A gate C is Clifford if it conjugates all elements of the Pauli group into
-/// elements of the pauli group. That is, ∀ p ∈ PauliGroup, C†pC ∈ PauliGroup.
+/// elements of the pauli group. That is, `∀ p ∈ PauliGroup, C†pC ∈ PauliGroup`.
 #[derive(Debug)]
 pub enum Operation {
     I { target: QubitID },
