@@ -144,14 +144,11 @@ struct Op {
     q1: u32,
     q2: u32,
     q3: u32,
-    rzr: f32,
-    rzi: f32,
     // Entries in the unitary are: 00, 01, 02, 03, 10, 11, 12, 13, 20, ..., 32, 33
     // 1q matrix elements are stored in: 00, 01, 10, 11 (i.e., indices 0, 1, 4, and 5)
     unitary: array<vec2f, 16>,
-    angle: f32,
-    padding: array<u32, 25>,
-} // size: 6 * 4 + 16 * 8 + 4 + 25 * 4 = 256 bytes
+    padding: array<u32, 28>,
+} // size: 4 * 4 + 16 * 8 + 4 + 28 * 4 = 256 bytes
 
 @group(0) @binding(2)
 var<storage, read> ops: array<Op>;

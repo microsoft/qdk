@@ -22,7 +22,7 @@ pub fn run_parallel_shots(
     shots: u32,
 ) -> Result<Vec<u32>, String> {
     futures::executor::block_on(async {
-        let mut controller = gpu_controller::GpuContext::new(qubits, results, ops, shots, true)
+        let mut controller = gpu_controller::GpuContext::new(qubits, results, ops, shots, false)
             .await
             .map_err(|e| e.to_string())?;
         controller.create_resources();
