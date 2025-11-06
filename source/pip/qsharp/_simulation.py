@@ -17,7 +17,7 @@ from pyqir import (
     qubit_type,
     Linkage,
 )
-from ._qsharp import Result
+from ._qsharp import QirInputData, Result
 
 
 class AggregateGatesPass(pyqir.QirModuleVisitor):
@@ -378,12 +378,14 @@ class DecomposeCcxPass(pyqir.QirModuleVisitor):
 
 
 def run_qir(
-    input: Union[str, bytes],
+    input: Union[QirInputData, str, bytes],
     shots: Optional[int] = 1,
     noise: Optional[NoiseConfig] = None,
 ) -> List:
     context = pyqir.Context()
-    if isinstance(input, str):
+    if isinstance(input, QirInputData):
+        mod = pyqir.Module.from_ir(context, str(input))
+    elif isinstance(input, str):
         mod = pyqir.Module.from_ir(context, input)
     else:
         mod = pyqir.Module.from_bitcode(context, input)
@@ -413,14 +415,16 @@ clifford_simulation = run_qir  # alias
 
 
 def run_qir_gpu(
-    input: Union[str, bytes],
+    input: Union[QirInputData, str, bytes],
     shots: Optional[int] = 1,
     noise: Optional[Union[Tuple[float, float, float], NoiseConfig]] = None,
     loss: Optional[float] = None,
     seed: Optional[int] = None,
 ) -> List[str]:
     context = pyqir.Context()
-    if isinstance(input, str):
+    if isinstance(input, QirInputData):
+        mod = pyqir.Module.from_ir(context, str(input))
+    elif isinstance(input, str):
         mod = pyqir.Module.from_ir(context, input)
     else:
         mod = pyqir.Module.from_bitcode(context, input)
