@@ -34,6 +34,26 @@ def move_direction(source: Location, destination: Location) -> tuple[int, int]:
     return (int(source[0] < destination[0]), int(source[1] < destination[1]))
 
 
+def is_invalid_move_pair(move1: Move, move2: Move) -> bool:
+    """
+    Returns true if the two moves are incompatible, i.e., if the have the same source row then they
+    must have the same destination row, and if they have the same source column then they must have the same
+    destination column.
+    """
+
+    source_row_diff = move1[1][0] - move2[1][0]
+    destination_row_diff = move1[2][0] - move2[2][0]
+    source_col_diff = move1[1][1] - move2[1][1]
+    destination_col_diff = move1[2][1] - move2[2][1]
+
+    return (
+        (source_row_diff == 0 and destination_row_diff != 0)
+        or (source_row_diff != 0 and destination_row_diff == 0)
+        or (source_col_diff == 0 and destination_col_diff != 0)
+        or (source_col_diff != 0 and destination_col_diff == 0)
+    )
+
+
 def move_scale(move1: Move, move2: Move) -> tuple[bool | Fraction, bool | Fraction]:
     """
     Returns a tuple of two elements, representing the row displacement ratio and column
@@ -76,7 +96,7 @@ class ParallelCandidate:
         return len(self.moves)
 
 
-class ParallalelMoves:
+class ParallelMoves:
     """
     A data structure that organizes moves into parallelizable sets.
     It provides an `is_empty()` method to check if there are any moves
@@ -85,24 +105,44 @@ class ParallalelMoves:
     """
 
     def __init__(self, moves: list[Move]):
+        remaining_moves = set(moves)
+
         # Edge case in which there is a single move.
         if len(moves) == 1:
             self.parallel_candidates = [ParallelCandidate(moves)]
             return
         pairs = combinations(moves, 2)
         self.parallel_candidates: list[ParallelCandidate] = []
+        candidates = {}
         for pair in pairs:
+            if is_invalid_move_pair(pair[0], pair[1]):
+                continue
             s = move_scale(*pair)
-            for pc in self.parallel_candidates:
-                if s == pc.move_scale and (
-                    pair[0] == pc.ref_move or s == move_scale(pair[0], pc.ref_move)
-                ):
+
+            scaled_pairs = candidates.get(s, [])
+            for pc in scaled_pairs:
+                if pair[0] == pc.ref_move or s == move_scale(pair[0], pc.ref_move):
                     pc.moves.add(pair[0])
                     pc.moves.add(pair[1])
                     break
-            # This block of code executes if the loop finishes normally (doesn't break)
             else:
-                self.parallel_candidates.append(ParallelCandidate(pair))
+                scaled_pairs.append(ParallelCandidate(pair))
+            remaining_moves.discard(pair[0])
+            remaining_moves.discard(pair[1])
+            candidates[s] = scaled_pairs
+
+        self.parallel_candidates = sum(candidates.values(), [])
+
+        for move in remaining_moves:
+            for pc in self.parallel_candidates:
+                if move == pc.ref_move or pc.move_scale == move_scale(
+                    move, pc.ref_move
+                ):
+                    pc.moves.add(move)
+                    break
+            else:
+                self.parallel_candidates.append(ParallelCandidate([move]))
+
         self.parallel_candidates.sort(key=len, reverse=True)
 
     def is_empty(self) -> bool:
@@ -427,7 +467,7 @@ class Schedule(QirModuleVisitor):
         return moves_by_parity_and_direction
 
     def parallelize_moves(self, moves: list[Move]) -> list[list[Move]]:
-        parallel_moves_builder = ParallalelMoves(moves)
+        parallel_moves_builder = ParallelMoves(moves)
         parallel_moves = []
         while not parallel_moves_builder.is_empty():
             next_parallel_set = parallel_moves_builder.try_take(36)
