@@ -85,11 +85,11 @@ class Reorder(QirModuleVisitor):
                         break
                     last_dependent_step_idx -= 1
 
-                if is_irreversible(instr):
-                    while last_dependent_step_idx < len(
-                        steps
-                    ) - 1 and not is_irreversible(
-                        steps[last_dependent_step_idx + 1][0]
+                if isinstance(instr, Call):
+                    while (
+                        last_dependent_step_idx < len(steps) - 1
+                        and isinstance(steps[last_dependent_step_idx + 1][0], Call)
+                        and instr.callee != steps[last_dependent_step_idx + 1][0].callee
                     ):
                         last_dependent_step_idx += 1
 
