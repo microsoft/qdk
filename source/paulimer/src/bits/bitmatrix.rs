@@ -162,7 +162,7 @@ impl<const WORD_COUNT: usize> BitMatrix<WORD_COUNT> {
 
     fn rowstride_of(columncount: usize) -> usize {
         let rowstride = columncount / BitBlock::<WORD_COUNT>::BITS;
-        let adjustment = (columncount % BitBlock::<WORD_COUNT>::BITS) != 0;
+        let adjustment = !columncount.is_multiple_of(BitBlock::<WORD_COUNT>::BITS);
         rowstride + usize::from(adjustment)
     }
 
@@ -202,7 +202,7 @@ impl<const WORD_COUNT: usize> BitMatrix<WORD_COUNT> {
     }
 
     #[must_use]
-    pub fn row(&self, index: usize) -> Row<WORD_COUNT> {
+    pub fn row(&self, index: usize) -> Row<'_, WORD_COUNT> {
         Row::<WORD_COUNT> {
             blocks: unsafe {
                 std::slice::from_raw_parts((*self.rows[index]).array(), self.block_count())
@@ -211,38 +211,41 @@ impl<const WORD_COUNT: usize> BitMatrix<WORD_COUNT> {
     }
 
     #[must_use]
-    pub fn rows(&self) -> impl ExactSizeIterator<Item = Row<WORD_COUNT>> {
+    pub fn rows(&self) -> impl ExactSizeIterator<Item = Row<'_, WORD_COUNT>> {
         self.row_iterator(0..self.rowcount())
     }
 
     pub fn row_iterator(
         &self,
         index_iterator: impl ExactSizeIterator<Item = usize>,
-    ) -> impl ExactSizeIterator<Item = Row<WORD_COUNT>> {
+    ) -> impl ExactSizeIterator<Item = Row<'_, WORD_COUNT>> {
         index_iterator.map(|index| self.row(index))
     }
 
     pub fn row_iterator_mut(
         &mut self,
         index_iterator: impl ExactSizeIterator<Item = usize>,
-    ) -> impl ExactSizeIterator<Item = MutableRow<WORD_COUNT>> {
+    ) -> impl ExactSizeIterator<Item = MutableRow<'_, WORD_COUNT>> {
         index_iterator.map(|index| self.build_mutable_row(index))
     }
 
-    pub fn row_mut(&mut self, index: usize) -> MutableRow<WORD_COUNT> {
+    pub fn row_mut(&mut self, index: usize) -> MutableRow<'_, WORD_COUNT> {
         self.build_mutable_row(index)
     }
 
     #[inline]
     fn block_count(&self) -> usize {
         let mut block_count = self.columncount() / BitBlock::<WORD_COUNT_DEFAULT>::BITS;
-        if self.columncount() % BitBlock::<WORD_COUNT_DEFAULT>::BITS != 0 {
+        if !self
+            .columncount()
+            .is_multiple_of(BitBlock::<WORD_COUNT_DEFAULT>::BITS)
+        {
             block_count += 1;
         }
         block_count
     }
 
-    fn build_mutable_row(&self, index: usize) -> MutableRow<WORD_COUNT> {
+    fn build_mutable_row(&self, index: usize) -> MutableRow<'_, WORD_COUNT> {
         let ptr = self.rows[index];
         MutableRow::<WORD_COUNT> {
             blocks: unsafe {
@@ -255,7 +258,7 @@ impl<const WORD_COUNT: usize> BitMatrix<WORD_COUNT> {
         &mut self,
         index: usize,
         index2: usize,
-    ) -> (MutableRow<WORD_COUNT>, MutableRow<WORD_COUNT>) {
+    ) -> (MutableRow<'_, WORD_COUNT>, MutableRow<'_, WORD_COUNT>) {
         (
             self.build_mutable_row(index),
             self.build_mutable_row(index2),
@@ -265,7 +268,7 @@ impl<const WORD_COUNT: usize> BitMatrix<WORD_COUNT> {
     pub fn rows2_mut(
         &mut self,
         index: (usize, usize),
-    ) -> (MutableRow<WORD_COUNT>, MutableRow<WORD_COUNT>) {
+    ) -> (MutableRow<'_, WORD_COUNT>, MutableRow<'_, WORD_COUNT>) {
         (
             self.build_mutable_row(index.0),
             self.build_mutable_row(index.1),
@@ -273,7 +276,7 @@ impl<const WORD_COUNT: usize> BitMatrix<WORD_COUNT> {
     }
 
     #[must_use]
-    pub fn rows2(&self, index: (usize, usize)) -> (Row<WORD_COUNT>, Row<WORD_COUNT>) {
+    pub fn rows2(&self, index: (usize, usize)) -> (Row<'_, WORD_COUNT>, Row<'_, WORD_COUNT>) {
         (self.row(index.0), self.row(index.1))
     }
 
@@ -283,10 +286,10 @@ impl<const WORD_COUNT: usize> BitMatrix<WORD_COUNT> {
         &mut self,
         index: (usize, usize, usize, usize),
     ) -> (
-        MutableRow<WORD_COUNT>,
-        MutableRow<WORD_COUNT>,
-        MutableRow<WORD_COUNT>,
-        MutableRow<WORD_COUNT>,
+        MutableRow<'_, WORD_COUNT>,
+        MutableRow<'_, WORD_COUNT>,
+        MutableRow<'_, WORD_COUNT>,
+        MutableRow<'_, WORD_COUNT>,
     ) {
         (
             self.build_mutable_row(index.0),
@@ -302,7 +305,7 @@ impl<const WORD_COUNT: usize> BitMatrix<WORD_COUNT> {
     pub unsafe fn rows8_mut(
         &mut self,
         index: crate::Tuple8<usize>,
-    ) -> crate::Tuple8<MutableRow<WORD_COUNT>> {
+    ) -> crate::Tuple8<MutableRow<'_, WORD_COUNT>> {
         (
             self.build_mutable_row(index.0),
             self.build_mutable_row(index.1),
@@ -316,7 +319,7 @@ impl<const WORD_COUNT: usize> BitMatrix<WORD_COUNT> {
     }
 
     #[must_use]
-    pub fn column(&self, index: usize) -> Column<WORD_COUNT> {
+    pub fn column(&self, index: usize) -> Column<'_, WORD_COUNT> {
         let block_index = index / BitBlock::<WORD_COUNT_DEFAULT>::BITS;
         let bit_index = index % BitBlock::<WORD_COUNT_DEFAULT>::BITS;
         Column::<WORD_COUNT> {
@@ -327,7 +330,7 @@ impl<const WORD_COUNT: usize> BitMatrix<WORD_COUNT> {
     }
 
     #[must_use]
-    pub fn columns(&self) -> impl ExactSizeIterator<Item = Column<WORD_COUNT>> {
+    pub fn columns(&self) -> impl ExactSizeIterator<Item = Column<'_, WORD_COUNT>> {
         let indexes = 0..self.columncount();
         indexes.map(|index| self.column(index))
     }

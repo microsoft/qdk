@@ -142,7 +142,7 @@ fn projective_image_at<const WORD_COUNT: usize>(
     qubit_index: usize,
     x_bits_start: usize,
     z_bits_start: usize,
-) -> PauliUnitaryProjective<Column<WORD_COUNT>> {
+) -> PauliUnitaryProjective<Column<'_, WORD_COUNT>> {
     let column = bits.column(qubit_index);
     let x_bits = column.slice(x_bits_start..dimension + x_bits_start);
     let z_bits = column.slice(z_bits_start..dimension + z_bits_start);
@@ -153,7 +153,7 @@ fn projective_x_image_at<const WORD_COUNT: usize>(
     bits: &BitMatrix<WORD_COUNT>,
     dimension: usize,
     qubit_index: usize,
-) -> PauliUnitaryProjective<Column<WORD_COUNT>> {
+) -> PauliUnitaryProjective<Column<'_, WORD_COUNT>> {
     projective_image_at(
         bits,
         dimension,
@@ -167,7 +167,7 @@ fn projective_z_image_at<const WORD_COUNT: usize>(
     bits: &BitMatrix<WORD_COUNT>,
     dimension: usize,
     qubit_index: usize,
-) -> PauliUnitaryProjective<Column<WORD_COUNT>> {
+) -> PauliUnitaryProjective<Column<'_, WORD_COUNT>> {
     projective_image_at(
         bits,
         dimension,
