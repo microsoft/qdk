@@ -16,6 +16,7 @@ class Trace(QirModuleVisitor):
             "qubits": device.home_locs,
             "steps": [],
         }
+        self.q_cols = {}
         super().__init__()
 
     def _next_step(self):
@@ -33,7 +34,12 @@ class Trace(QirModuleVisitor):
             self.in_parallel = True
         elif call.callee.name == "__quantum__rt__end_parallel":
             self.in_parallel = False
-        elif call.callee.name == "__quantum__qis__move__body":
+        elif (
+            call.callee.name == "__quantum__qis__move1__body"
+            or call.callee.name == "__quantum__qis__move2__body"
+            or call.callee.name == "__quantum__qis__move3__body"
+            or call.callee.name == "__quantum__qis__move4__body"
+        ):
             self._on_qis_move(call, call.args[0], call.args[1], call.args[2])
         elif call.callee.name == "__quantum__qis__sx__body":
             self._on_qis_sx(call, call.args[0])
@@ -44,6 +50,7 @@ class Trace(QirModuleVisitor):
         if not self.in_parallel:
             self._next_step()
         q = qubit_id(qubit)
+        self.q_cols[q] = col.value
         self.trace["steps"][-1]["ops"].append(f"move({row.value}, {col.value}) {q}")
 
     def _on_qis_sx(self, call, qubit):
@@ -63,6 +70,8 @@ class Trace(QirModuleVisitor):
             self._next_step()
         q1 = qubit_id(qubit1)
         q2 = qubit_id(qubit2)
+        if self.q_cols.get(q1, -1) > self.q_cols.get(q2, -1):
+            q1, q2 = q2, q1
         self.trace["steps"][-1]["ops"].append(f"cz {q1}, {q2}")
 
     def _on_qis_mresetz(self, call, target, result):

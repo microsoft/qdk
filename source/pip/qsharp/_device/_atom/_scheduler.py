@@ -13,8 +13,147 @@ from pyqir import (
     qubit_type,
     qubit_id,
     IntType,
+    Value,
 )
 from .._device import Device
+from itertools import combinations, islice
+from typing import Iterable, TypeAlias
+from fractions import Fraction
+from functools import lru_cache
+
+QubitId: TypeAlias = Value
+Location: TypeAlias = tuple[int, int]
+Move: TypeAlias = tuple[QubitId, Location, Location]
+
+
+def move_parity(source: Location, destination: Location) -> tuple[int, int]:
+    """Returns a tuple representing the parities of the source and destination columns."""
+    return (source[1] % 2, destination[1] % 2)
+
+
+def move_direction(source: Location, destination: Location) -> tuple[int, int]:
+    """Returns a tuple representing if the move is left or right, and up or down."""
+    return (int(source[0] < destination[0]), int(source[1] < destination[1]))
+
+
+def is_invalid_move_pair(move1: Move, move2: Move) -> bool:
+    """
+    Returns true if the two moves are incompatible, i.e., if they have the same
+    source row then they must have the same destination row, and if they have the
+    same source column then they must have the same destination column.
+    """
+
+    source_row_diff = move1[1][0] - move2[1][0]
+    destination_row_diff = move1[2][0] - move2[2][0]
+    source_col_diff = move1[1][1] - move2[1][1]
+    destination_col_diff = move1[2][1] - move2[2][1]
+
+    return (
+        (source_row_diff == 0 and destination_row_diff != 0)
+        or (source_row_diff != 0 and destination_row_diff == 0)
+        or (source_col_diff == 0 and destination_col_diff != 0)
+        or (source_col_diff != 0 and destination_col_diff == 0)
+    )
+
+
+@lru_cache(maxsize=1 << 14)
+def move_scale_helper(source_diff, destination_diff):
+    return True if destination_diff == 0 else Fraction(source_diff, destination_diff)
+
+
+def move_scale(move1: Move, move2: Move) -> tuple[bool | Fraction, bool | Fraction]:
+    """
+    Returns a tuple of two elements, representing the row displacement ratio and column
+    displacement ratio between the moves.
+    """
+    source_row_diff = move1[1][0] - move2[1][0]
+    destination_row_diff = move1[2][0] - move2[2][0]
+    source_col_diff = move1[1][1] - move2[1][1]
+    destination_col_diff = move1[2][1] - move2[2][1]
+    return move_scale_helper(source_row_diff, destination_row_diff), move_scale_helper(
+        source_col_diff, destination_col_diff
+    )
+
+
+class ParallelCandidate:
+    """
+    Represents a parallel move set candidate. It has three fields:
+        moves[set]: A set of moves that can be performed in parallel.
+        move_scale[Optional[tuple[Fraction, Fraction]]]: A tuple of fractions
+            representing the scale factors in the row and col axes between
+            moves. `None`, if there is a single element in the move set.
+    """
+
+    def __init__(self, moves: Iterable[Move]):
+        self.moves = set(moves)
+        self.move_scale = move_scale(*moves) if len(self.moves) > 1 else None
+        self.ref_move = next(iter(moves))
+
+    def __len__(self) -> int:
+        return len(self.moves)
+
+
+class ParallelMoves:
+    """
+    A data structure that organizes moves into parallelizable sets.
+    It provides an `is_empty()` method to check if there are any moves
+    left, and a `try_take(n)` method to take up to `n` parallelizable
+    moves from the data structure.
+    """
+
+    def __init__(self, moves: list[Move]):
+        # Edge case in which there is a single move.
+        if len(moves) == 1:
+            self.parallel_candidates = [ParallelCandidate(moves)]
+            return
+        candidates = {}
+        for pair in combinations(moves, 2):
+            if is_invalid_move_pair(pair[0], pair[1]):
+                continue
+            s = move_scale(pair[0], pair[1])
+            scaled_pairs = candidates.get(s, [])
+            for pc in scaled_pairs:
+                if pair[0] in pc.moves:
+                    pc.moves.add(pair[1])
+                    break
+                elif pair[1] in pc.moves:
+                    pc.moves.add(pair[0])
+                    break
+                elif s == move_scale(pair[0], pc.ref_move):
+                    pc.moves.add(pair[0])
+                    pc.moves.add(pair[1])
+                    break
+            else:
+                scaled_pairs.append(ParallelCandidate(pair))
+                candidates[s] = scaled_pairs
+
+        self.parallel_candidates: list[ParallelCandidate] = sum(candidates.values(), [])
+
+        remaining_moves = set(moves)
+        for pc in self.parallel_candidates:
+            remaining_moves -= pc.moves
+
+        for move in remaining_moves:
+            for pc in self.parallel_candidates:
+                if pc.move_scale == move_scale(move, pc.ref_move):
+                    pc.moves.add(move)
+                    break
+            else:
+                self.parallel_candidates.append(ParallelCandidate([move]))
+
+    def is_empty(self) -> bool:
+        return not any(s.moves for s in self.parallel_candidates)
+
+    def try_take(self, number_of_moves: int) -> list[Move]:
+        # Take `number_of_moves` from the largest parallel candidate.
+        largest_parallel_candidate = max(self.parallel_candidates, key=len)
+        moves = list(islice(largest_parallel_candidate.moves, number_of_moves))
+        moves_set = set(moves)
+        # Remove the taken moves from all parallel candidates.
+        for parallel_candidate in self.parallel_candidates:
+            parallel_candidate.moves -= moves_set
+        # Sort parallel candidates by number of elements in descending order.
+        return moves
 
 
 class Schedule(QirModuleVisitor):
@@ -24,12 +163,13 @@ class Schedule(QirModuleVisitor):
 
     begin_func: Function
     end_func: Function
-    move_func: Function
+    move_funcs: list[Function]
 
     def __init__(self, device: Device):
         super().__init__()
         self.device = device
         self.num_qubits = len(self.device.home_locs)
+        self.pending_moves_back: list[list[Move]] = []
 
     def _on_module(self, module):
         i64_ty = IntType(module.context, 64)
@@ -39,8 +179,6 @@ class Schedule(QirModuleVisitor):
                 self.begin_func = func
             elif func.name == "__quantum__rt__end_parallel":
                 self.end_func = func
-            elif func.name == "__quantum__qis__move__body":
-                self.move_func = func
         if not hasattr(self, "begin_func"):
             self.begin_func = Function(
                 FunctionType(
@@ -61,16 +199,44 @@ class Schedule(QirModuleVisitor):
                 "__quantum__rt__end_parallel",
                 module,
             )
-        if not hasattr(self, "move_func"):
-            self.move_func = Function(
+        self.move_funcs = [
+            Function(
                 FunctionType(
                     Type.void(module.context),
                     [qubit_type(module.context), i64_ty, i64_ty],
                 ),
                 Linkage.EXTERNAL,
-                "__quantum__qis__move__body",
+                "__quantum__qis__move1__body",
                 module,
-            )
+            ),
+            Function(
+                FunctionType(
+                    Type.void(module.context),
+                    [qubit_type(module.context), i64_ty, i64_ty],
+                ),
+                Linkage.EXTERNAL,
+                "__quantum__qis__move2__body",
+                module,
+            ),
+            Function(
+                FunctionType(
+                    Type.void(module.context),
+                    [qubit_type(module.context), i64_ty, i64_ty],
+                ),
+                Linkage.EXTERNAL,
+                "__quantum__qis__move3__body",
+                module,
+            ),
+            Function(
+                FunctionType(
+                    Type.void(module.context),
+                    [qubit_type(module.context), i64_ty, i64_ty],
+                ),
+                Linkage.EXTERNAL,
+                "__quantum__qis__move4__body",
+                module,
+            ),
+        ]
         super()._on_module(module)
 
     def _on_block(self, block):
@@ -156,6 +322,12 @@ class Schedule(QirModuleVisitor):
                 col2 = col1 + 1
                 loc1 = (row + interaction_zone_row_offset, col1)
                 loc2 = (row + interaction_zone_row_offset, col2)
+                # Prefer using matching relative column ordering to home locations to reduce move crossings.
+                if (
+                    self.device.get_home_loc(gate["qubit_args"][0])[1]
+                    > self.device.get_home_loc(gate["qubit_args"][1])[1]
+                ):
+                    loc1, loc2 = loc2, loc1
                 self.pending_moves.append((instr.args[0], loc1))
                 self.pending_moves.append((instr.args[1], loc2))
 
@@ -275,38 +447,104 @@ class Schedule(QirModuleVisitor):
                 self.pending_moves = []
             return
 
-    def insert_moves(self):
-        self.builder.call(self.begin_func, [])
-        # For each pending move, insert a call to the move function that moves the
-        # given qubit to the given (row, col) location.
-        for id, loc in self.pending_moves:
-            self.builder.call(
-                self.move_func,
-                [
-                    id,
-                    loc[0],
-                    loc[1],
-                ],
-            )
-        self.builder.call(self.end_func, [])
-
-    def insert_moves_back(self):
-        self.builder.call(self.begin_func, [])
-        # For each pending move, insert a call to the move function that moves the
-        # given qubit back to its home location.
-        for id, loc in self.pending_moves:
+    def split_moves_by_parity_and_direction(self) -> list[list[Move]]:
+        moves_by_parity_and_direction = [[] for _ in range(16)]
+        for id, destination in self.pending_moves:
             q_id = qubit_id(id)
             assert q_id is not None, "Qubit id should be known"
-            home_loc = self.device.get_home_loc(q_id)
-            self.builder.call(
-                self.move_func,
-                [
-                    id,
-                    home_loc[0],
-                    home_loc[1],
-                ],
-            )
-        self.builder.call(self.end_func, [])
+            source = self.device.get_home_loc(q_id)
+            parity = move_parity(source, destination)
+            direction = move_direction(source, destination)
+            major_index = 2 * parity[0] + parity[1]
+            minor_index = 2 * direction[0] + direction[1]
+            index = 4 * major_index + minor_index
+            moves_by_parity_and_direction[index].append((id, source, destination))
+        return moves_by_parity_and_direction
+
+    def parallelize_moves(self, moves: list[Move]) -> list[list[Move]]:
+        parallel_moves_builder = ParallelMoves(moves)
+        parallel_moves = []
+        while not parallel_moves_builder.is_empty():
+            next_parallel_set = parallel_moves_builder.try_take(36)
+            parallel_moves.append(next_parallel_set)
+        assert sum(len(s) for s in parallel_moves) == len(moves)
+        return parallel_moves
+
+    def insert_moves(self):
+        # For each pending move, insert a call to the move function that moves the
+        # given qubit to the given (row, col) location.
+
+        # 1. Split moves into 16 disjoint sets. First we split them
+        #    into 4 sets corresponding to moves with same-parity
+        #    source and destination locations. And then we split each
+        #    of those 4 sets into 4 other sets corresponding to moves
+        #    with the same direction: left, right, up or down.
+        disjoint_move_sets = self.split_moves_by_parity_and_direction()
+        assert sum(len(s) for s in disjoint_move_sets) == len(self.pending_moves)
+
+        # 2. For each of the previous 16 disjoint sets of moves,
+        #    we apply a movement parallelization algorithm.
+        move_set_id = 0
+        for move_set in disjoint_move_sets:
+            for parallel_set in self.parallelize_moves(move_set):
+                # Schedule the same move back, so that we don't have to
+                # recompute the parallel moves when moving the qubits
+                # back to their home location.
+                self.pending_moves_back.append(parallel_set)
+
+                # We can execute 4 movement sets in parallel, if
+                # this is the first one, start a parallel section.
+                if move_set_id == 0:
+                    self.builder.call(self.begin_func, [])
+
+                # Move all the moves in a parallel_set using the same
+                # move function.
+                for id, _, loc in parallel_set:
+                    self.builder.call(
+                        self.move_funcs[move_set_id], [id, loc[0], loc[1]]
+                    )
+
+                # There 4 move sets, so we increment the id modulo 4.
+                move_set_id = (move_set_id + 1) % 4
+
+                # We can execute 4 movement sets in parallel, if
+                # this is the fourth one, end the parallel section.
+                if move_set_id == 0:
+                    self.builder.call(self.end_func, [])
+
+        # End the parallel section if it hasn't been ended.
+        if move_set_id != 0:
+            self.builder.call(self.end_func, [])
+
+    def insert_moves_back(self):
+        move_set_id = 0
+        for parallel_set in self.pending_moves_back:
+            # We can execute 4 movement sets in parallel, if
+            # this is the first one, start a parallel section.
+            if move_set_id == 0:
+                self.builder.call(self.begin_func, [])
+
+            # Move all the moves in a parallel_set using the same
+            # move function.
+            for id, home_loc, _ in parallel_set:
+                self.builder.call(
+                    self.move_funcs[move_set_id], [id, home_loc[0], home_loc[1]]
+                )
+
+            # There 4 move sets, so we increment the id modulo 4.
+            move_set_id = (move_set_id + 1) % 4
+
+            # We can execute 4 movement sets in parallel, if
+            # this is the fourth one, end the parallel section.
+            if move_set_id == 0:
+                self.builder.call(self.end_func, [])
+
+        # End the parallel section if it hasn't been ended.
+        if move_set_id != 0:
+            self.builder.call(self.end_func, [])
+
+        # Clear pending moves back.
+        self.pending_moves_back = []
 
     def flush_single_qubit_ops(self, target_qubits):
         # Flush all pending single qubit ops for the given target qubits, combining
