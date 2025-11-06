@@ -43,6 +43,12 @@ pub struct LogicalResourceCounts {
     pub ccix_count: u64,
     #[serde(default)]
     pub measurement_count: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub num_compute_qubits: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read_from_memory_count: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub write_to_memory_count: Option<u64>,
 }
 
 /// Models the logical resources after layout

@@ -11,7 +11,7 @@ license.workspace = true
 [dependencies]
 qsc = { path = "../compiler/qsc" }
 thiserror = { workspace = true }
-miette = { workspace = true }
+miette = { workspace = true, features = ["fancy-no-syscall"] }
 num-bigint = { workspace = true }
 num-complex = { workspace = true }
 rand = { workspace = true }

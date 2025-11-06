@@ -4,6 +4,8 @@
 #[cfg(test)]
 mod tests;
 
+mod memory_compute;
+
 use num_bigint::BigUint;
 use num_complex::Complex;
 use qsc::{Backend, interpret::Value};
@@ -11,7 +13,8 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 use rustc_hash::FxHashMap;
 use std::{array, cell::RefCell, f64::consts::PI, fmt::Debug, iter::Sum};
 
-use crate::system::LogicalResourceCounts;
+use crate::{counts::memory_compute::CachingStrategy, system::LogicalResourceCounts};
+use memory_compute::MemoryComputeInfo;
 
 /// Resource counter implementation
 ///
@@ -43,6 +46,8 @@ pub struct LogicalCounter {
     caching_layers: FxHashMap<String, LayerCache>,
     /// Repeating
     repeats: Vec<RepeatEntry>,
+    /// Memory/Compute architecture
+    memory_compute: Option<MemoryComputeInfo>,
     /// Random number generator
     rnd: RefCell<StdRng>,
 }
@@ -62,6 +67,7 @@ impl Default for LogicalCounter {
             caching_stack: vec![],
             caching_layers: FxHashMap::default(),
             repeats: vec![],
+            memory_compute: None,
             rnd: RefCell::new(StdRng::seed_from_u64(0)),
         }
     }
@@ -70,6 +76,17 @@ impl Default for LogicalCounter {
 impl LogicalCounter {
     #[must_use]
     pub fn logical_resources(&self) -> LogicalResourceCounts {
+        let (num_compute_qubits, read_from_memory_count, write_to_memory_count) =
+            if let Some(memory_compute) = &self.memory_compute {
+                (
+                    Some(memory_compute.compute_size() as u64),
+                    Some(memory_compute.read_from_memory_count() as u64),
+                    Some(memory_compute.write_to_memory_count() as u64),
+                )
+            } else {
+                (None, None, None)
+            };
+
         LogicalResourceCounts {
             num_qubits: self.next_free as _,
             t_count: self.t_count as _,
@@ -78,6 +95,9 @@ impl LogicalCounter {
             ccz_count: self.ccz_count as _,
             ccix_count: 0,
             measurement_count: self.m_count as _,
+            num_compute_qubits,
+            read_from_memory_count,
+            write_to_memory_count,
         }
     }
 
@@ -157,6 +177,8 @@ impl LogicalCounter {
             end_depth,
             combined_layer,
             m_count,
+            wtm_count,
+            rfm_count,
         }) = self.caching_layers.get(&label)
         {
             self.layers.extend_from_within(*start_depth..*end_depth);
@@ -165,6 +187,10 @@ impl LogicalCounter {
             self.r_count += combined_layer.r;
             self.ccz_count += combined_layer.ccz;
             self.m_count += *m_count;
+            if let Some(memory_compute) = &mut self.memory_compute {
+                memory_compute.increase_write_to_memory_count(*wtm_count);
+                memory_compute.increase_read_from_memory_count(*rfm_count);
+            }
 
             false
         } else {
@@ -175,6 +201,8 @@ impl LogicalCounter {
                 LayerCache::Begin {
                     start_depth: depth,
                     m_count: self.m_count,
+                    wtm_count: self.wtm_count(),
+                    rfm_count: self.rfm_count(),
                 },
             );
             self.caching_stack.push(label);
@@ -196,6 +224,8 @@ impl LogicalCounter {
         let LayerCache::Begin {
             start_depth,
             m_count,
+            wtm_count,
+            rfm_count,
         } = entry
         else {
             panic!("layer caching should always have matching begin and end");
@@ -213,6 +243,8 @@ impl LogicalCounter {
                 end_depth,
                 combined_layer: sum,
                 m_count: self.m_count - m_count,
+                wtm_count: self.wtm_count() - wtm_count,
+                rfm_count: self.rfm_count() - rfm_count,
             },
         );
 
@@ -229,6 +261,8 @@ impl LogicalCounter {
                 .map_err(|_| format!("Estimate count {count} is too large to fit in a usize.",))?,
             start_depth,
             m_count: self.m_count,
+            wtm_count: self.wtm_count(),
+            rfm_count: self.rfm_count(),
         });
 
         Ok(())
@@ -240,6 +274,8 @@ impl LogicalCounter {
             count,
             start_depth,
             m_count,
+            wtm_count,
+            rfm_count,
         }) = self.repeats.pop()
         {
             if count == 0 {
@@ -283,6 +319,15 @@ impl LogicalCounter {
             self.r_count += combined_r_count;
             self.ccz_count += combined_ccz_count;
             self.m_count += combined_m_count;
+
+            if let Some(memory_compute) = &mut self.memory_compute {
+                memory_compute.increase_write_to_memory_count(
+                    (memory_compute.write_to_memory_count() - wtm_count) * (count - 1),
+                );
+                memory_compute.increase_read_from_memory_count(
+                    (memory_compute.read_from_memory_count() - rfm_count) * (count - 1),
+                );
+            }
 
             self.global_barrier();
         }
@@ -397,31 +442,74 @@ impl LogicalCounter {
 
         Ok(())
     }
+
+    fn enable_memory_compute(&mut self, compute_capacity: i64, strategy: i64) {
+        let compute_capacity: usize = compute_capacity
+            .try_into()
+            .expect("compute capacity is too large to fit in a usize");
+        if self.memory_compute.is_none() {
+            self.memory_compute = Some(MemoryComputeInfo::new(if strategy == 0 {
+                CachingStrategy::least_recently_used(compute_capacity)
+            } else {
+                CachingStrategy::least_frequently_used(compute_capacity)
+            }));
+        }
+    }
+
+    fn assert_compute_qubits(&mut self, qubits: impl IntoIterator<Item = usize>) {
+        if let Some(memory_compute) = &mut self.memory_compute {
+            memory_compute.assert_compute_qubits(qubits);
+        }
+    }
+
+    fn wtm_count(&self) -> usize {
+        self.memory_compute
+            .as_ref()
+            .map_or(0, memory_compute::MemoryComputeInfo::write_to_memory_count)
+    }
+
+    fn rfm_count(&self) -> usize {
+        self.memory_compute
+            .as_ref()
+            .map_or(0, memory_compute::MemoryComputeInfo::read_from_memory_count)
+    }
 }
 
 impl Backend for LogicalCounter {
     type ResultType = bool;
 
     fn ccx(&mut self, ctl0: usize, ctl1: usize, q: usize) {
+        self.assert_compute_qubits([ctl0, ctl1, q]);
+
         self.ccz_count += 1;
         self.schedule_ccz(ctl0, ctl1, q);
     }
 
     fn cx(&mut self, ctl: usize, q: usize) {
+        self.assert_compute_qubits([ctl, q]);
+
         self.schedule_two_qubit_clifford(ctl, q);
     }
 
     fn cy(&mut self, ctl: usize, q: usize) {
+        self.assert_compute_qubits([ctl, q]);
+
         self.schedule_two_qubit_clifford(ctl, q);
     }
 
     fn cz(&mut self, ctl: usize, q: usize) {
+        self.assert_compute_qubits([ctl, q]);
+
         self.schedule_two_qubit_clifford(ctl, q);
     }
 
-    fn h(&mut self, _q: usize) {}
+    fn h(&mut self, q: usize) {
+        self.assert_compute_qubits([q]);
+    }
 
-    fn m(&mut self, _q: usize) -> Self::ResultType {
+    fn m(&mut self, q: usize) -> Self::ResultType {
+        self.assert_compute_qubits([q]);
+
         self.m_count += 1;
 
         self.rnd.borrow_mut().gen_bool(0.5)
@@ -450,6 +538,8 @@ impl Backend for LogicalCounter {
     }
 
     fn rz(&mut self, theta: f64, q: usize) {
+        self.assert_compute_qubits([q]);
+
         let multiple = (theta / (PI / 4.0)).round();
         if ((multiple * (PI / 4.0)) - theta).abs() <= f64::EPSILON {
             let multiple = (multiple as i64).rem_euclid(8) as u64;
@@ -468,22 +558,33 @@ impl Backend for LogicalCounter {
         self.cx(q1, q0);
     }
 
-    fn sadj(&mut self, _q: usize) {}
+    fn sadj(&mut self, q: usize) {
+        self.assert_compute_qubits([q]);
+    }
 
-    fn s(&mut self, _q: usize) {}
+    fn s(&mut self, q: usize) {
+        self.assert_compute_qubits([q]);
+    }
 
-    fn sx(&mut self, _q: usize) {}
+    fn sx(&mut self, q: usize) {
+        self.assert_compute_qubits([q]);
+    }
 
     fn swap(&mut self, q0: usize, q1: usize) {
+        self.assert_compute_qubits([q0, q1]);
         self.schedule_two_qubit_clifford(q0, q1);
     }
 
     fn tadj(&mut self, q: usize) {
+        self.assert_compute_qubits([q]);
+
         self.t_count += 1;
         self.schedule_t(q);
     }
 
     fn t(&mut self, q: usize) {
+        self.assert_compute_qubits([q]);
+
         self.t_count += 1;
         self.schedule_t(q);
     }
@@ -567,6 +668,14 @@ impl Backend for LogicalCounter {
                         .map(|()| Value::unit()),
                 )
             }
+            "EnableMemoryComputeArchitecture" => {
+                let values = arg.unwrap_tuple();
+                let [compute_capacity, strategy] = array::from_fn(|i| values[i].clone());
+                let compute_capacity = compute_capacity.unwrap_int();
+                let strategy = strategy.unwrap_int();
+                self.enable_memory_compute(compute_capacity, strategy);
+                Some(Ok(Value::unit()))
+            }
             "GlobalPhase" | "ConfigurePauliNoise" | "ConfigureQubitLoss" | "ApplyIdleNoise" => {
                 Some(Ok(Value::unit()))
             }
@@ -617,12 +726,16 @@ enum LayerCache {
     Begin {
         start_depth: usize,
         m_count: usize,
+        wtm_count: usize,
+        rfm_count: usize,
     },
     End {
         start_depth: usize,
         end_depth: usize,
         combined_layer: LayerInfo,
         m_count: usize,
+        wtm_count: usize,
+        rfm_count: usize,
     },
 }
 
@@ -630,4 +743,6 @@ struct RepeatEntry {
     count: usize,
     start_depth: usize,
     m_count: usize,
+    wtm_count: usize,
+    rfm_count: usize,
 }

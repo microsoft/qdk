@@ -1,10 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { RegisterMap } from "../register";
-import { regLineStart } from "../constants";
-import { GateRenderData, GateType } from "../gateRenderData";
-import { group, line } from "./formatUtils";
+import { RegisterMap } from "../register.js";
+import { regLineStart } from "../constants.js";
+import { GateRenderData, GateType } from "../gateRenderData.js";
+import { group, line } from "./formatUtils.js";
 
 /**
  * Generate the SVG representation of the qubit register wires in `registers` and the classical wires

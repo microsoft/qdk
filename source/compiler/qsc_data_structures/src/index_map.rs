@@ -45,7 +45,7 @@ impl<K, V> IndexMap<K, V> {
     // `Iter` does implement `Iterator`, but it has an additional bound on `K`.
     #[allow(clippy::iter_not_returning_iterator)]
     #[must_use]
-    pub fn iter(&self) -> Iter<K, V> {
+    pub fn iter(&self) -> Iter<'_, K, V> {
         Iter {
             _keys: PhantomData,
             base: self.values.iter().enumerate(),
@@ -54,14 +54,14 @@ impl<K, V> IndexMap<K, V> {
 
     // `Iter` does implement `Iterator`, but it has an additional bound on `K`.
     #[allow(clippy::iter_not_returning_iterator)]
-    pub fn iter_mut(&mut self) -> IterMut<K, V> {
+    pub fn iter_mut(&mut self) -> IterMut<'_, K, V> {
         IterMut {
             _keys: PhantomData,
             base: self.values.iter_mut().enumerate(),
         }
     }
 
-    pub fn drain(&mut self) -> Drain<K, V> {
+    pub fn drain(&mut self) -> Drain<'_, K, V> {
         Drain {
             _keys: PhantomData,
             base: self.values.drain(..).enumerate(),
@@ -69,13 +69,13 @@ impl<K, V> IndexMap<K, V> {
     }
 
     #[must_use]
-    pub fn values(&self) -> Values<V> {
+    pub fn values(&self) -> Values<'_, V> {
         Values {
             base: self.values.iter(),
         }
     }
 
-    pub fn values_mut(&mut self) -> ValuesMut<V> {
+    pub fn values_mut(&mut self) -> ValuesMut<'_, V> {
         ValuesMut {
             base: self.values.iter_mut(),
         }

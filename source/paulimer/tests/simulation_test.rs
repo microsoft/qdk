@@ -3,13 +3,10 @@
 
 use itertools::enumerate;
 use paulimer::bits::BitMatrix;
+use paulimer::bits::BitView;
 use paulimer::bits::Bitwise;
-use paulimer::bits::{BitVec, BitView};
 use paulimer::quantum_core::{x, z, PositionedPauliObservable};
-use paulimer::{
-    outcome_complete_simulation::OutcomeCompleteSimulation,
-    outcome_specific_simulation::OutcomeSpecificSimulation, Simulation, UnitaryOp,
-};
+use paulimer::{outcome_specific_simulation::OutcomeSpecificSimulation, Simulation, UnitaryOp};
 
 fn measure_and_fix(
     sim: &mut impl Simulation,
@@ -50,22 +47,6 @@ fn assert_bell(sim: &impl Simulation, target: (usize, usize)) {
     let (q0, q1) = target;
     sim.assert_stabilizer(&[x(q0), x(q1)]);
     sim.assert_stabilizer(&[z(q0), z(q1)]);
-}
-
-// two random outcomes
-fn random_and_deterministic_outcome_sequence(sim: &mut impl Simulation) {
-    sim.measure(&[x(0)]); // 0: random o1            | 0b1
-    sim.measure(&[z(1)]); // 1: deterministic 0      | 0b0
-    sim.measure(&[x(0)]); // 2: deterministic = o1   | 0b1
-    sim.pauli(&[z(0)]);
-    sim.measure(&[x(0)]); // 3: deterministic = o1+1 |0b1
-    sim.pauli(&[z(0)]);
-    sim.measure(&[x(0)]); // 4: deterministic = o1   |0b1
-    sim.measure(&[x(0)]); // 5: deterministic = o1   |0b1
-    sim.measure(&[z(0)]); // 6: random o2            |0b10
-    sim.pauli(&[x(1)]);
-    sim.measure(&[z(1)]); // 7: deterministic 1      |0b0
-                          // outcome shift : 0b_1000_1000
 }
 
 fn cx_cz_test<SimulationKind: Simulation>() {
@@ -112,41 +93,8 @@ fn cx_cz_test<SimulationKind: Simulation>() {
 }
 
 #[test]
-fn cx_cz_outcome_complete_test() {
-    cx_cz_test::<OutcomeCompleteSimulation>();
-}
-
-#[test]
 fn cx_cz_outcome_specific_test() {
     cx_cz_test::<OutcomeSpecificSimulation>();
-}
-
-#[test]
-fn measure_and_fix_outcome_complete_test() {
-    let mut sim = OutcomeCompleteSimulation::with_capacity(3, 4, 4);
-    for j in 0..3 {
-        sim.assert_stabilizer(&[z(j)]);
-    }
-    measure_and_fix(&mut sim, &[x(1)], &[z(1)]);
-}
-
-fn check_random_outcomes_bit_shift(sim: &OutcomeCompleteSimulation) {
-    for k in 0..sim.random_outcome_indicator().len() {
-        if sim.random_outcome_indicator()[k] {
-            assert!(!sim.outcome_shift().index(k));
-        }
-    }
-}
-
-fn check_outcome_matrix_and_shift_properties(sim: &OutcomeCompleteSimulation) {
-    check_random_outcomes_bit_shift(sim);
-    let rank_profile: Vec<usize> = enumerate(sim.random_outcome_indicator())
-        .filter_map(|(k, is_random)| if *is_random { Some(k) } else { None })
-        .collect();
-    assert!(is_column_reduced_with_profile(
-        sim.outcome_matrix(),
-        &rank_profile
-    ));
 }
 
 #[must_use]
@@ -177,47 +125,4 @@ pub fn is_standard_basis_element(bitstring: &BitView, pos: usize) -> bool {
 #[must_use]
 pub fn is_supported_on_first_k_bits(bitstring: &BitView, k: usize) -> bool {
     (k..bitstring.len()).all(|index| !bitstring.index(index))
-}
-
-#[test]
-fn outcome_sequence_test() {
-    let mut sim = OutcomeCompleteSimulation::with_capacity(2, 8, 2);
-    random_and_deterministic_outcome_sequence(&mut sim);
-    assert_eq!(sim.num_random_bits(), 2);
-    assert_eq!(sim.random_outcome_indicator().len(), 8);
-    // println!("{}", bitmatrix_to_string(sim.outcome_matrix()));
-    // println!("s{}", to_string(&sim.outcome_shift().view()));
-    // println!("{}", bitmatrix_to_string(sim.sign_matrix()));
-    assert_eq!(
-        &vec![true, false, false, false, false, false, true, false],
-        sim.random_outcome_indicator()
-    );
-    check_outcome_matrix_and_shift_properties(&sim);
-    assert_eq!(
-        sim.outcome_matrix(),
-        &BitMatrix::from_iter(
-            [
-                [true, false],
-                [false, false],
-                [true, false],
-                [true, false],
-                [true, false],
-                [true, false],
-                [false, true],
-                [false, false]
-            ],
-            2
-        )
-    );
-    assert_eq!(
-        sim.outcome_shift(),
-        &BitVec::from_iter([false, false, false, true, false, false, false, true])
-    );
-}
-
-#[test]
-fn large_capacity_test() {
-    let mut sim = OutcomeCompleteSimulation::with_capacity(3, 10000, 10000);
-    let m_id = sim.measure(&[x(0)]);
-    sim.conditional_pauli(&[z(0)], &[m_id], true);
 }

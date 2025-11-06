@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { appendChildren, createSvgElements, setAttributes } from "./utils";
+import { appendChildren, createSvgElements, setAttributes } from "./utils.js";
 
 // Icons are 256x256, with a 32 spacing inbetween
 export function getIcon(name: string): SVGGElement {
