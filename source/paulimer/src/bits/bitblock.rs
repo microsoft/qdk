@@ -120,7 +120,7 @@ impl<const WORD_COUNT: usize> BitBlock<WORD_COUNT> {
     }
 
     #[must_use]
-    pub fn iter(&self) -> BitIterator {
+    pub fn iter(&self) -> BitIterator<'_> {
         BitIterator::from_bits(&self.blocks)
     }
 }

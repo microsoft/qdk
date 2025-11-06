@@ -38,7 +38,7 @@ pub trait PhaseExponent {
 
     #[must_use]
     fn raw_eq(raw_value1: u8, raw_value2: u8) -> bool {
-        raw_value1.wrapping_sub(raw_value2) % 4 == 0
+        raw_value1.wrapping_sub(raw_value2).is_multiple_of(4)
     }
 
     fn eq(&self, other: &Self) -> bool {
