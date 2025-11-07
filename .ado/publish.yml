@@ -302,7 +302,7 @@ extends:
           # using tdnf on Azure Linux 3.0 aarch64
           # We also need alias python3 as python
           - script: |
-              sudo tdnf install python3-3.11.0 python3-pip-24.2 -y
+              sudo tdnf install python3-3.12.9 python3-pip-24.2 -y
               sudo alternatives --install /usr/bin/python python /usr/bin/python3 1
             displayName: Install Python on Azure Linux 3.0 aarch64
             condition: and(succeeded(), eq(variables['Agent.OS'], 'Linux'), eq(variables['arch'], 'aarch64'))
