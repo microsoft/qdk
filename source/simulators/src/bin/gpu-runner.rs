@@ -3,8 +3,10 @@
 // Run with: cargo run --bin gpu-runner [--release]
 // Build with: cargo build --bin gpu-runner [--release]
 
+use core::panic;
 use qdk_simulators::run_parallel_shots;
 use qdk_simulators::shader_types::Op;
+use regex_lite::Regex;
 use std::time::Instant;
 
 fn main() {
@@ -16,6 +18,7 @@ fn main() {
     test_2q_pauli_noise();
     test_move_noise();
     test_benzene();
+    scaled_grover();
 }
 
 fn split_results(result_count: usize, results: &[u32]) -> (Vec<Vec<u32>>, Vec<u32>) {
@@ -321,4 +324,187 @@ fn test_benzene() {
     let elapsed = start.elapsed();
     let (_results, _error_codes) = split_results(4, &results);
     println!("[GPU Runner]: Benzene elapsed time for 1024 shots: {elapsed:.2?}");
+}
+
+fn scaled_grover() {
+    let mut init_op = Op::new_reset_gate(u32::MAX);
+    init_op.q2 = 0xdead_beef;
+
+    let grover_ir = include_str!("./ising.ll");
+
+    let mut ops: Vec<Op> = Vec::new();
+    ops.push(init_op);
+
+    // Iterate through grover lines and add ops for each (handling CCX decomposition)
+    for line in grover_ir.lines() {
+        let mut line_ops = op_from_ir_line(line);
+        ops.append(&mut line_ops);
+    }
+
+    let start = Instant::now();
+    let results = run_parallel_shots(24, 20, ops, 8).expect("GPU shots failed");
+    let elapsed = start.elapsed();
+    let (results, _error_codes) = split_results(20, &results);
+    println!("[GPU Runner]: Scaled Grover results for 1 shot: {results:?}");
+    println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
+}
+
+#[allow(clippy::too_many_lines)]
+fn op_from_ir_line(line: &str) -> Vec<Op> {
+    let line = line.trim();
+
+    // Skip non-quantum operation lines
+    if !line.starts_with("call void @__quantum__qis__") {
+        panic!("Unexpected IR line: {line}");
+    }
+
+    // Regex to parse the entire IR line in one go
+    let re = Regex::new(r"call void @__quantum__qis__(\w+)__(body|adj).*").expect("Invalid regex");
+    let Some(captures) = re.captures(line) else {
+        panic!("Failed to parse IR line: {line}");
+    };
+
+    let op_name = &captures[1];
+    let is_adj = &captures[2] == "adj";
+
+    // Extract angle parameter for rotation gates
+    let angle_re = Regex::new(r"double ([+-]?[0-9]*\.?[0-9]+(?:[eE][+-]?[0-9]+)?)")
+        .expect("Invalid angle regex");
+    let angle: Option<f32> = angle_re.captures(line).and_then(|cap| cap[1].parse().ok());
+
+    // Extract qubit and result indices using regex
+    let qubit_re = Regex::new(r"inttoptr \(i64 (\d+) to %Qubit\*\)").expect("Invalid qubit regex");
+    let result_re =
+        Regex::new(r"inttoptr \(i64 (\d+) to %Result\*\)").expect("Invalid result regex");
+
+    let qubits: Vec<u32> = qubit_re
+        .captures_iter(line)
+        .filter_map(|cap| cap[1].parse().ok())
+        .collect();
+
+    let result_ids: Vec<u32> = result_re
+        .captures_iter(line)
+        .filter_map(|cap| cap[1].parse().ok())
+        .collect();
+
+    // Create operations based on the operation name
+    match op_name {
+        "h" => vec![Op::new_h_gate(qubits[0])],
+        "x" => vec![Op::new_x_gate(qubits[0])],
+        "y" => vec![Op::new_y_gate(qubits[0])],
+        "z" => vec![Op::new_z_gate(qubits[0])],
+        "s" => {
+            if is_adj {
+                vec![Op::new_s_adj_gate(qubits[0])]
+            } else {
+                vec![Op::new_s_gate(qubits[0])]
+            }
+        }
+        "t" => {
+            if is_adj {
+                vec![Op::new_t_adj_gate(qubits[0])]
+            } else {
+                vec![Op::new_t_gate(qubits[0])]
+            }
+        }
+        "sx" => {
+            if is_adj {
+                vec![Op::new_sx_adj_gate(qubits[0])]
+            } else {
+                vec![Op::new_sx_gate(qubits[0])]
+            }
+        }
+        "rx" => {
+            if let Some(angle_val) = angle {
+                vec![Op::new_rx_gate(angle_val, qubits[0])]
+            } else {
+                eprintln!("Warning: RX gate missing angle parameter");
+                Vec::new()
+            }
+        }
+        "ry" => {
+            if let Some(angle_val) = angle {
+                vec![Op::new_ry_gate(angle_val, qubits[0])]
+            } else {
+                eprintln!("Warning: RY gate missing angle parameter");
+                Vec::new()
+            }
+        }
+        "rz" => {
+            if let Some(angle_val) = angle {
+                vec![Op::new_rz_gate(angle_val, qubits[0])]
+            } else {
+                eprintln!("Warning: RZ gate missing angle parameter");
+                Vec::new()
+            }
+        }
+        "cx" => vec![Op::new_cx_gate(qubits[0], qubits[1])],
+        "cz" => vec![Op::new_cz_gate(qubits[0], qubits[1])],
+        "rxx" => {
+            if let Some(angle_val) = angle {
+                vec![Op::new_rxx_gate(angle_val, qubits[0], qubits[1])]
+            } else {
+                eprintln!("Warning: RXX gate missing angle parameter");
+                Vec::new()
+            }
+        }
+        "ryy" => {
+            if let Some(angle_val) = angle {
+                vec![Op::new_ryy_gate(angle_val, qubits[0], qubits[1])]
+            } else {
+                eprintln!("Warning: RYY gate missing angle parameter");
+                Vec::new()
+            }
+        }
+        "rzz" => {
+            if let Some(angle_val) = angle {
+                vec![Op::new_rzz_gate(angle_val, qubits[0], qubits[1])]
+            } else {
+                eprintln!("Warning: RZZ gate missing angle parameter");
+                Vec::new()
+            }
+        }
+        "m" => vec![Op::new_mresetz_gate(qubits[0], result_ids[0])],
+        "mresetz" => vec![Op::new_mresetz_gate(qubits[0], result_ids[0])],
+        "ccx" => {
+            // Decompose CCX (Toffoli) gate as per the Python implementation
+            let ctrl1 = qubits[0];
+            let ctrl2 = qubits[1];
+            let target = qubits[2];
+
+            vec![
+                Op::new_h_gate(target),
+                Op::new_t_adj_gate(ctrl1),
+                Op::new_t_adj_gate(ctrl2),
+                Op::new_h_gate(ctrl1),
+                Op::new_cz_gate(target, ctrl1),
+                Op::new_h_gate(ctrl1),
+                Op::new_t_gate(ctrl1),
+                Op::new_h_gate(target),
+                Op::new_cz_gate(ctrl2, target),
+                Op::new_h_gate(target),
+                Op::new_h_gate(ctrl1),
+                Op::new_cz_gate(ctrl2, ctrl1),
+                Op::new_h_gate(ctrl1),
+                Op::new_t_gate(target),
+                Op::new_t_adj_gate(ctrl1),
+                Op::new_h_gate(target),
+                Op::new_cz_gate(ctrl2, target),
+                Op::new_h_gate(target),
+                Op::new_h_gate(ctrl1),
+                Op::new_cz_gate(target, ctrl1),
+                Op::new_h_gate(ctrl1),
+                Op::new_t_adj_gate(target),
+                Op::new_t_gate(ctrl1),
+                Op::new_h_gate(ctrl1),
+                Op::new_cz_gate(ctrl2, ctrl1),
+                Op::new_h_gate(ctrl1),
+                Op::new_h_gate(target),
+            ]
+        }
+        _ => {
+            eprintln!("Warning: Unrecognized operation: {op_name}");
+            Vec::new()
+        }
+    }
 }

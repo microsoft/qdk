@@ -16,6 +16,7 @@ wgpu = { workspace = true }
 rand = { workspace = true }
 num-bigint = { workspace = true }
 smallvec = { workspace = true }
+regex-lite = { workspace = true }
 paulimer = { path = "../paulimer" }
 
 [dev-dependencies]

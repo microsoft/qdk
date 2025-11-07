@@ -1853,6 +1853,7 @@ dependencies = [
  "paulimer",
  "quantum-sparse-sim",
  "rand 0.8.5",
+ "regex-lite",
  "smallvec",
  "wgpu",
 ]
