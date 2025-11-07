@@ -323,7 +323,7 @@ extends:
           # std lib headers with kernel-headers
           # patchelf for modifying ELF files via auditwheel
           - script: |
-              sudo tdnf install binutils glibc-devel kernel-headers patchelf -y
+              sudo tdnf install binutils glibc-devel kernel-headers patchelf gcc -y
             displayName: Install c++ build tools on Azure Linux 3.0 aarch64
             condition: and(succeeded(), eq(variables['Agent.OS'], 'Linux'), eq(variables['arch'], 'aarch64'))
 
