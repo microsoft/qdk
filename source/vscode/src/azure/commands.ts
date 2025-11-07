@@ -89,10 +89,10 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
         }
         if (currentTreeItem.type === "job") {
           const job = currentTreeItem.itemData as Job;
-          if (job.status === "Succeeded" && job.outputDataUri) {
+          if ((job.status === "Succeeded" || job.status === "Completed") && job.outputDataUri) {
             supportsDownload = true;
           }
-          if (job.status === "Waiting" || job.status === "Executing") {
+          if (job.status === "Waiting" || job.status === "Queued" || job.status === "Executing") {
             isCancelable = true;
           }
         }
