@@ -120,7 +120,7 @@ export async function activate(
           // view column - this prevents the `goToLocations` command
           // below from opening the document in whatever view column currently
           // has focus.
-          await vscode.window.showTextDocument(document, {
+          const ed = await vscode.window.showTextDocument(document, {
             viewColumn,
           });
         }
