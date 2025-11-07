@@ -369,7 +369,16 @@ export namespace ResponseTypes {
     inputDataFormat: string;
     outputDataFormat: string;
     inputParams: any;
-    status: "Waiting" | "Queued" | "Executing" | "Completed" | "Succeeded" | "Failed" | "CancellationRequested" | "Cancelling" | "Cancelled";
+    status:
+      | "Waiting"
+      | "Queued"
+      | "Executing"
+      | "Completed"
+      | "Succeeded"
+      | "Failed"
+      | "CancellationRequested"
+      | "Cancelling"
+      | "Cancelled";
     creationTime: string;
     beginExecutionTime: string;
     endExecutionTime: string;

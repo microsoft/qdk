@@ -8,7 +8,14 @@ import { targetSupportQir } from "./providerProperties";
 
 // See docs at https://code.visualstudio.com/api/extension-guides/tree-view
 
-const pendingStatuses = ["Waiting", "Queued", "Executing", "Finishing", "CancellationRequested", "Cancelling"];
+const pendingStatuses = [
+  "Waiting",
+  "Queued",
+  "Executing",
+  "Finishing",
+  "CancellationRequested",
+  "Cancelling",
+];
 const noQirMsq = `Note: As this target does not currently support QIR, this VS Code extension cannot submit jobs to it. See https://aka.ms/qdk.qir for more info`;
 
 // Convert a date such as "2023-07-24T17:25:09.1309979Z" into local time
