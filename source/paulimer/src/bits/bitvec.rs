@@ -17,7 +17,7 @@ pub const WORD_COUNT_DEFAULT: usize = 8usize;
 
 pub fn block_count(length: usize, bits_per_block: usize) -> usize {
     let mut block_count = length / bits_per_block;
-    if length % bits_per_block > 0 {
+    if !length.is_multiple_of(bits_per_block) {
         block_count += 1;
     }
     block_count

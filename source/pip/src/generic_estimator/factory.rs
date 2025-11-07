@@ -181,7 +181,7 @@ impl<'py> PythonFactoryBuilder<'py> {
         max_code_parameter: &SerializableBound<'py>,
         distillation_units: &Bound<'py, PyAny>,
         trivial_distillation_unit: Option<&Bound<'py, PyAny>>,
-    ) -> Result<Vec<std::borrow::Cow<PythonFactory<'py>>>, String> {
+    ) -> Result<Vec<std::borrow::Cow<'_, PythonFactory<'py>>>, String> {
         // input error rate
         let qubit_key = self
             .builder
@@ -244,18 +244,17 @@ impl<'py> PythonFactoryBuilder<'py> {
 
             if let Ok(mut factory) =
                 RoundBasedFactory::build(&selected_units, initial_input_error_rate, 0.01)
+                && factory.output_error_rate() <= output_error_rate
             {
-                if factory.output_error_rate() <= output_error_rate {
-                    factory.set_physical_qubit_calculation(if use_max_qubits_per_round {
-                        PhysicalQubitCalculation::Max
-                    } else {
-                        PhysicalQubitCalculation::Sum
-                    });
-                    factories.push(Cow::Owned(PythonFactory::try_from(factory)?));
+                factory.set_physical_qubit_calculation(if use_max_qubits_per_round {
+                    PhysicalQubitCalculation::Max
+                } else {
+                    PhysicalQubitCalculation::Sum
+                });
+                factories.push(Cow::Owned(PythonFactory::try_from(factory)?));
 
-                    if selected_units.len() > max_rounds {
-                        return Ok(OrderedBFSControl::Terminate);
-                    }
+                if selected_units.len() > max_rounds {
+                    return Ok(OrderedBFSControl::Terminate);
                 }
             }
 
@@ -314,7 +313,7 @@ impl<'py> FactoryBuilder<PythonQEC<'py>> for PythonFactoryBuilder<'py> {
         _magic_state_type: usize,
         output_error_rate: f64,
         max_code_parameter: &SerializableBound<'py>,
-    ) -> Result<Vec<std::borrow::Cow<Self::Factory>>, String> {
+    ) -> Result<Vec<std::borrow::Cow<'_, Self::Factory>>, String> {
         match &self.implementation {
             FactoryImplementation::Generic(find_factories) => {
                 Self::create_generic_factories(code, qubit, output_error_rate, find_factories)
@@ -425,7 +424,7 @@ impl<'py> Factory for PythonFactory<'py> {
         self.num_output_states
     }
 
-    fn max_code_parameter(&self) -> Option<Cow<Self::Parameter>> {
+    fn max_code_parameter(&self) -> Option<Cow<'_, Self::Parameter>> {
         None
     }
 }

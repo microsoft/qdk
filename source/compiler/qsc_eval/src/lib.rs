@@ -1785,17 +1785,17 @@ impl State {
 pub fn are_ctls_unique(ctls: &[Value], tup: &Value) -> bool {
     let mut qubits = FxHashSet::default();
     for ctl in ctls.iter().flat_map(Value::qubits) {
-        if let Some(ctl) = ctl.try_deref() {
-            if !qubits.insert(ctl) {
-                return false;
-            }
+        if let Some(ctl) = ctl.try_deref()
+            && !qubits.insert(ctl)
+        {
+            return false;
         }
     }
     for qubit in tup.qubits() {
-        if let Some(qubit) = qubit.try_deref() {
-            if qubits.contains(&qubit) {
-                return false;
-            }
+        if let Some(qubit) = qubit.try_deref()
+            && qubits.contains(&qubit)
+        {
+            return false;
         }
     }
     true

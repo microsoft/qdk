@@ -75,7 +75,9 @@ impl Simulator {
 
     /// Reload a list of qubits.
     pub fn reload_qubits(&mut self, targets: &[QubitID]) {
-        targets.iter().for_each(|q| self.reload_qubit(*q));
+        for q in targets {
+            self.reload_qubit(*q);
+        }
     }
 
     /// Single qubit X gate.
@@ -136,7 +138,9 @@ impl Simulator {
 
     /// Applies a list of gates to the system.
     pub fn apply_gates(&mut self, gates: &[Operation]) {
-        gates.iter().for_each(|gate| self.apply_gate_in_place(gate));
+        for gate in gates {
+            self.apply_gate_in_place(gate);
+        }
     }
 
     fn apply_gate_in_place(&mut self, gate: &Operation) {

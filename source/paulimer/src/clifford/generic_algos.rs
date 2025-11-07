@@ -379,7 +379,7 @@ where
     Paulis: ExactSizeIterator<Item = &'life PauliLike>,
 {
     let preimages_iter = preimages.into_iter();
-    assert!(preimages_iter.len() % 2 == 0);
+    assert!(preimages_iter.len().is_multiple_of(2));
     let mut res = CliffordLike::zero(preimages_iter.len() / 2);
     for (qubit_index, xz_preimage) in preimages_iter.tuples().enumerate() {
         let (x_preimage, z_preimage) = xz_preimage;

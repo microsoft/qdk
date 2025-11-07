@@ -1,6 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#![allow(
+    clippy::doc_markdown,
+    reason = "docstrings in this module conform to the python docstring format."
+)]
+
 pub(crate) mod data_interop;
 
 use crate::{
@@ -1034,14 +1039,14 @@ pub(crate) fn format_errors(errors: Vec<interpret::Error>) -> String {
 pub(crate) fn format_error(e: &interpret::Error) -> String {
     let mut message = String::new();
     if let Some(stack_trace) = e.stack_trace() {
-        write!(message, "{stack_trace}").unwrap();
+        write!(message, "{stack_trace}").expect("write should succeed");
     }
     let additional_help = python_help(e);
     let report = Report::new(e.clone());
     write!(message, "{report:?}")
         .unwrap_or_else(|err| panic!("writing error failed: {err} error was: {e:?}"));
     if let Some(additional_help) = additional_help {
-        writeln!(message, "{additional_help}").unwrap();
+        writeln!(message, "{additional_help}").expect("write should succeed");
     }
     message
 }

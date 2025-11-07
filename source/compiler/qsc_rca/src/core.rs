@@ -499,33 +499,32 @@ impl<'a> Analyzer<'a> {
 
         // To distinguish between a cyclic operation and a call to a cyclic operation, replace the cyclic operation
         // runtime feature (if any) by a call to a cyclic operation.
-        if let ComputeKind::Quantum(quantum_properties) = &mut compute_kind {
-            if quantum_properties
+        if let ComputeKind::Quantum(quantum_properties) = &mut compute_kind
+            && quantum_properties
                 .runtime_features
                 .contains(RuntimeFeatureFlags::CyclicOperationSpec)
-            {
-                quantum_properties
-                    .runtime_features
-                    .remove(RuntimeFeatureFlags::CyclicOperationSpec);
-                quantum_properties
-                    .runtime_features
-                    .insert(RuntimeFeatureFlags::CallToCyclicOperation);
-            }
+        {
+            quantum_properties
+                .runtime_features
+                .remove(RuntimeFeatureFlags::CyclicOperationSpec);
+            quantum_properties
+                .runtime_features
+                .insert(RuntimeFeatureFlags::CallToCyclicOperation);
         }
 
         // If the callable output has type parameters, there might be a discrepancy in the value kind variant we derive
         // from the application generator set and the value kind variant that corresponds to the call expression type.
         // Fix that discrepancy here.
-        if callable_decl.output.has_type_parameters() {
-            if let ComputeKind::Quantum(quantum_properties) = &mut compute_kind {
-                // Create a default value kind for the call expression type just to know which variant we should map to.
-                // Then map the currently computed variant onto it.
-                let mut mapped_value_kind = ValueKind::new_static_from_type(expr_type);
-                quantum_properties
-                    .value_kind
-                    .project_onto_variant(&mut mapped_value_kind);
-                quantum_properties.value_kind = mapped_value_kind;
-            }
+        if callable_decl.output.has_type_parameters()
+            && let ComputeKind::Quantum(quantum_properties) = &mut compute_kind
+        {
+            // Create a default value kind for the call expression type just to know which variant we should map to.
+            // Then map the currently computed variant onto it.
+            let mut mapped_value_kind = ValueKind::new_static_from_type(expr_type);
+            quantum_properties
+                .value_kind
+                .project_onto_variant(&mut mapped_value_kind);
+            quantum_properties.value_kind = mapped_value_kind;
         }
         CallComputeKind::Regular(compute_kind)
     }
@@ -685,7 +684,9 @@ impl<'a> Analyzer<'a> {
 
         // Visit the body and otherwise expressions to determine their compute kind.
         self.visit_expr(body_expr_id);
-        otherwise_expr_id.iter().for_each(|e| self.visit_expr(*e));
+        if let Some(e) = otherwise_expr_id.as_ref() {
+            self.visit_expr(*e);
+        }
 
         // Pop the dynamic scope.
         if within_dynamic_scope {
@@ -833,9 +834,15 @@ impl<'a> Analyzer<'a> {
         expr_type: &Ty,
     ) -> ComputeKind {
         // Visit the start, step and end expressions to determine their compute kind.
-        start_expr_id.iter().for_each(|e| self.visit_expr(*e));
-        step_expr_id.iter().for_each(|e| self.visit_expr(*e));
-        end_expr_id.iter().for_each(|e| self.visit_expr(*e));
+        if let Some(e) = start_expr_id.as_ref() {
+            self.visit_expr(*e);
+        }
+        if let Some(e) = step_expr_id.as_ref() {
+            self.visit_expr(*e);
+        }
+        if let Some(e) = end_expr_id.as_ref() {
+            self.visit_expr(*e);
+        }
 
         // The compute kind of a range expression is the aggregation of its start, step and end expressions.
         let application_instance = self.get_current_application_instance();

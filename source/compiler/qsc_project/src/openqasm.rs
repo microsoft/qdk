@@ -151,10 +151,10 @@ pub fn get_first_profile_pragma(program: &Program) -> Option<Profile> {
                 .as_ref()
                 .map_or_else(String::new, PathKind::as_string);
 
-            if name_str.to_lowercase() == "qdk.qir.profile" {
-                if let Some(ref value) = pragma.value {
-                    return Profile::from_str(value.as_ref()).ok();
-                }
+            if name_str.to_lowercase() == "qdk.qir.profile"
+                && let Some(ref value) = pragma.value
+            {
+                return Profile::from_str(value.as_ref()).ok();
             }
         }
     }

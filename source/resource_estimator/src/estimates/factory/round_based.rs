@@ -354,7 +354,7 @@ impl<P: Clone> Factory for RoundBasedFactory<P> {
         last_round.compute_num_output_states(failure_probability)
     }
 
-    fn max_code_parameter(&self) -> Option<Cow<P>> {
+    fn max_code_parameter(&self) -> Option<Cow<'_, P>> {
         self.code_parameter_per_round()
             .last()
             .expect("at least one round should be present")
