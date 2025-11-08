@@ -157,14 +157,17 @@ const _zoomButton = (
 ): SVGElement | null => {
   if (renderData == undefined) return null;
 
-  const [x1, y1] = _gatePosition(renderData, nestedDepth);
+  const [gateBoundingBoxX, gateBoundingBoxY] = _gateBoundingBox(
+    renderData,
+    nestedDepth,
+  );
   let { dataAttributes } = renderData;
   dataAttributes = dataAttributes || {};
 
   const expanded = "expanded" in dataAttributes;
 
-  const x = x1 + 2;
-  const y = y1 + 2;
+  const x = gateBoundingBoxX + 2;
+  const y = gateBoundingBoxY + 2;
   const circleBorder: SVGElement = circle(x, y, 10);
 
   if (expanded) {
@@ -187,45 +190,51 @@ const _zoomButton = (
 };
 
 /**
- * Calculate position of gate.
+ * Calculate the bounding box for a given operation, which
+ * may itself be a group of operations.
  *
  * @param renderData Operation render data.
  * @param nestedDepth Depth of nested operations.
  *
  * @returns [x, y, width, height]
  */
-const _gatePosition = (
+const _gateBoundingBox = (
   renderData: GateRenderData,
   nestedDepth: number,
 ): [number, number, number, number] => {
-  const { x, width, type, targetsY } = renderData;
+  const {
+    x: xFromRenderData,
+    width: widthFromRenderData,
+    type,
+    targetsY,
+  } = renderData;
 
   const ys = targetsY?.flatMap((y) => y as number[]) || [];
   const maxY = Math.max(...ys);
   const minY = Math.min(...ys);
 
-  let x1: number, y1: number, w: number, h: number;
+  let x: number, y: number, width: number, height: number;
 
   switch (type) {
     case GateType.Group: {
       const padding = groupBoxPadding - nestedDepth * nestedGroupPadding;
 
-      x1 = x - 2 * padding;
-      y1 = minY - gateHeight / 2 - padding;
-      w = width + 2 * padding;
-      h = maxY - minY + gateHeight + 2 * padding;
+      x = xFromRenderData - 2 * padding;
+      y = minY - gateHeight / 2 - padding;
+      width = widthFromRenderData + 2 * padding;
+      height = maxY - minY + gateHeight + 2 * padding;
 
-      return [x1, y1, w, h];
+      return [x, y, width, height];
     }
 
     default:
-      x1 = x - width / 2;
-      y1 = minY - gateHeight / 2;
-      w = width;
-      h = maxY - minY + gateHeight;
+      x = xFromRenderData - widthFromRenderData / 2;
+      y = minY - gateHeight / 2;
+      width = widthFromRenderData;
+      height = maxY - minY + gateHeight;
   }
 
-  return [x1, y1, w, h];
+  return [x, y, width, height];
 };
 
 /**
@@ -410,14 +419,23 @@ const _unitaryBox = (
  * @returns SVG representation of SWAP gate.
  */
 const _swap = (renderData: GateRenderData, nestedDepth: number): SVGElement => {
-  const { x, targetsY } = renderData;
+  const { x: centerX, targetsY } = renderData;
 
   // Get SVGs of crosses
-  const [x1, y1, w, h] = _gatePosition(renderData, nestedDepth);
+  const [boundingBoxX, boundingBoxY, width, height] = _gateBoundingBox(
+    renderData,
+    nestedDepth,
+  );
   const ys = targetsY?.flatMap((y) => y as number[]) || [];
-  const bg: SVGElement = box(x1, y1, w, h, "gate-swap");
-  const crosses: SVGElement[] = ys.map((y) => _cross(x, y));
-  const vertLine: SVGElement = line(x, ys[0], x, ys[1]);
+  const bg: SVGElement = box(
+    boundingBoxX,
+    boundingBoxY,
+    width,
+    height,
+    "gate-swap",
+  );
+  const crosses: SVGElement[] = ys.map((y) => _cross(centerX, y));
+  const vertLine: SVGElement = line(centerX, ys[0], centerX, ys[1]);
   vertLine.style.pointerEvents = "none";
   return group([bg, ...crosses, vertLine]);
 };
@@ -570,10 +588,10 @@ const _groupedOperations = (
   nestedDepth: number,
 ): SVGElement => {
   const { children } = renderData;
-  const [x1, y1, w, h] = _gatePosition(renderData, nestedDepth);
+  const [x, y, w, h] = _gateBoundingBox(renderData, nestedDepth);
 
   // Draw dashed box around children gates
-  const box: SVGElement = dashedBox(x1, y1, w, h, "gate-unitary");
+  const box: SVGElement = dashedBox(x, y, w, h, "gate-unitary");
   const elems: SVGElement[] = [box];
   if (children != null)
     elems.push(formatGates(children as GateRenderData[][], nestedDepth + 1));
