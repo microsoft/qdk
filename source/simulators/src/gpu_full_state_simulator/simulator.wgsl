@@ -479,6 +479,43 @@ fn apply_2q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
     shot.qubits_updated_last_op_mask = (1u << op.q1 ) | (1u << op.q2);
 }
 
+struct ShotParams {
+    shot_idx: i32,
+    shot_state_vector_start: i32,
+    workgroup_collation_idx: i32,
+    workgroup_idx_in_shot: i32,
+    chunk_idx: i32,
+    start_count: i32,
+    end_count: i32,
+}
+
+fn get_shot_params(
+        workgroupId: u32,
+        tid: u32) -> ShotParams {
+    // Workgroups are per shot if 22 or less qubits, else 2 workgroups for 23 qubits, 4 for 24, etc..
+    let shot_idx: i32 = i32(workgroupId) / WORKGROUPS_PER_SHOT;
+    let shot_state_vector_start: i32 = shot_idx * (1 << u32(QUBIT_COUNT));
+    // If using multiple workgroups per shot, each workgroup will write its partial sums here for later collation
+    // Use -1 as a marker for single workgroup per shot case to indicate no collation needed (in which
+    // case we should write directly to the shot).
+    let workgroup_collation_idx: i32 = select(-1, i32(workgroupId), WORKGROUPS_PER_SHOT > 1);
+    let workgroup_idx_in_shot: i32 = i32(workgroupId) % WORKGROUPS_PER_SHOT;
+    let chunk_idx: i32 = workgroup_idx_in_shot * THREADS_PER_WORKGROUP + i32(tid);
+
+    let iterations = ENTRIES_PER_THREAD >> 1;
+    let start_count = chunk_idx * iterations;
+    let end_count = start_count + iterations;
+
+    return ShotParams(
+        shot_idx,
+        shot_state_vector_start,
+        workgroup_collation_idx,
+        workgroup_idx_in_shot,
+        chunk_idx,
+        start_count,
+        end_count);
+}
+
 // *******************************
 // PREPARE OP
 // This stage prepares the shot state for the next operation to execute (and any updates needed from the prior op)
@@ -607,14 +644,13 @@ fn execute_op(
 
     // Workgroups are per shot if 22 or less qubits, else 2 workgroups for 23 qubits, 4 for 24, etc..
     let shot = &shots[params.shot_idx];
+    let op_idx = shot.op_idx;
+    let op = &ops[op_idx];
 
     // Exit early if an id op with no renomalization required
     if (shot.op_type == OPID_ID && shot.renormalize == 1.0) {
         return;
     }
-
-    let op_idx = shot.op_idx;
-    let op = &ops[op_idx];
 
     if (shot.op_type == OPID_RESET && op.q1 == ALL_QUBITS) {
         let thread_start_idx: i32 = params.shot_state_vector_start +
@@ -631,13 +667,45 @@ fn execute_op(
         return;
     }
 
-    let summed_probs: vec4f = apply_1q_unitary(
-            params.shot_state_vector_start,
-            params.chunk_idx,
-            op.q1,
-            tid,
-            params.workgroup_collation_idx,
-            params.shot_idx);
+    let lowMask = (1 << op.q1) - 1;
+    let highMask = (1 << u32(QUBIT_COUNT)) - 1 - lowMask;
+
+    // Optimize for phase operations (e.g., Z, S, T, Rz, etc.) where we can skip half the memory writes
+    let zero_untouched = shot.unitary[0].x == 1.0 && shot.unitary[0].y == 0.0 &&
+                   shot.unitary[1].x == 0.0 && shot.unitary[1].y == 0.0;
+
+    // For now, always recompute the probabilities from scratch when a qubit is acted upon.
+    // (Could me a minor optimization to skip if the unitary doesn't change 0/1 probabilities, e.g., Id, S, Rz, etc.)
+    var summed_probs: vec4f = vec4f();
+
+    // This loop is where all the real work happens. Try to keep this tight and efficient.
+    for (var i: i32 = params.start_count; i < params.end_count; i++) {
+        let offset0: i32 = (i & lowMask) | ((i & highMask) << 1);
+        let offset1: i32 = offset0 | (1 << op.q1);
+
+        // See if we can skip doing any work for this pair, because the state vector entries to processes
+        // are both definitely 0.0, as we know they are for states where other qubits are in definite opposite state.
+        let skip_processing = OPT_SKIP_DEFINITE_STATES &&
+            ((offset0 & i32(shots[params.shot_idx].qubit_is_0_mask)) != 0) ||
+            ((~offset1 & i32(shots[params.shot_idx].qubit_is_1_mask)) != 0);
+
+        if (!skip_processing) {
+            let amp0: vec2f = stateVector[params.shot_state_vector_start + offset0];
+            let amp1: vec2f = stateVector[params.shot_state_vector_start + offset1];
+
+            let new0 = cplxMul(amp0, shot.unitary[0]) + cplxMul(amp1, shot.unitary[1]);
+            let new1 = cplxMul(amp0, shot.unitary[4]) + cplxMul(amp1, shot.unitary[5]);
+
+            if (!zero_untouched) {
+                stateVector[params.shot_state_vector_start + offset0] = new0;
+            }
+            stateVector[params.shot_state_vector_start + offset1] = new1;
+
+            // Update the probabilities for the acted on qubit
+            summed_probs[0] += cplxMag2(new0);
+            summed_probs[1] += cplxMag2(new1);
+        }
+    }
 
     // Update this thread's totals for the two qubits in the workgroup storage
     qubitProbabilities[tid].zero[op.q1] = summed_probs[0];
@@ -654,43 +722,6 @@ fn execute_op(
             }
         }
     }
-}
-
-struct ShotParams {
-    shot_idx: i32,
-    shot_state_vector_start: i32,
-    workgroup_collation_idx: i32,
-    workgroup_idx_in_shot: i32,
-    chunk_idx: i32,
-    start_count: i32,
-    end_count: i32,
-}
-
-fn get_shot_params(
-        workgroupId: u32,
-        tid: u32) -> ShotParams {
-    // Workgroups are per shot if 22 or less qubits, else 2 workgroups for 23 qubits, 4 for 24, etc..
-    let shot_idx: i32 = i32(workgroupId) / WORKGROUPS_PER_SHOT;
-    let shot_state_vector_start: i32 = shot_idx * (1 << u32(QUBIT_COUNT));
-    // If using multiple workgroups per shot, each workgroup will write its partial sums here for later collation
-    // Use -1 as a marker for single workgroup per shot case to indicate no collation needed (in which
-    // case we should write directly to the shot).
-    let workgroup_collation_idx: i32 = select(-1, i32(workgroupId), WORKGROUPS_PER_SHOT > 1);
-    let workgroup_idx_in_shot: i32 = i32(workgroupId) % WORKGROUPS_PER_SHOT;
-    let chunk_idx: i32 = workgroup_idx_in_shot * THREADS_PER_WORKGROUP + i32(tid);
-
-    let iterations = ENTRIES_PER_THREAD >> 1;
-    let start_count = chunk_idx * iterations;
-    let end_count = start_count + iterations;
-
-    return ShotParams(
-        shot_idx,
-        shot_state_vector_start,
-        workgroup_collation_idx,
-        workgroup_idx_in_shot,
-        chunk_idx,
-        start_count,
-        end_count);
 }
 
 @compute @workgroup_size(THREADS_PER_WORKGROUP)
@@ -823,159 +854,6 @@ fn update_all_qubit_probs(stateVectorIndex: u32, amplitude: vec2f, tid: u32) {
         }
         mask = mask << 1u;
     }
-}
-
-fn apply_1q_unitary(
-        shot_start_offset: i32, // The starting index of the shot in the state vector
-        chunk_idx: i32,         // The index of this chunk within the shot
-        qubit: u32,             // The target qubit to apply the 1-qubit gate to
-        tid: u32,               // Workgroup thread index to index into the per workgroup probability storage
-        wkg_collation_idx: i32, // If >=0, the index in the workgroup collation buffer to write partial sums to
-        shot_idx: i32,   // The index of the shot in the shot buffer
-    ) -> vec4f {
-    // First, exit early if we don't need to do any work. If the operation is an ID, there is no renormalization,
-    // and we are not updating probabilities, then there is nothing to do.
-    let shot = &shots[shot_idx];
-
-    // Each iteration processes 2 amplitudes (the pair affected by the 1-qubit gate), so half as many iterations as chunk size
-    let iterations = ENTRIES_PER_THREAD >> 1;
-
-    let start_count = chunk_idx * iterations;
-    let end_count = start_count + iterations;
-    let lowMask = (1 << qubit) - 1;
-    let highMask = (1 << u32(QUBIT_COUNT)) - 1 - lowMask;
-
-    // Optimize for phase operations (e.g., Z, S, T, Rz, etc.) where we can skip half the memory writes
-    let zero_untouched = shot.unitary[0].x == 1.0 && shot.unitary[0].y == 0.0 &&
-                   shot.unitary[1].x == 0.0 && shot.unitary[1].y == 0.0;
-
-    // For now, always recompute the probabilities from scratch when a qubit is acted upon.
-    // (Could me a minor optimization to skip if the unitary doesn't change 0/1 probabilities, e.g., Id, S, Rz, etc.)
-    var summed_probs: vec4f = vec4f();
-
-    // This loop is where all the real work happens. Try to keep this tight and efficient.
-    //for (var i: i32 = 0; i < iterations; i++) {
-    for (var i: i32 = start_count; i < end_count; i++) {
-        let offset0: i32 = (i & lowMask) | ((i & highMask) << 1);
-        let offset1: i32 = offset0 | (1 << qubit);
-
-        // See if we can skip doing any work for this pair, because the state vector entries to processes
-        // are both definitely 0.0, as we know they are for states where other qubits are in definite opposite state.
-        let skip_processing = OPT_SKIP_DEFINITE_STATES &&
-            ((offset0 & i32(shots[shot_idx].qubit_is_0_mask)) != 0) ||
-            ((~offset1 & i32(shots[shot_idx].qubit_is_1_mask)) != 0);
-
-        if (!skip_processing) {
-            let amp0: vec2f = stateVector[shot_start_offset + offset0];
-            let amp1: vec2f = stateVector[shot_start_offset + offset1];
-
-            let new0 = cplxMul(amp0, shot.unitary[0]) + cplxMul(amp1, shot.unitary[1]);
-            let new1 = cplxMul(amp0, shot.unitary[4]) + cplxMul(amp1, shot.unitary[5]);
-
-            if (!zero_untouched) {
-                stateVector[shot_start_offset + offset0] = new0;
-            }
-            stateVector[shot_start_offset + offset1] = new1;
-
-            // Update the probabilities for the acted on qubit
-            summed_probs[0] += cplxMag2(new0);
-            summed_probs[1] += cplxMag2(new1);
-        }
-    }
-
-    return summed_probs;
-}
-
-fn apply_2q_unitary(
-        shot_start_offset: i32,
-        chunk_idx: i32,
-        c: u32,
-        t: u32,
-        tid: u32,
-        workgroup_collation_idx: i32,
-        shot_idx: i32) -> vec4f {
-
-    let shot = &shots[shot_idx];
-    // Each iteration processes 4 amplitudes (the four affected by the 2-qubit gate), so quarter as many iterations as chunk size
-    let iterations = ENTRIES_PER_THREAD >> 2;
-
-    // Calculate masks to split the index into low, mid, and high bits around the two qubits
-    let lowQubit = select(c, t, c > t);
-    let hiQubit = select(c, t, c < t);
-
-    // Number of bits in each section
-    let lowBitCount = lowQubit;
-    let midBitCount = hiQubit - lowQubit - 1;
-    let hiBitCount = u32(QUBIT_COUNT) - hiQubit - 1;
-
-    // The masks below help extract the low, mid, and high bits from the counter to use around the two qubits locations
-    let lowMask = (1 << lowBitCount) - 1;
-    let midMask = (1 << (lowBitCount + midBitCount)) - 1 - lowMask;
-    let hiMask = (1 << u32(QUBIT_COUNT)) - 1 - midMask - lowMask;
-
-    // The counter is the monotonic index for all the iterations. Each iteration processes 4 amplitudes.
-    // As this is divided into chunks, we need to offset by the chunk start count.
-    let counter  = chunk_idx * iterations;
-    let end_count = counter + iterations;
-
-    var summed_probs: vec4f = vec4f();
-
-    for (var i: i32 = counter; i < end_count; i++) {
-        // q1 is the control, q2 is the target
-        let offset00: i32 = (i & lowMask) | ((i & midMask) << 1) | ((i & hiMask) << 2);
-        let offset01: i32 = offset00 | (1 << t);
-        let offset10: i32 = offset00 | (1 << c);
-        let offset11: i32 = offset10 | (1 << t);
-
-        let can_skip_processing = OPT_SKIP_DEFINITE_STATES &&
-            ((u32(offset00) & shot.qubit_is_0_mask) != 0) ||
-            ((~(u32(offset11)) & shot.qubit_is_1_mask) != 0);
-        if (can_skip_processing) { continue; }
-
-        let amp00: vec2f = stateVector[shot_start_offset + offset00];
-        let amp01: vec2f = stateVector[shot_start_offset + offset01];
-        let amp10: vec2f = stateVector[shot_start_offset + offset10];
-        let amp11: vec2f = stateVector[shot_start_offset + offset11];
-
-        // Initialize result as per CZ (as likely most common)
-        var result00: vec2f = amp00;
-        var result01: vec2f = amp01;
-        var result10: vec2f = amp10;
-        var result11: vec2f = vec2f(-amp11.x, -amp11.y);
-
-        switch shot.op_type {
-          case OPID_CZ {
-            // This was already negated above
-            stateVector[shot_start_offset + offset11] = result11;
-          }
-          case OPID_CX {
-            result10 = amp11;
-            result11 = amp10;
-            stateVector[shot_start_offset + offset10] = result10;
-            stateVector[shot_start_offset + offset11] = result11;
-          }
-          default {
-            // Assume OPID_SHOT_BUFF_2Q
-            let states = array<vec2f,4>(amp00, amp01, amp10, amp11);
-            result00 = innerProduct(getUnitaryRow(shot_idx, 0), states);
-            result01 = innerProduct(getUnitaryRow(shot_idx, 1), states);
-            result10 = innerProduct(getUnitaryRow(shot_idx, 2), states);
-            result11 = innerProduct(getUnitaryRow(shot_idx, 3), states);
-            stateVector[shot_start_offset + offset00] = result00;
-            stateVector[shot_start_offset + offset01] = result01;
-            stateVector[shot_start_offset + offset10] = result10;
-            stateVector[shot_start_offset + offset11] = result11;
-          }
-        }
-
-        // Update the probabilities for the acted on qubits
-        summed_probs[0] += cplxMag2(result00) + cplxMag2(result01);
-        summed_probs[1] += cplxMag2(result10) + cplxMag2(result11);
-        summed_probs[2] += cplxMag2(result00) + cplxMag2(result10);
-        summed_probs[3] += cplxMag2(result01) + cplxMag2(result11);
-    }
-
-    return summed_probs;
 }
 
 @compute @workgroup_size(THREADS_PER_WORKGROUP)
