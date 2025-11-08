@@ -121,16 +121,16 @@ export async function activate(
                 tab.input instanceof vscode.TabInputCustom &&
                 tab.input.uri.toString() === l.uri.toString()
               ) {
-                // viewColumn = tabGroup.viewColumn;
+                viewColumn = tabGroup.viewColumn;
               }
             }
           }
 
-          // const document = await vscode.workspace.openTextDocument(l.uri);
+          const document = await vscode.workspace.openTextDocument(l.uri);
 
-          // await vscode.window.showTextDocument(document, {
-          //   viewColumn,
-          // });
+          await vscode.window.showTextDocument(document, {
+            viewColumn,
+          });
         }
 
         if (validLocations.length > 0) {
