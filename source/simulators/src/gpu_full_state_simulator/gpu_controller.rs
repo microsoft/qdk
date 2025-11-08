@@ -3,7 +3,9 @@
 
 #![allow(unused)]
 
-use super::shader_types::{Op, Result};
+use crate::shader_types;
+
+use super::shader_types::{Op, Result, ops};
 
 use futures::FutureExt;
 use rand::distributions::uniform;
@@ -51,6 +53,7 @@ pub struct GpuContext {
 struct GpuResources {
     pipeline_prepare_op: ComputePipeline,
     pipeline_execute_op: ComputePipeline,
+    pipeline_execute_mz: ComputePipeline,
     bind_group: BindGroup,
     buffers: GpuBuffers,
 }
@@ -348,6 +351,7 @@ impl GpuContext {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     pub fn create_resources(&mut self) {
         let buffers = self.create_buffers();
 
@@ -436,14 +440,35 @@ impl GpuContext {
                     cache: None,
                 });
 
+        let pipeline_execute_mz =
+            self.device
+                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some("execute_mz pipeline"),
+                    layout: Some(pipeline_layout),
+                    module: &self.shader_module,
+                    entry_point: Some("execute_mz"),
+                    compilation_options: wgpu::PipelineCompilationOptions {
+                        constants: &[
+                            ("QUBIT_COUNT", qubit_count),
+                            ("WORKGROUPS_PER_SHOT", workgroups_per_shot),
+                            ("RESULT_COUNT", result_count),
+                            ("ENTRIES_PER_THREAD", entries_per_thread),
+                        ],
+                        ..Default::default()
+                    },
+                    cache: None,
+                });
+
         self.resources = Some(GpuResources {
             pipeline_prepare_op,
             pipeline_execute_op,
+            pipeline_execute_mz,
             bind_group,
             buffers,
         });
     }
 
+    #[allow(clippy::too_many_lines)]
     pub async fn run(&self) -> Vec<u32> {
         let resources: &GpuResources = self.resources.as_ref().expect("Resources not initialized");
 
@@ -519,12 +544,30 @@ impl GpuContext {
                 .expect("workgroups_per_shot * shots_per_batch should fit in u32");
 
         // Dispatch the compute shaders for each op for this batch of shots
-        for i in 0..self.run_params.gate_op_count {
-            compute_pass.set_pipeline(&resources.pipeline_prepare_op);
-            compute_pass.dispatch_workgroups(prepare_workgroup_count, 1, 1);
+        for op in &self.ops {
+            match op.id {
+                // One and two qubit gates use the same prepare/execute pattern for now
+                ops::ID..=ops::RZ | ops::MOVE | ops::CX..=ops::RZZ => {
+                    compute_pass.set_pipeline(&resources.pipeline_prepare_op);
+                    compute_pass.dispatch_workgroups(prepare_workgroup_count, 1, 1);
 
-            compute_pass.set_pipeline(&resources.pipeline_execute_op);
-            compute_pass.dispatch_workgroups(execute_workgroup_count, 1, 1);
+                    compute_pass.set_pipeline(&resources.pipeline_execute_op);
+                    compute_pass.dispatch_workgroups(execute_workgroup_count, 1, 1);
+                }
+                ops::MRESETZ | ops::MZ => {
+                    // Measurement has its own execute pipeline
+                    compute_pass.set_pipeline(&resources.pipeline_prepare_op);
+                    compute_pass.dispatch_workgroups(prepare_workgroup_count, 1, 1);
+
+                    compute_pass.set_pipeline(&resources.pipeline_execute_mz);
+                    compute_pass.dispatch_workgroups(execute_workgroup_count, 1, 1);
+                }
+                // Skip over noise ops
+                ops::PAULI_NOISE_1Q..=ops::LOSS_NOISE => {}
+                _ => {
+                    panic!("Unsupported op ID {}", op.id);
+                }
+            }
         }
 
         drop(compute_pass);
