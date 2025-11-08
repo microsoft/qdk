@@ -308,15 +308,15 @@ fn test_benzene() {
         Op::new_pauli_noise_2q(3, 9, 0.000166, 0.000166, 0.000166),
         Op::new_h_gate(2),
         Op::new_pauli_noise_1q(2, 0.000166, 0.000166, 0.000166),
+        Op::new_mresetz_gate(2, 0),
         Op::new_h_gate(3),
         Op::new_pauli_noise_1q(3, 0.000166, 0.000166, 0.000166),
+        Op::new_mresetz_gate(3, 1),
         Op::new_h_gate(8),
         Op::new_pauli_noise_1q(8, 0.000166, 0.000166, 0.000166),
+        Op::new_mresetz_gate(8, 2),
         Op::new_h_gate(9),
         Op::new_pauli_noise_1q(9, 0.000166, 0.000166, 0.000166),
-        Op::new_mresetz_gate(2, 0),
-        Op::new_mresetz_gate(3, 1),
-        Op::new_mresetz_gate(8, 2),
         Op::new_mresetz_gate(9, 3),
     ];
     let start = Instant::now();
