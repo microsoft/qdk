@@ -381,7 +381,7 @@ fn apply_1q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
     }
 
     shot.op_idx = op_idx;
-    shot.qubits_updated_last_op_mask = 1u << op.q1;
+    if (shot.op_type != OPID_ID) shot.qubits_updated_last_op_mask =  1u << op.q1;
 }
 
 fn apply_2q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
@@ -471,7 +471,13 @@ fn apply_2q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
         }
     }
     shot.op_idx = op_idx;
-    shot.qubits_updated_last_op_mask = (1u << op.q1 ) | (1u << op.q2);
+    if (shot.op_type == OPID_CZ) {
+        shot.qubits_updated_last_op_mask = 0u;
+    } else if (shot.op_type == OPID_CX) {
+        shot.qubits_updated_last_op_mask = 1u << op.q2;
+    } else  {
+        shot.qubits_updated_last_op_mask = (1u << op.q1 ) | (1u << op.q2);
+    }
 }
 
 struct ShotParams {
@@ -673,9 +679,21 @@ fn execute_op(
     // (Could me a minor optimization to skip if the unitary doesn't change 0/1 probabilities, e.g., Id, S, Rz, etc.)
     var summed_probs: vec4f = vec4f();
 
-    // This loop is where all the real work happens. Try to keep this tight and efficient.
-    for (var i: i32 = params.start_count; i < params.end_count; i++) {
-        let offset0: i32 = (i & lowMask) | ((i & highMask) << 1);
+    /* This loop is where all the real work happens. Try to keep this tight and efficient.
+
+    We want a 'structure of arrays' like access pattern here for efficiency, so we process the state vector
+    in blocks where each thread in the workgroup(s) handle an adjacent entry to be processed.
+
+    Each thread should start at the state vector shot start + 'chunk_idx', which is sequential across the workgroup threads
+    Each next entry for the thread is WORKGROUPS_PER_SHOT * THREADS_PER_WORKGROUP away.
+    The thread should process ENTRIES_PER_THREAD entries in total.
+    */
+    var entry_index = params.chunk_idx;
+    let entry_jumps = WORKGROUPS_PER_SHOT * THREADS_PER_WORKGROUP;
+    let iterations = ENTRIES_PER_THREAD >> 1;
+
+    for (var i = 0; i < iterations; i++) {
+        let offset0: i32 = (entry_index & lowMask) | ((entry_index & highMask) << 1);
         let offset1: i32 = offset0 | (1 << op.q1);
 
         // See if we can skip doing any work for this pair, because the state vector entries to processes
@@ -700,6 +718,7 @@ fn execute_op(
             summed_probs[0] += cplxMag2(new0);
             summed_probs[1] += cplxMag2(new1);
         }
+        entry_index = entry_index + entry_jumps;
     }
 
     // Update this thread's totals for the two qubits in the workgroup storage
@@ -737,9 +756,6 @@ fn execute_2q_op(
     let op_idx = shot.op_idx;
     let op = &ops[op_idx];
 
-    // Each iteration processes 4 amplitudes (the four affected by the 2-qubit gate), so quarter as many iterations as chunk size
-    let iterations = ENTRIES_PER_THREAD >> 2;
-
     // Calculate masks to split the index into low, mid, and high bits around the two qubits
     let lowQubit = select(op.q1, op.q2, op.q1 > op.q2);
     let hiQubit = select(op.q1, op.q2, op.q1 < op.q2);
@@ -754,16 +770,16 @@ fn execute_2q_op(
     let midMask = (1 << (lowBitCount + midBitCount)) - 1 - lowMask;
     let hiMask = (1 << u32(QUBIT_COUNT)) - 1 - midMask - lowMask;
 
-    // The counter is the monotonic index for all the iterations. Each iteration processes 4 amplitudes.
-    // As this is divided into chunks, we need to offset by the chunk start count.
-    let counter  = params.chunk_idx * iterations;
-    let end_count = counter + iterations;
+    // Each iteration processes 4 amplitudes (the four affected by the 2-qubit gate), so quarter as many iterations as chunk size
+    let iterations = ENTRIES_PER_THREAD >> 2;
+    var entry_index = params.chunk_idx;
+    let entry_jumps = WORKGROUPS_PER_SHOT * THREADS_PER_WORKGROUP;
 
     var summed_probs: vec4f = vec4f();
 
-    for (var i: i32 = counter; i < end_count; i++) {
+    for (var i = 0; i < iterations; i++) {
         // q1 is the control, q2 is the target
-        let offset00: i32 = (i & lowMask) | ((i & midMask) << 1) | ((i & hiMask) << 2);
+        let offset00: i32 = (entry_index & lowMask) | ((entry_index & midMask) << 1) | ((entry_index & hiMask) << 2);
         let offset01: i32 = offset00 | (1 << op.q2);
         let offset10: i32 = offset00 | (1 << op.q1);
         let offset11: i32 = offset10 | (1 << op.q2);
@@ -773,54 +789,70 @@ fn execute_2q_op(
             ((~(u32(offset11)) & shot.qubit_is_1_mask) != 0);
         if (can_skip_processing) { continue; }
 
-        let amp00: vec2f = stateVector[params.shot_state_vector_start + offset00];
-        let amp01: vec2f = stateVector[params.shot_state_vector_start + offset01];
-        let amp10: vec2f = stateVector[params.shot_state_vector_start + offset10];
-        let amp11: vec2f = stateVector[params.shot_state_vector_start + offset11];
-
-        // Initialize result as per CZ (as likely most common)
-        var result00: vec2f = amp00;
-        var result01: vec2f = amp01;
-        var result10: vec2f = amp10;
-        var result11: vec2f = vec2f(-amp11.x, -amp11.y);
-
         switch shot.op_type {
           case OPID_CZ {
             // This was already negated above
-            stateVector[params.shot_state_vector_start + offset11] = result11;
+            let amp11: vec2f = stateVector[params.shot_state_vector_start + offset11];
+            stateVector[params.shot_state_vector_start + offset11] = cplxNeg(amp11);
+            // CZ doesn't change any probabilities, so no need to update summed_probs
           }
           case OPID_CX {
-            result10 = amp11;
-            result11 = amp10;
-            stateVector[params.shot_state_vector_start + offset10] = result10;
-            stateVector[params.shot_state_vector_start + offset11] = result11;
+            let amp10: vec2f = stateVector[params.shot_state_vector_start + offset10];
+            let amp11: vec2f = stateVector[params.shot_state_vector_start + offset11];
+            stateVector[params.shot_state_vector_start + offset10] = amp11;
+            stateVector[params.shot_state_vector_start + offset11] = amp10;
+            // Only the target qubit probabilities change
+            summed_probs[2] += cplxMag2(amp11);
+            summed_probs[3] += cplxMag2(amp10);
           }
           default {
             // Assume OPID_SHOT_BUFF_2Q
-            let states = array<vec2f,4>(amp00, amp01, amp10, amp11);
-            result00 = innerProduct(getUnitaryRow(params.shot_idx, 0), states);
-            result01 = innerProduct(getUnitaryRow(params.shot_idx, 1), states);
-            result10 = innerProduct(getUnitaryRow(params.shot_idx, 2), states);
-            result11 = innerProduct(getUnitaryRow(params.shot_idx, 3), states);
+            // Get the state vector entries
+            let states = array<vec2f,4>(
+                stateVector[params.shot_state_vector_start + offset00],
+                stateVector[params.shot_state_vector_start + offset01],
+                stateVector[params.shot_state_vector_start + offset10],
+                stateVector[params.shot_state_vector_start + offset11]
+            );
+            // Apply the unitary from the shot buffer
+            let result00 = innerProduct(getUnitaryRow(params.shot_idx, 0), states);
+            let result01 = innerProduct(getUnitaryRow(params.shot_idx, 1), states);
+            let result10 = innerProduct(getUnitaryRow(params.shot_idx, 2), states);
+            let result11 = innerProduct(getUnitaryRow(params.shot_idx, 3), states);
+            // Write back the results
             stateVector[params.shot_state_vector_start + offset00] = result00;
             stateVector[params.shot_state_vector_start + offset01] = result01;
             stateVector[params.shot_state_vector_start + offset10] = result10;
             stateVector[params.shot_state_vector_start + offset11] = result11;
+            // Update the probabilities for the acted on qubits
+            summed_probs[0] += cplxMag2(result00) + cplxMag2(result01);
+            summed_probs[1] += cplxMag2(result10) + cplxMag2(result11);
+            summed_probs[2] += cplxMag2(result00) + cplxMag2(result10);
+            summed_probs[3] += cplxMag2(result01) + cplxMag2(result11);
           }
         }
 
-        // Update the probabilities for the acted on qubits
-        summed_probs[0] += cplxMag2(result00) + cplxMag2(result01);
-        summed_probs[1] += cplxMag2(result10) + cplxMag2(result11);
-        summed_probs[2] += cplxMag2(result00) + cplxMag2(result10);
-        summed_probs[3] += cplxMag2(result01) + cplxMag2(result11);
+        entry_index = entry_index + entry_jumps;
     }
 
     // Update this thread's totals for the two qubits in the workgroup storage
-    qubitProbabilities[tid].zero[op.q1] = summed_probs[0];
-    qubitProbabilities[tid].one[op.q1]  = summed_probs[1];
-    qubitProbabilities[tid].zero[op.q2] = summed_probs[2];
-    qubitProbabilities[tid].one[op.q2]  = summed_probs[3];
+    switch shot.op_type {
+      case OPID_CZ {
+        // No probability changes for CZ
+      }
+      case OPID_CX {
+        // Only target qubit probabilities change
+        qubitProbabilities[tid].zero[op.q2] = summed_probs[2];
+        qubitProbabilities[tid].one[op.q2]  = summed_probs[3];
+      }
+      default {
+        // Update all for other 2-qubit gates
+        qubitProbabilities[tid].zero[op.q1] = summed_probs[0];
+        qubitProbabilities[tid].one[op.q1]  = summed_probs[1];
+        qubitProbabilities[tid].zero[op.q2] = summed_probs[2];
+        qubitProbabilities[tid].one[op.q2]  = summed_probs[3];
+      }
+    }
 
     workgroupBarrier();
 
@@ -828,12 +860,13 @@ fn execute_2q_op(
     // totals for this workgroup. The subsequent 'prepare_op' will sum the workgroup entries into the shot state.
     if (tid == 0) {
         for (var q: u32 = 0u; q < u32(QUBIT_COUNT); q++) {
-            if (q == op.q1 || q == op.q2) {
+            let update_q1 = (q == op.q1) && ((shot.op_type != OPID_CX) && (shot.op_type != OPID_CZ));
+            let update_q2 = (q == op.q2) && (shot.op_type != OPID_CZ);
+            if (update_q1 || update_q2) {
                 sum_thread_totals_to_shot(q, params.shot_idx, params.workgroup_collation_idx);
             }
         }
     }
-
 }
 
 // For the state vector index and amplitude probability, update all the qubit probabilities for this thread
