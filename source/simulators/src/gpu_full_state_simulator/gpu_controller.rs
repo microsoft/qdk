@@ -53,6 +53,7 @@ pub struct GpuContext {
 struct GpuResources {
     pipeline_prepare_op: ComputePipeline,
     pipeline_execute_op: ComputePipeline,
+    pipeline_execute_2q_op: ComputePipeline,
     pipeline_execute_mz: ComputePipeline,
     bind_group: BindGroup,
     buffers: GpuBuffers,
@@ -440,6 +441,25 @@ impl GpuContext {
                     cache: None,
                 });
 
+        let pipeline_execute_2q_op =
+            self.device
+                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some("execute_2q_op pipeline"),
+                    layout: Some(pipeline_layout),
+                    module: &self.shader_module,
+                    entry_point: Some("execute_2q_op"),
+                    compilation_options: wgpu::PipelineCompilationOptions {
+                        constants: &[
+                            ("QUBIT_COUNT", qubit_count),
+                            ("WORKGROUPS_PER_SHOT", workgroups_per_shot),
+                            ("RESULT_COUNT", result_count),
+                            ("ENTRIES_PER_THREAD", entries_per_thread),
+                        ],
+                        ..Default::default()
+                    },
+                    cache: None,
+                });
+
         let pipeline_execute_mz =
             self.device
                 .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -462,6 +482,7 @@ impl GpuContext {
         self.resources = Some(GpuResources {
             pipeline_prepare_op,
             pipeline_execute_op,
+            pipeline_execute_2q_op,
             pipeline_execute_mz,
             bind_group,
             buffers,
@@ -546,12 +567,20 @@ impl GpuContext {
         // Dispatch the compute shaders for each op for this batch of shots
         for op in &self.ops {
             match op.id {
-                // One and two qubit gates use the same prepare/execute pattern for now
-                ops::ID..=ops::RZ | ops::MOVE | ops::CX..=ops::RZZ => {
+                // One qubit gates
+                ops::ID..=ops::RZ | ops::MOVE => {
                     compute_pass.set_pipeline(&resources.pipeline_prepare_op);
                     compute_pass.dispatch_workgroups(prepare_workgroup_count, 1, 1);
 
                     compute_pass.set_pipeline(&resources.pipeline_execute_op);
+                    compute_pass.dispatch_workgroups(execute_workgroup_count, 1, 1);
+                }
+                // Two qubit gates
+                ops::CX..=ops::RZZ => {
+                    compute_pass.set_pipeline(&resources.pipeline_prepare_op);
+                    compute_pass.dispatch_workgroups(prepare_workgroup_count, 1, 1);
+
+                    compute_pass.set_pipeline(&resources.pipeline_execute_2q_op);
                     compute_pass.dispatch_workgroups(execute_workgroup_count, 1, 1);
                 }
                 ops::MRESETZ | ops::MZ => {
