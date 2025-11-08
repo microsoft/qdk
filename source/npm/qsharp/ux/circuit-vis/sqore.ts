@@ -208,7 +208,7 @@ export class Sqore {
     const { qubits, componentGrid } = circuit;
     const { qubitWires, registers, svgHeight } = formatInputs(
       qubits,
-      !this.options.isEditable ? this.options.renderLocations : undefined,
+      !this.options.isEditable ? undefined : this.options.renderLocations,
     );
     const { renderDataArray, svgWidth } = processOperations(
       componentGrid,

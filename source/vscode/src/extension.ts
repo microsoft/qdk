@@ -108,30 +108,40 @@ export async function activate(
           return;
         }
 
+        let viewColumn = vscode.ViewColumn.One;
         for (const l of validLocations) {
-          const document = await vscode.workspace.openTextDocument(l.uri);
-          const existingEditor = vscode.window.visibleTextEditors.find(
-            (e) => e.document.uri.toString() === l.uri.toString(),
-          );
-          const viewColumn =
-            existingEditor?.viewColumn ?? vscode.ViewColumn.One;
+          for (const tabGroup of vscode.window.tabGroups.all) {
+            for (const tab of tabGroup.tabs) {
+              if (
+                tab.input instanceof vscode.TabInputText &&
+                tab.input.uri.toString() === l.uri.toString()
+              ) {
+                viewColumn = tabGroup.viewColumn;
+              } else if (
+                tab.input instanceof vscode.TabInputCustom &&
+                tab.input.uri.toString() === l.uri.toString()
+              ) {
+                // viewColumn = tabGroup.viewColumn;
+              }
+            }
+          }
 
-          // Force the document to open and take focus first in our preferred
-          // view column - this prevents the `goToLocations` command
-          // below from opening the document in whatever view column currently
-          // has focus.
-          await vscode.window.showTextDocument(document, {
-            viewColumn,
-          });
+          // const document = await vscode.workspace.openTextDocument(l.uri);
+
+          // await vscode.window.showTextDocument(document, {
+          //   viewColumn,
+          // });
         }
 
-        vscode.commands.executeCommand(
-          "editor.action.goToLocations",
-          validLocations[0].uri,
-          validLocations[0].range.start,
-          validLocations,
-          "peek",
-        );
+        if (validLocations.length > 0) {
+          vscode.commands.executeCommand(
+            "editor.action.goToLocations",
+            validLocations[0].uri,
+            validLocations[0].range.start,
+            validLocations,
+            "peek",
+          );
+        }
       },
     ),
   );

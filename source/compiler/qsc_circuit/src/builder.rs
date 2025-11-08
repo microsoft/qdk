@@ -9,7 +9,7 @@ use crate::{
         Circuit, Ket, Measurement, Operation, PackageOffset, Qubit, Register,
         ResolvedSourceLocation, SourceLocation, Unitary, operation_list_to_grid,
     },
-    operations::QubitParamInfo,
+    operations::QubitParam,
 };
 use qsc_data_structures::{
     index_map::IndexMap,
@@ -145,7 +145,7 @@ impl CircuitTracer {
     pub fn with_qubit_input_params(
         config: TracerConfig,
         user_package_ids: &[PackageId],
-        operation_qubit_params: Option<(PackageId, QubitParamInfo)>,
+        operation_qubit_params: Option<(PackageId, Vec<QubitParam>)>,
     ) -> Self {
         // Pre-initialize the qubit declaration locations for the operation's
         // input parameters. These will get allocated during execution, but
@@ -154,8 +154,8 @@ impl CircuitTracer {
         let params = operation_qubit_params
             .map(|(package_id, info)| {
                 let mut decls = vec![];
-                for param in &info.qubit_params {
-                    for _ in 0..param.elements {
+                for param in &info {
+                    for _ in 0..param.num_qubits() {
                         decls.push(PackageOffset {
                             package_id,
                             offset: param.source_offset,

@@ -331,39 +331,40 @@ export function CircuitPanel(props: CircuitProps) {
           isEditable={props.isEditable}
           editCallback={props.editCallback}
           runCallback={props.runCallback}
-          renderLocations={(locations) => {
-            const qdkLocations = locations.map((location) => {
-              const position = {
-                line: location.line,
-                character: location.column,
-              };
-              return {
-                source: location.file,
-                span: {
-                  start: position,
-                  end: position,
-                },
-              };
-            });
-
-            const titles = locations.map((location) => {
-              const basename =
-                location.file.replace(/\/+$/, "").split("/").pop() ??
-                location.file;
-              const title = `${basename}:${location.line + 1}:${location.column + 1}`;
-              return title;
-            });
-            const title = titles.length > 1 ? `${titles[0]}, ...` : titles[0];
-
-            const argsStr = encodeURIComponent(JSON.stringify([qdkLocations]));
-            const href = `command:qsharp-vscode.gotoLocations?${argsStr}`;
-            return {
-              title,
-              href,
-            };
-          }}
+          renderLocations={renderLocations}
         ></Circuit>
       ) : null}
     </div>
   );
+}
+
+function renderLocations(locations: SourceLocation[]) {
+  const qdkLocations = locations.map((location) => {
+    const position = {
+      line: location.line,
+      character: location.column,
+    };
+    return {
+      source: location.file,
+      span: {
+        start: position,
+        end: position,
+      },
+    };
+  });
+
+  const titles = locations.map((location) => {
+    const basename =
+      location.file.replace(/\/+$/, "").split("/").pop() ?? location.file;
+    const title = `${basename}:${location.line + 1}:${location.column + 1}`;
+    return title;
+  });
+  const title = titles.length > 1 ? `${titles[0]}, ...` : titles[0];
+
+  const argsStr = encodeURIComponent(JSON.stringify([qdkLocations]));
+  const href = `command:qsharp-vscode.gotoLocations?${argsStr}`;
+  return {
+    title,
+    href,
+  };
 }

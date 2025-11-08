@@ -955,7 +955,7 @@ impl Interpreter {
         method: CircuitGenerationMethod,
         tracer_config: TracerConfig,
     ) -> std::result::Result<Circuit, Vec<Error>> {
-        let (entry_expr, qubit_param_info, invoke_params) = match entry {
+        let (entry_expr, qubit_params, invoke_params) = match entry {
             CircuitEntryPoint::Operation(operation_expr) => {
                 let (package_id, item, functor_app) = self.eval_to_operation(&operation_expr)?;
                 let qubit_param_info = qubit_param_info(item);
@@ -975,7 +975,7 @@ impl Interpreter {
         let mut tracer = CircuitTracer::with_qubit_input_params(
             tracer_config,
             &[self.package, self.source_package],
-            qubit_param_info,
+            qubit_params,
         );
         match method {
             CircuitGenerationMethod::Simulate => {
