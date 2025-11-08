@@ -342,9 +342,9 @@ fn scaled_grover() {
     }
 
     let start = Instant::now();
-    let results = run_parallel_shots(24, 20, ops, 8).expect("GPU shots failed");
+    let results = run_parallel_shots(25, 25, ops, 4).expect("GPU shots failed");
     let elapsed = start.elapsed();
-    let (results, _error_codes) = split_results(20, &results);
+    let (results, _error_codes) = split_results(25, &results);
     println!("[GPU Runner]: Scaled Grover results for 1 shot: {results:?}");
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
 }

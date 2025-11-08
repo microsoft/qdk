@@ -381,7 +381,7 @@ fn apply_1q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
     }
 
     shot.op_idx = op_idx;
-    if (shot.op_type != OPID_ID) shot.qubits_updated_last_op_mask =  1u << op.q1;
+    if (shot.op_type != OPID_ID) {shot.qubits_updated_last_op_mask =  1u << op.q1;}
 }
 
 fn apply_2q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
@@ -904,9 +904,13 @@ fn execute_mz(
 
     let scale = shot.renormalize;
 
-    for (var i: i32 = params.start_count; i < params.end_count; i++) {
-        let offset0: i32 = (i & lowMask) | ((i & highMask) << 1);
-        let offset1: i32 = offset0 | (1 << qubit);
+    var entry_index = params.chunk_idx;
+    let entry_jumps = WORKGROUPS_PER_SHOT * THREADS_PER_WORKGROUP;
+    let iterations = ENTRIES_PER_THREAD >> 1;
+
+    for (var i = 0; i < iterations; i++) {
+        let offset0: i32 = (entry_index & lowMask) | ((entry_index & highMask) << 1);
+        let offset1: i32 = offset0 | (1 << op.q1);
 
         // See if we can skip doing any work for this pair, because the state vector entries to processes
         // are both definitely 0.0, as we know they are for states where other qubits are in definite opposite state.
@@ -927,6 +931,7 @@ fn execute_mz(
             update_all_qubit_probs(u32(offset0), new0, tid);
             update_all_qubit_probs(u32(offset1), new1, tid);
         }
+        entry_index = entry_index + entry_jumps;
     }
 
     workgroupBarrier();
