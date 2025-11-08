@@ -602,36 +602,30 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
 fn execute_op(
         @builtin(workgroup_id) workgroupId: vec3<u32>,
         @builtin(local_invocation_index) tid: u32) {
-    // Workgroups are per shot if 22 or less qubits, else 2 workgroups for 23 qubits, 4 for 24, etc..
-    let shot_idx: i32 = i32(workgroupId.x) / WORKGROUPS_PER_SHOT;
+    // Get the params
+    let params = get_shot_params(workgroupId.x, tid);
 
-    let shot = &shots[shot_idx];
+    // Workgroups are per shot if 22 or less qubits, else 2 workgroups for 23 qubits, 4 for 24, etc..
+    let shot = &shots[params.shot_idx];
 
     // Exit early if an id op with no renomalization required
     if (shot.op_type == OPID_ID && shot.renormalize == 1.0) {
         return;
     }
 
-    let workgroup_idx_in_shot: i32 = i32(workgroupId.x) % WORKGROUPS_PER_SHOT;
-
-    // If the shots spans workgroups, then the thread index is not just the workgroup index
-    let thread_idx_in_shot: i32 = workgroup_idx_in_shot * THREADS_PER_WORKGROUP + i32(tid);
-
-    let shot_state_vector_start: i32 = shot_idx * (1 << u32(QUBIT_COUNT));
-    let thread_start_idx: i32 = shot_state_vector_start +
-                                workgroup_idx_in_shot * ((1 << u32(QUBIT_COUNT)) / WORKGROUPS_PER_SHOT) +
-                                i32(tid) * ENTRIES_PER_THREAD;
-
     let op_idx = shot.op_idx;
     let op = &ops[op_idx];
 
     if (shot.op_type == OPID_RESET && op.q1 == ALL_QUBITS) {
+        let thread_start_idx: i32 = params.shot_state_vector_start +
+                                params.workgroup_idx_in_shot * ((1 << u32(QUBIT_COUNT)) / WORKGROUPS_PER_SHOT) +
+                                i32(tid) * ENTRIES_PER_THREAD;
         // Set the state vector to |0...0> by zeroing all amplitudes except the first one
         for(var i: i32 = 0; i < ENTRIES_PER_THREAD; i++) {
             stateVector[thread_start_idx + i] = vec2f(0.0, 0.0);
         }
         // Set the |0...0> amplitude to 1.0 from the first workgroup & thread for the shot
-        if (tid == 0 && workgroup_idx_in_shot == 0) {
+        if (tid == 0 && params.workgroup_idx_in_shot == 0) {
             stateVector[thread_start_idx] = vec2f(1.0, 0.0);
         }
         return;
@@ -639,28 +633,24 @@ fn execute_op(
 
     let is_2qubit_op: bool = shot.op_type == OPID_CX || shot.op_type == OPID_CZ || shot.op_type == OPID_SHOT_BUFF_2Q;
 
-    // If using multiple workgroups per shot, each workgroup will write its partial sums here for later collation
-    // Use -1 as a marker for single workgroup per shot case to indicate no collation needed (in which
-    // case we should write directly to the shot).
-    let workgroup_collation_idx: i32 = select(-1, i32(workgroupId.x), WORKGROUPS_PER_SHOT > 1);
     var summed_probs: vec4f;
     if (is_2qubit_op) {
         summed_probs = apply_2q_unitary(
-            shot_state_vector_start,
-            thread_idx_in_shot,
+            params.shot_state_vector_start,
+            params.chunk_idx,
             op.q1,
             op.q2,
             tid,
-            workgroup_collation_idx,
-            shot_idx);
+            params.workgroup_collation_idx,
+            params.shot_idx);
     } else {
         summed_probs = apply_1q_unitary(
-            shot_state_vector_start,
-            thread_idx_in_shot,
+            params.shot_state_vector_start,
+            params.chunk_idx,
             op.q1,
             tid,
-            workgroup_collation_idx,
-            shot_idx,
+            params.workgroup_collation_idx,
+            params.shot_idx,
             );
     }
 
@@ -680,10 +670,53 @@ fn execute_op(
     if (tid == 0) {
         for (var q: u32 = 0u; q < u32(QUBIT_COUNT); q++) {
             if (q == op.q1 || (is_2qubit_op && q == op.q2) || shot.op_type == OPID_MRESETZ) {
-                sum_thread_totals_to_shot(q, shot_idx, workgroup_collation_idx);
+                sum_thread_totals_to_shot(q, params.shot_idx, params.workgroup_collation_idx);
             }
         }
     }
+}
+
+struct ShotParams {
+    shot_idx: i32,
+    shot_state_vector_start: i32,
+    workgroup_collation_idx: i32,
+    workgroup_idx_in_shot: i32,
+    chunk_idx: i32,
+    start_count: i32,
+    end_count: i32,
+}
+
+fn get_shot_params(
+        workgroupId: u32,
+        tid: u32) -> ShotParams {
+    // Workgroups are per shot if 22 or less qubits, else 2 workgroups for 23 qubits, 4 for 24, etc..
+    let shot_idx: i32 = i32(workgroupId) / WORKGROUPS_PER_SHOT;
+    let shot_state_vector_start: i32 = shot_idx * (1 << u32(QUBIT_COUNT));
+    // If using multiple workgroups per shot, each workgroup will write its partial sums here for later collation
+    // Use -1 as a marker for single workgroup per shot case to indicate no collation needed (in which
+    // case we should write directly to the shot).
+    let workgroup_collation_idx: i32 = select(-1, i32(workgroupId), WORKGROUPS_PER_SHOT > 1);
+    let workgroup_idx_in_shot: i32 = i32(workgroupId) % WORKGROUPS_PER_SHOT;
+    let chunk_idx: i32 = workgroup_idx_in_shot * THREADS_PER_WORKGROUP + i32(tid);
+
+    let iterations = ENTRIES_PER_THREAD >> 1;
+    let start_count = chunk_idx * iterations;
+    let end_count = start_count + iterations;
+
+    return ShotParams(
+        shot_idx,
+        shot_state_vector_start,
+        workgroup_collation_idx,
+        workgroup_idx_in_shot,
+        chunk_idx,
+        start_count,
+        end_count);
+}
+
+@compute @workgroup_size(THREADS_PER_WORKGROUP)
+fn execute_2q_op(
+        @builtin(workgroup_id) workgroupId: vec3<u32>,
+        @builtin(local_invocation_index) tid: u32) {
 }
 
 // For the state vector index and amplitude probability, update all the qubit probabilities for this thread
@@ -729,9 +762,6 @@ fn apply_1q_unitary(
     // (Could me a minor optimization to skip if the unitary doesn't change 0/1 probabilities, e.g., Id, S, Rz, etc.)
     var summed_probs: vec4f = vec4f();
 
-    let qubit_is_0 = i32(shots[shot_idx].qubit_is_0_mask);
-    let qubit_is_1 = i32(shots[shot_idx].qubit_is_1_mask);
-
     // This loop is where all the real work happens. Try to keep this tight and efficient.
     //for (var i: i32 = 0; i < iterations; i++) {
     for (var i: i32 = start_count; i < end_count; i++) {
@@ -741,8 +771,8 @@ fn apply_1q_unitary(
         // See if we can skip doing any work for this pair, because the state vector entries to processes
         // are both definitely 0.0, as we know they are for states where other qubits are in definite opposite state.
         let skip_processing = OPT_SKIP_DEFINITE_STATES &&
-            ((offset0 & qubit_is_0) != 0) ||
-            ((~offset1 & qubit_is_1) != 0);
+            ((offset0 & i32(shots[shot_idx].qubit_is_0_mask)) != 0) ||
+            ((~offset1 & i32(shots[shot_idx].qubit_is_1_mask)) != 0);
 
         if (!skip_processing) {
             let amp0: vec2f = stateVector[shot_start_offset + offset0];
@@ -799,9 +829,6 @@ fn apply_2q_unitary(
 
     var summed_probs: vec4f = vec4f();
 
-    let qubit_is_0: u32 = shot.qubit_is_0_mask;
-    let qubit_is_1: u32 = shot.qubit_is_1_mask;
-
     for (var i: i32 = counter; i < end_count; i++) {
         // q1 is the control, q2 is the target
         let offset00: i32 = (i & lowMask) | ((i & midMask) << 1) | ((i & hiMask) << 2);
@@ -810,8 +837,8 @@ fn apply_2q_unitary(
         let offset11: i32 = offset10 | (1 << t);
 
         let can_skip_processing = OPT_SKIP_DEFINITE_STATES &&
-            ((u32(offset00) & qubit_is_0) != 0) ||
-            ((~(u32(offset11)) & qubit_is_1) != 0);
+            ((u32(offset00) & shot.qubit_is_0_mask) != 0) ||
+            ((~(u32(offset11)) & shot.qubit_is_1_mask) != 0);
         if (can_skip_processing) { continue; }
 
         let amp00: vec2f = stateVector[shot_start_offset + offset00];
@@ -864,21 +891,14 @@ fn apply_2q_unitary(
 fn execute_mz(
         @builtin(workgroup_id) workgroupId: vec3<u32>,
         @builtin(local_invocation_index) tid: u32) {
-    let shot_idx: i32 = i32(workgroupId.x) / WORKGROUPS_PER_SHOT;
-    let shot = &shots[shot_idx];
+    // Get the params
+    let params = get_shot_params(workgroupId.x, tid);
+
+    let shot = &shots[params.shot_idx];
     let op_idx = shot.op_idx;
     let op = &ops[op_idx];
     let qubit = op.q1;
 
-    let workgroup_idx_in_shot: i32 = i32(workgroupId.x) % WORKGROUPS_PER_SHOT;
-    let shot_state_vector_start: i32 = shot_idx * (1 << u32(QUBIT_COUNT));
-    let chunk_idx: i32 = workgroup_idx_in_shot * THREADS_PER_WORKGROUP + i32(tid);
-    let workgroup_collation_idx: i32 = select(-1, i32(workgroupId.x), WORKGROUPS_PER_SHOT > 1);
-
-    let iterations = ENTRIES_PER_THREAD >> 1;
-
-    let start_count = chunk_idx * iterations;
-    let end_count = start_count + iterations;
     let lowMask = (1 << qubit) - 1;
     let highMask = (1 << u32(QUBIT_COUNT)) - 1 - lowMask;
 
@@ -887,7 +907,7 @@ fn execute_mz(
 
     let scale = shot.renormalize;
 
-    for (var i: i32 = start_count; i < end_count; i++) {
+    for (var i: i32 = params.start_count; i < params.end_count; i++) {
         let offset0: i32 = (i & lowMask) | ((i & highMask) << 1);
         let offset1: i32 = offset0 | (1 << qubit);
 
@@ -898,14 +918,14 @@ fn execute_mz(
             ((~offset1 & qubit_is_1) != 0);
 
         if (!skip_processing) {
-            let amp0: vec2f = stateVector[shot_state_vector_start + offset0];
-            let amp1: vec2f = stateVector[shot_state_vector_start + offset1];
+            let amp0: vec2f = stateVector[params.shot_state_vector_start + offset0];
+            let amp1: vec2f = stateVector[params.shot_state_vector_start + offset1];
 
             let new0 = scale * (cplxMul(amp0, shot.unitary[0]) + cplxMul(amp1, shot.unitary[1]));
             let new1 = scale * (cplxMul(amp0, shot.unitary[4]) + cplxMul(amp1, shot.unitary[5]));
 
-            stateVector[shot_state_vector_start + offset0] = new0;
-            stateVector[shot_state_vector_start + offset1] = new1;
+            stateVector[params.shot_state_vector_start + offset0] = new0;
+            stateVector[params.shot_state_vector_start + offset1] = new1;
 
             update_all_qubit_probs(u32(offset0), new0, tid);
             update_all_qubit_probs(u32(offset1), new1, tid);
@@ -918,7 +938,7 @@ fn execute_mz(
     // totals for this workgroup. The subsequent 'prepare_op' will sum the workgroup entries into the shot state.
     if (tid == 0) {
         for (var q: u32 = 0u; q < u32(QUBIT_COUNT); q++) {
-            sum_thread_totals_to_shot(q, shot_idx, workgroup_collation_idx);
+            sum_thread_totals_to_shot(q, params.shot_idx, params.workgroup_collation_idx);
         }
     }
 }

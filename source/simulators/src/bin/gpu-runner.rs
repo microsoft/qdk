@@ -18,7 +18,7 @@ fn main() {
     test_2q_pauli_noise();
     test_move_noise();
     test_benzene();
-    scaled_grover();
+    // scaled_grover();
 }
 
 fn split_results(result_count: usize, results: &[u32]) -> (Vec<Vec<u32>>, Vec<u32>) {
