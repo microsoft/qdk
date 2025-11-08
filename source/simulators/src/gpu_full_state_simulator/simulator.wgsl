@@ -5,11 +5,6 @@
 // See https://www.w3.org/TR/WGSL/ for the details
 // See https://webgpu.github.io/webgpu-samples/ for examples
 
-// Coding guidelines:
-// - WGSL generally uses 'camelCase' for vars and functions, 'PascalCase' for types and structs, and 'SCREAMING_SNAKE_CASE' for constants.
-// - WGSL doesn't have the ternary operator, but does have a built-in function `select` that can be used to achieve similar functionality. See https://www.w3.org/TR/WGSL/#select-builtin
-// - The default workgroup memory size for WebGPU is 16KB, so don't exceed this in total across all workgroup variables.
-
 // The number of qubits being simulated is provided as a specialization constant at pipeline creation time
 // See https://gpuweb.github.io/gpuweb/wgsl/#pipeline-overridable
 override QUBIT_COUNT: i32;
@@ -22,7 +17,7 @@ const OPT_SKIP_DEFINITE_STATES = true; // Enable to skip processing state vector
 // Always use 32 threads per workgroup for max concurrency on most current GPU hardware
 const THREADS_PER_WORKGROUP: i32 = 32;
 const MAX_QUBIT_COUNT: i32 = 27;
-const MAX_QUBITS_PER_WORKGROUP: i32 = 22;
+const MAX_QUBITS_PER_WORKGROUP: i32 = 20;
 const MAX_WORKGROUP_SUM_PARTITIONS: i32 = 1 << u32(MAX_QUBIT_COUNT - MAX_QUBITS_PER_WORKGROUP);
 
 // Operation IDs
