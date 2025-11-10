@@ -13,7 +13,10 @@ use std::{
 
 use crate::{
     Circuit, ComponentColumn, Error, Ket, Measurement, Operation, Register, TracerConfig, Unitary,
-    builder::{QubitWire, ResultWire, WireMap, finish_circuit},
+    builder::{
+        OperationOrGroupExt, OperationWithCallStackExt, QubitWire, ResultWire, WireMap,
+        finish_circuit,
+    },
     circuit::{PackageOffset, SourceLocation},
     rir_to_circuit::tracer::FixedQubitRegisterMapBuilder,
 };
@@ -53,14 +56,83 @@ pub(crate) struct Op {
     location: Option<DbgLocationId>,
 }
 
-impl Op {
-    fn has_children(&self) -> bool {
-        matches!(&self.kind, OperationKind::Group { children, .. } if !children.is_empty())
+impl OperationOrGroupExt for Op {
+    type OpType = Op;
+    type ScopeStackType = ScopeStack;
+
+    fn from(op: Self::OpType) -> Self {
+        op
+    }
+
+    fn decompose_mut(
+        &mut self,
+    ) -> Option<(&mut Vec<Self>, &mut Self::ScopeStackType, &mut Self::OpType)>
+    where
+        Self: std::marker::Sized,
+    {
+        todo!()
+    }
+
+    fn group(
+        _scope_stack: Option<Self::ScopeStackType>,
+        _scope_span: Option<PackageOffset>,
+        _children: Vec<Self>,
+        _label: String,
+        _target_qubits: Vec<QubitWire>,
+    ) -> Self
+    where
+        Self: std::marker::Sized,
+    {
+        todo!()
+    }
+
+    fn target_qubits(&self) -> Vec<QubitWire> {
+        todo!()
+    }
+
+    fn target_results(&self) -> Vec<ResultWire> {
+        todo!()
+    }
+}
+
+impl OperationWithCallStackExt for Op {
+    type OpType = Op;
+    type StackType = DbgLocationId;
+    type InstructionStack = InstructionStack;
+    type DbgStuff<'a> = DbgStuff<'a>;
+
+    fn into_op(self) -> Self::OpType {
+        self
+    }
+
+    fn instruction_logical_stack(
+        &self,
+        dbg_stuff: &Self::DbgStuff<'_>,
+    ) -> Option<InstructionStack> {
+        self.location
+            .as_ref()
+            .and_then(|dbg_location| instruction_logical_stack(dbg_stuff.dbg_info, *dbg_location))
+    }
+
+    fn all_qubits(&self) -> Vec<QubitWire> {
+        todo!()
+    }
+
+    fn all_results(&self) -> Vec<ResultWire> {
+        todo!()
+    }
+
+    fn extend_target_qubits(&mut self, _target_qubits: &[QubitWire]) {
+        todo!()
+    }
+
+    fn extend_target_results(&mut self, _target_qubits: &[ResultWire]) {
+        todo!()
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct InstructionStack(Vec<DbgLocationId>); // Can be empty
+pub(crate) struct InstructionStack(Vec<DbgLocationId>); // Can be empty
 
 impl InstructionStack {
     fn scope_stack(&self, dbg_info: &DbgInfo) -> Option<ScopeStack> {
@@ -72,7 +144,7 @@ impl InstructionStack {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-struct ScopeStack {
+pub(crate) struct ScopeStack {
     caller: InstructionStack,
     scope: DbgScopeId,
 }
@@ -180,6 +252,9 @@ impl Op {
                 source,
             }),
         }
+    }
+    fn has_children(&self) -> bool {
+        matches!(&self.kind, OperationKind::Group { children, .. } if !children.is_empty())
     }
 }
 
@@ -820,13 +895,22 @@ fn operations_in_block(
     })
 }
 
-fn group_operations(dbg_info: &DbgInfo, new_operations: Vec<Op>) -> Vec<Op> {
+fn group_operations<
+    'a,
+    O: OperationWithCallStackExt<
+            InstructionStack = InstructionStack,
+            DbgStuff<'a> = DbgStuff<'a>,
+            OpType = Op,
+        >,
+>(
+    dbg_info: &'a DbgInfo,
+    new_operations: Vec<O>,
+) -> Vec<Op> {
+    let dbg_stuff = DbgStuff { dbg_info };
     let mut operations = vec![];
     for op in new_operations {
-        let instruction_metadata = &op.location.as_ref();
-        let instruction_stack = instruction_metadata
-            .and_then(|dbg_location| instruction_logical_stack(dbg_info, *dbg_location));
-
+        let instruction_stack = op.instruction_logical_stack(&dbg_stuff);
+        let op = op.into_op();
         add_op(&mut operations, op, dbg_info, instruction_stack.as_ref());
     }
     operations
@@ -900,8 +984,82 @@ fn instruction_logical_stack(
     Some(InstructionStack(location_stack))
 }
 
-fn scope_label(dbg_info: &DbgInfo, scope_stack: &ScopeStack) -> String {
-    scope_name(dbg_info, scope_stack.scope)
+pub(crate) struct DbgStuff<'a> {
+    dbg_info: &'a DbgInfo,
+}
+
+pub(crate) trait DbgStuffExt {
+    type ScopeStack;
+    type InstructionStack;
+    fn scope_label(&self, scope_stack: &Self::ScopeStack) -> String;
+    fn make_scope_metadata(&self, scope_stack: &Self::ScopeStack) -> PackageOffset;
+    fn strip_stack_prefix(
+        &self,
+        full: &Self::InstructionStack,
+        prefix: &Self::ScopeStack,
+    ) -> Option<Self::InstructionStack>;
+    fn concat_stacks(
+        &self,
+        scope: Option<&Self::ScopeStack>,
+        tail: &Self::InstructionStack,
+    ) -> Self::InstructionStack;
+}
+
+impl DbgStuffExt for DbgStuff<'_> {
+    type ScopeStack = ScopeStack;
+    type InstructionStack = InstructionStack;
+    fn scope_label(&self, scope_stack: &ScopeStack) -> String {
+        scope_name(self.dbg_info, scope_stack.scope)
+    }
+
+    fn make_scope_metadata(&self, scope_stack: &ScopeStack) -> PackageOffset {
+        let scope_location = &self.dbg_info.get_scope(scope_stack.scope);
+        let scope_location = match scope_location {
+            DbgMetadataScope::SubProgram { location: span, .. } => span,
+        };
+
+        PackageOffset {
+            package_id: scope_location.package,
+            offset: scope_location.span.lo,
+        }
+    }
+
+    fn strip_stack_prefix(
+        &self,
+        full: &InstructionStack,
+        prefix: &ScopeStack,
+    ) -> Option<InstructionStack> {
+        if full.0.len() > prefix.caller.0.len() {
+            if let Some(rest) = full.0.strip_prefix(prefix.caller.0.as_slice()) {
+                let next_location = rest[0];
+                let next_scope = self.dbg_info.get_location(next_location).scope;
+                if next_scope == prefix.scope {
+                    return Some(InstructionStack(rest.to_vec()));
+                }
+            }
+        }
+        None
+    }
+
+    fn concat_stacks(
+        &self,
+        scope: Option<&ScopeStack>,
+        tail: &InstructionStack,
+    ) -> InstructionStack {
+        match scope {
+            Some(prefix) => {
+                if let Some(first) = tail.0.first() {
+                    assert_eq!(
+                        self.dbg_info.get_location(*first).scope,
+                        prefix.scope,
+                        "concatenating stacks that don't seem to match"
+                    );
+                }
+                InstructionStack([prefix.caller.0.clone(), tail.0.clone()].concat())
+            }
+            None => tail.clone(),
+        }
+    }
 }
 
 fn loc_name(dbg_info: &DbgInfo, location: DbgLocationId) -> (String, u32) {
@@ -1032,18 +1190,6 @@ fn fmt_loc(dbg_info: &DbgInfo, location: DbgLocationId) -> String {
     format!("{name}@{offset}")
 }
 
-fn make_scope_metadata(dbg_info: &DbgInfo, scope_stack: &ScopeStack) -> PackageOffset {
-    let scope_location = &dbg_info.get_scope(scope_stack.scope);
-    let scope_location = match scope_location {
-        DbgMetadataScope::SubProgram { location: span, .. } => span,
-    };
-
-    PackageOffset {
-        package_id: scope_location.package,
-        offset: scope_location.span.lo,
-    }
-}
-
 fn add_scoped_op(
     current_scope_container: &mut Vec<Op>,
     current_scope: Option<ScopeStack>,
@@ -1053,7 +1199,8 @@ fn add_scoped_op(
     target_qubits: Vec<QubitWire>,
     target_results: Vec<ResultWire>,
 ) {
-    let full_instruction_stack = concat_stacks(dbg_info, current_scope.as_ref(), instruction_stack);
+    let dbg_stuff = DbgStuff { dbg_info };
+    let full_instruction_stack = dbg_stuff.concat_stacks(current_scope.as_ref(), instruction_stack);
     let scope_stack = instruction_stack.scope_stack(dbg_info);
 
     if let Some(scope_stack) = scope_stack
@@ -1068,7 +1215,7 @@ fn add_scoped_op(
             } = &mut last_op.kind
             {
                 if let Some(rest) =
-                    strip_stack_prefix(dbg_info, &full_instruction_stack, last_scope_stack)
+                    dbg_stuff.strip_stack_prefix(&full_instruction_stack, last_scope_stack)
                 {
                     last_op.target_qubits.extend(target_qubits.clone());
                     last_op.target_qubits.sort_unstable();
@@ -1095,8 +1242,8 @@ fn add_scoped_op(
         }
 
         // we need to create a parent for the scope
-        let scope_metadata = make_scope_metadata(dbg_info, &scope_stack);
-        let label = scope_label(dbg_info, &scope_stack);
+        let scope_metadata = dbg_stuff.make_scope_metadata(&scope_stack);
+        let label = dbg_stuff.scope_label(&scope_stack);
         let full_scope_stack = full_instruction_stack
             .scope_stack(dbg_info)
             .expect("we got here because we had a scope, so what the hell is this");
@@ -1133,43 +1280,6 @@ fn add_scoped_op(
     }
     // no scope, top level, just push to current operations
     current_scope_container.push(op);
-}
-
-fn concat_stacks(
-    dbg_info: &DbgInfo,
-    scope: Option<&ScopeStack>,
-    tail: &InstructionStack,
-) -> InstructionStack {
-    match scope {
-        Some(prefix) => {
-            if let Some(first) = tail.0.first() {
-                assert_eq!(
-                    dbg_info.get_location(*first).scope,
-                    prefix.scope,
-                    "concatenating stacks that don't seem to match"
-                );
-            }
-            InstructionStack([prefix.caller.0.clone(), tail.0.clone()].concat())
-        }
-        None => tail.clone(),
-    }
-}
-
-fn strip_stack_prefix(
-    dbg_info: &DbgInfo,
-    full: &InstructionStack,
-    prefix: &ScopeStack,
-) -> Option<InstructionStack> {
-    if full.0.len() > prefix.caller.0.len() {
-        if let Some(rest) = full.0.strip_prefix(prefix.caller.0.as_slice()) {
-            let next_location = rest[0];
-            let next_scope = dbg_info.get_location(next_location).scope;
-            if next_scope == prefix.scope {
-                return Some(InstructionStack(rest.to_vec()));
-            }
-        }
-    }
-    None
 }
 
 #[derive(Debug, Clone)]

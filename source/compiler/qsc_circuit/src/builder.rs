@@ -12,6 +12,7 @@ use crate::{
     },
     group_qubits,
     operations::QubitParamInfo,
+    rir_to_circuit::DbgStuffExt,
 };
 use qsc_data_structures::{
     index_map::IndexMap,
@@ -219,8 +220,11 @@ impl CircuitTracer {
             && let Some(fir_package_store) = fir_package_store
         {
             // This has to take `Op` since it still contains logical stacks from dbg metadata
-            self.circuit_builder
-                .group_operations(fir_package_store, operations.to_vec())
+            group_operations::<_, OperationOrGroup>(
+                &self.user_package_ids,
+                fir_package_store,
+                operations.to_vec(),
+            )
         } else {
             operations.iter().map(|o| o.0.clone()).collect()
         };
@@ -594,34 +598,131 @@ impl WireMapBuilder {
 }
 
 #[derive(Clone, Debug)]
-struct OperationWithScopeStack {
-    kind: OperationWithScopeStackKind,
-    op: Operation,
+struct OperationOrGroup {
+    kind: OperationOrGroupKind,
+    op: OperationWithCallStack,
 }
 
-impl OperationWithScopeStack {
+impl OperationOrGroup {
     fn into_operation(mut self) -> Operation {
         match self.kind {
-            OperationWithScopeStackKind::Single => self.op,
-            OperationWithScopeStackKind::Group {
+            OperationOrGroupKind::Single => self.op.0,
+            OperationOrGroupKind::Group {
                 scope_span,
                 scope_stack: _,
                 children,
             } => {
-                *self.op.children_mut() = vec![ComponentColumn {
+                *self.op.0.children_mut() = vec![ComponentColumn {
                     components: children
                         .into_iter()
-                        .map(OperationWithScopeStack::into_operation)
+                        .map(OperationOrGroup::into_operation)
                         .collect(),
                 }];
-                *self.op.source_mut() = scope_span.map(SourceLocation::Unresolved);
-                self.op
+                *self.op.0.source_mut() = scope_span.map(SourceLocation::Unresolved);
+                self.op.0
             }
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+enum OperationOrGroupKind {
+    Single,
+    Group {
+        scope_stack: Option<ScopeStack>,
+        scope_span: Option<PackageOffset>, // TODO: can this be derived?
+        children: Vec<OperationOrGroup>,
+    },
+}
+
+pub(crate) trait OperationOrGroupExt {
+    type OpType;
+    type ScopeStackType;
+
+    fn from(op: Self::OpType) -> Self;
+
+    fn decompose_mut(
+        &mut self,
+    ) -> Option<(&mut Vec<Self>, &mut Self::ScopeStackType, &mut Self::OpType)>
+    where
+        Self: std::marker::Sized;
+
+    fn group(
+        scope_stack: Option<Self::ScopeStackType>,
+        scope_span: Option<PackageOffset>,
+        children: Vec<Self>,
+        label: String,
+        target_qubits: Vec<QubitWire>,
+    ) -> Self
+    where
+        Self: std::marker::Sized;
+
+    fn target_qubits(&self) -> Vec<QubitWire>;
+    fn target_results(&self) -> Vec<ResultWire>;
+}
+
+impl OperationOrGroupExt for OperationOrGroup {
+    type OpType = OperationWithCallStack;
+    type ScopeStackType = ScopeStack;
+    fn from(op: Self::OpType) -> Self {
+        OperationOrGroup {
+            kind: OperationOrGroupKind::Single,
+            op,
+        }
+    }
+
+    fn decompose_mut(&mut self) -> Option<(&mut Vec<Self>, &mut ScopeStack, &mut Self::OpType)>
+    where
+        Self: std::marker::Sized,
+    {
+        if let OperationOrGroupKind::Group {
+            children,
+            scope_stack: Some(scope_stack),
+            ..
+        } = &mut self.kind
+        {
+            Some((children, scope_stack, &mut self.op))
+        } else {
+            None
+        }
+    }
+
+    fn group(
+        scope_stack: Option<Self::ScopeStackType>,
+        scope_span: Option<PackageOffset>,
+        children: Vec<Self>,
+        label: String,
+        target_qubits: Vec<QubitWire>,
+    ) -> Self {
+        Self {
+            kind: OperationOrGroupKind::Group {
+                scope_stack,
+                scope_span,
+                children,
+            },
+            op: OperationWithCallStack(
+                Operation::Unitary(Unitary {
+                    gate: label,
+                    args: vec![],
+                    children: vec![],
+                    targets: target_qubits
+                        .iter()
+                        .map(|q| Register {
+                            qubit: q.0,
+                            result: None,
+                        })
+                        .collect(),
+                    controls: vec![],
+                    is_adjoint: false,
+                    source: None,
+                }),
+                vec![],
+            ),
         }
     }
 
     fn target_qubits(&self) -> Vec<QubitWire> {
-        match &self.op {
+        match &self.op.0 {
             Operation::Measurement(_) => vec![],
             Operation::Unitary(unitary) => {
                 unitary.targets.iter().map(|r| QubitWire(r.qubit)).collect()
@@ -631,7 +732,7 @@ impl OperationWithScopeStack {
     }
 
     fn target_results(&self) -> Vec<ResultWire> {
-        match &self.op {
+        match &self.op.0 {
             Operation::Measurement(measurement) => measurement
                 .results
                 .iter()
@@ -643,17 +744,180 @@ impl OperationWithScopeStack {
 }
 
 #[derive(Clone, Debug)]
-enum OperationWithScopeStackKind {
-    Single,
-    Group {
-        scope_stack: Option<ScopeStack>,
-        scope_span: Option<PackageOffset>, // TODO: can this be derived?
-        children: Vec<OperationWithScopeStack>,
-    },
+struct OperationWithCallStack(Operation, Vec<Frame>);
+
+pub(crate) trait OperationWithCallStackExt {
+    type OpType;
+    type StackType;
+    type InstructionStack;
+    type DbgStuff<'a>: DbgStuffExt;
+
+    fn into_op(self) -> Self::OpType;
+    fn instruction_logical_stack(
+        &self,
+        dbg_stuff: &Self::DbgStuff<'_>,
+    ) -> Option<Self::InstructionStack>;
+    fn all_qubits(&self) -> Vec<QubitWire>;
+    fn all_results(&self) -> Vec<ResultWire>;
+    fn extend_target_qubits(&mut self, target_qubits: &[QubitWire]);
+    fn extend_target_results(&mut self, target_qubits: &[ResultWire]);
 }
 
-#[derive(Clone, Debug)]
-struct OperationWithCallStack(Operation, Vec<Frame>);
+impl OperationWithCallStackExt for OperationWithCallStack {
+    type OpType = OperationWithCallStack;
+    type StackType = Vec<Frame>;
+    type InstructionStack = InstructionStack;
+    type DbgStuff<'a> = DbgStuffForEval<'a>;
+
+    fn into_op(self) -> Self::OpType {
+        self
+    }
+
+    fn instruction_logical_stack(
+        &self,
+        dbg_stuff: &Self::DbgStuff<'_>,
+    ) -> Option<InstructionStack> {
+        let filtered = self
+            .1
+            .iter()
+            .filter_map(|frame| {
+                if dbg_stuff.user_package_ids.contains(&frame.id.package) {
+                    let item = dbg_stuff.fir_package_store.get_item(frame.id);
+                    let (scope_offset, scope_name) = match &item.kind {
+                        fir::ItemKind::Callable(callable_decl) => match &callable_decl
+                            .implementation
+                        {
+                            fir::CallableImpl::Intrinsic => {
+                                panic!("intrinsic callables should not be in the stack")
+                            }
+                            fir::CallableImpl::Spec(spec_impl) => {
+                                (spec_impl.body.span.lo, callable_decl.name.name.clone())
+                            } // TODO: other specializations?
+                            fir::CallableImpl::SimulatableIntrinsic(_) => {
+                                panic!("simulatable intrinsic callables should not be in the stack")
+                            }
+                        },
+                        _ => panic!("only callables should be in the stack"),
+                    };
+
+                    let package_offset = PackageOffset {
+                        package_id: frame.id.package,
+                        offset: frame.span.lo,
+                    };
+                    let scope = LexicalScope {
+                        location: PackageOffset {
+                            package_id: frame.id.package,
+                            offset: scope_offset,
+                        },
+                        name: scope_name,
+                    };
+                    Some((package_offset, scope))
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        if filtered.is_empty() {
+            return None;
+        }
+        Some(InstructionStack(filtered))
+    }
+
+    fn all_qubits(&self) -> Vec<QubitWire> {
+        let qubits: FxHashSet<QubitWire> = match &self.0 {
+            Operation::Measurement(measurement) => measurement.qubits.clone(),
+            Operation::Unitary(unitary) => unitary
+                .targets
+                .iter()
+                .chain(unitary.controls.iter())
+                .filter(|r| r.result.is_none())
+                .cloned()
+                .collect(),
+            Operation::Ket(ket) => ket.targets.clone(),
+        }
+        .into_iter()
+        .map(|r| QubitWire(r.qubit))
+        .collect();
+        qubits.into_iter().collect()
+    }
+
+    fn all_results(&self) -> Vec<ResultWire> {
+        let results: FxHashSet<ResultWire> = match &self.0 {
+            Operation::Measurement(measurement) => measurement
+                .results
+                .iter()
+                .filter_map(|r| r.result.map(|res| ResultWire(r.qubit, res)))
+                .collect(),
+            Operation::Unitary(unitary) => unitary
+                .targets
+                .iter()
+                .chain(unitary.controls.iter())
+                .filter_map(|r| r.result.map(|res| ResultWire(r.qubit, res)))
+                .collect(),
+            Operation::Ket(_) => vec![],
+        }
+        .into_iter()
+        .collect();
+        results.into_iter().collect()
+    }
+
+    fn extend_target_qubits(&mut self, target_qubits: &[QubitWire]) {
+        match &mut self.0 {
+            Operation::Measurement(_) => {}
+            Operation::Unitary(unitary) => {
+                unitary
+                    .targets
+                    .extend(target_qubits.iter().map(|q| Register {
+                        qubit: q.0,
+                        result: None,
+                    }));
+                unitary
+                    .targets
+                    .sort_unstable_by_key(|r| (r.qubit, r.result));
+                unitary.targets.dedup();
+            }
+            Operation::Ket(ket) => {
+                ket.targets.extend(target_qubits.iter().map(|q| Register {
+                    qubit: q.0,
+                    result: None,
+                }));
+            }
+        }
+    }
+
+    fn extend_target_results(&mut self, target_results: &[ResultWire]) {
+        {
+            match &mut self.0 {
+                Operation::Measurement(measurement) => {
+                    measurement
+                        .results
+                        .extend(target_results.iter().map(|r| Register {
+                            qubit: r.0,
+                            result: Some(r.1),
+                        }));
+                    measurement
+                        .results
+                        .sort_unstable_by_key(|reg| (reg.qubit, reg.result));
+                    measurement.results.dedup();
+                }
+                Operation::Unitary(unitary) => {
+                    unitary
+                        .targets
+                        .extend(target_results.iter().map(|r| Register {
+                            qubit: r.0,
+                            result: Some(r.1),
+                        }));
+                    unitary
+                        .targets
+                        .sort_unstable_by_key(|r| (r.qubit, r.result));
+                    unitary.targets.dedup();
+                }
+                Operation::Ket(_) => {}
+            }
+        }
+    }
+}
 
 /// Builds a list of circuit operations with a maximum operation limit.
 /// Stops adding operations once the limit is exceeded.
@@ -813,79 +1077,11 @@ impl OperationListBuilder {
         );
     }
 
-    fn group_operations(
-        &self,
-        fir_package_store: &fir::PackageStore,
-        in_operations: Vec<OperationWithCallStack>,
-    ) -> Vec<Operation> {
-        let mut operations = vec![];
-        for op in in_operations {
-            let instruction_stack = self.instruction_logical_stack(fir_package_store, op.1);
-
-            add_op(&mut operations, op.0, instruction_stack.as_ref());
-        }
-        operations
-            .into_iter()
-            .map(OperationWithScopeStack::into_operation)
-            .collect()
-    }
-
     fn user_code_call_location(&self, stack: &[Frame]) -> Option<PackageOffset> {
         if !self.source_locations || stack.is_empty() || self.user_package_ids.is_empty() {
             return None;
         }
         first_user_code_location(&self.user_package_ids, stack)
-    }
-
-    fn instruction_logical_stack(
-        &self,
-        fir_package_store: &fir::PackageStore,
-        stack: Vec<Frame>,
-    ) -> Option<InstructionStack> {
-        let filtered = stack
-            .into_iter()
-            .filter_map(|frame| {
-                if self.user_package_ids.contains(&frame.id.package) {
-                    let item = fir_package_store.get_item(frame.id);
-                    let (scope_offset, scope_name) = match &item.kind {
-                        fir::ItemKind::Callable(callable_decl) => match &callable_decl
-                            .implementation
-                        {
-                            fir::CallableImpl::Intrinsic => {
-                                panic!("intrinsic callables should not be in the stack")
-                            }
-                            fir::CallableImpl::Spec(spec_impl) => {
-                                (spec_impl.body.span.lo, callable_decl.name.name.clone())
-                            } // TODO: other specializations?
-                            fir::CallableImpl::SimulatableIntrinsic(_) => {
-                                panic!("simulatable intrinsic callables should not be in the stack")
-                            }
-                        },
-                        _ => panic!("only callables should be in the stack"),
-                    };
-
-                    let package_offset = PackageOffset {
-                        package_id: frame.id.package,
-                        offset: frame.span.lo,
-                    };
-                    let scope = LexicalScope {
-                        location: PackageOffset {
-                            package_id: frame.id.package,
-                            offset: scope_offset,
-                        },
-                        name: scope_name,
-                    };
-                    Some((package_offset, scope))
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
-
-        if filtered.is_empty() {
-            return None;
-        }
-        Some(InstructionStack(filtered))
     }
 }
 
@@ -916,23 +1112,57 @@ struct ScopeStack {
 struct LexicalScope {
     name: Rc<str>,
     location: PackageOffset,
-    // item_id: StoreItemId,
 }
 
-fn add_op(
-    block_operations: &mut Vec<OperationWithScopeStack>,
-    op: Operation,
+fn group_operations<
+    'a,
+    O: OperationWithCallStackExt<
+            InstructionStack = InstructionStack,
+            DbgStuff<'a> = DbgStuffForEval<'a>,
+            OpType = OperationWithCallStack,
+        >,
+    OG: OperationOrGroupExt,
+>(
+    user_package_ids: &'a [PackageId],
+    fir_package_store: &'a fir::PackageStore,
+    in_operations: Vec<O>,
+) -> Vec<Operation> {
+    let dbg_stuff = DbgStuffForEval {
+        user_package_ids,
+        fir_package_store,
+    };
+    let mut operations = vec![];
+    for op in in_operations {
+        let instruction_stack = op.instruction_logical_stack(&dbg_stuff);
+        add_op(
+            &dbg_stuff,
+            &mut operations,
+            op.into_op(),
+            instruction_stack.as_ref(),
+        );
+    }
+    operations
+        .into_iter()
+        .map(OperationOrGroup::into_operation)
+        .collect()
+}
+
+fn add_op<
+    O: OperationWithCallStackExt,
+    OG: OperationOrGroupExt<OpType = O, ScopeStackType = ScopeStack>,
+>(
+    dbg_stuff: &DbgStuffForEval<'_>,
+    block_operations: &mut Vec<OG>,
+    op: O,
     instruction_stack: Option<&InstructionStack>,
 ) {
-    let target_qubits = all_qubits(&op);
-    let target_results = all_results(&op);
-    let op_wrapper = OperationWithScopeStack {
-        kind: OperationWithScopeStackKind::Single,
-        op,
-    };
+    let target_qubits = op.all_qubits();
+    let target_results = op.all_results();
+    let op_wrapper = OG::from(op);
     match instruction_stack {
         Some(instruction_stack) => {
             add_scoped_op(
+                dbg_stuff,
                 block_operations,
                 None,
                 op_wrapper,
@@ -945,54 +1175,19 @@ fn add_op(
     }
 }
 
-fn all_qubits(op: &Operation) -> Vec<QubitWire> {
-    let qubits: FxHashSet<QubitWire> = match &op {
-        Operation::Measurement(measurement) => measurement.qubits.clone(),
-        Operation::Unitary(unitary) => unitary
-            .targets
-            .iter()
-            .chain(unitary.controls.iter())
-            .filter(|r| r.result.is_none())
-            .cloned()
-            .collect(),
-        Operation::Ket(ket) => ket.targets.clone(),
-    }
-    .into_iter()
-    .map(|r| QubitWire(r.qubit))
-    .collect();
-    qubits.into_iter().collect()
-}
-
-fn all_results(op: &Operation) -> Vec<ResultWire> {
-    let results: FxHashSet<ResultWire> = match &op {
-        Operation::Measurement(measurement) => measurement
-            .results
-            .iter()
-            .filter_map(|r| r.result.map(|res| ResultWire(r.qubit, res)))
-            .collect(),
-        Operation::Unitary(unitary) => unitary
-            .targets
-            .iter()
-            .chain(unitary.controls.iter())
-            .filter_map(|r| r.result.map(|res| ResultWire(r.qubit, res)))
-            .collect(),
-        Operation::Ket(_) => vec![],
-    }
-    .into_iter()
-    .collect();
-    results.into_iter().collect()
-}
-
 #[allow(clippy::too_many_lines)]
-fn add_scoped_op(
-    current_scope_container: &mut Vec<OperationWithScopeStack>,
+fn add_scoped_op<
+    OG: OperationOrGroupExt<OpType = impl OperationWithCallStackExt, ScopeStackType = ScopeStack>,
+>(
+    dbg_stuff: &DbgStuffForEval<'_>,
+    current_scope_container: &mut Vec<OG>,
     current_scope: Option<ScopeStack>,
-    op: OperationWithScopeStack,
+    op: OG,
     instruction_stack: &InstructionStack,
     target_qubits: Vec<QubitWire>,
     target_results: Vec<ResultWire>,
 ) {
-    let full_instruction_stack = concat_stacks(current_scope.as_ref(), instruction_stack);
+    let full_instruction_stack = dbg_stuff.concat_stacks(current_scope.as_ref(), instruction_stack);
     let scope_stack = instruction_stack.scope_stack();
 
     if let Some(scope_stack) = scope_stack
@@ -1000,70 +1195,18 @@ fn add_scoped_op(
     {
         // there is a scope
         if let Some(last_op) = current_scope_container.last_mut() {
-            if let OperationWithScopeStackKind::Group {
-                children: last_scope_children,
-                scope_stack: Some(last_scope_stack),
-                scope_span: _,
-            } = &mut last_op.kind
+            if let Some((last_scope_children, last_scope_stack, last_op_op)) =
+                last_op.decompose_mut()
             {
-                if let Some(rest) = strip_stack_prefix(&full_instruction_stack, last_scope_stack) {
-                    {
-                        let target_qubits: &[QubitWire] = &target_qubits;
-                        match &mut last_op.op {
-                            Operation::Measurement(_) => {}
-                            Operation::Unitary(unitary) => {
-                                unitary
-                                    .targets
-                                    .extend(target_qubits.iter().map(|q| Register {
-                                        qubit: q.0,
-                                        result: None,
-                                    }));
-                                unitary
-                                    .targets
-                                    .sort_unstable_by_key(|r| (r.qubit, r.result));
-                                unitary.targets.dedup();
-                            }
-                            Operation::Ket(ket) => {
-                                ket.targets.extend(target_qubits.iter().map(|q| Register {
-                                    qubit: q.0,
-                                    result: None,
-                                }));
-                            }
-                        }
-                    };
-                    {
-                        let target_results: &[ResultWire] = &target_results;
-                        match &mut last_op.op {
-                            Operation::Measurement(measurement) => {
-                                measurement.results.extend(target_results.iter().map(|r| {
-                                    Register {
-                                        qubit: r.0,
-                                        result: Some(r.1),
-                                    }
-                                }));
-                                measurement
-                                    .results
-                                    .sort_unstable_by_key(|reg| (reg.qubit, reg.result));
-                                measurement.results.dedup();
-                            }
-                            Operation::Unitary(unitary) => {
-                                unitary
-                                    .targets
-                                    .extend(target_results.iter().map(|r| Register {
-                                        qubit: r.0,
-                                        result: Some(r.1),
-                                    }));
-                                unitary
-                                    .targets
-                                    .sort_unstable_by_key(|r| (r.qubit, r.result));
-                                unitary.targets.dedup();
-                            }
-                            Operation::Ket(_) => {}
-                        }
-                    };
+                if let Some(rest) =
+                    dbg_stuff.strip_stack_prefix(&full_instruction_stack, last_scope_stack)
+                {
+                    last_op_op.extend_target_qubits(&target_qubits);
+                    last_op_op.extend_target_results(&target_results);
 
                     // Recursively add to the children
                     add_scoped_op(
+                        dbg_stuff,
                         last_scope_children,
                         Some(last_scope_stack.clone()),
                         op,
@@ -1078,44 +1221,33 @@ fn add_scoped_op(
         }
 
         // we need to create a parent for the scope
-        let scope_metadata = make_scope_metadata(&scope_stack);
-        let label = scope_label(&scope_stack);
+        let scope_metadata = dbg_stuff.make_scope_metadata(&scope_stack);
+        let label = dbg_stuff.scope_label(&scope_stack);
         let full_scope_stack = full_instruction_stack
             .scope_stack()
             .expect("we got here because we had a scope, so what the hell is this");
 
         if current_scope != Some(full_scope_stack.clone()) {
-            let scope_group = OperationWithScopeStack {
-                kind: OperationWithScopeStackKind::Group {
-                    scope_stack: Some(full_scope_stack),
-                    scope_span: Some(scope_metadata),
-                    children: vec![op],
-                },
-                op: Operation::Unitary(Unitary {
-                    gate: label,
-                    args: vec![],
-                    children: vec![],
-                    targets: target_qubits
-                        .iter()
-                        .map(|q| Register {
-                            qubit: q.0,
-                            result: None,
-                        })
-                        .collect(),
-                    controls: vec![],
-                    is_adjoint: false,
-                    source: None,
-                }),
-            };
+            let scope_group = OG::group(
+                Some(full_scope_stack),
+                Some(scope_metadata),
+                vec![op],
+                label,
+                target_qubits,
+            );
 
             // create container for the prefix, and add to it
+            let target_qubits1 = scope_group.target_qubits();
+            let target_results1 = scope_group.target_results();
+
             add_scoped_op(
+                dbg_stuff,
                 current_scope_container,
                 current_scope,
-                scope_group.clone(),
+                scope_group,
                 &scope_stack.caller,
-                scope_group.target_qubits(),
-                scope_group.target_results(),
+                target_qubits1,
+                target_results1,
             );
             return;
         }
@@ -1124,43 +1256,56 @@ fn add_scoped_op(
     current_scope_container.push(op);
 }
 
-fn concat_stacks(scope: Option<&ScopeStack>, tail: &InstructionStack) -> InstructionStack {
-    match scope {
-        Some(prefix) => {
-            if let Some(first) = tail.0.first() {
-                assert_eq!(
-                    first.1, prefix.scope,
-                    "concatenating stacks that don't seem to match"
-                );
-            }
-            InstructionStack([prefix.caller.0.clone(), tail.0.clone()].concat())
-        }
-        None => tail.clone(),
+struct DbgStuffForEval<'a> {
+    user_package_ids: &'a [PackageId],
+    fir_package_store: &'a fir::PackageStore,
+}
+
+impl DbgStuffExt for DbgStuffForEval<'_> {
+    type ScopeStack = ScopeStack;
+    type InstructionStack = InstructionStack;
+    fn scope_label(&self, scope_stack: &ScopeStack) -> String {
+        scope_stack.scope.name.to_string()
     }
-}
 
-fn strip_stack_prefix(full: &InstructionStack, prefix: &ScopeStack) -> Option<InstructionStack> {
-    if full.0.len() > prefix.caller.0.len() {
-        if let Some(rest) = full.0.strip_prefix(prefix.caller.0.as_slice()) {
-            let next_location = &rest[0];
-            let next_scope = &next_location.1;
-            if next_scope == &prefix.scope {
-                return Some(InstructionStack(rest.to_vec()));
+    fn make_scope_metadata(&self, scope_stack: &ScopeStack) -> PackageOffset {
+        let scope_location = &scope_stack.scope;
+        scope_location.location
+    }
+
+    fn strip_stack_prefix(
+        &self,
+        full: &InstructionStack,
+        prefix: &ScopeStack,
+    ) -> Option<InstructionStack> {
+        if full.0.len() > prefix.caller.0.len() {
+            if let Some(rest) = full.0.strip_prefix(prefix.caller.0.as_slice()) {
+                let next_location = &rest[0];
+                let next_scope = &next_location.1;
+                if next_scope == &prefix.scope {
+                    return Some(InstructionStack(rest.to_vec()));
+                }
             }
         }
+        None
     }
-    None
-}
 
-fn make_scope_metadata(scope_stack: &ScopeStack) -> PackageOffset {
-    let scope_location = &scope_stack.scope;
-    scope_location.location
-}
-
-fn scope_label(scope_stack: &ScopeStack) -> String {
-    scope_name(&scope_stack.scope)
-}
-
-fn scope_name(scope_id: &LexicalScope) -> String {
-    scope_id.name.to_string()
+    fn concat_stacks(
+        &self,
+        scope: Option<&ScopeStack>,
+        tail: &InstructionStack,
+    ) -> InstructionStack {
+        match scope {
+            Some(prefix) => {
+                if let Some(first) = tail.0.first() {
+                    assert_eq!(
+                        first.1, prefix.scope,
+                        "concatenating stacks that don't seem to match"
+                    );
+                }
+                InstructionStack([prefix.caller.0.clone(), tail.0.clone()].concat())
+            }
+            None => tail.clone(),
+        }
+    }
 }

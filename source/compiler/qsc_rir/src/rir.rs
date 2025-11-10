@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use indenter::{indented, Indented};
+use indenter::{Indented, indented};
 use qsc_data_structures::{
     debug::{DbgInfo, DbgMetadataScope, InstructionMetadata},
     index_map::IndexMap,
