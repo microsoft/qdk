@@ -243,11 +243,14 @@ export class WorkspaceTreeItem extends vscode.TreeItem {
         this.collapsibleState = vscode.TreeItemCollapsibleState.None;
         switch (job.status) {
           case "Executing":
+            this.contextValue = "job-cancelable";
+          // falls through
           case "Finishing":
             this.iconPath = new vscode.ThemeIcon("run-all");
             break;
           case "Waiting":
             this.iconPath = new vscode.ThemeIcon("loading~spin");
+            this.contextValue = "job-cancelable";
             break;
           case "Cancelled":
             this.iconPath = new vscode.ThemeIcon("circle-slash");

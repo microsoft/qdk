@@ -25,17 +25,20 @@
     "./ux": "./ux/index.ts"
   },
   "scripts": {
-    "build": "npm run docs && npm run generate && npm run build:tsc",
+    "build": "npm run docs && npm run generate && npm run build:tsc && npm run build:ux",
     "generate": "node generate_katas_content.js && node generate_samples_content.js",
     "generate:force": "node generate_katas_content.js --force && node generate_samples_content.js",
     "docs": "node generate_docs.js",
     "build:tsc": "node ../../../node_modules/typescript/bin/tsc -p ./src/tsconfig.json",
+    "build:ux": "node ../../../node_modules/typescript/bin/tsc -p ./ux/tsconfig.json",
     "tsc:watch": "node ../../../node_modules/typescript/bin/tsc -p ./src/tsconfig.json --watch --preserveWatchOutput",
     "test": "node --test"
   },
   "type": "module",
   "files": [
     "dist",
+    "!dist/ux",
+    "!dist/src",
     "docs",
     "lib",
     "ux"

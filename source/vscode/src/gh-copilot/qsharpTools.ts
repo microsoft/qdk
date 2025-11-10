@@ -80,15 +80,13 @@ export class QSharpTools {
       sendTelemetryEvent(EventType.HistogramStart, { associationId }, {});
     }
 
-    const result = await runProgram(
-      this.extensionUri,
-      programConfig,
-      "",
+    const result = await runProgram(this.extensionUri, programConfig, {
+      entry: "",
       shots,
-      (msg) => {
+      onConsoleOut: (msg) => {
         output.push(msg);
       },
-      (histogram, failures) => {
+      onResultsUpdate: (histogram, failures) => {
         finalHistogram = histogram;
         const uniqueFailures = new Set<string>();
         sampleFailures = [];
@@ -116,7 +114,25 @@ export class QSharpTools {
           );
         }
       },
-    );
+    });
+
+    if (result.status === "compilation error(s)") {
+      // TODO: bring it back
+      // const failures = result.results
+      //   .map((r) => {
+      //     if (!r.success && r.result && typeof r.result !== "string") {
+      //       return r.result.errors;
+      //     }
+      //     return null;
+      //   })
+      //   .filter((e) => e !== null)
+      //   .flat();
+      // if (failures && failures?.length > 0) {
+      //   throw new CopilotToolError(
+      //     `Program failed with compilation errors. ${JSON.stringify(failures)}`,
+      //   );
+      // }
+    }
 
     if (result.status === "compilation error(s)") {
       const failures = result.results

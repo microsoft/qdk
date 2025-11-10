@@ -1,10 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { Parameter } from "./circuit";
-import { removeControl, removeOperation } from "./circuitManipulation";
-import { CircuitEvents } from "./events";
-import { findGateElem, findOperation } from "./utils";
+import { Parameter } from "./circuit.js";
+import { removeControl, removeOperation } from "./circuitManipulation.js";
+import { CircuitEvents } from "./events.js";
+import { findGateElem, findOperation } from "./utils.js";
 
 /**
  * Adds a context menu to a host element in the circuit visualization.

@@ -8,7 +8,7 @@
           "owner": "microsoft",
           "repo": "qsharp",
           "refs": [
-            { "ref": "v1.21.0", "notes": "latest stable" },
+            { "ref": "v1.22.0", "notes": "latest stable" },
             { "ref": "main", "notes": "nightly, unstable" }
           ],
           "path": "library/chemistry"
@@ -23,7 +23,7 @@
           "owner": "microsoft",
           "repo": "qsharp",
           "refs": [
-            { "ref": "v1.21.0", "notes": "latest stable" },
+            { "ref": "v1.22.0", "notes": "latest stable" },
             { "ref": "main", "notes": "nightly, unstable" }
           ],
           "path": "library/signed"
@@ -38,7 +38,7 @@
           "owner": "microsoft",
           "repo": "qsharp",
           "refs": [
-            { "ref": "v1.21.0", "notes": "latest stable" },
+            { "ref": "v1.22.0", "notes": "latest stable" },
             { "ref": "main", "notes": "nightly, unstable" }
           ],
           "path": "library/fixed_point"
@@ -53,7 +53,7 @@
           "owner": "microsoft",
           "repo": "qsharp",
           "refs": [
-            { "ref": "v1.21.0", "notes": "latest stable" },
+            { "ref": "v1.22.0", "notes": "latest stable" },
             { "ref": "main", "notes": "nightly, unstable" }
           ],
           "path": "library/rotations"
@@ -68,7 +68,7 @@
           "owner": "microsoft",
           "repo": "qsharp",
           "refs": [
-            { "ref": "v1.21.0", "notes": "latest stable" },
+            { "ref": "v1.22.0", "notes": "latest stable" },
             { "ref": "main", "notes": "nightly, unstable" }
           ],
           "path": "library/qtest"

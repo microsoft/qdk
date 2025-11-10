@@ -4,8 +4,8 @@
 use qsc_data_structures::span::Span;
 use qsc_hir::{
     hir::{
-        BinOp, CallableDecl, CallableKind, Expr, ExprKind, Field, ItemKind, Res, SpecBody,
-        SpecDecl, Stmt, StmtKind,
+        BinOp, Block, CallableDecl, CallableKind, Expr, ExprKind, Field, ItemKind, Res, SpecBody,
+        SpecDecl, Stmt, StmtKind, UnOp,
     },
     ty::{Prim, Ty},
     visit::{self, Visitor},
@@ -40,6 +40,7 @@ declare_hir_lints! {
     (DeprecatedFunctionConstructor, LintLevel::Allow, "deprecated function constructors", "function constructors for struct types are deprecated, use `new` instead"),
     (DeprecatedWithOperator, LintLevel::Allow, "deprecated `w/` and `w/=` operators for structs", "`w/` and `w/=` operators for structs are deprecated, use `new` instead"),
     (DeprecatedDoubleColonOperator, LintLevel::Allow, "deprecated `::` for field access", "`::` operator is deprecated, use `.` instead"),
+    (AmbiguousUnaryOperatorAfterIf, LintLevel::Warn, "ambiguous unary operator after if-expression", "consider wrapping the if-expression in parentheses or using a semicolon to clarify the intended use of the operator"),
 }
 
 #[derive(Default)]
@@ -338,6 +339,40 @@ impl HirLintPass for DeprecatedDoubleColonOperator {
                         ));
                     }
                 }
+            }
+        }
+    }
+}
+
+#[derive(Default)]
+struct AmbiguousUnaryOperatorAfterIf {
+    level: LintLevel,
+}
+
+/// Creates a lint for ambiguous unary operators after if-statements.
+/// For example:
+/// ```qsharp
+/// if condition { a } else { b } - c
+/// ```
+/// The user likely intended this to subtract `c` from the result of the if-expression,
+/// but to achieve this they need to wrap the if-expression in parentheses, like so:
+/// ```qsharp
+/// (if condition { a } else { b }) - c
+/// ```
+impl HirLintPass for AmbiguousUnaryOperatorAfterIf {
+    fn check_block(&mut self, block: &Block, buffer: &mut Vec<Lint>, _compilation: Compilation) {
+        if block.stmts.len() < 2 {
+            // Not enough statements to have an if-expression followed by a unary operator.
+            return;
+        }
+        for i in 0..(block.stmts.len() - 1) {
+            if let StmtKind::Expr(expr) = &block.stmts[i].kind
+                && matches!(&expr.kind, ExprKind::If(..))
+                && let StmtKind::Expr(next_expr) = &block.stmts[i + 1].kind
+                && matches!(next_expr.kind, ExprKind::UnOp(UnOp::Pos | UnOp::Neg, _))
+                && expr.ty != Ty::UNIT
+            {
+                buffer.push(lint!(self, next_expr.span));
             }
         }
     }

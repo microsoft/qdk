@@ -21,7 +21,7 @@ if QISKIT_AVAILABLE:
         QirTarget,
     )
     from qiskit.circuit import QuantumCircuit, Parameter, Gate
-    from qiskit.circuit.quantumcircuit import QubitSpecifier
+    from qiskit.transpiler.target import Target
 
 
 def get_resource_path(file_name: Optional[str] = None) -> str:
@@ -147,19 +147,15 @@ def test_generating_qir_without_registers_raises():
 def test_custom_qir_intrinsics_generates_qir():
     expected_qir = read_resource_file("custom_intrinsics.ll")
 
-    def my_gate(self: QuantumCircuit, qubit: QubitSpecifier):
+    def my_gate(self, qubit):
         return self.append(Gate(name="my_gate", num_qubits=1, params=[]), [qubit])
 
     QuantumCircuit.my_gate = my_gate
 
-    class CustomTarget(QirTarget):
-        def __init__(self):
-            super().__init__()
-            self.add_instruction(
-                Gate(name="my_gate", num_qubits=1, params=[]), name="my_gate"
-            )
-
-    target = CustomTarget()
+    target = QirTarget.build_target()
+    target.add_instruction(
+        Gate(name="my_gate", num_qubits=1, params=[]), name="my_gate"
+    )
     circuit = QuantumCircuit(1, 1)
     circuit.my_gate(0)
     circuit.measure(0, 0)
@@ -178,19 +174,15 @@ def test_custom_qir_intrinsics_generates_qir():
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
 def test_custom_qir_intrinsics_is_simulatable():
-    def my_gate(self: QuantumCircuit, qubit: QubitSpecifier):
+    def my_gate(self, qubit):
         return self.append(Gate(name="my_gate", num_qubits=1, params=[]), [qubit])
 
     QuantumCircuit.my_gate = my_gate
 
-    class CustomTarget(QirTarget):
-        def __init__(self):
-            super().__init__()
-            self.add_instruction(
-                Gate(name="my_gate", num_qubits=1, params=[]), name="my_gate"
-            )
-
-    target = CustomTarget()
+    target = QirTarget.build_target()
+    target.add_instruction(
+        Gate(name="my_gate", num_qubits=1, params=[]), name="my_gate"
+    )
     circuit = QuantumCircuit(1, 1)
     circuit.my_gate(0)
     circuit.measure(0, 0)
@@ -205,6 +197,36 @@ def test_custom_qir_intrinsics_is_simulatable():
     backend = QSharpBackend(target_profile=target_profile, target=target)
     result = backend.run(circuit, **options).result()
     assert result.get_counts() == {"1": 1024}
+
+
+@pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
+def test_qir_target_init_uses_factory():
+    wrapper = QirTarget(num_qubits=2, supports_barrier=True)
+
+    target = wrapper.to_target()
+    assert isinstance(target, Target)
+    assert target is wrapper.to_target()
+
+    # Methods should proxy to the underlying Target instance.
+    assert "measure" in target.operation_names
+
+    custom_gate = Gate(name="proxy_gate", num_qubits=1, params=[])
+    wrapper.add_instruction(custom_gate, name="proxy_gate")
+    assert "proxy_gate" in target.operation_names
+
+
+@pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
+def test_qir_target_init_delegates_to_internal_instance():
+    target = QirTarget(num_qubits=2, supports_barrier=True)
+
+    assert not isinstance(target, Target)
+
+    # Methods should proxy to the underlying Target instance.
+    assert "measure" in target.operation_names
+
+    custom_gate = Gate(name="proxy_gate", num_qubits=1, params=[])
+    target.add_instruction(custom_gate, name="proxy_gate")
+    assert "proxy_gate" in target.operation_names
 
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)

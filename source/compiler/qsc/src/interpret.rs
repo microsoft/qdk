@@ -176,6 +176,12 @@ pub struct TaggedItem {
     pub namespace: Vec<Rc<str>>,
 }
 
+#[derive(PartialEq, Eq, Copy, Clone)]
+pub enum TraceCircuitOption {
+    Enabled,
+    Disabled,
+}
+
 impl Interpreter {
     pub fn new_with_circuit_trace(
         sources: SourceMap,
@@ -208,7 +214,7 @@ impl Interpreter {
         store: PackageStore,
         dependencies: &Dependencies,
     ) -> std::result::Result<Self, Vec<Error>> {
-        Self::new_with_sources(
+        Self::with_sources(
             false,
             sources,
             package_type,
@@ -216,14 +222,11 @@ impl Interpreter {
             language_features,
             store,
             dependencies,
-            false,
+            TraceCircuitOption::Disabled,
         )
     }
 
-    /// Creates a new incremental compiler with debugging stmts enabled, compiling the passed in sources.
-    /// # Errors
-    /// If compiling the sources fails, compiler errors are returned.
-    pub fn new_with_debug(
+    pub fn with_circuit_trace(
         sources: SourceMap,
         package_type: PackageType,
         capabilities: TargetCapabilityFlags,
@@ -231,7 +234,30 @@ impl Interpreter {
         store: PackageStore,
         dependencies: &Dependencies,
     ) -> std::result::Result<Self, Vec<Error>> {
-        Self::new_with_sources(
+        Self::with_sources(
+            false,
+            sources,
+            package_type,
+            capabilities,
+            language_features,
+            store,
+            dependencies,
+            TraceCircuitOption::Enabled,
+        )
+    }
+
+    /// Creates a new incremental compiler with debugging stmts enabled, compiling the passed in sources.
+    /// # Errors
+    /// If compiling the sources fails, compiler errors are returned.
+    pub fn with_debug(
+        sources: SourceMap,
+        package_type: PackageType,
+        capabilities: TargetCapabilityFlags,
+        language_features: LanguageFeatures,
+        store: PackageStore,
+        dependencies: &Dependencies,
+    ) -> std::result::Result<Self, Vec<Error>> {
+        Self::with_sources(
             true,
             sources,
             package_type,
@@ -239,12 +265,12 @@ impl Interpreter {
             language_features,
             store,
             dependencies,
-            true, // enable circuit tracing in debug mode
+            TraceCircuitOption::Enabled, // always enable circuit tracing in debug mode
         )
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn new_with_sources(
+    fn with_sources(
         dbg: bool,
         sources: SourceMap,
         package_type: PackageType,
@@ -252,7 +278,7 @@ impl Interpreter {
         language_features: LanguageFeatures,
         store: PackageStore,
         dependencies: &Dependencies,
-        trace_circuit: bool,
+        trace_circuit: TraceCircuitOption,
     ) -> std::result::Result<Self, Vec<Error>> {
         let compiler = Compiler::new(
             sources,
@@ -267,7 +293,7 @@ impl Interpreter {
         Self::with_compiler(dbg, capabilities, trace_circuit, compiler)
     }
 
-    pub fn new_with_package_store(
+    pub fn with_package_store(
         dbg: bool,
         store: PackageStore,
         source_package_id: qsc_hir::hir::PackageId,
@@ -275,7 +301,7 @@ impl Interpreter {
         language_features: LanguageFeatures,
         dependencies: &Dependencies,
     ) -> std::result::Result<Self, Vec<Error>> {
-        let compiler = Compiler::from(
+        let compiler = Compiler::with_package_store(
             store,
             source_package_id,
             capabilities,
@@ -287,7 +313,11 @@ impl Interpreter {
         Self::with_compiler(
             dbg,
             capabilities,
-            dbg, // enable circuit tracing if debug mode
+            if dbg {
+                TraceCircuitOption::Enabled
+            } else {
+                TraceCircuitOption::Disabled
+            },
             compiler,
         )
     }
@@ -295,7 +325,7 @@ impl Interpreter {
     fn with_compiler(
         dbg: bool,
         capabilities: TargetCapabilityFlags,
-        trace_circuit: bool,
+        trace_circuit: TraceCircuitOption,
         compiler: Compiler,
     ) -> std::result::Result<Interpreter, Vec<Error>> {
         let mut fir_store = fir::PackageStore::new();
@@ -961,7 +991,7 @@ impl Interpreter {
         };
 
         let circuit = if simulate {
-            let mut sim = sim_circuit_backend(true);
+            let mut sim = sim_circuit_backend(TraceCircuitOption::Enabled);
 
             match invoke_params {
                 Some((callable, args)) => {
@@ -1220,10 +1250,12 @@ impl Interpreter {
     }
 }
 
-fn sim_circuit_backend(trace_circuit: bool) -> TracingBackend<SparseSim, CircuitBuilder> {
+fn sim_circuit_backend(
+    trace_circuit: TraceCircuitOption,
+) -> TracingBackend<SparseSim, CircuitBuilder> {
     TracingBackend::new(
         SparseSim::new(),
-        if trace_circuit {
+        if trace_circuit == TraceCircuitOption::Enabled {
             Some(CircuitBuilder::new(CircuitConfig {
                 max_operations: CircuitConfig::DEFAULT_MAX_OPERATIONS,
             }))
@@ -1267,7 +1299,7 @@ impl Debugger {
         store: PackageStore,
         dependencies: &Dependencies,
     ) -> std::result::Result<Self, Vec<Error>> {
-        let interpreter = Interpreter::new_with_debug(
+        let interpreter = Interpreter::with_debug(
             sources,
             PackageType::Exe,
             capabilities,

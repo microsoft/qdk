@@ -49,7 +49,7 @@ fn compile_and_run_internal(sources: SourceMap, debug: bool) -> String {
     let (std_id, store) = compile::package_store_with_stdlib(TargetCapabilityFlags::all());
 
     let mut interpreter = match (if debug {
-        Interpreter::new_with_debug
+        Interpreter::with_debug
     } else {
         Interpreter::new
     })(
@@ -145,7 +145,7 @@ fn compile_and_run_qasm_internal(source: &str, debug: bool) -> String {
     unit.expose();
     let source_package_id = store.insert(unit);
 
-    let mut interpreter = match Interpreter::new_with_package_store(
+    let mut interpreter = match Interpreter::with_package_store(
         debug,
         store,
         source_package_id,

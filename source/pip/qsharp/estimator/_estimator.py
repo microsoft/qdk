@@ -1042,6 +1042,12 @@ class LogicalCounts(dict):
         self._data["cczCount"] = data.get("cczCount", 0)
         self._data["ccixCount"] = data.get("ccixCount", 0)
         self._data["measurementCount"] = data.get("measurementCount", 0)
+        if "numComputeQubits" in data:
+            self._data["numComputeQubits"] = data["numComputeQubits"]
+        if "readFromMemoryCount" in data:
+            self._data["readFromMemoryCount"] = data["readFromMemoryCount"]
+        if "writeToMemoryCount" in data:
+            self._data["writeToMemoryCount"] = data["writeToMemoryCount"]
         super().__init__(self._data)
 
     @property

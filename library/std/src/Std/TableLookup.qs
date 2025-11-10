@@ -251,7 +251,7 @@ operation Unlookup(
         let phaseData = Padded(-2^addressBitsNeeded, false, phaseData);
 
         // Apply phase lookup to correct phases in the address register
-        PhaseLookup(address, phaseData);
+        PhaseLookup(address[...addressBitsNeeded - 1], phaseData);
     }
 }
 

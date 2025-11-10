@@ -33,6 +33,7 @@ import {
   WorkspaceTreeProvider,
 } from "./treeView";
 import {
+  cancelPendingJob,
   getAzurePortalWorkspaceLink,
   getJobFiles,
   getPythonCodeForWorkspace,
@@ -76,6 +77,7 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
       let supportsQir = false;
       let supportsDownload = false;
       let isWorkspace = false;
+      let isCancelable = false;
 
       if (e.selection.length === 1) {
         currentTreeItem = e.selection[0] as WorkspaceTreeItem;
@@ -89,6 +91,9 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
           const job = currentTreeItem.itemData as Job;
           if (job.status === "Succeeded" && job.outputDataUri) {
             supportsDownload = true;
+          }
+          if (job.status === "Waiting" || job.status === "Executing") {
+            isCancelable = true;
           }
         }
         if (currentTreeItem.type === "workspace") {
@@ -112,6 +117,11 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
         "setContext",
         `${qsharpExtensionId}.treeItemIsWorkspace`,
         isWorkspace,
+      );
+      await vscode.commands.executeCommand(
+        "setContext",
+        `${qsharpExtensionId}.treeItemIsCancelable`,
+        isCancelable,
       );
     }),
   );
@@ -236,6 +246,43 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
     ),
   );
 
+  async function cancelJob(arg?: WorkspaceTreeItem) {
+    // Could be run via the treeItem icon or the menu command.
+    const treeItem = arg || currentTreeItem;
+    if (treeItem?.type !== "job") return;
+
+    const job = treeItem.itemData as Job;
+
+    // Confirm cancellation with the user
+    const confirm = await vscode.window.showWarningMessage(
+      `Are you sure you want to cancel the job "${job.name}"?`,
+      { modal: true },
+      { title: "Yes", isCloseAffordance: false },
+      { title: "No", isCloseAffordance: true },
+    );
+    if (confirm?.title !== "Yes") return;
+
+    try {
+      // Get the token
+      const token = await getTokenForWorkspace(treeItem.workspace);
+      if (!token) throw "Unable to get an authentication token";
+
+      // Call the network request
+      await cancelPendingJob(treeItem.workspace, token, job.id);
+
+      // Report success/failure to the user
+      vscode.window.showInformationMessage(
+        "The cancel request has been submitted.",
+      );
+    } catch (e: any) {
+      log.error("Failed to cancel the job: ", e);
+      vscode.window.showErrorMessage("Failed to cancel the job.", {
+        modal: true,
+        detail: e instanceof Error ? e.message : undefined,
+      });
+    }
+  }
+
   async function downloadResults(arg?: WorkspaceTreeItem, showText?: boolean) {
     // Could be run via the treeItem icon or the menu command.
     const treeItem = arg || currentTreeItem;
@@ -286,6 +333,13 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
       });
     }
   }
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      `${qsharpExtensionId}.cancelJob`,
+      async (arg: WorkspaceTreeItem) => await cancelJob(arg),
+    ),
+  );
 
   context.subscriptions.push(
     vscode.commands.registerCommand(

@@ -810,6 +810,92 @@ fn deprecated_assign_update_expr_code_action() {
 }
 
 #[test]
+fn ambiguous_unary_operator_after_if() {
+    check(
+        &wrap_in_callable("if true { 42 } else { 0 } - 1", CallableKind::Function),
+        &expect![[r#"
+            [
+                SrcLint {
+                    source: "- 1",
+                    level: Warn,
+                    message: "ambiguous unary operator after if-expression",
+                    help: "consider wrapping the if-expression in parentheses or using a semicolon to clarify the intended use of the operator",
+                    code_action_edits: [],
+                },
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn ambiguous_unary_operator_after_if_fixed_by_parens_around_if() {
+    check(
+        &wrap_in_callable("(if true { 42 } else { 0 }) - 1", CallableKind::Function),
+        &expect![[r#"
+            []
+        "#]],
+    );
+}
+
+#[test]
+fn ambiguous_unary_operator_after_if_fixed_by_parens_around_all() {
+    check(
+        &wrap_in_callable("(if true { 42 } else { 0 } - 1)", CallableKind::Function),
+        &expect![[r#"
+            []
+        "#]],
+    );
+}
+
+#[test]
+fn ambiguous_unary_operator_after_if_fixed_by_semicolon() {
+    check(
+        &wrap_in_callable("if true { 42 } else { 0 }; - 1", CallableKind::Function),
+        &expect![[r#"
+            []
+        "#]],
+    );
+}
+
+#[test]
+fn ambiguous_unary_operator_after_if_does_trigger_warning_on_different_non_unit_types() {
+    check(
+        &wrap_in_callable("if true { 42.0 } else { 0.0 } - 1", CallableKind::Function),
+        &expect![[r#"
+            [
+                SrcLint {
+                    source: "- 1",
+                    level: Warn,
+                    message: "ambiguous unary operator after if-expression",
+                    help: "consider wrapping the if-expression in parentheses or using a semicolon to clarify the intended use of the operator",
+                    code_action_edits: [],
+                },
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn ambiguous_unary_operator_after_if_does_not_trigger_on_unit_type() {
+    check(
+        &wrap_in_callable("if true { 42; } else { 0; } - 1", CallableKind::Function),
+        &expect![[r#"
+            []
+        "#]],
+    );
+}
+
+#[test]
+fn ambiguous_unary_operator_after_if_does_not_trigger_for_unary_ops_besides_minus_plus() {
+    check(
+        &wrap_in_callable("if true { 42 } else { 0 } !1", CallableKind::Function),
+        &expect![[r#"
+            []
+        "#]],
+    );
+}
+
+#[test]
 fn check_that_hir_lints_are_deduplicated_in_operations_with_multiple_specializations() {
     check_with_deduplication(
         "

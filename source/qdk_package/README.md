@@ -1,6 +1,6 @@
 # qdk
 
-Preview package for the Quantum Development Kit (QDK) that bundles the `qsharp` Python package together with optional extras under a single top level package.
+The Quantum Development Kit (QDK) provides a single, cohesive Python entry point for compiling, simulating, and estimating resources for quantum programs (Q# and OpenQASM), with optional extras for visualization, cloud workflows, and Qiskit interoperability.
 
 ## Install
 
@@ -13,25 +13,25 @@ pip install qdk
 To include the Jupyter extra, which adds visualizations using Jupyter Widgets in the `qdk.widgets` submodule and syntax highlighting for Jupyter notebooks in the browser:
 
 ```bash
-pip install qdk[jupyter]
+pip install "qdk[jupyter]"
 ```
 
 To add the Azure Quantum extra, which includes functionality for working with the Azure Quantum service in the `qdk.azure` submodule:
 
 ```bash
-pip install qdk[azure]
+pip install "qdk[azure]"
 ```
 
 For Qiskit integration, which exposes Qiskit interop utilities in the `qdk.qiskit` submodule:
 
 ```bash
-pip install qdk[qiskit]
+pip install "qdk[qiskit]"
 ```
 
 To easily install all the above extras:
 
 ```bash
-pip install qdk[all]
+pip install "qdk[all]"
 ```
 
 ## Quick Start
@@ -82,7 +82,6 @@ For convenience, the following helpers and types are also importable directly fr
 | `set_quantum_seed`   | function | `qsharp.set_quantum_seed`   | Deterministic seed for quantum randomness (simulators).             |
 | `set_classical_seed` | function | `qsharp.set_classical_seed` | Deterministic seed for classical host RNG.                          |
 | `dump_machine`       | function | `qsharp.dump_machine`       | Emit a structured dump of full quantum state (simulator dependent). |
-| `dump_circuit`       | function | `qsharp.dump_circuit`       | Produce a circuit representation / diagram (when supported).        |
 | `Result`             | class    | `qsharp.Result`             | Measurement result token.                                           |
 | `TargetProfile`      | class    | `qsharp.TargetProfile`      | Target capability / profile descriptor.                             |
 | `StateDump`          | class    | `qsharp.StateDump`          | Structured state dump object.                                       |

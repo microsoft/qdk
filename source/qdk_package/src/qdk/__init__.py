@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-"""qdk bundling meta-package.
+"""qdk bundling top-level package.
 
 Design goals:
     * Provide a single import root `qdk` that exposes bundled quantum tooling as

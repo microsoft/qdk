@@ -1,5 +1,85 @@
 # QDK Changelog
 
+## v1.22.0
+
+Below are some of the highlights for the 1.22 release of the QDK.
+
+### Python `qdk` package is out of preview
+
+With this release, the `qdk` package on PyPI is now considered stable and out of preview, and is the recommended way to install the QDK for Python users. The package includes a number of 'extras' to add optional functionality, such as Jupyter Notebook support, Azure Quantum integration, and Qiskit interop. For example, to install the QDK with Qiskit, Jupyter and Azure Quantum support:
+
+    pip install "qdk[qiskit,jupyter,azure]"
+
+As a shortcut to install all optional functionality, you can also do:
+
+    pip install "qdk[all]"
+
+See <https://pypi.org/project/qdk/> for more details.
+
+### Qiskit 2 support
+
+With this release, the QDK supports both Qiskit 1.x and 2.x releases for converting a Qiskit circuit into QIR and submitting as a job to the Azure Quantum service.
+
+> Note that this **does not** yet support using Azure Quantum `Backends` directly from Qiskit 2.x; that functionality is planned for a future release of the [azure-quantum](https://pypi.org/project/azure-quantum) Python package.
+
+For an example of submitting a Qiskit circuit by first converting to QIR, see the first sample notebook in the next section.
+
+### Sample notebooks for submitting Qiskit, Cirq, and PennyLane programs to Azure Quantum
+
+We have added sample Jupyter Notebooks demonstrating how to submit quantum programs written in Qiskit, Cirq, and PennyLane to the Azure Quantum service. These samples use the `qdk` Python package to convert the circuits into QIR format, and then submit them as jobs to Azure Quantum.
+
+- [Submit Qiskit Circuit to Azure](https://github.com/microsoft/qdk/blob/main/samples/python_interop/submit_qiskit_circuit_to_azure.ipynb)
+- [Circ submission to Azure](https://github.com/microsoft/qdk/blob/main/samples/python_interop/cirq_submission_to_azure.ipynb)
+- [PennyLane submission to Azure](https://github.com/microsoft/qdk/blob/main/samples/python_interop/pennylane_submission_to_azure.ipynb)
+
+### Spec compliant QIR code generation
+
+In this release we have updated the QIR code generation to be compliant with the [QIR specification](https://github.com/qir-alliance/qir-spec/tree/main/specification). This has been tested with the quantum targets available on Azure Quantum, and you should see no difference in behavior when submitting jobs. However if you are using the generated QIR in other toolchain, you may be impacted. See the PR at [#2590](https://github.com/microsoft/qdk/pull/2590) for details.
+
+### Code action to create parameterless wrappers
+
+A new Code Action has been added to wrap an existing operation in a new operation that takes no parameters. The new operation can be edited to prepare the parameters before calling the existing operation. This allows for easy circuit generation, execution, debugging, etc. via the CodeLens actions on the new operation, as well as quickly turning the wrapper into a unit test.
+
+![wrapper](https://github.com/user-attachments/assets/c35bc7e5-bea3-4a9a-bcf1-9e2e0bd8cdd7)
+
+### Azure Quantum job cancellation
+
+Jobs submitted to the Azure Quantum service that have not yet completed can now be cancelled directly from the VS Code "Quantum Workspaces" explorer view. As shown below, when a job is in the `Waiting` or `Running` state, a "Cancel Azure Quantum Job" icon is available to the right of the job name. Clicking this icon will prompt for confirmation, and then submit a cancellation request to Azure Quantum.
+
+<img width="575" alt="cancel job" src="https://github.com/user-attachments/assets/9baca94b-38fc-4bd6-b312-1ba6117335ba" />
+
+## Other notable changes
+
+- Emit spec compliant QIR by @swernli in [#2590](https://github.com/microsoft/qdk/pull/2590)
+- Improved adjoint Select implementation by @DmitryVasilevsky in [#2729](https://github.com/microsoft/qdk/pull/2729)
+- Code Action for Parameterless Wrappers by @ScottCarda-MS in [#2731](https://github.com/microsoft/qdk/pull/2731)
+- Housekeeping: Tidy up spelling by @ConradJohnston in [#2734](https://github.com/microsoft/qdk/pull/2734)
+- Fix a bug in trivial 1-to-1 distillation unit by @msoeken in [#2736](https://github.com/microsoft/qdk/pull/2736)
+- Enable implementation of `prune_error_budget` in custom estimation API by @msoeken in [#2737](https://github.com/microsoft/qdk/pull/2737)
+- Better `compile` error when missing call to `init` by @swernli in [#2735](https://github.com/microsoft/qdk/pull/2735)
+- Sample Notebook for Submitting Qiskit to Azure Quantum using `qdk` python by @ScottCarda-MS in [#2739](https://github.com/microsoft/qdk/pull/2739)
+- Replace Quantinuum H1 with H2 in samples by @swernli in [#2747](https://github.com/microsoft/qdk/pull/2747)
+- Fix Webview and Circuit Editor Left Padding by @ScottCarda-MS in [#2748](https://github.com/microsoft/qdk/pull/2748)
+- Array error messages for comma issues by @joesho112358 in [#2744](https://github.com/microsoft/qdk/pull/2744)
+- Fix OpenQASM `cu` target by @swernli in [#2752](https://github.com/microsoft/qdk/pull/2752)
+- Remove `dump_circuit` from top-level `qdk` python module by @ScottCarda-MS in [#2753](https://github.com/microsoft/qdk/pull/2753)
+- Cirq Sample Notebook for Azure Submission by @ScottCarda-MS in [#2751](https://github.com/microsoft/qdk/pull/2751)
+- Removed References to the QDK Package being "preview" by @ScottCarda-MS in [#2756](https://github.com/microsoft/qdk/pull/2756)
+- Circuit diagram snapshot tests (includes Node.js upgrade) by @minestarks in [#2743](https://github.com/microsoft/qdk/pull/2743)
+- Add lint warning for ambiguous if-statement followed by unary operator by @swernli in [#2759](https://github.com/microsoft/qdk/pull/2759)
+- Automatic estimation of overhead in memory/compute architecture by @msoeken in [#2760](https://github.com/microsoft/qdk/pull/2760)
+- Enable Qiskit 2.0 support by @idavis in [#2754](https://github.com/microsoft/qdk/pull/2754)
+- Job cancallation by @billti in [#2763](https://github.com/microsoft/qdk/pull/2763)
+- PennyLane Sample Notebook for Azure Submission by @ScottCarda-MS in [#2758](https://github.com/microsoft/qdk/pull/2758)
+- Unit test for over-large address in Select/Unselect by @DmitryVasilevsky in [#2765](https://github.com/microsoft/qdk/pull/2765)
+
+## New Contributors
+
+- @ConradJohnston made their first contribution in https://github.com/microsoft/qdk/pull/2734
+- @joesho112358 made their first contribution in https://github.com/microsoft/qdk/pull/2744
+
+**Full Changelog**: https://github.com/microsoft/qdk/compare/v1.21.0...v1.22.0
+
 ## v1.21.0
 
 Below are some of the highlights for the 1.21 release of the QDK.

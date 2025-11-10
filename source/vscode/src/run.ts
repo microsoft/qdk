@@ -203,12 +203,12 @@ export async function runProgram(
     doneReason = ProgramRunStatus.Timeout;
     worker.terminate();
   }, compilerRunTimeoutMs);
-  cancellationToken?.onCancellationRequested(() => {
+  options.cancellationToken?.onCancellationRequested(() => {
     doneReason = ProgramRunStatus.Cancellation;
     worker.terminate();
   });
   // Final check before long running operation
-  if (cancellationToken?.isCancellationRequested) {
+  if (options.cancellationToken?.isCancellationRequested) {
     doneReason = ProgramRunStatus.Cancellation;
     return { status: doneReason, shotResults: [] };
   }
@@ -216,7 +216,12 @@ export async function runProgram(
   const worker = loadCompilerWorker(extensionUri!);
 
   try {
-    await worker.run(program, entry, shots, evtTarget);
+    await worker.run(
+      program,
+      options.entry || "",
+      options.shots || 1,
+      evtTarget,
+    );
     // We can still receive events after the above call is done.
     // Await until all shots are complete.
     await allShotsDone;

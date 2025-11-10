@@ -43,6 +43,9 @@ fn main() {
         ccz_count: 100,
         ccix_count: 0,
         measurement_count: 10,
+        num_compute_qubits: None,
+        read_from_memory_count: None,
+        write_to_memory_count: None,
     });
 
     // 5) An error budget; in this example we are using a uniform error budget
