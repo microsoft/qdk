@@ -29,7 +29,7 @@ pub fn defer_measurements(program: &mut Program) {
             CallableType::OutputRecording => {
                 output_recording_ids.insert(id);
             }
-            CallableType::Regular => {}
+            CallableType::Regular | CallableType::Initialize => {}
             CallableType::Reset => panic!(
                 "Reset callables should not be present in the RIR when deferring measurements"
             ),

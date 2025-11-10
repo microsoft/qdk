@@ -4,10 +4,11 @@
 #[cfg(test)]
 mod tests;
 
-use qsc_data_structures::line_column::{Encoding, Position};
+use qsc_data_structures::line_column::Encoding;
 use qsc_eval::debug::Frame;
 use qsc_fir::fir::{Global, PackageStoreLookup, StoreItemId};
 use qsc_frontend::compile::PackageStore;
+use qsc_frontend::location::Location;
 use qsc_hir::hir;
 use qsc_hir::hir::{Item, ItemKind};
 use qsc_lowerer::map_fir_package_to_hir;
@@ -48,14 +49,13 @@ pub(crate) fn format_call_stack(
         }
         write!(trace, "{}", call.name.name).expect("writing to string should succeed");
 
-        let name = get_item_file_name(store, frame.id);
-        let pos = get_position(frame, store);
+        let l = get_location(frame, store);
         write!(
             trace,
             " in {}:{}:{}",
-            name.unwrap_or("<expression>".to_string()),
-            pos.line + 1,
-            pos.column + 1,
+            l.source,
+            l.range.start.line + 1,
+            l.range.start.column + 1,
         )
         .expect("writing to string should succeed");
 
@@ -80,17 +80,6 @@ fn get_item_parent(store: &PackageStore, id: StoreItemId) -> Option<Item> {
 }
 
 #[must_use]
-fn get_item_file_name(store: &PackageStore, id: StoreItemId) -> Option<String> {
-    let package = map_fir_package_to_hir(id.package);
-    let item = hir::LocalItemId::from(usize::from(id.item));
-    store.get(package).and_then(|unit| {
-        let item = unit.package.items.get(item)?;
-        let source = unit.sources.find_by_offset(item.span.lo);
-        source.map(|s| s.name.to_string())
-    })
-}
-
-#[must_use]
 fn get_ns_name(item: &Item) -> Option<Rc<str>> {
     let ItemKind::Namespace(ns, _) = &item.kind else {
         return None;
@@ -98,15 +87,8 @@ fn get_ns_name(item: &Item) -> Option<Rc<str>> {
     Some(ns.name())
 }
 
-/// Converts the [`Span`] of [`Frame`] into a [`Position`].
-fn get_position(frame: Frame, store: &PackageStore) -> Position {
-    let filename = get_item_file_name(store, frame.id).expect("file should exist");
+/// Converts the [`Span`] of [`Frame`] into a [`Location`].
+fn get_location(frame: Frame, store: &PackageStore) -> Location {
     let package_id = map_fir_package_to_hir(frame.id.package);
-    let unit = store.get(package_id).expect("package should exist");
-    let source = unit
-        .sources
-        .find_by_name(&filename)
-        .expect("source should exist");
-    let contents = &source.contents;
-    Position::from_utf8_byte_offset(Encoding::Utf8, contents, frame.span.lo - source.offset)
+    Location::from(frame.span, package_id, store, Encoding::Utf8)
 }

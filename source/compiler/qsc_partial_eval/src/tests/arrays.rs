@@ -31,19 +31,32 @@ fn array_with_dynamic_content() {
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Initialize
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let array_output_recording_callable_id = CallableId(2);
     assert_callable(
         &program,
         array_output_recording_callable_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    let result_output_recording_callable_id = CallableId(3);
+    assert_callable(
+        &program,
+        result_output_recording_callable_id,
         &expect![[r#"
             Callable:
                 name: __quantum__rt__array_record_output
@@ -54,31 +67,18 @@ fn array_with_dynamic_content() {
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
-    let result_output_recording_callable_id = CallableId(3);
-    assert_callable(
-        &program,
-        result_output_recording_callable_id,
-        &expect![[r#"
-            Callable:
-                name: __quantum__rt__result_record_output
-                call_type: OutputRecording
-                input_type:
-                    [0]: Result
-                    [1]: Pointer
-                output_type: <VOID>
-                body: <NONE>"#]],
-    );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[122-133] scope=0 scope_package_id=2 scope_span=[68-153] callable=Main
-                Call id(1), args( Qubit(1), Result(1), ) !dbg package_id=2 span=[135-146] scope=0 scope_package_id=2 scope_span=[68-153] callable=Main
-                Call id(2), args( Integer(2), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(1), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=4
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=6
+                Call id(3), args( Integer(2), EmptyTag, ) !dbg dbg_location=0
+                Call id(4), args( Result(0), Tag(0, 5), ) !dbg dbg_location=0
+                Call id(4), args( Result(1), Tag(1, 5), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -99,14 +99,13 @@ fn array_with_hybrid_content() {
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Initialize
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let array_output_recording_callable_id = CallableId(2);
     assert_callable(
@@ -114,11 +113,12 @@ fn array_with_hybrid_content() {
         array_output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__read_result__body
-                call_type: Readout
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
                 input_type:
-                    [0]: Result
-                output_type: Boolean
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
                 body: <NONE>"#]],
     );
     let boolean_output_recording_callable_id = CallableId(3);
@@ -127,12 +127,11 @@ fn array_with_hybrid_content() {
         boolean_output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__array_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_block_instructions(
@@ -140,13 +139,14 @@ fn array_with_hybrid_content() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[109-119] scope=0 scope_package_id=2 scope_span=[66-151] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[136-144] scope=0 scope_package_id=2 scope_span=[66-151] callable=Main
-                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg package_id=2 span=[136-144] scope=0 scope_package_id=2 scope_span=[66-151] callable=Main
-                Call id(3), args( Integer(2), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(4), args( Bool(true), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(4), args( Variable(1, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=2
+                Call id(4), args( Integer(2), EmptyTag, ) !dbg dbg_location=0
+                Call id(5), args( Bool(true), Tag(0, 5), ) !dbg dbg_location=0
+                Call id(5), args( Variable(1, Boolean), Tag(1, 5), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -166,19 +166,32 @@ fn array_repeat_with_dynamic_content() {
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Initialize
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let array_output_recording_callable_id = CallableId(2);
     assert_callable(
         &program,
         array_output_recording_callable_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    let result_output_recording_callable_id = CallableId(3);
+    assert_callable(
+        &program,
+        result_output_recording_callable_id,
         &expect![[r#"
             Callable:
                 name: __quantum__rt__array_record_output
@@ -189,30 +202,17 @@ fn array_repeat_with_dynamic_content() {
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
-    let result_output_recording_callable_id = CallableId(3);
-    assert_callable(
-        &program,
-        result_output_recording_callable_id,
-        &expect![[r#"
-            Callable:
-                name: __quantum__rt__result_record_output
-                call_type: OutputRecording
-                input_type:
-                    [0]: Result
-                    [1]: Pointer
-                output_type: <VOID>
-                body: <NONE>"#]],
-    );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[104-114] scope=0 scope_package_id=2 scope_span=[68-131] callable=Main
-                Call id(2), args( Integer(2), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Call id(3), args( Integer(2), EmptyTag, ) !dbg dbg_location=0
+                Call id(4), args( Result(0), Tag(0, 5), ) !dbg dbg_location=0
+                Call id(4), args( Result(0), Tag(1, 5), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -234,11 +234,10 @@ fn result_array_value_at_index() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -248,11 +247,11 @@ fn result_array_value_at_index() {
         result_output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__result_record_output
-                call_type: OutputRecording
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
                 input_type:
-                    [0]: Result
-                    [1]: Pointer
+                    [0]: Qubit
+                    [1]: Result
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -261,10 +260,11 @@ fn result_array_value_at_index() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[134-145] scope=0 scope_package_id=2 scope_span=[66-185] callable=Main
-                Call id(1), args( Qubit(1), Result(1), ) !dbg package_id=2 span=[147-158] scope=0 scope_package_id=2 scope_span=[66-185] callable=Main
-                Call id(2), args( Result(1), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=4
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=6
+                Call id(3), args( Result(1), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -285,10 +285,11 @@ fn result_array_value_at_negative_index_works() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[134-145] scope=0 scope_package_id=2 scope_span=[66-186] callable=Main
-                Call id(1), args( Qubit(1), Result(1), ) !dbg package_id=2 span=[147-158] scope=0 scope_package_id=2 scope_span=[66-186] callable=Main
-                Call id(2), args( Result(1), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=4
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=6
+                Call id(3), args( Result(1), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -330,6 +331,19 @@ fn result_array_slice_with_explicit_range() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
+                name: __quantum__rt__initialize
+                call_type: Initialize
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    let array_output_recording_callable_id = CallableId(2);
+    assert_callable(
+        &program,
+        array_output_recording_callable_id,
+        &expect![[r#"
+            Callable:
                 name: __quantum__qis__mresetz__body
                 call_type: Measurement
                 input_type:
@@ -338,10 +352,10 @@ fn result_array_slice_with_explicit_range() {
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
-    let array_output_recording_callable_id = CallableId(2);
+    let result_output_recording_callable_id = CallableId(3);
     assert_callable(
         &program,
-        array_output_recording_callable_id,
+        result_output_recording_callable_id,
         &expect![[r#"
             Callable:
                 name: __quantum__rt__array_record_output
@@ -352,35 +366,22 @@ fn result_array_slice_with_explicit_range() {
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
-    let result_output_recording_callable_id = CallableId(3);
-    assert_callable(
-        &program,
-        result_output_recording_callable_id,
-        &expect![[r#"
-            Callable:
-                name: __quantum__rt__result_record_output
-                call_type: OutputRecording
-                input_type:
-                    [0]: Result
-                    [1]: Pointer
-                output_type: <VOID>
-                body: <NONE>"#]],
-    );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[169-180] scope=0 scope_package_id=2 scope_span=[68-259] callable=Main
-                Call id(1), args( Qubit(1), Result(1), ) !dbg package_id=2 span=[182-193] scope=0 scope_package_id=2 scope_span=[68-259] callable=Main
-                Call id(1), args( Qubit(2), Result(2), ) !dbg package_id=2 span=[195-206] scope=0 scope_package_id=2 scope_span=[68-259] callable=Main
-                Call id(1), args( Qubit(3), Result(3), ) !dbg package_id=2 span=[208-219] scope=0 scope_package_id=2 scope_span=[68-259] callable=Main
-                Call id(1), args( Qubit(4), Result(4), ) !dbg package_id=2 span=[221-232] scope=0 scope_package_id=2 scope_span=[68-259] callable=Main
-                Call id(2), args( Integer(3), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(2), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(4), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=7
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=9
+                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=11
+                Call id(2), args( Qubit(3), Result(3), ) !dbg dbg_location=13
+                Call id(2), args( Qubit(4), Result(4), ) !dbg dbg_location=15
+                Call id(3), args( Integer(3), EmptyTag, ) !dbg dbg_location=0
+                Call id(4), args( Result(0), Tag(0, 5), ) !dbg dbg_location=0
+                Call id(4), args( Result(2), Tag(1, 5), ) !dbg dbg_location=0
+                Call id(4), args( Result(4), Tag(2, 5), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -402,6 +403,19 @@ fn result_array_slice_with_open_start_range() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
+                name: __quantum__rt__initialize
+                call_type: Initialize
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    let array_output_recording_callable_id = CallableId(2);
+    assert_callable(
+        &program,
+        array_output_recording_callable_id,
+        &expect![[r#"
+            Callable:
                 name: __quantum__qis__mresetz__body
                 call_type: Measurement
                 input_type:
@@ -410,10 +424,10 @@ fn result_array_slice_with_open_start_range() {
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
-    let array_output_recording_callable_id = CallableId(2);
+    let result_output_recording_callable_id = CallableId(3);
     assert_callable(
         &program,
-        array_output_recording_callable_id,
+        result_output_recording_callable_id,
         &expect![[r#"
             Callable:
                 name: __quantum__rt__array_record_output
@@ -424,32 +438,19 @@ fn result_array_slice_with_open_start_range() {
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
-    let result_output_recording_callable_id = CallableId(3);
-    assert_callable(
-        &program,
-        result_output_recording_callable_id,
-        &expect![[r#"
-            Callable:
-                name: __quantum__rt__result_record_output
-                call_type: OutputRecording
-                input_type:
-                    [0]: Result
-                    [1]: Pointer
-                output_type: <VOID>
-                body: <NONE>"#]],
-    );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[143-154] scope=0 scope_package_id=2 scope_span=[68-204] callable=Main
-                Call id(1), args( Qubit(1), Result(1), ) !dbg package_id=2 span=[156-167] scope=0 scope_package_id=2 scope_span=[68-204] callable=Main
-                Call id(1), args( Qubit(2), Result(2), ) !dbg package_id=2 span=[169-180] scope=0 scope_package_id=2 scope_span=[68-204] callable=Main
-                Call id(2), args( Integer(2), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(1), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=5
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=7
+                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=9
+                Call id(3), args( Integer(2), EmptyTag, ) !dbg dbg_location=0
+                Call id(4), args( Result(0), Tag(0, 5), ) !dbg dbg_location=0
+                Call id(4), args( Result(1), Tag(1, 5), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -471,6 +472,19 @@ fn result_array_slice_with_open_ended_range() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
+                name: __quantum__rt__initialize
+                call_type: Initialize
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    let array_output_recording_callable_id = CallableId(2);
+    assert_callable(
+        &program,
+        array_output_recording_callable_id,
+        &expect![[r#"
+            Callable:
                 name: __quantum__qis__mresetz__body
                 call_type: Measurement
                 input_type:
@@ -479,10 +493,10 @@ fn result_array_slice_with_open_ended_range() {
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
-    let array_output_recording_callable_id = CallableId(2);
+    let result_output_recording_callable_id = CallableId(3);
     assert_callable(
         &program,
-        array_output_recording_callable_id,
+        result_output_recording_callable_id,
         &expect![[r#"
             Callable:
                 name: __quantum__rt__array_record_output
@@ -493,32 +507,19 @@ fn result_array_slice_with_open_ended_range() {
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
-    let result_output_recording_callable_id = CallableId(3);
-    assert_callable(
-        &program,
-        result_output_recording_callable_id,
-        &expect![[r#"
-            Callable:
-                name: __quantum__rt__result_record_output
-                call_type: OutputRecording
-                input_type:
-                    [0]: Result
-                    [1]: Pointer
-                output_type: <VOID>
-                body: <NONE>"#]],
-    );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[143-154] scope=0 scope_package_id=2 scope_span=[68-204] callable=Main
-                Call id(1), args( Qubit(1), Result(1), ) !dbg package_id=2 span=[156-167] scope=0 scope_package_id=2 scope_span=[68-204] callable=Main
-                Call id(1), args( Qubit(2), Result(2), ) !dbg package_id=2 span=[169-180] scope=0 scope_package_id=2 scope_span=[68-204] callable=Main
-                Call id(2), args( Integer(2), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(1), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(2), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=5
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=7
+                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=9
+                Call id(3), args( Integer(2), EmptyTag, ) !dbg dbg_location=0
+                Call id(4), args( Result(1), Tag(0, 5), ) !dbg dbg_location=0
+                Call id(4), args( Result(2), Tag(1, 5), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -540,6 +541,19 @@ fn result_array_slice_with_open_two_step_range() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
+                name: __quantum__rt__initialize
+                call_type: Initialize
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    let array_output_recording_callable_id = CallableId(2);
+    assert_callable(
+        &program,
+        array_output_recording_callable_id,
+        &expect![[r#"
+            Callable:
                 name: __quantum__qis__mresetz__body
                 call_type: Measurement
                 input_type:
@@ -548,10 +562,10 @@ fn result_array_slice_with_open_two_step_range() {
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
-    let array_output_recording_callable_id = CallableId(2);
+    let result_output_recording_callable_id = CallableId(3);
     assert_callable(
         &program,
-        array_output_recording_callable_id,
+        result_output_recording_callable_id,
         &expect![[r#"
             Callable:
                 name: __quantum__rt__array_record_output
@@ -562,35 +576,22 @@ fn result_array_slice_with_open_two_step_range() {
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
-    let result_output_recording_callable_id = CallableId(3);
-    assert_callable(
-        &program,
-        result_output_recording_callable_id,
-        &expect![[r#"
-            Callable:
-                name: __quantum__rt__result_record_output
-                call_type: OutputRecording
-                input_type:
-                    [0]: Result
-                    [1]: Pointer
-                output_type: <VOID>
-                body: <NONE>"#]],
-    );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[169-180] scope=0 scope_package_id=2 scope_span=[68-259] callable=Main
-                Call id(1), args( Qubit(1), Result(1), ) !dbg package_id=2 span=[182-193] scope=0 scope_package_id=2 scope_span=[68-259] callable=Main
-                Call id(1), args( Qubit(2), Result(2), ) !dbg package_id=2 span=[195-206] scope=0 scope_package_id=2 scope_span=[68-259] callable=Main
-                Call id(1), args( Qubit(3), Result(3), ) !dbg package_id=2 span=[208-219] scope=0 scope_package_id=2 scope_span=[68-259] callable=Main
-                Call id(1), args( Qubit(4), Result(4), ) !dbg package_id=2 span=[221-232] scope=0 scope_package_id=2 scope_span=[68-259] callable=Main
-                Call id(2), args( Integer(3), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(2), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(4), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=7
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=9
+                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=11
+                Call id(2), args( Qubit(3), Result(3), ) !dbg dbg_location=13
+                Call id(2), args( Qubit(4), Result(4), ) !dbg dbg_location=15
+                Call id(3), args( Integer(3), EmptyTag, ) !dbg dbg_location=0
+                Call id(4), args( Result(0), Tag(0, 5), ) !dbg dbg_location=0
+                Call id(4), args( Result(2), Tag(1, 5), ) !dbg dbg_location=0
+                Call id(4), args( Result(4), Tag(2, 5), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -632,6 +633,19 @@ fn result_array_copy_and_update_with_single_index() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
+                name: __quantum__rt__initialize
+                call_type: Initialize
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    let array_output_recording_callable_id = CallableId(2);
+    assert_callable(
+        &program,
+        array_output_recording_callable_id,
+        &expect![[r#"
+            Callable:
                 name: __quantum__qis__mresetz__body
                 call_type: Measurement
                 input_type:
@@ -640,10 +654,10 @@ fn result_array_copy_and_update_with_single_index() {
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
-    let array_output_recording_callable_id = CallableId(2);
+    let result_output_recording_callable_id = CallableId(3);
     assert_callable(
         &program,
-        array_output_recording_callable_id,
+        result_output_recording_callable_id,
         &expect![[r#"
             Callable:
                 name: __quantum__rt__array_record_output
@@ -654,34 +668,21 @@ fn result_array_copy_and_update_with_single_index() {
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
-    let result_output_recording_callable_id = CallableId(3);
-    assert_callable(
-        &program,
-        result_output_recording_callable_id,
-        &expect![[r#"
-            Callable:
-                name: __quantum__rt__result_record_output
-                call_type: OutputRecording
-                input_type:
-                    [0]: Result
-                    [1]: Pointer
-                output_type: <VOID>
-                body: <NONE>"#]],
-    );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[156-167] scope=0 scope_package_id=2 scope_span=[68-231] callable=Main
-                Call id(1), args( Qubit(1), Result(1), ) !dbg package_id=2 span=[169-180] scope=0 scope_package_id=2 scope_span=[68-231] callable=Main
-                Call id(1), args( Qubit(2), Result(2), ) !dbg package_id=2 span=[182-193] scope=0 scope_package_id=2 scope_span=[68-231] callable=Main
-                Call id(1), args( Qubit(3), Result(3), ) !dbg package_id=2 span=[214-225] scope=0 scope_package_id=2 scope_span=[68-231] callable=Main
-                Call id(2), args( Integer(3), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(3), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(2), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=6
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=8
+                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=10
+                Call id(2), args( Qubit(3), Result(3), ) !dbg dbg_location=12
+                Call id(3), args( Integer(3), EmptyTag, ) !dbg dbg_location=0
+                Call id(4), args( Result(0), Tag(0, 5), ) !dbg dbg_location=0
+                Call id(4), args( Result(3), Tag(1, 5), ) !dbg dbg_location=0
+                Call id(4), args( Result(2), Tag(2, 5), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -744,6 +745,19 @@ fn result_array_copy_and_update_with_explicit_range() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
+                name: __quantum__rt__initialize
+                call_type: Initialize
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    let array_output_recording_callable_id = CallableId(2);
+    assert_callable(
+        &program,
+        array_output_recording_callable_id,
+        &expect![[r#"
+            Callable:
                 name: __quantum__qis__mresetz__body
                 call_type: Measurement
                 input_type:
@@ -752,10 +766,10 @@ fn result_array_copy_and_update_with_explicit_range() {
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
-    let array_output_recording_callable_id = CallableId(2);
+    let result_output_recording_callable_id = CallableId(3);
     assert_callable(
         &program,
-        array_output_recording_callable_id,
+        result_output_recording_callable_id,
         &expect![[r#"
             Callable:
                 name: __quantum__rt__array_record_output
@@ -766,40 +780,27 @@ fn result_array_copy_and_update_with_explicit_range() {
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
-    let result_output_recording_callable_id = CallableId(3);
-    assert_callable(
-        &program,
-        result_output_recording_callable_id,
-        &expect![[r#"
-            Callable:
-                name: __quantum__rt__result_record_output
-                call_type: OutputRecording
-                input_type:
-                    [0]: Result
-                    [1]: Pointer
-                output_type: <VOID>
-                body: <NONE>"#]],
-    );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[231-242] scope=0 scope_package_id=2 scope_span=[68-372] callable=Main
-                Call id(1), args( Qubit(1), Result(1), ) !dbg package_id=2 span=[244-255] scope=0 scope_package_id=2 scope_span=[68-372] callable=Main
-                Call id(1), args( Qubit(2), Result(2), ) !dbg package_id=2 span=[257-268] scope=0 scope_package_id=2 scope_span=[68-372] callable=Main
-                Call id(1), args( Qubit(3), Result(3), ) !dbg package_id=2 span=[270-281] scope=0 scope_package_id=2 scope_span=[68-372] callable=Main
-                Call id(1), args( Qubit(4), Result(4), ) !dbg package_id=2 span=[283-294] scope=0 scope_package_id=2 scope_span=[68-372] callable=Main
-                Call id(1), args( Qubit(5), Result(5), ) !dbg package_id=2 span=[322-335] scope=0 scope_package_id=2 scope_span=[68-372] callable=Main
-                Call id(1), args( Qubit(6), Result(6), ) !dbg package_id=2 span=[337-350] scope=0 scope_package_id=2 scope_span=[68-372] callable=Main
-                Call id(1), args( Qubit(7), Result(7), ) !dbg package_id=2 span=[352-365] scope=0 scope_package_id=2 scope_span=[68-372] callable=Main
-                Call id(2), args( Integer(5), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(5), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(1), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(6), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(3), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(7), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=10
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=12
+                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=14
+                Call id(2), args( Qubit(3), Result(3), ) !dbg dbg_location=16
+                Call id(2), args( Qubit(4), Result(4), ) !dbg dbg_location=18
+                Call id(2), args( Qubit(5), Result(5), ) !dbg dbg_location=20
+                Call id(2), args( Qubit(6), Result(6), ) !dbg dbg_location=22
+                Call id(2), args( Qubit(7), Result(7), ) !dbg dbg_location=24
+                Call id(3), args( Integer(5), EmptyTag, ) !dbg dbg_location=0
+                Call id(4), args( Result(5), Tag(0, 5), ) !dbg dbg_location=0
+                Call id(4), args( Result(1), Tag(1, 5), ) !dbg dbg_location=0
+                Call id(4), args( Result(6), Tag(2, 5), ) !dbg dbg_location=0
+                Call id(4), args( Result(3), Tag(3, 5), ) !dbg dbg_location=0
+                Call id(4), args( Result(7), Tag(4, 5), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -821,6 +822,19 @@ fn result_array_copy_and_update_with_open_start_range() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
+                name: __quantum__rt__initialize
+                call_type: Initialize
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    let array_output_recording_callable_id = CallableId(2);
+    assert_callable(
+        &program,
+        array_output_recording_callable_id,
+        &expect![[r#"
+            Callable:
                 name: __quantum__qis__mresetz__body
                 call_type: Measurement
                 input_type:
@@ -829,10 +843,10 @@ fn result_array_copy_and_update_with_open_start_range() {
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
-    let array_output_recording_callable_id = CallableId(2);
+    let result_output_recording_callable_id = CallableId(3);
     assert_callable(
         &program,
-        array_output_recording_callable_id,
+        result_output_recording_callable_id,
         &expect![[r#"
             Callable:
                 name: __quantum__rt__array_record_output
@@ -843,35 +857,22 @@ fn result_array_copy_and_update_with_open_start_range() {
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
-    let result_output_recording_callable_id = CallableId(3);
-    assert_callable(
-        &program,
-        result_output_recording_callable_id,
-        &expect![[r#"
-            Callable:
-                name: __quantum__rt__result_record_output
-                call_type: OutputRecording
-                input_type:
-                    [0]: Result
-                    [1]: Pointer
-                output_type: <VOID>
-                body: <NONE>"#]],
-    );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[169-180] scope=0 scope_package_id=2 scope_span=[68-262] callable=Main
-                Call id(1), args( Qubit(1), Result(1), ) !dbg package_id=2 span=[182-193] scope=0 scope_package_id=2 scope_span=[68-262] callable=Main
-                Call id(1), args( Qubit(2), Result(2), ) !dbg package_id=2 span=[195-206] scope=0 scope_package_id=2 scope_span=[68-262] callable=Main
-                Call id(1), args( Qubit(3), Result(3), ) !dbg package_id=2 span=[231-242] scope=0 scope_package_id=2 scope_span=[68-262] callable=Main
-                Call id(1), args( Qubit(4), Result(4), ) !dbg package_id=2 span=[244-255] scope=0 scope_package_id=2 scope_span=[68-262] callable=Main
-                Call id(2), args( Integer(3), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(3), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(4), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(2), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=7
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=9
+                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=11
+                Call id(2), args( Qubit(3), Result(3), ) !dbg dbg_location=13
+                Call id(2), args( Qubit(4), Result(4), ) !dbg dbg_location=15
+                Call id(3), args( Integer(3), EmptyTag, ) !dbg dbg_location=0
+                Call id(4), args( Result(3), Tag(0, 5), ) !dbg dbg_location=0
+                Call id(4), args( Result(4), Tag(1, 5), ) !dbg dbg_location=0
+                Call id(4), args( Result(2), Tag(2, 5), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -893,6 +894,19 @@ fn result_array_copy_and_update_with_open_ended_range() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
+                name: __quantum__rt__initialize
+                call_type: Initialize
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    let array_output_recording_callable_id = CallableId(2);
+    assert_callable(
+        &program,
+        array_output_recording_callable_id,
+        &expect![[r#"
+            Callable:
                 name: __quantum__qis__mresetz__body
                 call_type: Measurement
                 input_type:
@@ -901,10 +915,10 @@ fn result_array_copy_and_update_with_open_ended_range() {
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
-    let array_output_recording_callable_id = CallableId(2);
+    let result_output_recording_callable_id = CallableId(3);
     assert_callable(
         &program,
-        array_output_recording_callable_id,
+        result_output_recording_callable_id,
         &expect![[r#"
             Callable:
                 name: __quantum__rt__array_record_output
@@ -915,35 +929,22 @@ fn result_array_copy_and_update_with_open_ended_range() {
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
-    let result_output_recording_callable_id = CallableId(3);
-    assert_callable(
-        &program,
-        result_output_recording_callable_id,
-        &expect![[r#"
-            Callable:
-                name: __quantum__rt__result_record_output
-                call_type: OutputRecording
-                input_type:
-                    [0]: Result
-                    [1]: Pointer
-                output_type: <VOID>
-                body: <NONE>"#]],
-    );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[169-180] scope=0 scope_package_id=2 scope_span=[68-262] callable=Main
-                Call id(1), args( Qubit(1), Result(1), ) !dbg package_id=2 span=[182-193] scope=0 scope_package_id=2 scope_span=[68-262] callable=Main
-                Call id(1), args( Qubit(2), Result(2), ) !dbg package_id=2 span=[195-206] scope=0 scope_package_id=2 scope_span=[68-262] callable=Main
-                Call id(1), args( Qubit(3), Result(3), ) !dbg package_id=2 span=[231-242] scope=0 scope_package_id=2 scope_span=[68-262] callable=Main
-                Call id(1), args( Qubit(4), Result(4), ) !dbg package_id=2 span=[244-255] scope=0 scope_package_id=2 scope_span=[68-262] callable=Main
-                Call id(2), args( Integer(3), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(3), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(4), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=7
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=9
+                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=11
+                Call id(2), args( Qubit(3), Result(3), ) !dbg dbg_location=13
+                Call id(2), args( Qubit(4), Result(4), ) !dbg dbg_location=15
+                Call id(3), args( Integer(3), EmptyTag, ) !dbg dbg_location=0
+                Call id(4), args( Result(0), Tag(0, 5), ) !dbg dbg_location=0
+                Call id(4), args( Result(3), Tag(1, 5), ) !dbg dbg_location=0
+                Call id(4), args( Result(4), Tag(2, 5), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -965,6 +966,19 @@ fn result_array_copy_and_update_with_open_two_step_range() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
+                name: __quantum__rt__initialize
+                call_type: Initialize
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    let array_output_recording_callable_id = CallableId(2);
+    assert_callable(
+        &program,
+        array_output_recording_callable_id,
+        &expect![[r#"
+            Callable:
                 name: __quantum__qis__mresetz__body
                 call_type: Measurement
                 input_type:
@@ -973,10 +987,10 @@ fn result_array_copy_and_update_with_open_two_step_range() {
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
-    let array_output_recording_callable_id = CallableId(2);
+    let result_output_recording_callable_id = CallableId(3);
     assert_callable(
         &program,
-        array_output_recording_callable_id,
+        result_output_recording_callable_id,
         &expect![[r#"
             Callable:
                 name: __quantum__rt__array_record_output
@@ -987,35 +1001,22 @@ fn result_array_copy_and_update_with_open_two_step_range() {
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
-    let result_output_recording_callable_id = CallableId(3);
-    assert_callable(
-        &program,
-        result_output_recording_callable_id,
-        &expect![[r#"
-            Callable:
-                name: __quantum__rt__result_record_output
-                call_type: OutputRecording
-                input_type:
-                    [0]: Result
-                    [1]: Pointer
-                output_type: <VOID>
-                body: <NONE>"#]],
-    );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[169-180] scope=0 scope_package_id=2 scope_span=[68-265] callable=Main
-                Call id(1), args( Qubit(1), Result(1), ) !dbg package_id=2 span=[182-193] scope=0 scope_package_id=2 scope_span=[68-265] callable=Main
-                Call id(1), args( Qubit(2), Result(2), ) !dbg package_id=2 span=[195-206] scope=0 scope_package_id=2 scope_span=[68-265] callable=Main
-                Call id(1), args( Qubit(3), Result(3), ) !dbg package_id=2 span=[234-245] scope=0 scope_package_id=2 scope_span=[68-265] callable=Main
-                Call id(1), args( Qubit(4), Result(4), ) !dbg package_id=2 span=[247-258] scope=0 scope_package_id=2 scope_span=[68-265] callable=Main
-                Call id(2), args( Integer(3), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(3), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(1), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(4), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=7
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=9
+                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=11
+                Call id(2), args( Qubit(3), Result(3), ) !dbg dbg_location=13
+                Call id(2), args( Qubit(4), Result(4), ) !dbg dbg_location=15
+                Call id(3), args( Integer(3), EmptyTag, ) !dbg dbg_location=0
+                Call id(4), args( Result(3), Tag(0, 5), ) !dbg dbg_location=0
+                Call id(4), args( Result(1), Tag(1, 5), ) !dbg dbg_location=0
+                Call id(4), args( Result(4), Tag(2, 5), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -1037,4 +1038,95 @@ fn result_array_copy_and_update_with_out_of_bounds_range_raises_error() {
             r#"EvaluationFailed("index out of range: 3", PackageSpan { package: PackageId(2), span: Span { lo: 209, hi: 213 } })"#
         ]],
     );
+}
+
+#[test]
+fn result_array_index_range_returns_length_as_end() {
+    let program = get_rir_program(indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                use qs = Qubit[2];
+                let results = MResetEachZ(qs);
+                Std.Arrays.IndexRange(results).End
+            }
+        }
+    "#});
+    expect![[r#"
+        Program:
+            entry: 0
+            callables:
+                Callable 0: Callable:
+                    name: main
+                    call_type: Regular
+                    input_type: <VOID>
+                    output_type: Integer
+                    body: 0
+                Callable 1: Callable:
+                    name: __quantum__rt__initialize
+                    call_type: Initialize
+                    input_type:
+                        [0]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 2: Callable:
+                    name: __quantum__qis__mresetz__body
+                    call_type: Measurement
+                    input_type:
+                        [0]: Qubit
+                        [1]: Result
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 3: Callable:
+                    name: __quantum__rt__int_record_output
+                    call_type: OutputRecording
+                    input_type:
+                        [0]: Integer
+                        [1]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+            blocks:
+                Block 0: Block:
+                    Call id(1), args( Pointer, )
+                    Variable(0, Integer) = Store Integer(0) !dbg
+                    Variable(0, Integer) = Store Integer(1) !dbg dbg_location=2
+                    Variable(0, Integer) = Store Integer(2) !dbg dbg_location=3
+                    Variable(1, Integer) = Store Integer(0) !dbg
+                    Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=6
+                    Variable(1, Integer) = Store Integer(1) !dbg dbg_location=5
+                    Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=8
+                    Variable(1, Integer) = Store Integer(2) !dbg dbg_location=7
+                    Variable(2, Integer) = Store Integer(0) !dbg
+                    Variable(2, Integer) = Store Integer(1) !dbg dbg_location=11
+                    Variable(2, Integer) = Store Integer(2) !dbg dbg_location=12
+                    Call id(3), args( Integer(1), Tag(0, 3), ) !dbg dbg_location=0
+                    Return !dbg dbg_location=0
+            config: Config:
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
+            num_qubits: 2
+            num_results: 2
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+                [1]: SubProgram name=Main location=(package_id=2 span=[40-179])
+                [2]: SubProgram name=AllocateQubitArray location=(package_id=0 span=[2577-2872])
+                [3]: SubProgram name=MResetEachZ location=(package_id=1 span=[179488-179657])
+                [4]: SubProgram name=MResetZ location=(package_id=1 span=[180988-181076])
+                [5]: SubProgram name=ReleaseQubitArray location=(package_id=0 span=[2878-3011])
+            dbg_locations:
+                [0]:  scope=0location=(package_id=2 span=[0-0])
+                [1]:  scope=1location=(package_id=2 span=[73-91]) inlined_at=0
+                [2]:  scope=2location=(package_id=0 span=[2812-2843]) inlined_at=1
+                [3]:  scope=2location=(package_id=0 span=[2812-2843]) inlined_at=1
+                [4]:  scope=1location=(package_id=2 span=[114-129]) inlined_at=0
+                [5]:  scope=3location=(package_id=1 span=[179621-179635]) inlined_at=4
+                [6]:  scope=4location=(package_id=1 span=[181037-181074]) inlined_at=5
+                [7]:  scope=3location=(package_id=1 span=[179621-179635]) inlined_at=4
+                [8]:  scope=4location=(package_id=1 span=[181037-181074]) inlined_at=7
+                [9]:  scope=1location=(package_id=2 span=[139-169]) inlined_at=0
+                [10]:  scope=1location=(package_id=2 span=[73-91]) inlined_at=0
+                [11]:  scope=5location=(package_id=0 span=[2963-2994]) inlined_at=10
+                [12]:  scope=5location=(package_id=0 span=[2963-2994]) inlined_at=10
+            tags:
+                [0]: 0_i
+    "#]].assert_eq(&program.to_string());
 }

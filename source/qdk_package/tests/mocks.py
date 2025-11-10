@@ -36,7 +36,6 @@ def mock_qsharp() -> List[str]:
         stub.set_quantum_seed = _not_impl
         stub.set_classical_seed = _not_impl
         stub.dump_machine = _not_impl
-        stub.dump_circuit = _not_impl
         stub.init = _not_impl
 
         class _T:  # placeholder types
@@ -57,7 +56,6 @@ def mock_qsharp() -> List[str]:
             "set_quantum_seed",
             "set_classical_seed",
             "dump_machine",
-            "dump_circuit",
             "init",
             "Result",
             "TargetProfile",
@@ -81,6 +79,14 @@ def mock_qsharp() -> List[str]:
         stub.openqasm = oq
 
         sys.modules["qsharp"] = stub
+        # Telemetry events package with on_qdk_import function expected by qdk import
+        telemetry_pkg = types.ModuleType("qsharp.telemetry_events")
+
+        def on_qdk_import():
+            return None
+
+        telemetry_pkg.on_qdk_import = on_qdk_import
+        sys.modules["qsharp.telemetry_events"] = telemetry_pkg
         # Interop namespace for qiskit shim expectations
         interop = types.ModuleType("qsharp.interop")
         sys.modules["qsharp.interop"] = interop
@@ -93,6 +99,7 @@ def mock_qsharp() -> List[str]:
                 "qsharp",
                 "qsharp.estimator",
                 "qsharp.openqasm",
+                "qsharp.telemetry_events",
                 "qsharp.interop",
                 "qsharp.interop.qiskit",
             ]

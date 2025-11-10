@@ -7,6 +7,7 @@
 use crate::ty::{Arrow, FunctorSet, FunctorSetValue, GenericArg, Scheme, Ty, TypeParameter, Udt};
 use indenter::{Indented, indented};
 use num_bigint::BigInt;
+pub use qsc_data_structures::span::PackageId;
 use qsc_data_structures::{index_map::IndexMap, span::Span};
 use std::{
     cell::RefCell,
@@ -107,39 +108,6 @@ impl Ord for NodeId {
 impl Hash for NodeId {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.0.hash(state);
-    }
-}
-
-/// A unique identifier for a package within a package store.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct PackageId(usize);
-
-impl PackageId {
-    /// The package ID of the core library.
-    pub const CORE: Self = Self(0);
-
-    /// The successor of this ID.
-    #[must_use]
-    pub fn successor(self) -> Self {
-        Self(self.0 + 1)
-    }
-}
-
-impl Display for PackageId {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        Display::fmt(&self.0, f)
-    }
-}
-
-impl From<PackageId> for usize {
-    fn from(value: PackageId) -> Self {
-        value.0
-    }
-}
-
-impl From<usize> for PackageId {
-    fn from(value: usize) -> Self {
-        PackageId(value)
     }
 }
 

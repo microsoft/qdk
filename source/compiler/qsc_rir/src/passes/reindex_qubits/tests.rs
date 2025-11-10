@@ -414,7 +414,7 @@ fn qubit_reindexed_across_branches() {
                     output_type: <VOID>
                     body: <NONE>
                 Callable 2: Callable:
-                    name: __quantum__qis__read_result__body
+                    name: __quantum__rt__read_result
                     call_type: Readout
                     input_type:
                         [0]: Result
@@ -439,7 +439,12 @@ fn qubit_reindexed_across_branches() {
             config: Config:
                 capabilities: Base
             num_qubits: 1
-            num_results: 3"#]]
+            num_results: 3
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 
     // After

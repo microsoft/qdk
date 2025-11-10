@@ -137,17 +137,18 @@ fn call_to_intrinsic_h_adds_callable_and_generates_instruction() {
         "__quantum__qis__h__body",
         &expect![[r#"
             Callable:
-                name: __quantum__qis__h__body
-                call_type: Regular
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[64-146] callable=Main
-                Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=2
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -157,17 +158,18 @@ fn call_to_intrinsic_s_adds_callable_and_generates_instruction() {
         "__quantum__qis__s__body",
         &expect![[r#"
             Callable:
-                name: __quantum__qis__s__body
-                call_type: Regular
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[64-146] callable=Main
-                Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=2
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -177,17 +179,18 @@ fn call_to_intrinsic_adjoint_s_adds_callable_and_generates_instruction() {
         "__quantum__qis__s__adj",
         &expect![[r#"
             Callable:
-                name: __quantum__qis__s__adj
-                call_type: Regular
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[64-145] callable=Main
-                Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=2
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -197,17 +200,18 @@ fn call_to_intrinsic_sx_adds_callable_and_generates_instruction() {
         "__quantum__qis__sx__body",
         &expect![[r#"
             Callable:
-                name: __quantum__qis__sx__body
-                call_type: Regular
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[64-147] callable=Main
-                Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=2
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -217,17 +221,18 @@ fn call_to_intrinsic_t_adds_callable_and_generates_instruction() {
         "__quantum__qis__t__body",
         &expect![[r#"
             Callable:
-                name: __quantum__qis__t__body
-                call_type: Regular
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[64-146] callable=Main
-                Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=2
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -237,17 +242,18 @@ fn call_to_intrinsic_adjoint_t_adds_callable_and_generates_instruction() {
         "__quantum__qis__t__adj",
         &expect![[r#"
             Callable:
-                name: __quantum__qis__t__adj
-                call_type: Regular
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[64-145] callable=Main
-                Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=2
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -257,17 +263,18 @@ fn call_to_intrinsic_x_adds_callable_and_generates_instruction() {
         "__quantum__qis__x__body",
         &expect![[r#"
             Callable:
-                name: __quantum__qis__x__body
-                call_type: Regular
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[64-146] callable=Main
-                Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=2
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -277,17 +284,18 @@ fn call_to_intrinsic_y_adds_callable_and_generates_instruction() {
         "__quantum__qis__y__body",
         &expect![[r#"
             Callable:
-                name: __quantum__qis__y__body
-                call_type: Regular
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[64-146] callable=Main
-                Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=2
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -297,17 +305,18 @@ fn call_to_intrinsic_z_adds_callable_and_generates_instruction() {
         "__quantum__qis__z__body",
         &expect![[r#"
             Callable:
-                name: __quantum__qis__z__body
-                call_type: Regular
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[64-146] callable=Main
-                Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=2
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -317,18 +326,18 @@ fn call_to_intrinsic_swap_adds_callable_and_generates_instruction() {
         "__quantum__qis__swap__body",
         &expect![[r#"
             Callable:
-                name: __quantum__qis__swap__body
-                call_type: Regular
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Qubit
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Qubit(1), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[64-172] callable=Main
-                Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Qubit(1), ) !dbg dbg_location=3
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -338,18 +347,18 @@ fn call_to_intrinsic_cx_adds_callable_and_generates_instruction() {
         "__quantum__qis__cx__body",
         &expect![[r#"
             Callable:
-                name: __quantum__qis__cx__body
-                call_type: Regular
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Qubit
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Qubit(1), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[64-170] callable=Main
-                Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Qubit(1), ) !dbg dbg_location=3
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -359,18 +368,18 @@ fn call_to_intrinsic_cy_adds_callable_and_generates_instruction() {
         "__quantum__qis__cy__body",
         &expect![[r#"
             Callable:
-                name: __quantum__qis__cy__body
-                call_type: Regular
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Qubit
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Qubit(1), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[64-170] callable=Main
-                Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Qubit(1), ) !dbg dbg_location=3
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -380,18 +389,18 @@ fn call_to_intrinsic_cz_adds_callable_and_generates_instruction() {
         "__quantum__qis__cz__body",
         &expect![[r#"
             Callable:
-                name: __quantum__qis__cz__body
-                call_type: Regular
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Qubit
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Qubit(1), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[64-170] callable=Main
-                Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Qubit(1), ) !dbg dbg_location=3
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -401,19 +410,18 @@ fn call_to_intrinsic_ccx_adds_callable_and_generates_instruction() {
         "__quantum__qis__ccx__body",
         &expect![[r#"
             Callable:
-                name: __quantum__qis__ccx__body
-                call_type: Regular
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Qubit
-                    [2]: Qubit
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Qubit(1), Qubit(2), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[64-188] callable=Main
-                Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Qubit(1), Qubit(2), ) !dbg dbg_location=4
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -423,18 +431,18 @@ fn call_to_intrinsic_rx_adds_callable_and_generates_instruction() {
         "__quantum__qis__rx__body",
         &expect![[r#"
             Callable:
-                name: __quantum__qis__rx__body
-                call_type: Regular
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Double
-                    [1]: Qubit
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
         &expect![[r#"
             Block:
-                Call id(1), args( Double(0), Qubit(0), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[64-152] callable=Main
-                Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Double(0), Qubit(0), ) !dbg dbg_location=2
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -444,19 +452,18 @@ fn call_to_intrinsic_rxx_adds_callable_and_generates_instruction() {
         "__quantum__qis__rxx__body",
         &expect![[r#"
             Callable:
-                name: __quantum__qis__rxx__body
-                call_type: Regular
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Double
-                    [1]: Qubit
-                    [2]: Qubit
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
         &expect![[r#"
             Block:
-                Call id(1), args( Double(0), Qubit(0), Qubit(1), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[64-176] callable=Main
-                Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Double(0), Qubit(0), Qubit(1), ) !dbg dbg_location=3
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -466,18 +473,18 @@ fn call_to_intrinsic_ry_adds_callable_and_generates_instruction() {
         "__quantum__qis__ry__body",
         &expect![[r#"
             Callable:
-                name: __quantum__qis__ry__body
-                call_type: Regular
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Double
-                    [1]: Qubit
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
         &expect![[r#"
             Block:
-                Call id(1), args( Double(0), Qubit(0), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[64-152] callable=Main
-                Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Double(0), Qubit(0), ) !dbg dbg_location=2
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -487,19 +494,18 @@ fn call_to_intrinsic_ryy_adds_callable_and_generates_instruction() {
         "__quantum__qis__ryy__body",
         &expect![[r#"
             Callable:
-                name: __quantum__qis__ryy__body
-                call_type: Regular
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Double
-                    [1]: Qubit
-                    [2]: Qubit
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
         &expect![[r#"
             Block:
-                Call id(1), args( Double(0), Qubit(0), Qubit(1), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[64-176] callable=Main
-                Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Double(0), Qubit(0), Qubit(1), ) !dbg dbg_location=3
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -509,18 +515,18 @@ fn call_to_intrinsic_rz_adds_callable_and_generates_instruction() {
         "__quantum__qis__rz__body",
         &expect![[r#"
             Callable:
-                name: __quantum__qis__rz__body
-                call_type: Regular
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Double
-                    [1]: Qubit
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
         &expect![[r#"
             Block:
-                Call id(1), args( Double(0), Qubit(0), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[64-152] callable=Main
-                Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Double(0), Qubit(0), ) !dbg dbg_location=2
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -530,19 +536,18 @@ fn call_to_intrinsic_rzz_adds_callable_and_generates_instruction() {
         "__quantum__qis__rzz__body",
         &expect![[r#"
             Callable:
-                name: __quantum__qis__rzz__body
-                call_type: Regular
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Double
-                    [1]: Qubit
-                    [2]: Qubit
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
         &expect![[r#"
             Block:
-                Call id(1), args( Double(0), Qubit(0), Qubit(1), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[64-176] callable=Main
-                Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Double(0), Qubit(0), Qubit(1), ) !dbg dbg_location=3
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -564,22 +569,23 @@ fn check_partial_eval_for_call_to_reset() {
         &program,
         op_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__reset__body
-            call_type: Reset
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Initialize
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[64-150] callable=Main
-                Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=2
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -602,11 +608,10 @@ fn call_to_intrinsic_m_adds_callable_and_generates_instruction() {
         op_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__m__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -615,9 +620,10 @@ fn call_to_intrinsic_m_adds_callable_and_generates_instruction() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[64-146] callable=Main
-                Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -639,23 +645,23 @@ fn call_to_intrinsic_mresetz_adds_callable_and_generates_instruction() {
         &program,
         op_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Initialize
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[64-152] callable=Main
-                Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -684,23 +690,24 @@ fn calls_to_intrinsic_begin_estimate_caching_with_classical_values_always_yield_
         &program,
         op_callable_id,
         &expect![[r#"
-        Callable:
-            name: Op
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Initialize
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[0-0] scope=1 scope_package_id=2 scope_span=[227-257] callable=Main
-                Call id(1), args( Qubit(0), ) !dbg package_id=2 span=[0-0] scope=2 scope_package_id=2 scope_span=[302-332] callable=Main
-                Call id(2), args( Integer(0), Pointer, ) !dbg package_id=2 span=[142-146]
-                Return !dbg package_id=2 span=[142-146]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=2
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=3
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -729,11 +736,10 @@ fn call_to_intrinsic_begin_estimate_caching_with_dynamic_values_yields_true() {
         measure_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__m__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -742,26 +748,27 @@ fn call_to_intrinsic_begin_estimate_caching_with_dynamic_values_yields_true() {
         &program,
         read_result_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__m__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let op_callable_id = CallableId(3);
     assert_callable(
         &program,
         op_callable_id,
         &expect![[r#"
-        Callable:
-            name: Op
-            call_type: Regular
-            input_type:
-                [0]: Qubit
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     let output_recording_callable_id = CallableId(4);
     assert_callable(
@@ -769,11 +776,10 @@ fn call_to_intrinsic_begin_estimate_caching_with_dynamic_values_yields_true() {
         output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__tuple_record_output
-                call_type: OutputRecording
+                name: Op
+                call_type: Regular
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
+                    [0]: Qubit
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -782,21 +788,22 @@ fn call_to_intrinsic_begin_estimate_caching_with_dynamic_values_yields_true() {
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[180-347] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[223-257] scope=0 scope_package_id=2 scope_span=[180-347] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[223-257] scope=0 scope_package_id=2 scope_span=[180-347] callable=Main
-                Branch Variable(1, Boolean), 2, 3 !dbg package_id=2 span=[223-257] scope=0 scope_package_id=2 scope_span=[180-347] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg package_id=2 span=[219-220] scope=0 scope_package_id=2 scope_span=[180-347] callable=Main
-                Call id(3), args( Qubit(0), ) !dbg package_id=2 span=[0-0] scope=1 scope_package_id=2 scope_span=[311-341] callable=Main
-                Call id(4), args( Integer(0), Pointer, ) !dbg package_id=2 span=[166-170]
-                Return !dbg package_id=2 span=[166-170]
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
+                Call id(4), args( Qubit(0), ) !dbg dbg_location=4
+                Call id(5), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg package_id=2 span=[260-261] scope=0 scope_package_id=2 scope_span=[180-347] callable=Main
-                Jump(1) !dbg package_id=2 span=[260-261] scope=0 scope_package_id=2 scope_span=[180-347] callable=Main
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg package_id=2 span=[264-265] scope=0 scope_package_id=2 scope_span=[180-347] callable=Main
-                Jump(1) !dbg package_id=2 span=[264-265] scope=0 scope_package_id=2 scope_span=[180-347] callable=Main"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2"#]],
     );
 }
 
@@ -818,8 +825,9 @@ fn call_to_intrinsic_end_estimate_caching_does_not_generate_instructions() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Integer(0), Pointer, ) !dbg package_id=2 span=[87-91]
-                Return !dbg package_id=2 span=[87-91]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -842,8 +850,9 @@ fn call_to_account_for_estimates_does_not_generate_instructions() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Integer(0), Pointer, ) !dbg package_id=2 span=[87-91]
-                Return !dbg package_id=2 span=[87-91]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -866,8 +875,9 @@ fn call_to_begin_repeat_estimates_does_not_generate_instructions() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Integer(0), Pointer, ) !dbg package_id=2 span=[87-91]
-                Return !dbg package_id=2 span=[87-91]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -890,8 +900,9 @@ fn call_to_end_repeat_estimates_does_not_generate_instructions() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Integer(0), Pointer, ) !dbg package_id=2 span=[87-91]
-                Return !dbg package_id=2 span=[87-91]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -913,8 +924,9 @@ fn call_to_dump_machine_does_not_generate_instructions() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Integer(0), Pointer, ) !dbg package_id=2 span=[80-84]
-                Return !dbg package_id=2 span=[80-84]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -937,8 +949,9 @@ fn call_to_dump_register_does_not_generate_instructions() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Integer(0), Pointer, ) !dbg package_id=2 span=[80-84]
-                Return !dbg package_id=2 span=[80-84]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -962,8 +975,9 @@ fn use_of_noise_does_not_generate_instructions() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Integer(0), Pointer, ) !dbg package_id=2 span=[80-84]
-                Return !dbg package_id=2 span=[80-84]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -1059,11 +1073,10 @@ fn call_to_length_in_inner_function_succeeds() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -1073,11 +1086,11 @@ fn call_to_length_in_inner_function_succeeds() {
         output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__int_record_output
-                call_type: OutputRecording
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
+                    [0]: Qubit
+                    [1]: Result
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -1086,9 +1099,10 @@ fn call_to_length_in_inner_function_succeeds() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[152-162] scope=0 scope_package_id=2 scope_span=[63-192] callable=Main
-                Call id(2), args( Integer(1), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Call id(3), args( Integer(1), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -1110,8 +1124,9 @@ fn call_to_pauli_i_rotation_for_global_phase_is_noop() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Integer(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -1144,9 +1159,10 @@ fn call_to_operation_with_codegen_intrinsic_override_should_skip_impl() {
         op1_callable_id,
         &expect![[r#"
             Callable:
-                name: Op1
-                call_type: Regular
-                input_type: <VOID>
+                name: __quantum__rt__initialize
+                call_type: Initialize
+                input_type:
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -1156,7 +1172,7 @@ fn call_to_operation_with_codegen_intrinsic_override_should_skip_impl() {
         op2_callable_id,
         &expect![[r#"
             Callable:
-                name: Op2
+                name: Op1
                 call_type: Regular
                 input_type: <VOID>
                 output_type: <VOID>
@@ -1167,11 +1183,12 @@ fn call_to_operation_with_codegen_intrinsic_override_should_skip_impl() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( ) !dbg package_id=2 span=[0-0] scope=2 scope_package_id=2 scope_span=[251-303] callable=Main
-                Call id(2), args( ) !dbg package_id=2 span=[0-0] scope=2 scope_package_id=2 scope_span=[251-303] callable=Main
-                Call id(1), args( ) !dbg package_id=2 span=[291-296] scope=1 scope_package_id=2 scope_span=[182-204] callable=Op3
-                Call id(3), args( Integer(0), Pointer, ) !dbg package_id=2 span=[237-241]
-                Return !dbg package_id=2 span=[237-241]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( ) !dbg dbg_location=1
+                Call id(3), args( ) !dbg dbg_location=2
+                Call id(2), args( ) !dbg dbg_location=4
+                Call id(4), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -1195,10 +1212,11 @@ fn call_to_intrinsic_operation_that_returns_bool_value_should_produce_variable_u
         op1_callable_id,
         &expect![[r#"
             Callable:
-                name: Op1
-                call_type: Regular
-                input_type: <VOID>
-                output_type: Boolean
+                name: __quantum__rt__initialize
+                call_type: Initialize
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
                 body: <NONE>"#]],
     );
     assert_block_instructions(
@@ -1206,9 +1224,10 @@ fn call_to_intrinsic_operation_that_returns_bool_value_should_produce_variable_u
         BlockId(0),
         &expect![[r#"
             Block:
-                Variable(0, Boolean) = Call id(1), args( ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[123-144] callable=Main
-                Call id(2), args( Variable(0, Boolean), Pointer, ) !dbg package_id=2 span=[109-113]
-                Return !dbg package_id=2 span=[109-113]"#]],
+                Call id(1), args( Pointer, )
+                Variable(0, Boolean) = Call id(2), args( ) !dbg dbg_location=1
+                Call id(3), args( Variable(0, Boolean), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -1232,10 +1251,11 @@ fn call_to_intrinsic_operation_that_returns_int_value_should_produce_variable_us
         op1_callable_id,
         &expect![[r#"
             Callable:
-                name: Op1
-                call_type: Regular
-                input_type: <VOID>
-                output_type: Integer
+                name: __quantum__rt__initialize
+                call_type: Initialize
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
                 body: <NONE>"#]],
     );
     assert_block_instructions(
@@ -1243,9 +1263,10 @@ fn call_to_intrinsic_operation_that_returns_int_value_should_produce_variable_us
         BlockId(0),
         &expect![[r#"
             Block:
-                Variable(0, Integer) = Call id(1), args( ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[121-142] callable=Main
-                Call id(2), args( Variable(0, Integer), Pointer, ) !dbg package_id=2 span=[108-112]
-                Return !dbg package_id=2 span=[108-112]"#]],
+                Call id(1), args( Pointer, )
+                Variable(0, Integer) = Call id(2), args( ) !dbg dbg_location=1
+                Call id(3), args( Variable(0, Integer), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -1269,10 +1290,11 @@ fn call_to_intrinsic_operation_that_returns_double_value_should_produce_variable
         op1_callable_id,
         &expect![[r#"
             Callable:
-                name: Op1
-                call_type: Regular
-                input_type: <VOID>
-                output_type: Double
+                name: __quantum__rt__initialize
+                call_type: Initialize
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
                 body: <NONE>"#]],
     );
     assert_block_instructions(
@@ -1280,9 +1302,10 @@ fn call_to_intrinsic_operation_that_returns_double_value_should_produce_variable
         BlockId(0),
         &expect![[r#"
             Block:
-                Variable(0, Double) = Call id(1), args( ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[127-148] callable=Main
-                Call id(2), args( Variable(0, Double), Pointer, ) !dbg package_id=2 span=[111-115]
-                Return !dbg package_id=2 span=[111-115]"#]],
+                Call id(1), args( Pointer, )
+                Variable(0, Double) = Call id(2), args( ) !dbg dbg_location=1
+                Call id(3), args( Variable(0, Double), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 

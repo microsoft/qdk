@@ -376,7 +376,7 @@ class EstimatorConstraints(AutoValidatingParams):
     def post_validation(self, result):
         if self.max_duration is not None and self.max_physical_qubits is not None:
             raise LookupError(
-                "Both duration and number of physical qubits constraints are provided, but only one is allowe at a time."
+                "Both duration and number of physical qubits constraints are provided, but only one is allowed at a time."
             )
 
 
@@ -1042,6 +1042,12 @@ class LogicalCounts(dict):
         self._data["cczCount"] = data.get("cczCount", 0)
         self._data["ccixCount"] = data.get("ccixCount", 0)
         self._data["measurementCount"] = data.get("measurementCount", 0)
+        if "numComputeQubits" in data:
+            self._data["numComputeQubits"] = data["numComputeQubits"]
+        if "readFromMemoryCount" in data:
+            self._data["readFromMemoryCount"] = data["readFromMemoryCount"]
+        if "writeToMemoryCount" in data:
+            self._data["writeToMemoryCount"] = data["writeToMemoryCount"]
         super().__init__(self._data)
 
     @property

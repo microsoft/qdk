@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { labelFontSize, svgNS } from "../constants";
+import { labelFontSize, svgNS } from "../constants.js";
 
 // Helper functions for basic SVG components
 
@@ -98,12 +98,21 @@ export const circle = (
  *
  * @param x      x coord of circle.
  * @param y      y coord of circle.
- * @param radius Radius of circle.
+ * @param wireYs y coords of wire(s) connected to the control dot.
  *
  * @returns SVG element for control dot.
  */
-export const controlDot = (x: number, y: number, radius = 5): SVGElement =>
-  circle(x, y, radius, "control-dot");
+export const controlDot = (
+  x: number,
+  y: number,
+  wireYs: number[],
+): SVGElement => {
+  const radius = 5;
+  const dot = circle(x, y, radius, "control-dot");
+  dot.setAttribute("data-wire-ys", JSON.stringify(wireYs));
+  dot.setAttribute("data-width", `${2 * radius}`);
+  return dot;
+};
 
 /**
  * Generate the SVG representation of a unitary box that represents an arbitrary unitary operation.
@@ -121,7 +130,7 @@ export const box = (
   y: number,
   width: number,
   height: number,
-  className = "gate-unitary",
+  className: string,
 ): SVGElement =>
   createSvgElement("rect", {
     class: className,
@@ -211,7 +220,7 @@ export const dashedBox = (
   y: number,
   width: number,
   height: number,
-  className?: string,
+  className: string,
 ): SVGElement => {
   const el: SVGElement = box(x, y, width, height, className);
   el.setAttribute("fill-opacity", "0");

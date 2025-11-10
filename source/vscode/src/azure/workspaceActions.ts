@@ -110,7 +110,7 @@ export function getPythonCodeForWorkspace(
 # should be configured and used for authentication. For more information, see
 # https://learn.microsoft.com/en-us/azure/developer/python/sdk/authentication-overview
 
-from azure.quantum import Workspace
+from qdk.azure import Workspace
 
 # If using an access key, replace the below with: Workspace.from_connection_string(connection_string)
 # Or set the "AZURE_QUANTUM_CONNECTION_STRING" environment variable and just use: Workspace()
@@ -201,7 +201,7 @@ async function getWorkspaceWithConnectionString(
     } catch (e: any) {
       log.debug("Workspace connection error", e);
       // e.g. check for 401 (invalid key), 404 (invalid workspace), failed network requests (invalid endpoint), etc.
-      let errorText = "An unexpected error occured";
+      let errorText = "An unexpected error occurred";
       const message: string | undefined = e.message;
       if (message?.includes("status 401")) {
         errorText =
@@ -575,6 +575,18 @@ export async function submitJob(
   vscode.window.showInformationMessage(`Job ${jobName} submitted`);
 
   return { jobId, storageUris, quantumUris, token };
+}
+
+export async function cancelPendingJob(
+  workspace: WorkspaceConnection,
+  token: string,
+  jobId: string,
+): Promise<void> {
+  const quantumUris = new QuantumUris(workspace.endpointUri, workspace.id);
+
+  const cancelJobUri = quantumUris.jobs(jobId);
+
+  await azureRequest(cancelJobUri, token, undefined, "DELETE", undefined);
 }
 
 async function putJobData(

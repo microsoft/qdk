@@ -1,8 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { Sqore } from "./sqore";
-import { CircuitGroup } from "./circuit";
+import { DrawOptions, Sqore } from "./sqore.js";
+import { CircuitGroup } from "./circuit.js";
 
 /**
  * Render `circuit` into `container` at the specified layer depth.
@@ -17,13 +17,10 @@ import { CircuitGroup } from "./circuit";
 export const draw = (
   circuitGroup: CircuitGroup,
   container: HTMLElement,
-  renderDepth = 0,
-  isEditable = false,
-  editCallback?: (circuitGroup: CircuitGroup) => void,
-  runCallback?: () => void,
+  options: DrawOptions = {},
 ): void => {
-  const sqore = new Sqore(circuitGroup, isEditable, editCallback, runCallback);
-  sqore.draw(container, renderDepth);
+  const sqore = new Sqore(circuitGroup, options);
+  sqore.draw(container);
 };
 
 // Export types
@@ -34,4 +31,4 @@ export type {
   Column,
   Qubit,
   Operation,
-} from "./circuit";
+} from "./circuit.js";

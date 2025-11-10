@@ -7,11 +7,16 @@ import {
   gatePadding,
   controlBtnOffset,
   groupBoxPadding,
-} from "./constants";
-import { ComponentGrid, Operation, ConditionalRender } from "./circuit";
-import { GateRenderData, GateType } from "./gateRenderData";
-import { Register, RegisterMap } from "./register";
-import { getGateWidth } from "./utils";
+} from "./constants.js";
+import {
+  ComponentGrid,
+  Operation,
+  ConditionalRender,
+  SourceLocation,
+} from "./circuit.js";
+import { GateRenderData, GateType } from "./gateRenderData.js";
+import { Register, RegisterMap } from "./register.js";
+import { getGateWidth } from "./utils.js";
 
 /**
  * Takes in a component grid and maps the operations to `GateRenderData` objects which
@@ -26,6 +31,7 @@ import { getGateWidth } from "./utils";
 const processOperations = (
   componentGrid: ComponentGrid,
   registers: RegisterMap,
+  renderLocations?: (s: SourceLocation[]) => { title: string; href: string },
 ): { renderDataArray: GateRenderData[][]; svgWidth: number } => {
   if (componentGrid.length === 0)
     return { renderDataArray: [], svgWidth: startX + gatePadding * 2 };
@@ -40,7 +46,11 @@ const processOperations = (
   const renderDataArray: GateRenderData[][] = componentGrid.map(
     (col, colIndex) =>
       col.components.map((op) => {
-        const renderData: GateRenderData = _opToRenderData(op, registers);
+        const renderData: GateRenderData = _opToRenderData(
+          op,
+          registers,
+          renderLocations,
+        );
 
         if (
           op != null &&
@@ -141,6 +151,7 @@ const _getClassicalRegStart = (
 const _opToRenderData = (
   op: Operation | null,
   registers: RegisterMap,
+  renderLocations?: (s: SourceLocation[]) => { title: string; href: string },
 ): GateRenderData => {
   const renderData: GateRenderData = {
     type: GateType.Invalid,
@@ -269,21 +280,14 @@ const _opToRenderData = (
 
   // If gate has extra arguments, display them
   // For now, we only display the first argument
-  if (args !== undefined && args.length > 0) {
-    const locationArg = args.find((arg) => arg.startsWith("<a href"));
-    const real_args = args.filter((arg) => !arg.startsWith("<a href"));
-
-    if (real_args.length > 0) {
-      renderData.displayArgs = real_args[0];
-    }
-
-    if (locationArg) {
-      renderData.dataAttributes = { sourceLocation: locationArg };
-    }
-  }
+  if (args !== undefined && args.length > 0) renderData.displayArgs = args[0];
 
   // Set gate width
   renderData.width = getGateWidth(renderData);
+
+  if (op.source && renderLocations) {
+    renderData.link = renderLocations([op.source]);
+  }
 
   // Extend existing data attributes with user-provided data attributes
   if (dataAttributes != null)

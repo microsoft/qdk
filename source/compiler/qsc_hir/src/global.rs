@@ -2,14 +2,13 @@
 // Licensed under the MIT License.
 
 use crate::{
-    hir::{
-        Item, ItemId, ItemKind, ItemStatus, Package, PackageId, Res, SpecBody, SpecGen, Visibility,
-    },
+    hir::{Item, ItemId, ItemKind, ItemStatus, Package, Res, SpecBody, SpecGen, Visibility},
     ty::Scheme,
 };
 use qsc_data_structures::{
     index_map,
     namespaces::{NamespaceId, NamespaceTreeRoot},
+    span::PackageId,
 };
 use rustc_hash::FxHashMap;
 use std::rc::Rc;

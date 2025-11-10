@@ -1,16 +1,16 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { Qubit } from "../circuit";
-import { RegisterType, RegisterMap, RegisterRenderData } from "../register";
+import { Qubit, SourceLocation } from "../circuit.js";
+import { RegisterType, RegisterMap, RegisterRenderData } from "../register.js";
 import {
   leftPadding,
   startY,
   registerHeight,
   classicalRegHeight,
-} from "../constants";
-import { group, text } from "./formatUtils";
-import { mathChars } from "../utils";
+} from "../constants.js";
+import { createSvgElement, group, text } from "./formatUtils.js";
+import { mathChars } from "../utils.js";
 
 /**
  * `formatInputs` takes in an array of Qubits and outputs the SVG string of formatted
@@ -23,14 +23,20 @@ import { mathChars } from "../utils";
  */
 const formatInputs = (
   qubits: Qubit[],
+  renderLocations?: (s: SourceLocation[]) => { title: string; href: string },
 ): { qubitWires: SVGElement; registers: RegisterMap; svgHeight: number } => {
   const qubitWires: SVGElement[] = [];
   const registers: RegisterMap = {};
 
   let currY: number = startY;
-  qubits.forEach(({ id, numResults }, wireIndex) => {
+  qubits.forEach(({ id, numResults, declarations }, wireIndex) => {
+    const link: { link?: { href: string; title: string } } = {};
+    if (renderLocations && declarations && declarations.length > 0) {
+      link.link = renderLocations(declarations);
+    }
+
     // Add qubit wire to list of qubit wires
-    qubitWires.push(qubitInput(currY, wireIndex, id.toString()));
+    qubitWires.push(qubitInput(currY, wireIndex, id.toString(), link.link));
 
     // Create qubit register
     registers[id] = { type: RegisterType.Qubit, y: currY };
@@ -49,6 +55,7 @@ const formatInputs = (
       const clsReg: RegisterRenderData = {
         type: RegisterType.Classical,
         y: currY,
+        ...link, // TODO: pretty sure this is unncessary
       };
       currY += classicalRegHeight;
       return clsReg;
@@ -73,6 +80,7 @@ const qubitInput = (
   y: number,
   wireIndex: number,
   subscript?: string,
+  link?: { href: string; title: string },
 ): SVGElement => {
   const el: SVGElement = text("", leftPadding, y, 16);
 
@@ -85,7 +93,23 @@ const qubitInput = (
   el.setAttribute("text-anchor", "start");
   el.setAttribute("dominant-baseline", "middle");
   el.setAttribute("data-wire", wireIndex.toString());
-  el.classList.add("qs-maintext");
+  el.classList.add("qs-maintext", "qs-qubit-label");
+
+  if (link) {
+    const linkElem = createSvgElement("a", {
+      href: link.href,
+      class: "qs-circuit-source-link",
+    });
+
+    // Add title as a child <title> element for accessibility and hover tooltip
+    const titleElem = createSvgElement("title");
+    titleElem.textContent = link.title;
+    linkElem.appendChild(titleElem);
+
+    // Add the gate as a child of the link
+    linkElem.appendChild(el);
+    return linkElem;
+  }
   return el;
 };
 

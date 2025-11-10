@@ -1,12 +1,14 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use indenter::{Indented, indented};
-use qsc_data_structures::{index_map::IndexMap, span::Span, target::TargetCapabilityFlags};
-use std::{
-    fmt::{self, Display, Formatter, Write},
-    rc::Rc,
+use indenter::{indented, Indented};
+use qsc_data_structures::{
+    debug::{DbgInfo, DbgMetadataScope, InstructionMetadata},
+    index_map::IndexMap,
+    span::{PackageSpan, Span},
+    target::TargetCapabilityFlags,
 };
+use std::fmt::{self, Display, Formatter, Write};
 
 /// The root of the RIR.
 #[derive(Default, Clone)]
@@ -17,8 +19,8 @@ pub struct Program {
     pub config: Config,
     pub num_qubits: u32,
     pub num_results: u32,
-    pub dbg_metadata_scopes: Vec<DbgMetadataScope>,
-    pub dbg_locations: Vec<DbgLocation>,
+    pub tags: Vec<String>,
+    pub dbg_info: DbgInfo,
 }
 
 #[derive(Default, Clone)]
@@ -125,14 +127,20 @@ impl Display for Program {
         write!(indent, "\nnum_results: {}", self.num_results)?;
         write!(indent, "\ndbg_metadata_scopes:")?;
         indent = set_indentation(indent, 2);
-        for (index, scope) in self.dbg_metadata_scopes.iter().enumerate() {
+        for (index, scope) in self.dbg_info.dbg_metadata_scopes.iter().enumerate() {
             write!(indent, "\n{index} = {scope}")?;
         }
         indent = set_indentation(indent, 1);
         write!(indent, "\ndbg_locations:")?;
         indent = set_indentation(indent, 2);
-        for (index, location) in self.dbg_locations.iter().enumerate() {
-            write!(indent, "\n{index} = {location}")?;
+        for (index, location) in self.dbg_info.dbg_locations.iter().enumerate() {
+            write!(indent, "\n[{index}]: {location}")?;
+        }
+        indent = set_indentation(indent, 1);
+        writeln!(indent, "\ntags:")?;
+        indent = set_indentation(indent, 2);
+        for (idx, tag) in self.tags.iter().enumerate() {
+            writeln!(indent, "[{idx}]: {tag}")?;
         }
         Ok(())
     }
@@ -142,13 +150,15 @@ impl Program {
     #[must_use]
     pub fn new() -> Self {
         let mut s = Self::default();
-        s.dbg_metadata_scopes.push(DbgMetadataScope::SubProgram {
-            name: "entry".into(),
-            span: MetadataPackageSpan {
-                package: 0, // TODO: wrong, obviously
-                span: Span::default(),
-            },
-        });
+        s.dbg_info
+            .dbg_metadata_scopes
+            .push(DbgMetadataScope::SubProgram {
+                name: "entry".into(),
+                location: PackageSpan {
+                    package: 0.into(), // TODO: wrong, obviously
+                    span: Span::default(),
+                },
+            });
         s
     }
 
@@ -244,75 +254,6 @@ impl Display for InstructionWithMetadata {
         write!(f, "{}", self.instruction)?;
         if let Some(metadata) = &self.metadata {
             write!(f, " {metadata}")?;
-        }
-        Ok(())
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum DbgMetadataScope {
-    /// Corresponds to a callable.
-    SubProgram {
-        name: Rc<str>,
-        span: MetadataPackageSpan,
-    },
-    // TODO: LexicalBlockFile
-}
-
-impl Display for DbgMetadataScope {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match self {
-            Self::SubProgram { name, span } => {
-                write!(f, "SubProgram name: {name} span: {span}")?;
-            }
-        }
-        Ok(())
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct DbgLocation {
-    pub span: MetadataPackageSpan,
-    /// Index into the `dbg_metadata_scopes` vector in the `Program`.
-    pub scope: usize,
-    /// Index into the `dbg_locations` vector in the `Program`
-    pub inlined_at: Option<usize>,
-}
-
-impl Display for DbgLocation {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "Location span: {} scope: {}", self.span, self.scope)?;
-        if let Some(inlined_at) = self.inlined_at {
-            write!(f, " inlined_at: {}", inlined_at)?;
-        }
-        Ok(())
-    }
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct MetadataPackageSpan {
-    pub package: u32,
-    pub span: Span,
-}
-
-impl Display for MetadataPackageSpan {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "package_id={} span={}", self.package, self.span)
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct InstructionMetadata {
-    /// Index into the `dbg_locations` vector in the `Program`.
-    pub dbg_location: Option<usize>,
-}
-
-impl Display for InstructionMetadata {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "!dbg")?;
-
-        if let Some(dbg_location) = self.dbg_location {
-            write!(f, " dbg_location={dbg_location}")?;
         }
         Ok(())
     }
@@ -417,6 +358,7 @@ impl Display for Callable {
 /// The type of callable.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CallableType {
+    Initialize,
     Measurement,
     Reset,
     Readout,
@@ -427,6 +369,7 @@ pub enum CallableType {
 impl Display for CallableType {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match &self {
+            Self::Initialize => write!(f, "Initialize")?,
             Self::Measurement => write!(f, "Measurement")?,
             Self::Readout => write!(f, "Readout")?,
             Self::OutputRecording => write!(f, "OutputRecording")?,
@@ -827,7 +770,7 @@ impl Operand {
                 Literal::Bool(_) => Ty::Boolean,
                 Literal::Integer(_) => Ty::Integer,
                 Literal::Double(_) => Ty::Double,
-                Literal::Pointer => Ty::Pointer,
+                Literal::Pointer | Literal::Tag(..) | Literal::EmptyTag => Ty::Pointer,
             },
             Operand::Variable(var) => var.ty,
         }
@@ -841,6 +784,8 @@ pub enum Literal {
     Bool(bool),
     Integer(i64),
     Double(f64),
+    Tag(usize, usize),
+    EmptyTag,
     Pointer,
 }
 
@@ -852,6 +797,8 @@ impl Display for Literal {
             Self::Bool(b) => write!(f, "Bool({b})")?,
             Self::Integer(i) => write!(f, "Integer({i})")?,
             Self::Double(d) => write!(f, "Double({d})")?,
+            Self::Tag(idx, len) => write!(f, "Tag({idx}, {len})")?,
+            Self::EmptyTag => write!(f, "EmptyTag")?,
             Self::Pointer => write!(f, "Pointer")?,
         }
         Ok(())
@@ -899,6 +846,14 @@ impl PartialEq for Literal {
                     false
                 }
             }
+            Self::Tag(self_tag_idx, self_tag_len) => {
+                if let Self::Tag(other_tag_idx, other_tag_len) = other {
+                    self_tag_idx == other_tag_idx && self_tag_len == other_tag_len
+                } else {
+                    false
+                }
+            }
+            Self::EmptyTag => *other == Self::EmptyTag,
         }
     }
 }

@@ -48,7 +48,7 @@ namespace Test {
     /// The number of bits in the input register |𝑥〉.
     ///
     /// # Output
-    /// An array of measurement results for the query reguster.
+    /// An array of measurement results for the query register.
     /// All `Zero` measurement results indicate that the function is constant.
     /// At least one `One` measurement result in the array indicates that the
     /// function is balanced.

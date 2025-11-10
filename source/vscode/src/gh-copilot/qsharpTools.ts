@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { TargetProfile, VSDiagnostic } from "qsharp-lang";
+import { TargetProfile } from "qsharp-lang";
 import vscode from "vscode";
 import {
   CircuitOrError,
@@ -9,7 +9,6 @@ import {
   getConfig as getCircuitConfig,
 } from "../circuit";
 import { loadCompilerWorker, toVsCodeDiagnostic } from "../common";
-import { createDebugConsoleEventTarget } from "../debugger/output";
 import { resourceEstimateTool } from "../estimate";
 import { FullProgramConfig, getProgramForDocument } from "../programConfig";
 import {
@@ -21,7 +20,8 @@ import {
 } from "../telemetry";
 import { getRandomGuid } from "../utils";
 import { sendMessageToPanel } from "../webviewPanel.js";
-import { CopilotToolError, HistogramData } from "./types";
+import { CopilotToolError } from "./types";
+import { HistogramData, runProgram } from "../run";
 
 /**
  * In general, tool calls that deal with Q# should include this project
@@ -84,8 +84,10 @@ export class QSharpTools {
       sendTelemetryEvent(EventType.HistogramStart, { associationId }, {});
     }
 
-    await this.runQsharp(
+    const result = await runProgram(
+      this.extensionUri,
       programConfig,
+      "",
       shots,
       (msg) => {
         output.push(msg);
@@ -95,10 +97,11 @@ export class QSharpTools {
         const uniqueFailures = new Set<string>();
         sampleFailures = [];
         for (const failure of failures) {
-          const failureKey = `${failure.message}-${failure.range?.start.line}-${failure.range?.start.character}`;
+          const diagnostic = toVsCodeDiagnostic(failure.diagnostic);
+          const failureKey = `${diagnostic.message}-${diagnostic.range?.start.line}-${diagnostic.range?.start.character}`;
           if (!uniqueFailures.has(failureKey)) {
             uniqueFailures.add(failureKey);
-            sampleFailures.push(failure);
+            sampleFailures.push(diagnostic);
           }
           if (sampleFailures.length === 3) {
             break;
@@ -118,6 +121,24 @@ export class QSharpTools {
         }
       },
     );
+
+    if (result.doneReason === "compilation error(s)") {
+      const failures = result.results
+        .map((r) => {
+          if (!r.success && r.result && typeof r.result !== "string") {
+            return r.result.errors;
+          }
+          return null;
+        })
+        .filter((e) => e !== null)
+        .flat();
+
+      if (failures && failures?.length > 0) {
+        throw new CopilotToolError(
+          `Program failed with compilation errors. ${JSON.stringify(failures)}`,
+        );
+      }
+    }
 
     if (shots > 1) {
       sendTelemetryEvent(
@@ -277,78 +298,5 @@ export class QSharpTools {
         },
       },
     };
-  }
-
-  private async runQsharp(
-    program: FullProgramConfig,
-    shots: number,
-    out: (message: string) => void,
-    resultUpdate: (
-      histogram: HistogramData,
-      failures: vscode.Diagnostic[],
-    ) => void,
-  ) {
-    let histogram: HistogramData | undefined;
-    const evtTarget = createDebugConsoleEventTarget((msg) => {
-      out(msg);
-    }, true /* captureEvents */);
-
-    // create a promise that we'll resolve when the run is done
-    let resolvePromise: () => void = () => {};
-    const allShotsDone = new Promise<void>((resolve) => {
-      resolvePromise = resolve;
-    });
-
-    evtTarget.addEventListener("uiResultsRefresh", () => {
-      const results = evtTarget.getResults();
-      const resultCount = evtTarget.resultCount(); // compiler errors come through here too
-      const buckets = new Map();
-      const failures = [];
-      for (let i = 0; i < resultCount; ++i) {
-        const key = results[i].result;
-        const strKey = typeof key !== "string" ? "ERROR" : key;
-        const newValue = (buckets.get(strKey) || 0) + 1;
-        buckets.set(strKey, newValue);
-        if (!results[i].success) {
-          failures.push(toVsCodeDiagnostic(results[i].result as VSDiagnostic));
-        }
-      }
-      histogram = {
-        buckets: Array.from(buckets.entries()) as [string, number][],
-        shotCount: resultCount,
-      };
-      resultUpdate(histogram!, failures);
-      if (shots === resultCount || failures.length > 0) {
-        // TODO: ugh
-        resolvePromise();
-      }
-    });
-
-    const compilerRunTimeoutMs = 1000 * 60 * 5; // 5 minutes
-    const compilerTimeout = setTimeout(() => {
-      worker.terminate();
-    }, compilerRunTimeoutMs);
-    const worker = loadCompilerWorker(this.extensionUri!);
-
-    try {
-      await worker.run(program, "", shots, evtTarget);
-      // We can still receive events after the above call is done
-      await allShotsDone;
-    } catch {
-      // Compiler errors can come through here. But the error object here doesn't contain enough
-      // information to be useful. So wait for the one that comes through the event target.
-      await allShotsDone;
-
-      const failures = evtTarget
-        .getResults()
-        .filter((result) => !result.success)
-        .map((result) => toVsCodeDiagnostic(result.result as VSDiagnostic));
-
-      throw new CopilotToolError(
-        `Program failed with compilation errors. ${JSON.stringify(failures)}`,
-      );
-    }
-    clearTimeout(compilerTimeout);
-    worker.terminate();
   }
 }

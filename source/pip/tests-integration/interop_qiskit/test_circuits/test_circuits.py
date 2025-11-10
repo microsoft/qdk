@@ -10,6 +10,7 @@ from interop_qiskit import QISKIT_AVAILABLE, SKIP_REASON
 
 if QISKIT_AVAILABLE:
     from qiskit.circuit import QuantumCircuit
+    from qsharp.interop.qiskit import QSharpBackend
 
 
 def random_bit() -> Tuple["QuantumCircuit", List[str]]:
@@ -268,7 +269,7 @@ def exercise_rzz() -> Tuple["QuantumCircuit", List[str]]:
     return circuit, ["00", "11"]
 
 
-def exercise_barrier_delay() -> Tuple["QuantumCircuit", List[str]]:
+def exercise_barrier() -> Tuple["QuantumCircuit", List[str]]:
     """Expected result:
     (1)
     """
@@ -281,11 +282,23 @@ def exercise_barrier_delay() -> Tuple["QuantumCircuit", List[str]]:
     circuit.barrier()
     circuit.x(0)
 
+    circuit.measure(0, 0)
+
+    return circuit, ["1"]
+
+
+def exercise_delay() -> Tuple["QuantumCircuit", List[str]]:
+    """Expected result:
+    (0)
+    """
+    circuit = QuantumCircuit(1, 1)
+    circuit.name = "Test_delay"
+
     circuit.delay(100, 0, unit="ns")  # Introducing a delay of 100 nanoseconds
 
     circuit.measure(0, 0)
 
-    return circuit, ["1"]
+    return circuit, ["0"]
 
 
 def exercise_initialize_prepare_state() -> Tuple["QuantumCircuit", List[str]]:

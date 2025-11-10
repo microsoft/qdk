@@ -87,7 +87,7 @@ pub enum ErrorKind {
 /// Q# requires qubits to be in the 0 state before and after use.
 /// Qiskit makes no assumptions about the state of qubits before or after use.
 ///
-/// During compliation, if Qiskit semantics are used, the compiler will insert
+/// During compilation, if Qiskit semantics are used, the compiler will insert
 /// calls to create qubits instead of `use` bindings. This means that later
 /// compiler passes won't generate the Q# code that would check the qubits.
 ///

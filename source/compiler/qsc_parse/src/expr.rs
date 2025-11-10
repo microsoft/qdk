@@ -359,7 +359,25 @@ fn expr_array_core(s: &mut ParserContext) -> Result<Box<ExprKind>> {
     };
 
     if token(s, TokenKind::Comma).is_err() {
-        return Ok(Box::new(ExprKind::Array(vec![first].into_boxed_slice())));
+        match s.peek().kind {
+            TokenKind::Close(Delim::Bracket) => {
+                return Ok(Box::new(ExprKind::Array(vec![first].into_boxed_slice())));
+            }
+            TokenKind::Semi => {
+                return Err(Error::new(ErrorKind::Token(
+                    TokenKind::Close(Delim::Bracket),
+                    s.peek().kind,
+                    s.peek().span,
+                )));
+            }
+            _ => {
+                return Err(Error::new(ErrorKind::Token(
+                    TokenKind::Comma,
+                    s.peek().kind,
+                    s.peek().span,
+                )));
+            }
+        }
     }
 
     s.expect(WordKinds::Size);

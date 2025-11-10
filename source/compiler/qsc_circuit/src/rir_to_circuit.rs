@@ -3,53 +3,54 @@
 
 #[cfg(test)]
 mod tests;
+pub(crate) mod tracer;
 
-use std::fmt::{Display, Write};
+use core::panic;
+use std::{
+    fmt::{Display, Write},
+    vec,
+};
 
 use crate::{
-    Circuit, ComponentColumn, Config, Error, GenerationMethod, Ket, Measurement, Operation, Qubit,
-    Register, Unitary, group_qubits, operation_list_to_grid,
+    Circuit, ComponentColumn, Error, Ket, Measurement, Operation, Register, TracerConfig, Unitary,
+    builder::{QubitWire, ResultWire, WireMap, finish_circuit},
+    circuit::{PackageOffset, SourceLocation},
+    rir_to_circuit::tracer::FixedQubitRegisterMapBuilder,
 };
 use log::{debug, warn};
-use qsc_data_structures::{index_map::IndexMap, line_column::Encoding};
-use qsc_frontend::{compile::PackageStore, location::Location};
+use qsc_data_structures::{
+    debug::{DbgInfo, DbgLocationId, DbgMetadataScope, DbgScopeId, InstructionMetadata},
+    index_map::IndexMap,
+};
+use qsc_frontend::compile::PackageStore;
 use qsc_hir::hir::PackageId;
 use qsc_partial_eval::{
     Callable, CallableType, ConditionCode, FcmpConditionCode, Instruction, Literal, Operand,
     VariableId,
-    rir::{
-        BlockId, BlockWithMetadata, DbgLocation, DbgMetadataScope, InstructionMetadata,
-        InstructionWithMetadata, MetadataPackageSpan, Program, Ty, Variable,
-    },
+    rir::{BlockId, BlockWithMetadata, InstructionWithMetadata, Program, Ty, Variable},
 };
 use rustc_hash::FxHashSet;
-
-type ResultId = (usize, usize);
 
 #[derive(Clone, Debug)]
 struct Branch {
     condition: Variable,
     true_block: BlockId,
     false_block: BlockId,
-    metadata: Option<GroupMetadata>,
+    metadata: Option<PackageOffset>,
     cond_expr_instruction_metadata: Option<InstructionMetadata>,
 }
 
 #[derive(Clone, Debug)]
-struct Op {
+pub(crate) struct Op {
     kind: OperationKind,
     label: String,
-    target_qubits: Vec<usize>,
-    control_qubits: Vec<usize>,
-    target_results: Vec<ResultId>,
-    control_results: Vec<ResultId>,
+    target_qubits: Vec<QubitWire>,
+    control_qubits: Vec<QubitWire>,
+    target_results: Vec<ResultWire>,
+    control_results: Vec<ResultWire>,
     is_adjoint: bool,
     args: Vec<String>,
-}
-
-#[derive(Clone, Debug)]
-struct GroupMetadata {
-    pub location: MetadataPackageSpan,
+    location: Option<DbgLocationId>,
 }
 
 impl Op {
@@ -58,17 +59,14 @@ impl Op {
     }
 }
 
-type DbgLocationId = usize;
-type DbgScopeId = usize;
-
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct InstructionStack(Vec<DbgLocationId>); // Can be empty
 
 impl InstructionStack {
-    fn scope_stack(&self, dbg_locations: &[DbgLocation]) -> Option<ScopeStack> {
+    fn scope_stack(&self, dbg_info: &DbgInfo) -> Option<ScopeStack> {
         self.0.split_last().map(|(top, prefix)| ScopeStack {
             caller: InstructionStack(prefix.to_vec()),
-            scope: dbg_locations[*top].scope,
+            scope: dbg_info.get_location(*top).scope,
         })
     }
 }
@@ -81,88 +79,105 @@ struct ScopeStack {
 
 #[derive(Clone, Debug)]
 enum OperationKind {
-    Unitary {
-        metadata: Option<InstructionMetadata>,
-    },
-    Measurement {
-        metadata: Option<InstructionMetadata>,
-    },
-    Ket {
-        metadata: Option<InstructionMetadata>,
-    },
+    Unitary,
+    Measurement,
+    Ket,
     Group {
         children: Vec<Op>,
         scope_stack: Option<ScopeStack>,
-        instruction_stack: Option<InstructionMetadata>,
-        metadata: Option<GroupMetadata>,
+        scope_span: Option<PackageOffset>,
     },
 }
 
-impl From<Op> for Operation {
-    fn from(value: Op) -> Self {
-        let args = value.args.into_iter().collect();
+impl Op {
+    pub(crate) fn into_operation(self, dbg_info: &DbgInfo) -> Operation {
+        let args = self.args.into_iter().collect();
 
-        let targets = value
+        let targets = self
             .target_qubits
             .into_iter()
             .map(|q| Register {
-                qubit: q,
+                qubit: q.0,
                 result: None,
             })
-            .chain(value.target_results.into_iter().map(|(q, r)| Register {
-                qubit: q,
-                result: Some(r),
-            }))
+            .chain(
+                self.target_results
+                    .into_iter()
+                    .map(|ResultWire(q, r)| Register {
+                        qubit: q,
+                        result: Some(r),
+                    }),
+            )
             .collect();
-        let controls = value
+        let controls = self
             .control_qubits
             .into_iter()
             .map(|q| Register {
-                qubit: q,
+                qubit: q.0,
                 result: None,
             })
-            .chain(value.control_results.into_iter().map(|(q, r)| Register {
-                qubit: q,
-                result: Some(r),
-            }))
+            .chain(
+                self.control_results
+                    .into_iter()
+                    .map(|ResultWire(q, r)| Register {
+                        qubit: q,
+                        result: Some(r),
+                    }),
+            )
             .collect();
 
-        match value.kind {
-            OperationKind::Unitary { metadata: _ } => Operation::Unitary(Unitary {
-                gate: value.label,
+        let source = self
+            .location
+            .and_then(|l| resolve_location(dbg_info, l))
+            .or(
+                // fall back to scope span for groups
+                if let OperationKind::Group { scope_span, .. } = &self.kind {
+                    *scope_span
+                } else {
+                    None
+                },
+            );
+
+        let source = source.map(SourceLocation::Unresolved);
+
+        match self.kind {
+            OperationKind::Unitary => Operation::Unitary(Unitary {
+                gate: self.label,
                 args,
                 children: vec![],
                 targets,
                 controls,
-                is_adjoint: value.is_adjoint,
+                is_adjoint: self.is_adjoint,
+                source,
             }),
-            OperationKind::Measurement { metadata: _ } => Operation::Measurement(Measurement {
-                gate: value.label,
+            OperationKind::Measurement => Operation::Measurement(Measurement {
+                gate: self.label,
                 args,
                 children: vec![],
                 qubits: controls,
                 results: targets,
+                source,
             }),
-            OperationKind::Ket { metadata: _ } => Operation::Ket(Ket {
-                gate: value.label,
+            OperationKind::Ket => Operation::Ket(Ket {
+                gate: self.label,
                 args,
                 children: vec![],
                 targets,
+                source,
             }),
-            OperationKind::Group {
-                children,
-                scope_stack: _,
-                metadata: _,
-                instruction_stack: _,
-            } => Operation::Unitary(Unitary {
-                gate: value.label,
+            OperationKind::Group { children, .. } => Operation::Unitary(Unitary {
+                gate: self.label,
                 args,
                 children: vec![ComponentColumn {
-                    components: children.into_iter().map(Into::into).collect(),
+                    components: children
+                        .into_iter()
+                        .map(|o| o.into_operation(dbg_info))
+                        .collect(),
                 }],
                 targets,
                 controls,
                 is_adjoint: false,
+                source,
             }),
         }
     }
@@ -171,30 +186,35 @@ impl From<Op> for Operation {
 pub fn make_circuit(
     program: &Program,
     package_store: &PackageStore,
-    position_encoding: Encoding,
-    config: Config,
+    config: TracerConfig,
 ) -> std::result::Result<Circuit, Error> {
-    assert!(config.generation_method == GenerationMethod::Static);
-    eprintln!("make_circuit: program={program}");
-    let mut program_map = ProgramMap::new(program.num_qubits);
+    let mut register_map_builder = FixedQubitRegisterMapBuilder::new(
+        usize::try_from(program.num_qubits).expect("number of qubits should fit in usize"),
+    );
     let callables = &program.callables;
 
+    let mut variables: IndexMap<VariableId, Expr> = IndexMap::default();
     let mut i = 0;
     let mut done = false;
     while !done {
+        let mut blocks: IndexMap<BlockId, CircuitBlock> = IndexMap::default();
         for (id, block) in program.blocks.iter() {
             let block_operations = process_block_vars(
-                &program.dbg_locations,
-                &program.dbg_metadata_scopes,
-                &mut program_map,
+                &program.dbg_info,
+                &mut variables,
+                &mut register_map_builder,
                 callables,
                 block,
             )?;
-            program_map.blocks.insert(id, block_operations);
+            blocks.insert(id, block_operations);
         }
 
-        done = expand_branches_vars(program, &mut program_map)?;
-        program_map.blocks.clear();
+        done = expand_branches_for_vars(
+            register_map_builder.register_map(),
+            program,
+            &mut variables,
+            &blocks,
+        )?;
         i += 1;
         if i > 100 {
             warn!("make_circuit: too many iterations expanding branches, giving up");
@@ -204,21 +224,32 @@ pub fn make_circuit(
         }
     }
 
+    let mut program_map = ProgramMap {
+        variables,
+        blocks: IndexMap::default(),
+    };
+
+    let wire_map = register_map_builder.into_register_map();
+
+    let mut ops_remaining = config.max_operations;
+
     // Do it all again, with all variables properly resolved
     for (id, block) in program.blocks.iter() {
         let block_operations = operations_in_block(
             &mut program_map,
-            &program.dbg_locations,
-            &program.dbg_metadata_scopes,
+            &wire_map,
+            &program.dbg_info,
             callables,
             block,
-            config.group_scopes,
+            ops_remaining,
         )?;
+
+        ops_remaining = ops_remaining.saturating_sub(block_operations.operations.len());
+
         program_map.blocks.insert(id, block_operations);
     }
 
-    debug!("expanding branches, #2");
-    expand_branches(program, &mut program_map)?;
+    expand_branches(&mut program_map, &wire_map, program)?;
 
     let entry_block = program
         .callables
@@ -232,84 +263,64 @@ pub fn make_circuit(
         .get(entry_block)
         .expect("entry block should have been processed");
 
-    let mut operations = extend_with_successors(&program_map, entry_block);
+    let operations = extend_with_successors(&program_map, entry_block);
 
-    let mut operations = if config.group_scopes {
-        group_operations(
-            &program.dbg_locations,
-            &program.dbg_metadata_scopes,
-            operations,
-        )
+    let operations = if config.group_scopes {
+        // This has to take `Op` since it still contains logical stacks from dbg metadata
+        group_operations(&program.dbg_info, operations)
     } else {
         operations
     };
 
-    let qubits = program_map.into_qubits();
+    let circuit = finish_circuit(
+        &wire_map,
+        operations
+            .into_iter()
+            .map(|o| o.into_operation(&program.dbg_info))
+            .collect(),
+        Some(package_store),
+        config.loop_detection,
+        config.collapse_qubit_registers,
+    );
 
-    fill_in_dbg_metadata(
-        &program.dbg_locations,
-        &program.dbg_metadata_scopes,
-        &mut operations,
-        package_store,
-        position_encoding,
-    )?;
-    let operations = operations.into_iter().map(Into::into).collect();
-
-    let (operations, qubits) = if config.collapse_qubit_registers && qubits.len() > 2 {
-        // TODO: dummy values for now
-        group_qubits(operations, qubits, &[0, 1])
-    } else {
-        (operations, qubits)
-    };
-
-    let component_grid = operation_list_to_grid(operations, &qubits, config.loop_detection);
-
-    let circuit = Circuit {
-        qubits,
-        component_grid,
-    };
     Ok(circuit)
 }
 
+fn resolve_location(dbg_info: &DbgInfo, dbg_location: DbgLocationId) -> Option<PackageOffset> {
+    instruction_logical_stack(dbg_info, dbg_location)
+        .and_then(|s| s.0.last().copied())
+        .map(|l| dbg_info.get_location(l).location)
+        .map(|span| PackageOffset {
+            package_id: span.package,
+            offset: span.span.lo,
+        })
+}
+
 /// true result means done
-fn expand_branches_vars(program: &Program, state: &mut ProgramMap) -> Result<bool, Error> {
+fn expand_branches_for_vars(
+    register_map: &WireMap,
+    program: &Program,
+    variables: &mut IndexMap<VariableId, Expr>,
+    blocks: &IndexMap<BlockId, CircuitBlock>,
+) -> Result<bool, Error> {
     let mut done = true;
     for (block_id, _) in program.blocks.iter() {
         // TODO: we can just iterate over state.blocks here
-        let mut circuit_block = state
-            .blocks
-            .get(block_id)
-            .expect("block should exist")
-            .clone();
+        let mut circuit_block = blocks.get(block_id).expect("block should exist").clone();
 
         if let Some(Terminator::Conditional(branch)) = circuit_block
             .terminator
             .take_if(|t| matches!(t, Terminator::Conditional(_)))
         {
-            let expanded_branch = expand_branch_vars(state, block_id, &branch)?;
+            let expanded_branch =
+                expand_branch_vars(variables, blocks, register_map, block_id, &branch)?;
 
             if let Some(expanded_branch) = expanded_branch {
-                let add = match &expanded_branch.grouped_operation.kind {
-                    OperationKind::Group { children, .. } => !children.is_empty(),
-                    _ => false,
-                };
-                if add {
-                    // don't add operations for empty branches
-                    circuit_block
-                        .operations
-                        .push(expanded_branch.grouped_operation);
-                }
-                circuit_block.terminator = Some(Terminator::Unconditional(
-                    expanded_branch.unconditional_successor,
-                ));
-
-                let condition_expr = state
-                    .expr_for_variable(branch.condition.variable_id)?
-                    .clone();
+                let condition_expr =
+                    expr_for_variable(variables, branch.condition.variable_id)?.clone();
                 // Find the successor and see if it has any phi nodes
                 for successor in expanded_branch.successors_to_check_for_phis {
-                    let successor_block = state
-                        .blocks
+                    let successor_block = blocks
                         .get(successor.block_id)
                         .expect("successor block should exist");
 
@@ -320,7 +331,7 @@ fn expand_branches_vars(program: &Program, state: &mut ProgramMap) -> Result<boo
                     )?;
                     if let Some(phi_vars) = phi_vars {
                         for (var, expr) in phi_vars {
-                            state.store_expr_in_variable(var, expr)?;
+                            store_expr_in_variable(variables, var, expr)?;
                         }
                     } else {
                         done = false;
@@ -331,23 +342,26 @@ fn expand_branches_vars(program: &Program, state: &mut ProgramMap) -> Result<boo
             }
         }
 
-        state.blocks.insert(block_id, circuit_block);
+        // blocks.insert(block_id, circuit_block);
     }
     Ok(done)
 }
 
+// TODO: this could be represented by a circuit block, maybe. Consider.
+struct ExpandedBranchBlockVarsOnly {
+    successors_to_check_for_phis: Vec<Successor>,
+}
+
 // None means more work to be done
 fn expand_branch_vars(
-    state: &mut ProgramMap,
+    variables: &IndexMap<VariableId, Expr>,
+    blocks: &IndexMap<BlockId, CircuitBlock>,
+    register_map: &WireMap,
     curent_block_id: BlockId,
     branch: &Branch,
-) -> Result<Option<ExpandedBranchBlock>, Error> {
-    let cond_expr = state.expr_for_variable(branch.condition.variable_id)?;
+) -> Result<Option<ExpandedBranchBlockVarsOnly>, Error> {
+    let cond_expr = expr_for_variable(variables, branch.condition.variable_id)?;
     if cond_expr.is_unresolved() {
-        debug!(
-            "expand_branch_vars: unresolved condition expr for branch: {:?}",
-            cond_expr
-        );
         return Ok(None);
     }
     let results = cond_expr.linked_results();
@@ -359,21 +373,16 @@ fn expand_branch_vars(
     }
 
     if results.is_empty() {
-        debug!(
-            "expand_branch_vars: condition expr has no results for branch: {:?}",
-            cond_expr
-        );
         return Ok(None);
     }
 
     let branch_block = make_simple_branch_block(
-        state,
+        blocks,
         cond_expr,
         curent_block_id,
         branch.true_block,
         branch.false_block,
     )?;
-    debug!("expand_branch: made simple branch block: {branch_block:?}");
     let ConditionalBlock {
         operations: true_operations,
         targets: true_targets,
@@ -381,29 +390,9 @@ fn expand_branch_vars(
 
     let control_results = results
         .iter()
-        .map(|r| state.result_register(*r))
-        .map(|r| {
-            (
-                r.qubit,
-                r.result.expect("result register must have result idx"),
-            )
-        })
+        .map(|r| register_map.result_wire(*r))
         .collect::<Vec<_>>();
-    let true_container = Op {
-        kind: OperationKind::Group {
-            children: true_operations.clone(),
-            scope_stack: None,
-            metadata: None,
-            instruction_stack: None,
-        },
-        label: "true".into(),
-        args: vec![],
-        target_qubits: true_targets.clone(),
-        control_qubits: vec![],
-        target_results: vec![],
-        control_results: control_results.clone(),
-        is_adjoint: false,
-    };
+    let true_container = make_group_op_vars_only(&true_operations, &control_results);
 
     let false_container = branch_block.false_block.map(
         |ConditionalBlock {
@@ -411,33 +400,24 @@ fn expand_branch_vars(
              targets: false_targets,
          }| {
             (
-                Op {
-                    kind: OperationKind::Group {
-                        children: false_operations.clone(),
-                        scope_stack: None,
-                        metadata: None,
-                        instruction_stack: None,
-                    },
-                    label: "false".into(),
-                    target_qubits: false_targets.clone(),
-                    control_qubits: vec![],
-                    target_results: vec![],
-                    control_results: control_results.clone(),
-                    args: vec![],
-                    is_adjoint: false,
-                },
+                make_group_op_vars_only(&false_operations, &control_results),
                 false_targets,
             )
         },
     );
 
-    let true_container = if true_container.has_children() {
-        Some(true_container)
-    } else {
+    let true_container = if true_container.children.is_empty() {
         None
+    } else {
+        Some(true_container)
     };
-    let false_container =
-        false_container.and_then(|f| if f.0.has_children() { Some(f) } else { None });
+    let false_container = false_container.and_then(|f| {
+        if f.0.children.is_empty() {
+            None
+        } else {
+            Some(f)
+        }
+    });
 
     let mut children = vec![];
     let mut target_qubits = vec![];
@@ -457,27 +437,7 @@ fn expand_branch_vars(
     target_qubits.dedup();
     // TODO: target results for container? measurements in branches?
 
-    let args = vec![branch_block.cond_expr.to_string().clone()];
-    let label = "check ".to_string();
-
-    Ok(Some(ExpandedBranchBlock {
-        _condition: branch.condition,
-        grouped_operation: Op {
-            kind: OperationKind::Group {
-                children: children.into_iter().collect(),
-                scope_stack: None,
-                metadata: branch.metadata.clone(),
-                instruction_stack: branch.cond_expr_instruction_metadata.clone(),
-            },
-            label,
-            target_qubits,
-            control_qubits: vec![],
-            target_results: vec![],
-            control_results: control_results.clone(),
-            is_adjoint: false,
-            args,
-        },
-        unconditional_successor: branch_block.unconditional_successor.block_id,
+    Ok(Some(ExpandedBranchBlockVarsOnly {
         successors_to_check_for_phis: [
             branch_block.unconditional_successor,
             branch_block.true_successor,
@@ -488,10 +448,60 @@ fn expand_branch_vars(
     }))
 }
 
+struct VarsOnlyGroupOp {
+    children: Vec<()>,
+}
+
+fn make_group_op_vars_only(operations: &[Op], control_results: &[ResultWire]) -> VarsOnlyGroupOp {
+    let children = operations
+        .iter()
+        .map(|o| {
+            let mut o = o.clone();
+            o.control_results.extend(control_results.iter().copied());
+            o.control_results.sort_unstable();
+            o.control_results.dedup();
+        })
+        .collect();
+    VarsOnlyGroupOp { children }
+}
+
+fn make_group_op(
+    label: &str,
+    operations: &[Op],
+    targets: &[QubitWire],
+    control_results: &[ResultWire],
+) -> Op {
+    let children = operations
+        .iter()
+        .map(|o| {
+            let mut o = o.clone();
+            o.control_results.extend(control_results.iter().copied());
+            o.control_results.sort_unstable();
+            o.control_results.dedup();
+            o
+        })
+        .collect();
+    Op {
+        kind: OperationKind::Group {
+            children,
+            scope_stack: None,
+            scope_span: None,
+        },
+        label: label.into(),
+        args: vec![],
+        target_qubits: targets.to_vec(),
+        control_qubits: vec![],
+        target_results: vec![],
+        control_results: control_results.to_vec(),
+        is_adjoint: false,
+        location: None,
+    }
+}
+
 fn process_block_vars(
-    dbg_locations: &[DbgLocation],
-    dbg_metadata_scopes: &[DbgMetadataScope],
-    state: &mut ProgramMap,
+    dbg_info: &DbgInfo,
+    variables: &mut IndexMap<VariableId, Expr>,
+    register_map: &mut FixedQubitRegisterMapBuilder,
     callables: &IndexMap<qsc_partial_eval::CallableId, Callable>,
     block: &BlockWithMetadata,
 ) -> Result<CircuitBlock, Error> {
@@ -506,13 +516,10 @@ fn process_block_vars(
                 "instructions after return or jump in block".to_owned(),
             ));
         }
-        let BlockUpdate {
-            terminator: new_terminator,
-            ..
-        } = get_operations_for_instruction(
-            dbg_locations,
-            dbg_metadata_scopes,
-            state,
+        let new_terminator = get_operations_for_instruction_vars_only(
+            dbg_info,
+            variables,
+            register_map,
             callables,
             &mut phis,
             &mut done,
@@ -538,7 +545,11 @@ fn process_block_vars(
 /// Iterates over all the basic blocks in the original program. If a block ends with a conditional branch,
 /// the corresponding block in the program map is modified to replace the conditional branch with an unconditional branch,
 /// and an operation is added to the block that represents the branch logic (i.e., a unitary operation with two children, one for the true branch and one for the false branch).
-fn expand_branches(program: &Program, state: &mut ProgramMap) -> Result<(), Error> {
+fn expand_branches(
+    state: &mut ProgramMap,
+    register_map: &WireMap,
+    program: &Program,
+) -> Result<(), Error> {
     for (block_id, _) in program.blocks.iter() {
         // TODO: we can just iterate over state.blocks here
         let mut circuit_block = state
@@ -551,7 +562,7 @@ fn expand_branches(program: &Program, state: &mut ProgramMap) -> Result<(), Erro
             .terminator
             .take_if(|t| matches!(t, Terminator::Conditional(_)))
         {
-            let expanded_branch = expand_branch(state, block_id, &branch)?;
+            let expanded_branch = expand_branch(state, register_map, block_id, &branch)?;
 
             let add = match &expanded_branch.grouped_operation.kind {
                 OperationKind::Group { children, .. } => !children.is_empty(),
@@ -584,7 +595,6 @@ fn get_phi_vars_from_branch(
     let mut phi_vars = vec![];
     for phi in &successor_block.phis {
         let (var, pres) = phi;
-        debug!("attempting to resolve phi var {var:?} with pres {pres:?}");
         let mut options = vec![];
         for (expr, block_id) in pres {
             // TODO: this is not how it works
@@ -600,7 +610,6 @@ fn get_phi_vars_from_branch(
         if let Some(rich) = rich {
             phi_vars.push((*var, rich));
         } else {
-            debug!("get_phi_vars_from_branch: unresolved phi var {var:?} in successor block");
             done = false;
         }
     }
@@ -610,7 +619,6 @@ fn get_phi_vars_from_branch(
 // None means unresolved, more work to do
 fn combine_exprs(options: Vec<Expr>) -> Result<Option<Expr>, Error> {
     if options.iter().any(Expr::is_unresolved) {
-        debug!("combine_exprs: unresolved expr in options: {options:?}");
         return Ok(None);
     }
 
@@ -642,96 +650,19 @@ fn extend_with_successors(state: &ProgramMap, entry_block: &CircuitBlock) -> Vec
     operations
 }
 
-fn fill_in_dbg_metadata(
-    dbg_locations: &[DbgLocation],
-    dbg_metadata_scopes: &[DbgMetadataScope],
-    operations: &mut [Op],
-    package_store: &PackageStore,
-    position_encoding: Encoding,
-) -> Result<(), Error> {
-    for op in operations {
-        if let OperationKind::Group { children, .. } = &mut op.kind {
-            fill_in_dbg_metadata(
-                dbg_locations,
-                dbg_metadata_scopes,
-                children,
-                package_store,
-                position_encoding,
-            )?;
-        }
-
-        let location = match &op.kind {
-            OperationKind::Unitary { metadata }
-            | OperationKind::Measurement { metadata }
-            | OperationKind::Ket { metadata } => metadata
-                .as_ref()
-                .and_then(|metadata| {
-                    instruction_logical_stack(dbg_locations, dbg_metadata_scopes, metadata)
-                })
-                .and_then(|s| s.0.last().cloned())
-                .map(|l| dbg_locations[l].span.clone()),
-            OperationKind::Group {
-                children: _,
-                scope_stack: _,
-                metadata,
-                instruction_stack,
-            } => instruction_stack
-                .as_ref()
-                .and_then(|metadata| {
-                    instruction_logical_stack(dbg_locations, dbg_metadata_scopes, metadata)
-                })
-                .and_then(|s| s.0.last().cloned())
-                .map(|l| dbg_locations[l].span.clone())
-                .or(metadata.as_ref().map(|md| md.location.clone())),
-        };
-
-        if let Some(MetadataPackageSpan {
-            package: package_id,
-            span,
-        }) = &location
-        {
-            let location = Location::from(
-                *span,
-                usize::try_from(*package_id)
-                    .expect("package id should fit into usize")
-                    .into(),
-                package_store,
-                position_encoding,
-            );
-            let mut json = String::new();
-            writeln!(&mut json, "metadata={{").expect("writing to string should work");
-            writeln!(&mut json, r#""source": {:?},"#, location.source)
-                .expect("writing to string should work");
-            write!(
-                        &mut json,
-                        r#""span": {{"start": {{"line": {}, "character": {}}}, "end": {{"line": {}, "character": {}}}}}"#,
-                        location.range.start.line,
-                        location.range.start.column,
-                        location.range.end.line,
-                        location.range.end.column
-                    )
-                    .expect("writing to string should work");
-            write!(&mut json, "}}").expect("writing to string should work");
-            op.args.push(json);
-        }
-    }
-    Ok(())
-}
-
 // TODO: this could be represented by a circuit block, maybe. Consider.
 struct ExpandedBranchBlock {
-    _condition: Variable,
-    grouped_operation: Op,
-    successors_to_check_for_phis: Vec<Successor>,
+    grouped_operation: Op, // TODO: Can only be group
     unconditional_successor: BlockId,
 }
 
 fn expand_branch(
     state: &mut ProgramMap,
+    register_map: &WireMap,
     curent_block_id: BlockId,
     branch: &Branch,
 ) -> Result<ExpandedBranchBlock, Error> {
-    let cond_expr = state.expr_for_variable(branch.condition.variable_id)?;
+    let cond_expr = expr_for_variable(&state.variables, branch.condition.variable_id)?;
     let results = cond_expr.linked_results();
 
     if let Expr::Bool(BoolExpr::LiteralBool(_)) = cond_expr {
@@ -748,14 +679,13 @@ fn expand_branch(
     }
 
     let branch_block = make_simple_branch_block(
-        state,
+        &state.blocks,
         cond_expr,
         curent_block_id,
         branch.true_block,
         branch.false_block,
     )?;
 
-    debug!("expand_branch: made simple branch block: {branch_block:?}");
     let ConditionalBlock {
         operations: true_operations,
         targets: true_targets,
@@ -763,38 +693,9 @@ fn expand_branch(
 
     let control_results = results
         .iter()
-        .map(|r| state.result_register(*r))
-        .map(|r| {
-            (
-                r.qubit,
-                r.result.expect("result register must have result idx"),
-            )
-        })
+        .map(|r| register_map.result_wire(*r))
         .collect::<Vec<_>>();
-    let true_container = Op {
-        kind: OperationKind::Group {
-            children: true_operations
-                .iter()
-                .map(|o| {
-                    let mut with_controls = o.clone();
-                    with_controls
-                        .control_results
-                        .extend(control_results.clone());
-                    with_controls
-                })
-                .collect(),
-            scope_stack: None,
-            metadata: None,
-            instruction_stack: None,
-        },
-        label: "true".into(),
-        args: vec![],
-        target_qubits: true_targets.clone(),
-        control_qubits: vec![],
-        target_results: vec![],
-        control_results: control_results.clone(),
-        is_adjoint: false,
-    };
+    let true_container = make_group_op("true", &true_operations, &true_targets, &control_results);
 
     let false_container = branch_block.false_block.map(
         |ConditionalBlock {
@@ -802,30 +703,7 @@ fn expand_branch(
              targets: false_targets,
          }| {
             (
-                Op {
-                    kind: OperationKind::Group {
-                        children: false_operations
-                            .iter()
-                            .map(|o| {
-                                let mut with_controls = o.clone();
-                                with_controls
-                                    .control_results
-                                    .extend(control_results.clone());
-                                with_controls
-                            })
-                            .collect(),
-                        scope_stack: None,
-                        metadata: None,
-                        instruction_stack: None,
-                    },
-                    label: "false".into(),
-                    target_qubits: false_targets.clone(),
-                    control_qubits: vec![],
-                    target_results: vec![],
-                    control_results: control_results.clone(),
-                    args: vec![],
-                    is_adjoint: false,
-                },
+                make_group_op("false", &false_operations, &false_targets, &control_results),
                 false_targets,
             )
         },
@@ -860,14 +738,17 @@ fn expand_branch(
     let args = vec![branch_block.cond_expr.to_string().clone()];
     let label = "check ".to_string();
 
+    let location = branch
+        .cond_expr_instruction_metadata
+        .as_ref()
+        .and_then(|md| md.dbg_location);
+
     Ok(ExpandedBranchBlock {
-        _condition: branch.condition,
         grouped_operation: Op {
             kind: OperationKind::Group {
                 children: children.into_iter().collect(),
                 scope_stack: None,
-                metadata: branch.metadata.clone(),
-                instruction_stack: branch.cond_expr_instruction_metadata.clone(),
+                scope_span: branch.metadata,
             },
             label,
             target_qubits,
@@ -876,57 +757,54 @@ fn expand_branch(
             control_results: control_results.clone(),
             is_adjoint: false,
             args,
+            location,
         },
         unconditional_successor: branch_block.unconditional_successor.block_id,
-        successors_to_check_for_phis: [
-            branch_block.unconditional_successor,
-            branch_block.true_successor,
-        ]
-        .into_iter()
-        .chain(branch_block.false_successor)
-        .collect(),
     })
 }
 
 #[derive(Clone, Debug)]
 struct CircuitBlock {
     phis: Vec<(Variable, Vec<(Expr, BlockId)>)>,
+    // This has to be Op since it may contain logical stacks from dbg metadata
     operations: Vec<Op>,
     terminator: Option<Terminator>,
 }
 
 fn operations_in_block(
     state: &mut ProgramMap,
-    dbg_locations: &[DbgLocation],
-    dbg_metadata_scopes: &[DbgMetadataScope],
+    register_map: &WireMap,
+    dbg_info: &DbgInfo,
     callables: &IndexMap<qsc_partial_eval::CallableId, Callable>,
     block: &BlockWithMetadata,
-    group_scopes: bool,
+    ops_remaining: usize,
 ) -> Result<CircuitBlock, Error> {
     // TODO: use get_block_successors from utils
     let mut terminator = None;
     let mut phis = vec![];
     let mut done = false;
 
-    let mut operations = vec![];
+    let mut builder = OpListBuilder::new(ops_remaining);
     for instruction in &block.0 {
         if done {
             return Err(Error::UnsupportedFeature(
                 "instructions after return or jump in block".to_owned(),
             ));
         }
-        let block_update = get_operations_for_instruction(
-            dbg_locations,
-            dbg_metadata_scopes,
+        let new_terminator = get_operations_for_instruction(
             state,
+            BuilderWithRegisterMap {
+                builder: &mut builder,
+                register_map,
+            },
+            dbg_info,
             callables,
             &mut phis,
             &mut done,
             instruction,
         )?;
-        operations.extend(block_update.operations);
 
-        if let Some(new_terminator) = block_update.terminator {
+        if let Some(new_terminator) = new_terminator {
             let old = terminator.replace(new_terminator);
             assert!(
                 old.is_none(),
@@ -937,38 +815,19 @@ fn operations_in_block(
 
     Ok(CircuitBlock {
         phis,
-        operations,
+        operations: builder.into_operations(),
         terminator, // TODO: make this exhaustive, and detect corrupt blocks
     })
 }
 
-fn group_operations(
-    dbg_locations: &[DbgLocation],
-    dbg_metadata_scopes: &[DbgMetadataScope],
-    new_operations: Vec<Op>,
-) -> Vec<Op> {
+fn group_operations(dbg_info: &DbgInfo, new_operations: Vec<Op>) -> Vec<Op> {
     let mut operations = vec![];
     for op in new_operations {
-        let instruction_metadata = match &op.kind {
-            OperationKind::Unitary { metadata }
-            | OperationKind::Measurement { metadata }
-            | OperationKind::Ket { metadata }
-            | OperationKind::Group {
-                instruction_stack: metadata,
-                ..
-            } => metadata.as_ref(),
-        };
-        let instruction_stack = instruction_metadata.and_then(|instruction_metadata| {
-            instruction_logical_stack(dbg_locations, dbg_metadata_scopes, instruction_metadata)
-        });
+        let instruction_metadata = &op.location.as_ref();
+        let instruction_stack = instruction_metadata
+            .and_then(|dbg_location| instruction_logical_stack(dbg_info, *dbg_location));
 
-        add_op(
-            &mut operations,
-            op,
-            dbg_locations,
-            dbg_metadata_scopes,
-            instruction_stack.as_ref(),
-        );
+        add_op(&mut operations, op, dbg_info, instruction_stack.as_ref());
     }
     operations
 }
@@ -976,22 +835,12 @@ fn group_operations(
 fn add_op(
     block_operations: &mut Vec<Op>,
     op: Op,
-    dbg_locations: &[DbgLocation],
-    dbg_metadata_scopes: &[DbgMetadataScope],
+    dbg_info: &DbgInfo,
     instruction_stack: Option<&InstructionStack>,
 ) {
-    eprintln!(
-        "add_op: op={}, instruction_stack={:?}",
-        op.label,
-        instruction_stack.map_or("".into(), |s| fmt_stack(
-            dbg_locations,
-            dbg_metadata_scopes,
-            s
-        ))
-    );
     match instruction_stack {
         Some(instruction_stack) => {
-            let qubits: FxHashSet<usize> = op
+            let qubits: FxHashSet<QubitWire> = op
                 .control_qubits
                 .iter()
                 .chain(&op.target_qubits)
@@ -999,7 +848,7 @@ fn add_op(
                 .collect();
 
             let target_qubits = qubits.into_iter().collect();
-            let results: FxHashSet<(usize, usize)> = op
+            let results: FxHashSet<ResultWire> = op
                 .control_results
                 .iter()
                 .chain(&op.target_results)
@@ -1010,10 +859,9 @@ fn add_op(
             add_scoped_op(
                 block_operations,
                 None,
-                dbg_locations,
-                dbg_metadata_scopes,
+                dbg_info,
                 op,
-                instruction_stack.clone(),
+                instruction_stack,
                 target_qubits,
                 target_results,
             );
@@ -1022,108 +870,71 @@ fn add_op(
     }
 }
 
+/// Returns oldest->youngest
 fn instruction_logical_stack(
-    dbg_locations: &[DbgLocation],
-    dbg_metadata_scopes: &[DbgMetadataScope],
-    metadata: &InstructionMetadata,
+    dbg_info: &DbgInfo,
+    dbg_location_idx: DbgLocationId,
 ) -> Option<InstructionStack> {
-    if let Some(dbg_location_idx) = metadata.dbg_location {
-        let mut location_stack = vec![];
-        let mut current_location_idx = Some(dbg_location_idx);
+    let mut location_stack = vec![];
+    let mut current_location_idx = Some(dbg_location_idx);
 
-        while let Some(location_idx) = current_location_idx {
-            location_stack.push(location_idx);
-            let location = dbg_locations
-                .get(location_idx)
-                .expect("dbg location should exist");
-            current_location_idx = location.inlined_at;
-        }
-
-        // filter out scopes in std and core
-        location_stack.retain(|location| {
-            let scope = &dbg_metadata_scopes[dbg_locations[*location].scope];
-            match scope {
-                DbgMetadataScope::SubProgram {
-                    name: _,
-                    span: location,
-                } => {
-                    let package_id =
-                        usize::try_from(location.package).expect("package id should fit in usize");
-                    package_id != usize::from(PackageId::CORE)
-                        && package_id != usize::from(PackageId::CORE.successor())
-                }
-            }
-        });
-
-        location_stack.reverse();
-
-        return Some(InstructionStack(location_stack));
+    while let Some(location_idx) = current_location_idx {
+        location_stack.push(location_idx);
+        let location = dbg_info.get_location(location_idx);
+        current_location_idx = location.inlined_at;
     }
-    None
+
+    // filter out scopes in std and core
+    location_stack.retain(|location| {
+        let scope = &dbg_info.get_scope(dbg_info.get_location(*location).scope);
+        match scope {
+            DbgMetadataScope::SubProgram { name: _, location } => {
+                let package_id = location.package;
+                package_id != PackageId::CORE && package_id != PackageId::CORE.successor()
+            }
+        }
+    });
+
+    location_stack.reverse();
+
+    Some(InstructionStack(location_stack))
 }
 
-fn scope_label(
-    dbg_locations: &[DbgLocation],
-    dbg_metadata_scopes: &[DbgMetadataScope],
-    scope_stack: &ScopeStack,
-) -> String {
-    scope_name(dbg_metadata_scopes, scope_stack.scope)
+fn scope_label(dbg_info: &DbgInfo, scope_stack: &ScopeStack) -> String {
+    scope_name(dbg_info, scope_stack.scope)
 }
 
-fn loc_name(
-    dbg_locations: &[DbgLocation],
-    dbg_metadata_scopes: &[DbgMetadataScope],
-    location: DbgLocationId,
-) -> (String, u32) {
-    let dbg_location = &dbg_locations[location];
+fn loc_name(dbg_info: &DbgInfo, location: DbgLocationId) -> (String, u32) {
+    let dbg_location = &dbg_info.get_location(location);
     let scope_id: DbgScopeId = dbg_location.scope;
-    let scope_name = scope_name(dbg_metadata_scopes, scope_id);
-    let offset = dbg_location.span.span.lo;
+    let scope_name = scope_name(dbg_info, scope_id);
+    let offset = dbg_location.location.span.lo;
 
     (scope_name, offset)
 }
 
-fn scope_name(dbg_metadata_scopes: &[DbgMetadataScope], scope_id: usize) -> String {
-    let scope = &dbg_metadata_scopes[scope_id];
-    let scope_name = match scope {
-        DbgMetadataScope::SubProgram { name, span: _ } => name.to_string(),
-    };
-    scope_name
+fn scope_name(dbg_info: &DbgInfo, scope_id: DbgScopeId) -> String {
+    let scope = dbg_info.get_scope(scope_id);
+
+    match scope {
+        DbgMetadataScope::SubProgram { name, location: _ } => name.to_string(),
+    }
 }
 
-fn fmt_stack(
-    dbg_locations: &[DbgLocation],
-    dbg_metadata_scopes: &[DbgMetadataScope],
-    stack: &InstructionStack,
-) -> String {
-    let names: Vec<String> = stack
-        .0
-        .iter()
-        .map(|loc| fmt_loc(dbg_locations, dbg_metadata_scopes, *loc))
-        .collect();
-    names.join("->")
-}
-
-fn fmt_scope_stack(
-    dbg_locations: &[DbgLocation],
-    dbg_metadata_scopes: &[DbgMetadataScope],
-    stack: &ScopeStack,
-) -> String {
+#[allow(dead_code)]
+fn fmt_scope_stack(dbg_info: &DbgInfo, stack: &ScopeStack) -> String {
     let mut names: Vec<String> = stack
         .caller
         .0
         .iter()
-        .map(|loc| fmt_loc(dbg_locations, dbg_metadata_scopes, *loc))
+        .map(|loc| fmt_loc(dbg_info, *loc))
         .collect();
-    names.push(scope_name(dbg_metadata_scopes, stack.scope));
+    names.push(scope_name(dbg_info, stack.scope));
     names.join("->")
 }
 
-fn fmt_ops(
-    dbg_locations: &[DbgLocation],
-    dbg_metadata_scopes: &[DbgMetadataScope],
-    ops: &[Op],
-) -> String {
+#[allow(dead_code)]
+fn fmt_ops(dbg_info: &DbgInfo, ops: &[Op]) -> String {
     let items: Vec<String> = ops
         .iter()
         .map(|op| {
@@ -1132,27 +943,30 @@ fn fmt_ops(
                 OperationKind::Group {
                     children,
                     scope_stack: stack,
-                    metadata,
-                    instruction_stack: _,
+                    scope_span: _,
                 } => {
                     format!(
                         "{}children={}",
                         match stack {
-                            Some(stack) => format!(
-                                "stack={}, ",
-                                fmt_scope_stack(dbg_locations, dbg_metadata_scopes, stack)
-                            ),
-                            None => "".to_string(),
+                            Some(stack) => format!("stack={}, ", fmt_scope_stack(dbg_info, stack)),
+                            None => String::new(),
                         },
-                        fmt_ops_with_trailing_comma(dbg_locations, dbg_metadata_scopes, children)
+                        fmt_ops_with_trailing_comma(dbg_info, children)
                     )
                 }
-                _ => "".to_owned(),
+                _ => String::new(),
             };
             if stack_and_children.is_empty() {
-                format!("({name}, q={:?})", op.target_qubits)
+                format!(
+                    "({name}, q={:?})",
+                    op.target_qubits.iter().map(|q| q.0).collect::<Vec<_>>()
+                )
             } else {
-                format!("({name}, q={:?}, {})", op.target_qubits, stack_and_children)
+                format!(
+                    "({name}, q={:?}, {})",
+                    op.target_qubits.iter().map(|q| q.0).collect::<Vec<_>>(),
+                    stack_and_children
+                )
             }
         })
         .collect();
@@ -1166,11 +980,8 @@ fn fmt_ops(
     s
 }
 
-fn fmt_ops_with_trailing_comma(
-    dbg_locations: &[DbgLocation],
-    dbg_metadata_scopes: &[DbgMetadataScope],
-    ops: &[Op],
-) -> String {
+#[allow(dead_code)]
+fn fmt_ops_with_trailing_comma(dbg_info: &DbgInfo, ops: &[Op]) -> String {
     let items: Vec<String> = ops
         .iter()
         .map(|op| {
@@ -1179,76 +990,71 @@ fn fmt_ops_with_trailing_comma(
                 OperationKind::Group {
                     children,
                     scope_stack: stack,
-                    metadata,
-                    instruction_stack: _,
+                    scope_span: _,
                 } => {
                     format!(
                         "{}children={}",
                         match stack {
-                            Some(stack) => format!(
-                                "stack={}, ",
-                                fmt_scope_stack(dbg_locations, dbg_metadata_scopes, stack)
-                            ),
-                            None => "".to_string(),
+                            Some(stack) => format!("stack={}, ", fmt_scope_stack(dbg_info, stack)),
+                            None => String::new(),
                         },
-                        fmt_ops_with_trailing_comma(dbg_locations, dbg_metadata_scopes, children)
+                        fmt_ops_with_trailing_comma(dbg_info, children)
                     )
                 }
-                _ => "".to_owned(),
+                _ => String::new(),
             };
             if stack_and_children.is_empty() {
-                format!("({name}, q={:?})", op.target_qubits)
+                format!(
+                    "({name}, q={:?})",
+                    op.target_qubits.iter().map(|q| q.0).collect::<Vec<_>>()
+                )
             } else {
-                format!("({name}, q={:?}), {}", op.target_qubits, stack_and_children)
+                format!(
+                    "({name}, q={:?}), {}",
+                    op.target_qubits.iter().map(|q| q.0).collect::<Vec<_>>(),
+                    stack_and_children
+                )
             }
         })
         .collect();
     format!(
         "[{}]",
         if items.is_empty() {
-            "".to_string()
+            String::new()
         } else {
             format!("{}, ", items.join(", "))
         }
     )
 }
 
-fn fmt_loc(
-    dbg_locations: &[DbgLocation],
-    dbg_metadata_scopes: &[DbgMetadataScope],
-    location: usize,
-) -> String {
-    let (name, offset) = loc_name(dbg_locations, dbg_metadata_scopes, location);
+fn fmt_loc(dbg_info: &DbgInfo, location: DbgLocationId) -> String {
+    let (name, offset) = loc_name(dbg_info, location);
     format!("{name}@{offset}")
 }
 
-fn make_scope_metadata(
-    dbg_locations: &[DbgLocation],
-    dbg_metadata_scopes: &[DbgMetadataScope],
-    scope_stack: &ScopeStack,
-) -> GroupMetadata {
-    let scope_location = &dbg_metadata_scopes[scope_stack.scope];
+fn make_scope_metadata(dbg_info: &DbgInfo, scope_stack: &ScopeStack) -> PackageOffset {
+    let scope_location = &dbg_info.get_scope(scope_stack.scope);
     let scope_location = match scope_location {
-        DbgMetadataScope::SubProgram { span, .. } => span,
+        DbgMetadataScope::SubProgram { location: span, .. } => span,
     };
 
-    GroupMetadata {
-        location: scope_location.clone(),
+    PackageOffset {
+        package_id: scope_location.package,
+        offset: scope_location.span.lo,
     }
 }
 
 fn add_scoped_op(
     current_scope_container: &mut Vec<Op>,
     current_scope: Option<ScopeStack>,
-    dbg_locations: &[DbgLocation],
-    dbg_metadata_scopes: &[DbgMetadataScope],
+    dbg_info: &DbgInfo,
     op: Op,
-    instruction_stack: InstructionStack,
-    target_qubits: Vec<usize>,
-    target_results: Vec<(usize, usize)>,
+    instruction_stack: &InstructionStack,
+    target_qubits: Vec<QubitWire>,
+    target_results: Vec<ResultWire>,
 ) {
-    let full_instruction_stack = concat_stacks(dbg_locations, &current_scope, &instruction_stack);
-    let scope_stack = instruction_stack.scope_stack(dbg_locations);
+    let full_instruction_stack = concat_stacks(dbg_info, current_scope.as_ref(), instruction_stack);
+    let scope_stack = instruction_stack.scope_stack(dbg_info);
 
     if let Some(scope_stack) = scope_stack
         && Some(&scope_stack) != current_scope.as_ref()
@@ -1258,16 +1064,12 @@ fn add_scoped_op(
             if let OperationKind::Group {
                 children: last_scope_children,
                 scope_stack: Some(last_scope_stack),
-                metadata: last_scope_metadata,
-                instruction_stack: _,
+                scope_span: _,
             } = &mut last_op.kind
             {
-                if let Some(rest) = strip_stack_prefix(
-                    dbg_locations,
-                    dbg_metadata_scopes,
-                    &full_instruction_stack,
-                    last_scope_stack,
-                ) {
+                if let Some(rest) =
+                    strip_stack_prefix(dbg_info, &full_instruction_stack, last_scope_stack)
+                {
                     last_op.target_qubits.extend(target_qubits.clone());
                     last_op.target_qubits.sort_unstable();
                     last_op.target_qubits.dedup();
@@ -1280,10 +1082,9 @@ fn add_scoped_op(
                     add_scoped_op(
                         last_scope_children,
                         Some(last_scope_stack.clone()),
-                        dbg_locations,
-                        dbg_metadata_scopes,
+                        dbg_info,
                         op,
-                        rest,
+                        &rest,
                         target_qubits,
                         target_results,
                     );
@@ -1294,10 +1095,10 @@ fn add_scoped_op(
         }
 
         // we need to create a parent for the scope
-        let scope_metadata = make_scope_metadata(dbg_locations, dbg_metadata_scopes, &scope_stack);
-        let label = scope_label(dbg_locations, dbg_metadata_scopes, &scope_stack);
+        let scope_metadata = make_scope_metadata(dbg_info, &scope_stack);
+        let label = scope_label(dbg_info, &scope_stack);
         let full_scope_stack = full_instruction_stack
-            .scope_stack(dbg_locations)
+            .scope_stack(dbg_info)
             .expect("we got here because we had a scope, so what the hell is this");
 
         if current_scope != Some(full_scope_stack.clone()) {
@@ -1305,8 +1106,7 @@ fn add_scoped_op(
                 kind: OperationKind::Group {
                     children: vec![op],
                     scope_stack: Some(full_scope_stack),
-                    metadata: Some(scope_metadata),
-                    instruction_stack: None,
+                    scope_span: Some(scope_metadata),
                 },
                 label,
                 target_qubits,
@@ -1315,16 +1115,16 @@ fn add_scoped_op(
                 control_results: vec![],
                 is_adjoint: false,
                 args: vec![],
+                location: None,
             };
 
             // create container for the prefix, and add to it
             add_scoped_op(
                 current_scope_container,
                 current_scope,
-                dbg_locations,
-                dbg_metadata_scopes,
+                dbg_info,
                 scope_group.clone(),
-                scope_stack.caller,
+                &scope_stack.caller,
                 scope_group.target_qubits.clone(),
                 scope_group.target_results.clone(),
             );
@@ -1336,17 +1136,18 @@ fn add_scoped_op(
 }
 
 fn concat_stacks(
-    dbg_locations: &[DbgLocation],
-    scope: &Option<ScopeStack>,
+    dbg_info: &DbgInfo,
+    scope: Option<&ScopeStack>,
     tail: &InstructionStack,
 ) -> InstructionStack {
     match scope {
         Some(prefix) => {
             if let Some(first) = tail.0.first() {
                 assert_eq!(
-                    dbg_locations[*first].scope, prefix.scope,
+                    dbg_info.get_location(*first).scope,
+                    prefix.scope,
                     "concatenating stacks that don't seem to match"
-                )
+                );
             }
             InstructionStack([prefix.caller.0.clone(), tail.0.clone()].concat())
         }
@@ -1355,15 +1156,14 @@ fn concat_stacks(
 }
 
 fn strip_stack_prefix(
-    dbg_locations: &[DbgLocation],
-    dbg_metadata_scopes: &[DbgMetadataScope],
+    dbg_info: &DbgInfo,
     full: &InstructionStack,
     prefix: &ScopeStack,
 ) -> Option<InstructionStack> {
     if full.0.len() > prefix.caller.0.len() {
         if let Some(rest) = full.0.strip_prefix(prefix.caller.0.as_slice()) {
             let next_location = rest[0];
-            let next_scope = dbg_locations[next_location].scope;
+            let next_scope = dbg_info.get_location(next_location).scope;
             if next_scope == prefix.scope {
                 return Some(InstructionStack(rest.to_vec()));
             }
@@ -1372,81 +1172,70 @@ fn strip_stack_prefix(
     None
 }
 
-struct BlockUpdate {
-    operations: Vec<Op>,
-    terminator: Option<Terminator>,
-}
-
 #[derive(Debug, Clone)]
 enum Terminator {
     Unconditional(BlockId),
     Conditional(Branch),
 }
 
-fn get_operations_for_instruction(
-    dbg_locations: &[DbgLocation],
-    dbg_metadata_scopes: &[DbgMetadataScope],
-    state: &mut ProgramMap,
+fn get_operations_for_instruction_vars_only(
+    dbg_info: &DbgInfo,
+    variables: &mut IndexMap<VariableId, Expr>,
+    register_map: &mut FixedQubitRegisterMapBuilder,
     callables: &IndexMap<qsc_partial_eval::CallableId, Callable>,
     phis: &mut Vec<(Variable, Vec<(Expr, BlockId)>)>,
     done: &mut bool,
     instruction: &InstructionWithMetadata,
-) -> Result<BlockUpdate, Error> {
+) -> Result<Option<Terminator>, Error> {
     let mut terminator = None;
-    let operations = match &instruction.instruction {
-        Instruction::Call(callable_id, operands, var) => extend_block_with_call_instruction(
-            state,
-            callables,
-            instruction,
-            *callable_id,
-            operands,
-            *var,
-        )?,
+    match &instruction.instruction {
+        Instruction::Call(callable_id, operands, var) => {
+            process_callable_variables(
+                variables,
+                register_map,
+                callables.get(*callable_id).expect("callable should exist"),
+                operands,
+                *var,
+            )?;
+        }
         Instruction::Fcmp(condition_code, operand, operand1, variable) => {
             extend_block_with_fcmp_instruction(
-                state,
+                variables,
                 *condition_code,
                 operand,
                 operand1,
                 *variable,
             )?;
-            vec![]
         }
         Instruction::Icmp(condition_code, operand, operand1, variable) => {
             extend_block_with_icmp_instruction(
-                state,
+                variables,
                 *condition_code,
                 operand,
                 operand1,
                 *variable,
             )?;
-            vec![]
         }
         Instruction::Return => {
             *done = true;
-            vec![]
         }
         Instruction::Branch(variable, block_id_1, block_id_2) => {
             *done = true;
-            extend_block_with_branch_instruction(
-                dbg_locations,
-                dbg_metadata_scopes,
+            extend_block_with_branch_instruction_vars_only(
+                dbg_info,
                 &mut terminator,
                 instruction,
                 *variable,
                 *block_id_1,
                 *block_id_2,
             )?;
-            vec![]
         }
         Instruction::Jump(block_id) => {
             extend_block_with_jump_instruction(&mut terminator, *block_id)?;
             *done = true;
-            vec![]
         }
         Instruction::Phi(pres, variable) => {
-            extend_block_with_phi_instruction(state, phis, pres, *variable)?;
-            vec![]
+            extend_block_with_phi_instruction(variables, phis, pres, *variable)?;
         }
         Instruction::Add(operand, operand1, variable)
         | Instruction::Sub(operand, operand1, variable)
@@ -1464,46 +1253,143 @@ fn get_operations_for_instruction(
         | Instruction::BitwiseAnd(operand, operand1, variable)
         | Instruction::BitwiseOr(operand, operand1, variable)
         | Instruction::BitwiseXor(operand, operand1, variable) => {
-            extend_block_with_binop_instruction(state, operand, operand1, *variable)?;
-            vec![]
+            extend_block_with_binop_instruction(variables, operand, operand1, *variable)?;
         }
         instruction @ (Instruction::LogicalNot(..) | Instruction::BitwiseNot(..)) => {
             // Leave the variable unassigned, if it's used in anything that's going to be shown in the circuit, we'll raise an error then
             debug!("ignoring not instruction: {instruction:?}");
-            vec![]
         }
         instruction @ Instruction::Store(..) => {
             return Err(Error::UnsupportedFeature(format!(
                 "unsupported instruction in block: {instruction:?}"
             )));
         }
-    };
-    Ok(BlockUpdate {
-        operations,
-        terminator,
-    })
+    }
+
+    Ok(terminator)
+}
+
+struct BuilderWithRegisterMap<'a> {
+    builder: &'a mut OpListBuilder,
+    register_map: &'a WireMap,
+}
+
+fn get_operations_for_instruction(
+    state: &mut ProgramMap,
+    mut builder_ctx: BuilderWithRegisterMap,
+    dbg_info: &DbgInfo,
+    callables: &IndexMap<qsc_partial_eval::CallableId, Callable>,
+    phis: &mut Vec<(Variable, Vec<(Expr, BlockId)>)>,
+    done: &mut bool,
+    instruction: &InstructionWithMetadata,
+) -> Result<Option<Terminator>, Error> {
+    let mut terminator = None;
+    match &instruction.instruction {
+        Instruction::Call(callable_id, operands, _) => {
+            trace_call(
+                state,
+                &mut builder_ctx,
+                callables.get(*callable_id).expect("callable should exist"),
+                operands,
+                instruction.metadata.as_ref(),
+            )?;
+        }
+        Instruction::Fcmp(condition_code, operand, operand1, variable) => {
+            extend_block_with_fcmp_instruction(
+                &mut state.variables,
+                *condition_code,
+                operand,
+                operand1,
+                *variable,
+            )?;
+        }
+        Instruction::Icmp(condition_code, operand, operand1, variable) => {
+            extend_block_with_icmp_instruction(
+                &mut state.variables,
+                *condition_code,
+                operand,
+                operand1,
+                *variable,
+            )?;
+        }
+        Instruction::Return => {
+            *done = true;
+        }
+        Instruction::Branch(variable, block_id_1, block_id_2) => {
+            *done = true;
+            extend_block_with_branch_instruction(
+                dbg_info,
+                &mut terminator,
+                instruction,
+                *variable,
+                *block_id_1,
+                *block_id_2,
+            )?;
+        }
+        Instruction::Jump(block_id) => {
+            extend_block_with_jump_instruction(&mut terminator, *block_id)?;
+            *done = true;
+        }
+        Instruction::Phi(pres, variable) => {
+            extend_block_with_phi_instruction(&mut state.variables, phis, pres, *variable)?;
+        }
+        Instruction::Add(operand, operand1, variable)
+        | Instruction::Sub(operand, operand1, variable)
+        | Instruction::Mul(operand, operand1, variable)
+        | Instruction::Sdiv(operand, operand1, variable)
+        | Instruction::Srem(operand, operand1, variable)
+        | Instruction::Shl(operand, operand1, variable)
+        | Instruction::Ashr(operand, operand1, variable)
+        | Instruction::Fadd(operand, operand1, variable)
+        | Instruction::Fsub(operand, operand1, variable)
+        | Instruction::Fmul(operand, operand1, variable)
+        | Instruction::Fdiv(operand, operand1, variable)
+        | Instruction::LogicalAnd(operand, operand1, variable)
+        | Instruction::LogicalOr(operand, operand1, variable)
+        | Instruction::BitwiseAnd(operand, operand1, variable)
+        | Instruction::BitwiseOr(operand, operand1, variable)
+        | Instruction::BitwiseXor(operand, operand1, variable) => {
+            extend_block_with_binop_instruction(
+                &mut state.variables,
+                operand,
+                operand1,
+                *variable,
+            )?;
+        }
+        instruction @ (Instruction::LogicalNot(..) | Instruction::BitwiseNot(..)) => {
+            // Leave the variable unassigned, if it's used in anything that's going to be shown in the circuit, we'll raise an error then
+            debug!("ignoring not instruction: {instruction:?}");
+        }
+        instruction @ Instruction::Store(..) => {
+            return Err(Error::UnsupportedFeature(format!(
+                "unsupported instruction in block: {instruction:?}"
+            )));
+        }
+    }
+
+    Ok(terminator)
 }
 
 fn extend_block_with_binop_instruction(
-    state: &mut ProgramMap,
+    variables: &mut IndexMap<VariableId, Expr>,
     operand: &Operand,
     operand1: &Operand,
     variable: Variable,
 ) -> Result<(), Error> {
-    let expr_left = expr_from_operand(state, operand)?;
-    let expr_right = expr_from_operand(state, operand1)?;
+    let expr_left = expr_from_operand(variables, operand)?;
+    let expr_right = expr_from_operand(variables, operand1)?;
     let expr = Expr::Rich(RichExpr::FunctionOf(
         [expr_left, expr_right]
             .into_iter()
             .flat_map(|e| e.flat_exprs())
             .collect(),
     ));
-    state.store_expr_in_variable(variable, expr)?;
+    store_expr_in_variable(variables, variable, expr)?;
     Ok(())
 }
 
 fn extend_block_with_phi_instruction(
-    state: &mut ProgramMap,
+    variables: &mut IndexMap<VariableId, Expr>,
     phis: &mut Vec<(Variable, Vec<(Expr, BlockId)>)>,
     pres: &Vec<(Operand, BlockId)>,
     variable: Variable,
@@ -1511,13 +1397,13 @@ fn extend_block_with_phi_instruction(
     let mut exprs = vec![];
     let mut this_phis = vec![];
     for (var, label) in pres {
-        let expr = expr_from_operand(state, var)?;
+        let expr = expr_from_operand(variables, var)?;
         this_phis.push((expr.clone(), *label));
         exprs.push(expr);
     }
     phis.push((variable, this_phis));
 
-    state.store_variable_placeholder(variable);
+    store_variable_placeholder(variables, variable);
 
     Ok(())
 }
@@ -1538,23 +1424,56 @@ fn extend_block_with_jump_instruction(
     Ok(())
 }
 
-fn extend_block_with_branch_instruction(
-    dbg_locations: &[DbgLocation],
-    dbg_metadata_scopes: &[DbgMetadataScope],
+fn extend_block_with_branch_instruction_vars_only(
+    dbg_info: &DbgInfo,
     terminator: &mut Option<Terminator>,
     instruction: &InstructionWithMetadata,
     variable: Variable,
     block_id_1: BlockId,
     block_id_2: BlockId,
 ) -> Result<(), Error> {
-    let instruction_metadata = (&instruction.metadata).clone();
-    let metadata = (&instruction.metadata).as_ref().map(|md| GroupMetadata {
-        location: md
-            .dbg_location
-            .map(|l| dbg_locations[l].span.clone())
-            .unwrap_or_default(),
-    });
-    eprintln!("setting instruction stack for branch: {instruction_metadata:?}");
+    let instruction_metadata = instruction.metadata.clone();
+    let metadata = instruction_metadata
+        .as_ref()
+        .and_then(|md| md.dbg_location)
+        .map(|l| dbg_info.get_location(l).location)
+        .map(|span| PackageOffset {
+            package_id: span.package,
+            offset: span.span.lo,
+        });
+    let branch = Branch {
+        condition: variable,
+        true_block: block_id_1,
+        false_block: block_id_2,
+        metadata,
+        cond_expr_instruction_metadata: instruction_metadata,
+    };
+    let old = terminator.replace(Terminator::Conditional(branch));
+    if old.is_some() {
+        return Err(Error::UnsupportedFeature(
+            "block contains more than one branch".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn extend_block_with_branch_instruction(
+    dbg_info: &DbgInfo,
+    terminator: &mut Option<Terminator>,
+    instruction: &InstructionWithMetadata,
+    variable: Variable,
+    block_id_1: BlockId,
+    block_id_2: BlockId,
+) -> Result<(), Error> {
+    let instruction_metadata = instruction.metadata.clone();
+    let metadata = instruction_metadata
+        .as_ref()
+        .and_then(|md| md.dbg_location)
+        .map(|l| dbg_info.get_location(l).location)
+        .map(|span| PackageOffset {
+            package_id: span.package,
+            offset: span.span.lo,
+        });
     let branch = Branch {
         condition: variable,
         true_block: block_id_1,
@@ -1572,7 +1491,7 @@ fn extend_block_with_branch_instruction(
 }
 
 fn extend_block_with_icmp_instruction(
-    state: &mut ProgramMap,
+    variables: &mut IndexMap<VariableId, Expr>,
     condition_code: ConditionCode,
     operand: &Operand,
     operand1: &Operand,
@@ -1580,10 +1499,10 @@ fn extend_block_with_icmp_instruction(
 ) -> Result<(), Error> {
     match condition_code {
         ConditionCode::Eq => {
-            let expr_left = expr_from_operand(state, operand)?;
-            let expr_right = expr_from_operand(state, operand1)?;
+            let expr_left = expr_from_operand(variables, operand)?;
+            let expr_right = expr_from_operand(variables, operand1)?;
             let expr = eq_expr(expr_left, expr_right)?;
-            state.store_expr_in_variable(variable, Expr::Bool(expr))
+            store_expr_in_variable(variables, variable, Expr::Bool(expr))
         }
         condition_code => Err(Error::UnsupportedFeature(format!(
             "unsupported condition code in icmp: {condition_code:?}"
@@ -1592,39 +1511,21 @@ fn extend_block_with_icmp_instruction(
 }
 
 fn extend_block_with_fcmp_instruction(
-    state: &mut ProgramMap,
+    variables: &mut IndexMap<VariableId, Expr>,
     condition_code: FcmpConditionCode,
     operand: &Operand,
     operand1: &Operand,
     variable: Variable,
 ) -> Result<(), Error> {
-    let expr_left = expr_from_operand(state, operand)?;
-    let expr_right = expr_from_operand(state, operand1)?;
+    let expr_left = expr_from_operand(variables, operand)?;
+    let expr_right = expr_from_operand(variables, operand1)?;
     let expr = match condition_code {
         FcmpConditionCode::False => BoolExpr::LiteralBool(false),
         FcmpConditionCode::True => BoolExpr::LiteralBool(true),
         cmp => BoolExpr::BinOp(expr_left.into(), expr_right.into(), cmp.to_string()),
     };
-    state.store_expr_in_variable(variable, Expr::Bool(expr))?;
+    store_expr_in_variable(variables, variable, Expr::Bool(expr))?;
     Ok(())
-}
-
-fn extend_block_with_call_instruction(
-    state: &mut ProgramMap,
-    callables: &IndexMap<qsc_partial_eval::CallableId, Callable>,
-    instruction: &InstructionWithMetadata,
-    callable_id: qsc_partial_eval::CallableId,
-    operands: &Vec<Operand>,
-    var: Option<Variable>,
-) -> Result<Vec<Op>, Error> {
-    map_callable_to_operations(
-        state,
-        callables.get(callable_id).expect("callable should exist"),
-        operands,
-        var,
-        instruction.metadata.as_ref(),
-    )
-    .map(|ops| ops.into_iter().collect())
 }
 
 fn eq_expr(expr_left: Expr, expr_right: Expr) -> Result<BoolExpr, Error> {
@@ -1657,7 +1558,7 @@ fn eq_expr(expr_left: Expr, expr_right: Expr) -> Result<BoolExpr, Error> {
 #[derive(Clone, Debug)]
 struct ConditionalBlock {
     operations: Vec<Op>,
-    targets: Vec<usize>,
+    targets: Vec<QubitWire>,
 }
 
 #[derive(Clone, Debug)]
@@ -1678,7 +1579,7 @@ struct BranchBlock {
 
 /// Can only handle basic branches
 fn make_simple_branch_block(
-    state: &ProgramMap,
+    blocks: &IndexMap<BlockId, CircuitBlock>,
     cond_expr: &Expr,
     current_block_id: BlockId,
     true_block_id: BlockId,
@@ -1688,15 +1589,12 @@ fn make_simple_branch_block(
         operations: true_operations,
         terminator: true_terminator,
         ..
-    } = state.blocks.get(true_block_id).expect("block should exist");
+    } = blocks.get(true_block_id).expect("block should exist");
     let CircuitBlock {
         operations: false_operations,
         terminator: false_terminator,
         ..
-    } = state
-        .blocks
-        .get(false_block_id)
-        .expect("block should exist");
+    } = blocks.get(false_block_id).expect("block should exist");
 
     let true_successor = match true_terminator {
         Some(Terminator::Unconditional(s)) => Some(*s),
@@ -1785,10 +1683,10 @@ fn expand_real_branch_block(operations: &Vec<Op>) -> Result<ConditionalBlock, Er
     for op in operations {
         real_ops.push(op.clone());
         for q in op.target_qubits.iter().chain(&op.control_qubits) {
-            seen.insert((*q, None));
+            seen.insert((q.0, None));
         }
-        for r in op.target_results.iter().chain(&op.control_results) {
-            seen.insert((r.0, Some(r.1)));
+        for ResultWire(q, r) in op.target_results.iter().chain(&op.control_results) {
+            seen.insert((*q, Some(r)));
         }
     }
     // TODO: actually test measurements in branches
@@ -1800,17 +1698,22 @@ fn expand_real_branch_block(operations: &Vec<Op>) -> Result<ConditionalBlock, Er
     // }
 
     // TODO: everything is a target. Don't know how else we would do this.
-    let target_qubits = seen.into_iter().map(|(q, _)| q).collect();
+    let target_qubits = seen.into_iter().map(|(q, _)| QubitWire(q)).collect();
     Ok(ConditionalBlock {
         operations: real_ops,
         targets: target_qubits,
     })
 }
 
-fn expr_from_operand(state: &ProgramMap, operand: &Operand) -> Result<Expr, Error> {
+fn expr_from_operand(
+    variables: &IndexMap<VariableId, Expr>,
+    operand: &Operand,
+) -> Result<Expr, Error> {
     match operand {
         Operand::Literal(literal) => match literal {
-            Literal::Result(r) => Ok(Expr::Bool(BoolExpr::Result(*r))),
+            Literal::Result(r) => Ok(Expr::Bool(BoolExpr::Result(
+                usize::try_from(*r).expect("result id should fit in usize"),
+            ))),
             Literal::Bool(b) => Ok(Expr::Bool(BoolExpr::LiteralBool(*b))),
             Literal::Integer(i) => Ok(Expr::Rich(RichExpr::Literal(i.to_string()))),
             Literal::Double(d) => Ok(Expr::Rich(RichExpr::Literal(d.to_string()))),
@@ -1818,15 +1721,11 @@ fn expr_from_operand(state: &ProgramMap, operand: &Operand) -> Result<Expr, Erro
                 "unsupported literal operand: {literal:?}"
             ))),
         },
-        Operand::Variable(variable) => state.expr_for_variable(variable.variable_id).cloned(),
+        Operand::Variable(variable) => expr_for_variable(variables, variable.variable_id).cloned(),
     }
 }
 
 struct ProgramMap {
-    /// qubit decl, result idx -> result id
-    qubits: Vec<(Qubit, Vec<u32>)>,
-    /// result id -> qubit id
-    results: IndexMap<usize, u32>,
     /// variable id -> result id
     variables: IndexMap<VariableId, Expr>,
     /// block id -> (operations, successor)
@@ -1842,10 +1741,10 @@ enum Expr {
 
 #[derive(Debug, Clone, PartialEq)]
 enum BoolExpr {
-    Result(u32),
-    NotResult(u32),
+    Result(usize),
+    NotResult(usize),
     TwoResultCondition {
-        results: (u32, u32),
+        results: (usize, usize),
         // 00, 01, 10, 11
         filter: (bool, bool, bool, bool),
     },
@@ -1901,7 +1800,7 @@ impl Expr {
         }
     }
 
-    fn linked_results(&self) -> Vec<u32> {
+    fn linked_results(&self) -> Vec<usize> {
         match self {
             Expr::Rich(rich_expr) => match rich_expr {
                 RichExpr::Literal(_) => vec![],
@@ -2010,134 +1909,76 @@ impl Display for BoolExpr {
     }
 }
 
-impl ProgramMap {
-    fn into_qubits(self) -> Vec<Qubit> {
-        self.qubits
-            .into_iter()
-            .map(|(q, results)| Qubit {
-                id: q.id,
-                num_results: results.len(),
-            })
-            .collect()
-    }
-
-    fn new(num_qubits: u32) -> Self {
-        Self {
-            qubits: (0..num_qubits)
-                .map(|id| {
-                    (
-                        Qubit {
-                            id: usize::try_from(id).expect("qubit id should fit in usize"),
-                            num_results: 0,
-                        },
-                        vec![],
-                    )
-                })
-                .collect::<Vec<_>>(),
-            variables: IndexMap::new(),
-            blocks: IndexMap::new(),
-            results: IndexMap::new(),
-        }
-    }
-
-    fn result_register(&mut self, result_id: u32) -> Register {
-        let qubit_id = self
-            .results
-            .get(usize::try_from(result_id).expect("result id should fit into usize"))
-            .copied()
-            .expect("result should be linked to a qubit");
-
-        let qubit_result_idx = self.link_result_to_qubit(qubit_id, result_id);
-
-        Register {
-            qubit: usize::try_from(qubit_id).expect("qubit id should fit in usize"),
-            result: Some(qubit_result_idx),
-        }
-    }
-
-    fn expr_for_variable(&self, variable_id: VariableId) -> Result<&Expr, Error> {
-        let expr = self.variables.get(variable_id);
-        eprintln!("debug: expr for variable {variable_id:?} is {expr:?}");
-        Ok(expr.unwrap_or_else(|| {
-            panic!("variable {variable_id:?} is not linked to a result or expression")
-        }))
-    }
-
-    fn link_result_to_qubit(&mut self, qubit_id: u32, result_id: u32) -> usize {
-        self.results.insert(
-            result_id
-                .try_into()
-                .expect("result id should fit into usize"),
-            qubit_id,
-        );
-        let result_ids_for_qubit =
-            &mut self.qubits[usize::try_from(qubit_id).expect("qubit id should fit in usize")].1;
-        let qubit_result_idx = result_ids_for_qubit
-            .iter_mut()
-            .enumerate()
-            .find(|(_, qubit_r)| **qubit_r == result_id)
-            .map(|(a, _)| a);
-
-        qubit_result_idx.unwrap_or_else(|| {
-            result_ids_for_qubit.push(result_id);
-            result_ids_for_qubit.len() - 1
-        })
-    }
-
-    fn store_expr_in_variable(&mut self, var: Variable, expr: Expr) -> Result<(), Error> {
-        let variable_id = var.variable_id;
-        if let Some(old_value) = self.variables.get(variable_id) {
-            if old_value.is_unresolved() {
-                // allow overwriting unresolved variables
-                eprintln!("note: variable {variable_id:?} was unresolved, now storing {expr:?}");
-            } else if old_value != &expr {
-                panic!(
-                    "variable {variable_id:?} already stored {old_value:?}, cannot store {expr:?}"
-                );
-            }
-        }
-        if let Expr::Bool(condition_expr) = &expr {
-            if let Ty::Boolean = var.ty {
-            } else {
-                return Err(Error::UnsupportedFeature(format!(
-                    "variable {variable_id:?} has type {var_ty:?} but is being assigned a condition expression: {condition_expr:?}",
-                    var_ty = var.ty,
-                )));
-            }
-        }
-
-        self.variables.insert(variable_id, expr);
-        Ok(())
-    }
-
-    fn store_variable_placeholder(&mut self, variable: Variable) {
-        if self.variables.get(variable.variable_id).is_none() {
-            self.variables
-                .insert(variable.variable_id, Expr::Unresolved(variable.variable_id));
-        }
+fn store_variable_placeholder(variables: &mut IndexMap<VariableId, Expr>, variable: Variable) {
+    if variables.get(variable.variable_id).is_none() {
+        variables.insert(variable.variable_id, Expr::Unresolved(variable.variable_id));
     }
 }
 
-fn map_callable_to_operations(
-    state: &mut ProgramMap,
+fn expr_for_variable(
+    variables: &IndexMap<VariableId, Expr>,
+    variable_id: VariableId,
+) -> Result<&Expr, Error> {
+    let expr = variables.get(variable_id);
+    Ok(expr.unwrap_or_else(|| {
+        panic!("variable {variable_id:?} is not linked to a result or expression")
+    }))
+}
+
+fn store_expr_in_variable(
+    variables: &mut IndexMap<VariableId, Expr>,
+    var: Variable,
+    expr: Expr,
+) -> Result<(), Error> {
+    let variable_id = var.variable_id;
+    if let Some(old_value) = variables.get(variable_id) {
+        if old_value.is_unresolved() {
+            // allow overwriting unresolved variables
+            debug!("note: variable {variable_id:?} was unresolved, now storing {expr:?}");
+        } else if old_value != &expr {
+            panic!("variable {variable_id:?} already stored {old_value:?}, cannot store {expr:?}");
+        }
+    }
+    if let Expr::Bool(condition_expr) = &expr {
+        if let Ty::Boolean = var.ty {
+        } else {
+            return Err(Error::UnsupportedFeature(format!(
+                "variable {variable_id:?} has type {var_ty:?} but is being assigned a condition expression: {condition_expr:?}",
+                var_ty = var.ty,
+            )));
+        }
+    }
+
+    variables.insert(variable_id, expr);
+    Ok(())
+}
+
+fn process_callable_variables(
+    variables: &mut IndexMap<VariableId, Expr>,
+    register_map: &mut FixedQubitRegisterMapBuilder,
     callable: &Callable,
     operands: &Vec<Operand>,
     var: Option<Variable>,
-    metadata: Option<&InstructionMetadata>,
-) -> Result<Vec<Op>, Error> {
-    Ok(match callable.call_type {
+) -> Result<(), Error> {
+    match callable.call_type {
         CallableType::Measurement => {
-            map_measurement_call_to_operations(state, callable, operands, metadata)?
+            let (qubit, result) = gather_measurement_operands_inner(operands)?;
+            register_map.link_result_to_qubit(qubit, result);
         }
-        CallableType::Reset => map_reset_call_into_operations(state, callable, operands, metadata)?,
         CallableType::Readout => match callable.name.as_str() {
-            "__quantum__qis__read_result__body" => {
+            "__quantum__rt__read_result" => {
                 for operand in operands {
                     match operand {
                         Operand::Literal(Literal::Result(r)) => {
                             let var =
                                 var.expect("read_result must have a variable to store the result");
-                            state.store_expr_in_variable(var, Expr::Bool(BoolExpr::Result(*r)))?;
+                            store_expr_in_variable(
+                                variables,
+                                var,
+                                Expr::Bool(BoolExpr::Result(
+                                    usize::try_from(*r).expect("result id should fit in usize"),
+                                )),
+                            )?;
                         }
                         operand => {
                             return Err(Error::UnsupportedFeature(format!(
@@ -2146,7 +1987,6 @@ fn map_callable_to_operations(
                         }
                     }
                 }
-                vec![]
             }
             name => {
                 return Err(Error::UnsupportedFeature(format!(
@@ -2154,255 +1994,234 @@ fn map_callable_to_operations(
                 )));
             }
         },
-        CallableType::OutputRecording => {
-            vec![]
-        }
         CallableType::Regular => {
-            let (gate, operand_types) = callable_spec(callable, operands)?;
             if let Some(var) = var {
                 let result_expr = Expr::Rich(RichExpr::FunctionOf(
                     operands
                         .iter()
-                        .map(|o| expr_from_operand(state, o))
+                        .map(|o| expr_from_operand(variables, o))
                         .collect::<Result<Vec<_>, _>>()?
                         .into_iter()
                         .flat_map(|e| e.flat_exprs())
                         .collect(),
                 ));
 
-                state.store_expr_in_variable(var, result_expr)?;
-            }
-
-            let (targets, controls, args) = gather_operands(state, &operand_types, operands)?;
-
-            if targets.is_empty() && controls.is_empty() {
-                // Skip operations without targets or controls.
-                // Alternative might be to include these anyway, across the entire state,
-                // or annotated in the circuit in some way.
-                vec![]
-            } else {
-                vec![Op {
-                    kind: OperationKind::Unitary {
-                        metadata: metadata.cloned(),
-                    },
-                    label: gate.to_string(),
-                    target_qubits: targets
-                        .iter()
-                        .filter_map(|r| {
-                            if r.result.is_some() {
-                                None
-                            } else {
-                                Some(r.qubit)
-                            }
-                        })
-                        .collect(),
-                    control_qubits: controls
-                        .iter()
-                        .filter_map(|r| {
-                            if r.result.is_some() {
-                                None
-                            } else {
-                                Some(r.qubit)
-                            }
-                        })
-                        .collect(),
-                    target_results: targets
-                        .iter()
-                        .filter_map(|reg| reg.result.map(|r| (reg.qubit, r)))
-                        .collect(),
-                    control_results: controls
-                        .iter()
-                        .filter_map(|reg| reg.result.map(|r| (reg.qubit, r)))
-                        .collect(),
-                    is_adjoint: false,
-                    args,
-                }]
+                store_expr_in_variable(variables, var, result_expr)?;
             }
         }
-    })
+        CallableType::Reset | CallableType::OutputRecording | CallableType::Initialize => {}
+    }
+
+    Ok(())
 }
 
-fn map_reset_call_into_operations(
+fn trace_call(
     state: &mut ProgramMap,
+    builder_ctx: &mut BuilderWithRegisterMap,
     callable: &Callable,
     operands: &[Operand],
     metadata: Option<&InstructionMetadata>,
-) -> Result<Vec<Op>, Error> {
-    Ok(match callable.name.as_str() {
-        "__quantum__qis__reset__body" => {
-            let operand_types = vec![OperandType::Target];
-            let (targets, _, _) = gather_operands(state, &operand_types, operands)?;
+) -> Result<(), Error> {
+    match callable.call_type {
+        CallableType::Measurement => trace_measurement(builder_ctx, callable, operands, metadata),
+        CallableType::Reset => trace_reset(state, builder_ctx, callable, operands, metadata),
+        CallableType::Regular => trace_gate(state, builder_ctx, callable, operands, metadata),
+        CallableType::Readout | CallableType::OutputRecording | CallableType::Initialize => Ok(()),
+    }
+}
 
-            vec![Op {
-                kind: OperationKind::Ket {
-                    metadata: metadata.cloned(),
-                },
-                label: "0".to_string(),
-                target_qubits: targets
-                    .iter()
-                    .filter_map(|r| {
-                        if r.result.is_some() {
-                            None
-                        } else {
-                            Some(r.qubit)
-                        }
-                    })
-                    .collect(),
-                control_qubits: vec![],
-                target_results: targets
-                    .iter()
-                    .filter_map(|reg| reg.result.map(|r| (reg.qubit, r)))
-                    .collect(),
-                control_results: vec![],
-                is_adjoint: false,
-                args: vec![],
-            }]
+fn trace_gate(
+    state: &mut ProgramMap,
+    builder_ctx: &mut BuilderWithRegisterMap,
+    callable: &Callable,
+    operands: &[Operand],
+    metadata: Option<&InstructionMetadata>,
+) -> Result<(), Error> {
+    let GateSpec {
+        name,
+        operand_types,
+        is_adjoint,
+    } = callable_spec(callable, operands)?;
+
+    let (target_qubits, control_qubits, control_results, args) =
+        match_operands(state, &operand_types, operands)?;
+
+    if target_qubits.is_empty() && control_qubits.is_empty() && control_results.is_empty() {
+        // Skip operations without targets or controls.
+        // Alternative might be to include these anyway, across the entire state,
+        // or annotated in the circuit in some way.
+    } else {
+        builder_ctx.builder.gate(
+            builder_ctx.register_map,
+            name,
+            is_adjoint,
+            &GateInputs {
+                targets: &target_qubits,
+                controls: &control_qubits,
+            },
+            &control_results,
+            args,
+            metadata.and_then(|md| md.dbg_location),
+        );
+    }
+    Ok(())
+}
+
+fn trace_reset(
+    state: &mut ProgramMap,
+    builder_ctx: &mut BuilderWithRegisterMap,
+    callable: &Callable,
+    operands: &[Operand],
+    metadata: Option<&InstructionMetadata>,
+) -> Result<(), Error> {
+    match callable.name.as_str() {
+        "__quantum__qis__reset__body" => {
+            let (target_qubits, control_qubits, control_results, _) =
+                match_operands(state, &[OperandType::Target], operands)?;
+            assert!(
+                control_qubits.is_empty() && control_results.is_empty(),
+                "reset cannot have controls"
+            );
+            assert!(
+                control_results.is_empty(),
+                "reset cannot have control results"
+            );
+            assert!(
+                target_qubits.len() == 1,
+                "reset must have exactly one target"
+            );
+
+            let qubit = target_qubits[0];
+            builder_ctx.builder.reset(
+                builder_ctx.register_map,
+                qubit,
+                metadata.and_then(|md| md.dbg_location),
+            );
         }
         name => {
             return Err(Error::UnsupportedFeature(format!(
                 "unknown reset callable: {name}"
             )));
         }
-    })
+    }
+    Ok(())
 }
 
-fn map_measurement_call_to_operations(
-    state: &mut ProgramMap,
+fn trace_measurement(
+    builder_ctx: &mut BuilderWithRegisterMap,
     callable: &Callable,
-    operands: &Vec<Operand>,
+    operands: &[Operand],
     metadata: Option<&InstructionMetadata>,
-) -> Result<Vec<Op>, Error> {
-    let gate = match callable.name.as_str() {
-        "__quantum__qis__m__body" => "M",
-        "__quantum__qis__mresetz__body" => "MResetZ",
-        name => name,
-    };
-    let (this_qubits, this_results) = gather_measurement_operands(state, operands)?;
-    Ok(if gate == "MResetZ" {
-        vec![
-            Op {
-                kind: OperationKind::Measurement {
-                    metadata: metadata.cloned(),
-                },
-                label: gate.to_string(),
-                target_qubits: vec![],
-                control_qubits: this_qubits
-                    .iter()
-                    .filter_map(|r| {
-                        if r.result.is_some() {
-                            None
-                        } else {
-                            Some(r.qubit)
-                        }
-                    })
-                    .collect(),
-                target_results: this_results
-                    .iter()
-                    .map(|r| {
-                        (
-                            r.qubit,
-                            r.result.expect("result register must have result idx"),
-                        )
-                    })
-                    .collect(),
-                control_results: vec![],
-                is_adjoint: false,
-                args: vec![],
-            },
-            Op {
-                kind: OperationKind::Ket {
-                    metadata: metadata.cloned(),
-                },
-                label: "0".to_string(),
-                target_qubits: this_qubits
-                    .iter()
-                    .filter_map(|r| {
-                        if r.result.is_some() {
-                            None
-                        } else {
-                            Some(r.qubit)
-                        }
-                    })
-                    .collect(),
-                control_qubits: vec![],
-                target_results: vec![],
-                control_results: vec![],
-                is_adjoint: false,
-                args: vec![],
-            },
-        ]
-    } else {
-        vec![Op {
-            kind: OperationKind::Measurement {
-                metadata: metadata.cloned(),
-            },
-            label: gate.to_string(),
-            target_qubits: vec![],
-            control_qubits: this_qubits
-                .iter()
-                .filter_map(|r| {
-                    if r.result.is_some() {
-                        None
-                    } else {
-                        Some(r.qubit)
-                    }
-                })
-                .collect(),
-            target_results: this_results
-                .iter()
-                .map(|r| {
-                    (
-                        r.qubit,
-                        r.result.expect("result register must have result idx"),
-                    )
-                })
-                .collect(),
-            control_results: vec![],
-            is_adjoint: false,
-            args: vec![],
-        }]
-    })
+) -> Result<(), Error> {
+    let (qubit, result) = gather_measurement_operands_inner(operands)?;
+
+    match callable.name.as_str() {
+        "__quantum__qis__mresetz__body" => {
+            builder_ctx.builder.mresetz(
+                builder_ctx.register_map,
+                qubit,
+                result,
+                metadata.and_then(|md| md.dbg_location),
+            );
+        }
+        "__quantum__qis__m__body" => {
+            builder_ctx.builder.m(
+                builder_ctx.register_map,
+                qubit,
+                result,
+                metadata.and_then(|md| md.dbg_location),
+            );
+        }
+        name => panic!("unknown measurement callable: {name}"),
+    }
+
+    Ok(())
 }
 
-fn callable_spec<'a>(
-    callable: &'a Callable,
-    operands: &[Operand],
-) -> Result<(&'a str, Vec<OperandType>), Error> {
-    Ok(match callable.name.as_str() {
+struct GateSpec<'a> {
+    name: &'a str,
+    operand_types: Vec<OperandType>,
+    is_adjoint: bool,
+}
+
+impl<'a> GateSpec<'a> {
+    fn single_qubit_gate(name: &'a str) -> Self {
+        Self {
+            name,
+            operand_types: vec![OperandType::Target],
+            is_adjoint: false,
+        }
+    }
+
+    fn single_qubit_gate_adjoint(name: &'a str) -> Self {
+        Self {
+            name,
+            operand_types: vec![OperandType::Target],
+            is_adjoint: true,
+        }
+    }
+
+    fn rotation_gate(name: &'a str) -> Self {
+        Self {
+            name,
+            operand_types: vec![OperandType::Arg, OperandType::Target],
+            is_adjoint: false,
+        }
+    }
+
+    fn controlled_gate(name: &'a str, num_controls: usize) -> Self {
+        let mut operand_types = vec![];
+        for _ in 0..num_controls {
+            operand_types.push(OperandType::Control);
+        }
+        operand_types.push(OperandType::Target);
+        Self {
+            name,
+            operand_types,
+            is_adjoint: false,
+        }
+    }
+
+    fn two_qubit_gate(name: &'a str) -> Self {
+        Self {
+            name,
+            operand_types: vec![OperandType::Target, OperandType::Target],
+            is_adjoint: false,
+        }
+    }
+
+    fn two_qubit_rotation_gate(name: &'a str) -> Self {
+        Self {
+            name,
+            operand_types: vec![OperandType::Arg, OperandType::Target, OperandType::Target],
+            is_adjoint: false,
+        }
+    }
+}
+
+fn callable_spec<'a>(callable: &'a Callable, operands: &[Operand]) -> Result<GateSpec<'a>, Error> {
+    let gate_spec = match callable.name.as_str() {
         // single-qubit gates
-        "__quantum__qis__x__body" => ("X", vec![OperandType::Target]),
-        "__quantum__qis__y__body" => ("Y", vec![OperandType::Target]),
-        "__quantum__qis__z__body" => ("Z", vec![OperandType::Target]),
-        "__quantum__qis__s__body" => ("S", vec![OperandType::Target]),
-        "__quantum__qis__s__adj" => ("S'", vec![OperandType::Target]),
-        "__quantum__qis__h__body" => ("H", vec![OperandType::Target]),
-        "__quantum__qis__rx__body" => ("Rx", vec![OperandType::Arg, OperandType::Target]),
-        "__quantum__qis__ry__body" => ("Ry", vec![OperandType::Arg, OperandType::Target]),
-        "__quantum__qis__rz__body" => ("Rz", vec![OperandType::Arg, OperandType::Target]),
+        "__quantum__qis__x__body" => GateSpec::single_qubit_gate("X"),
+        "__quantum__qis__y__body" => GateSpec::single_qubit_gate("Y"),
+        "__quantum__qis__z__body" => GateSpec::single_qubit_gate("Z"),
+        "__quantum__qis__s__body" => GateSpec::single_qubit_gate("S"),
+        "__quantum__qis__s__adj" => GateSpec::single_qubit_gate_adjoint("S"),
+        "__quantum__qis__t__body" => GateSpec::single_qubit_gate("T"),
+        "__quantum__qis__t__adj" => GateSpec::single_qubit_gate_adjoint("T"),
+        "__quantum__qis__h__body" => GateSpec::single_qubit_gate("H"),
+        "__quantum__qis__rx__body" => GateSpec::rotation_gate("Rx"),
+        "__quantum__qis__ry__body" => GateSpec::rotation_gate("Ry"),
+        "__quantum__qis__rz__body" => GateSpec::rotation_gate("Rz"),
         // multi-qubit gates
-        "__quantum__qis__cx__body" => ("X", vec![OperandType::Control, OperandType::Target]),
-        "__quantum__qis__cy__body" => ("Y", vec![OperandType::Control, OperandType::Target]),
-        "__quantum__qis__cz__body" => ("Z", vec![OperandType::Control, OperandType::Target]),
-        "__quantum__qis__ccx__body" => (
-            "X",
-            vec![
-                OperandType::Control,
-                OperandType::Control,
-                OperandType::Target,
-            ],
-        ),
-        "__quantum__qis__rxx__body" => (
-            "Rxx",
-            vec![OperandType::Arg, OperandType::Target, OperandType::Target],
-        ),
-        "__quantum__qis__ryy__body" => (
-            "Ryy",
-            vec![OperandType::Arg, OperandType::Target, OperandType::Target],
-        ),
-        "__quantum__qis__rzz__body" => (
-            "Rzz",
-            vec![OperandType::Arg, OperandType::Target, OperandType::Target],
-        ),
+        "__quantum__qis__cx__body" => GateSpec::controlled_gate("X", 1),
+        "__quantum__qis__cy__body" => GateSpec::controlled_gate("Y", 1),
+        "__quantum__qis__cz__body" => GateSpec::controlled_gate("Z", 1),
+        "__quantum__qis__ccx__body" => GateSpec::controlled_gate("X", 2),
+        "__quantum__qis__rxx__body" => GateSpec::two_qubit_rotation_gate("Rxx"),
+        "__quantum__qis__ryy__body" => GateSpec::two_qubit_rotation_gate("Ryy"),
+        "__quantum__qis__rzz__body" => GateSpec::two_qubit_rotation_gate("Rzz"),
+        "__quantum__qis__swap__body" => GateSpec::two_qubit_gate("SWAP"),
         custom => {
             let mut operand_types = vec![];
             for o in operands {
@@ -2427,46 +2246,61 @@ fn callable_spec<'a>(
                 }
             }
 
-            (custom, operand_types)
+            GateSpec {
+                name: custom,
+                operand_types,
+                is_adjoint: false,
+            }
         }
-    })
+    };
+    Ok(gate_spec)
 }
 
-fn gather_measurement_operands(
-    state: &mut ProgramMap,
-    operands: &Vec<Operand>,
-) -> Result<(Vec<Register>, Vec<Register>), Error> {
-    let mut qubit_registers = vec![];
-    let mut result_registers = vec![];
-    let mut qubit_id = None;
-    for operand in operands {
-        match operand {
-            Operand::Literal(Literal::Qubit(q)) => {
-                let old = qubit_id.replace(q);
-                if old.is_some() {
-                    return Err(Error::UnsupportedFeature(format!(
-                        "measurement should only have one qubit operand, found {old:?} and {q}"
-                    )));
-                }
-                qubit_registers.push(Register {
-                    qubit: usize::try_from(*q).expect("qubit id should fit in usize"),
-                    result: None,
-                });
-            }
-            Operand::Literal(Literal::Result(r)) => {
-                let q = *qubit_id.expect("measurement should have a qubit operand");
-                state.link_result_to_qubit(q, *r);
-                let result_register = state.result_register(*r);
-                result_registers.push(result_register);
-            }
-            o => {
-                return Err(Error::UnsupportedFeature(format!(
-                    "unsupported operand for measurement: {o:?}"
-                )));
-            }
-        }
+fn gather_measurement_operands_inner(operands: &[Operand]) -> Result<(usize, usize), Error> {
+    let mut qubits = operands.iter().filter_map(|o| match o {
+        Operand::Literal(Literal::Qubit(q)) => Some(q),
+        _ => None,
+    });
+    let qubit = qubits.next();
+    let Some(qubit) = qubit else {
+        return Err(Error::UnsupportedFeature(
+            "measurement must have a qubit operand".to_owned(),
+        ));
+    };
+    if qubits.next().is_some() {
+        return Err(Error::UnsupportedFeature(
+            "measurement should only have one qubit operand".to_owned(),
+        ));
     }
-    Ok((qubit_registers, result_registers))
+
+    let mut results = operands.iter().filter_map(|o| match o {
+        Operand::Literal(Literal::Result(r)) => {
+            Some(usize::try_from(*r).expect("result id should fit in usize"))
+        }
+        _ => None,
+    });
+    let result = results.next();
+    let Some(result) = result else {
+        return Err(Error::UnsupportedFeature(
+            "measurement must have a result operand".to_owned(),
+        ));
+    };
+    if results.next().is_some() {
+        return Err(Error::UnsupportedFeature(
+            "measurement should only have one result operand".to_owned(),
+        ));
+    }
+
+    if operands.len() != 2 {
+        return Err(Error::UnsupportedFeature(
+            "measurement should only have a qubit and result operand".to_owned(),
+        ));
+    }
+
+    Ok((
+        usize::try_from(*qubit).expect("qubit id should fit in usize"),
+        result,
+    ))
 }
 
 enum OperandType {
@@ -2475,15 +2309,16 @@ enum OperandType {
     Arg,
 }
 
-type TargetsControlsArgs = (Vec<Register>, Vec<Register>, Vec<String>);
+type Operands = (Vec<usize>, Vec<usize>, Vec<usize>, Vec<String>);
 
-fn gather_operands(
+fn match_operands(
     state: &mut ProgramMap,
     operand_types: &[OperandType],
     operands: &[Operand],
-) -> Result<TargetsControlsArgs, Error> {
-    let mut targets = vec![];
-    let mut controls = vec![];
+) -> Result<Operands, Error> {
+    let mut target_qubits = vec![];
+    let mut control_results = vec![];
+    let mut control_qubits = vec![];
     let mut args = vec![];
     if operand_types.len() != operands.len() {
         return Err(Error::UnsupportedFeature(
@@ -2494,19 +2329,17 @@ fn gather_operands(
         match operand {
             Operand::Literal(literal) => match literal {
                 Literal::Qubit(q) => {
-                    let operands_array = match operand_type {
-                        OperandType::Control => &mut controls,
-                        OperandType::Target => &mut targets,
+                    let qubit_operands_array = match operand_type {
+                        OperandType::Control => &mut control_qubits,
+                        OperandType::Target => &mut target_qubits,
                         OperandType::Arg => {
                             return Err(Error::UnsupportedFeature(
                                 "qubit operand cannot be an argument".to_owned(),
                             ));
                         }
                     };
-                    operands_array.push(Register {
-                        qubit: usize::try_from(*q).expect("qubit id should fit in usize"),
-                        result: None,
-                    });
+                    qubit_operands_array
+                        .push(usize::try_from(*q).expect("qubit id should fit in usize"));
                 }
                 Literal::Result(_r) => {
                     return Err(Error::UnsupportedFeature(
@@ -2541,16 +2374,12 @@ fn gather_operands(
             },
             o @ Operand::Variable(var) => {
                 if let &OperandType::Arg = operand_type {
-                    let expr = state.expr_for_variable(var.variable_id)?.clone();
+                    let expr = expr_for_variable(&state.variables, var.variable_id)?.clone();
                     // Add classical controls if this expr is dependent on a result
-                    let results = expr
-                        .linked_results()
-                        .into_iter()
-                        .map(|r| state.result_register(r))
-                        .collect::<Vec<_>>();
+                    let results = expr.linked_results();
                     for r in results {
-                        if !controls.contains(&r) {
-                            controls.push(r);
+                        if !control_results.contains(&r) {
+                            control_results.push(r);
                         }
                     }
                     args.push(expr.to_string());
@@ -2562,5 +2391,147 @@ fn gather_operands(
             }
         }
     }
-    Ok((targets, controls, args))
+    Ok((target_qubits, control_qubits, control_results, args))
+}
+
+// TODO: __quantum__rt__read_loss
+
+// TODO: merge with OperationListBuilder
+struct OpListBuilder {
+    max_ops: usize,
+    max_ops_exceeded: bool,
+    operations: Vec<Op>,
+}
+
+impl OpListBuilder {
+    pub fn new(max_operations: usize) -> Self {
+        Self {
+            max_ops: max_operations,
+            max_ops_exceeded: false,
+            operations: vec![],
+        }
+    }
+
+    fn push_op(&mut self, op: Op) {
+        if self.max_ops_exceeded || self.operations.len() >= self.max_ops {
+            // Stop adding gates and leave the circuit as is
+            self.max_ops_exceeded = true;
+            return;
+        }
+
+        self.operations.push(op);
+    }
+
+    pub fn into_operations(self) -> Vec<Op> {
+        self.operations
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn gate(
+        &mut self,
+        wire_map: &WireMap,
+        name: &str,
+        is_adjoint: bool,
+        inputs: &GateInputs,
+        control_results: &[usize],
+        args: Vec<String>,
+        called_at: Option<DbgLocationId>,
+    ) {
+        self.push_op(Op {
+            kind: OperationKind::Unitary,
+            args,
+            label: name.to_string(),
+            control_qubits: inputs
+                .controls
+                .iter()
+                .map(|q| wire_map.qubit_wire(*q))
+                .collect(),
+            control_results: control_results
+                .iter()
+                .map(|r| wire_map.result_wire(*r))
+                .collect(),
+            target_qubits: inputs
+                .targets
+                .iter()
+                .map(|q| wire_map.qubit_wire(*q))
+                .collect(),
+            target_results: vec![],
+            is_adjoint,
+            location: called_at,
+        });
+    }
+
+    fn m(
+        &mut self,
+        wire_map: &WireMap,
+        qubit: usize,
+        result: usize,
+        called_at: Option<DbgLocationId>,
+    ) {
+        self.push_op(Op {
+            kind: OperationKind::Measurement,
+            label: "M".to_string(),
+            args: vec![],
+            control_qubits: vec![wire_map.qubit_wire(qubit)],
+            is_adjoint: false,
+            target_qubits: vec![],
+            target_results: vec![wire_map.result_wire(result)],
+            control_results: vec![],
+            location: called_at,
+        });
+    }
+
+    fn mresetz(
+        &mut self,
+        wire_map: &WireMap,
+        qubit: usize,
+        result: usize,
+        called_at: Option<DbgLocationId>,
+    ) {
+        let qubits: Vec<QubitWire> = vec![wire_map.qubit_wire(qubit)];
+        let result_wire = vec![wire_map.result_wire(result)];
+
+        self.push_op(Op {
+            kind: OperationKind::Measurement,
+            label: "MResetZ".to_string(),
+            args: vec![],
+            control_qubits: qubits.clone(),
+            is_adjoint: false,
+            target_qubits: vec![],
+            target_results: result_wire,
+            control_results: vec![],
+            location: called_at,
+        });
+
+        self.push_op(Op {
+            kind: OperationKind::Ket,
+            label: "0".to_string(),
+            args: vec![],
+            control_qubits: vec![],
+            is_adjoint: false,
+            target_qubits: qubits,
+            target_results: vec![],
+            control_results: vec![],
+            location: called_at,
+        });
+    }
+
+    fn reset(&mut self, wire_map: &WireMap, qubit: usize, called_at: Option<DbgLocationId>) {
+        self.push_op(Op {
+            kind: OperationKind::Ket,
+            label: "0".to_string(),
+            target_qubits: vec![wire_map.qubit_wire(qubit)],
+            control_qubits: vec![],
+            control_results: vec![],
+            args: vec![],
+            target_results: vec![],
+            is_adjoint: false,
+            location: called_at,
+        });
+    }
+}
+
+pub(crate) struct GateInputs<'a> {
+    targets: &'a [usize],
+    controls: &'a [usize],
 }

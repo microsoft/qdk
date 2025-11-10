@@ -25,36 +25,36 @@ fn result_ids_are_correct_for_measuring_and_resetting_one_qubit() {
         &program,
         op_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Initialize
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_callable(
         &program,
         result_record_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__rt__result_record_output
-            call_type: OutputRecording
-            input_type:
-                [0]: Result
-                [1]: Pointer
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[66-153] callable=Main
-                Call id(2), args( Result(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Call id(3), args( Result(0), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
     assert_eq!(program.num_qubits, 1);
     assert_eq!(program.num_results, 1);
@@ -80,6 +80,18 @@ fn result_ids_are_correct_for_measuring_one_qubit() {
         op_callable_id,
         &expect![[r#"
             Callable:
+                name: __quantum__rt__initialize
+                call_type: Initialize
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    assert_callable(
+        &program,
+        result_record_id,
+        &expect![[r#"
+            Callable:
                 name: __quantum__qis__m__body
                 call_type: Measurement
                 input_type:
@@ -88,27 +100,15 @@ fn result_ids_are_correct_for_measuring_one_qubit() {
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
-    assert_callable(
-        &program,
-        result_record_id,
-        &expect![[r#"
-        Callable:
-            name: __quantum__rt__result_record_output
-            call_type: OutputRecording
-            input_type:
-                [0]: Result
-                [1]: Pointer
-            output_type: <VOID>
-            body: <NONE>"#]],
-    );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[66-147] callable=Main
-                Call id(2), args( Result(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Call id(3), args( Result(0), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
     assert_eq!(program.num_qubits, 1);
     assert_eq!(program.num_results, 1);
@@ -137,6 +137,18 @@ fn result_ids_are_correct_for_measuring_one_qubit_multiple_times() {
         op_callable_id,
         &expect![[r#"
             Callable:
+                name: __quantum__rt__initialize
+                call_type: Initialize
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    assert_callable(
+        &program,
+        tuple_record_id,
+        &expect![[r#"
+            Callable:
                 name: __quantum__qis__m__body
                 call_type: Measurement
                 input_type:
@@ -147,43 +159,31 @@ fn result_ids_are_correct_for_measuring_one_qubit_multiple_times() {
     );
     assert_callable(
         &program,
-        tuple_record_id,
-        &expect![[r#"
-        Callable:
-            name: __quantum__rt__tuple_record_output
-            call_type: OutputRecording
-            input_type:
-                [0]: Integer
-                [1]: Pointer
-            output_type: <VOID>
-            body: <NONE>"#]],
-    );
-    assert_callable(
-        &program,
         result_record_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__rt__result_record_output
-            call_type: OutputRecording
-            input_type:
-                [0]: Result
-                [1]: Pointer
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__tuple_record_output
+                call_type: OutputRecording
+                input_type:
+                    [0]: Integer
+                    [1]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[84-267] callable=Main
-                Call id(1), args( Qubit(0), Result(1), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[84-267] callable=Main
-                Call id(1), args( Qubit(0), Result(2), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[84-267] callable=Main
-                Call id(2), args( Integer(3), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(1), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(2), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=3
+                Call id(2), args( Qubit(0), Result(2), ) !dbg dbg_location=4
+                Call id(3), args( Integer(3), EmptyTag, ) !dbg dbg_location=0
+                Call id(4), args( Result(0), Tag(0, 5), ) !dbg dbg_location=0
+                Call id(4), args( Result(1), Tag(1, 5), ) !dbg dbg_location=0
+                Call id(4), args( Result(2), Tag(2, 5), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -210,6 +210,18 @@ fn result_ids_are_correct_for_measuring_one_qubit_multiple_times_into_array() {
         op_callable_id,
         &expect![[r#"
             Callable:
+                name: __quantum__rt__initialize
+                call_type: Initialize
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    assert_callable(
+        &program,
+        array_record_id,
+        &expect![[r#"
+            Callable:
                 name: __quantum__qis__m__body
                 call_type: Measurement
                 input_type:
@@ -220,43 +232,31 @@ fn result_ids_are_correct_for_measuring_one_qubit_multiple_times_into_array() {
     );
     assert_callable(
         &program,
-        array_record_id,
-        &expect![[r#"
-        Callable:
-            name: __quantum__rt__array_record_output
-            call_type: OutputRecording
-            input_type:
-                [0]: Integer
-                [1]: Pointer
-            output_type: <VOID>
-            body: <NONE>"#]],
-    );
-    assert_callable(
-        &program,
         result_record_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__rt__result_record_output
-            call_type: OutputRecording
-            input_type:
-                [0]: Result
-                [1]: Pointer
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__array_record_output
+                call_type: OutputRecording
+                input_type:
+                    [0]: Integer
+                    [1]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[68-251] callable=Main
-                Call id(1), args( Qubit(0), Result(1), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[68-251] callable=Main
-                Call id(1), args( Qubit(0), Result(2), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[68-251] callable=Main
-                Call id(2), args( Integer(3), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(1), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(2), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=3
+                Call id(2), args( Qubit(0), Result(2), ) !dbg dbg_location=4
+                Call id(3), args( Integer(3), EmptyTag, ) !dbg dbg_location=0
+                Call id(4), args( Result(0), Tag(0, 5), ) !dbg dbg_location=0
+                Call id(4), args( Result(1), Tag(1, 5), ) !dbg dbg_location=0
+                Call id(4), args( Result(2), Tag(2, 5), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
     assert_eq!(program.num_qubits, 1);
     assert_eq!(program.num_results, 3);
@@ -285,6 +285,18 @@ fn result_ids_are_correct_for_measuring_multiple_qubits() {
         op_callable_id,
         &expect![[r#"
             Callable:
+                name: __quantum__rt__initialize
+                call_type: Initialize
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    assert_callable(
+        &program,
+        tuple_record_id,
+        &expect![[r#"
+            Callable:
                 name: __quantum__qis__m__body
                 call_type: Measurement
                 input_type:
@@ -295,43 +307,31 @@ fn result_ids_are_correct_for_measuring_multiple_qubits() {
     );
     assert_callable(
         &program,
-        tuple_record_id,
-        &expect![[r#"
-        Callable:
-            name: __quantum__rt__tuple_record_output
-            call_type: OutputRecording
-            input_type:
-                [0]: Integer
-                [1]: Pointer
-            output_type: <VOID>
-            body: <NONE>"#]],
-    );
-    assert_callable(
-        &program,
         result_record_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__rt__result_record_output
-            call_type: OutputRecording
-            input_type:
-                [0]: Result
-                [1]: Pointer
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__tuple_record_output
+                call_type: OutputRecording
+                input_type:
+                    [0]: Integer
+                    [1]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[84-301] callable=Main
-                Call id(1), args( Qubit(1), Result(1), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[84-301] callable=Main
-                Call id(1), args( Qubit(2), Result(2), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[84-301] callable=Main
-                Call id(2), args( Integer(3), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(1), Pointer, ) !dbg package_id=2 span=[50-54]
-                Call id(3), args( Result(2), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=4
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=5
+                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=6
+                Call id(3), args( Integer(3), EmptyTag, ) !dbg dbg_location=0
+                Call id(4), args( Result(0), Tag(0, 5), ) !dbg dbg_location=0
+                Call id(4), args( Result(1), Tag(1, 5), ) !dbg dbg_location=0
+                Call id(4), args( Result(2), Tag(2, 5), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
     assert_eq!(program.num_qubits, 3);
     assert_eq!(program.num_results, 3);

@@ -14,7 +14,7 @@ fn check_lowerer_error_spans_are_correct() {
         &expect![[r#"
               x Not Found: Could not resolve include file: missing_file
                 ,-[Test.qasm:21:1]
-             20 | // lowerer, so that we can contruct the error with the right span.
+             20 | // lowerer, so that we can construct the error with the right span.
              21 | include "missing_file";
                 : ^^^^^^^^^^^^^^^^^^^^^^^
              22 | 

@@ -1,30 +1,29 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::circuit::GenerationMethod;
-
 use super::*;
 use expect_test::expect;
 
 #[test]
 fn exceed_max_operations() {
-    let mut builder = Builder::new(Config {
-        max_operations: 2,
-        loop_detection: false,
-        generation_method: GenerationMethod::ClassicalEval,
-        group_scopes: false,
-        collapse_qubit_registers: false,
-    });
+    let mut builder = CircuitTracer::new(
+        TracerConfig {
+            max_operations: 2,
+            source_locations: false,
+            loop_detection: false,
+            group_scopes: false,
+            collapse_qubit_registers: false,
+        },
+        &[],
+    );
 
-    let q = builder.qubit_allocate();
+    builder.qubit_allocate(&[], 0);
 
-    builder.x(q);
-    builder.x(q);
-    builder.x(q);
+    builder.gate(&[], "X", false, &[0], &[], None);
+    builder.gate(&[], "X", false, &[0], &[], None);
+    builder.gate(&[], "X", false, &[0], &[], None);
 
-    builder.qubit_release(q);
-
-    let circuit = builder.finish();
+    let circuit = builder.finish(None, None);
 
     // The current behavior is to silently truncate the circuit
     // if it exceeds the maximum allowed number of operations.
@@ -36,23 +35,24 @@ fn exceed_max_operations() {
 
 #[test]
 fn exceed_max_operations_deferred_measurements() {
-    let mut builder = Builder::new(Config {
-        max_operations: 2,
-        loop_detection: false,
-        generation_method: GenerationMethod::ClassicalEval,
-        group_scopes: false,
-        collapse_qubit_registers: false,
-    });
+    let mut builder = CircuitTracer::new(
+        TracerConfig {
+            max_operations: 2,
+            source_locations: false,
+            loop_detection: false,
+            group_scopes: false,
+            collapse_qubit_registers: false,
+        },
+        &[],
+    );
 
-    let q = builder.qubit_allocate();
+    builder.qubit_allocate(&[], 0);
 
-    builder.x(q);
-    builder.m(q);
-    builder.x(q);
+    builder.gate(&[], "X", false, &[0], &[], None);
+    builder.measure(&[], "M", 0, &(0.into()));
+    builder.gate(&[], "X", false, &[0], &[], None);
 
-    builder.qubit_release(q);
-
-    let circuit = builder.finish();
+    let circuit = builder.finish(None, None);
 
     // The current behavior is to silently truncate the circuit
     // if it exceeds the maximum allowed number of operations.

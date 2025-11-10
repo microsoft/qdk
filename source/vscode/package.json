@@ -99,13 +99,14 @@
         "Q#.circuits.config": {
           "markdownDescription": "Circuit diagram options",
           "type": "object",
-          "additionalProperties": true,
+          "additionalProperties": false,
           "default": {
             "maxOperations": 10001,
             "loopDetection": false,
             "groupScopes": true,
             "generationMethod": "static",
-            "collapseQubitRegisters": false
+            "collapseQubitRegisters": false,
+            "sourceLocations": true
           },
           "properties": {
             "maxOperations": {
@@ -138,6 +139,11 @@
               "type": "boolean",
               "default": false,
               "description": "Whether to collapse qubit registers into single lines in the circuit diagram."
+            },
+            "sourceLocations": {
+              "type": "boolean",
+              "default": true,
+              "description": "Show the source code locations of operations and qubit declarations in the circuit diagram."
             }
           }
         },
@@ -251,6 +257,10 @@
           "when": "qsharp-vscode.treeItemSupportsDownload"
         },
         {
+          "command": "qsharp-vscode.cancelJob",
+          "when": "qsharp-vscode.treeItemIsCancelable"
+        },
+        {
           "command": "qsharp-vscode.getQir",
           "when": "resourceLangId == qsharp || resourceLangId == openqasm"
         },
@@ -318,6 +328,11 @@
           "when": "view == quantum-workspaces && viewItem == qir-target"
         },
         {
+          "command": "qsharp-vscode.cancelJob",
+          "group": "inline",
+          "when": "view == quantum-workspaces && viewItem == job-cancelable"
+        },
+        {
           "command": "qsharp-vscode.downloadResults",
           "group": "inline",
           "when": "view == quantum-workspaces && viewItem == result-download"
@@ -364,8 +379,8 @@
     ],
     "commands": [
       {
-        "command": "qsharp-vscode.gotoLocation",
-        "title": "Go to source location",
+        "command": "qsharp-vscode.gotoLocations",
+        "title": "Go to source locations",
         "category": "QDK"
       },
       {
@@ -387,10 +402,8 @@
       },
       {
         "command": "qsharp-vscode.runProgram",
-        "title": "Run",
-        "category": "Debug",
-        "enablement": "!inDebugMode",
-        "icon": "$(play)"
+        "title": "Run program",
+        "category": "QDK"
       },
       {
         "command": "qsharp-vscode.runEditorContentsWithCircuit",
@@ -473,6 +486,12 @@
         "category": "QDK",
         "title": "Download Azure Quantum job results as text",
         "icon": "$(output)"
+      },
+      {
+        "command": "qsharp-vscode.cancelJob",
+        "category": "QDK",
+        "title": "Cancel Azure Quantum job",
+        "icon": "$(stop-circle)"
       },
       {
         "command": "qsharp-vscode.createNotebook",

@@ -74,10 +74,10 @@ pub fn compile_openqasm(unit: QasmCompileUnit, package_type: PackageType) -> Com
 
     // We allow the best effort compilation, but for errors we only
     // want to provide OpenQASM OR Q# errors. Otherwise we get confusing
-    // error reporting and duplicate errors (like undeclared idenfifier and
+    // error reporting and duplicate errors (like undeclared identifier and
     // type errors)
     let surfaced_errors = if openqasm_errors.is_empty() {
-        // we have no OpenQASM errors, surface the Q# compliation errors
+        // we have no OpenQASM errors, surface the Q# compilation errors
         compile_errors
     } else {
         // We have OpenQASM errors, convert them to the same type as as the Q#

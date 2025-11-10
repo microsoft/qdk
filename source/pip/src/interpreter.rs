@@ -70,6 +70,8 @@ fn verify_classes_are_sendable() {
     is_send::<Pauli>();
     is_send::<Output>();
     is_send::<StateDumpData>();
+    is_send::<CircuitConfig>();
+    is_send::<CircuitGenerationMethod>();
     is_send::<Circuit>();
     is_send::<UdtValue>();
     is_send::<UdtFields>();
@@ -90,6 +92,8 @@ fn _native<'a>(py: Python<'a>, m: &Bound<'a, PyModule>) -> PyResult<()> {
     m.add_class::<Pauli>()?;
     m.add_class::<Output>()?;
     m.add_class::<StateDumpData>()?;
+    m.add_class::<CircuitConfig>()?;
+    m.add_class::<CircuitGenerationMethod>()?;
     m.add_class::<Circuit>()?;
     m.add_class::<GlobalCallable>()?;
     m.add_class::<UdtValue>()?;
@@ -341,6 +345,7 @@ pub(crate) struct Interpreter {
     pub(crate) make_callable: Option<PyObject>,
     /// The Python function to call to create a class representing a qsharp struct.
     pub(crate) make_class: Option<PyObject>,
+    trace_circuit: bool,
 }
 
 thread_local! { static PACKAGE_CACHE: Rc<RefCell<PackageCache>> = Rc::default(); }
@@ -350,7 +355,7 @@ thread_local! { static PACKAGE_CACHE: Rc<RefCell<PackageCache>> = Rc::default();
 impl Interpreter {
     #[allow(clippy::too_many_arguments)]
     #[allow(clippy::needless_pass_by_value)]
-    #[pyo3(signature = (target_profile, language_features=None, project_root=None, read_file=None, list_directory=None, resolve_path=None, fetch_github=None, make_callable=None, make_class=None))]
+    #[pyo3(signature = (target_profile, language_features=None, project_root=None, read_file=None, list_directory=None, resolve_path=None, fetch_github=None, make_callable=None, make_class=None, trace_circuit=None))]
     #[new]
     /// Initializes a new Q# interpreter.
     pub(crate) fn new(
@@ -364,6 +369,7 @@ impl Interpreter {
         fetch_github: Option<PyObject>,
         make_callable: Option<PyObject>,
         make_class: Option<PyObject>,
+        trace_circuit: Option<bool>,
     ) -> PyResult<Self> {
         let target = Into::<Profile>::into(target_profile).into();
 
@@ -399,43 +405,55 @@ impl Interpreter {
             BuildableProgram::new(target, graph)
         };
 
-        match interpret::Interpreter::new(
-            SourceMap::new(buildable_program.user_code.sources, None),
-            PackageType::Lib,
-            target,
-            buildable_program.user_code.language_features,
-            buildable_program.store,
-            &buildable_program.user_code_dependencies,
-        ) {
-            Ok(interpreter) => {
-                if let Some(make_callable) = &make_callable {
-                    // Add any global callables from the user source as Python functions to the environment.
-                    let exported_items = interpreter.source_globals();
-                    for (namespace, name, val) in exported_items {
-                        create_py_callable(py, make_callable, &namespace, &name, val)?;
-                    }
-                }
-                if let Some(make_class) = &make_class {
-                    // Add any global structs from the user source as Python classes to the environment.
-                    let exported_items = interpreter.source_types();
-                    for TaggedItem {
-                        item_id,
-                        name,
-                        namespace,
-                    } in exported_items
-                    {
-                        let ty = Ty::Udt(name.clone(), qsc::hir::Res::Item(item_id));
-                        create_py_class(&interpreter, py, make_class, &namespace, &name, &ty)?;
-                    }
-                }
-                Ok(Self {
-                    interpreter,
-                    make_callable,
-                    make_class,
-                })
-            }
-            Err(errors) => Err(QSharpError::new_err(format_errors(errors))),
+        let trace_circuit = trace_circuit.unwrap_or(false);
+        let interpreter = if trace_circuit {
+            interpret::Interpreter::with_circuit_trace(
+                SourceMap::new(buildable_program.user_code.sources, None),
+                PackageType::Lib,
+                target,
+                buildable_program.user_code.language_features,
+                buildable_program.store,
+                &buildable_program.user_code_dependencies,
+                Default::default(),
+            )
+        } else {
+            interpret::Interpreter::new(
+                SourceMap::new(buildable_program.user_code.sources, None),
+                PackageType::Lib,
+                target,
+                buildable_program.user_code.language_features,
+                buildable_program.store,
+                &buildable_program.user_code_dependencies,
+            )
         }
+        .map_err(|errors| QSharpError::new_err(format_errors(errors)))?;
+
+        if let Some(make_callable) = &make_callable {
+            // Add any global callables from the user source as Python functions to the environment.
+            let exported_items = interpreter.source_globals();
+            for (namespace, name, val) in exported_items {
+                create_py_callable(py, make_callable, &namespace, &name, val)?;
+            }
+        }
+        if let Some(make_class) = &make_class {
+            // Add any global structs from the user source as Python classes to the environment.
+            let exported_items = interpreter.source_types();
+            for TaggedItem {
+                item_id,
+                name,
+                namespace,
+            } in exported_items
+            {
+                let ty = Ty::Udt(name.clone(), qsc::hir::Res::Item(item_id));
+                create_py_class(&interpreter, py, make_class, &namespace, &name, &ty)?;
+            }
+        }
+        Ok(Self {
+            interpreter,
+            make_callable,
+            make_class,
+            trace_circuit,
+        })
     }
 
     /// Interprets Q# source code.
@@ -614,11 +632,18 @@ impl Interpreter {
         StateDumpData(DisplayableState(state, qubit_count))
     }
 
-    /// Dumps the current circuit state of the interpreter.
+    /// Dumps a circuit showing the current state of the simulator.
     ///
     /// This circuit will contain the gates that have been applied
     /// in the simulator up to the current point.
+    ///
+    /// Requires the interpreter to be initialized with `trace_circuit=True`.
     fn dump_circuit(&mut self, py: Python) -> PyResult<PyObject> {
+        if !self.trace_circuit {
+            return Err(QSharpError::new_err(
+                "to enable circuit dumping, the interpreter must be created with trace_circuit=True",
+            ));
+        }
         Circuit(self.interpreter.get_circuit()).into_py_any(py)
     }
 
@@ -726,6 +751,8 @@ impl Interpreter {
     /// Synthesizes a circuit for a Q# program. Either an entry
     /// expression or an operation must be provided.
     ///
+    /// :param config: Circuit generation options.
+    ///
     /// :param entry_expr: An entry expression.
     ///
     /// :param operation: The operation to synthesize. This can be a name of
@@ -737,10 +764,11 @@ impl Interpreter {
     /// :param args: The arguments to pass to the callable.
     ///
     /// :raises QSharpError: If there is an error synthesizing the circuit.
-    #[pyo3(signature=(entry_expr=None, operation=None, callable=None, args=None))]
+    #[pyo3(signature=(config, entry_expr=None,*, operation=None, callable=None, args=None))]
     fn circuit(
         &mut self,
         py: Python,
+        config: &CircuitConfig,
         entry_expr: Option<String>,
         operation: Option<String>,
         callable: Option<GlobalCallable>,
@@ -764,9 +792,23 @@ impl Interpreter {
             }
         };
 
+        let mut tracer_config = qsc::circuit::TracerConfig::default();
+        if let Some(max_ops) = config.max_operations {
+            tracer_config.max_operations = max_ops;
+        }
+        if let Some(locations) = config.source_locations {
+            tracer_config.source_locations = locations;
+        }
+
+        let generation_method = if let Some(generation_method) = config.generation_method {
+            generation_method.into()
+        } else {
+            qsc::interpret::CircuitGenerationMethod::ClassicalEval
+        };
+
         match self
             .interpreter
-            .circuit(entrypoint, qsc::circuit::Config::default())
+            .circuit(entrypoint, generation_method, tracer_config)
         {
             Ok(circuit) => Circuit(circuit).into_py_any(py),
             Err(errors) => Err(QSharpError::new_err(format_errors(errors))),
@@ -1074,7 +1116,7 @@ impl Output {
 }
 
 #[pyclass]
-/// Captured simlation state dump.
+/// Captured simulation state dump.
 pub(crate) struct StateDumpData(pub(crate) DisplayableState);
 
 #[pymethods]
@@ -1243,12 +1285,59 @@ impl Receiver for OptionalCallbackReceiver<'_> {
 }
 
 #[pyclass]
+pub(crate) struct CircuitConfig {
+    #[pyo3(get, set)]
+    pub(crate) max_operations: Option<usize>,
+    #[pyo3(get, set)]
+    pub(crate) generation_method: Option<CircuitGenerationMethod>,
+    #[pyo3(get, set)]
+    pub(crate) source_locations: Option<bool>,
+}
+
+#[pymethods]
+impl CircuitConfig {
+    #[new]
+    #[pyo3(signature=(*,max_operations=None, generation_method=None, source_locations=None))]
+    fn new(
+        max_operations: Option<usize>,
+        generation_method: Option<CircuitGenerationMethod>,
+        source_locations: Option<bool>,
+    ) -> Self {
+        Self {
+            max_operations,
+            generation_method,
+            source_locations,
+        }
+    }
+}
+
+#[pyclass]
+#[derive(Clone, Copy)]
+pub(crate) enum CircuitGenerationMethod {
+    ClassicalEval,
+    Simulate,
+}
+
+impl From<CircuitGenerationMethod> for qsc::interpret::CircuitGenerationMethod {
+    fn from(value: CircuitGenerationMethod) -> Self {
+        match value {
+            CircuitGenerationMethod::ClassicalEval => {
+                qsc::interpret::CircuitGenerationMethod::ClassicalEval
+            }
+            CircuitGenerationMethod::Simulate => qsc::interpret::CircuitGenerationMethod::Simulate,
+        }
+    }
+}
+
+#[pyclass]
 pub(crate) struct Circuit(pub qsc::circuit::Circuit);
 
 #[pymethods]
 impl Circuit {
     fn __repr__(&self) -> String {
-        self.0.to_string()
+        // Disable rendering source locations for user-facing string representation,
+        // as they make the circuit look cluttered.
+        self.0.display_no_locations().to_string()
     }
 
     fn __str__(&self) -> String {

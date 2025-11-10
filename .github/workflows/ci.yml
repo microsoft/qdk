@@ -18,7 +18,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  NODE_VERSION: "20.18.2"
+  NODE_VERSION: "22.14.0"
   PYTHON_VERSION: "3.11"
   RUST_TOOLCHAIN_VERSION: "1.88"
   RUST_TOOLCHAIN_COMPONENTS: rustfmt clippy
@@ -89,7 +89,7 @@ jobs:
     name: Build and test
     strategy:
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-14]
+        os: [windows-latest, ubuntu-latest, macos-latest]
 
     runs-on: ${{matrix.os}}
 
@@ -105,7 +105,7 @@ jobs:
       - name: Add additional Rust targets
         run: |
           rustup target add x86_64-apple-darwin
-        if: matrix.os == 'macos-14'
+        if: matrix.os == 'macos-latest'
       - uses: actions/setup-python@v4
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -122,7 +122,7 @@ jobs:
     name: Rust Unit tests
     strategy:
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-14]
+        os: [windows-latest, ubuntu-latest, macos-latest]
 
     runs-on: ${{matrix.os}}
 
@@ -138,7 +138,7 @@ jobs:
       - name: Add additional Rust targets
         run: |
           rustup target add x86_64-apple-darwin
-        if: matrix.os == 'macos-14'
+        if: matrix.os == 'macos-latest'
       - uses: actions/setup-python@v4
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -156,7 +156,7 @@ jobs:
     timeout-minutes: 30
     strategy:
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-14]
+        os: [windows-latest, ubuntu-latest, macos-latest]
 
     runs-on: ${{matrix.os}}
 
@@ -172,7 +172,7 @@ jobs:
       - name: Add additional Rust targets
         run: |
           rustup target add x86_64-apple-darwin
-        if: matrix.os == 'macos-14'
+        if: matrix.os == 'macos-latest'
       - uses: actions/setup-python@v4
         with:
           python-version: ${{ env.PYTHON_VERSION }}

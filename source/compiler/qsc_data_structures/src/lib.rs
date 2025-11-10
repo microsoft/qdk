@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+pub mod debug;
 pub mod display;
 pub mod functors;
 pub mod index_map;

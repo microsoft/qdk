@@ -77,7 +77,7 @@ fn expected_word_kinds(
     source_contents: &str,
     cursor_offset: u32,
 ) -> WordKinds {
-    // We should not retun any completions in comments.
+    // We should not return any completions in comments.
     // This compensates for a bug in [`possible_words_at_offset_in_source`] .
     // Ideally, that function would be aware of the comment context and not
     // return any completions, however this is difficult to do today because

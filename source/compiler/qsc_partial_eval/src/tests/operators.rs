@@ -26,27 +26,27 @@ fn leading_positive_unary_operator_on_integer_does_not_generate_rir_instruction(
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Initialize
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let readout_callable_id = CallableId(2);
     assert_callable(
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_recording_callable_id = CallableId(3);
     assert_callable(
@@ -54,12 +54,11 @@ fn leading_positive_unary_operator_on_integer_does_not_generate_rir_instruction(
         output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__int_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_blocks(
@@ -67,21 +66,22 @@ fn leading_positive_unary_operator_on_integer_does_not_generate_rir_instruction(
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[106-116] scope=0 scope_package_id=2 scope_span=[63-150] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-150] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-150] callable=Main
-                Branch Variable(1, Boolean), 2, 3 !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-150] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg package_id=2 span=[102-103] scope=0 scope_package_id=2 scope_span=[63-150] callable=Main
-                Variable(4, Integer) = Store Variable(3, Integer) !dbg package_id=2 span=[142-144] scope=0 scope_package_id=2 scope_span=[63-150] callable=Main
-                Call id(3), args( Variable(4, Integer), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
+                Variable(4, Integer) = Store Variable(3, Integer) !dbg dbg_location=2
+                Call id(4), args( Variable(4, Integer), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg package_id=2 span=[127-128] scope=0 scope_package_id=2 scope_span=[63-150] callable=Main
-                Jump(1) !dbg package_id=2 span=[127-128] scope=0 scope_package_id=2 scope_span=[63-150] callable=Main
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg package_id=2 span=[131-132] scope=0 scope_package_id=2 scope_span=[63-150] callable=Main
-                Jump(1) !dbg package_id=2 span=[131-132] scope=0 scope_package_id=2 scope_span=[63-150] callable=Main"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2"#]],
     );
 }
 
@@ -102,27 +102,27 @@ fn leading_negative_unary_operator_on_integer_generates_rir_instruction() {
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Initialize
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let readout_callable_id = CallableId(2);
     assert_callable(
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_recording_callable_id = CallableId(3);
     assert_callable(
@@ -130,12 +130,11 @@ fn leading_negative_unary_operator_on_integer_generates_rir_instruction() {
         output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__int_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_blocks(
@@ -143,22 +142,23 @@ fn leading_negative_unary_operator_on_integer_generates_rir_instruction() {
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[106-116] scope=0 scope_package_id=2 scope_span=[63-150] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-150] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-150] callable=Main
-                Branch Variable(1, Boolean), 2, 3 !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-150] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg package_id=2 span=[102-103] scope=0 scope_package_id=2 scope_span=[63-150] callable=Main
-                Variable(4, Integer) = Mul Integer(-1), Variable(3, Integer) !dbg package_id=2 span=[142-144] scope=0 scope_package_id=2 scope_span=[63-150] callable=Main
-                Variable(5, Integer) = Store Variable(4, Integer) !dbg package_id=2 span=[142-144] scope=0 scope_package_id=2 scope_span=[63-150] callable=Main
-                Call id(3), args( Variable(5, Integer), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
+                Variable(4, Integer) = Mul Integer(-1), Variable(3, Integer) !dbg dbg_location=2
+                Variable(5, Integer) = Store Variable(4, Integer) !dbg dbg_location=2
+                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg package_id=2 span=[127-128] scope=0 scope_package_id=2 scope_span=[63-150] callable=Main
-                Jump(1) !dbg package_id=2 span=[127-128] scope=0 scope_package_id=2 scope_span=[63-150] callable=Main
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg package_id=2 span=[131-132] scope=0 scope_package_id=2 scope_span=[63-150] callable=Main
-                Jump(1) !dbg package_id=2 span=[131-132] scope=0 scope_package_id=2 scope_span=[63-150] callable=Main"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2"#]],
     );
 }
 
@@ -179,27 +179,27 @@ fn bitwise_not_unary_operator_generates_rir_instruction() {
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Initialize
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let readout_callable_id = CallableId(2);
     assert_callable(
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_recording_callable_id = CallableId(3);
     assert_callable(
@@ -207,12 +207,11 @@ fn bitwise_not_unary_operator_generates_rir_instruction() {
         output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__int_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_blocks(
@@ -220,22 +219,23 @@ fn bitwise_not_unary_operator_generates_rir_instruction() {
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[106-116] scope=0 scope_package_id=2 scope_span=[63-152] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-152] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-152] callable=Main
-                Branch Variable(1, Boolean), 2, 3 !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-152] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg package_id=2 span=[102-103] scope=0 scope_package_id=2 scope_span=[63-152] callable=Main
-                Variable(4, Integer) = BitwiseNot Variable(3, Integer) !dbg package_id=2 span=[142-146] scope=0 scope_package_id=2 scope_span=[63-152] callable=Main
-                Variable(5, Integer) = Store Variable(4, Integer) !dbg package_id=2 span=[142-146] scope=0 scope_package_id=2 scope_span=[63-152] callable=Main
-                Call id(3), args( Variable(5, Integer), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
+                Variable(4, Integer) = BitwiseNot Variable(3, Integer) !dbg dbg_location=2
+                Variable(5, Integer) = Store Variable(4, Integer) !dbg dbg_location=2
+                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg package_id=2 span=[127-128] scope=0 scope_package_id=2 scope_span=[63-152] callable=Main
-                Jump(1) !dbg package_id=2 span=[127-128] scope=0 scope_package_id=2 scope_span=[63-152] callable=Main
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg package_id=2 span=[131-132] scope=0 scope_package_id=2 scope_span=[63-152] callable=Main
-                Jump(1) !dbg package_id=2 span=[131-132] scope=0 scope_package_id=2 scope_span=[63-152] callable=Main"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2"#]],
     );
 }
 
@@ -256,27 +256,27 @@ fn logical_not_unary_operator_generates_logical_not_rir_instruction() {
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Initialize
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let readout_callable_id = CallableId(2);
     assert_callable(
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_recording_callable_id = CallableId(3);
     assert_callable(
@@ -284,12 +284,11 @@ fn logical_not_unary_operator_generates_logical_not_rir_instruction() {
         output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__bool_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Boolean
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_block_instructions(
@@ -297,14 +296,15 @@ fn logical_not_unary_operator_generates_logical_not_rir_instruction() {
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[107-117] scope=0 scope_package_id=2 scope_span=[64-146] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-146] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-146] callable=Main
-                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg package_id=2 span=[103-104] scope=0 scope_package_id=2 scope_span=[64-146] callable=Main
-                Variable(3, Boolean) = LogicalNot Variable(2, Boolean) !dbg package_id=2 span=[135-140] scope=0 scope_package_id=2 scope_span=[64-146] callable=Main
-                Variable(4, Boolean) = Store Variable(3, Boolean) !dbg package_id=2 span=[135-140] scope=0 scope_package_id=2 scope_span=[64-146] callable=Main
-                Call id(3), args( Variable(4, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=2
+                Variable(3, Boolean) = LogicalNot Variable(2, Boolean) !dbg dbg_location=2
+                Variable(4, Boolean) = Store Variable(3, Boolean) !dbg dbg_location=2
+                Call id(4), args( Variable(4, Boolean), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -329,11 +329,10 @@ fn comparing_measurement_results_for_equality_adds_read_result_and_comparison_in
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -342,41 +341,42 @@ fn comparing_measurement_results_for_equality_adds_read_result_and_comparison_in
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let bool_record_id = CallableId(3);
     assert_callable(
         &program,
         bool_record_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__rt__bool_record_output
-            call_type: OutputRecording
-            input_type:
-                [0]: Boolean
-                [1]: Pointer
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[126-137] scope=0 scope_package_id=2 scope_span=[64-191] callable=Main
-                Call id(1), args( Qubit(1), Result(1), ) !dbg package_id=2 span=[156-167] scope=0 scope_package_id=2 scope_span=[64-191] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[177-185] scope=0 scope_package_id=2 scope_span=[64-191] callable=Main
-                Variable(1, Boolean) = Call id(2), args( Result(1), ) !dbg package_id=2 span=[177-185] scope=0 scope_package_id=2 scope_span=[64-191] callable=Main
-                Variable(2, Boolean) = Icmp Eq, Variable(0, Boolean), Variable(1, Boolean) !dbg package_id=2 span=[177-185] scope=0 scope_package_id=2 scope_span=[64-191] callable=Main
-                Variable(3, Boolean) = Store Variable(2, Boolean) !dbg package_id=2 span=[177-185] scope=0 scope_package_id=2 scope_span=[64-191] callable=Main
-                Call id(3), args( Variable(3, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=4
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=6
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=5
+                Variable(1, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=5
+                Variable(2, Boolean) = Icmp Eq, Variable(0, Boolean), Variable(1, Boolean) !dbg dbg_location=5
+                Variable(3, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=5
+                Call id(4), args( Variable(3, Boolean), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
     assert_eq!(program.num_qubits, 2);
     assert_eq!(program.num_results, 2);
@@ -402,55 +402,55 @@ fn comparing_measurement_results_for_inequality_adds_read_result_and_comparison_
         &program,
         measurement_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Initialize
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let readout_callable_id = CallableId(2);
     assert_callable(
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let bool_record_id = CallableId(3);
     assert_callable(
         &program,
         bool_record_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__rt__bool_record_output
-            call_type: OutputRecording
-            input_type:
-                [0]: Boolean
-                [1]: Pointer
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[126-137] scope=0 scope_package_id=2 scope_span=[64-191] callable=Main
-                Call id(1), args( Qubit(1), Result(1), ) !dbg package_id=2 span=[156-167] scope=0 scope_package_id=2 scope_span=[64-191] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[177-185] scope=0 scope_package_id=2 scope_span=[64-191] callable=Main
-                Variable(1, Boolean) = Call id(2), args( Result(1), ) !dbg package_id=2 span=[177-185] scope=0 scope_package_id=2 scope_span=[64-191] callable=Main
-                Variable(2, Boolean) = Icmp Ne, Variable(0, Boolean), Variable(1, Boolean) !dbg package_id=2 span=[177-185] scope=0 scope_package_id=2 scope_span=[64-191] callable=Main
-                Variable(3, Boolean) = Store Variable(2, Boolean) !dbg package_id=2 span=[177-185] scope=0 scope_package_id=2 scope_span=[64-191] callable=Main
-                Call id(3), args( Variable(3, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=4
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=6
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=5
+                Variable(1, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=5
+                Variable(2, Boolean) = Icmp Ne, Variable(0, Boolean), Variable(1, Boolean) !dbg dbg_location=5
+                Variable(3, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=5
+                Call id(4), args( Variable(3, Boolean), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
     assert_eq!(program.num_qubits, 2);
     assert_eq!(program.num_results, 2);
@@ -476,53 +476,53 @@ fn comparing_measurement_result_against_result_literal_for_equality_adds_read_re
         &program,
         measurement_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Initialize
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let readout_callable_id = CallableId(2);
     assert_callable(
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let bool_record_id = CallableId(3);
     assert_callable(
         &program,
         bool_record_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__rt__bool_record_output
-            call_type: OutputRecording
-            input_type:
-                [0]: Boolean
-                [1]: Pointer
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[107-117] scope=0 scope_package_id=2 scope_span=[64-142] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[127-136] scope=0 scope_package_id=2 scope_span=[64-142] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[127-136] scope=0 scope_package_id=2 scope_span=[64-142] callable=Main
-                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg package_id=2 span=[127-136] scope=0 scope_package_id=2 scope_span=[64-142] callable=Main
-                Call id(3), args( Variable(2, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=2
+                Call id(4), args( Variable(2, Boolean), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
     assert_eq!(program.num_qubits, 1);
     assert_eq!(program.num_results, 1);
@@ -548,53 +548,53 @@ fn comparing_measurement_result_against_result_literal_for_inequality_adds_read_
         &program,
         measurement_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Initialize
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let readout_callable_id = CallableId(2);
     assert_callable(
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let bool_record_id = CallableId(3);
     assert_callable(
         &program,
         bool_record_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__rt__bool_record_output
-            call_type: OutputRecording
-            input_type:
-                [0]: Boolean
-                [1]: Pointer
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[107-117] scope=0 scope_package_id=2 scope_span=[64-141] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[127-135] scope=0 scope_package_id=2 scope_span=[64-141] callable=Main
-                Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true) !dbg package_id=2 span=[127-135] scope=0 scope_package_id=2 scope_span=[64-141] callable=Main
-                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg package_id=2 span=[127-135] scope=0 scope_package_id=2 scope_span=[64-141] callable=Main
-                Call id(3), args( Variable(2, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true) !dbg dbg_location=2
+                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=2
+                Call id(4), args( Variable(2, Boolean), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
     assert_eq!(program.num_qubits, 1);
     assert_eq!(program.num_results, 1);
@@ -620,11 +620,10 @@ fn comparing_lhs_classical_boolean_against_rhs_dynamic_boolean_for_equality() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -633,41 +632,42 @@ fn comparing_lhs_classical_boolean_against_rhs_dynamic_boolean_for_equality() {
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
         &program,
         output_record_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__rt__bool_record_output
-            call_type: OutputRecording
-            input_type:
-                [0]: Boolean
-                [1]: Pointer
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[107-117] scope=0 scope_package_id=2 scope_span=[64-150] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[107-124] scope=0 scope_package_id=2 scope_span=[64-150] callable=Main
-                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg package_id=2 span=[107-124] scope=0 scope_package_id=2 scope_span=[64-150] callable=Main
-                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg package_id=2 span=[103-104] scope=0 scope_package_id=2 scope_span=[64-150] callable=Main
-                Variable(3, Boolean) = Icmp Eq, Bool(false), Variable(2, Boolean) !dbg package_id=2 span=[143-144] scope=0 scope_package_id=2 scope_span=[64-150] callable=Main
-                Variable(4, Boolean) = Store Variable(3, Boolean) !dbg package_id=2 span=[134-144] scope=0 scope_package_id=2 scope_span=[64-150] callable=Main
-                Call id(3), args( Variable(4, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=2
+                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=2
+                Variable(3, Boolean) = Icmp Eq, Bool(false), Variable(2, Boolean) !dbg dbg_location=2
+                Variable(4, Boolean) = Store Variable(3, Boolean) !dbg dbg_location=2
+                Call id(4), args( Variable(4, Boolean), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -690,11 +690,10 @@ fn comparing_lhs_dynamic_boolean_against_rhs_dynamic_boolean_for_equality() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -703,43 +702,44 @@ fn comparing_lhs_dynamic_boolean_against_rhs_dynamic_boolean_for_equality() {
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
         &program,
         output_record_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__rt__bool_record_output
-            call_type: OutputRecording
-            input_type:
-                [0]: Boolean
-                [1]: Pointer
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[100-110] scope=0 scope_package_id=2 scope_span=[64-149] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[100-118] scope=0 scope_package_id=2 scope_span=[64-149] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[100-118] scope=0 scope_package_id=2 scope_span=[64-149] callable=Main
-                Call id(1), args( Qubit(0), Result(1), ) !dbg package_id=2 span=[124-134] scope=0 scope_package_id=2 scope_span=[64-149] callable=Main
-                Variable(2, Boolean) = Call id(2), args( Result(1), ) !dbg package_id=2 span=[124-142] scope=0 scope_package_id=2 scope_span=[64-149] callable=Main
-                Variable(3, Boolean) = Icmp Eq, Variable(2, Boolean), Bool(false) !dbg package_id=2 span=[124-142] scope=0 scope_package_id=2 scope_span=[64-149] callable=Main
-                Variable(4, Boolean) = Icmp Eq, Variable(1, Boolean), Variable(3, Boolean) !dbg package_id=2 span=[124-142] scope=0 scope_package_id=2 scope_span=[64-149] callable=Main
-                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg package_id=2 span=[99-143] scope=0 scope_package_id=2 scope_span=[64-149] callable=Main
-                Call id(3), args( Variable(5, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=5
+                Variable(2, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=4
+                Variable(3, Boolean) = Icmp Eq, Variable(2, Boolean), Bool(false) !dbg dbg_location=4
+                Variable(4, Boolean) = Icmp Eq, Variable(1, Boolean), Variable(3, Boolean) !dbg dbg_location=4
+                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=4
+                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -763,11 +763,10 @@ fn comparing_lhs_classical_boolean_against_rhs_dynamic_boolean_for_inequality() 
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -776,41 +775,42 @@ fn comparing_lhs_classical_boolean_against_rhs_dynamic_boolean_for_inequality() 
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
         &program,
         output_record_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__rt__bool_record_output
-            call_type: OutputRecording
-            input_type:
-                [0]: Boolean
-                [1]: Pointer
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[107-117] scope=0 scope_package_id=2 scope_span=[64-149] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[107-124] scope=0 scope_package_id=2 scope_span=[64-149] callable=Main
-                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg package_id=2 span=[107-124] scope=0 scope_package_id=2 scope_span=[64-149] callable=Main
-                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg package_id=2 span=[103-104] scope=0 scope_package_id=2 scope_span=[64-149] callable=Main
-                Variable(3, Boolean) = Icmp Ne, Bool(true), Variable(2, Boolean) !dbg package_id=2 span=[142-143] scope=0 scope_package_id=2 scope_span=[64-149] callable=Main
-                Variable(4, Boolean) = Store Variable(3, Boolean) !dbg package_id=2 span=[134-143] scope=0 scope_package_id=2 scope_span=[64-149] callable=Main
-                Call id(3), args( Variable(4, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=2
+                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=2
+                Variable(3, Boolean) = Icmp Ne, Bool(true), Variable(2, Boolean) !dbg dbg_location=2
+                Variable(4, Boolean) = Store Variable(3, Boolean) !dbg dbg_location=2
+                Call id(4), args( Variable(4, Boolean), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -833,11 +833,10 @@ fn comparing_lhs_dynamic_boolean_against_rhs_dynamic_boolean_for_inequality() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -846,43 +845,44 @@ fn comparing_lhs_dynamic_boolean_against_rhs_dynamic_boolean_for_inequality() {
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
         &program,
         output_record_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__rt__bool_record_output
-            call_type: OutputRecording
-            input_type:
-                [0]: Boolean
-                [1]: Pointer
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[100-110] scope=0 scope_package_id=2 scope_span=[64-149] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[100-118] scope=0 scope_package_id=2 scope_span=[64-149] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[100-118] scope=0 scope_package_id=2 scope_span=[64-149] callable=Main
-                Call id(1), args( Qubit(0), Result(1), ) !dbg package_id=2 span=[124-134] scope=0 scope_package_id=2 scope_span=[64-149] callable=Main
-                Variable(2, Boolean) = Call id(2), args( Result(1), ) !dbg package_id=2 span=[124-142] scope=0 scope_package_id=2 scope_span=[64-149] callable=Main
-                Variable(3, Boolean) = Icmp Eq, Variable(2, Boolean), Bool(false) !dbg package_id=2 span=[124-142] scope=0 scope_package_id=2 scope_span=[64-149] callable=Main
-                Variable(4, Boolean) = Icmp Ne, Variable(1, Boolean), Variable(3, Boolean) !dbg package_id=2 span=[124-142] scope=0 scope_package_id=2 scope_span=[64-149] callable=Main
-                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg package_id=2 span=[99-143] scope=0 scope_package_id=2 scope_span=[64-149] callable=Main
-                Call id(3), args( Variable(5, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=5
+                Variable(2, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=4
+                Variable(3, Boolean) = Icmp Eq, Variable(2, Boolean), Bool(false) !dbg dbg_location=4
+                Variable(4, Boolean) = Icmp Ne, Variable(1, Boolean), Variable(3, Boolean) !dbg dbg_location=4
+                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=4
+                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -906,11 +906,10 @@ fn logical_and_with_lhs_classical_true_is_optimized_as_store() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -919,40 +918,41 @@ fn logical_and_with_lhs_classical_true_is_optimized_as_store() {
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
         &program,
         output_record_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__rt__bool_record_output
-            call_type: OutputRecording
-            input_type:
-                [0]: Boolean
-                [1]: Pointer
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[107-117] scope=0 scope_package_id=2 scope_span=[64-150] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[107-124] scope=0 scope_package_id=2 scope_span=[64-150] callable=Main
-                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg package_id=2 span=[107-124] scope=0 scope_package_id=2 scope_span=[64-150] callable=Main
-                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg package_id=2 span=[103-104] scope=0 scope_package_id=2 scope_span=[64-150] callable=Main
-                Variable(3, Boolean) = Store Variable(2, Boolean) !dbg package_id=2 span=[134-144] scope=0 scope_package_id=2 scope_span=[64-150] callable=Main
-                Call id(3), args( Variable(3, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=2
+                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=2
+                Variable(3, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=2
+                Call id(4), args( Variable(3, Boolean), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -976,11 +976,10 @@ fn logical_and_with_lhs_classical_false_short_circuits_evaluation() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -989,39 +988,40 @@ fn logical_and_with_lhs_classical_false_short_circuits_evaluation() {
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
         &program,
         output_record_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__rt__bool_record_output
-            call_type: OutputRecording
-            input_type:
-                [0]: Boolean
-                [1]: Pointer
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[107-117] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[107-124] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main
-                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg package_id=2 span=[107-124] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main
-                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg package_id=2 span=[103-104] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main
-                Call id(3), args( Bool(false), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=2
+                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=2
+                Call id(4), args( Bool(false), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -1044,11 +1044,10 @@ fn logical_and_with_dynamic_lhs_and_dynamic_rhs_short_circuits_when_lhs_is_false
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -1057,48 +1056,49 @@ fn logical_and_with_dynamic_lhs_and_dynamic_rhs_short_circuits_when_lhs_is_false
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
         &program,
         output_record_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__rt__bool_record_output
-            call_type: OutputRecording
-            input_type:
-                [0]: Boolean
-                [1]: Pointer
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     assert_blocks(
         &program,
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[100-110] scope=0 scope_package_id=2 scope_span=[64-150] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[100-118] scope=0 scope_package_id=2 scope_span=[64-150] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[100-118] scope=0 scope_package_id=2 scope_span=[64-150] callable=Main
-                Variable(2, Boolean) = Store Bool(false) !dbg package_id=2 span=[125-143] scope=0 scope_package_id=2 scope_span=[64-150] callable=Main
-                Branch Variable(1, Boolean), 2, 1 !dbg package_id=2 span=[125-143] scope=0 scope_package_id=2 scope_span=[64-150] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Variable(2, Boolean) = Store Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 1 !dbg dbg_location=4
             Block 1:Block:
-                Variable(5, Boolean) = Store Variable(2, Boolean) !dbg package_id=2 span=[99-144] scope=0 scope_package_id=2 scope_span=[64-150] callable=Main
-                Call id(3), args( Variable(5, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(5, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=4
+                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 2:Block:
-                Call id(1), args( Qubit(0), Result(1), ) !dbg package_id=2 span=[125-135] scope=0 scope_package_id=2 scope_span=[64-150] callable=Main
-                Variable(3, Boolean) = Call id(2), args( Result(1), ) !dbg package_id=2 span=[125-143] scope=0 scope_package_id=2 scope_span=[64-150] callable=Main
-                Variable(4, Boolean) = Icmp Eq, Variable(3, Boolean), Bool(false) !dbg package_id=2 span=[125-143] scope=0 scope_package_id=2 scope_span=[64-150] callable=Main
-                Variable(2, Boolean) = Store Variable(4, Boolean) !dbg package_id=2 span=[125-143] scope=0 scope_package_id=2 scope_span=[64-150] callable=Main
-                Jump(1) !dbg package_id=2 span=[125-143] scope=0 scope_package_id=2 scope_span=[64-150] callable=Main"#]],
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=5
+                Variable(3, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=4
+                Variable(4, Boolean) = Icmp Eq, Variable(3, Boolean), Bool(false) !dbg dbg_location=4
+                Variable(2, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=4
+                Jump(1) !dbg dbg_location=4"#]],
     );
 }
 
@@ -1122,11 +1122,10 @@ fn logical_or_with_lhs_classical_true_short_circuits_evaluation() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -1135,39 +1134,40 @@ fn logical_or_with_lhs_classical_true_short_circuits_evaluation() {
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
         &program,
         output_record_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__rt__bool_record_output
-            call_type: OutputRecording
-            input_type:
-                [0]: Boolean
-                [1]: Pointer
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[107-117] scope=0 scope_package_id=2 scope_span=[64-160] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[107-124] scope=0 scope_package_id=2 scope_span=[64-160] callable=Main
-                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg package_id=2 span=[107-124] scope=0 scope_package_id=2 scope_span=[64-160] callable=Main
-                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg package_id=2 span=[103-104] scope=0 scope_package_id=2 scope_span=[64-160] callable=Main
-                Call id(3), args( Bool(true), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=2
+                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=2
+                Call id(4), args( Bool(true), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -1191,11 +1191,10 @@ fn logical_or_with_lhs_classical_false_is_optimized_as_store() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -1204,40 +1203,41 @@ fn logical_or_with_lhs_classical_false_is_optimized_as_store() {
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
         &program,
         output_record_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__rt__bool_record_output
-            call_type: OutputRecording
-            input_type:
-                [0]: Boolean
-                [1]: Pointer
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     assert_block_instructions(
         &program,
         BlockId(0),
         &expect![[r#"
             Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[107-117] scope=0 scope_package_id=2 scope_span=[64-150] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[107-124] scope=0 scope_package_id=2 scope_span=[64-150] callable=Main
-                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg package_id=2 span=[107-124] scope=0 scope_package_id=2 scope_span=[64-150] callable=Main
-                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg package_id=2 span=[103-104] scope=0 scope_package_id=2 scope_span=[64-150] callable=Main
-                Variable(3, Boolean) = Store Variable(2, Boolean) !dbg package_id=2 span=[134-144] scope=0 scope_package_id=2 scope_span=[64-150] callable=Main
-                Call id(3), args( Variable(3, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]"#]],
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=2
+                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=2
+                Variable(3, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=2
+                Call id(4), args( Variable(3, Boolean), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0"#]],
     );
 }
 
@@ -1260,11 +1260,10 @@ fn logical_or_with_dynamic_lhs_and_dynamic_rhs_short_circuits_when_rhs_is_true()
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -1273,48 +1272,49 @@ fn logical_or_with_dynamic_lhs_and_dynamic_rhs_short_circuits_when_rhs_is_true()
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
         &program,
         output_record_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__rt__bool_record_output
-            call_type: OutputRecording
-            input_type:
-                [0]: Boolean
-                [1]: Pointer
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     assert_blocks(
         &program,
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[100-110] scope=0 scope_package_id=2 scope_span=[64-147] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[100-117] scope=0 scope_package_id=2 scope_span=[64-147] callable=Main
-                Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true) !dbg package_id=2 span=[100-117] scope=0 scope_package_id=2 scope_span=[64-147] callable=Main
-                Variable(2, Boolean) = Store Bool(true) !dbg package_id=2 span=[123-140] scope=0 scope_package_id=2 scope_span=[64-147] callable=Main
-                Branch Variable(1, Boolean), 1, 2 !dbg package_id=2 span=[123-140] scope=0 scope_package_id=2 scope_span=[64-147] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true) !dbg dbg_location=2
+                Variable(2, Boolean) = Store Bool(true) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 1, 2 !dbg dbg_location=4
             Block 1:Block:
-                Variable(5, Boolean) = Store Variable(2, Boolean) !dbg package_id=2 span=[99-141] scope=0 scope_package_id=2 scope_span=[64-147] callable=Main
-                Call id(3), args( Variable(5, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(5, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=4
+                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 2:Block:
-                Call id(1), args( Qubit(0), Result(1), ) !dbg package_id=2 span=[123-133] scope=0 scope_package_id=2 scope_span=[64-147] callable=Main
-                Variable(3, Boolean) = Call id(2), args( Result(1), ) !dbg package_id=2 span=[123-140] scope=0 scope_package_id=2 scope_span=[64-147] callable=Main
-                Variable(4, Boolean) = Icmp Ne, Variable(3, Boolean), Bool(true) !dbg package_id=2 span=[123-140] scope=0 scope_package_id=2 scope_span=[64-147] callable=Main
-                Variable(2, Boolean) = Store Variable(4, Boolean) !dbg package_id=2 span=[123-140] scope=0 scope_package_id=2 scope_span=[64-147] callable=Main
-                Jump(1) !dbg package_id=2 span=[123-140] scope=0 scope_package_id=2 scope_span=[64-147] callable=Main"#]],
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=5
+                Variable(3, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=4
+                Variable(4, Boolean) = Icmp Ne, Variable(3, Boolean), Bool(true) !dbg dbg_location=4
+                Variable(2, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=4
+                Jump(1) !dbg dbg_location=4"#]],
     );
 }
 
@@ -1337,11 +1337,10 @@ fn logical_and_and_sequence_with_dynamic_operands() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -1350,57 +1349,58 @@ fn logical_and_and_sequence_with_dynamic_operands() {
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
         &program,
         output_record_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__rt__bool_record_output
-            call_type: OutputRecording
-            input_type:
-                [0]: Boolean
-                [1]: Pointer
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     assert_blocks(
         &program,
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[131-142] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[131-149] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
-                Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true) !dbg package_id=2 span=[131-149] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
-                Variable(2, Boolean) = Store Bool(false) !dbg package_id=2 span=[156-174] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
-                Branch Variable(1, Boolean), 2, 1 !dbg package_id=2 span=[156-174] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=5
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=4
+                Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true) !dbg dbg_location=4
+                Variable(2, Boolean) = Store Bool(false) !dbg dbg_location=4
+                Branch Variable(1, Boolean), 2, 1 !dbg dbg_location=6
             Block 1:Block:
-                Variable(5, Boolean) = Store Bool(false) !dbg package_id=2 span=[181-199] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
-                Branch Variable(2, Boolean), 4, 3 !dbg package_id=2 span=[181-199] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
+                Variable(5, Boolean) = Store Bool(false) !dbg dbg_location=6
+                Branch Variable(2, Boolean), 4, 3 !dbg dbg_location=8
             Block 2:Block:
-                Call id(1), args( Qubit(1), Result(1), ) !dbg package_id=2 span=[156-167] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
-                Variable(3, Boolean) = Call id(2), args( Result(1), ) !dbg package_id=2 span=[156-174] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
-                Variable(4, Boolean) = Icmp Ne, Variable(3, Boolean), Bool(true) !dbg package_id=2 span=[156-174] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
-                Variable(2, Boolean) = Store Variable(4, Boolean) !dbg package_id=2 span=[156-174] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
-                Jump(1) !dbg package_id=2 span=[156-174] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=7
+                Variable(3, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=6
+                Variable(4, Boolean) = Icmp Ne, Variable(3, Boolean), Bool(true) !dbg dbg_location=6
+                Variable(2, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=6
+                Jump(1) !dbg dbg_location=6
             Block 3:Block:
-                Variable(8, Boolean) = Store Variable(5, Boolean) !dbg package_id=2 span=[130-200] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
-                Call id(3), args( Variable(8, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(8, Boolean) = Store Variable(5, Boolean) !dbg dbg_location=8
+                Call id(4), args( Variable(8, Boolean), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 4:Block:
-                Call id(1), args( Qubit(2), Result(2), ) !dbg package_id=2 span=[181-192] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
-                Variable(6, Boolean) = Call id(2), args( Result(2), ) !dbg package_id=2 span=[181-199] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
-                Variable(7, Boolean) = Icmp Ne, Variable(6, Boolean), Bool(true) !dbg package_id=2 span=[181-199] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
-                Variable(5, Boolean) = Store Variable(7, Boolean) !dbg package_id=2 span=[181-199] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
-                Jump(3) !dbg package_id=2 span=[181-199] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main"#]],
+                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=9
+                Variable(6, Boolean) = Call id(3), args( Result(2), ) !dbg dbg_location=8
+                Variable(7, Boolean) = Icmp Ne, Variable(6, Boolean), Bool(true) !dbg dbg_location=8
+                Variable(5, Boolean) = Store Variable(7, Boolean) !dbg dbg_location=8
+                Jump(3) !dbg dbg_location=8"#]],
     );
 }
 
@@ -1423,11 +1423,10 @@ fn logical_and_or_sequence_with_dynamic_operands() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -1436,57 +1435,58 @@ fn logical_and_or_sequence_with_dynamic_operands() {
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
         &program,
         output_record_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__rt__bool_record_output
-            call_type: OutputRecording
-            input_type:
-                [0]: Boolean
-                [1]: Pointer
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     assert_blocks(
         &program,
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[131-142] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[131-149] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main
-                Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true) !dbg package_id=2 span=[131-149] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main
-                Variable(2, Boolean) = Store Bool(false) !dbg package_id=2 span=[156-174] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main
-                Branch Variable(1, Boolean), 2, 1 !dbg package_id=2 span=[156-174] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=5
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=4
+                Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true) !dbg dbg_location=4
+                Variable(2, Boolean) = Store Bool(false) !dbg dbg_location=4
+                Branch Variable(1, Boolean), 2, 1 !dbg dbg_location=6
             Block 1:Block:
-                Variable(5, Boolean) = Store Bool(true) !dbg package_id=2 span=[180-198] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main
-                Branch Variable(2, Boolean), 3, 4 !dbg package_id=2 span=[180-198] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main
+                Variable(5, Boolean) = Store Bool(true) !dbg dbg_location=6
+                Branch Variable(2, Boolean), 3, 4 !dbg dbg_location=8
             Block 2:Block:
-                Call id(1), args( Qubit(1), Result(1), ) !dbg package_id=2 span=[156-167] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main
-                Variable(3, Boolean) = Call id(2), args( Result(1), ) !dbg package_id=2 span=[156-174] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main
-                Variable(4, Boolean) = Icmp Ne, Variable(3, Boolean), Bool(true) !dbg package_id=2 span=[156-174] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main
-                Variable(2, Boolean) = Store Variable(4, Boolean) !dbg package_id=2 span=[156-174] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main
-                Jump(1) !dbg package_id=2 span=[156-174] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=7
+                Variable(3, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=6
+                Variable(4, Boolean) = Icmp Ne, Variable(3, Boolean), Bool(true) !dbg dbg_location=6
+                Variable(2, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=6
+                Jump(1) !dbg dbg_location=6
             Block 3:Block:
-                Variable(8, Boolean) = Store Variable(5, Boolean) !dbg package_id=2 span=[130-199] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main
-                Call id(3), args( Variable(8, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(8, Boolean) = Store Variable(5, Boolean) !dbg dbg_location=8
+                Call id(4), args( Variable(8, Boolean), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 4:Block:
-                Call id(1), args( Qubit(2), Result(2), ) !dbg package_id=2 span=[180-191] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main
-                Variable(6, Boolean) = Call id(2), args( Result(2), ) !dbg package_id=2 span=[180-198] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main
-                Variable(7, Boolean) = Icmp Ne, Variable(6, Boolean), Bool(true) !dbg package_id=2 span=[180-198] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main
-                Variable(5, Boolean) = Store Variable(7, Boolean) !dbg package_id=2 span=[180-198] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main
-                Jump(3) !dbg package_id=2 span=[180-198] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main"#]],
+                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=9
+                Variable(6, Boolean) = Call id(3), args( Result(2), ) !dbg dbg_location=8
+                Variable(7, Boolean) = Icmp Ne, Variable(6, Boolean), Bool(true) !dbg dbg_location=8
+                Variable(5, Boolean) = Store Variable(7, Boolean) !dbg dbg_location=8
+                Jump(3) !dbg dbg_location=8"#]],
     );
 }
 
@@ -1509,11 +1509,10 @@ fn logical_or_and_sequence_with_dynamic_operands() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -1522,57 +1521,58 @@ fn logical_or_and_sequence_with_dynamic_operands() {
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
         &program,
         output_record_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__rt__bool_record_output
-            call_type: OutputRecording
-            input_type:
-                [0]: Boolean
-                [1]: Pointer
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     assert_blocks(
         &program,
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[131-142] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[131-149] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main
-                Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true) !dbg package_id=2 span=[131-149] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main
-                Variable(2, Boolean) = Store Bool(true) !dbg package_id=2 span=[154-199] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main
-                Branch Variable(1, Boolean), 1, 2 !dbg package_id=2 span=[154-199] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=5
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=4
+                Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true) !dbg dbg_location=4
+                Variable(2, Boolean) = Store Bool(true) !dbg dbg_location=4
+                Branch Variable(1, Boolean), 1, 2 !dbg dbg_location=8
             Block 1:Block:
-                Variable(8, Boolean) = Store Variable(2, Boolean) !dbg package_id=2 span=[130-199] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main
-                Call id(3), args( Variable(8, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(8, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=8
+                Call id(4), args( Variable(8, Boolean), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 2:Block:
-                Call id(1), args( Qubit(1), Result(1), ) !dbg package_id=2 span=[155-166] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main
-                Variable(3, Boolean) = Call id(2), args( Result(1), ) !dbg package_id=2 span=[155-173] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main
-                Variable(4, Boolean) = Icmp Ne, Variable(3, Boolean), Bool(true) !dbg package_id=2 span=[155-173] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main
-                Variable(5, Boolean) = Store Bool(false) !dbg package_id=2 span=[180-198] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main
-                Branch Variable(4, Boolean), 4, 3 !dbg package_id=2 span=[180-198] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=7
+                Variable(3, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=6
+                Variable(4, Boolean) = Icmp Ne, Variable(3, Boolean), Bool(true) !dbg dbg_location=6
+                Variable(5, Boolean) = Store Bool(false) !dbg dbg_location=6
+                Branch Variable(4, Boolean), 4, 3 !dbg dbg_location=8
             Block 3:Block:
-                Variable(2, Boolean) = Store Variable(5, Boolean) !dbg package_id=2 span=[154-199] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main
-                Jump(1) !dbg package_id=2 span=[154-199] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main
+                Variable(2, Boolean) = Store Variable(5, Boolean) !dbg dbg_location=8
+                Jump(1) !dbg dbg_location=8
             Block 4:Block:
-                Call id(1), args( Qubit(2), Result(2), ) !dbg package_id=2 span=[180-191] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main
-                Variable(6, Boolean) = Call id(2), args( Result(2), ) !dbg package_id=2 span=[180-198] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main
-                Variable(7, Boolean) = Icmp Ne, Variable(6, Boolean), Bool(true) !dbg package_id=2 span=[180-198] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main
-                Variable(5, Boolean) = Store Variable(7, Boolean) !dbg package_id=2 span=[180-198] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main
-                Jump(3) !dbg package_id=2 span=[180-198] scope=0 scope_package_id=2 scope_span=[64-205] callable=Main"#]],
+                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=9
+                Variable(6, Boolean) = Call id(3), args( Result(2), ) !dbg dbg_location=8
+                Variable(7, Boolean) = Icmp Ne, Variable(6, Boolean), Bool(true) !dbg dbg_location=8
+                Variable(5, Boolean) = Store Variable(7, Boolean) !dbg dbg_location=8
+                Jump(3) !dbg dbg_location=8"#]],
     );
 }
 
@@ -1595,11 +1595,10 @@ fn logical_or_or_sequence_with_dynamic_operands() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -1608,57 +1607,58 @@ fn logical_or_or_sequence_with_dynamic_operands() {
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
         &program,
         output_record_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__rt__bool_record_output
-            call_type: OutputRecording
-            input_type:
-                [0]: Boolean
-                [1]: Pointer
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
     );
     assert_blocks(
         &program,
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[131-142] scope=0 scope_package_id=2 scope_span=[64-204] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[131-149] scope=0 scope_package_id=2 scope_span=[64-204] callable=Main
-                Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true) !dbg package_id=2 span=[131-149] scope=0 scope_package_id=2 scope_span=[64-204] callable=Main
-                Variable(2, Boolean) = Store Bool(true) !dbg package_id=2 span=[155-173] scope=0 scope_package_id=2 scope_span=[64-204] callable=Main
-                Branch Variable(1, Boolean), 1, 2 !dbg package_id=2 span=[155-173] scope=0 scope_package_id=2 scope_span=[64-204] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=5
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=4
+                Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true) !dbg dbg_location=4
+                Variable(2, Boolean) = Store Bool(true) !dbg dbg_location=4
+                Branch Variable(1, Boolean), 1, 2 !dbg dbg_location=6
             Block 1:Block:
-                Variable(5, Boolean) = Store Bool(true) !dbg package_id=2 span=[179-197] scope=0 scope_package_id=2 scope_span=[64-204] callable=Main
-                Branch Variable(2, Boolean), 3, 4 !dbg package_id=2 span=[179-197] scope=0 scope_package_id=2 scope_span=[64-204] callable=Main
+                Variable(5, Boolean) = Store Bool(true) !dbg dbg_location=6
+                Branch Variable(2, Boolean), 3, 4 !dbg dbg_location=8
             Block 2:Block:
-                Call id(1), args( Qubit(1), Result(1), ) !dbg package_id=2 span=[155-166] scope=0 scope_package_id=2 scope_span=[64-204] callable=Main
-                Variable(3, Boolean) = Call id(2), args( Result(1), ) !dbg package_id=2 span=[155-173] scope=0 scope_package_id=2 scope_span=[64-204] callable=Main
-                Variable(4, Boolean) = Icmp Ne, Variable(3, Boolean), Bool(true) !dbg package_id=2 span=[155-173] scope=0 scope_package_id=2 scope_span=[64-204] callable=Main
-                Variable(2, Boolean) = Store Variable(4, Boolean) !dbg package_id=2 span=[155-173] scope=0 scope_package_id=2 scope_span=[64-204] callable=Main
-                Jump(1) !dbg package_id=2 span=[155-173] scope=0 scope_package_id=2 scope_span=[64-204] callable=Main
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=7
+                Variable(3, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=6
+                Variable(4, Boolean) = Icmp Ne, Variable(3, Boolean), Bool(true) !dbg dbg_location=6
+                Variable(2, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=6
+                Jump(1) !dbg dbg_location=6
             Block 3:Block:
-                Variable(8, Boolean) = Store Variable(5, Boolean) !dbg package_id=2 span=[130-198] scope=0 scope_package_id=2 scope_span=[64-204] callable=Main
-                Call id(3), args( Variable(8, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(8, Boolean) = Store Variable(5, Boolean) !dbg dbg_location=8
+                Call id(4), args( Variable(8, Boolean), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 4:Block:
-                Call id(1), args( Qubit(2), Result(2), ) !dbg package_id=2 span=[179-190] scope=0 scope_package_id=2 scope_span=[64-204] callable=Main
-                Variable(6, Boolean) = Call id(2), args( Result(2), ) !dbg package_id=2 span=[179-197] scope=0 scope_package_id=2 scope_span=[64-204] callable=Main
-                Variable(7, Boolean) = Icmp Ne, Variable(6, Boolean), Bool(true) !dbg package_id=2 span=[179-197] scope=0 scope_package_id=2 scope_span=[64-204] callable=Main
-                Variable(5, Boolean) = Store Variable(7, Boolean) !dbg package_id=2 span=[179-197] scope=0 scope_package_id=2 scope_span=[64-204] callable=Main
-                Jump(3) !dbg package_id=2 span=[179-197] scope=0 scope_package_id=2 scope_span=[64-204] callable=Main"#]],
+                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=9
+                Variable(6, Boolean) = Call id(3), args( Result(2), ) !dbg dbg_location=8
+                Variable(7, Boolean) = Icmp Ne, Variable(6, Boolean), Bool(true) !dbg dbg_location=8
+                Variable(5, Boolean) = Store Variable(7, Boolean) !dbg dbg_location=8
+                Jump(3) !dbg dbg_location=8"#]],
     );
 }
 
@@ -1682,11 +1682,10 @@ fn integer_add_with_lhs_classical_integer_and_rhs_dynamic_integer() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -1695,13 +1694,14 @@ fn integer_add_with_lhs_classical_integer_and_rhs_dynamic_integer() {
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
@@ -1709,12 +1709,11 @@ fn integer_add_with_lhs_classical_integer_and_rhs_dynamic_integer() {
         output_record_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__int_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_blocks(
@@ -1722,22 +1721,23 @@ fn integer_add_with_lhs_classical_integer_and_rhs_dynamic_integer() {
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[106-116] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Branch Variable(1, Boolean), 2, 3 !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg package_id=2 span=[102-103] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Variable(4, Integer) = Add Integer(1), Variable(3, Integer) !dbg package_id=2 span=[142-147] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Variable(5, Integer) = Store Variable(4, Integer) !dbg package_id=2 span=[142-147] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Call id(3), args( Variable(5, Integer), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
+                Variable(4, Integer) = Add Integer(1), Variable(3, Integer) !dbg dbg_location=2
+                Variable(5, Integer) = Store Variable(4, Integer) !dbg dbg_location=2
+                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg package_id=2 span=[127-128] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Jump(1) !dbg package_id=2 span=[127-128] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg package_id=2 span=[131-132] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Jump(1) !dbg package_id=2 span=[131-132] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2"#]],
     );
 }
 
@@ -1761,11 +1761,10 @@ fn integer_sub_with_lhs_dynamic_integer_and_rhs_classical_integer() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -1774,13 +1773,14 @@ fn integer_sub_with_lhs_dynamic_integer_and_rhs_classical_integer() {
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
@@ -1788,12 +1788,11 @@ fn integer_sub_with_lhs_dynamic_integer_and_rhs_classical_integer() {
         output_record_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__int_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_blocks(
@@ -1801,22 +1800,23 @@ fn integer_sub_with_lhs_dynamic_integer_and_rhs_classical_integer() {
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[106-116] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Branch Variable(1, Boolean), 2, 3 !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg package_id=2 span=[102-103] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Variable(4, Integer) = Sub Variable(3, Integer), Integer(1) !dbg package_id=2 span=[142-147] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Variable(5, Integer) = Store Variable(4, Integer) !dbg package_id=2 span=[142-147] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Call id(3), args( Variable(5, Integer), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
+                Variable(4, Integer) = Sub Variable(3, Integer), Integer(1) !dbg dbg_location=2
+                Variable(5, Integer) = Store Variable(4, Integer) !dbg dbg_location=2
+                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg package_id=2 span=[127-128] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Jump(1) !dbg package_id=2 span=[127-128] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg package_id=2 span=[131-132] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Jump(1) !dbg package_id=2 span=[131-132] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2"#]],
     );
 }
 
@@ -1841,11 +1841,10 @@ fn integer_mul_with_lhs_dynamic_integer_and_rhs_dynamic_integer() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -1854,13 +1853,14 @@ fn integer_mul_with_lhs_dynamic_integer_and_rhs_dynamic_integer() {
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
@@ -1868,12 +1868,11 @@ fn integer_mul_with_lhs_dynamic_integer_and_rhs_dynamic_integer() {
         output_record_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__int_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_blocks(
@@ -1881,34 +1880,35 @@ fn integer_mul_with_lhs_dynamic_integer_and_rhs_dynamic_integer() {
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[106-116] scope=0 scope_package_id=2 scope_span=[63-197] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-197] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-197] callable=Main
-                Branch Variable(1, Boolean), 2, 3 !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-197] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg package_id=2 span=[102-103] scope=0 scope_package_id=2 scope_span=[63-197] callable=Main
-                Call id(1), args( Qubit(0), Result(1), ) !dbg package_id=2 span=[150-160] scope=0 scope_package_id=2 scope_span=[63-197] callable=Main
-                Variable(4, Boolean) = Call id(2), args( Result(1), ) !dbg package_id=2 span=[150-168] scope=0 scope_package_id=2 scope_span=[63-197] callable=Main
-                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg package_id=2 span=[150-168] scope=0 scope_package_id=2 scope_span=[63-197] callable=Main
-                Branch Variable(5, Boolean), 5, 6 !dbg package_id=2 span=[150-168] scope=0 scope_package_id=2 scope_span=[63-197] callable=Main
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=5
+                Variable(4, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=4
+                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg dbg_location=4
+                Branch Variable(5, Boolean), 5, 6 !dbg dbg_location=4
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg package_id=2 span=[127-128] scope=0 scope_package_id=2 scope_span=[63-197] callable=Main
-                Jump(1) !dbg package_id=2 span=[127-128] scope=0 scope_package_id=2 scope_span=[63-197] callable=Main
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg package_id=2 span=[131-132] scope=0 scope_package_id=2 scope_span=[63-197] callable=Main
-                Jump(1) !dbg package_id=2 span=[131-132] scope=0 scope_package_id=2 scope_span=[63-197] callable=Main
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 4:Block:
-                Variable(7, Integer) = Store Variable(6, Integer) !dbg package_id=2 span=[146-147] scope=0 scope_package_id=2 scope_span=[63-197] callable=Main
-                Variable(8, Integer) = Mul Variable(3, Integer), Variable(7, Integer) !dbg package_id=2 span=[186-191] scope=0 scope_package_id=2 scope_span=[63-197] callable=Main
-                Variable(9, Integer) = Store Variable(8, Integer) !dbg package_id=2 span=[186-191] scope=0 scope_package_id=2 scope_span=[63-197] callable=Main
-                Call id(3), args( Variable(9, Integer), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(7, Integer) = Store Variable(6, Integer) !dbg dbg_location=4
+                Variable(8, Integer) = Mul Variable(3, Integer), Variable(7, Integer) !dbg dbg_location=4
+                Variable(9, Integer) = Store Variable(8, Integer) !dbg dbg_location=4
+                Call id(4), args( Variable(9, Integer), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 5:Block:
-                Variable(6, Integer) = Store Integer(1) !dbg package_id=2 span=[171-172] scope=0 scope_package_id=2 scope_span=[63-197] callable=Main
-                Jump(4) !dbg package_id=2 span=[171-172] scope=0 scope_package_id=2 scope_span=[63-197] callable=Main
+                Variable(6, Integer) = Store Integer(1) !dbg dbg_location=4
+                Jump(4) !dbg dbg_location=4
             Block 6:Block:
-                Variable(6, Integer) = Store Integer(0) !dbg package_id=2 span=[175-176] scope=0 scope_package_id=2 scope_span=[63-197] callable=Main
-                Jump(4) !dbg package_id=2 span=[175-176] scope=0 scope_package_id=2 scope_span=[63-197] callable=Main"#]],
+                Variable(6, Integer) = Store Integer(0) !dbg dbg_location=4
+                Jump(4) !dbg dbg_location=4"#]],
     );
 }
 
@@ -1932,11 +1932,10 @@ fn integer_div_with_lhs_classical_integer_and_rhs_dynamic_integer() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -1945,13 +1944,14 @@ fn integer_div_with_lhs_classical_integer_and_rhs_dynamic_integer() {
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
@@ -1959,12 +1959,11 @@ fn integer_div_with_lhs_classical_integer_and_rhs_dynamic_integer() {
         output_record_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__int_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_blocks(
@@ -1972,22 +1971,23 @@ fn integer_div_with_lhs_classical_integer_and_rhs_dynamic_integer() {
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[106-116] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Branch Variable(1, Boolean), 2, 3 !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg package_id=2 span=[102-103] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Variable(4, Integer) = Sdiv Integer(1), Variable(3, Integer) !dbg package_id=2 span=[142-147] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Variable(5, Integer) = Store Variable(4, Integer) !dbg package_id=2 span=[142-147] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Call id(3), args( Variable(5, Integer), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
+                Variable(4, Integer) = Sdiv Integer(1), Variable(3, Integer) !dbg dbg_location=2
+                Variable(5, Integer) = Store Variable(4, Integer) !dbg dbg_location=2
+                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg package_id=2 span=[127-128] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Jump(1) !dbg package_id=2 span=[127-128] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg package_id=2 span=[131-132] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Jump(1) !dbg package_id=2 span=[131-132] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2"#]],
     );
 }
 
@@ -2033,11 +2033,10 @@ fn integer_mod_with_lhs_dynamic_integer_and_rhs_classical_integer() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -2046,13 +2045,14 @@ fn integer_mod_with_lhs_dynamic_integer_and_rhs_classical_integer() {
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
@@ -2060,12 +2060,11 @@ fn integer_mod_with_lhs_dynamic_integer_and_rhs_classical_integer() {
         output_record_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__int_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_blocks(
@@ -2073,22 +2072,23 @@ fn integer_mod_with_lhs_dynamic_integer_and_rhs_classical_integer() {
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[106-116] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Branch Variable(1, Boolean), 2, 3 !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg package_id=2 span=[102-103] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Variable(4, Integer) = Srem Variable(3, Integer), Integer(1) !dbg package_id=2 span=[142-147] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Variable(5, Integer) = Store Variable(4, Integer) !dbg package_id=2 span=[142-147] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Call id(3), args( Variable(5, Integer), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
+                Variable(4, Integer) = Srem Variable(3, Integer), Integer(1) !dbg dbg_location=2
+                Variable(5, Integer) = Store Variable(4, Integer) !dbg dbg_location=2
+                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg package_id=2 span=[127-128] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Jump(1) !dbg package_id=2 span=[127-128] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg package_id=2 span=[131-132] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Jump(1) !dbg package_id=2 span=[131-132] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2"#]],
     );
 }
 
@@ -2157,11 +2157,10 @@ fn integer_exponentiation_with_lhs_dynamic_integer_and_rhs_classical_zero_intege
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -2170,13 +2169,14 @@ fn integer_exponentiation_with_lhs_dynamic_integer_and_rhs_classical_zero_intege
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
@@ -2184,12 +2184,11 @@ fn integer_exponentiation_with_lhs_dynamic_integer_and_rhs_classical_zero_intege
         output_record_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__int_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_blocks(
@@ -2197,22 +2196,23 @@ fn integer_exponentiation_with_lhs_dynamic_integer_and_rhs_classical_zero_intege
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[106-116] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Branch Variable(1, Boolean), 2, 3 !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg package_id=2 span=[102-103] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Variable(4, Integer) = Store Integer(1) !dbg package_id=2 span=[142-147] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Variable(5, Integer) = Store Variable(4, Integer) !dbg package_id=2 span=[142-147] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Call id(3), args( Variable(5, Integer), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
+                Variable(4, Integer) = Store Integer(1) !dbg dbg_location=2
+                Variable(5, Integer) = Store Variable(4, Integer) !dbg dbg_location=2
+                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg package_id=2 span=[127-128] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Jump(1) !dbg package_id=2 span=[127-128] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg package_id=2 span=[131-132] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Jump(1) !dbg package_id=2 span=[131-132] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2"#]],
     );
 }
 
@@ -2236,11 +2236,10 @@ fn integer_exponentiation_with_lhs_dynamic_integer_and_rhs_classical_positive_in
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -2249,13 +2248,14 @@ fn integer_exponentiation_with_lhs_dynamic_integer_and_rhs_classical_positive_in
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
@@ -2263,12 +2263,11 @@ fn integer_exponentiation_with_lhs_dynamic_integer_and_rhs_classical_positive_in
         output_record_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__int_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_blocks(
@@ -2276,25 +2275,26 @@ fn integer_exponentiation_with_lhs_dynamic_integer_and_rhs_classical_positive_in
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[106-116] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Branch Variable(1, Boolean), 2, 3 !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg package_id=2 span=[102-103] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Variable(4, Integer) = Store Integer(1) !dbg package_id=2 span=[142-147] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Variable(5, Integer) = Mul Variable(4, Integer), Variable(3, Integer) !dbg package_id=2 span=[142-147] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Variable(6, Integer) = Mul Variable(5, Integer), Variable(3, Integer) !dbg package_id=2 span=[142-147] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Variable(7, Integer) = Mul Variable(6, Integer), Variable(3, Integer) !dbg package_id=2 span=[142-147] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Variable(8, Integer) = Store Variable(7, Integer) !dbg package_id=2 span=[142-147] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Call id(3), args( Variable(8, Integer), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
+                Variable(4, Integer) = Store Integer(1) !dbg dbg_location=2
+                Variable(5, Integer) = Mul Variable(4, Integer), Variable(3, Integer) !dbg dbg_location=2
+                Variable(6, Integer) = Mul Variable(5, Integer), Variable(3, Integer) !dbg dbg_location=2
+                Variable(7, Integer) = Mul Variable(6, Integer), Variable(3, Integer) !dbg dbg_location=2
+                Variable(8, Integer) = Store Variable(7, Integer) !dbg dbg_location=2
+                Call id(4), args( Variable(8, Integer), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg package_id=2 span=[127-128] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Jump(1) !dbg package_id=2 span=[127-128] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg package_id=2 span=[131-132] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main
-                Jump(1) !dbg package_id=2 span=[131-132] scope=0 scope_package_id=2 scope_span=[63-153] callable=Main"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2"#]],
     );
 }
 
@@ -2342,11 +2342,10 @@ fn integer_bitwise_and_with_lhs_dynamic_integer_and_rhs_dynamic_integer() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -2355,13 +2354,14 @@ fn integer_bitwise_and_with_lhs_dynamic_integer_and_rhs_dynamic_integer() {
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
@@ -2369,12 +2369,11 @@ fn integer_bitwise_and_with_lhs_dynamic_integer_and_rhs_dynamic_integer() {
         output_record_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__int_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_blocks(
@@ -2382,34 +2381,35 @@ fn integer_bitwise_and_with_lhs_dynamic_integer_and_rhs_dynamic_integer() {
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[106-116] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
-                Branch Variable(1, Boolean), 2, 3 !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg package_id=2 span=[102-103] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
-                Call id(1), args( Qubit(0), Result(1), ) !dbg package_id=2 span=[150-160] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
-                Variable(4, Boolean) = Call id(2), args( Result(1), ) !dbg package_id=2 span=[150-168] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
-                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg package_id=2 span=[150-168] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
-                Branch Variable(5, Boolean), 5, 6 !dbg package_id=2 span=[150-168] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=5
+                Variable(4, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=4
+                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg dbg_location=4
+                Branch Variable(5, Boolean), 5, 6 !dbg dbg_location=4
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg package_id=2 span=[127-128] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
-                Jump(1) !dbg package_id=2 span=[127-128] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg package_id=2 span=[131-132] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
-                Jump(1) !dbg package_id=2 span=[131-132] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 4:Block:
-                Variable(7, Integer) = Store Variable(6, Integer) !dbg package_id=2 span=[146-147] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
-                Variable(8, Integer) = BitwiseAnd Variable(3, Integer), Variable(7, Integer) !dbg package_id=2 span=[186-193] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
-                Variable(9, Integer) = Store Variable(8, Integer) !dbg package_id=2 span=[186-193] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
-                Call id(3), args( Variable(9, Integer), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(7, Integer) = Store Variable(6, Integer) !dbg dbg_location=4
+                Variable(8, Integer) = BitwiseAnd Variable(3, Integer), Variable(7, Integer) !dbg dbg_location=4
+                Variable(9, Integer) = Store Variable(8, Integer) !dbg dbg_location=4
+                Call id(4), args( Variable(9, Integer), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 5:Block:
-                Variable(6, Integer) = Store Integer(1) !dbg package_id=2 span=[171-172] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
-                Jump(4) !dbg package_id=2 span=[171-172] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
+                Variable(6, Integer) = Store Integer(1) !dbg dbg_location=4
+                Jump(4) !dbg dbg_location=4
             Block 6:Block:
-                Variable(6, Integer) = Store Integer(0) !dbg package_id=2 span=[175-176] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
-                Jump(4) !dbg package_id=2 span=[175-176] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main"#]],
+                Variable(6, Integer) = Store Integer(0) !dbg dbg_location=4
+                Jump(4) !dbg dbg_location=4"#]],
     );
 }
 
@@ -2433,11 +2433,10 @@ fn integer_bitwise_or_with_lhs_classical_integer_and_rhs_dynamic_integer() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -2446,13 +2445,14 @@ fn integer_bitwise_or_with_lhs_classical_integer_and_rhs_dynamic_integer() {
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
@@ -2460,12 +2460,11 @@ fn integer_bitwise_or_with_lhs_classical_integer_and_rhs_dynamic_integer() {
         output_record_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__int_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_blocks(
@@ -2473,22 +2472,23 @@ fn integer_bitwise_or_with_lhs_classical_integer_and_rhs_dynamic_integer() {
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[106-116] scope=0 scope_package_id=2 scope_span=[63-155] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-155] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-155] callable=Main
-                Branch Variable(1, Boolean), 2, 3 !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-155] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg package_id=2 span=[102-103] scope=0 scope_package_id=2 scope_span=[63-155] callable=Main
-                Variable(4, Integer) = BitwiseOr Integer(1), Variable(3, Integer) !dbg package_id=2 span=[142-149] scope=0 scope_package_id=2 scope_span=[63-155] callable=Main
-                Variable(5, Integer) = Store Variable(4, Integer) !dbg package_id=2 span=[142-149] scope=0 scope_package_id=2 scope_span=[63-155] callable=Main
-                Call id(3), args( Variable(5, Integer), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
+                Variable(4, Integer) = BitwiseOr Integer(1), Variable(3, Integer) !dbg dbg_location=2
+                Variable(5, Integer) = Store Variable(4, Integer) !dbg dbg_location=2
+                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg package_id=2 span=[127-128] scope=0 scope_package_id=2 scope_span=[63-155] callable=Main
-                Jump(1) !dbg package_id=2 span=[127-128] scope=0 scope_package_id=2 scope_span=[63-155] callable=Main
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg package_id=2 span=[131-132] scope=0 scope_package_id=2 scope_span=[63-155] callable=Main
-                Jump(1) !dbg package_id=2 span=[131-132] scope=0 scope_package_id=2 scope_span=[63-155] callable=Main"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2"#]],
     );
 }
 
@@ -2512,11 +2512,10 @@ fn integer_bitwise_xor_with_lhs_dynamic_integer_and_rhs_classical_integer() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -2525,13 +2524,14 @@ fn integer_bitwise_xor_with_lhs_dynamic_integer_and_rhs_classical_integer() {
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
@@ -2539,12 +2539,11 @@ fn integer_bitwise_xor_with_lhs_dynamic_integer_and_rhs_classical_integer() {
         output_record_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__int_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_blocks(
@@ -2552,22 +2551,23 @@ fn integer_bitwise_xor_with_lhs_dynamic_integer_and_rhs_classical_integer() {
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[106-116] scope=0 scope_package_id=2 scope_span=[63-155] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-155] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-155] callable=Main
-                Branch Variable(1, Boolean), 2, 3 !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-155] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg package_id=2 span=[102-103] scope=0 scope_package_id=2 scope_span=[63-155] callable=Main
-                Variable(4, Integer) = BitwiseXor Variable(3, Integer), Integer(1) !dbg package_id=2 span=[142-149] scope=0 scope_package_id=2 scope_span=[63-155] callable=Main
-                Variable(5, Integer) = Store Variable(4, Integer) !dbg package_id=2 span=[142-149] scope=0 scope_package_id=2 scope_span=[63-155] callable=Main
-                Call id(3), args( Variable(5, Integer), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
+                Variable(4, Integer) = BitwiseXor Variable(3, Integer), Integer(1) !dbg dbg_location=2
+                Variable(5, Integer) = Store Variable(4, Integer) !dbg dbg_location=2
+                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg package_id=2 span=[127-128] scope=0 scope_package_id=2 scope_span=[63-155] callable=Main
-                Jump(1) !dbg package_id=2 span=[127-128] scope=0 scope_package_id=2 scope_span=[63-155] callable=Main
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg package_id=2 span=[131-132] scope=0 scope_package_id=2 scope_span=[63-155] callable=Main
-                Jump(1) !dbg package_id=2 span=[131-132] scope=0 scope_package_id=2 scope_span=[63-155] callable=Main"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2"#]],
     );
 }
 
@@ -2592,11 +2592,10 @@ fn integer_bitwise_left_shif_with_lhs_dynamic_integer_and_rhs_dynamic_integer() 
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -2605,13 +2604,14 @@ fn integer_bitwise_left_shif_with_lhs_dynamic_integer_and_rhs_dynamic_integer() 
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
@@ -2619,12 +2619,11 @@ fn integer_bitwise_left_shif_with_lhs_dynamic_integer_and_rhs_dynamic_integer() 
         output_record_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__int_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_blocks(
@@ -2632,34 +2631,35 @@ fn integer_bitwise_left_shif_with_lhs_dynamic_integer_and_rhs_dynamic_integer() 
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[106-116] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
-                Branch Variable(1, Boolean), 2, 3 !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg package_id=2 span=[102-103] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
-                Call id(1), args( Qubit(0), Result(1), ) !dbg package_id=2 span=[150-160] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
-                Variable(4, Boolean) = Call id(2), args( Result(1), ) !dbg package_id=2 span=[150-168] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
-                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg package_id=2 span=[150-168] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
-                Branch Variable(5, Boolean), 5, 6 !dbg package_id=2 span=[150-168] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=5
+                Variable(4, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=4
+                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg dbg_location=4
+                Branch Variable(5, Boolean), 5, 6 !dbg dbg_location=4
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg package_id=2 span=[127-128] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
-                Jump(1) !dbg package_id=2 span=[127-128] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg package_id=2 span=[131-132] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
-                Jump(1) !dbg package_id=2 span=[131-132] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 4:Block:
-                Variable(7, Integer) = Store Variable(6, Integer) !dbg package_id=2 span=[146-147] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
-                Variable(8, Integer) = Shl Variable(3, Integer), Variable(7, Integer) !dbg package_id=2 span=[186-193] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
-                Variable(9, Integer) = Store Variable(8, Integer) !dbg package_id=2 span=[186-193] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
-                Call id(3), args( Variable(9, Integer), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(7, Integer) = Store Variable(6, Integer) !dbg dbg_location=4
+                Variable(8, Integer) = Shl Variable(3, Integer), Variable(7, Integer) !dbg dbg_location=4
+                Variable(9, Integer) = Store Variable(8, Integer) !dbg dbg_location=4
+                Call id(4), args( Variable(9, Integer), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 5:Block:
-                Variable(6, Integer) = Store Integer(1) !dbg package_id=2 span=[171-172] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
-                Jump(4) !dbg package_id=2 span=[171-172] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
+                Variable(6, Integer) = Store Integer(1) !dbg dbg_location=4
+                Jump(4) !dbg dbg_location=4
             Block 6:Block:
-                Variable(6, Integer) = Store Integer(0) !dbg package_id=2 span=[175-176] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main
-                Jump(4) !dbg package_id=2 span=[175-176] scope=0 scope_package_id=2 scope_span=[63-199] callable=Main"#]],
+                Variable(6, Integer) = Store Integer(0) !dbg dbg_location=4
+                Jump(4) !dbg dbg_location=4"#]],
     );
 }
 
@@ -2683,11 +2683,10 @@ fn integer_bitwise_right_shift_with_lhs_classical_integer_and_rhs_dynamic_intege
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -2696,13 +2695,14 @@ fn integer_bitwise_right_shift_with_lhs_classical_integer_and_rhs_dynamic_intege
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
@@ -2710,12 +2710,11 @@ fn integer_bitwise_right_shift_with_lhs_classical_integer_and_rhs_dynamic_intege
         output_record_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__int_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Integer
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_blocks(
@@ -2723,22 +2722,23 @@ fn integer_bitwise_right_shift_with_lhs_classical_integer_and_rhs_dynamic_intege
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[106-116] scope=0 scope_package_id=2 scope_span=[63-155] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-155] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-155] callable=Main
-                Branch Variable(1, Boolean), 2, 3 !dbg package_id=2 span=[106-124] scope=0 scope_package_id=2 scope_span=[63-155] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg package_id=2 span=[102-103] scope=0 scope_package_id=2 scope_span=[63-155] callable=Main
-                Variable(4, Integer) = Ashr Integer(1), Variable(3, Integer) !dbg package_id=2 span=[142-149] scope=0 scope_package_id=2 scope_span=[63-155] callable=Main
-                Variable(5, Integer) = Store Variable(4, Integer) !dbg package_id=2 span=[142-149] scope=0 scope_package_id=2 scope_span=[63-155] callable=Main
-                Call id(3), args( Variable(5, Integer), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
+                Variable(4, Integer) = Ashr Integer(1), Variable(3, Integer) !dbg dbg_location=2
+                Variable(5, Integer) = Store Variable(4, Integer) !dbg dbg_location=2
+                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg package_id=2 span=[127-128] scope=0 scope_package_id=2 scope_span=[63-155] callable=Main
-                Jump(1) !dbg package_id=2 span=[127-128] scope=0 scope_package_id=2 scope_span=[63-155] callable=Main
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg package_id=2 span=[131-132] scope=0 scope_package_id=2 scope_span=[63-155] callable=Main
-                Jump(1) !dbg package_id=2 span=[131-132] scope=0 scope_package_id=2 scope_span=[63-155] callable=Main"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2"#]],
     );
 }
 
@@ -2762,11 +2762,10 @@ fn integer_equality_comparison_with_lhs_dynamic_integer_and_rhs_classical_intege
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -2775,13 +2774,14 @@ fn integer_equality_comparison_with_lhs_dynamic_integer_and_rhs_classical_intege
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
@@ -2789,12 +2789,11 @@ fn integer_equality_comparison_with_lhs_dynamic_integer_and_rhs_classical_intege
         output_record_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__bool_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Boolean
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_blocks(
@@ -2802,22 +2801,23 @@ fn integer_equality_comparison_with_lhs_dynamic_integer_and_rhs_classical_intege
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[107-117] scope=0 scope_package_id=2 scope_span=[64-155] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-155] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-155] callable=Main
-                Branch Variable(1, Boolean), 2, 3 !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-155] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg package_id=2 span=[103-104] scope=0 scope_package_id=2 scope_span=[64-155] callable=Main
-                Variable(4, Boolean) = Icmp Eq, Variable(3, Integer), Integer(1) !dbg package_id=2 span=[143-149] scope=0 scope_package_id=2 scope_span=[64-155] callable=Main
-                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg package_id=2 span=[143-149] scope=0 scope_package_id=2 scope_span=[64-155] callable=Main
-                Call id(3), args( Variable(5, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
+                Variable(4, Boolean) = Icmp Eq, Variable(3, Integer), Integer(1) !dbg dbg_location=2
+                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=2
+                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg package_id=2 span=[128-129] scope=0 scope_package_id=2 scope_span=[64-155] callable=Main
-                Jump(1) !dbg package_id=2 span=[128-129] scope=0 scope_package_id=2 scope_span=[64-155] callable=Main
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg package_id=2 span=[132-133] scope=0 scope_package_id=2 scope_span=[64-155] callable=Main
-                Jump(1) !dbg package_id=2 span=[132-133] scope=0 scope_package_id=2 scope_span=[64-155] callable=Main"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2"#]],
     );
 }
 
@@ -2842,11 +2842,10 @@ fn integer_inequality_comparison_with_lhs_dynamic_integer_and_rhs_dynamic_intege
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -2855,13 +2854,14 @@ fn integer_inequality_comparison_with_lhs_dynamic_integer_and_rhs_dynamic_intege
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
@@ -2869,12 +2869,11 @@ fn integer_inequality_comparison_with_lhs_dynamic_integer_and_rhs_dynamic_intege
         output_record_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__bool_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Boolean
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_blocks(
@@ -2882,34 +2881,35 @@ fn integer_inequality_comparison_with_lhs_dynamic_integer_and_rhs_dynamic_intege
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[107-117] scope=0 scope_package_id=2 scope_span=[64-199] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-199] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-199] callable=Main
-                Branch Variable(1, Boolean), 2, 3 !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-199] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg package_id=2 span=[103-104] scope=0 scope_package_id=2 scope_span=[64-199] callable=Main
-                Call id(1), args( Qubit(0), Result(1), ) !dbg package_id=2 span=[151-161] scope=0 scope_package_id=2 scope_span=[64-199] callable=Main
-                Variable(4, Boolean) = Call id(2), args( Result(1), ) !dbg package_id=2 span=[151-169] scope=0 scope_package_id=2 scope_span=[64-199] callable=Main
-                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg package_id=2 span=[151-169] scope=0 scope_package_id=2 scope_span=[64-199] callable=Main
-                Branch Variable(5, Boolean), 5, 6 !dbg package_id=2 span=[151-169] scope=0 scope_package_id=2 scope_span=[64-199] callable=Main
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=5
+                Variable(4, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=4
+                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg dbg_location=4
+                Branch Variable(5, Boolean), 5, 6 !dbg dbg_location=4
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg package_id=2 span=[128-129] scope=0 scope_package_id=2 scope_span=[64-199] callable=Main
-                Jump(1) !dbg package_id=2 span=[128-129] scope=0 scope_package_id=2 scope_span=[64-199] callable=Main
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg package_id=2 span=[132-133] scope=0 scope_package_id=2 scope_span=[64-199] callable=Main
-                Jump(1) !dbg package_id=2 span=[132-133] scope=0 scope_package_id=2 scope_span=[64-199] callable=Main
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 4:Block:
-                Variable(7, Integer) = Store Variable(6, Integer) !dbg package_id=2 span=[147-148] scope=0 scope_package_id=2 scope_span=[64-199] callable=Main
-                Variable(8, Boolean) = Icmp Ne, Variable(3, Integer), Variable(7, Integer) !dbg package_id=2 span=[187-193] scope=0 scope_package_id=2 scope_span=[64-199] callable=Main
-                Variable(9, Boolean) = Store Variable(8, Boolean) !dbg package_id=2 span=[187-193] scope=0 scope_package_id=2 scope_span=[64-199] callable=Main
-                Call id(3), args( Variable(9, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(7, Integer) = Store Variable(6, Integer) !dbg dbg_location=4
+                Variable(8, Boolean) = Icmp Ne, Variable(3, Integer), Variable(7, Integer) !dbg dbg_location=4
+                Variable(9, Boolean) = Store Variable(8, Boolean) !dbg dbg_location=4
+                Call id(4), args( Variable(9, Boolean), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 5:Block:
-                Variable(6, Integer) = Store Integer(1) !dbg package_id=2 span=[172-173] scope=0 scope_package_id=2 scope_span=[64-199] callable=Main
-                Jump(4) !dbg package_id=2 span=[172-173] scope=0 scope_package_id=2 scope_span=[64-199] callable=Main
+                Variable(6, Integer) = Store Integer(1) !dbg dbg_location=4
+                Jump(4) !dbg dbg_location=4
             Block 6:Block:
-                Variable(6, Integer) = Store Integer(0) !dbg package_id=2 span=[176-177] scope=0 scope_package_id=2 scope_span=[64-199] callable=Main
-                Jump(4) !dbg package_id=2 span=[176-177] scope=0 scope_package_id=2 scope_span=[64-199] callable=Main"#]],
+                Variable(6, Integer) = Store Integer(0) !dbg dbg_location=4
+                Jump(4) !dbg dbg_location=4"#]],
     );
 }
 
@@ -2933,11 +2933,10 @@ fn integer_greater_than_comparison_with_lhs_classical_integer_and_rhs_dynamic_in
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -2946,13 +2945,14 @@ fn integer_greater_than_comparison_with_lhs_classical_integer_and_rhs_dynamic_in
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
@@ -2960,12 +2960,11 @@ fn integer_greater_than_comparison_with_lhs_classical_integer_and_rhs_dynamic_in
         output_record_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__bool_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Boolean
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_blocks(
@@ -2973,22 +2972,23 @@ fn integer_greater_than_comparison_with_lhs_classical_integer_and_rhs_dynamic_in
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[107-117] scope=0 scope_package_id=2 scope_span=[64-154] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-154] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-154] callable=Main
-                Branch Variable(1, Boolean), 2, 3 !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-154] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg package_id=2 span=[103-104] scope=0 scope_package_id=2 scope_span=[64-154] callable=Main
-                Variable(4, Boolean) = Icmp Sgt, Integer(1), Variable(3, Integer) !dbg package_id=2 span=[143-148] scope=0 scope_package_id=2 scope_span=[64-154] callable=Main
-                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg package_id=2 span=[143-148] scope=0 scope_package_id=2 scope_span=[64-154] callable=Main
-                Call id(3), args( Variable(5, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
+                Variable(4, Boolean) = Icmp Sgt, Integer(1), Variable(3, Integer) !dbg dbg_location=2
+                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=2
+                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg package_id=2 span=[128-129] scope=0 scope_package_id=2 scope_span=[64-154] callable=Main
-                Jump(1) !dbg package_id=2 span=[128-129] scope=0 scope_package_id=2 scope_span=[64-154] callable=Main
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg package_id=2 span=[132-133] scope=0 scope_package_id=2 scope_span=[64-154] callable=Main
-                Jump(1) !dbg package_id=2 span=[132-133] scope=0 scope_package_id=2 scope_span=[64-154] callable=Main"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2"#]],
     );
 }
 
@@ -3012,11 +3012,10 @@ fn integer_greater_or_equal_than_comparison_with_lhs_dynamic_integer_and_rhs_cla
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -3025,13 +3024,14 @@ fn integer_greater_or_equal_than_comparison_with_lhs_dynamic_integer_and_rhs_cla
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
@@ -3039,12 +3039,11 @@ fn integer_greater_or_equal_than_comparison_with_lhs_dynamic_integer_and_rhs_cla
         output_record_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__bool_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Boolean
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_blocks(
@@ -3052,22 +3051,23 @@ fn integer_greater_or_equal_than_comparison_with_lhs_dynamic_integer_and_rhs_cla
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[107-117] scope=0 scope_package_id=2 scope_span=[64-155] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-155] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-155] callable=Main
-                Branch Variable(1, Boolean), 2, 3 !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-155] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg package_id=2 span=[103-104] scope=0 scope_package_id=2 scope_span=[64-155] callable=Main
-                Variable(4, Boolean) = Icmp Sge, Variable(3, Integer), Integer(1) !dbg package_id=2 span=[143-149] scope=0 scope_package_id=2 scope_span=[64-155] callable=Main
-                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg package_id=2 span=[143-149] scope=0 scope_package_id=2 scope_span=[64-155] callable=Main
-                Call id(3), args( Variable(5, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
+                Variable(4, Boolean) = Icmp Sge, Variable(3, Integer), Integer(1) !dbg dbg_location=2
+                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=2
+                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg package_id=2 span=[128-129] scope=0 scope_package_id=2 scope_span=[64-155] callable=Main
-                Jump(1) !dbg package_id=2 span=[128-129] scope=0 scope_package_id=2 scope_span=[64-155] callable=Main
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg package_id=2 span=[132-133] scope=0 scope_package_id=2 scope_span=[64-155] callable=Main
-                Jump(1) !dbg package_id=2 span=[132-133] scope=0 scope_package_id=2 scope_span=[64-155] callable=Main"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2"#]],
     );
 }
 
@@ -3092,11 +3092,10 @@ fn integer_less_than_comparison_with_lhs_dynamic_integer_and_rhs_dynamic_integer
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -3105,13 +3104,14 @@ fn integer_less_than_comparison_with_lhs_dynamic_integer_and_rhs_dynamic_integer
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
@@ -3119,12 +3119,11 @@ fn integer_less_than_comparison_with_lhs_dynamic_integer_and_rhs_dynamic_integer
         output_record_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__bool_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Boolean
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_blocks(
@@ -3132,34 +3131,35 @@ fn integer_less_than_comparison_with_lhs_dynamic_integer_and_rhs_dynamic_integer
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[107-117] scope=0 scope_package_id=2 scope_span=[64-198] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-198] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-198] callable=Main
-                Branch Variable(1, Boolean), 2, 3 !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-198] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg package_id=2 span=[103-104] scope=0 scope_package_id=2 scope_span=[64-198] callable=Main
-                Call id(1), args( Qubit(0), Result(1), ) !dbg package_id=2 span=[151-161] scope=0 scope_package_id=2 scope_span=[64-198] callable=Main
-                Variable(4, Boolean) = Call id(2), args( Result(1), ) !dbg package_id=2 span=[151-169] scope=0 scope_package_id=2 scope_span=[64-198] callable=Main
-                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg package_id=2 span=[151-169] scope=0 scope_package_id=2 scope_span=[64-198] callable=Main
-                Branch Variable(5, Boolean), 5, 6 !dbg package_id=2 span=[151-169] scope=0 scope_package_id=2 scope_span=[64-198] callable=Main
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=5
+                Variable(4, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=4
+                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg dbg_location=4
+                Branch Variable(5, Boolean), 5, 6 !dbg dbg_location=4
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg package_id=2 span=[128-129] scope=0 scope_package_id=2 scope_span=[64-198] callable=Main
-                Jump(1) !dbg package_id=2 span=[128-129] scope=0 scope_package_id=2 scope_span=[64-198] callable=Main
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg package_id=2 span=[132-133] scope=0 scope_package_id=2 scope_span=[64-198] callable=Main
-                Jump(1) !dbg package_id=2 span=[132-133] scope=0 scope_package_id=2 scope_span=[64-198] callable=Main
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 4:Block:
-                Variable(7, Integer) = Store Variable(6, Integer) !dbg package_id=2 span=[147-148] scope=0 scope_package_id=2 scope_span=[64-198] callable=Main
-                Variable(8, Boolean) = Icmp Slt, Variable(3, Integer), Variable(7, Integer) !dbg package_id=2 span=[187-192] scope=0 scope_package_id=2 scope_span=[64-198] callable=Main
-                Variable(9, Boolean) = Store Variable(8, Boolean) !dbg package_id=2 span=[187-192] scope=0 scope_package_id=2 scope_span=[64-198] callable=Main
-                Call id(3), args( Variable(9, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(7, Integer) = Store Variable(6, Integer) !dbg dbg_location=4
+                Variable(8, Boolean) = Icmp Slt, Variable(3, Integer), Variable(7, Integer) !dbg dbg_location=4
+                Variable(9, Boolean) = Store Variable(8, Boolean) !dbg dbg_location=4
+                Call id(4), args( Variable(9, Boolean), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 5:Block:
-                Variable(6, Integer) = Store Integer(1) !dbg package_id=2 span=[172-173] scope=0 scope_package_id=2 scope_span=[64-198] callable=Main
-                Jump(4) !dbg package_id=2 span=[172-173] scope=0 scope_package_id=2 scope_span=[64-198] callable=Main
+                Variable(6, Integer) = Store Integer(1) !dbg dbg_location=4
+                Jump(4) !dbg dbg_location=4
             Block 6:Block:
-                Variable(6, Integer) = Store Integer(0) !dbg package_id=2 span=[176-177] scope=0 scope_package_id=2 scope_span=[64-198] callable=Main
-                Jump(4) !dbg package_id=2 span=[176-177] scope=0 scope_package_id=2 scope_span=[64-198] callable=Main"#]],
+                Variable(6, Integer) = Store Integer(0) !dbg dbg_location=4
+                Jump(4) !dbg dbg_location=4"#]],
     );
 }
 
@@ -3183,11 +3183,10 @@ fn integer_less_or_equal_than_comparison_with_lhs_classical_integer_and_rhs_dyna
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -3196,13 +3195,14 @@ fn integer_less_or_equal_than_comparison_with_lhs_classical_integer_and_rhs_dyna
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
@@ -3210,12 +3210,11 @@ fn integer_less_or_equal_than_comparison_with_lhs_classical_integer_and_rhs_dyna
         output_record_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__bool_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Boolean
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_blocks(
@@ -3223,22 +3222,23 @@ fn integer_less_or_equal_than_comparison_with_lhs_classical_integer_and_rhs_dyna
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[107-117] scope=0 scope_package_id=2 scope_span=[64-155] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-155] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-155] callable=Main
-                Branch Variable(1, Boolean), 2, 3 !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-155] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg package_id=2 span=[103-104] scope=0 scope_package_id=2 scope_span=[64-155] callable=Main
-                Variable(4, Boolean) = Icmp Sle, Integer(1), Variable(3, Integer) !dbg package_id=2 span=[143-149] scope=0 scope_package_id=2 scope_span=[64-155] callable=Main
-                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg package_id=2 span=[143-149] scope=0 scope_package_id=2 scope_span=[64-155] callable=Main
-                Call id(3), args( Variable(5, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
+                Variable(4, Boolean) = Icmp Sle, Integer(1), Variable(3, Integer) !dbg dbg_location=2
+                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=2
+                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg package_id=2 span=[128-129] scope=0 scope_package_id=2 scope_span=[64-155] callable=Main
-                Jump(1) !dbg package_id=2 span=[128-129] scope=0 scope_package_id=2 scope_span=[64-155] callable=Main
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg package_id=2 span=[132-133] scope=0 scope_package_id=2 scope_span=[64-155] callable=Main
-                Jump(1) !dbg package_id=2 span=[132-133] scope=0 scope_package_id=2 scope_span=[64-155] callable=Main"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2"#]],
     );
 }
 
@@ -3259,27 +3259,27 @@ fn leading_positive_unary_operator_on_double_does_not_generate_rir_instruction()
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Initialize
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let readout_callable_id = CallableId(2);
     assert_callable(
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_recording_callable_id = CallableId(3);
     assert_callable(
@@ -3287,12 +3287,11 @@ fn leading_positive_unary_operator_on_double_does_not_generate_rir_instruction()
         output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__double_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Double
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_blocks(
@@ -3300,21 +3299,22 @@ fn leading_positive_unary_operator_on_double_does_not_generate_rir_instruction()
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[109-119] scope=0 scope_package_id=2 scope_span=[66-157] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[109-127] scope=0 scope_package_id=2 scope_span=[66-157] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[109-127] scope=0 scope_package_id=2 scope_span=[66-157] callable=Main
-                Branch Variable(1, Boolean), 2, 3 !dbg package_id=2 span=[109-127] scope=0 scope_package_id=2 scope_span=[66-157] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Double) = Store Variable(2, Double) !dbg package_id=2 span=[105-106] scope=0 scope_package_id=2 scope_span=[66-157] callable=Main
-                Variable(4, Double) = Store Variable(3, Double) !dbg package_id=2 span=[149-151] scope=0 scope_package_id=2 scope_span=[66-157] callable=Main
-                Call id(3), args( Variable(4, Double), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=2
+                Variable(4, Double) = Store Variable(3, Double) !dbg dbg_location=2
+                Call id(4), args( Variable(4, Double), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 2:Block:
-                Variable(2, Double) = Store Double(0) !dbg package_id=2 span=[130-133] scope=0 scope_package_id=2 scope_span=[66-157] callable=Main
-                Jump(1) !dbg package_id=2 span=[130-133] scope=0 scope_package_id=2 scope_span=[66-157] callable=Main
+                Variable(2, Double) = Store Double(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Double) = Store Double(1) !dbg package_id=2 span=[136-139] scope=0 scope_package_id=2 scope_span=[66-157] callable=Main
-                Jump(1) !dbg package_id=2 span=[136-139] scope=0 scope_package_id=2 scope_span=[66-157] callable=Main"#]],
+                Variable(2, Double) = Store Double(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2"#]],
     );
 }
 
@@ -3335,27 +3335,27 @@ fn leading_negative_unary_operator_on_double_generates_rir_instruction() {
         &program,
         mresetz_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__mresetz__body
-            call_type: Measurement
-            input_type:
-                [0]: Qubit
-                [1]: Result
-            output_type: <VOID>
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Initialize
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let readout_callable_id = CallableId(2);
     assert_callable(
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_recording_callable_id = CallableId(3);
     assert_callable(
@@ -3363,12 +3363,11 @@ fn leading_negative_unary_operator_on_double_generates_rir_instruction() {
         output_recording_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__double_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Double
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_blocks(
@@ -3376,22 +3375,23 @@ fn leading_negative_unary_operator_on_double_generates_rir_instruction() {
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[109-119] scope=0 scope_package_id=2 scope_span=[66-157] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[109-127] scope=0 scope_package_id=2 scope_span=[66-157] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[109-127] scope=0 scope_package_id=2 scope_span=[66-157] callable=Main
-                Branch Variable(1, Boolean), 2, 3 !dbg package_id=2 span=[109-127] scope=0 scope_package_id=2 scope_span=[66-157] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Double) = Store Variable(2, Double) !dbg package_id=2 span=[105-106] scope=0 scope_package_id=2 scope_span=[66-157] callable=Main
-                Variable(4, Double) = Fmul Double(-1), Variable(3, Double) !dbg package_id=2 span=[149-151] scope=0 scope_package_id=2 scope_span=[66-157] callable=Main
-                Variable(5, Double) = Store Variable(4, Double) !dbg package_id=2 span=[149-151] scope=0 scope_package_id=2 scope_span=[66-157] callable=Main
-                Call id(3), args( Variable(5, Double), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=2
+                Variable(4, Double) = Fmul Double(-1), Variable(3, Double) !dbg dbg_location=2
+                Variable(5, Double) = Store Variable(4, Double) !dbg dbg_location=2
+                Call id(4), args( Variable(5, Double), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 2:Block:
-                Variable(2, Double) = Store Double(0) !dbg package_id=2 span=[130-133] scope=0 scope_package_id=2 scope_span=[66-157] callable=Main
-                Jump(1) !dbg package_id=2 span=[130-133] scope=0 scope_package_id=2 scope_span=[66-157] callable=Main
+                Variable(2, Double) = Store Double(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Double) = Store Double(1) !dbg package_id=2 span=[136-139] scope=0 scope_package_id=2 scope_span=[66-157] callable=Main
-                Jump(1) !dbg package_id=2 span=[136-139] scope=0 scope_package_id=2 scope_span=[66-157] callable=Main"#]],
+                Variable(2, Double) = Store Double(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2"#]],
     );
 }
 
@@ -3415,11 +3415,10 @@ fn double_add_with_lhs_classical_double_and_rhs_dynamic_double() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -3428,13 +3427,14 @@ fn double_add_with_lhs_classical_double_and_rhs_dynamic_double() {
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
@@ -3442,12 +3442,11 @@ fn double_add_with_lhs_classical_double_and_rhs_dynamic_double() {
         output_record_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__double_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Double
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_blocks(
@@ -3455,22 +3454,23 @@ fn double_add_with_lhs_classical_double_and_rhs_dynamic_double() {
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[109-119] scope=0 scope_package_id=2 scope_span=[66-162] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[109-127] scope=0 scope_package_id=2 scope_span=[66-162] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[109-127] scope=0 scope_package_id=2 scope_span=[66-162] callable=Main
-                Branch Variable(1, Boolean), 2, 3 !dbg package_id=2 span=[109-127] scope=0 scope_package_id=2 scope_span=[66-162] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Double) = Store Variable(2, Double) !dbg package_id=2 span=[105-106] scope=0 scope_package_id=2 scope_span=[66-162] callable=Main
-                Variable(4, Double) = Fadd Double(1), Variable(3, Double) !dbg package_id=2 span=[149-156] scope=0 scope_package_id=2 scope_span=[66-162] callable=Main
-                Variable(5, Double) = Store Variable(4, Double) !dbg package_id=2 span=[149-156] scope=0 scope_package_id=2 scope_span=[66-162] callable=Main
-                Call id(3), args( Variable(5, Double), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=2
+                Variable(4, Double) = Fadd Double(1), Variable(3, Double) !dbg dbg_location=2
+                Variable(5, Double) = Store Variable(4, Double) !dbg dbg_location=2
+                Call id(4), args( Variable(5, Double), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 2:Block:
-                Variable(2, Double) = Store Double(0) !dbg package_id=2 span=[130-133] scope=0 scope_package_id=2 scope_span=[66-162] callable=Main
-                Jump(1) !dbg package_id=2 span=[130-133] scope=0 scope_package_id=2 scope_span=[66-162] callable=Main
+                Variable(2, Double) = Store Double(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Double) = Store Double(1) !dbg package_id=2 span=[136-139] scope=0 scope_package_id=2 scope_span=[66-162] callable=Main
-                Jump(1) !dbg package_id=2 span=[136-139] scope=0 scope_package_id=2 scope_span=[66-162] callable=Main"#]],
+                Variable(2, Double) = Store Double(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2"#]],
     );
 }
 
@@ -3494,11 +3494,10 @@ fn double_sub_with_lhs_dynamic_double_and_rhs_classical_double() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -3507,13 +3506,14 @@ fn double_sub_with_lhs_dynamic_double_and_rhs_classical_double() {
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
@@ -3521,12 +3521,11 @@ fn double_sub_with_lhs_dynamic_double_and_rhs_classical_double() {
         output_record_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__double_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Double
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_blocks(
@@ -3534,22 +3533,23 @@ fn double_sub_with_lhs_dynamic_double_and_rhs_classical_double() {
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[109-119] scope=0 scope_package_id=2 scope_span=[66-162] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[109-127] scope=0 scope_package_id=2 scope_span=[66-162] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[109-127] scope=0 scope_package_id=2 scope_span=[66-162] callable=Main
-                Branch Variable(1, Boolean), 2, 3 !dbg package_id=2 span=[109-127] scope=0 scope_package_id=2 scope_span=[66-162] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Double) = Store Variable(2, Double) !dbg package_id=2 span=[105-106] scope=0 scope_package_id=2 scope_span=[66-162] callable=Main
-                Variable(4, Double) = Fsub Variable(3, Double), Double(1) !dbg package_id=2 span=[149-156] scope=0 scope_package_id=2 scope_span=[66-162] callable=Main
-                Variable(5, Double) = Store Variable(4, Double) !dbg package_id=2 span=[149-156] scope=0 scope_package_id=2 scope_span=[66-162] callable=Main
-                Call id(3), args( Variable(5, Double), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=2
+                Variable(4, Double) = Fsub Variable(3, Double), Double(1) !dbg dbg_location=2
+                Variable(5, Double) = Store Variable(4, Double) !dbg dbg_location=2
+                Call id(4), args( Variable(5, Double), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 2:Block:
-                Variable(2, Double) = Store Double(0) !dbg package_id=2 span=[130-133] scope=0 scope_package_id=2 scope_span=[66-162] callable=Main
-                Jump(1) !dbg package_id=2 span=[130-133] scope=0 scope_package_id=2 scope_span=[66-162] callable=Main
+                Variable(2, Double) = Store Double(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Double) = Store Double(1) !dbg package_id=2 span=[136-139] scope=0 scope_package_id=2 scope_span=[66-162] callable=Main
-                Jump(1) !dbg package_id=2 span=[136-139] scope=0 scope_package_id=2 scope_span=[66-162] callable=Main"#]],
+                Variable(2, Double) = Store Double(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2"#]],
     );
 }
 
@@ -3574,11 +3574,10 @@ fn double_mul_with_lhs_dynamic_double_and_rhs_dynamic_double() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -3587,13 +3586,14 @@ fn double_mul_with_lhs_dynamic_double_and_rhs_dynamic_double() {
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
@@ -3601,12 +3601,11 @@ fn double_mul_with_lhs_dynamic_double_and_rhs_dynamic_double() {
         output_record_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__double_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Double
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_blocks(
@@ -3614,34 +3613,35 @@ fn double_mul_with_lhs_dynamic_double_and_rhs_dynamic_double() {
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[109-119] scope=0 scope_package_id=2 scope_span=[66-208] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[109-127] scope=0 scope_package_id=2 scope_span=[66-208] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[109-127] scope=0 scope_package_id=2 scope_span=[66-208] callable=Main
-                Branch Variable(1, Boolean), 2, 3 !dbg package_id=2 span=[109-127] scope=0 scope_package_id=2 scope_span=[66-208] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Double) = Store Variable(2, Double) !dbg package_id=2 span=[105-106] scope=0 scope_package_id=2 scope_span=[66-208] callable=Main
-                Call id(1), args( Qubit(0), Result(1), ) !dbg package_id=2 span=[157-167] scope=0 scope_package_id=2 scope_span=[66-208] callable=Main
-                Variable(4, Boolean) = Call id(2), args( Result(1), ) !dbg package_id=2 span=[157-175] scope=0 scope_package_id=2 scope_span=[66-208] callable=Main
-                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg package_id=2 span=[157-175] scope=0 scope_package_id=2 scope_span=[66-208] callable=Main
-                Branch Variable(5, Boolean), 5, 6 !dbg package_id=2 span=[157-175] scope=0 scope_package_id=2 scope_span=[66-208] callable=Main
+                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=5
+                Variable(4, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=4
+                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg dbg_location=4
+                Branch Variable(5, Boolean), 5, 6 !dbg dbg_location=4
             Block 2:Block:
-                Variable(2, Double) = Store Double(0) !dbg package_id=2 span=[130-133] scope=0 scope_package_id=2 scope_span=[66-208] callable=Main
-                Jump(1) !dbg package_id=2 span=[130-133] scope=0 scope_package_id=2 scope_span=[66-208] callable=Main
+                Variable(2, Double) = Store Double(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Double) = Store Double(1) !dbg package_id=2 span=[136-139] scope=0 scope_package_id=2 scope_span=[66-208] callable=Main
-                Jump(1) !dbg package_id=2 span=[136-139] scope=0 scope_package_id=2 scope_span=[66-208] callable=Main
+                Variable(2, Double) = Store Double(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 4:Block:
-                Variable(7, Double) = Store Variable(6, Double) !dbg package_id=2 span=[153-154] scope=0 scope_package_id=2 scope_span=[66-208] callable=Main
-                Variable(8, Double) = Fmul Variable(3, Double), Variable(7, Double) !dbg package_id=2 span=[197-202] scope=0 scope_package_id=2 scope_span=[66-208] callable=Main
-                Variable(9, Double) = Store Variable(8, Double) !dbg package_id=2 span=[197-202] scope=0 scope_package_id=2 scope_span=[66-208] callable=Main
-                Call id(3), args( Variable(9, Double), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(7, Double) = Store Variable(6, Double) !dbg dbg_location=4
+                Variable(8, Double) = Fmul Variable(3, Double), Variable(7, Double) !dbg dbg_location=4
+                Variable(9, Double) = Store Variable(8, Double) !dbg dbg_location=4
+                Call id(4), args( Variable(9, Double), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 5:Block:
-                Variable(6, Double) = Store Double(1.1) !dbg package_id=2 span=[178-181] scope=0 scope_package_id=2 scope_span=[66-208] callable=Main
-                Jump(4) !dbg package_id=2 span=[178-181] scope=0 scope_package_id=2 scope_span=[66-208] callable=Main
+                Variable(6, Double) = Store Double(1.1) !dbg dbg_location=4
+                Jump(4) !dbg dbg_location=4
             Block 6:Block:
-                Variable(6, Double) = Store Double(0.1) !dbg package_id=2 span=[184-187] scope=0 scope_package_id=2 scope_span=[66-208] callable=Main
-                Jump(4) !dbg package_id=2 span=[184-187] scope=0 scope_package_id=2 scope_span=[66-208] callable=Main"#]],
+                Variable(6, Double) = Store Double(0.1) !dbg dbg_location=4
+                Jump(4) !dbg dbg_location=4"#]],
     );
 }
 
@@ -3665,11 +3665,10 @@ fn double_div_with_lhs_classical_double_and_rhs_dynamic_double() {
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -3678,13 +3677,14 @@ fn double_div_with_lhs_classical_double_and_rhs_dynamic_double() {
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
@@ -3692,12 +3692,11 @@ fn double_div_with_lhs_classical_double_and_rhs_dynamic_double() {
         output_record_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__double_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Double
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_blocks(
@@ -3705,22 +3704,23 @@ fn double_div_with_lhs_classical_double_and_rhs_dynamic_double() {
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[109-119] scope=0 scope_package_id=2 scope_span=[66-162] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[109-127] scope=0 scope_package_id=2 scope_span=[66-162] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[109-127] scope=0 scope_package_id=2 scope_span=[66-162] callable=Main
-                Branch Variable(1, Boolean), 2, 3 !dbg package_id=2 span=[109-127] scope=0 scope_package_id=2 scope_span=[66-162] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Double) = Store Variable(2, Double) !dbg package_id=2 span=[105-106] scope=0 scope_package_id=2 scope_span=[66-162] callable=Main
-                Variable(4, Double) = Fdiv Double(1), Variable(3, Double) !dbg package_id=2 span=[149-156] scope=0 scope_package_id=2 scope_span=[66-162] callable=Main
-                Variable(5, Double) = Store Variable(4, Double) !dbg package_id=2 span=[149-156] scope=0 scope_package_id=2 scope_span=[66-162] callable=Main
-                Call id(3), args( Variable(5, Double), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=2
+                Variable(4, Double) = Fdiv Double(1), Variable(3, Double) !dbg dbg_location=2
+                Variable(5, Double) = Store Variable(4, Double) !dbg dbg_location=2
+                Call id(4), args( Variable(5, Double), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 2:Block:
-                Variable(2, Double) = Store Double(0) !dbg package_id=2 span=[130-133] scope=0 scope_package_id=2 scope_span=[66-162] callable=Main
-                Jump(1) !dbg package_id=2 span=[130-133] scope=0 scope_package_id=2 scope_span=[66-162] callable=Main
+                Variable(2, Double) = Store Double(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Double) = Store Double(1) !dbg package_id=2 span=[136-139] scope=0 scope_package_id=2 scope_span=[66-162] callable=Main
-                Jump(1) !dbg package_id=2 span=[136-139] scope=0 scope_package_id=2 scope_span=[66-162] callable=Main"#]],
+                Variable(2, Double) = Store Double(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2"#]],
     );
 }
 
@@ -3766,11 +3766,10 @@ fn double_equality_comparison_with_lhs_dynamic_double_and_rhs_classical_double()
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -3779,13 +3778,14 @@ fn double_equality_comparison_with_lhs_dynamic_double_and_rhs_classical_double()
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
@@ -3793,12 +3793,11 @@ fn double_equality_comparison_with_lhs_dynamic_double_and_rhs_classical_double()
         output_record_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__bool_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Boolean
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_blocks(
@@ -3806,22 +3805,23 @@ fn double_equality_comparison_with_lhs_dynamic_double_and_rhs_classical_double()
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[107-117] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main
-                Branch Variable(1, Boolean), 2, 3 !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Double) = Store Variable(2, Double) !dbg package_id=2 span=[103-104] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main
-                Variable(4, Boolean) = Fcmp Oeq, Variable(3, Double), Double(1) !dbg package_id=2 span=[147-155] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main
-                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg package_id=2 span=[147-155] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main
-                Call id(3), args( Variable(5, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=2
+                Variable(4, Boolean) = Fcmp Oeq, Variable(3, Double), Double(1) !dbg dbg_location=2
+                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=2
+                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 2:Block:
-                Variable(2, Double) = Store Double(0) !dbg package_id=2 span=[128-131] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main
-                Jump(1) !dbg package_id=2 span=[128-131] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main
+                Variable(2, Double) = Store Double(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Double) = Store Double(1) !dbg package_id=2 span=[134-137] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main
-                Jump(1) !dbg package_id=2 span=[134-137] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main"#]],
+                Variable(2, Double) = Store Double(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2"#]],
     );
 }
 
@@ -3846,11 +3846,10 @@ fn double_inequality_comparison_with_lhs_dynamic_double_and_rhs_dynamic_double()
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -3859,13 +3858,14 @@ fn double_inequality_comparison_with_lhs_dynamic_double_and_rhs_dynamic_double()
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
@@ -3873,12 +3873,11 @@ fn double_inequality_comparison_with_lhs_dynamic_double_and_rhs_dynamic_double()
         output_record_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__bool_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Boolean
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_blocks(
@@ -3886,34 +3885,35 @@ fn double_inequality_comparison_with_lhs_dynamic_double_and_rhs_dynamic_double()
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[107-117] scope=0 scope_package_id=2 scope_span=[64-207] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-207] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-207] callable=Main
-                Branch Variable(1, Boolean), 2, 3 !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-207] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Double) = Store Variable(2, Double) !dbg package_id=2 span=[103-104] scope=0 scope_package_id=2 scope_span=[64-207] callable=Main
-                Call id(1), args( Qubit(0), Result(1), ) !dbg package_id=2 span=[155-165] scope=0 scope_package_id=2 scope_span=[64-207] callable=Main
-                Variable(4, Boolean) = Call id(2), args( Result(1), ) !dbg package_id=2 span=[155-173] scope=0 scope_package_id=2 scope_span=[64-207] callable=Main
-                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg package_id=2 span=[155-173] scope=0 scope_package_id=2 scope_span=[64-207] callable=Main
-                Branch Variable(5, Boolean), 5, 6 !dbg package_id=2 span=[155-173] scope=0 scope_package_id=2 scope_span=[64-207] callable=Main
+                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=5
+                Variable(4, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=4
+                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg dbg_location=4
+                Branch Variable(5, Boolean), 5, 6 !dbg dbg_location=4
             Block 2:Block:
-                Variable(2, Double) = Store Double(0) !dbg package_id=2 span=[128-131] scope=0 scope_package_id=2 scope_span=[64-207] callable=Main
-                Jump(1) !dbg package_id=2 span=[128-131] scope=0 scope_package_id=2 scope_span=[64-207] callable=Main
+                Variable(2, Double) = Store Double(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Double) = Store Double(1) !dbg package_id=2 span=[134-137] scope=0 scope_package_id=2 scope_span=[64-207] callable=Main
-                Jump(1) !dbg package_id=2 span=[134-137] scope=0 scope_package_id=2 scope_span=[64-207] callable=Main
+                Variable(2, Double) = Store Double(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 4:Block:
-                Variable(7, Double) = Store Variable(6, Double) !dbg package_id=2 span=[151-152] scope=0 scope_package_id=2 scope_span=[64-207] callable=Main
-                Variable(8, Boolean) = Fcmp One, Variable(3, Double), Variable(7, Double) !dbg package_id=2 span=[195-201] scope=0 scope_package_id=2 scope_span=[64-207] callable=Main
-                Variable(9, Boolean) = Store Variable(8, Boolean) !dbg package_id=2 span=[195-201] scope=0 scope_package_id=2 scope_span=[64-207] callable=Main
-                Call id(3), args( Variable(9, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(7, Double) = Store Variable(6, Double) !dbg dbg_location=4
+                Variable(8, Boolean) = Fcmp One, Variable(3, Double), Variable(7, Double) !dbg dbg_location=4
+                Variable(9, Boolean) = Store Variable(8, Boolean) !dbg dbg_location=4
+                Call id(4), args( Variable(9, Boolean), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 5:Block:
-                Variable(6, Double) = Store Double(1.1) !dbg package_id=2 span=[176-179] scope=0 scope_package_id=2 scope_span=[64-207] callable=Main
-                Jump(4) !dbg package_id=2 span=[176-179] scope=0 scope_package_id=2 scope_span=[64-207] callable=Main
+                Variable(6, Double) = Store Double(1.1) !dbg dbg_location=4
+                Jump(4) !dbg dbg_location=4
             Block 6:Block:
-                Variable(6, Double) = Store Double(0.1) !dbg package_id=2 span=[182-185] scope=0 scope_package_id=2 scope_span=[64-207] callable=Main
-                Jump(4) !dbg package_id=2 span=[182-185] scope=0 scope_package_id=2 scope_span=[64-207] callable=Main"#]],
+                Variable(6, Double) = Store Double(0.1) !dbg dbg_location=4
+                Jump(4) !dbg dbg_location=4"#]],
     );
 }
 
@@ -3937,11 +3937,10 @@ fn double_greater_than_comparison_with_lhs_classical_double_and_rhs_dynamic_doub
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -3950,13 +3949,14 @@ fn double_greater_than_comparison_with_lhs_classical_double_and_rhs_dynamic_doub
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
@@ -3964,12 +3964,11 @@ fn double_greater_than_comparison_with_lhs_classical_double_and_rhs_dynamic_doub
         output_record_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__bool_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Boolean
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_blocks(
@@ -3977,22 +3976,23 @@ fn double_greater_than_comparison_with_lhs_classical_double_and_rhs_dynamic_doub
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[107-117] scope=0 scope_package_id=2 scope_span=[64-160] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-160] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-160] callable=Main
-                Branch Variable(1, Boolean), 2, 3 !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-160] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Double) = Store Variable(2, Double) !dbg package_id=2 span=[103-104] scope=0 scope_package_id=2 scope_span=[64-160] callable=Main
-                Variable(4, Boolean) = Fcmp Ogt, Double(1), Variable(3, Double) !dbg package_id=2 span=[147-154] scope=0 scope_package_id=2 scope_span=[64-160] callable=Main
-                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg package_id=2 span=[147-154] scope=0 scope_package_id=2 scope_span=[64-160] callable=Main
-                Call id(3), args( Variable(5, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=2
+                Variable(4, Boolean) = Fcmp Ogt, Double(1), Variable(3, Double) !dbg dbg_location=2
+                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=2
+                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 2:Block:
-                Variable(2, Double) = Store Double(0) !dbg package_id=2 span=[128-131] scope=0 scope_package_id=2 scope_span=[64-160] callable=Main
-                Jump(1) !dbg package_id=2 span=[128-131] scope=0 scope_package_id=2 scope_span=[64-160] callable=Main
+                Variable(2, Double) = Store Double(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Double) = Store Double(1) !dbg package_id=2 span=[134-137] scope=0 scope_package_id=2 scope_span=[64-160] callable=Main
-                Jump(1) !dbg package_id=2 span=[134-137] scope=0 scope_package_id=2 scope_span=[64-160] callable=Main"#]],
+                Variable(2, Double) = Store Double(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2"#]],
     );
 }
 
@@ -4016,11 +4016,10 @@ fn double_greater_or_equal_than_comparison_with_lhs_dynamic_double_and_rhs_class
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -4029,13 +4028,14 @@ fn double_greater_or_equal_than_comparison_with_lhs_dynamic_double_and_rhs_class
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
@@ -4043,12 +4043,11 @@ fn double_greater_or_equal_than_comparison_with_lhs_dynamic_double_and_rhs_class
         output_record_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__bool_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Boolean
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_blocks(
@@ -4056,22 +4055,23 @@ fn double_greater_or_equal_than_comparison_with_lhs_dynamic_double_and_rhs_class
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[107-117] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main
-                Branch Variable(1, Boolean), 2, 3 !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Double) = Store Variable(2, Double) !dbg package_id=2 span=[103-104] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main
-                Variable(4, Boolean) = Fcmp Oge, Variable(3, Double), Double(1) !dbg package_id=2 span=[147-155] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main
-                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg package_id=2 span=[147-155] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main
-                Call id(3), args( Variable(5, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=2
+                Variable(4, Boolean) = Fcmp Oge, Variable(3, Double), Double(1) !dbg dbg_location=2
+                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=2
+                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 2:Block:
-                Variable(2, Double) = Store Double(0) !dbg package_id=2 span=[128-131] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main
-                Jump(1) !dbg package_id=2 span=[128-131] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main
+                Variable(2, Double) = Store Double(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Double) = Store Double(1) !dbg package_id=2 span=[134-137] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main
-                Jump(1) !dbg package_id=2 span=[134-137] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main"#]],
+                Variable(2, Double) = Store Double(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2"#]],
     );
 }
 
@@ -4096,11 +4096,10 @@ fn double_less_than_comparison_with_lhs_dynamic_double_and_rhs_dynamic_double() 
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -4109,13 +4108,14 @@ fn double_less_than_comparison_with_lhs_dynamic_double_and_rhs_dynamic_double() 
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
@@ -4123,12 +4123,11 @@ fn double_less_than_comparison_with_lhs_dynamic_double_and_rhs_dynamic_double() 
         output_record_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__bool_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Boolean
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_blocks(
@@ -4136,34 +4135,35 @@ fn double_less_than_comparison_with_lhs_dynamic_double_and_rhs_dynamic_double() 
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[107-117] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
-                Branch Variable(1, Boolean), 2, 3 !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Double) = Store Variable(2, Double) !dbg package_id=2 span=[103-104] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
-                Call id(1), args( Qubit(0), Result(1), ) !dbg package_id=2 span=[155-165] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
-                Variable(4, Boolean) = Call id(2), args( Result(1), ) !dbg package_id=2 span=[155-173] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
-                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg package_id=2 span=[155-173] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
-                Branch Variable(5, Boolean), 5, 6 !dbg package_id=2 span=[155-173] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
+                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=5
+                Variable(4, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=4
+                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg dbg_location=4
+                Branch Variable(5, Boolean), 5, 6 !dbg dbg_location=4
             Block 2:Block:
-                Variable(2, Double) = Store Double(0) !dbg package_id=2 span=[128-131] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
-                Jump(1) !dbg package_id=2 span=[128-131] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
+                Variable(2, Double) = Store Double(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Double) = Store Double(1) !dbg package_id=2 span=[134-137] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
-                Jump(1) !dbg package_id=2 span=[134-137] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
+                Variable(2, Double) = Store Double(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 4:Block:
-                Variable(7, Double) = Store Variable(6, Double) !dbg package_id=2 span=[151-152] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
-                Variable(8, Boolean) = Fcmp Olt, Variable(3, Double), Variable(7, Double) !dbg package_id=2 span=[195-200] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
-                Variable(9, Boolean) = Store Variable(8, Boolean) !dbg package_id=2 span=[195-200] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
-                Call id(3), args( Variable(9, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(7, Double) = Store Variable(6, Double) !dbg dbg_location=4
+                Variable(8, Boolean) = Fcmp Olt, Variable(3, Double), Variable(7, Double) !dbg dbg_location=4
+                Variable(9, Boolean) = Store Variable(8, Boolean) !dbg dbg_location=4
+                Call id(4), args( Variable(9, Boolean), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 5:Block:
-                Variable(6, Double) = Store Double(1.1) !dbg package_id=2 span=[176-179] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
-                Jump(4) !dbg package_id=2 span=[176-179] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
+                Variable(6, Double) = Store Double(1.1) !dbg dbg_location=4
+                Jump(4) !dbg dbg_location=4
             Block 6:Block:
-                Variable(6, Double) = Store Double(0.1) !dbg package_id=2 span=[182-185] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main
-                Jump(4) !dbg package_id=2 span=[182-185] scope=0 scope_package_id=2 scope_span=[64-206] callable=Main"#]],
+                Variable(6, Double) = Store Double(0.1) !dbg dbg_location=4
+                Jump(4) !dbg dbg_location=4"#]],
     );
 }
 
@@ -4187,11 +4187,10 @@ fn double_less_or_equal_than_comparison_with_lhs_classical_double_and_rhs_dynami
         measurement_callable_id,
         &expect![[r#"
             Callable:
-                name: __quantum__qis__mresetz__body
-                call_type: Measurement
+                name: __quantum__rt__initialize
+                call_type: Initialize
                 input_type:
-                    [0]: Qubit
-                    [1]: Result
+                    [0]: Pointer
                 output_type: <VOID>
                 body: <NONE>"#]],
     );
@@ -4200,13 +4199,14 @@ fn double_less_or_equal_than_comparison_with_lhs_classical_double_and_rhs_dynami
         &program,
         readout_callable_id,
         &expect![[r#"
-        Callable:
-            name: __quantum__qis__read_result__body
-            call_type: Readout
-            input_type:
-                [0]: Result
-            output_type: Boolean
-            body: <NONE>"#]],
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
     );
     let output_record_id = CallableId(3);
     assert_callable(
@@ -4214,12 +4214,11 @@ fn double_less_or_equal_than_comparison_with_lhs_classical_double_and_rhs_dynami
         output_record_id,
         &expect![[r#"
             Callable:
-                name: __quantum__rt__bool_record_output
-                call_type: OutputRecording
+                name: __quantum__rt__read_result
+                call_type: Readout
                 input_type:
-                    [0]: Boolean
-                    [1]: Pointer
-                output_type: <VOID>
+                    [0]: Result
+                output_type: Boolean
                 body: <NONE>"#]],
     );
     assert_blocks(
@@ -4227,21 +4226,22 @@ fn double_less_or_equal_than_comparison_with_lhs_classical_double_and_rhs_dynami
         &expect![[r#"
             Blocks:
             Block 0:Block:
-                Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[107-117] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main
-                Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main
-                Branch Variable(1, Boolean), 2, 3 !dbg package_id=2 span=[107-125] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Double) = Store Variable(2, Double) !dbg package_id=2 span=[103-104] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main
-                Variable(4, Boolean) = Fcmp Ole, Double(1), Variable(3, Double) !dbg package_id=2 span=[147-155] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main
-                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg package_id=2 span=[147-155] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main
-                Call id(3), args( Variable(5, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                Return !dbg package_id=2 span=[50-54]
+                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=2
+                Variable(4, Boolean) = Fcmp Ole, Double(1), Variable(3, Double) !dbg dbg_location=2
+                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=2
+                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg dbg_location=0
+                Return !dbg dbg_location=0
             Block 2:Block:
-                Variable(2, Double) = Store Double(0) !dbg package_id=2 span=[128-131] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main
-                Jump(1) !dbg package_id=2 span=[128-131] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main
+                Variable(2, Double) = Store Double(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Double) = Store Double(1) !dbg package_id=2 span=[134-137] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main
-                Jump(1) !dbg package_id=2 span=[134-137] scope=0 scope_package_id=2 scope_span=[64-161] callable=Main"#]],
+                Variable(2, Double) = Store Double(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2"#]],
     );
 }

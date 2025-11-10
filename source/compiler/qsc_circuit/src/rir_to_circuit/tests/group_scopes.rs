@@ -3,19 +3,25 @@
 
 use std::rc::Rc;
 
-use crate::rir_to_circuit::{Op, OperationKind, fmt_ops, group_operations};
-use expect_test::{Expect, expect};
-use qsc_data_structures::span::Span;
-use qsc_partial_eval::rir::{
-    DbgLocation, DbgMetadataScope, InstructionMetadata, MetadataPackageSpan,
+use crate::{
+    builder::QubitWire,
+    rir_to_circuit::{Op, OperationKind, fmt_ops, group_operations},
 };
+use expect_test::{Expect, expect};
+use qsc_data_structures::{
+    debug::{
+        DbgInfo, DbgLocation, DbgLocationId, DbgMetadataScope, DbgScopeId, InstructionMetadata,
+    },
+    span::Span,
+};
+use qsc_eval::PackageSpan;
 
 #[allow(clippy::needless_pass_by_value)]
 fn check(instructions: Vec<Instruction>, expect: Expect) {
-    let (locations, scopes, ops) = program(instructions);
-    let grouped = group_operations(&locations, &scopes, ops.to_vec());
+    let (dbg_info, ops) = program(instructions);
+    let grouped = group_operations(&dbg_info, ops.clone());
 
-    expect.assert_eq(&fmt_ops(&locations, &scopes, &grouped));
+    expect.assert_eq(&fmt_ops(&dbg_info, &grouped));
 }
 struct Location {
     scope: String,
@@ -24,11 +30,11 @@ struct Location {
 
 struct Instruction {
     name: String,
-    qubits: Vec<usize>,
+    qubits: Vec<QubitWire>,
     stack: Option<Vec<Location>>,
 }
 
-fn program(instructions: Vec<Instruction>) -> (Vec<DbgLocation>, Vec<DbgMetadataScope>, Vec<Op>) {
+fn program(instructions: Vec<Instruction>) -> (DbgInfo, Vec<Op>) {
     let mut locations = vec![];
     let mut scopes = vec![];
     let mut ops = vec![];
@@ -38,14 +44,17 @@ fn program(instructions: Vec<Instruction>) -> (Vec<DbgLocation>, Vec<DbgMetadata
             let mut last_location = None;
             for loc in stack {
                 // use existing scope if it exsists
-                let scope_index = scopes.iter().position(|s| match s {
-                    DbgMetadataScope::SubProgram { name, .. } => name.as_ref() == loc.scope,
-                });
+                let scope_index: Option<DbgScopeId> = scopes
+                    .iter()
+                    .position(|s| match s {
+                        DbgMetadataScope::SubProgram { name, .. } => name.as_ref() == loc.scope,
+                    })
+                    .map(std::convert::Into::into);
                 if scope_index.is_none() {
                     scopes.push(DbgMetadataScope::SubProgram {
                         name: Rc::from(loc.scope.as_str()),
-                        span: MetadataPackageSpan {
-                            package: 2,
+                        location: PackageSpan {
+                            package: 2.into(), // TODO: uh oh
                             span: Span {
                                 lo: loc.offset,
                                 hi: loc.offset + 1,
@@ -53,24 +62,27 @@ fn program(instructions: Vec<Instruction>) -> (Vec<DbgLocation>, Vec<DbgMetadata
                         },
                     });
                 }
-                let scope_index = scope_index.unwrap_or(scopes.len() - 1);
+                let scope_index = scope_index.unwrap_or((scopes.len() - 1).into());
 
                 // use existing location if it exists
                 // (we could do this more efficiently with a map)
-                let location_index = locations.iter().position(|l: &DbgLocation| {
-                    l.span.package == 2
-                        && l.span.span.lo == loc.offset
-                        && l.span.span.hi == loc.offset + 1
+                let location_index: Option<DbgLocationId> = locations
+                    .iter()
+                    .position(|l: &DbgLocation| {
+                        l.location.package == 2.into() // TODO: uh oh
+                        && l.location.span.lo == loc.offset
+                        && l.location.span.hi == loc.offset + 1
                         && l.scope == scope_index
-                });
+                    })
+                    .map(std::convert::Into::into);
                 if location_index.is_some() {
                     last_location = location_index;
                     continue;
                 }
 
                 locations.push(DbgLocation {
-                    span: MetadataPackageSpan {
-                        package: 2,
+                    location: PackageSpan {
+                        package: 2.into(),
                         span: Span {
                             lo: loc.offset,
                             hi: loc.offset + 1,
@@ -79,13 +91,13 @@ fn program(instructions: Vec<Instruction>) -> (Vec<DbgLocation>, Vec<DbgMetadata
                     scope: scope_index,
                     inlined_at: last_location,
                 });
-                last_location = Some(locations.len() - 1);
+                last_location = Some((locations.len() - 1).into());
             }
             ops.push(unitary(
                 i.name,
                 i.qubits,
                 Some(InstructionMetadata {
-                    dbg_location: Some(locations.len() - 1),
+                    dbg_location: Some((locations.len() - 1).into()),
                 }),
             ));
         } else {
@@ -93,12 +105,18 @@ fn program(instructions: Vec<Instruction>) -> (Vec<DbgLocation>, Vec<DbgMetadata
         }
     }
 
-    (locations, scopes, ops)
+    (
+        DbgInfo {
+            dbg_locations: locations,
+            dbg_metadata_scopes: scopes,
+        },
+        ops,
+    )
 }
 
-fn unitary(label: String, qubits: Vec<usize>, metadata: Option<InstructionMetadata>) -> Op {
+fn unitary(label: String, qubits: Vec<QubitWire>, metadata: Option<InstructionMetadata>) -> Op {
     Op {
-        kind: OperationKind::Unitary { metadata },
+        kind: OperationKind::Unitary,
         label,
         target_qubits: qubits,
         control_qubits: vec![],
@@ -106,6 +124,7 @@ fn unitary(label: String, qubits: Vec<usize>, metadata: Option<InstructionMetada
         control_results: vec![],
         is_adjoint: false,
         args: vec![],
+        location: metadata.and_then(|md| md.dbg_location),
     }
 }
 
@@ -231,7 +250,7 @@ fn two_ops_same_parent_scope() {
         vec![
             Instruction {
                 name: "H".into(),
-                qubits: vec![0],
+                qubits: vec![QubitWire(0)],
                 stack: Some(vec![
                     Location {
                         scope: "Main".into(),
@@ -245,7 +264,7 @@ fn two_ops_same_parent_scope() {
             },
             Instruction {
                 name: "X".into(),
-                qubits: vec![0],
+                qubits: vec![QubitWire(0)],
                 stack: Some(vec![
                     Location {
                         scope: "Main".into(),

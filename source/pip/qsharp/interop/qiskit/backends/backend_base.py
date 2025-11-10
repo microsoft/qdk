@@ -164,7 +164,7 @@ class BackendBase(BackendV2, ABC):
 
             self._target = target
         else:
-            self._target = self._create_target()
+            self._target = self._build_target()
 
         self._transpile_options = {}
 
@@ -197,10 +197,14 @@ class BackendBase(BackendV2, ABC):
         if qasm_export_options is not None:
             self._qasm_export_options.update(**qasm_export_options)
 
-    def _create_target(self) -> Target:
+    def _build_target(self) -> Target:
         supports_barrier = self._qiskit_pass_options["supports_barrier"]
         supports_delay = self._qiskit_pass_options["supports_delay"]
-        return QirTarget(
+
+        # explicitly set ``num_qubits`` to ``None`` to indicate a :class:`Target` representing a
+        # simulator or other abstract machine that imposes no limits on the number of qubits.
+        return QirTarget.build_target(
+            num_qubits=None,
             target_profile=self._options["target_profile"],
             supports_barrier=supports_barrier,
             supports_delay=supports_delay,

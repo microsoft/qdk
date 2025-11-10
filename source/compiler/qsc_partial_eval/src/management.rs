@@ -128,8 +128,6 @@ impl ResourceManager {
 pub struct QuantumIntrinsicsChecker {}
 
 impl Backend for QuantumIntrinsicsChecker {
-    type ResultType = usize;
-
     fn qubit_is_zero(&mut self, _q: usize) -> bool {
         // Because `qubit_is_zero` is called on every qubit release, this must return
         // true to avoid a panic.
@@ -150,6 +148,7 @@ impl Backend for QuantumIntrinsicsChecker {
         match name {
             "BeginEstimateCaching" => Some(Ok(Value::Bool(true))),
             "EndEstimateCaching"
+            | "EnableMemoryComputeArchitecture"
             | "GlobalPhase"
             | "ConfigurePauliNoise"
             | "ConfigureQubitLoss"

@@ -14,4 +14,5 @@
 html {
   box-sizing: border-box;
   font-size: 16px;
+  padding-left: 8px;
 }

@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#![allow(clippy::too_many_lines)]
 use super::{assert_error, get_partial_evaluation_error, get_rir_program};
 use expect_test::expect;
 use indoc::indoc;
@@ -28,9 +29,16 @@ fn output_recording_for_tuple_of_different_types() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
+                    name: __quantum__rt__initialize
+                    call_type: Initialize
+                    input_type:
+                        [0]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 2: Callable:
                     name: __quantum__qis__mresetz__body
                     call_type: Measurement
                     input_type:
@@ -38,14 +46,14 @@ fn output_recording_for_tuple_of_different_types() {
                         [1]: Result
                     output_type: <VOID>
                     body: <NONE>
-                Callable 2: Callable:
-                    name: __quantum__qis__read_result__body
+                Callable 3: Callable:
+                    name: __quantum__rt__read_result
                     call_type: Readout
                     input_type:
                         [0]: Result
                     output_type: Boolean
                     body: <NONE>
-                Callable 3: Callable:
+                Callable 4: Callable:
                     name: __quantum__rt__tuple_record_output
                     call_type: OutputRecording
                     input_type:
@@ -53,7 +61,7 @@ fn output_recording_for_tuple_of_different_types() {
                         [1]: Pointer
                     output_type: <VOID>
                     body: <NONE>
-                Callable 4: Callable:
+                Callable 5: Callable:
                     name: __quantum__rt__result_record_output
                     call_type: OutputRecording
                     input_type:
@@ -61,7 +69,7 @@ fn output_recording_for_tuple_of_different_types() {
                         [1]: Pointer
                     output_type: <VOID>
                     body: <NONE>
-                Callable 5: Callable:
+                Callable 6: Callable:
                     name: __quantum__rt__bool_record_output
                     call_type: OutputRecording
                     input_type:
@@ -71,17 +79,30 @@ fn output_recording_for_tuple_of_different_types() {
                     body: <NONE>
             blocks:
                 Block 0: Block:
-                    Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[74-193] callable=Main
-                    Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[177-186] scope=0 scope_package_id=2 scope_span=[74-193] callable=Main
-                    Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[177-186] scope=0 scope_package_id=2 scope_span=[74-193] callable=Main
-                    Call id(3), args( Integer(2), Pointer, ) !dbg package_id=2 span=[50-54]
-                    Call id(4), args( Result(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                    Call id(5), args( Variable(1, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                    Return !dbg package_id=2 span=[50-54]
+                    Call id(1), args( Pointer, )
+                    Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                    Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                    Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                    Call id(4), args( Integer(2), EmptyTag, ) !dbg dbg_location=0
+                    Call id(5), args( Result(0), Tag(0, 5), ) !dbg dbg_location=0
+                    Call id(6), args( Variable(1, Boolean), Tag(1, 5), ) !dbg dbg_location=0
+                    Return !dbg dbg_location=0
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 1
-            num_results: 1"#]]
+            num_results: 1
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+                [1]: SubProgram name=Main location=(package_id=2 span=[40-193])
+            dbg_locations:
+                [0]:  scope=0location=(package_id=2 span=[0-0])
+                [1]:  scope=1location=(package_id=2 span=[84-100]) inlined_at=0
+                [2]:  scope=1location=(package_id=2 span=[117-163]) inlined_at=0
+                [3]:  scope=1location=(package_id=2 span=[84-100]) inlined_at=0
+            tags:
+                [0]: 0_t0r
+                [1]: 1_t1b
+    "#]]
     .assert_eq(&program.to_string());
 }
 
@@ -108,9 +129,16 @@ fn output_recording_for_nested_tuples() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
+                    name: __quantum__rt__initialize
+                    call_type: Initialize
+                    input_type:
+                        [0]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 2: Callable:
                     name: __quantum__qis__mresetz__body
                     call_type: Measurement
                     input_type:
@@ -118,14 +146,14 @@ fn output_recording_for_nested_tuples() {
                         [1]: Result
                     output_type: <VOID>
                     body: <NONE>
-                Callable 2: Callable:
-                    name: __quantum__qis__read_result__body
+                Callable 3: Callable:
+                    name: __quantum__rt__read_result
                     call_type: Readout
                     input_type:
                         [0]: Result
                     output_type: Boolean
                     body: <NONE>
-                Callable 3: Callable:
+                Callable 4: Callable:
                     name: __quantum__rt__tuple_record_output
                     call_type: OutputRecording
                     input_type:
@@ -133,7 +161,7 @@ fn output_recording_for_nested_tuples() {
                         [1]: Pointer
                     output_type: <VOID>
                     body: <NONE>
-                Callable 4: Callable:
+                Callable 5: Callable:
                     name: __quantum__rt__result_record_output
                     call_type: OutputRecording
                     input_type:
@@ -141,7 +169,7 @@ fn output_recording_for_nested_tuples() {
                         [1]: Pointer
                     output_type: <VOID>
                     body: <NONE>
-                Callable 5: Callable:
+                Callable 6: Callable:
                     name: __quantum__rt__bool_record_output
                     call_type: OutputRecording
                     input_type:
@@ -151,23 +179,38 @@ fn output_recording_for_nested_tuples() {
                     body: <NONE>
             blocks:
                 Block 0: Block:
-                    Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[93-230] callable=Main
-                    Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[197-206] scope=0 scope_package_id=2 scope_span=[93-230] callable=Main
-                    Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[197-206] scope=0 scope_package_id=2 scope_span=[93-230] callable=Main
-                    Variable(2, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[213-221] scope=0 scope_package_id=2 scope_span=[93-230] callable=Main
-                    Variable(3, Boolean) = Store Variable(2, Boolean) !dbg package_id=2 span=[213-221] scope=0 scope_package_id=2 scope_span=[93-230] callable=Main
-                    Call id(3), args( Integer(3), Pointer, ) !dbg package_id=2 span=[50-54]
-                    Call id(4), args( Result(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                    Call id(3), args( Integer(2), Pointer, ) !dbg package_id=2 span=[50-54]
-                    Call id(5), args( Variable(1, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                    Call id(4), args( Result(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                    Call id(3), args( Integer(1), Pointer, ) !dbg package_id=2 span=[50-54]
-                    Call id(5), args( Variable(3, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                    Return !dbg package_id=2 span=[50-54]
+                    Call id(1), args( Pointer, )
+                    Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                    Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                    Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                    Variable(2, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                    Variable(3, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=2
+                    Call id(4), args( Integer(3), EmptyTag, ) !dbg dbg_location=0
+                    Call id(5), args( Result(0), Tag(0, 5), ) !dbg dbg_location=0
+                    Call id(4), args( Integer(2), EmptyTag, ) !dbg dbg_location=0
+                    Call id(6), args( Variable(1, Boolean), Tag(1, 7), ) !dbg dbg_location=0
+                    Call id(5), args( Result(0), Tag(2, 7), ) !dbg dbg_location=0
+                    Call id(4), args( Integer(1), EmptyTag, ) !dbg dbg_location=0
+                    Call id(6), args( Variable(3, Boolean), Tag(3, 7), ) !dbg dbg_location=0
+                    Return !dbg dbg_location=0
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 1
-            num_results: 1"#]]
+            num_results: 1
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+                [1]: SubProgram name=Main location=(package_id=2 span=[40-230])
+            dbg_locations:
+                [0]:  scope=0location=(package_id=2 span=[0-0])
+                [1]:  scope=1location=(package_id=2 span=[103-119]) inlined_at=0
+                [2]:  scope=1location=(package_id=2 span=[136-182]) inlined_at=0
+                [3]:  scope=1location=(package_id=2 span=[103-119]) inlined_at=0
+            tags:
+                [0]: 0_t0r
+                [1]: 1_t1t0b
+                [2]: 2_t1t1r
+                [3]: 3_t2t0b
+    "#]]
     .assert_eq(&program.to_string());
 }
 
@@ -196,9 +239,16 @@ fn output_recording_for_tuple_of_arrays() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
+                    name: __quantum__rt__initialize
+                    call_type: Initialize
+                    input_type:
+                        [0]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 2: Callable:
                     name: __quantum__qis__mresetz__body
                     call_type: Measurement
                     input_type:
@@ -206,14 +256,14 @@ fn output_recording_for_tuple_of_arrays() {
                         [1]: Result
                     output_type: <VOID>
                     body: <NONE>
-                Callable 2: Callable:
-                    name: __quantum__qis__read_result__body
+                Callable 3: Callable:
+                    name: __quantum__rt__read_result
                     call_type: Readout
                     input_type:
                         [0]: Result
                     output_type: Boolean
                     body: <NONE>
-                Callable 3: Callable:
+                Callable 4: Callable:
                     name: __quantum__rt__tuple_record_output
                     call_type: OutputRecording
                     input_type:
@@ -221,7 +271,7 @@ fn output_recording_for_tuple_of_arrays() {
                         [1]: Pointer
                     output_type: <VOID>
                     body: <NONE>
-                Callable 4: Callable:
+                Callable 5: Callable:
                     name: __quantum__rt__result_record_output
                     call_type: OutputRecording
                     input_type:
@@ -229,7 +279,7 @@ fn output_recording_for_tuple_of_arrays() {
                         [1]: Pointer
                     output_type: <VOID>
                     body: <NONE>
-                Callable 5: Callable:
+                Callable 6: Callable:
                     name: __quantum__rt__array_record_output
                     call_type: OutputRecording
                     input_type:
@@ -237,7 +287,7 @@ fn output_recording_for_tuple_of_arrays() {
                         [1]: Pointer
                     output_type: <VOID>
                     body: <NONE>
-                Callable 6: Callable:
+                Callable 7: Callable:
                     name: __quantum__rt__bool_record_output
                     call_type: OutputRecording
                     input_type:
@@ -247,21 +297,35 @@ fn output_recording_for_tuple_of_arrays() {
                     body: <NONE>
             blocks:
                 Block 0: Block:
-                    Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[76-207] callable=Main
-                    Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[180-189] scope=0 scope_package_id=2 scope_span=[76-207] callable=Main
-                    Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[180-189] scope=0 scope_package_id=2 scope_span=[76-207] callable=Main
-                    Variable(2, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[191-199] scope=0 scope_package_id=2 scope_span=[76-207] callable=Main
-                    Variable(3, Boolean) = Store Variable(2, Boolean) !dbg package_id=2 span=[191-199] scope=0 scope_package_id=2 scope_span=[76-207] callable=Main
-                    Call id(3), args( Integer(2), Pointer, ) !dbg package_id=2 span=[50-54]
-                    Call id(4), args( Result(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                    Call id(5), args( Integer(2), Pointer, ) !dbg package_id=2 span=[50-54]
-                    Call id(6), args( Variable(1, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                    Call id(6), args( Variable(3, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                    Return !dbg package_id=2 span=[50-54]
+                    Call id(1), args( Pointer, )
+                    Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                    Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                    Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                    Variable(2, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                    Variable(3, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=2
+                    Call id(4), args( Integer(2), EmptyTag, ) !dbg dbg_location=0
+                    Call id(5), args( Result(0), Tag(0, 5), ) !dbg dbg_location=0
+                    Call id(6), args( Integer(2), EmptyTag, ) !dbg dbg_location=0
+                    Call id(7), args( Variable(1, Boolean), Tag(1, 7), ) !dbg dbg_location=0
+                    Call id(7), args( Variable(3, Boolean), Tag(2, 7), ) !dbg dbg_location=0
+                    Return !dbg dbg_location=0
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 1
-            num_results: 1"#]]
+            num_results: 1
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+                [1]: SubProgram name=Main location=(package_id=2 span=[40-207])
+            dbg_locations:
+                [0]:  scope=0location=(package_id=2 span=[0-0])
+                [1]:  scope=1location=(package_id=2 span=[86-102]) inlined_at=0
+                [2]:  scope=1location=(package_id=2 span=[119-165]) inlined_at=0
+                [3]:  scope=1location=(package_id=2 span=[86-102]) inlined_at=0
+            tags:
+                [0]: 0_t0r
+                [1]: 1_t1a0b
+                [2]: 2_t1a1b
+    "#]]
     .assert_eq(&program.to_string());
 }
 
@@ -288,9 +352,16 @@ fn output_recording_for_array_of_tuples() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
+                    name: __quantum__rt__initialize
+                    call_type: Initialize
+                    input_type:
+                        [0]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 2: Callable:
                     name: __quantum__qis__mresetz__body
                     call_type: Measurement
                     input_type:
@@ -298,14 +369,14 @@ fn output_recording_for_array_of_tuples() {
                         [1]: Result
                     output_type: <VOID>
                     body: <NONE>
-                Callable 2: Callable:
-                    name: __quantum__qis__read_result__body
+                Callable 3: Callable:
+                    name: __quantum__rt__read_result
                     call_type: Readout
                     input_type:
                         [0]: Result
                     output_type: Boolean
                     body: <NONE>
-                Callable 3: Callable:
+                Callable 4: Callable:
                     name: __quantum__rt__array_record_output
                     call_type: OutputRecording
                     input_type:
@@ -313,7 +384,7 @@ fn output_recording_for_array_of_tuples() {
                         [1]: Pointer
                     output_type: <VOID>
                     body: <NONE>
-                Callable 4: Callable:
+                Callable 5: Callable:
                     name: __quantum__rt__tuple_record_output
                     call_type: OutputRecording
                     input_type:
@@ -321,7 +392,7 @@ fn output_recording_for_array_of_tuples() {
                         [1]: Pointer
                     output_type: <VOID>
                     body: <NONE>
-                Callable 5: Callable:
+                Callable 6: Callable:
                     name: __quantum__rt__result_record_output
                     call_type: OutputRecording
                     input_type:
@@ -329,7 +400,7 @@ fn output_recording_for_array_of_tuples() {
                         [1]: Pointer
                     output_type: <VOID>
                     body: <NONE>
-                Callable 6: Callable:
+                Callable 7: Callable:
                     name: __quantum__rt__bool_record_output
                     call_type: OutputRecording
                     input_type:
@@ -339,23 +410,38 @@ fn output_recording_for_array_of_tuples() {
                     body: <NONE>
             blocks:
                 Block 0: Block:
-                    Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[76-212] callable=Main
-                    Variable(0, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[180-189] scope=0 scope_package_id=2 scope_span=[76-212] callable=Main
-                    Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg package_id=2 span=[180-189] scope=0 scope_package_id=2 scope_span=[76-212] callable=Main
-                    Variable(2, Boolean) = Call id(2), args( Result(0), ) !dbg package_id=2 span=[196-204] scope=0 scope_package_id=2 scope_span=[76-212] callable=Main
-                    Variable(3, Boolean) = Store Variable(2, Boolean) !dbg package_id=2 span=[196-204] scope=0 scope_package_id=2 scope_span=[76-212] callable=Main
-                    Call id(3), args( Integer(2), Pointer, ) !dbg package_id=2 span=[50-54]
-                    Call id(4), args( Integer(2), Pointer, ) !dbg package_id=2 span=[50-54]
-                    Call id(5), args( Result(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                    Call id(6), args( Variable(1, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                    Call id(4), args( Integer(2), Pointer, ) !dbg package_id=2 span=[50-54]
-                    Call id(5), args( Result(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                    Call id(6), args( Variable(3, Boolean), Pointer, ) !dbg package_id=2 span=[50-54]
-                    Return !dbg package_id=2 span=[50-54]
+                    Call id(1), args( Pointer, )
+                    Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                    Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                    Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                    Variable(2, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                    Variable(3, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=2
+                    Call id(4), args( Integer(2), EmptyTag, ) !dbg dbg_location=0
+                    Call id(5), args( Integer(2), EmptyTag, ) !dbg dbg_location=0
+                    Call id(6), args( Result(0), Tag(0, 7), ) !dbg dbg_location=0
+                    Call id(7), args( Variable(1, Boolean), Tag(1, 7), ) !dbg dbg_location=0
+                    Call id(5), args( Integer(2), EmptyTag, ) !dbg dbg_location=0
+                    Call id(6), args( Result(0), Tag(2, 7), ) !dbg dbg_location=0
+                    Call id(7), args( Variable(3, Boolean), Tag(3, 7), ) !dbg dbg_location=0
+                    Return !dbg dbg_location=0
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 1
-            num_results: 1"#]]
+            num_results: 1
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+                [1]: SubProgram name=Main location=(package_id=2 span=[40-212])
+            dbg_locations:
+                [0]:  scope=0location=(package_id=2 span=[0-0])
+                [1]:  scope=1location=(package_id=2 span=[86-102]) inlined_at=0
+                [2]:  scope=1location=(package_id=2 span=[119-165]) inlined_at=0
+                [3]:  scope=1location=(package_id=2 span=[86-102]) inlined_at=0
+            tags:
+                [0]: 0_a0t0r
+                [1]: 1_a0t1b
+                [2]: 2_a1t0r
+                [3]: 3_a1t1b
+    "#]]
     .assert_eq(&program.to_string());
 }
 
@@ -380,9 +466,16 @@ fn output_recording_for_literal_bool() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
+                    name: __quantum__rt__initialize
+                    call_type: Initialize
+                    input_type:
+                        [0]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 2: Callable:
                     name: __quantum__rt__bool_record_output
                     call_type: OutputRecording
                     input_type:
@@ -392,12 +485,20 @@ fn output_recording_for_literal_bool() {
                     body: <NONE>
             blocks:
                 Block 0: Block:
-                    Call id(1), args( Bool(true), Pointer, ) !dbg package_id=2 span=[50-54]
-                    Return !dbg package_id=2 span=[50-54]
+                    Call id(1), args( Pointer, )
+                    Call id(2), args( Bool(true), Tag(0, 3), ) !dbg dbg_location=0
+                    Return !dbg dbg_location=0
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
+                [0]:  scope=0location=(package_id=2 span=[0-0])
+            tags:
+                [0]: 0_b
+    "#]]
     .assert_eq(&program.to_string());
 }
 
@@ -422,9 +523,16 @@ fn output_recording_for_literal_double() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
+                    name: __quantum__rt__initialize
+                    call_type: Initialize
+                    input_type:
+                        [0]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 2: Callable:
                     name: __quantum__rt__double_record_output
                     call_type: OutputRecording
                     input_type:
@@ -434,12 +542,20 @@ fn output_recording_for_literal_double() {
                     body: <NONE>
             blocks:
                 Block 0: Block:
-                    Call id(1), args( Double(42.1), Pointer, ) !dbg package_id=2 span=[50-54]
-                    Return !dbg package_id=2 span=[50-54]
+                    Call id(1), args( Pointer, )
+                    Call id(2), args( Double(42.1), Tag(0, 3), ) !dbg dbg_location=0
+                    Return !dbg dbg_location=0
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
+                [0]:  scope=0location=(package_id=2 span=[0-0])
+            tags:
+                [0]: 0_d
+    "#]]
     .assert_eq(&program.to_string());
 }
 
@@ -464,9 +580,16 @@ fn output_recording_for_literal_int() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
+                    name: __quantum__rt__initialize
+                    call_type: Initialize
+                    input_type:
+                        [0]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 2: Callable:
                     name: __quantum__rt__int_record_output
                     call_type: OutputRecording
                     input_type:
@@ -476,12 +599,20 @@ fn output_recording_for_literal_int() {
                     body: <NONE>
             blocks:
                 Block 0: Block:
-                    Call id(1), args( Integer(42), Pointer, ) !dbg package_id=2 span=[50-54]
-                    Return !dbg package_id=2 span=[50-54]
+                    Call id(1), args( Pointer, )
+                    Call id(2), args( Integer(42), Tag(0, 3), ) !dbg dbg_location=0
+                    Return !dbg dbg_location=0
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+            dbg_locations:
+                [0]:  scope=0location=(package_id=2 span=[0-0])
+            tags:
+                [0]: 0_i
+    "#]]
     .assert_eq(&program.to_string());
 }
 
@@ -508,9 +639,16 @@ fn output_recording_for_mix_of_literal_and_variable() {
                     name: main
                     call_type: Regular
                     input_type: <VOID>
-                    output_type: <VOID>
+                    output_type: Integer
                     body: 0
                 Callable 1: Callable:
+                    name: __quantum__rt__initialize
+                    call_type: Initialize
+                    input_type:
+                        [0]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 2: Callable:
                     name: __quantum__qis__mresetz__body
                     call_type: Measurement
                     input_type:
@@ -518,7 +656,7 @@ fn output_recording_for_mix_of_literal_and_variable() {
                         [1]: Result
                     output_type: <VOID>
                     body: <NONE>
-                Callable 2: Callable:
+                Callable 3: Callable:
                     name: __quantum__rt__tuple_record_output
                     call_type: OutputRecording
                     input_type:
@@ -526,7 +664,7 @@ fn output_recording_for_mix_of_literal_and_variable() {
                         [1]: Pointer
                     output_type: <VOID>
                     body: <NONE>
-                Callable 3: Callable:
+                Callable 4: Callable:
                     name: __quantum__rt__result_record_output
                     call_type: OutputRecording
                     input_type:
@@ -534,7 +672,7 @@ fn output_recording_for_mix_of_literal_and_variable() {
                         [1]: Pointer
                     output_type: <VOID>
                     body: <NONE>
-                Callable 4: Callable:
+                Callable 5: Callable:
                     name: __quantum__rt__bool_record_output
                     call_type: OutputRecording
                     input_type:
@@ -544,15 +682,28 @@ fn output_recording_for_mix_of_literal_and_variable() {
                     body: <NONE>
             blocks:
                 Block 0: Block:
-                    Call id(1), args( Qubit(0), Result(0), ) !dbg package_id=2 span=[0-0] scope=0 scope_package_id=2 scope_span=[74-188] callable=Main
-                    Call id(2), args( Integer(2), Pointer, ) !dbg package_id=2 span=[50-54]
-                    Call id(3), args( Result(0), Pointer, ) !dbg package_id=2 span=[50-54]
-                    Call id(4), args( Bool(true), Pointer, ) !dbg package_id=2 span=[50-54]
-                    Return !dbg package_id=2 span=[50-54]
+                    Call id(1), args( Pointer, )
+                    Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                    Call id(3), args( Integer(2), EmptyTag, ) !dbg dbg_location=0
+                    Call id(4), args( Result(0), Tag(0, 5), ) !dbg dbg_location=0
+                    Call id(5), args( Bool(true), Tag(1, 5), ) !dbg dbg_location=0
+                    Return !dbg dbg_location=0
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 1
-            num_results: 1"#]]
+            num_results: 1
+            dbg_metadata_scopes:
+                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+                [1]: SubProgram name=Main location=(package_id=2 span=[40-188])
+            dbg_locations:
+                [0]:  scope=0location=(package_id=2 span=[0-0])
+                [1]:  scope=1location=(package_id=2 span=[84-100]) inlined_at=0
+                [2]:  scope=1location=(package_id=2 span=[117-163]) inlined_at=0
+                [3]:  scope=1location=(package_id=2 span=[84-100]) inlined_at=0
+            tags:
+                [0]: 0_t0r
+                [1]: 1_t1b
+    "#]]
     .assert_eq(&program.to_string());
 }
 

@@ -45,7 +45,7 @@ pub enum Type {
     DynArrayRef(DynArrayRefType),
 
     /// Static array references.
-    /// These are array references where all dimension lengths are declared explicitely.
+    /// These are array references where all dimension lengths are declared explicitly.
     /// E.g.: `readonly array[int, 2, 3, 4] arr`.
     StaticArrayRef(StaticArrayRefType),
 
@@ -477,7 +477,7 @@ impl Type {
             Type::DynArrayRef(array) => {
                 // In this case we only care about the number of dimensions and not about
                 // the size of the dimensions. So, we create a dummy `ArrayDimensions`
-                // enconding the num_dims to be able to use the same infrastructure we
+                // encoding the num_dims to be able to use the same infrastructure we
                 // use for the other array types.
                 let dummy_dims: ArrayDimensions = array.dims.into();
                 indexed_type_builder(

@@ -7,13 +7,11 @@ import {
   ICompilerWorker,
   IOperationInfo,
   IQSharpError,
-  IRange,
   QdkDiagnostics,
   getCompilerWorker,
   log,
 } from "qsharp-lang";
 import { Uri, workspace } from "vscode";
-import { ComponentGrid } from "../../npm/qsharp/dist/data-structures/circuit";
 import { getTargetFriendlyName } from "./config";
 import { clearCommandDiagnostics } from "./diagnostics";
 import { FullProgramConfig, getActiveProgram } from "./programConfig";
@@ -27,7 +25,8 @@ import {
 } from "./telemetry";
 import { getRandomGuid } from "./utils";
 import { sendMessageToPanel } from "./webviewPanel";
-import { ICircuitConfig } from "../../npm/qsharp/lib/web/qsc_wasm";
+import { ICircuitConfig, IPosition } from "../../npm/qsharp/lib/web/qsc_wasm";
+import { basename } from "./common";
 
 const compilerRunTimeoutMs = 1000 * 60 * 5; // 5 minutes
 
@@ -280,10 +279,9 @@ async function getCircuitOrError(
   try {
     const circuit = await worker.getCircuit(
       params.program,
-      params.operation,
       config,
+      params.operation,
     );
-    transformLocations(circuit);
     return {
       result: "success",
       simulated: config.generationMethod === "simulate",
@@ -319,6 +317,7 @@ export function getConfig() {
     groupScopes: true,
     generationMethod: "static" as const,
     collapseQubitRegisters: false,
+    sourceLocations: true,
   };
 
   const config = workspace
@@ -349,58 +348,14 @@ export function getConfig() {
       typeof config.collapseQubitRegisters === "boolean"
         ? config.collapseQubitRegisters
         : defaultConfig.collapseQubitRegisters,
+    sourceLocations:
+      "sourceLocations" in config && typeof config.sourceLocations === "boolean"
+        ? config.sourceLocations
+        : defaultConfig.sourceLocations,
   };
 
   log.debug("Using circuit config: ", configObject);
   return configObject;
-}
-
-function transformLocations(circuits: CircuitData) {
-  for (const circuit of circuits.circuits) {
-    const componentGrid = circuit.componentGrid;
-    mapComponentLocationsToHtml(componentGrid);
-  }
-}
-
-function mapComponentLocationsToHtml(componentGrid: ComponentGrid) {
-  log.debug(
-    "Mapping component locations to HTML for component grid: ",
-    componentGrid,
-  );
-  for (const column of componentGrid) {
-    for (const component of column.components) {
-      if (component.children?.length) {
-        mapComponentLocationsToHtml(component.children);
-      }
-
-      component.args = component.args?.map((arg) => {
-        try {
-          if (arg.startsWith("metadata=")) {
-            const rest = arg.substring("metadata=".length);
-            const metadata = JSON.parse(rest);
-            log.debug("Parsed metadata for gate: ", metadata);
-            if (
-              typeof metadata === "object" &&
-              typeof metadata.source === "string" &&
-              typeof metadata.span === "object" &&
-              typeof metadata.span.start === "object" &&
-              typeof metadata.span.start.line === "number" &&
-              typeof metadata.span.start.character === "number" &&
-              typeof metadata.span.end === "object" &&
-              typeof metadata.span.end.line === "number" &&
-              typeof metadata.span.end.character === "number"
-            ) {
-              return documentHtml(true, metadata.source, metadata.span);
-            }
-          }
-          return arg;
-        } catch {
-          log.debug("Failed to parse component argument as location: ", arg);
-          return arg;
-        }
-      });
-    }
-  }
 }
 
 function hasResultComparisonError(errors: IQSharpError[]) {
@@ -424,7 +379,7 @@ function errorsToHtml(errors: IQSharpError[]) {
   for (const error of errors) {
     const { document, diagnostic: diag, stack: rawStack } = error;
 
-    const location = documentHtml(false, document, diag.range);
+    const location = documentHtml(false, document, diag.range.start);
     const message = escapeHtml(`(${diag.code}) ${diag.message}`).replace(
       /\n/g,
       "<br/><br/>",
@@ -437,7 +392,7 @@ function errorsToHtml(errors: IQSharpError[]) {
         .split("\n")
         .map((l) => {
           // Link-ify the document names in the stack trace
-          const match = l.match(/^(\s*)at (.*) in (.*)/);
+          const match = l.match(/^(\s*)at (.*) in (.*):(\d+):(\d+)/);
           if (match) {
             const [, leadingWs, callable, doc] = match;
             return `${leadingWs}at ${escapeHtml(callable)} in ${documentHtml(false, doc)}`;
@@ -494,9 +449,8 @@ export function updateCircuitPanel(
 function documentHtml(
   customCommand: boolean,
   maybeUri: string,
-  range?: IRange,
+  position?: IPosition,
 ) {
-  let location;
   try {
     // If the error location is a document URI, create a link to that document.
     // We use the `vscode.open` command (https://code.visualstudio.com/api/references/commands#commands)
@@ -511,33 +465,32 @@ function documentHtml(
     // location. Then this would be a link to that command instead. Yet another
     // alternative is to have the webview pass a message back to the extension.
     const uri = Uri.parse(maybeUri, true);
+    const fsPath = escapeHtml(basename(uri.path) ?? uri.fsPath);
+    const lineColumn = position
+      ? escapeHtml(`:${position.line + 1}:${position.character + 1}`)
+      : "";
 
-    if (customCommand && range) {
-      const args = [uri, range];
-      const command = "qsharp-vscode.gotoLocation";
-      const openCommandUri = Uri.parse(
-        `command:${command}?${encodeURIComponent(JSON.stringify(args))}`,
-        true,
-      );
-      location = `<a href="${openCommandUri}">source</a>`;
-    } else {
-      const args = [uri];
-      const command = "vscode.open";
-      const openCommandUri = Uri.parse(
-        `command:${command}?${encodeURIComponent(JSON.stringify(args))}`,
-        true,
-      );
-      const fsPath = escapeHtml(uri.fsPath);
-      const lineColumn = range
-        ? escapeHtml(`:${range.start.line + 1}:${range.start.character + 1}`)
-        : "";
-      location = `<a href="${openCommandUri}">${fsPath}</a>${lineColumn}`;
-    }
+    const locations = [
+      {
+        source: uri,
+        span: {
+          start: position,
+          end: position,
+        },
+      },
+    ];
+
+    const args = customCommand && position ? [locations] : [uri];
+    const openCommand =
+      customCommand && position ? "qsharp-vscode.gotoLocations" : "vscode.open";
+
+    const argsStr = encodeURIComponent(JSON.stringify(args));
+    const openCommandUri = Uri.parse(`command:${openCommand}?${argsStr}`, true);
+    const title = `${fsPath}${lineColumn}`;
+    return `<a href="${openCommandUri}">${title}</a>`;
   } catch {
     // Likely could not parse document URI - it must be a project level error
     // or an error from stdlib, use the document name directly
-    location = escapeHtml(maybeUri);
+    return escapeHtml(maybeUri);
   }
-
-  return location;
 }

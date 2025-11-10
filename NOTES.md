@@ -1,6 +1,17 @@
 # Circuit diagram improvements
 
+## Branches
+
+```plaintext
+|- minestarks/circuit-folding
+  |- minestarks/circuit-source-links
+    |- minestarks/circuit-disable-tracing
+      |- minestarks/circuit-snapshot-tests
+```
+
 ## Inventory of current work (from PR)
+
+### Rust
 
 - module structure - `qsc_circuit` depends on `qsc_partial_eval`, or...?
 - new exports from qsc (circuit stuff)
@@ -24,6 +35,7 @@
 - unit tests for qubit grouping
 - "unsupported feature" error in circuit generation
 - rir->circuit transformation
+
   - establish variable dependencies (phi nodes and branching)
   - expand simple branches (order blocks, group operations)
   - group operations by scope stack (callable only)
@@ -38,6 +50,26 @@
   - mapping variables to result dependencies, feeding into control results
   - identifying control/target qubits for known intrinsics (QIS)
 
+- unit tests for scoping groups specifically
+- move Location to a common spot (frontend)
+- partial eval changes to keep track of dbg locations, scopes and inlinedAt information
+- rir changes to contain metadata (locations, scopes and instruciton metadata)
+- partial eval unit test updates to show rir debug metadta
+- rir passes changes to accommodate new metadata field
+- python module changes to pass circuit config
+- wasm plumb circuit config
+
+### JS
+
+- `getCircuit` takes a config object now
+- renderer changes to show metadata links
+- "expand until depth" functionality for renderer
+- react controls for expand/collaps
+- VS Code circuit configuration settings
+- VS Code circuit defaults
+- use a specific target profile fallback when generating circuits?
+- "go to location" command to haandle source links
+- view column fixes (unrelated)
 
 ## Not done, but necessary
 
@@ -53,6 +85,11 @@
 - handle maxOperations limit gracefully
 - some javascript testing for diagrams
 - figure out / test control/adjoint calls
+- convert spans to Location at debug metadata
+- source code links - what will happen on quantum os shell??
+- what do we do when Unrestricted is hardcoded as target profile?
+
+-
 
 ## Things to call out in the spec
 
@@ -60,6 +97,7 @@
 - must call out difference between high-level eval and circuit based on QIR (decompositions? erasing some intrinsics?)
 - call out how current UI will differ from Scott's mockups (no classical wires, etc)
 - call out whether we need to change the data structure or abuse the `children` field for the time being
+- how qir parsing is going to fit into this
 
 ## To try out
 

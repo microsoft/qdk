@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-"""qdk bundling meta-package.
+"""qdk bundling top-level package.
 
 Design goals:
     * Provide a single import root `qdk` that exposes bundled quantum tooling as
@@ -14,13 +14,10 @@ Optional extras:
 
 """
 
-# Optional: use telemetry hook if present (skipped in stub/mock envs)
-try:
-    import qsharp.telemetry_events.on_qdk_import
 
-    qsharp.telemetry_events.on_qdk_import()
-except Exception:
-    pass
+from qsharp.telemetry_events import on_qdk_import
+
+on_qdk_import()
 
 # Some common utilities are lifted to the qdk root.
 from qsharp import code
@@ -28,7 +25,6 @@ from qsharp import (
     set_quantum_seed,
     set_classical_seed,
     dump_machine,
-    dump_circuit,
     init,
     Result,
     TargetProfile,
@@ -46,7 +42,6 @@ __all__ = [
     "set_quantum_seed",
     "set_classical_seed",
     "dump_machine",
-    "dump_circuit",
     "init",
     "Result",
     "TargetProfile",

@@ -43,7 +43,7 @@ export function render({ model, el }: RenderArgs) {
 
   // There is an existing issue where in VS Code it always shows the widget background as white.
   // (See https://github.com/microsoft/vscode-jupyter/issues/7161)
-  // We tried to fix this in CSS by overridding the style, but there is a race condition whereby
+  // We tried to fix this in CSS by overriding the style, but there is a race condition whereby
   // depending on which style gets injected first (ours or ipywidgets), it may or may not work.
 
   // The solution here is to force our own override to be last in the style list if not already.
@@ -239,7 +239,21 @@ function renderHistogram({ model, el }: RenderArgs) {
 function renderCircuit({ model, el }: RenderArgs) {
   const onChange = () => {
     const circuitJson = model.get("circuit_json") as string;
-    prender(<Circuit circuit={JSON.parse(circuitJson)}></Circuit>, el);
+    prender(
+      <Circuit
+        circuit={JSON.parse(circuitJson)}
+        isEditable={false}
+        renderLocations={(locations) => {
+          return {
+            title: locations
+              .map((loc) => `${loc.file}:${loc.line}:${loc.column}`)
+              .join("\n"),
+            href: "#",
+          };
+        }}
+      ></Circuit>,
+      el,
+    );
   };
 
   onChange();

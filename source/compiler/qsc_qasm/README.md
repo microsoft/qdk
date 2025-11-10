@@ -31,7 +31,7 @@ The two languages have many differences, and insofar as possible, the compilatio
 
 QIR specific semantic constraints:
 
-- OpenQASM ouput registers are declared with a fixed size and not all of the indexes may be populated with measurements. In QIR, `Result`s can only ever be acquired through measurement. So if all entries in an output register aren't measured into, a code generation error will occur.
+- OpenQASM output registers are declared with a fixed size and not all of the indexes may be populated with measurements. In QIR, `Result`s can only ever be acquired through measurement. So if all entries in an output register aren't measured into, a code generation error will occur.
 
 Semantic details
 

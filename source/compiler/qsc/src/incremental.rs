@@ -80,7 +80,7 @@ impl Compiler {
         })
     }
 
-    pub fn from(
+    pub fn with_package_store(
         store: PackageStore,
         source_package_id: PackageId,
         capabilities: TargetCapabilityFlags,
@@ -286,7 +286,7 @@ impl Compiler {
     }
 
     /// Returns the ID of the source package created from the sources
-    /// passed in during inital creation.
+    /// passed in during initial creation.
     #[must_use]
     pub fn source_package_id(&self) -> PackageId {
         self.source_package_id
