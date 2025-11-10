@@ -441,7 +441,7 @@ fn qubit_reindexed_across_branches() {
             num_qubits: 1
             num_results: 3
             dbg_metadata_scopes:
-                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
             dbg_locations:
             tags:
     "#]]

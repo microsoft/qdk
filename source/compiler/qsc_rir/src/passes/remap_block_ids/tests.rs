@@ -58,7 +58,7 @@ fn remap_block_ids_no_changes() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
             dbg_locations:
             tags:
     "#]]
@@ -87,7 +87,7 @@ fn remap_block_ids_no_changes() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
             dbg_locations:
             tags:
     "#]]
@@ -140,7 +140,7 @@ fn remap_block_ids_out_of_order_no_branches() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
             dbg_locations:
             tags:
     "#]]
@@ -169,7 +169,7 @@ fn remap_block_ids_out_of_order_no_branches() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
             dbg_locations:
             tags:
     "#]]
@@ -235,7 +235,7 @@ fn remap_block_ids_out_of_order_with_one_branch() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
             dbg_locations:
             tags:
     "#]]
@@ -267,7 +267,7 @@ fn remap_block_ids_out_of_order_with_one_branch() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
             dbg_locations:
             tags:
     "#]]
@@ -328,7 +328,7 @@ fn remap_block_ids_simple_loop() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
             dbg_locations:
             tags:
     "#]]
@@ -358,7 +358,7 @@ fn remap_block_ids_simple_loop() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
             dbg_locations:
             tags:
     "#]]
@@ -406,7 +406,7 @@ fn remap_block_ids_infinite_loop() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
             dbg_locations:
             tags:
     "#]]
@@ -434,7 +434,7 @@ fn remap_block_ids_infinite_loop() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
             dbg_locations:
             tags:
     "#]]
@@ -503,7 +503,7 @@ fn remap_block_ids_nested_branching_loops() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
             dbg_locations:
             tags:
     "#]]
@@ -533,7 +533,7 @@ fn remap_block_ids_nested_branching_loops() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
             dbg_locations:
             tags:
     "#]]
@@ -641,7 +641,7 @@ fn remap_block_ids_ensures_acyclic_program_gets_topological_ordering() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
             dbg_locations:
             tags:
     "#]]
@@ -683,7 +683,7 @@ fn remap_block_ids_ensures_acyclic_program_gets_topological_ordering() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
             dbg_locations:
             tags:
     "#]]

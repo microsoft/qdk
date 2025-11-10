@@ -558,12 +558,12 @@ fn result_array_index_range_in_for_loop() {
             num_qubits: 2
             num_results: 2
             dbg_metadata_scopes:
-                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
-                [1]: SubProgram name=Main location=(package_id=2 span=[40-318])
-                [2]: SubProgram name=AllocateQubitArray location=(package_id=0 span=[2577-2872])
-                [3]: SubProgram name=MResetEachZ location=(package_id=1 span=[179488-179657])
-                [4]: SubProgram name=MResetZ location=(package_id=1 span=[180988-181076])
-                [5]: SubProgram name=ReleaseQubitArray location=(package_id=0 span=[2878-3011])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                1 = SubProgram name=Main location=(package_id=2 span=[40-318])
+                2 = SubProgram name=AllocateQubitArray location=(package_id=0 span=[2577-2872])
+                3 = SubProgram name=MResetEachZ location=(package_id=1 span=[179488-179657])
+                4 = SubProgram name=MResetZ location=(package_id=1 span=[180988-181076])
+                5 = SubProgram name=ReleaseQubitArray location=(package_id=0 span=[2878-3011])
             dbg_locations:
                 [0]:  scope=0location=(package_id=2 span=[0-0])
                 [1]:  scope=1location=(package_id=2 span=[73-91]) inlined_at=0

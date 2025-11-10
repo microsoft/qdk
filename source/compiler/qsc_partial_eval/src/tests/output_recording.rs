@@ -92,8 +92,8 @@ fn output_recording_for_tuple_of_different_types() {
             num_qubits: 1
             num_results: 1
             dbg_metadata_scopes:
-                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
-                [1]: SubProgram name=Main location=(package_id=2 span=[40-193])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                1 = SubProgram name=Main location=(package_id=2 span=[40-193])
             dbg_locations:
                 [0]:  scope=0location=(package_id=2 span=[0-0])
                 [1]:  scope=1location=(package_id=2 span=[84-100]) inlined_at=0
@@ -198,8 +198,8 @@ fn output_recording_for_nested_tuples() {
             num_qubits: 1
             num_results: 1
             dbg_metadata_scopes:
-                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
-                [1]: SubProgram name=Main location=(package_id=2 span=[40-230])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                1 = SubProgram name=Main location=(package_id=2 span=[40-230])
             dbg_locations:
                 [0]:  scope=0location=(package_id=2 span=[0-0])
                 [1]:  scope=1location=(package_id=2 span=[103-119]) inlined_at=0
@@ -314,8 +314,8 @@ fn output_recording_for_tuple_of_arrays() {
             num_qubits: 1
             num_results: 1
             dbg_metadata_scopes:
-                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
-                [1]: SubProgram name=Main location=(package_id=2 span=[40-207])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                1 = SubProgram name=Main location=(package_id=2 span=[40-207])
             dbg_locations:
                 [0]:  scope=0location=(package_id=2 span=[0-0])
                 [1]:  scope=1location=(package_id=2 span=[86-102]) inlined_at=0
@@ -429,8 +429,8 @@ fn output_recording_for_array_of_tuples() {
             num_qubits: 1
             num_results: 1
             dbg_metadata_scopes:
-                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
-                [1]: SubProgram name=Main location=(package_id=2 span=[40-212])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                1 = SubProgram name=Main location=(package_id=2 span=[40-212])
             dbg_locations:
                 [0]:  scope=0location=(package_id=2 span=[0-0])
                 [1]:  scope=1location=(package_id=2 span=[86-102]) inlined_at=0
@@ -493,7 +493,7 @@ fn output_recording_for_literal_bool() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
             dbg_locations:
                 [0]:  scope=0location=(package_id=2 span=[0-0])
             tags:
@@ -550,7 +550,7 @@ fn output_recording_for_literal_double() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
             dbg_locations:
                 [0]:  scope=0location=(package_id=2 span=[0-0])
             tags:
@@ -607,7 +607,7 @@ fn output_recording_for_literal_int() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
             dbg_locations:
                 [0]:  scope=0location=(package_id=2 span=[0-0])
             tags:
@@ -693,8 +693,8 @@ fn output_recording_for_mix_of_literal_and_variable() {
             num_qubits: 1
             num_results: 1
             dbg_metadata_scopes:
-                [0]: SubProgram name=entry location=(package_id=0 span=[0-0])
-                [1]: SubProgram name=Main location=(package_id=2 span=[40-188])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                1 = SubProgram name=Main location=(package_id=2 span=[40-188])
             dbg_locations:
                 [0]:  scope=0location=(package_id=2 span=[0-0])
                 [1]:  scope=1location=(package_id=2 span=[84-100]) inlined_at=0
