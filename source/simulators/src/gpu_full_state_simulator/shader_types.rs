@@ -173,8 +173,6 @@ pub mod ops {
     }
 }
 
-pub(super) const OP_PADDING: usize = 112;
-
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct Op {
@@ -214,11 +212,10 @@ pub struct Op {
     pub i32: f32,
     pub r33: f32,
     pub i33: f32,
-    pub padding: [u8; OP_PADDING],
 }
 
 // safety check to make sure Op is the correct size with padding at compile time
-const _: () = assert!(std::mem::size_of::<Op>() == 256);
+const _: () = assert!(std::mem::size_of::<Op>() == 144);
 
 impl Default for Op {
     fn default() -> Self {
@@ -259,7 +256,6 @@ impl Default for Op {
             i32: 0.0,
             r33: 0.0,
             i33: 0.0,
-            padding: [0; OP_PADDING],
         }
     }
 }
@@ -689,30 +685,27 @@ impl Op {
 
     /// RZZ gate: Two-qubit rotation around ZZ
     /// Matrix: exp(-i*θ/2 * (Z ⊗ Z))
-    /// [[e^(-i*θ/2), 0, 0, 0],
-    ///  [0, e^(i*θ/2), 0, 0],
-    ///  [0, 0, e^(i*θ/2), 0],
-    ///  [0, 0, 0, e^(-i*θ/2)]]
+    /// [[1, 0,       0, 0],
+    ///  [0, e^(i*θ), 0, 0],
+    ///  [0, 0, e^(i*θ), 0],
+    ///  [0, 0,       0, 1]]
     #[must_use]
     pub fn new_rzz_gate(angle: f32, qubit1: u32, qubit2: u32) -> Self {
         let mut op = Self::new_2q_gate(ops::RZZ, qubit1, qubit2);
-        let half_angle = angle / 2.0;
 
         // |00⟩⟨00| coefficient (e^(-i*θ/2))
-        op.r00 = (-half_angle).cos();
-        op.i00 = (-half_angle).sin();
+        op.r00 = 1.0;
 
-        // |01⟩⟨01| coefficient (e^(i*θ/2))
-        op.r11 = half_angle.cos();
-        op.i11 = half_angle.sin();
+        // |01⟩⟨01| coefficient (e^(i*θ))
+        op.r11 = angle.cos();
+        op.i11 = angle.sin();
 
-        // |10⟩⟨10| coefficient (e^(i*θ/2))
-        op.r22 = half_angle.cos();
-        op.i22 = half_angle.sin();
+        // |10⟩⟨10| coefficient (e^(i*θ))
+        op.r22 = angle.cos();
+        op.i22 = angle.sin();
 
         // |11⟩⟨11| coefficient (e^(-i*θ/2))
-        op.r33 = (-half_angle).cos();
-        op.i33 = (-half_angle).sin();
+        op.r33 = 1.0;
 
         // All off-diagonal elements are 0 (already set by new_2q_gate)
         op

@@ -8,6 +8,7 @@ use qdk_simulators::run_parallel_shots;
 use qdk_simulators::shader_types::Op;
 use regex_lite::Regex;
 use std::time::Instant;
+use std::vec;
 
 fn main() {
     simple_bell_pair();
@@ -18,7 +19,9 @@ fn main() {
     test_2q_pauli_noise();
     test_move_noise();
     test_benzene();
-    // scaled_grover();
+    test_cx_various_state();
+    scaled_ising();
+    scaled_grover();
 }
 
 fn split_results(result_count: usize, results: &[u32]) -> (Vec<Vec<u32>>, Vec<u32>) {
@@ -32,6 +35,10 @@ fn split_results(result_count: usize, results: &[u32]) -> (Vec<Vec<u32>>, Vec<u3
         .map(|chunk| chunk[result_count])
         .collect::<Vec<u32>>();
     (results_list, error_codes)
+}
+
+fn has_no_errors(error_codes: &[u32]) -> bool {
+    error_codes.iter().all(|&code| code == 0)
 }
 
 fn simple_bell_pair() {
@@ -50,7 +57,11 @@ fn simple_bell_pair() {
     let results = run_parallel_shots(12, 2, ops, 10).expect("GPU shots failed");
     let elapsed = start.elapsed();
 
-    let (results, _error_codes) = split_results(2, &results);
+    let (results, error_codes) = split_results(2, &results);
+    assert!(
+        has_no_errors(&error_codes),
+        "Error codes from GPU: {error_codes:?}"
+    );
     println!("[GPU Runner]: Simple Bell Pair on 12 qubits for 10 shots: {results:?}");
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
 }
@@ -76,7 +87,11 @@ fn test_pauli_noise() {
     let results = run_parallel_shots(3, 3, ops, 100).expect("GPU shots failed");
     let elapsed = start.elapsed();
 
-    let (results, _error_codes) = split_results(3, &results);
+    let (results, error_codes) = split_results(3, &results);
+    assert!(
+        has_no_errors(&error_codes),
+        "Error codes from GPU: {error_codes:?}"
+    );
 
     let num_flipped = results.iter().flatten().filter(|&&x| x == 0).count();
     assert!(
@@ -142,7 +157,11 @@ fn scale_teleport() {
     let results = run_parallel_shots(3, 3, ops, 50000).expect("GPU shots failed");
     let elapsed = start.elapsed();
 
-    let (results, _error_codes) = split_results(3, &results);
+    let (results, error_codes) = split_results(3, &results);
+    assert!(
+        has_no_errors(&error_codes),
+        "Error codes from GPU: {error_codes:?}"
+    );
 
     // Verify that Bob's qubit (every 3rd result) is always 0
     let bob_results: Vec<u32> = results
@@ -204,7 +223,11 @@ fn test_simple_rotation_and_entanglement() {
     let start = Instant::now();
     let results = run_parallel_shots(24, 3, ops, 8).expect("GPU shots failed");
     let elapsed = start.elapsed();
-    let (results, _error_codes) = split_results(3, &results);
+    let (results, error_codes) = split_results(3, &results);
+    assert!(
+        has_no_errors(&error_codes),
+        "Error codes from GPU: {error_codes:?}"
+    );
     println!("[GPU Runner]: Results of GHZ state for 8 shots on 24 qubits: {results:?}");
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
 }
@@ -217,19 +240,19 @@ fn test_2q_pauli_noise() {
         init_op, // 1, 0xFFFFFFFF, 0xDEADBEEF
         Op::new_h_gate(0),
         Op::new_cx_gate(0, 1),
-        // Op::new_pauli_noise_2q(0, 1, 0.1, 0.1, 0.1),
+        Op::new_pauli_noise_2q(0, 1, 0.1, 0.1, 0.1),
         Op::new_cx_gate(1, 2),
-        // Op::new_pauli_noise_2q(1, 2, 0.1, 0.1, 0.1),
+        Op::new_pauli_noise_2q(1, 2, 0.1, 0.1, 0.1),
         Op::new_cx_gate(2, 3),
-        // Op::new_pauli_noise_2q(2, 3, 0.1, 0.1, 0.1),
+        Op::new_pauli_noise_2q(2, 3, 0.1, 0.1, 0.1),
         Op::new_cx_gate(3, 4),
         Op::new_pauli_noise_2q(3, 4, 0.1, 0.1, 0.1),
         Op::new_cx_gate(4, 5),
-        Op::new_pauli_noise_2q(4, 5, 0.1, 0.1, 0.1),
+        Op::new_pauli_noise_2q(4, 5, 0.3, 0.1, 0.1),
         Op::new_cx_gate(5, 6),
-        Op::new_pauli_noise_2q(5, 6, 0.1, 0.1, 0.1),
+        Op::new_pauli_noise_2q(5, 6, 0.3, 0.1, 0.1),
         Op::new_cx_gate(6, 7),
-        Op::new_pauli_noise_2q(6, 7, 0.1, 0.1, 0.1),
+        Op::new_pauli_noise_2q(6, 7, 0.3, 0.1, 0.1),
         Op::new_mresetz_gate(0, 0),
         Op::new_mresetz_gate(1, 1),
         Op::new_mresetz_gate(2, 2),
@@ -242,7 +265,11 @@ fn test_2q_pauli_noise() {
     let start = Instant::now();
     let results = run_parallel_shots(8, 8, ops, 20).expect("GPU shots failed");
     let elapsed = start.elapsed();
-    let (results, _error_codes) = split_results(8, &results);
+    let (results, error_codes) = split_results(8, &results);
+    assert!(
+        has_no_errors(&error_codes),
+        "Error codes from GPU: {error_codes:?}"
+    );
     // Check the results: The first 3 qubits should always agree, the 4th usually with the first 3,
     // and after that it gets messy.
     println!("[GPU Runner]: Results of 2q Pauli noise: {results:?}");
@@ -273,7 +300,11 @@ fn test_move_noise() {
     let start = Instant::now();
     let results = run_parallel_shots(1, 1, ops, 100).expect("GPU shots failed");
     let elapsed = start.elapsed();
-    let (results, _error_codes) = split_results(1, &results);
+    let (results, error_codes) = split_results(1, &results);
+    assert!(
+        has_no_errors(&error_codes),
+        "Error codes from GPU: {error_codes:?}"
+    );
     println!("[GPU Runner]: Results of move op: {results:?}");
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
 }
@@ -308,25 +339,93 @@ fn test_benzene() {
         Op::new_pauli_noise_2q(3, 9, 0.000166, 0.000166, 0.000166),
         Op::new_h_gate(2),
         Op::new_pauli_noise_1q(2, 0.000166, 0.000166, 0.000166),
-        Op::new_mresetz_gate(2, 0),
         Op::new_h_gate(3),
         Op::new_pauli_noise_1q(3, 0.000166, 0.000166, 0.000166),
-        Op::new_mresetz_gate(3, 1),
         Op::new_h_gate(8),
         Op::new_pauli_noise_1q(8, 0.000166, 0.000166, 0.000166),
-        Op::new_mresetz_gate(8, 2),
         Op::new_h_gate(9),
         Op::new_pauli_noise_1q(9, 0.000166, 0.000166, 0.000166),
+        Op::new_mresetz_gate(2, 0),
+        Op::new_mresetz_gate(3, 1),
+        Op::new_mresetz_gate(8, 2),
         Op::new_mresetz_gate(9, 3),
     ];
     let start = Instant::now();
-    let results = run_parallel_shots(10, 4, ops, 1024).expect("GPU shots failed");
+    let results = run_parallel_shots(10, 4, ops, 100).expect("GPU shots failed");
     let elapsed = start.elapsed();
-    let (_results, _error_codes) = split_results(4, &results);
+    let (results, error_codes) = split_results(4, &results);
+    assert!(
+        has_no_errors(&error_codes),
+        "Error codes from GPU: {error_codes:?}"
+    );
+    // Check the first result is 0001
+    assert!(
+        results[0] == vec![0, 0, 0, 1],
+        "Expected first result to be [0001], got {:?}",
+        results[0]
+    );
     println!("[GPU Runner]: Benzene elapsed time for 1024 shots: {elapsed:.2?}");
 }
 
-fn scaled_grover() {
+fn test_cx_various_state() {
+    let mut init_op = Op::new_reset_gate(u32::MAX);
+    init_op.q2 = 0xdead_beef;
+
+    let ops: Vec<Op> = vec![
+        init_op,
+        Op::new_x_gate(0),
+        Op::new_cx_gate(0, 7),
+        Op::new_cx_gate(0, 6),
+        Op::new_mresetz_gate(0, 0),
+        Op::new_mresetz_gate(7, 1),
+        Op::new_mresetz_gate(6, 2),
+    ];
+    // With 10 qubits, entries should be 1024, so 8kb per shot, i.e. 0x2000 byte size
+    // After X, entry 0x01 is 1.0.
+    // For 2 qubit op on qubits 0 and 7
+    // - entry00 is bitstring 0
+    // - entry01 is bitstring 0x80 (x8 is byte offset 0x400)
+    // - entry10 is bitstring 0x01 (x8 is byte offset 0x08)
+    // - entry11 is bitstring 0x81 (x8 is byte offset 0x408)
+    //
+    // After first CX, offset 0x408 should be 1.0 (only entry with a value)
+    // Bitstring at 1.0 is |10000001>. is_1_mask is 129 and is_0_mask is 894.
+    //
+    // For 2 qubit CX on qubits 0 and 6
+    // - entry00 is bitstring 0
+    // - entry01 is bitstring 0x40 (x8 is byte offset 0x200)
+    // - entry10 is bitstring 0x01 (x8 is byte offset 0x08)
+    // - entry11 is bitstring 0x41 (x8 is byte offset 0x208)
+    // All those entries are 0, but qubit 0 is still 100% 1, so should still flip qubit 6 to 1.
+    // i.e. entry 0x208 (bitstring 0x41) should become density 0.5 and 0x408 (0x81) should be reduced to density 0.5
+    //
+    // To do that, it need to read the value for 0x81, halve it to 0.5, and write back.
+    // So it needs to NOT skip entry 10000001, even bits 0 and 7 are 100% 1 state, and target is in 0 state.
+    // is_1_mask: 0010000001
+    // is_0_mask: 1101111110
+    // entry_xx:  001_00000_ // offset 32
+    // entry_00:  0010000000
+    // entry_11:  0011000001
+    // ~1_mask:   1100111110
+    // 00andis0:  0000000000
+    // 11and~1:   0000000000 - this and above are both 0, so it shouldn't skip this entry!
+    //
+    // There was a bug where the offset wasn't incrementing when skipping entries, and took all this to find it :-/
+    let start = Instant::now();
+    let results = run_parallel_shots(10, 3, ops, 1).expect("GPU shots failed");
+    let elapsed = start.elapsed();
+
+    let (results, error_codes) = split_results(3, &results);
+    assert!(
+        has_no_errors(&error_codes),
+        "Error codes from GPU: {error_codes:?}"
+    );
+    // TODO: Check results 0 & 2 are in the 1 state, and result 1 is ~50/50
+    println!("[GPU Runner]: CX Various State on 2 qubits for 10 shots: {results:?}");
+    println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
+}
+
+fn scaled_ising() {
     let mut init_op = Op::new_reset_gate(u32::MAX);
     init_op.q2 = 0xdead_beef;
 
@@ -344,8 +443,47 @@ fn scaled_grover() {
     let start = Instant::now();
     let results = run_parallel_shots(25, 25, ops, 4).expect("GPU shots failed");
     let elapsed = start.elapsed();
-    let (results, _error_codes) = split_results(25, &results);
-    println!("[GPU Runner]: Scaled Grover results for 1 shot: {results:?}");
+    let (results, error_codes) = split_results(25, &results);
+    assert!(
+        has_no_errors(&error_codes),
+        "Error codes from GPU: {error_codes:?}"
+    );
+    println!("[GPU Runner]: Scaled Ising (5x5) results for 4 shots: {results:?}");
+    println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
+}
+
+fn scaled_grover() {
+    let mut init_op = Op::new_reset_gate(u32::MAX);
+    init_op.q2 = 0xdead_beef;
+
+    let grover_ir = include_str!("./grover_full.ir");
+
+    let mut ops: Vec<Op> = Vec::new();
+    ops.push(init_op);
+
+    // Iterate through grover lines and add ops for each (handling CCX decomposition)
+    for line in grover_ir.lines() {
+        let mut line_ops = op_from_ir_line(line);
+        ops.append(&mut line_ops);
+    }
+
+    let start = Instant::now();
+    let results = run_parallel_shots(24, 20, ops, 4).expect("GPU shots failed");
+    let elapsed = start.elapsed();
+    let (results, error_codes) = split_results(20, &results);
+    assert!(
+        has_no_errors(&error_codes),
+        "Error codes from GPU: {error_codes:?}"
+    );
+    for res in &results {
+        assert!(
+            res == &vec![0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0],
+            "Expected result to be [01010 x4], got {res:?}",
+        );
+    }
+    println!(
+        "[GPU Runner]: Scaled Grover (2344 ops on 24 qubits) results for 4 shots: {results:?}"
+    );
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
 }
 

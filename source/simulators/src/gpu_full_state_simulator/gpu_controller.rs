@@ -7,6 +7,7 @@ use crate::shader_types;
 
 use super::shader_types::{Op, Result, ops};
 
+use bytemuck::{Pod, Zeroable};
 use futures::FutureExt;
 use rand::distributions::uniform;
 use std::{cmp::max, cmp::min, num::NonZeroU64};
@@ -20,18 +21,18 @@ use wgpu::{
 const MAX_BUFFER_SIZE: usize = 1 << 30; // 1 GB limit due to some wgpu restrictions
 const MAX_QUBIT_COUNT: u32 = 27; // 2^27 * 8 bytes per complex32 = 1 GB buffer limit
 const MAX_QUBITS_PER_WORKGROUP: u32 = 20; // Max qubits to be processed by a single workgroup
+const THREADS_PER_WORKGROUP: u32 = 32; // 32 gives good occupancy across various GPUs
 
 // Once a shot is big enough to need multiple workgroups, what's the max number of workgroups possible
 const MAX_PARTITIONED_WORKGROUPS: usize = 1 << (MAX_QUBIT_COUNT - MAX_QUBITS_PER_WORKGROUP);
 const MAX_SHOTS_PER_BATCH: u32 = 65535; // To align with max workgroups per dimension WebGPU default
-const THREADS_PER_WORKGROUP: u32 = 32; // 32 gives good occupancy across various GPUs
 
 // Round up circuit qubits if smaller to enable to optimizations re unrolling, etc.
 // With min qubit count of 8, this means min 256 entries per shot. Spread across 32 threads = 8 entries per thread.
 // With each iteration in each thread processing 2 or 4 entries, that means 2 or 4 iterations per thread minimum.
 const MIN_QUBIT_COUNT: u32 = 8;
 const MAX_CIRCUIT_OPS: usize = MAX_BUFFER_SIZE / std::mem::size_of::<Op>();
-const SIZEOF_SHOTDATA: usize = 1024; // Size of ShotData struct on the GPU in bytes
+const SIZEOF_SHOTDATA: usize = 640; // Size of ShotData struct on the GPU in bytes
 const MAX_SHOT_ENTRIES: usize = MAX_BUFFER_SIZE / SIZEOF_SHOTDATA;
 
 // There is no hard limit here, but for very large circuits we may need to split into multiple dispatches.
@@ -66,6 +67,7 @@ struct GpuBuffers {
     ops_upload: Buffer,
     ops: Buffer,
     results: Buffer,
+    diagnostics: Buffer,
     download: Buffer,
 }
 
@@ -74,6 +76,8 @@ struct RunParams {
     ops_buffer_size: usize,
     state_vector_buffer_size: usize,
     results_buffer_size: usize,
+    diagnostics_buffer_size: usize,
+    download_buffer_size: usize,
     entries_per_shot: usize,
     entries_per_workgroup: usize,
     entries_per_thread: usize,
@@ -85,22 +89,82 @@ struct RunParams {
     result_count: usize,
 }
 
-// The below structures are used to collate results across workgroups within a shot
+// ********* The below structure should be kept in sync with the WGSL shader code *********
+
+// The follow data is copied back from the GPU for diagnostics
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
 struct QubitProbabilities {
     zero: f32,
     one: f32,
 }
 
 // Each workgroup sums the probabilities for the entries it processed for each qubit
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
 struct WorkgroupSums {
     qubits: [QubitProbabilities; MAX_QUBIT_COUNT as usize],
 }
 
 // Once the dispatch for the workgroup processing is done, the results from all workgroups
 // for all active shots are collated here for final processing in the next prepare_op step.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
 struct WorkgroupCollationBuffer {
     sums: [WorkgroupSums; MAX_PARTITIONED_WORKGROUPS],
 }
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+struct QubitProbabilityPerThread {
+    zero: [f32; MAX_QUBIT_COUNT as usize],
+    one: [f32; MAX_QUBIT_COUNT as usize],
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+struct QubitState {
+    zero_probability: f32,
+    one_probability: f32,
+    heat: f32, // -1.0 = lost
+    idle_since: f32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+struct ShotData {
+    shot_id: u32,
+    next_op_idx: u32,
+    rng_state: [u32; 6], // 6 x u32
+    rand_pauli: f32,
+    rand_damping: f32,
+    rand_dephase: f32,
+    rand_measure: f32,
+    rand_loss: f32,
+    op_type: u32,
+    op_idx: u32,
+    duration: f32,
+    renormalize: f32,
+    qubit_is_0_mask: u32,
+    qubit_is_1_mask: u32,
+    qubits_updated_last_op_mask: u32,
+    qubit_state: [QubitState; MAX_QUBIT_COUNT as usize],
+    unitary: [f32; 32],
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+struct DiagnosticsData {
+    error_code: u32,
+    extra1: u32,
+    extra2: f32,
+    extra3: f32,
+    shot: ShotData,
+    op: Op,
+    qubit_probabilities: [QubitProbabilityPerThread; THREADS_PER_WORKGROUP as usize],
+    collation_buffer: WorkgroupCollationBuffer,
+}
+// TODO: Implement the Display trait for DiagnosticsData for easier debugging output
 
 impl GpuContext {
     pub async fn get_adapter() -> std::result::Result<Adapter, String> {
@@ -133,7 +197,9 @@ impl GpuContext {
             .shots_buffer_size
             .max(run_params.state_vector_buffer_size)
             .max(run_params.ops_buffer_size)
-            .max(run_params.results_buffer_size);
+            .max(run_params.results_buffer_size)
+            .max(run_params.diagnostics_buffer_size)
+            .max(std::mem::size_of::<WorkgroupCollationBuffer>());
 
         if max_required_buffer_size > max_storage_buffer_size {
             return Err(format!(
@@ -187,13 +253,8 @@ impl GpuContext {
         }
 
         // Add space in the results for an 'error code' per shot
-        let run_params: RunParams = Self::get_params(
-            qubit_count,
-            result_count + 1,
-            op_count,
-            gate_op_count,
-            shots,
-        )?;
+        let run_params: RunParams =
+            Self::get_params(qubit_count, result_count, op_count, gate_op_count, shots)?;
 
         let adapter = wgpu::Instance::new(&wgpu::InstanceDescriptor::default())
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -227,7 +288,32 @@ impl GpuContext {
         }
 
         // Create the shader module and bind group layout
-        let shader_module = device.create_shader_module(wgpu::include_wgsl!("simulator.wgsl"));
+        let raw_shader_src = include_str!("simulator.wgsl");
+        let shader_src = raw_shader_src
+            .replace("{{QUBIT_COUNT}}", &qubit_count.to_string())
+            .replace("{{RESULT_COUNT}}", &run_params.result_count.to_string())
+            .replace(
+                "{{WORKGROUPS_PER_SHOT}}",
+                &run_params.workgroups_per_shot.to_string(),
+            )
+            .replace(
+                "{{ENTRIES_PER_THREAD}}",
+                &run_params.entries_per_thread.to_string(),
+            )
+            .replace(
+                "{{THREADS_PER_WORKGROUP}}",
+                &THREADS_PER_WORKGROUP.to_string(),
+            )
+            .replace("{{MAX_QUBIT_COUNT}}", &MAX_QUBIT_COUNT.to_string())
+            .replace(
+                "{{MAX_QUBITS_PER_WORKGROUP}}",
+                &MAX_QUBITS_PER_WORKGROUP.to_string(),
+            );
+
+        let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("GPU Simulator Shader Module"),
+            source: wgpu::ShaderSource::Wgsl(shader_src.into()),
+        });
 
         let bind_group_layout = create_bind_group_layout(&device);
 
@@ -276,7 +362,14 @@ impl GpuContext {
         let state_vector_buffer_size = shots_per_batch * state_vector_size_per_shot;
         // Each result is a u32, plus one extra on the end for the shader to set an 'error code' if needed
         let results_buffer_size =
-            shots_per_batch * result_count as usize * std::mem::size_of::<u32>();
+            shots_per_batch * (result_count + 1) as usize * std::mem::size_of::<u32>();
+
+        let diagnostics_buffer_size = 4 * 4 /* initial bytes */
+                + 640 + 144 // ShotData + Op
+                + (THREADS_PER_WORKGROUP as usize * (8 * MAX_QUBIT_COUNT as usize)) // Workgroup probabilities
+                + std::mem::size_of::<WorkgroupCollationBuffer>(); // Collation buffers
+
+        let download_buffer_size = results_buffer_size + diagnostics_buffer_size;
 
         let batch_count = (shot_count as usize - 1) / shots_per_batch + 1;
 
@@ -289,6 +382,8 @@ impl GpuContext {
             ops_buffer_size,
             state_vector_buffer_size,
             results_buffer_size,
+            diagnostics_buffer_size,
+            download_buffer_size,
             entries_per_shot,
             entries_per_workgroup,
             entries_per_thread,
@@ -297,7 +392,7 @@ impl GpuContext {
             shots_per_batch,
             op_count: op_count as usize,
             gate_op_count: gate_op_count as usize,
-            result_count: result_count as usize,
+            result_count: (result_count + 1) as usize,
         })
     }
 
@@ -336,8 +431,15 @@ impl GpuContext {
 
         let download = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Download buffer"),
-            size: self.run_params.results_buffer_size as u64,
+            size: self.run_params.download_buffer_size as u64,
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        let diagnostics = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Diagnostics Buffer"),
+            size: self.run_params.diagnostics_buffer_size as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
 
@@ -348,6 +450,7 @@ impl GpuContext {
             ops_upload,
             ops,
             results,
+            diagnostics,
             download,
         }
     }
@@ -380,6 +483,10 @@ impl GpuContext {
                     binding: 4,
                     resource: buffers.results.as_entire_binding(),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: buffers.diagnostics.as_entire_binding(),
+                },
             ],
         });
 
@@ -392,17 +499,6 @@ impl GpuContext {
                     push_constant_ranges: &[],
                 });
 
-        // Overrides needs to be passed as an f64 due to wgpu restrictions
-        let qubit_count = f64::from(self.qubit_count);
-        let workgroups_per_shot = f64::from(
-            u32::try_from(self.run_params.workgroups_per_shot).expect("invalid conversion"),
-        );
-        let result_count =
-            f64::from(u32::try_from(self.run_params.result_count).expect("invalid conversion"));
-        let entries_per_thread = f64::from(
-            u32::try_from(self.run_params.entries_per_thread).expect("invalid conversion"),
-        );
-
         let pipeline_prepare_op =
             self.device
                 .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -411,12 +507,7 @@ impl GpuContext {
                     module: &self.shader_module,
                     entry_point: Some("prepare_op"),
                     compilation_options: wgpu::PipelineCompilationOptions {
-                        constants: &[
-                            ("QUBIT_COUNT", qubit_count),
-                            ("WORKGROUPS_PER_SHOT", workgroups_per_shot),
-                            ("RESULT_COUNT", result_count),
-                            ("ENTRIES_PER_THREAD", entries_per_thread),
-                        ],
+                        constants: &[],
                         ..Default::default()
                     },
                     cache: None,
@@ -430,12 +521,7 @@ impl GpuContext {
                     module: &self.shader_module,
                     entry_point: Some("execute_op"),
                     compilation_options: wgpu::PipelineCompilationOptions {
-                        constants: &[
-                            ("QUBIT_COUNT", qubit_count),
-                            ("WORKGROUPS_PER_SHOT", workgroups_per_shot),
-                            ("RESULT_COUNT", result_count),
-                            ("ENTRIES_PER_THREAD", entries_per_thread),
-                        ],
+                        constants: &[],
                         ..Default::default()
                     },
                     cache: None,
@@ -449,12 +535,7 @@ impl GpuContext {
                     module: &self.shader_module,
                     entry_point: Some("execute_2q_op"),
                     compilation_options: wgpu::PipelineCompilationOptions {
-                        constants: &[
-                            ("QUBIT_COUNT", qubit_count),
-                            ("WORKGROUPS_PER_SHOT", workgroups_per_shot),
-                            ("RESULT_COUNT", result_count),
-                            ("ENTRIES_PER_THREAD", entries_per_thread),
-                        ],
+                        constants: &[],
                         ..Default::default()
                     },
                     cache: None,
@@ -468,12 +549,7 @@ impl GpuContext {
                     module: &self.shader_module,
                     entry_point: Some("execute_mz"),
                     compilation_options: wgpu::PipelineCompilationOptions {
-                        constants: &[
-                            ("QUBIT_COUNT", qubit_count),
-                            ("WORKGROUPS_PER_SHOT", workgroups_per_shot),
-                            ("RESULT_COUNT", result_count),
-                            ("ENTRIES_PER_THREAD", entries_per_thread),
-                        ],
+                        constants: &[],
                         ..Default::default()
                     },
                     cache: None,
@@ -601,13 +677,21 @@ impl GpuContext {
 
         drop(compute_pass);
 
-        // Copy the results to the download buffer
+        // Copy the results and diagnostics to the download buffer
         encoder.copy_buffer_to_buffer(
             &resources.buffers.results,
             0,
             &resources.buffers.download,
             0,
-            resources.buffers.download.size(),
+            resources.buffers.results.size(),
+        );
+
+        encoder.copy_buffer_to_buffer(
+            &resources.buffers.diagnostics,
+            0,
+            &resources.buffers.download,
+            resources.buffers.results.size(),
+            resources.buffers.diagnostics.size(),
         );
 
         let command_buffer = encoder.finish();
@@ -648,7 +732,15 @@ impl GpuContext {
 
         // Read, copy out, and unmap.
         let data = buffer_slice.get_mapped_range();
-        let results: Vec<u32> = bytemuck::cast_slice(&data).to_vec();
+
+        // Fetch results and diagnostics from the download buffer
+        let result_bytes = self.run_params.results_buffer_size;
+        let results_data = &data[..result_bytes];
+        let diagnositcs_data = &data[result_bytes..];
+
+        let results: Vec<u32> = bytemuck::cast_slice(results_data).to_vec();
+        let diagnostics = bytemuck::from_bytes::<DiagnosticsData>(diagnositcs_data);
+
         drop(data);
         resources.buffers.download.unmap();
 
@@ -669,6 +761,7 @@ fn create_bind_group_layout(device: &Device) -> BindGroupLayout {
         ("Ops", 2, true),
         ("StateVector", 3, false),
         ("Results", 4, false),
+        ("Diagnostics", 5, false),
     ]
     .into_iter()
     .map(|(_, binding, read_only)| wgpu::BindGroupLayoutEntry {
