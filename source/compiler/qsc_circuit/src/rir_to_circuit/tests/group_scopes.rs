@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use crate::{
     builder::QubitWire,
-    rir_to_circuit::{Op, OperationKind, fmt_ops, group_operations},
+    rir_to_circuit::{DbgStuff, Op, OperationKind, fmt_ops, group_operations},
 };
 use expect_test::{Expect, expect};
 use qsc_data_structures::{
@@ -19,7 +19,10 @@ use qsc_eval::PackageSpan;
 #[allow(clippy::needless_pass_by_value)]
 fn check(instructions: Vec<Instruction>, expect: Expect) {
     let (dbg_info, ops) = program(instructions);
-    let grouped = group_operations(&dbg_info, ops.clone());
+    let dbg_stuff = DbgStuff {
+        dbg_info: &dbg_info,
+    };
+    let grouped = group_operations(&dbg_stuff, ops.clone());
 
     expect.assert_eq(&fmt_ops(&dbg_info, &grouped));
 }

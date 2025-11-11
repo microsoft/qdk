@@ -12,7 +12,7 @@ use crate::{
     },
     group_qubits,
     operations::QubitParamInfo,
-    rir_to_circuit::DbgStuffExt,
+    rir_to_circuit::{DbgStuffExt, ScopeStack, add_op},
 };
 use qsc_data_structures::{
     index_map::IndexMap,
@@ -219,12 +219,18 @@ impl CircuitTracer {
         let operations = if self.config.group_scopes
             && let Some(fir_package_store) = fir_package_store
         {
-            // This has to take `Op` since it still contains logical stacks from dbg metadata
-            group_operations::<_, OperationOrGroup>(
-                &self.user_package_ids,
+            let dbg_stuff = DbgStuffForEval {
+                user_package_ids: &self.user_package_ids,
                 fir_package_store,
+            };
+            // This has to take `Op` since it still contains logical stacks from dbg metadata
+            group_operations::<SourceLocationMetadata, LexicalScope, _, OperationOrGroup>(
+                &dbg_stuff,
                 operations.to_vec(),
             )
+            .into_iter()
+            .map(OperationOrGroup::into_operation)
+            .collect()
         } else {
             operations.iter().map(|o| o.0.clone()).collect()
         };
@@ -629,7 +635,7 @@ impl OperationOrGroup {
 enum OperationOrGroupKind {
     Single,
     Group {
-        scope_stack: Option<ScopeStack>,
+        scope_stack: Option<ScopeStack<Vec<SourceLocationMetadata>, LexicalScope>>,
         scope_span: Option<PackageOffset>, // TODO: can this be derived?
         children: Vec<OperationOrGroup>,
     },
@@ -641,9 +647,7 @@ pub(crate) trait OperationOrGroupExt {
 
     fn from(op: Self::OpType) -> Self;
 
-    fn decompose_mut(
-        &mut self,
-    ) -> Option<(&mut Vec<Self>, &mut Self::ScopeStackType, &mut Self::OpType)>
+    fn decompose_mut(&mut self) -> Option<(&mut Vec<Self>, &mut Self::ScopeStackType)>
     where
         Self: std::marker::Sized;
 
@@ -653,17 +657,20 @@ pub(crate) trait OperationOrGroupExt {
         children: Vec<Self>,
         label: String,
         target_qubits: Vec<QubitWire>,
+        target_results: Vec<ResultWire>,
     ) -> Self
     where
         Self: std::marker::Sized;
 
     fn target_qubits(&self) -> Vec<QubitWire>;
     fn target_results(&self) -> Vec<ResultWire>;
+    fn extend_target_qubits(&mut self, target_qubits: &[QubitWire]);
+    fn extend_target_results(&mut self, target_results: &[ResultWire]);
 }
 
 impl OperationOrGroupExt for OperationOrGroup {
     type OpType = OperationWithCallStack;
-    type ScopeStackType = ScopeStack;
+    type ScopeStackType = ScopeStack<Vec<SourceLocationMetadata>, LexicalScope>;
     fn from(op: Self::OpType) -> Self {
         OperationOrGroup {
             kind: OperationOrGroupKind::Single,
@@ -671,7 +678,7 @@ impl OperationOrGroupExt for OperationOrGroup {
         }
     }
 
-    fn decompose_mut(&mut self) -> Option<(&mut Vec<Self>, &mut ScopeStack, &mut Self::OpType)>
+    fn decompose_mut(&mut self) -> Option<(&mut Vec<Self>, &mut Self::ScopeStackType)>
     where
         Self: std::marker::Sized,
     {
@@ -681,7 +688,7 @@ impl OperationOrGroupExt for OperationOrGroup {
             ..
         } = &mut self.kind
         {
-            Some((children, scope_stack, &mut self.op))
+            Some((children, scope_stack))
         } else {
             None
         }
@@ -693,6 +700,7 @@ impl OperationOrGroupExt for OperationOrGroup {
         children: Vec<Self>,
         label: String,
         target_qubits: Vec<QubitWire>,
+        target_results: Vec<ResultWire>,
     ) -> Self {
         Self {
             kind: OperationOrGroupKind::Group {
@@ -711,6 +719,10 @@ impl OperationOrGroupExt for OperationOrGroup {
                             qubit: q.0,
                             result: None,
                         })
+                        .chain(target_results.iter().map(|r| Register {
+                            qubit: r.0,
+                            result: Some(r.1),
+                        }))
                         .collect(),
                     controls: vec![],
                     is_adjoint: false,
@@ -741,42 +753,93 @@ impl OperationOrGroupExt for OperationOrGroup {
             Operation::Unitary(_) | Operation::Ket(_) => vec![],
         }
     }
+
+    fn extend_target_qubits(&mut self, target_qubits: &[QubitWire]) {
+        match &mut self.op.0 {
+            Operation::Measurement(_) => {}
+            Operation::Unitary(unitary) => {
+                unitary
+                    .targets
+                    .extend(target_qubits.iter().map(|q| Register {
+                        qubit: q.0,
+                        result: None,
+                    }));
+                unitary
+                    .targets
+                    .sort_unstable_by_key(|r| (r.qubit, r.result));
+                unitary.targets.dedup();
+            }
+            Operation::Ket(ket) => {
+                ket.targets.extend(target_qubits.iter().map(|q| Register {
+                    qubit: q.0,
+                    result: None,
+                }));
+            }
+        }
+    }
+
+    fn extend_target_results(&mut self, target_results: &[ResultWire]) {
+        {
+            match &mut self.op.0 {
+                Operation::Measurement(measurement) => {
+                    measurement
+                        .results
+                        .extend(target_results.iter().map(|r| Register {
+                            qubit: r.0,
+                            result: Some(r.1),
+                        }));
+                    measurement
+                        .results
+                        .sort_unstable_by_key(|reg| (reg.qubit, reg.result));
+                    measurement.results.dedup();
+                }
+                Operation::Unitary(unitary) => {
+                    unitary
+                        .targets
+                        .extend(target_results.iter().map(|r| Register {
+                            qubit: r.0,
+                            result: Some(r.1),
+                        }));
+                    unitary
+                        .targets
+                        .sort_unstable_by_key(|r| (r.qubit, r.result));
+                    unitary.targets.dedup();
+                }
+                Operation::Ket(_) => {}
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
 struct OperationWithCallStack(Operation, Vec<Frame>);
 
 pub(crate) trait OperationWithCallStackExt {
-    type OpType;
     type StackType;
     type InstructionStack;
-    type DbgStuff<'a>: DbgStuffExt;
+    type SourceLocation;
+    type Scope;
+    type DbgStuff<'a>: DbgStuffExt<Scope = Self::Scope, SourceLocation = Self::SourceLocation>;
 
-    fn into_op(self) -> Self::OpType;
     fn instruction_logical_stack(
         &self,
         dbg_stuff: &Self::DbgStuff<'_>,
     ) -> Option<Self::InstructionStack>;
     fn all_qubits(&self) -> Vec<QubitWire>;
     fn all_results(&self) -> Vec<ResultWire>;
-    fn extend_target_qubits(&mut self, target_qubits: &[QubitWire]);
-    fn extend_target_results(&mut self, target_qubits: &[ResultWire]);
 }
 
 impl OperationWithCallStackExt for OperationWithCallStack {
-    type OpType = OperationWithCallStack;
     type StackType = Vec<Frame>;
-    type InstructionStack = InstructionStack;
+    type InstructionStack = Vec<SourceLocationMetadata>;
+    type SourceLocation = SourceLocationMetadata;
+    type Scope = LexicalScope;
     type DbgStuff<'a> = DbgStuffForEval<'a>;
-
-    fn into_op(self) -> Self::OpType {
-        self
-    }
 
     fn instruction_logical_stack(
         &self,
         dbg_stuff: &Self::DbgStuff<'_>,
-    ) -> Option<InstructionStack> {
+    ) -> Option<Self::InstructionStack> {
         let filtered = self
             .1
             .iter()
@@ -811,7 +874,10 @@ impl OperationWithCallStackExt for OperationWithCallStack {
                         },
                         name: scope_name,
                     };
-                    Some((package_offset, scope))
+                    Some(SourceLocationMetadata {
+                        location: package_offset,
+                        scope,
+                    })
                 } else {
                     None
                 }
@@ -821,7 +887,7 @@ impl OperationWithCallStackExt for OperationWithCallStack {
         if filtered.is_empty() {
             return None;
         }
-        Some(InstructionStack(filtered))
+        Some(filtered)
     }
 
     fn all_qubits(&self) -> Vec<QubitWire> {
@@ -860,62 +926,6 @@ impl OperationWithCallStackExt for OperationWithCallStack {
         .into_iter()
         .collect();
         results.into_iter().collect()
-    }
-
-    fn extend_target_qubits(&mut self, target_qubits: &[QubitWire]) {
-        match &mut self.0 {
-            Operation::Measurement(_) => {}
-            Operation::Unitary(unitary) => {
-                unitary
-                    .targets
-                    .extend(target_qubits.iter().map(|q| Register {
-                        qubit: q.0,
-                        result: None,
-                    }));
-                unitary
-                    .targets
-                    .sort_unstable_by_key(|r| (r.qubit, r.result));
-                unitary.targets.dedup();
-            }
-            Operation::Ket(ket) => {
-                ket.targets.extend(target_qubits.iter().map(|q| Register {
-                    qubit: q.0,
-                    result: None,
-                }));
-            }
-        }
-    }
-
-    fn extend_target_results(&mut self, target_results: &[ResultWire]) {
-        {
-            match &mut self.0 {
-                Operation::Measurement(measurement) => {
-                    measurement
-                        .results
-                        .extend(target_results.iter().map(|r| Register {
-                            qubit: r.0,
-                            result: Some(r.1),
-                        }));
-                    measurement
-                        .results
-                        .sort_unstable_by_key(|reg| (reg.qubit, reg.result));
-                    measurement.results.dedup();
-                }
-                Operation::Unitary(unitary) => {
-                    unitary
-                        .targets
-                        .extend(target_results.iter().map(|r| Register {
-                            qubit: r.0,
-                            result: Some(r.1),
-                        }));
-                    unitary
-                        .targets
-                        .sort_unstable_by_key(|r| (r.qubit, r.result));
-                    unitary.targets.dedup();
-                }
-                Operation::Ket(_) => {}
-            }
-        }
     }
 }
 
@@ -1086,25 +1096,13 @@ impl OperationListBuilder {
 }
 
 pub(crate) struct GateInputs<'a> {
-    targets: &'a [usize],
-    controls: &'a [usize],
+    pub(crate) targets: &'a [usize],
+    pub(crate) controls: &'a [usize],
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct InstructionStack(Vec<(PackageOffset, LexicalScope)>); // Can be empty
-
-impl InstructionStack {
-    fn scope_stack(&self) -> Option<ScopeStack> {
-        self.0.split_last().map(|(top, prefix)| ScopeStack {
-            caller: InstructionStack(prefix.to_vec()),
-            scope: top.1.clone(),
-        })
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-struct ScopeStack {
-    caller: InstructionStack,
+struct SourceLocationMetadata {
+    location: PackageOffset,
     scope: LexicalScope,
 }
 
@@ -1114,146 +1112,33 @@ struct LexicalScope {
     location: PackageOffset,
 }
 
-fn group_operations<
-    'a,
+pub(crate) fn group_operations<
+    SourceLocation,
+    Scope,
     O: OperationWithCallStackExt<
-            InstructionStack = InstructionStack,
-            DbgStuff<'a> = DbgStuffForEval<'a>,
-            OpType = OperationWithCallStack,
+            InstructionStack = Vec<SourceLocation>,
+            SourceLocation = SourceLocation,
+            Scope = Scope,
         >,
-    OG: OperationOrGroupExt,
+    OG: OperationOrGroupExt<OpType = O, ScopeStackType = ScopeStack<Vec<SourceLocation>, Scope>>,
 >(
-    user_package_ids: &'a [PackageId],
-    fir_package_store: &'a fir::PackageStore,
+    dbg_stuff: &O::DbgStuff<'_>,
     in_operations: Vec<O>,
-) -> Vec<Operation> {
-    let dbg_stuff = DbgStuffForEval {
-        user_package_ids,
-        fir_package_store,
-    };
+) -> Vec<OG>
+where
+    Scope: PartialEq,
+    Scope: std::fmt::Debug,
+    Scope: Clone,
+    SourceLocation: Clone,
+    SourceLocation: PartialEq,
+    SourceLocation: Sized,
+{
     let mut operations = vec![];
     for op in in_operations {
-        let instruction_stack = op.instruction_logical_stack(&dbg_stuff);
-        add_op(
-            &dbg_stuff,
-            &mut operations,
-            op.into_op(),
-            instruction_stack.as_ref(),
-        );
+        let instruction_stack = op.instruction_logical_stack(dbg_stuff);
+        add_op(dbg_stuff, &mut operations, op, instruction_stack.as_ref());
     }
     operations
-        .into_iter()
-        .map(OperationOrGroup::into_operation)
-        .collect()
-}
-
-fn add_op<
-    O: OperationWithCallStackExt,
-    OG: OperationOrGroupExt<OpType = O, ScopeStackType = ScopeStack>,
->(
-    dbg_stuff: &DbgStuffForEval<'_>,
-    block_operations: &mut Vec<OG>,
-    op: O,
-    instruction_stack: Option<&InstructionStack>,
-) {
-    let target_qubits = op.all_qubits();
-    let target_results = op.all_results();
-    let op_wrapper = OG::from(op);
-    match instruction_stack {
-        Some(instruction_stack) => {
-            add_scoped_op(
-                dbg_stuff,
-                block_operations,
-                None,
-                op_wrapper,
-                instruction_stack,
-                target_qubits,
-                target_results,
-            );
-        }
-        None => block_operations.push(op_wrapper),
-    }
-}
-
-#[allow(clippy::too_many_lines)]
-fn add_scoped_op<
-    OG: OperationOrGroupExt<OpType = impl OperationWithCallStackExt, ScopeStackType = ScopeStack>,
->(
-    dbg_stuff: &DbgStuffForEval<'_>,
-    current_scope_container: &mut Vec<OG>,
-    current_scope: Option<ScopeStack>,
-    op: OG,
-    instruction_stack: &InstructionStack,
-    target_qubits: Vec<QubitWire>,
-    target_results: Vec<ResultWire>,
-) {
-    let full_instruction_stack = dbg_stuff.concat_stacks(current_scope.as_ref(), instruction_stack);
-    let scope_stack = instruction_stack.scope_stack();
-
-    if let Some(scope_stack) = scope_stack
-        && Some(&scope_stack) != current_scope.as_ref()
-    {
-        // there is a scope
-        if let Some(last_op) = current_scope_container.last_mut() {
-            if let Some((last_scope_children, last_scope_stack, last_op_op)) =
-                last_op.decompose_mut()
-            {
-                if let Some(rest) =
-                    dbg_stuff.strip_stack_prefix(&full_instruction_stack, last_scope_stack)
-                {
-                    last_op_op.extend_target_qubits(&target_qubits);
-                    last_op_op.extend_target_results(&target_results);
-
-                    // Recursively add to the children
-                    add_scoped_op(
-                        dbg_stuff,
-                        last_scope_children,
-                        Some(last_scope_stack.clone()),
-                        op,
-                        &rest,
-                        target_qubits,
-                        target_results,
-                    );
-
-                    return;
-                }
-            }
-        }
-
-        // we need to create a parent for the scope
-        let scope_metadata = dbg_stuff.make_scope_metadata(&scope_stack);
-        let label = dbg_stuff.scope_label(&scope_stack);
-        let full_scope_stack = full_instruction_stack
-            .scope_stack()
-            .expect("we got here because we had a scope, so what the hell is this");
-
-        if current_scope != Some(full_scope_stack.clone()) {
-            let scope_group = OG::group(
-                Some(full_scope_stack),
-                Some(scope_metadata),
-                vec![op],
-                label,
-                target_qubits,
-            );
-
-            // create container for the prefix, and add to it
-            let target_qubits1 = scope_group.target_qubits();
-            let target_results1 = scope_group.target_results();
-
-            add_scoped_op(
-                dbg_stuff,
-                current_scope_container,
-                current_scope,
-                scope_group,
-                &scope_stack.caller,
-                target_qubits1,
-                target_results1,
-            );
-            return;
-        }
-    }
-    // no scope, top level, just push to current operations
-    current_scope_container.push(op);
 }
 
 struct DbgStuffForEval<'a> {
@@ -1262,50 +1147,21 @@ struct DbgStuffForEval<'a> {
 }
 
 impl DbgStuffExt for DbgStuffForEval<'_> {
-    type ScopeStack = ScopeStack;
-    type InstructionStack = InstructionStack;
-    fn scope_label(&self, scope_stack: &ScopeStack) -> String {
-        scope_stack.scope.name.to_string()
+    type SourceLocation = SourceLocationMetadata;
+    type Scope = LexicalScope;
+
+    fn scope_name(&self, scope: &Self::Scope) -> String {
+        scope.name.to_string()
     }
 
-    fn make_scope_metadata(&self, scope_stack: &ScopeStack) -> PackageOffset {
-        let scope_location = &scope_stack.scope;
-        scope_location.location
-    }
-
-    fn strip_stack_prefix(
+    fn make_scope_metadata(
         &self,
-        full: &InstructionStack,
-        prefix: &ScopeStack,
-    ) -> Option<InstructionStack> {
-        if full.0.len() > prefix.caller.0.len() {
-            if let Some(rest) = full.0.strip_prefix(prefix.caller.0.as_slice()) {
-                let next_location = &rest[0];
-                let next_scope = &next_location.1;
-                if next_scope == &prefix.scope {
-                    return Some(InstructionStack(rest.to_vec()));
-                }
-            }
-        }
-        None
+        scope_stack: &ScopeStack<Vec<Self::SourceLocation>, Self::Scope>,
+    ) -> PackageOffset {
+        scope_stack.scope.location
     }
 
-    fn concat_stacks(
-        &self,
-        scope: Option<&ScopeStack>,
-        tail: &InstructionStack,
-    ) -> InstructionStack {
-        match scope {
-            Some(prefix) => {
-                if let Some(first) = tail.0.first() {
-                    assert_eq!(
-                        first.1, prefix.scope,
-                        "concatenating stacks that don't seem to match"
-                    );
-                }
-                InstructionStack([prefix.caller.0.clone(), tail.0.clone()].concat())
-            }
-            None => tail.clone(),
-        }
+    fn clone_scope(&self, top: &Self::SourceLocation) -> Self::Scope {
+        top.scope.clone()
     }
 }
