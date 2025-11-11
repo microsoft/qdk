@@ -46,10 +46,11 @@ pub struct Circuit {
 
 impl Circuit {
     #[must_use]
-    pub fn display_no_locations(&self) -> impl Display {
+    pub fn display_basic(&self) -> impl Display {
         CircuitDisplay {
             circuit: self,
             render_locations: false,
+            render_groups: false,
         }
     }
 }
@@ -62,6 +63,7 @@ impl Display for Circuit {
             CircuitDisplay {
                 circuit: self,
                 render_locations: true,
+                render_groups: true,
             }
         )
     }
@@ -563,6 +565,7 @@ impl Column {
 struct CircuitDisplay<'a> {
     circuit: &'a Circuit,
     render_locations: bool,
+    render_groups: bool,
 }
 
 impl Display for CircuitDisplay<'_> {
@@ -585,7 +588,7 @@ impl Display for CircuitDisplay<'_> {
         self.initialize_rows(&mut rows, &mut register_to_row, &qubits_with_gap_row_below);
 
         // Add operations to the diagram
-        Self::add_operations_to_diagram(
+        self.add_operations_to_diagram(
             1,
             &self.circuit.component_grid,
             &mut rows,
@@ -688,6 +691,7 @@ impl CircuitDisplay<'_> {
 
     /// Adds operations to the diagram.
     fn add_operations_to_diagram(
+        &self,
         start_column: usize,
         component_grid: &ComponentGrid,
         rows: &mut [Row],
@@ -717,24 +721,28 @@ impl CircuitDisplay<'_> {
                     next_column = max(next_column, column + 1);
                 } else {
                     let mut offset = 0;
-                    add_operation_box_start_to_rows(
-                        op,
-                        rows,
-                        &targets,
-                        &controls,
-                        column + offset,
-                        begin,
-                        end,
-                    );
-                    offset += 2;
-                    offset += Self::add_operations_to_diagram(
+                    if self.render_groups {
+                        add_operation_box_start_to_rows(
+                            op,
+                            rows,
+                            &targets,
+                            &controls,
+                            column + offset,
+                            begin,
+                            end,
+                        );
+                        offset += 2;
+                    }
+                    offset += self.add_operations_to_diagram(
                         column + offset,
                         children,
                         rows,
                         register_to_row,
                     );
-                    add_operation_box_end_to_rows(op, rows, &targets, column + offset);
-                    offset += 1;
+                    if self.render_groups {
+                        add_operation_box_end_to_rows(op, rows, &targets, column + offset);
+                        offset += 1;
+                    }
                     next_column = max(next_column, column + offset);
                 }
             }
