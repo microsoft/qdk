@@ -224,19 +224,12 @@ impl CircuitTracer {
         let operations = if self.config.group_scopes
             && let Some(fir_package_store) = fir_package_store
         {
-            let dbg_stuff = DbgStuffForEval {
-                user_package_ids: &self.user_package_ids,
-                fir_package_store,
-            };
+            let dbg_stuff = DbgStuffForEval {};
             // This has to take `Op` since it still contains logical stacks from dbg metadata
-            group_operations::<SourceLocationMetadata, ScopeId, _, _>(
-                &dbg_stuff,
-                fir_package_store,
-                operations.to_vec(),
-            )
-            .into_iter()
-            .map(OperationOrGroup::into_operation)
-            .collect()
+            group_operations(&self.user_package_ids, &dbg_stuff, operations.to_vec())
+                .into_iter()
+                .map(|o| OperationOrGroup::into_operation(o, fir_package_store))
+                .collect()
         } else {
             operations.iter().map(|o| o.0.clone()).collect()
         };
@@ -616,21 +609,23 @@ struct OperationOrGroup {
 }
 
 impl OperationOrGroup {
-    fn into_operation(mut self) -> Operation {
+    fn into_operation(mut self, fir_package_store: &fir::PackageStore) -> Operation {
         match self.kind {
             OperationOrGroupKind::Single => self.op.0,
             OperationOrGroupKind::Group {
-                scope_span,
-                scope_stack: _,
+                scope_stack,
                 children,
             } => {
+                let label = fir_package_store.scope_name(&scope_stack.scope);
+                let scope_span = fir_package_store.scope_location(&scope_stack.scope);
+                *self.op.0.gate_mut() = label;
                 *self.op.0.children_mut() = vec![ComponentColumn {
                     components: children
                         .into_iter()
-                        .map(OperationOrGroup::into_operation)
+                        .map(|o| OperationOrGroup::into_operation(o, fir_package_store))
                         .collect(),
                 }];
-                *self.op.0.source_mut() = scope_span.map(SourceLocation::Unresolved);
+                *self.op.0.source_mut() = Some(SourceLocation::Unresolved(scope_span));
                 self.op.0
             }
         }
@@ -641,27 +636,28 @@ impl OperationOrGroup {
 enum OperationOrGroupKind {
     Single,
     Group {
-        scope_stack: Option<ScopeStack<Vec<SourceLocationMetadata>, ScopeId>>,
-        scope_span: Option<PackageOffset>, // TODO: can this be derived?
+        scope_stack: ScopeStack<Vec<SourceLocationMetadata>, ScopeId>,
+        // scope_span: Option<PackageOffset>, // TODO: can this be derived?
         children: Vec<OperationOrGroup>,
     },
 }
 
+type GroupFields<'a, T, L, S> = (&'a mut Vec<T>, &'a mut ScopeStack<Vec<L>, S>);
+
 pub(crate) trait OperationOrGroupExt {
     type OpType;
-    type ScopeStackType;
+    type Scope;
+    type SourceLocation;
 
     fn from(op: Self::OpType) -> Self;
 
-    fn decompose_mut(&mut self) -> Option<(&mut Vec<Self>, &mut Self::ScopeStackType)>
+    fn group_data_mut(&mut self) -> Option<GroupFields<Self, Self::SourceLocation, Self::Scope>>
     where
         Self: std::marker::Sized;
 
     fn group(
-        scope_stack: Option<Self::ScopeStackType>,
-        scope_span: Option<PackageOffset>,
+        scope_stack: ScopeStack<Vec<Self::SourceLocation>, Self::Scope>,
         children: Vec<Self>,
-        label: String,
         target_qubits: Vec<QubitWire>,
         target_results: Vec<ResultWire>,
     ) -> Self
@@ -676,7 +672,8 @@ pub(crate) trait OperationOrGroupExt {
 
 impl OperationOrGroupExt for OperationOrGroup {
     type OpType = OperationWithCallStack;
-    type ScopeStackType = ScopeStack<Vec<SourceLocationMetadata>, ScopeId>;
+    type Scope = ScopeId;
+    type SourceLocation = SourceLocationMetadata;
     fn from(op: Self::OpType) -> Self {
         OperationOrGroup {
             kind: OperationOrGroupKind::Single,
@@ -684,13 +681,18 @@ impl OperationOrGroupExt for OperationOrGroup {
         }
     }
 
-    fn decompose_mut(&mut self) -> Option<(&mut Vec<Self>, &mut Self::ScopeStackType)>
+    fn group_data_mut(
+        &mut self,
+    ) -> Option<(
+        &mut Vec<Self>,
+        &mut ScopeStack<Vec<Self::SourceLocation>, Self::Scope>,
+    )>
     where
         Self: std::marker::Sized,
     {
         if let OperationOrGroupKind::Group {
             children,
-            scope_stack: Some(scope_stack),
+            scope_stack,
             ..
         } = &mut self.kind
         {
@@ -701,22 +703,19 @@ impl OperationOrGroupExt for OperationOrGroup {
     }
 
     fn group(
-        scope_stack: Option<Self::ScopeStackType>,
-        scope_span: Option<PackageOffset>,
+        scope_stack: ScopeStack<Vec<Self::SourceLocation>, Self::Scope>,
         children: Vec<Self>,
-        label: String,
         target_qubits: Vec<QubitWire>,
         target_results: Vec<ResultWire>,
     ) -> Self {
         Self {
             kind: OperationOrGroupKind::Group {
                 scope_stack,
-                scope_span,
                 children,
             },
             op: OperationWithCallStack(
                 Operation::Unitary(Unitary {
-                    gate: label,
+                    gate: String::new(), // TODO: to be filled in later
                     args: vec![],
                     children: vec![],
                     targets: target_qubits
@@ -822,52 +821,32 @@ struct OperationWithCallStack(Operation, Vec<Frame>);
 
 pub(crate) trait OperationWithCallStackExt {
     type StackType;
-    type InstructionStack;
     type SourceLocation;
     type Scope;
     type DbgStuff<'a>: DbgStuffExt<ScopeId = Self::Scope, SourceLocation = Self::SourceLocation>;
 
-    fn instruction_logical_stack(
-        &self,
-        dbg_stuff: &Self::DbgStuff<'_>,
-    ) -> Option<Self::InstructionStack>;
+    fn instruction_stack(&self, dbg_stuff: &Self::DbgStuff<'_>) -> Vec<Self::SourceLocation>;
     fn all_qubits(&self) -> Vec<QubitWire>;
     fn all_results(&self) -> Vec<ResultWire>;
 }
 
 impl OperationWithCallStackExt for OperationWithCallStack {
     type StackType = Vec<Frame>;
-    type InstructionStack = Vec<SourceLocationMetadata>;
     type SourceLocation = SourceLocationMetadata;
     type Scope = ScopeId;
-    type DbgStuff<'a> = DbgStuffForEval<'a>;
+    type DbgStuff<'a> = DbgStuffForEval;
 
-    fn instruction_logical_stack(
-        &self,
-        dbg_stuff: &Self::DbgStuff<'_>,
-    ) -> Option<Self::InstructionStack> {
-        let filtered = self
-            .1
+    fn instruction_stack(&self, _dbg_stuff: &Self::DbgStuff<'_>) -> Vec<Self::SourceLocation> {
+        self.1
             .iter()
-            .filter_map(|frame| {
-                if dbg_stuff.user_package_ids.contains(&frame.id.package) {
-                    Some(SourceLocationMetadata {
-                        location: PackageOffset {
-                            package_id: frame.id.package,
-                            offset: frame.span.lo,
-                        },
-                        scope_id: ScopeId(frame.id),
-                    })
-                } else {
-                    None
-                }
+            .map(|frame| SourceLocationMetadata {
+                location: PackageOffset {
+                    package_id: frame.id.package,
+                    offset: frame.span.lo,
+                },
+                scope_id: ScopeId(frame.id),
             })
-            .collect::<Vec<_>>();
-
-        if filtered.is_empty() {
-            return None;
-        }
-        Some(filtered)
+            .collect::<Vec<_>>()
     }
 
     fn all_qubits(&self) -> Vec<QubitWire> {
@@ -1096,15 +1075,11 @@ struct LexicalScope {
 pub(crate) fn group_operations<
     SourceLocation,
     Scope,
-    O: OperationWithCallStackExt<
-            InstructionStack = Vec<SourceLocation>,
-            SourceLocation = SourceLocation,
-            Scope = Scope,
-        >,
-    OG: OperationOrGroupExt<OpType = O, ScopeStackType = ScopeStack<Vec<SourceLocation>, Scope>>,
+    O: OperationWithCallStackExt<SourceLocation = SourceLocation, Scope = Scope>,
+    OG: OperationOrGroupExt<OpType = O, Scope = Scope, SourceLocation = SourceLocation>,
 >(
+    user_package_ids: &[PackageId],
     dbg_stuff: &O::DbgStuff<'_>,
-    scope_resolver: &impl ScopeResolver<ScopeId = Scope>,
     in_operations: Vec<O>,
 ) -> Vec<OG>
 where
@@ -1117,7 +1092,7 @@ where
 {
     let mut operations = vec![];
     for op in in_operations {
-        add_op_with_grouping(dbg_stuff, scope_resolver, &mut operations, op);
+        add_op_with_grouping(user_package_ids, dbg_stuff, &mut operations, op);
     }
     operations
 }
@@ -1125,15 +1100,11 @@ where
 pub(crate) fn add_op_with_grouping<
     SourceLocation,
     Scope,
-    O: OperationWithCallStackExt<
-            InstructionStack = Vec<SourceLocation>,
-            SourceLocation = SourceLocation,
-            Scope = Scope,
-        >,
-    OG: OperationOrGroupExt<OpType = O, ScopeStackType = ScopeStack<Vec<SourceLocation>, Scope>>,
+    O: OperationWithCallStackExt<SourceLocation = SourceLocation, Scope = Scope>,
+    OG: OperationOrGroupExt<OpType = O, SourceLocation = SourceLocation, Scope = Scope>,
 >(
+    user_package_ids: &[PackageId],
     dbg_stuff: &<O as OperationWithCallStackExt>::DbgStuff<'_>,
-    scope_resolver: &impl ScopeResolver<ScopeId = Scope>,
     operations: &mut Vec<OG>,
     op: O,
 ) where
@@ -1144,14 +1115,26 @@ pub(crate) fn add_op_with_grouping<
     SourceLocation: PartialEq,
     SourceLocation: Sized,
 {
-    let instruction_stack = op.instruction_logical_stack(dbg_stuff);
-    add_op(
-        dbg_stuff,
-        scope_resolver,
-        operations,
-        op,
-        instruction_stack.as_ref(),
-    );
+    let instruction_stack =
+        retain_user_frames(dbg_stuff, user_package_ids, op.instruction_stack(dbg_stuff));
+    add_op(dbg_stuff, operations, op, instruction_stack.as_ref());
+}
+
+pub(crate) fn retain_user_frames<SourceLocation>(
+    dbg_stuff: &impl DbgStuffExt<SourceLocation = SourceLocation>,
+    user_package_ids: &[PackageId],
+    mut location_stack: Vec<SourceLocation>,
+) -> Option<Vec<SourceLocation>> {
+    location_stack.retain(|location| {
+        let package_id = dbg_stuff.package_id(location);
+        user_package_ids.contains(&package_id)
+    });
+
+    if location_stack.is_empty() {
+        return None;
+    }
+
+    Some(location_stack)
 }
 
 impl ScopeResolver for fir::PackageStore {
@@ -1205,16 +1188,17 @@ impl ScopeResolver for fir::PackageStore {
     }
 }
 
-struct DbgStuffForEval<'a> {
-    user_package_ids: &'a [PackageId],
-    fir_package_store: &'a fir::PackageStore,
-}
+struct DbgStuffForEval {}
 
-impl DbgStuffExt for DbgStuffForEval<'_> {
+impl DbgStuffExt for DbgStuffForEval {
     type SourceLocation = SourceLocationMetadata;
     type ScopeId = ScopeId;
 
     fn scope_id(&self, location: &Self::SourceLocation) -> Self::ScopeId {
         location.scope_id
+    }
+
+    fn package_id(&self, location: &Self::SourceLocation) -> PackageId {
+        location.location.package_id
     }
 }

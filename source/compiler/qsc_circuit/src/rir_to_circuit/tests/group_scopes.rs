@@ -22,7 +22,7 @@ fn check(instructions: Vec<Instruction>, expect: Expect) {
     let dbg_stuff = DbgStuff {
         dbg_info: &dbg_info,
     };
-    let grouped = group_operations(&dbg_stuff, &dbg_info, ops.clone());
+    let grouped = group_operations(&[], &dbg_stuff, ops.clone());
 
     expect.assert_eq(&fmt_ops(&dbg_info, &grouped));
 }

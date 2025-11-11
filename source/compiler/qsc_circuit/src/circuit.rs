@@ -105,7 +105,7 @@ impl Operation {
         }
     }
 
-    fn gate_mut(&mut self) -> &mut String {
+    pub fn gate_mut(&mut self) -> &mut String {
         match self {
             Self::Measurement(measurement) => &mut measurement.gate,
             Self::Unitary(unitary) => &mut unitary.gate,

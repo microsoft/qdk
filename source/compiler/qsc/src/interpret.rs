@@ -1044,8 +1044,13 @@ impl Interpreter {
         }
 
         let program = self.compile_to_rir(entry_expr)?;
-        make_circuit(&program, self.compiler.package_store(), tracer_config)
-            .map_err(|e| vec![e.into()])
+        make_circuit(
+            &program,
+            self.compiler.package_store(),
+            tracer_config,
+            &[self.package, self.source_package],
+        )
+        .map_err(|e| vec![e.into()])
     }
 
     fn compile_to_rir(
