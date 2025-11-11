@@ -4,8 +4,8 @@
 use std::rc::Rc;
 
 use crate::{
-    builder::QubitWire,
-    rir_to_circuit::{DbgStuff, Op, OperationKind, fmt_ops, group_operations},
+    builder::{QubitWire, group_operations},
+    rir_to_circuit::{DbgStuff, Op, OperationKind, fmt_ops},
 };
 use expect_test::{Expect, expect};
 use qsc_data_structures::{

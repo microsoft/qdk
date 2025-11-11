@@ -67,7 +67,11 @@ impl Tracer for CircuitTracer {
             self.wire_map_builder.current(),
             name,
             is_adjoint,
-            &GateInputs { targets, controls },
+            &GateInputs {
+                targets,
+                control_qubits: controls,
+                control_results: &[],
+            },
             display_args,
             stack,
         );
@@ -114,7 +118,8 @@ impl Tracer for CircuitTracer {
             false, // is_adjoint
             &GateInputs {
                 targets: &qubit_args,
-                controls: &[],
+                control_qubits: &[],
+                control_results: &[],
             },
             if classical_args.is_empty() {
                 vec![]
@@ -224,7 +229,7 @@ impl CircuitTracer {
                 fir_package_store,
             };
             // This has to take `Op` since it still contains logical stacks from dbg metadata
-            group_operations::<SourceLocationMetadata, LexicalScope, _, OperationOrGroup>(
+            group_operations::<SourceLocationMetadata, LexicalScope, _, _>(
                 &dbg_stuff,
                 operations.to_vec(),
             )
@@ -863,20 +868,18 @@ impl OperationWithCallStackExt for OperationWithCallStack {
                         _ => panic!("only callables should be in the stack"),
                     };
 
-                    let package_offset = PackageOffset {
-                        package_id: frame.id.package,
-                        offset: frame.span.lo,
-                    };
-                    let scope = LexicalScope {
+                    Some(SourceLocationMetadata {
                         location: PackageOffset {
                             package_id: frame.id.package,
-                            offset: scope_offset,
+                            offset: frame.span.lo,
                         },
-                        name: scope_name,
-                    };
-                    Some(SourceLocationMetadata {
-                        location: package_offset,
-                        scope,
+                        scope: LexicalScope {
+                            location: PackageOffset {
+                                package_id: frame.id.package,
+                                offset: scope_offset,
+                            },
+                            name: scope_name,
+                        },
                     })
                 } else {
                     None
@@ -953,15 +956,14 @@ impl OperationListBuilder {
         }
     }
 
-    fn push_op(&mut self, op: Operation, stack: &[Frame]) {
+    fn push_op(&mut self, op: OperationWithCallStack) {
         if self.max_ops_exceeded || self.operations.len() >= self.max_ops {
             // Stop adding gates and leave the circuit as is
             self.max_ops_exceeded = true;
             return;
         }
 
-        self.operations
-            .push(OperationWithCallStack(op, stack.to_vec()));
+        self.operations.push(op);
     }
 
     fn operations(&self) -> &Vec<OperationWithCallStack> {
@@ -979,10 +981,41 @@ impl OperationListBuilder {
         is_adjoint: bool,
         inputs: &GateInputs,
         args: Vec<String>,
-        stack: &[Frame],
+        called_at: &[Frame],
     ) {
-        let called_at = self.user_code_call_location(stack);
-        self.push_op(
+        self.push_op(self.new_unitary(wire_map, name, is_adjoint, inputs, args, called_at));
+    }
+
+    fn m(&mut self, wire_map: &WireMap, qubit: usize, result: usize, called_at: &[Frame]) {
+        self.push_op(self.new_measurement("M", wire_map, qubit, result, called_at));
+    }
+
+    fn mresetz(&mut self, wire_map: &WireMap, qubit: usize, result: usize, called_at: &[Frame]) {
+        self.push_op(self.new_measurement("MResetZ", wire_map, qubit, result, called_at));
+        self.push_op(self.new_ket(wire_map, qubit, called_at));
+    }
+
+    fn reset(&mut self, wire_map: &WireMap, qubit: usize, called_at: &[Frame]) {
+        self.push_op(self.new_ket(wire_map, qubit, called_at));
+    }
+
+    fn user_code_call_location(&self, stack: &[Frame]) -> Option<PackageOffset> {
+        if !self.source_locations || stack.is_empty() || self.user_package_ids.is_empty() {
+            return None;
+        }
+        first_user_code_location(&self.user_package_ids, stack)
+    }
+
+    fn new_unitary(
+        &self,
+        wire_map: &WireMap,
+        name: &str,
+        is_adjoint: bool,
+        inputs: &GateInputs<'_>,
+        args: Vec<String>,
+        stack: &[Frame],
+    ) -> OperationWithCallStack {
+        OperationWithCallStack(
             Operation::Unitary(Unitary {
                 gate: name.to_string(),
                 args,
@@ -996,7 +1029,7 @@ impl OperationListBuilder {
                     })
                     .collect(),
                 controls: inputs
-                    .controls
+                    .control_qubits
                     .iter()
                     .map(|q| Register {
                         qubit: wire_map.qubit_wire(*q).0,
@@ -1004,19 +1037,27 @@ impl OperationListBuilder {
                     })
                     .collect(),
                 is_adjoint,
-                source: called_at.map(SourceLocation::Unresolved),
+                source: self
+                    .user_code_call_location(stack)
+                    .map(SourceLocation::Unresolved),
             }),
-            stack,
-        );
+            stack.to_vec(),
+        )
     }
 
-    fn m(&mut self, wire_map: &WireMap, qubit: usize, result: usize, stack: &[Frame]) {
-        let called_at = self.user_code_call_location(stack);
+    fn new_measurement(
+        &self,
+        label: &str,
+        wire_map: &WireMap,
+        qubit: usize,
+        result: usize,
+        stack: &[Frame],
+    ) -> OperationWithCallStack {
         let result_wire = wire_map.result_wire(result);
 
-        self.push_op(
+        OperationWithCallStack(
             Operation::Measurement(Measurement {
-                gate: "M".to_string(),
+                gate: label.to_string(),
                 args: vec![],
                 children: vec![],
                 qubits: vec![Register {
@@ -1027,52 +1068,16 @@ impl OperationListBuilder {
                     qubit: result_wire.0,
                     result: Some(result_wire.1),
                 }],
-                source: called_at.map(SourceLocation::Unresolved),
+                source: self
+                    .user_code_call_location(stack)
+                    .map(SourceLocation::Unresolved),
             }),
-            stack,
-        );
+            stack.to_vec(),
+        )
     }
 
-    fn mresetz(&mut self, wire_map: &WireMap, qubit: usize, result: usize, stack: &[Frame]) {
-        let called_at = self.user_code_call_location(stack);
-        let qubits: Vec<Register> = vec![Register {
-            qubit: wire_map.qubit_wire(qubit).0,
-            result: None,
-        }];
-
-        let resul_wire = wire_map.result_wire(result);
-        let results = vec![Register {
-            qubit: resul_wire.0,
-            result: Some(resul_wire.1),
-        }];
-
-        self.push_op(
-            Operation::Measurement(Measurement {
-                gate: "MResetZ".to_string(),
-                args: vec![],
-                children: vec![],
-                qubits: qubits.clone(),
-                results,
-                source: called_at.map(SourceLocation::Unresolved),
-            }),
-            stack,
-        );
-
-        self.push_op(
-            Operation::Ket(Ket {
-                gate: "0".to_string(),
-                args: vec![],
-                children: vec![],
-                targets: qubits,
-                source: called_at.map(SourceLocation::Unresolved),
-            }),
-            stack,
-        );
-    }
-
-    fn reset(&mut self, wire_map: &WireMap, qubit: usize, stack: &[Frame]) {
-        let called_at = self.user_code_call_location(stack);
-        self.push_op(
+    fn new_ket(&self, wire_map: &WireMap, qubit: usize, stack: &[Frame]) -> OperationWithCallStack {
+        OperationWithCallStack(
             Operation::Ket(Ket {
                 gate: "0".to_string(),
                 args: vec![],
@@ -1081,23 +1086,19 @@ impl OperationListBuilder {
                     qubit: wire_map.qubit_wire(qubit).0,
                     result: None,
                 }],
-                source: called_at.map(SourceLocation::Unresolved),
+                source: self
+                    .user_code_call_location(stack)
+                    .map(SourceLocation::Unresolved),
             }),
-            stack,
-        );
-    }
-
-    fn user_code_call_location(&self, stack: &[Frame]) -> Option<PackageOffset> {
-        if !self.source_locations || stack.is_empty() || self.user_package_ids.is_empty() {
-            return None;
-        }
-        first_user_code_location(&self.user_package_ids, stack)
+            stack.to_vec(),
+        )
     }
 }
 
 pub(crate) struct GateInputs<'a> {
     pub(crate) targets: &'a [usize],
-    pub(crate) controls: &'a [usize],
+    pub(crate) control_qubits: &'a [usize],
+    pub(crate) control_results: &'a [usize],
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1135,10 +1136,34 @@ where
 {
     let mut operations = vec![];
     for op in in_operations {
-        let instruction_stack = op.instruction_logical_stack(dbg_stuff);
-        add_op(dbg_stuff, &mut operations, op, instruction_stack.as_ref());
+        add_op_with_grouping(dbg_stuff, &mut operations, op);
     }
     operations
+}
+
+pub(crate) fn add_op_with_grouping<
+    SourceLocation,
+    Scope,
+    O: OperationWithCallStackExt<
+            InstructionStack = Vec<SourceLocation>,
+            SourceLocation = SourceLocation,
+            Scope = Scope,
+        >,
+    OG: OperationOrGroupExt<OpType = O, ScopeStackType = ScopeStack<Vec<SourceLocation>, Scope>>,
+>(
+    dbg_stuff: &<O as OperationWithCallStackExt>::DbgStuff<'_>,
+    operations: &mut Vec<OG>,
+    op: O,
+) where
+    Scope: PartialEq,
+    Scope: std::fmt::Debug,
+    Scope: Clone,
+    SourceLocation: Clone,
+    SourceLocation: PartialEq,
+    SourceLocation: Sized,
+{
+    let instruction_stack = op.instruction_logical_stack(dbg_stuff);
+    add_op(dbg_stuff, operations, op, instruction_stack.as_ref());
 }
 
 struct DbgStuffForEval<'a> {

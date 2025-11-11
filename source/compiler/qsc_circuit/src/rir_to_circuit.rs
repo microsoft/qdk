@@ -15,7 +15,7 @@ use crate::{
     Circuit, ComponentColumn, Error, Ket, Measurement, Operation, Register, TracerConfig, Unitary,
     builder::{
         GateInputs, OperationOrGroupExt, OperationWithCallStackExt, QubitWire, ResultWire, WireMap,
-        finish_circuit, group_operations,
+        add_op_with_grouping, finish_circuit,
     },
     circuit::{PackageOffset, SourceLocation},
     rir_to_circuit::tracer::FixedQubitRegisterMapBuilder,
@@ -333,6 +333,9 @@ pub fn make_circuit(
 
     let mut ops_remaining = config.max_operations;
 
+    let dbg_stuff = DbgStuff {
+        dbg_info: &program.dbg_info,
+    };
     // Do it all again, with all variables properly resolved
     for (id, block) in program.blocks.iter() {
         let block_operations = operations_in_block(
@@ -363,17 +366,7 @@ pub fn make_circuit(
         .get(entry_block)
         .expect("entry block should have been processed");
 
-    let operations = extend_with_successors(&program_map, entry_block);
-
-    let dbg_stuff = DbgStuff {
-        dbg_info: &program.dbg_info,
-    };
-    let operations = if config.group_scopes {
-        // This has to take `Op` since it still contains logical stacks from dbg metadata
-        group_operations(&dbg_stuff, operations)
-    } else {
-        operations
-    };
+    let operations = extend_with_successors(&dbg_stuff, &program_map, entry_block, config);
 
     let circuit = finish_circuit(
         &wire_map,
@@ -731,7 +724,12 @@ fn combine_exprs(options: Vec<Expr>) -> Result<Option<Expr>, Error> {
     Ok(Some(e))
 }
 
-fn extend_with_successors(state: &ProgramMap, entry_block: &CircuitBlock) -> Vec<Op> {
+fn extend_with_successors(
+    dbg_stuff: &DbgStuff,
+    state: &ProgramMap,
+    entry_block: &CircuitBlock,
+    config: TracerConfig,
+) -> Vec<Op> {
     let mut operations = vec![];
     let mut block_stack = vec![entry_block.clone()];
 
@@ -747,7 +745,11 @@ fn extend_with_successors(state: &ProgramMap, entry_block: &CircuitBlock) -> Vec
         }
 
         for op in block.operations {
-            operations.push(op.clone());
+            if config.group_scopes {
+                add_op_with_grouping(dbg_stuff, &mut operations, op);
+            } else {
+                operations.push(op);
+            }
         }
     }
     operations
@@ -984,7 +986,7 @@ fn instruction_logical_stack(
         match scope {
             DbgMetadataScope::SubProgram { name: _, location } => {
                 let package_id = location.package;
-                package_id != PackageId::CORE && package_id != PackageId::CORE.successor()
+                package_id != PackageId::CORE && package_id != PackageId::CORE.successor() // TODO: use user packages
             }
         }
     });
@@ -2231,9 +2233,9 @@ fn trace_gate(
             is_adjoint,
             &GateInputs {
                 targets: &target_qubits,
-                controls: &control_qubits,
+                control_qubits: &control_qubits,
+                control_results: &control_results,
             },
-            &control_results,
             args,
             metadata.and_then(|md| md.dbg_location),
         );
@@ -2600,27 +2602,68 @@ impl OpListBuilder {
         self.operations
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn gate(
         &mut self,
         wire_map: &WireMap,
         name: &str,
         is_adjoint: bool,
         inputs: &GateInputs,
-        control_results: &[usize],
         args: Vec<String>,
         called_at: Option<DbgLocationId>,
     ) {
-        self.push_op(Op {
+        self.push_op(Self::new_unitary(
+            wire_map, name, is_adjoint, inputs, args, called_at,
+        ));
+    }
+
+    fn m(
+        &mut self,
+        wire_map: &WireMap,
+        qubit: usize,
+        result: usize,
+        called_at: Option<DbgLocationId>,
+    ) {
+        self.push_op(Self::new_measurement(
+            "M", wire_map, qubit, result, called_at,
+        ));
+    }
+
+    fn mresetz(
+        &mut self,
+        wire_map: &WireMap,
+        qubit: usize,
+        result: usize,
+        called_at: Option<DbgLocationId>,
+    ) {
+        self.push_op(Self::new_measurement(
+            "MResetZ", wire_map, qubit, result, called_at,
+        ));
+        self.push_op(Self::new_ket(wire_map, qubit, called_at));
+    }
+
+    fn reset(&mut self, wire_map: &WireMap, qubit: usize, called_at: Option<DbgLocationId>) {
+        self.push_op(Self::new_ket(wire_map, qubit, called_at));
+    }
+
+    fn new_unitary(
+        wire_map: &WireMap,
+        name: &str,
+        is_adjoint: bool,
+        inputs: &GateInputs<'_>,
+        args: Vec<String>,
+        called_at: Option<DbgLocationId>,
+    ) -> Op {
+        Op {
             kind: OperationKind::Unitary,
             args,
             label: name.to_string(),
             control_qubits: inputs
-                .controls
+                .control_qubits
                 .iter()
                 .map(|q| wire_map.qubit_wire(*q))
                 .collect(),
-            control_results: control_results
+            control_results: inputs
+                .control_results
                 .iter()
                 .map(|r| wire_map.result_wire(*r))
                 .collect(),
@@ -2632,19 +2675,19 @@ impl OpListBuilder {
             target_results: vec![],
             is_adjoint,
             location: called_at,
-        });
+        }
     }
 
-    fn m(
-        &mut self,
+    fn new_measurement(
+        label: &str,
         wire_map: &WireMap,
         qubit: usize,
         result: usize,
         called_at: Option<DbgLocationId>,
-    ) {
-        self.push_op(Op {
+    ) -> Op {
+        Op {
             kind: OperationKind::Measurement,
-            label: "M".to_string(),
+            label: label.to_string(),
             args: vec![],
             control_qubits: vec![wire_map.qubit_wire(qubit)],
             is_adjoint: false,
@@ -2652,46 +2695,11 @@ impl OpListBuilder {
             target_results: vec![wire_map.result_wire(result)],
             control_results: vec![],
             location: called_at,
-        });
+        }
     }
 
-    fn mresetz(
-        &mut self,
-        wire_map: &WireMap,
-        qubit: usize,
-        result: usize,
-        called_at: Option<DbgLocationId>,
-    ) {
-        let qubits: Vec<QubitWire> = vec![wire_map.qubit_wire(qubit)];
-        let result_wire = vec![wire_map.result_wire(result)];
-
-        self.push_op(Op {
-            kind: OperationKind::Measurement,
-            label: "MResetZ".to_string(),
-            args: vec![],
-            control_qubits: qubits.clone(),
-            is_adjoint: false,
-            target_qubits: vec![],
-            target_results: result_wire,
-            control_results: vec![],
-            location: called_at,
-        });
-
-        self.push_op(Op {
-            kind: OperationKind::Ket,
-            label: "0".to_string(),
-            args: vec![],
-            control_qubits: vec![],
-            is_adjoint: false,
-            target_qubits: qubits,
-            target_results: vec![],
-            control_results: vec![],
-            location: called_at,
-        });
-    }
-
-    fn reset(&mut self, wire_map: &WireMap, qubit: usize, called_at: Option<DbgLocationId>) {
-        self.push_op(Op {
+    fn new_ket(wire_map: &WireMap, qubit: usize, called_at: Option<DbgLocationId>) -> Op {
+        Op {
             kind: OperationKind::Ket,
             label: "0".to_string(),
             target_qubits: vec![wire_map.qubit_wire(qubit)],
@@ -2701,6 +2709,6 @@ impl OpListBuilder {
             target_results: vec![],
             is_adjoint: false,
             location: called_at,
-        });
+        }
     }
 }
