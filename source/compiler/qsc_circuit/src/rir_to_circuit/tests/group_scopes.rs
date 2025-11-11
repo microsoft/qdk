@@ -4,7 +4,7 @@
 use std::rc::Rc;
 
 use crate::{
-    builder::{QubitWire, group_operations},
+    builder::{QubitWire, add_op_with_grouping},
     rir_to_circuit::{DbgStuff, Op, OperationKind, fmt_ops},
 };
 use expect_test::{Expect, expect};
@@ -22,7 +22,11 @@ fn check(instructions: Vec<Instruction>, expect: Expect) {
     let dbg_stuff = DbgStuff {
         dbg_info: &dbg_info,
     };
-    let grouped = group_operations(&[], &dbg_stuff, ops.clone());
+
+    let mut grouped = vec![];
+    for op in ops {
+        add_op_with_grouping(&[], &dbg_stuff, &mut grouped, op);
+    }
 
     expect.assert_eq(&fmt_ops(&dbg_info, &grouped));
 }
@@ -119,8 +123,7 @@ fn program(instructions: Vec<Instruction>) -> (DbgInfo, Vec<Op>) {
 
 fn unitary(label: String, qubits: Vec<QubitWire>, metadata: Option<InstructionMetadata>) -> Op {
     Op {
-        kind: OperationKind::Unitary,
-        label,
+        kind: OperationKind::Unitary { label },
         target_qubits: qubits,
         control_qubits: vec![],
         target_results: vec![],
