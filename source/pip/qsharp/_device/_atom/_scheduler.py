@@ -465,7 +465,9 @@ class Schedule(QirModuleVisitor):
         parallel_moves_builder = ParallelMoves(moves)
         parallel_moves = []
         while not parallel_moves_builder.is_empty():
-            next_parallel_set = parallel_moves_builder.try_take(36)
+            next_parallel_set = parallel_moves_builder.try_take(
+                self.device.column_count
+            )
             parallel_moves.append(next_parallel_set)
         assert sum(len(s) for s in parallel_moves) == len(moves)
         return parallel_moves
