@@ -25,7 +25,7 @@ use qsc_data_structures::{
     debug::{DbgInfo, DbgLocationId, DbgMetadataScope, DbgScopeId, InstructionMetadata},
     index_map::IndexMap,
 };
-use qsc_frontend::compile::PackageStore;
+use qsc_frontend::{compile::PackageStore, resolve::Scope};
 use qsc_hir::hir::PackageId;
 use qsc_partial_eval::{
     Callable, CallableType, ConditionCode, FcmpConditionCode, Instruction, Literal, Operand,
@@ -746,7 +746,7 @@ fn extend_with_successors(
 
         for op in block.operations {
             if config.group_scopes {
-                add_op_with_grouping(dbg_stuff, &mut operations, op);
+                add_op_with_grouping(dbg_stuff, dbg_stuff.dbg_info, &mut operations, op);
             } else {
                 operations.push(op);
             }
@@ -936,6 +936,7 @@ pub(crate) fn add_op<
     OG: OperationOrGroupExt<OpType = O, ScopeStackType = ScopeStack<Vec<SourceLocation>, Scope>>,
 >(
     dbg_stuff: &O::DbgStuff<'_>,
+    scope_resolver: &impl ScopeResolver<ScopeId = Scope>,
     block_operations: &mut Vec<OG>,
     op: OG::OpType,
     instruction_stack: Option<&Vec<SourceLocation>>,
@@ -954,6 +955,7 @@ pub(crate) fn add_op<
         Some(instruction_stack) => {
             add_scoped_op(
                 dbg_stuff,
+                scope_resolver,
                 block_operations,
                 None,
                 op_wrapper,
@@ -1000,33 +1002,53 @@ pub(crate) struct DbgStuff<'a> {
     dbg_info: &'a DbgInfo,
 }
 
+pub(crate) trait ScopeResolver {
+    type ScopeId;
+    fn scope_name(&self, scope: &Self::ScopeId) -> String;
+    fn scope_location(&self, scope_id: &Self::ScopeId) -> PackageOffset;
+}
+
+impl ScopeResolver for DbgInfo {
+    type ScopeId = DbgScopeId;
+
+    fn scope_name(&self, scope: &Self::ScopeId) -> String {
+        match &self.get_scope(*scope) {
+            DbgMetadataScope::SubProgram { name, location: _ } => name.to_string(),
+        }
+    }
+
+    fn scope_location(&self, scope_id: &Self::ScopeId) -> PackageOffset {
+        let scope_location = match &self.get_scope(*scope_id) {
+            DbgMetadataScope::SubProgram { location: span, .. } => span,
+        };
+
+        PackageOffset {
+            package_id: scope_location.package,
+            offset: scope_location.span.lo,
+        }
+    }
+}
+
 pub(crate) trait DbgStuffExt {
     type SourceLocation;
-    type Scope;
+    type ScopeId;
 
-    fn scope_name(&self, scope: &Self::Scope) -> String;
-
-    fn make_scope_metadata(
-        &self,
-        scope_stack: &ScopeStack<Vec<Self::SourceLocation>, Self::Scope>,
-    ) -> PackageOffset;
+    fn scope_id(&self, top: &Self::SourceLocation) -> Self::ScopeId;
 
     fn strip_stack_prefix(
         &self,
         full: &[Self::SourceLocation],
-        prefix: &ScopeStack<Vec<Self::SourceLocation>, Self::Scope>,
+        prefix: &ScopeStack<Vec<Self::SourceLocation>, Self::ScopeId>,
     ) -> Option<Vec<Self::SourceLocation>>
     where
-        Self::Scope: PartialEq,
-        Self::Scope: std::fmt::Debug,
+        Self::ScopeId: PartialEq,
+        Self::ScopeId: std::fmt::Debug,
         Self::SourceLocation: Clone,
         Self::SourceLocation: PartialEq,
     {
         if full.len() > prefix.caller.len() {
             if let Some(rest) = full.strip_prefix(prefix.caller.as_slice()) {
-                let next_location = &rest[0];
-                let next_scope = &self.clone_scope(next_location);
-                if next_scope == &prefix.scope {
+                if self.scope_id(&rest[0]) == prefix.scope {
                     return Some(rest.to_vec());
                 }
             }
@@ -1036,12 +1058,12 @@ pub(crate) trait DbgStuffExt {
 
     fn concat_stacks(
         &self,
-        scope: Option<&ScopeStack<Vec<Self::SourceLocation>, Self::Scope>>,
+        scope: Option<&ScopeStack<Vec<Self::SourceLocation>, Self::ScopeId>>,
         tail: &[Self::SourceLocation],
     ) -> Vec<Self::SourceLocation>
     where
-        Self::Scope: PartialEq,
-        Self::Scope: std::fmt::Debug,
+        Self::ScopeId: PartialEq,
+        Self::ScopeId: std::fmt::Debug,
         Self::SourceLocation: Clone,
     {
         match scope {
@@ -1061,16 +1083,16 @@ pub(crate) trait DbgStuffExt {
     fn scope_stack(
         &self,
         instruction_stack: &[Self::SourceLocation],
-    ) -> Option<ScopeStack<Vec<Self::SourceLocation>, Self::Scope>>
+    ) -> Option<ScopeStack<Vec<Self::SourceLocation>, Self::ScopeId>>
     where
         Self::SourceLocation: Clone,
     {
         instruction_stack
             .split_last()
             .map(
-                |(youngest, prefix)| ScopeStack::<Vec<Self::SourceLocation>, Self::Scope> {
+                |(youngest, prefix)| ScopeStack::<Vec<Self::SourceLocation>, Self::ScopeId> {
                     caller: prefix.to_vec(),
-                    scope: self.clone_scope(youngest),
+                    scope: self.scope_id(youngest),
                 },
             )
     }
@@ -1085,54 +1107,30 @@ pub(crate) trait DbgStuffExt {
         [prefix, tail].concat()
     }
 
-    fn oldest_scope<'a>(&'a self, stack: &'a [Self::SourceLocation]) -> Option<Self::Scope> {
-        stack.first().map(|loc| self.clone_scope(loc))
+    fn oldest_scope<'a>(&'a self, stack: &'a [Self::SourceLocation]) -> Option<Self::ScopeId> {
+        stack.first().map(|loc| self.scope_id(loc))
     }
 
     fn calling_stack(
-        scope_stack: &ScopeStack<Vec<Self::SourceLocation>, Self::Scope>,
+        scope_stack: &ScopeStack<Vec<Self::SourceLocation>, Self::ScopeId>,
     ) -> &Vec<Self::SourceLocation> {
         &scope_stack.caller
     }
-
-    fn clone_scope(&self, top: &Self::SourceLocation) -> Self::Scope;
 }
 
 impl DbgStuffExt for DbgStuff<'_> {
     type SourceLocation = DbgLocationId;
-    type Scope = DbgScopeId;
+    type ScopeId = DbgScopeId;
 
-    fn make_scope_metadata(
-        &self,
-        scope_stack: &ScopeStack<Vec<Self::SourceLocation>, Self::Scope>,
-    ) -> PackageOffset {
-        let scope_location = &self.dbg_info.get_scope(scope_stack.scope);
-        let scope_location = match scope_location {
-            DbgMetadataScope::SubProgram { location: span, .. } => span,
-        };
-
-        PackageOffset {
-            package_id: scope_location.package,
-            offset: scope_location.span.lo,
-        }
-    }
-
-    fn clone_scope(&self, top: &Self::SourceLocation) -> Self::Scope {
+    fn scope_id(&self, top: &Self::SourceLocation) -> Self::ScopeId {
         self.dbg_info.get_location(*top).scope
-    }
-
-    fn scope_name(&self, scope: &Self::Scope) -> String {
-        match &self.dbg_info.get_scope(*scope) {
-            DbgMetadataScope::SubProgram { name, location: _ } => name.to_string(),
-        }
     }
 }
 
 fn loc_name(dbg_info: &DbgInfo, location: DbgLocationId) -> (String, u32) {
-    let dbg_stuff = DbgStuff { dbg_info };
     let dbg_location = &dbg_info.get_location(location);
     let scope_id: DbgScopeId = dbg_location.scope;
-    let scope_name = dbg_stuff.scope_name(&scope_id);
+    let scope_name = dbg_info.scope_name(&scope_id);
     let offset = dbg_location.location.span.lo;
 
     (scope_name, offset)
@@ -1140,13 +1138,12 @@ fn loc_name(dbg_info: &DbgInfo, location: DbgLocationId) -> (String, u32) {
 
 #[allow(dead_code)]
 fn fmt_scope_stack(dbg_info: &DbgInfo, stack: &ScopeStack<InstructionStack, DbgScopeId>) -> String {
-    let dbg_stuff = DbgStuff { dbg_info };
     let mut names: Vec<String> = stack
         .caller
         .iter()
         .map(|loc| fmt_loc(dbg_info, *loc))
         .collect();
-    names.push(dbg_stuff.scope_name(&stack.scope));
+    names.push(dbg_info.scope_name(&stack.scope));
     names.join("->")
 }
 
@@ -1257,7 +1254,8 @@ fn add_scoped_op<
             ScopeStackType = ScopeStack<Vec<SourceLocation>, Scope>,
         >,
 >(
-    dbg_stuff: &impl DbgStuffExt<Scope = Scope, SourceLocation = SourceLocation>,
+    dbg_stuff: &impl DbgStuffExt<ScopeId = Scope, SourceLocation = SourceLocation>,
+    scope_resolver: &impl ScopeResolver<ScopeId = Scope>,
     current_scope_container: &mut Vec<OG>,
     current_scope: Option<ScopeStack<Vec<SourceLocation>, Scope>>,
     op: OG,
@@ -1299,6 +1297,7 @@ fn add_scoped_op<
                 // Recursively add to the children
                 add_scoped_op(
                     dbg_stuff,
+                    scope_resolver,
                     last_scope_children,
                     Some(last_scope_stack.clone()),
                     op,
@@ -1312,8 +1311,8 @@ fn add_scoped_op<
         }
 
         // we need to create a parent for the scope
-        let scope_metadata = dbg_stuff.make_scope_metadata(&scope_stack);
-        let label = dbg_stuff.scope_name(&scope_stack.scope);
+        let scope_metadata = scope_resolver.scope_location(&scope_stack.scope);
+        let label = scope_resolver.scope_name(&scope_stack.scope);
         let full_scope_stack = dbg_stuff
             .scope_stack(&full_instruction_stack)
             .expect("we got here because we had a scope, so what the hell is this");
@@ -1334,6 +1333,7 @@ fn add_scoped_op<
 
             add_scoped_op(
                 dbg_stuff,
+                scope_resolver,
                 current_scope_container,
                 current_scope,
                 scope_group,

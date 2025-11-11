@@ -12,7 +12,7 @@ use crate::{
     },
     group_qubits,
     operations::QubitParamInfo,
-    rir_to_circuit::{DbgStuffExt, ScopeStack, add_op},
+    rir_to_circuit::{DbgStuffExt, ScopeResolver, ScopeStack, add_op},
 };
 use qsc_data_structures::{
     index_map::IndexMap,
@@ -23,7 +23,7 @@ use qsc_eval::{
     debug::Frame,
     val::{self, Value},
 };
-use qsc_fir::fir::{self, PackageId, PackageStoreLookup};
+use qsc_fir::fir::{self, PackageId, PackageStoreLookup, StoreItemId};
 use qsc_frontend::compile::PackageStore;
 use qsc_lowerer::map_fir_package_to_hir;
 use rustc_hash::FxHashSet;
@@ -229,8 +229,9 @@ impl CircuitTracer {
                 fir_package_store,
             };
             // This has to take `Op` since it still contains logical stacks from dbg metadata
-            group_operations::<SourceLocationMetadata, LexicalScope, _, _>(
+            group_operations::<SourceLocationMetadata, ScopeId, _, _>(
                 &dbg_stuff,
+                fir_package_store,
                 operations.to_vec(),
             )
             .into_iter()
@@ -640,7 +641,7 @@ impl OperationOrGroup {
 enum OperationOrGroupKind {
     Single,
     Group {
-        scope_stack: Option<ScopeStack<Vec<SourceLocationMetadata>, LexicalScope>>,
+        scope_stack: Option<ScopeStack<Vec<SourceLocationMetadata>, ScopeId>>,
         scope_span: Option<PackageOffset>, // TODO: can this be derived?
         children: Vec<OperationOrGroup>,
     },
@@ -675,7 +676,7 @@ pub(crate) trait OperationOrGroupExt {
 
 impl OperationOrGroupExt for OperationOrGroup {
     type OpType = OperationWithCallStack;
-    type ScopeStackType = ScopeStack<Vec<SourceLocationMetadata>, LexicalScope>;
+    type ScopeStackType = ScopeStack<Vec<SourceLocationMetadata>, ScopeId>;
     fn from(op: Self::OpType) -> Self {
         OperationOrGroup {
             kind: OperationOrGroupKind::Single,
@@ -824,7 +825,7 @@ pub(crate) trait OperationWithCallStackExt {
     type InstructionStack;
     type SourceLocation;
     type Scope;
-    type DbgStuff<'a>: DbgStuffExt<Scope = Self::Scope, SourceLocation = Self::SourceLocation>;
+    type DbgStuff<'a>: DbgStuffExt<ScopeId = Self::Scope, SourceLocation = Self::SourceLocation>;
 
     fn instruction_logical_stack(
         &self,
@@ -838,7 +839,7 @@ impl OperationWithCallStackExt for OperationWithCallStack {
     type StackType = Vec<Frame>;
     type InstructionStack = Vec<SourceLocationMetadata>;
     type SourceLocation = SourceLocationMetadata;
-    type Scope = LexicalScope;
+    type Scope = ScopeId;
     type DbgStuff<'a> = DbgStuffForEval<'a>;
 
     fn instruction_logical_stack(
@@ -850,36 +851,12 @@ impl OperationWithCallStackExt for OperationWithCallStack {
             .iter()
             .filter_map(|frame| {
                 if dbg_stuff.user_package_ids.contains(&frame.id.package) {
-                    let item = dbg_stuff.fir_package_store.get_item(frame.id);
-                    let (scope_offset, scope_name) = match &item.kind {
-                        fir::ItemKind::Callable(callable_decl) => match &callable_decl
-                            .implementation
-                        {
-                            fir::CallableImpl::Intrinsic => {
-                                panic!("intrinsic callables should not be in the stack")
-                            }
-                            fir::CallableImpl::Spec(spec_impl) => {
-                                (spec_impl.body.span.lo, callable_decl.name.name.clone())
-                            } // TODO: other specializations?
-                            fir::CallableImpl::SimulatableIntrinsic(_) => {
-                                panic!("simulatable intrinsic callables should not be in the stack")
-                            }
-                        },
-                        _ => panic!("only callables should be in the stack"),
-                    };
-
                     Some(SourceLocationMetadata {
                         location: PackageOffset {
                             package_id: frame.id.package,
                             offset: frame.span.lo,
                         },
-                        scope: LexicalScope {
-                            location: PackageOffset {
-                                package_id: frame.id.package,
-                                offset: scope_offset,
-                            },
-                            name: scope_name,
-                        },
+                        scope_id: ScopeId(frame.id),
                     })
                 } else {
                     None
@@ -1101,10 +1078,13 @@ pub(crate) struct GateInputs<'a> {
     pub(crate) control_results: &'a [usize],
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Copy)]
+pub(crate) struct ScopeId(StoreItemId);
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct SourceLocationMetadata {
     location: PackageOffset,
-    scope: LexicalScope,
+    scope_id: ScopeId,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1124,6 +1104,7 @@ pub(crate) fn group_operations<
     OG: OperationOrGroupExt<OpType = O, ScopeStackType = ScopeStack<Vec<SourceLocation>, Scope>>,
 >(
     dbg_stuff: &O::DbgStuff<'_>,
+    scope_resolver: &impl ScopeResolver<ScopeId = Scope>,
     in_operations: Vec<O>,
 ) -> Vec<OG>
 where
@@ -1136,7 +1117,7 @@ where
 {
     let mut operations = vec![];
     for op in in_operations {
-        add_op_with_grouping(dbg_stuff, &mut operations, op);
+        add_op_with_grouping(dbg_stuff, scope_resolver, &mut operations, op);
     }
     operations
 }
@@ -1152,6 +1133,7 @@ pub(crate) fn add_op_with_grouping<
     OG: OperationOrGroupExt<OpType = O, ScopeStackType = ScopeStack<Vec<SourceLocation>, Scope>>,
 >(
     dbg_stuff: &<O as OperationWithCallStackExt>::DbgStuff<'_>,
+    scope_resolver: &impl ScopeResolver<ScopeId = Scope>,
     operations: &mut Vec<OG>,
     op: O,
 ) where
@@ -1163,7 +1145,64 @@ pub(crate) fn add_op_with_grouping<
     SourceLocation: Sized,
 {
     let instruction_stack = op.instruction_logical_stack(dbg_stuff);
-    add_op(dbg_stuff, operations, op, instruction_stack.as_ref());
+    add_op(
+        dbg_stuff,
+        scope_resolver,
+        operations,
+        op,
+        instruction_stack.as_ref(),
+    );
+}
+
+impl ScopeResolver for fir::PackageStore {
+    type ScopeId = ScopeId;
+
+    fn scope_name(&self, scope: &Self::ScopeId) -> String {
+        let item = self.get_item(scope.0);
+        let (_, scope_name) = match &item.kind {
+            fir::ItemKind::Callable(callable_decl) => match &callable_decl.implementation {
+                fir::CallableImpl::Intrinsic => {
+                    panic!("intrinsic callables should not be in the stack")
+                }
+                fir::CallableImpl::Spec(spec_impl) => {
+                    (spec_impl.body.span.lo, callable_decl.name.name.clone())
+                } // TODO: other specializations?
+                fir::CallableImpl::SimulatableIntrinsic(_) => {
+                    panic!("simulatable intrinsic callables should not be in the stack")
+                }
+            },
+            _ => panic!("only callables should be in the stack"),
+        };
+
+        scope_name.to_string()
+    }
+
+    fn scope_location(&self, scope_id: &Self::ScopeId) -> PackageOffset {
+        let item = self.get_item(scope_id.0);
+        let (scope_offset, scope_name) = match &item.kind {
+            fir::ItemKind::Callable(callable_decl) => match &callable_decl.implementation {
+                fir::CallableImpl::Intrinsic => {
+                    panic!("intrinsic callables should not be in the stack")
+                }
+                fir::CallableImpl::Spec(spec_impl) => {
+                    (spec_impl.body.span.lo, callable_decl.name.name.clone())
+                } // TODO: other specializations?
+                fir::CallableImpl::SimulatableIntrinsic(_) => {
+                    panic!("simulatable intrinsic callables should not be in the stack")
+                }
+            },
+            _ => panic!("only callables should be in the stack"),
+        };
+
+        let scope = LexicalScope {
+            location: PackageOffset {
+                package_id: scope_id.0.package,
+                offset: scope_offset,
+            },
+            name: scope_name,
+        };
+        scope.location
+    }
 }
 
 struct DbgStuffForEval<'a> {
@@ -1173,20 +1212,9 @@ struct DbgStuffForEval<'a> {
 
 impl DbgStuffExt for DbgStuffForEval<'_> {
     type SourceLocation = SourceLocationMetadata;
-    type Scope = LexicalScope;
+    type ScopeId = ScopeId;
 
-    fn scope_name(&self, scope: &Self::Scope) -> String {
-        scope.name.to_string()
-    }
-
-    fn make_scope_metadata(
-        &self,
-        scope_stack: &ScopeStack<Vec<Self::SourceLocation>, Self::Scope>,
-    ) -> PackageOffset {
-        scope_stack.scope.location
-    }
-
-    fn clone_scope(&self, top: &Self::SourceLocation) -> Self::Scope {
-        top.scope.clone()
+    fn scope_id(&self, location: &Self::SourceLocation) -> Self::ScopeId {
+        location.scope_id
     }
 }
