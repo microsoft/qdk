@@ -40,7 +40,7 @@ parameters:
     additionalTargets: wasm32-unknown-unknown
   - name: linux_aarch64
     poolName: 'Azure-Pipelines-DevTools-ARM64-EO'
-    imageName: 'mariner-2.0-arm64'
+    imageName: 'azurelinux-3.0-arm64'
     os: linux
     arch: aarch64
     additionalRustTargets: wasm32-unknown-unknown
@@ -298,6 +298,15 @@ extends:
               versionSpec: '3.11'
             condition: and(ne(variables['Agent.OS'], 'Linux'), ne(variables['arch'], 'aarch64'))
 
+          # UsePythonVersion@0 does not support aarch64, so we install Python manually
+          # using tdnf on Azure Linux 3.0 aarch64
+          # We also need alias python3 as python
+          - script: |
+              sudo tdnf install python3-3.12.9 python3-pip-24.2 -y
+              sudo alternatives --install /usr/bin/python python /usr/bin/python3 1
+            displayName: Install Python on Azure Linux 3.0 aarch64
+            condition: and(succeeded(), eq(variables['Agent.OS'], 'Linux'), eq(variables['arch'], 'aarch64'))
+
           - task: UseNode@1
             inputs:
               version: "22.x"
@@ -308,14 +317,14 @@ extends:
             displayName: Install Linux x86_64 prereqs
             condition: and(eq(variables['Agent.OS'], 'Linux'), eq(variables['arch'], 'x86_64'))
 
-          # on mariner we need to install:
+          # on Azure Linux 3.0 aarch64 we need to install:
           # ld with binutils
           # crt1.o and others with glibc-devel
           # std lib headers with kernel-headers
           # patchelf for modifying ELF files via auditwheel
           - script: |
-              sudo tdnf install binutils glibc-devel kernel-headers patchelf -y
-            displayName: Install c++ build tools on mariner
+              sudo tdnf install binutils glibc-devel kernel-headers patchelf gcc -y
+            displayName: Install c++ build tools on Azure Linux 3.0 aarch64
             condition: and(succeeded(), eq(variables['Agent.OS'], 'Linux'), eq(variables['arch'], 'aarch64'))
 
           - script: |
