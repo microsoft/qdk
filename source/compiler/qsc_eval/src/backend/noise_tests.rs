@@ -148,7 +148,7 @@ pub fn state_to_string(input: &(Vec<(BigUint, Complex<f64>)>, usize)) -> String 
             );
             output
         })
-        .to_string()
+        .clone()
 }
 
 fn check_state(sim: &mut SparseSim, expected: &Expect) {

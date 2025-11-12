@@ -96,7 +96,7 @@ def check_prereqs(install=False, skip_wasm=False):
         found_ver = tuple(int(g) for g in ver_match.groups())
         if found_ver < rust_ver:
             print(
-                f'Rust v{rust_ver[0]}.{rust_ver[1]} or later is required. Please update with "rustup update"'
+                f'Rust v{rust_ver[0]}.{rust_ver[1]} is required. Please update with "rustup default {rust_ver[0]}.{rust_ver[1]}"'
             )
             exit(1)
     else:
