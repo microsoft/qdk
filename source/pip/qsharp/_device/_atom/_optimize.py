@@ -192,6 +192,9 @@ class OptimizeSingleQubitGates(QirModuleVisitor):
             self._drop_ops([call.args[0]])
         elif call.callee.name == "__quantum__qis__move__body":
             self._drop_ops([call.args[0]])
+        elif call.callee.name == "__quantum__qis__barrier__body":
+            # Ignore/remove these calls for simulation
+            call.erase()
         else:
             super()._on_call_instr(call)
 
