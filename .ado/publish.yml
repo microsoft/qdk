@@ -28,7 +28,6 @@ resources:
     name: 1ESPipelineTemplates/1ESPipelineTemplates
     ref: refs/tags/release
 
-# TODO: Add back aarch64 on Linux and Windows once the Python 3.10 stuff is sorted out.
 parameters:
 - name: matrix
   type: object
@@ -57,12 +56,12 @@ parameters:
     os: windows
     arch: x86_64
     additionalTargets: wasm32-unknown-unknown
-  # - name: windows_aarch64
-  #   poolName: 'Azure-Pipelines-DevTools-EO'
-  #   imageName: 'windows-latest'     # Win-specific Py + Platform-independent Py.
-  #   os: windows
-  #   arch: aarch64
-  #   additionalRustTargets: aarch64-pc-windows-msvc wasm32-unknown-unknown
+  - name: windows_aarch64
+    poolName: 'Azure-Pipelines-DevTools-EO'
+    imageName: 'windows-latest'     # Win-specific Py + Platform-independent Py.
+    os: windows
+    arch: aarch64
+    additionalRustTargets: aarch64-pc-windows-msvc wasm32-unknown-unknown
 
 
 # variables set by pipeline
