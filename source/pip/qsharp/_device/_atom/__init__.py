@@ -42,7 +42,6 @@ class AC1000(Device):
 
         from ._optimize import (
             OptimizeSingleQubitGates,
-            PruneInitializeCalls,
             PruneUnusedFunctions,
         )
         from ._decomp import (
@@ -126,7 +125,6 @@ class AC1000(Device):
             )
             start_time = end_time
 
-        PruneInitializeCalls().run(module)
         PruneUnusedFunctions().run(module)
         if verbose:
             end_time = time.time()
