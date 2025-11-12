@@ -41,6 +41,10 @@ pub enum OpID {
     Matrix = 25,
     Matrix2Q = 26,
     SAMPLE = 27, // Take a probabilistic sample of all qubits
+    Move = 28,
+    PauliNoise1Q = 128,
+    PauliNoise2Q = 129,
+    LossNoise = 130,
 }
 
 impl OpID {
@@ -89,6 +93,10 @@ impl TryFrom<u32> for OpID {
             25 => Ok(Self::Matrix),
             26 => Ok(Self::Matrix2Q),
             27 => Ok(Self::SAMPLE),
+            28 => Ok(Self::Move),
+            128 => Ok(Self::PauliNoise1Q),
+            129 => Ok(Self::PauliNoise2Q),
+            130 => Ok(Self::LossNoise),
             invalid => Err(invalid),
         }
     }
@@ -124,9 +132,46 @@ pub mod ops {
     pub const MATRIX: u32 = super::OpID::Matrix.as_u32();
     pub const MATRIX_2Q: u32 = super::OpID::Matrix2Q.as_u32();
     pub const SAMPLE: u32 = super::OpID::SAMPLE.as_u32(); // Take a probabilistic sample of all qubits
-}
+    pub const MOVE: u32 = super::OpID::Move.as_u32();
+    pub const PAULI_NOISE_1Q: u32 = super::OpID::PauliNoise1Q.as_u32();
+    pub const PAULI_NOISE_2Q: u32 = super::OpID::PauliNoise2Q.as_u32();
+    pub const LOSS_NOISE: u32 = super::OpID::LossNoise.as_u32();
 
-pub(super) const OP_PADDING: usize = 100;
+    #[must_use]
+    pub fn is_1q_op(op_id: u32) -> bool {
+        matches!(
+            op_id,
+            ID | RESET
+                | X
+                | Y
+                | Z
+                | H
+                | S
+                | S_ADJ
+                | T
+                | T_ADJ
+                | SX
+                | SX_ADJ
+                | RX
+                | RY
+                | RZ
+                | MZ
+                | MRESETZ
+                | MATRIX
+                | MOVE
+        )
+    }
+
+    #[must_use]
+    pub fn is_2q_op(op_id: u32) -> bool {
+        matches!(op_id, CX | CZ | RXX | RYY | RZZ | SWAP | MATRIX_2Q)
+    }
+
+    #[must_use]
+    pub fn is_noise_op(op_id: u32) -> bool {
+        matches!(op_id, PAULI_NOISE_1Q | PAULI_NOISE_2Q | LOSS_NOISE)
+    }
+}
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
@@ -135,46 +180,42 @@ pub struct Op {
     pub q1: u32,
     pub q2: u32,
     pub q3: u32, // For ccx
-    pub rzr: f32,
-    pub rzi: f32,
-    pub _00r: f32,
-    pub _00i: f32,
-    pub _01r: f32,
-    pub _01i: f32,
-    pub _02r: f32,
-    pub _02i: f32,
-    pub _03r: f32,
-    pub _03i: f32,
-    pub _10r: f32,
-    pub _10i: f32,
-    pub _11r: f32,
-    pub _11i: f32,
-    pub _12r: f32,
-    pub _12i: f32,
-    pub _13r: f32,
-    pub _13i: f32,
-    pub _20r: f32,
-    pub _20i: f32,
-    pub _21r: f32,
-    pub _21i: f32,
-    pub _22r: f32,
-    pub _22i: f32,
-    pub _23r: f32,
-    pub _23i: f32,
-    pub _30r: f32,
-    pub _30i: f32,
-    pub _31r: f32,
-    pub _31i: f32,
-    pub _32r: f32,
-    pub _32i: f32,
-    pub _33r: f32,
-    pub _33i: f32,
-    pub angle: f32,
-    pub padding: [u8; OP_PADDING],
+    pub r00: f32,
+    pub i00: f32,
+    pub r01: f32,
+    pub i01: f32,
+    pub r02: f32,
+    pub i02: f32,
+    pub r03: f32,
+    pub i03: f32,
+    pub r10: f32,
+    pub i10: f32,
+    pub r11: f32,
+    pub i11: f32,
+    pub r12: f32,
+    pub i12: f32,
+    pub r13: f32,
+    pub i13: f32,
+    pub r20: f32,
+    pub i20: f32,
+    pub r21: f32,
+    pub i21: f32,
+    pub r22: f32,
+    pub i22: f32,
+    pub r23: f32,
+    pub i23: f32,
+    pub r30: f32,
+    pub i30: f32,
+    pub r31: f32,
+    pub i31: f32,
+    pub r32: f32,
+    pub i32: f32,
+    pub r33: f32,
+    pub i33: f32,
 }
 
 // safety check to make sure Op is the correct size with padding at compile time
-const _: () = assert!(std::mem::size_of::<Op>() == 256);
+const _: () = assert!(std::mem::size_of::<Op>() == 144);
 
 impl Default for Op {
     fn default() -> Self {
@@ -183,42 +224,38 @@ impl Default for Op {
             q1: 0,
             q2: 0,
             q3: 0,
-            rzr: 0.0,
-            rzi: 0.0,
-            _00r: 0.0,
-            _00i: 0.0,
-            _01r: 0.0,
-            _01i: 0.0,
-            _02r: 0.0,
-            _02i: 0.0,
-            _03r: 0.0,
-            _03i: 0.0,
-            _10r: 0.0,
-            _10i: 0.0,
-            _11r: 0.0,
-            _11i: 0.0,
-            _12r: 0.0,
-            _12i: 0.0,
-            _13r: 0.0,
-            _13i: 0.0,
-            _20r: 0.0,
-            _20i: 0.0,
-            _21r: 0.0,
-            _21i: 0.0,
-            _22r: 0.0,
-            _22i: 0.0,
-            _23r: 0.0,
-            _23i: 0.0,
-            _30r: 0.0,
-            _30i: 0.0,
-            _31r: 0.0,
-            _31i: 0.0,
-            _32r: 0.0,
-            _32i: 0.0,
-            _33r: 0.0,
-            _33i: 0.0,
-            angle: 0.0,
-            padding: [0; OP_PADDING],
+            r00: 0.0,
+            i00: 0.0,
+            r01: 0.0,
+            i01: 0.0,
+            r02: 0.0,
+            i02: 0.0,
+            r03: 0.0,
+            i03: 0.0,
+            r10: 0.0,
+            i10: 0.0,
+            r11: 0.0,
+            i11: 0.0,
+            r12: 0.0,
+            i12: 0.0,
+            r13: 0.0,
+            i13: 0.0,
+            r20: 0.0,
+            i20: 0.0,
+            r21: 0.0,
+            i21: 0.0,
+            r22: 0.0,
+            i22: 0.0,
+            r23: 0.0,
+            i23: 0.0,
+            r30: 0.0,
+            i30: 0.0,
+            r31: 0.0,
+            i31: 0.0,
+            r32: 0.0,
+            i32: 0.0,
+            r33: 0.0,
+            i33: 0.0,
         }
     }
 }
@@ -236,15 +273,14 @@ impl Op {
 
     #[must_use]
     pub fn new_m_every_z_gate() -> Self {
-        let mut op = Self::new_1q_gate(ops::MEVERYZ, 0);
-        op
+        Self::new_1q_gate(ops::MEVERYZ, 0)
     }
 
     #[must_use]
     pub fn new_sample_gate(rand_value: f32) -> Self {
         let mut op = Self::new_1q_gate(ops::SAMPLE, 0);
         // Store the random value in the angle field
-        op.angle = rand_value;
+        op.r00 = rand_value;
         op
     }
 
@@ -252,14 +288,49 @@ impl Op {
     #[must_use]
     pub fn new_id_gate(qubit: u32) -> Self {
         let mut op = Self::new_1q_gate(ops::ID, qubit);
-        op._00r = 1.0; // |0⟩⟨0| coefficient (real)
-        op._00i = 0.0; // |0⟩⟨0| coefficient (imaginary)
-        op._01r = 0.0; // |0⟩⟨1| coefficient (real)
-        op._01i = 0.0; // |0⟩⟨1| coefficient (imaginary)
-        op._10r = 0.0; // |1⟩⟨0| coefficient (real)
-        op._10i = 0.0; // |1⟩⟨0| coefficient (imaginary)
-        op._11r = 1.0; // |1⟩⟨1| coefficient (real)
-        op._11i = 0.0; // |1⟩⟨1| coefficient (imaginary)
+        op.r00 = 1.0; // |0⟩⟨0| coefficient (real)
+        op.i00 = 0.0; // |0⟩⟨0| coefficient (imaginary)
+        op.r01 = 0.0; // |0⟩⟨1| coefficient (real)
+        op.i01 = 0.0; // |0⟩⟨1| coefficient (imaginary)
+        op.r10 = 0.0; // |1⟩⟨0| coefficient (real)
+        op.i10 = 0.0; // |1⟩⟨0| coefficient (imaginary)
+        op.r11 = 1.0; // |1⟩⟨1| coefficient (real)
+        op.i11 = 0.0; // |1⟩⟨1| coefficient (imaginary)
+        op
+    }
+
+    #[must_use]
+    pub fn new_move_gate(qubit: u32) -> Self {
+        // Treat is like an identity for now
+        let mut op = Self::new_id_gate(qubit);
+        op.id = ops::MOVE;
+        op
+    }
+
+    /// Reset gate: maps |0⟩ to |0⟩ and |1⟩ to |0⟩
+    /// Note: This is used with a qubit id of `u32::MAX` to indicate a reset of the entire system
+    #[must_use]
+    pub fn new_reset_gate(qubit: u32) -> Self {
+        let mut op = Self::new_1q_gate(ops::RESET, qubit);
+        op.r00 = 1.0; // |0⟩⟨0| coefficient
+        op.i00 = 0.0;
+        op.r01 = 1.0; // |0⟩⟨1| coefficient
+        op.i01 = 0.0;
+        op.r10 = 0.0; // |1⟩⟨0| coefficient
+        op.i10 = 0.0;
+        op.r11 = 0.0; // |1⟩⟨1| coefficient
+        op.i11 = 0.0;
+        op
+    }
+
+    /// Reset gate: maps |0⟩ to |0⟩ and |1⟩ to |0⟩
+    /// Note: This is used with a qubit id of `u32::MAX` to indicate a reset of the entire system
+    #[must_use]
+    pub fn new_mresetz_gate(qubit: u32, result_id: u32) -> Self {
+        let mut op = Self::new_1q_gate(ops::MRESETZ, qubit);
+        // Store the result id in q2
+        op.q2 = result_id;
+        // Matrix will need to be determined in the simulator based on the measurement outcome
         op
     }
 
@@ -267,14 +338,14 @@ impl Op {
     #[must_use]
     pub fn new_x_gate(qubit: u32) -> Self {
         let mut op = Self::new_1q_gate(ops::X, qubit);
-        op._00r = 0.0; // |0⟩⟨0| coefficient
-        op._00i = 0.0;
-        op._01r = 1.0; // |0⟩⟨1| coefficient
-        op._01i = 0.0;
-        op._10r = 1.0; // |1⟩⟨0| coefficient
-        op._10i = 0.0;
-        op._11r = 0.0; // |1⟩⟨1| coefficient
-        op._11i = 0.0;
+        op.r00 = 0.0; // |0⟩⟨0| coefficient
+        op.i00 = 0.0;
+        op.r01 = 1.0; // |0⟩⟨1| coefficient
+        op.i01 = 0.0;
+        op.r10 = 1.0; // |1⟩⟨0| coefficient
+        op.i10 = 0.0;
+        op.r11 = 0.0; // |1⟩⟨1| coefficient
+        op.i11 = 0.0;
         op
     }
 
@@ -282,14 +353,14 @@ impl Op {
     #[must_use]
     pub fn new_y_gate(qubit: u32) -> Self {
         let mut op = Self::new_1q_gate(ops::Y, qubit);
-        op._00r = 0.0; // |0⟩⟨0| coefficient
-        op._00i = 0.0;
-        op._01r = 0.0; // |0⟩⟨1| coefficient (real part of -i)
-        op._01i = -1.0; // |0⟩⟨1| coefficient (imaginary part of -i)
-        op._10r = 0.0; // |1⟩⟨0| coefficient (real part of i)
-        op._10i = 1.0; // |1⟩⟨0| coefficient (imaginary part of i)
-        op._11r = 0.0; // |1⟩⟨1| coefficient
-        op._11i = 0.0;
+        op.r00 = 0.0; // |0⟩⟨0| coefficient
+        op.i00 = 0.0;
+        op.r01 = 0.0; // |0⟩⟨1| coefficient (real part of -i)
+        op.i01 = -1.0; // |0⟩⟨1| coefficient (imaginary part of -i)
+        op.r10 = 0.0; // |1⟩⟨0| coefficient (real part of i)
+        op.i10 = 1.0; // |1⟩⟨0| coefficient (imaginary part of i)
+        op.r11 = 0.0; // |1⟩⟨1| coefficient
+        op.i11 = 0.0;
         op
     }
 
@@ -297,14 +368,14 @@ impl Op {
     #[must_use]
     pub fn new_z_gate(qubit: u32) -> Self {
         let mut op = Self::new_1q_gate(ops::Z, qubit);
-        op._00r = 1.0; // |0⟩⟨0| coefficient
-        op._00i = 0.0;
-        op._01r = 0.0; // |0⟩⟨1| coefficient
-        op._01i = 0.0;
-        op._10r = 0.0; // |1⟩⟨0| coefficient
-        op._10i = 0.0;
-        op._11r = -1.0; // |1⟩⟨1| coefficient
-        op._11i = 0.0;
+        op.r00 = 1.0; // |0⟩⟨0| coefficient
+        op.i00 = 0.0;
+        op.r01 = 0.0; // |0⟩⟨1| coefficient
+        op.i01 = 0.0;
+        op.r10 = 0.0; // |1⟩⟨0| coefficient
+        op.i10 = 0.0;
+        op.r11 = -1.0; // |1⟩⟨1| coefficient
+        op.i11 = 0.0;
         op
     }
 
@@ -312,14 +383,14 @@ impl Op {
     #[must_use]
     pub fn new_h_gate(qubit: u32) -> Self {
         let mut op = Self::new_1q_gate(ops::H, qubit);
-        op._00r = FRAC_1_SQRT_2; // |0⟩⟨0| coefficient
-        op._00i = 0.0;
-        op._01r = FRAC_1_SQRT_2; // |0⟩⟨1| coefficient
-        op._01i = 0.0;
-        op._10r = FRAC_1_SQRT_2; // |1⟩⟨0| coefficient
-        op._10i = 0.0;
-        op._11r = -FRAC_1_SQRT_2; // |1⟩⟨1| coefficient
-        op._11i = 0.0;
+        op.r00 = FRAC_1_SQRT_2; // |0⟩⟨0| coefficient
+        op.i00 = 0.0;
+        op.r01 = FRAC_1_SQRT_2; // |0⟩⟨1| coefficient
+        op.i01 = 0.0;
+        op.r10 = FRAC_1_SQRT_2; // |1⟩⟨0| coefficient
+        op.i10 = 0.0;
+        op.r11 = -FRAC_1_SQRT_2; // |1⟩⟨1| coefficient
+        op.i11 = 0.0;
         op
     }
 
@@ -327,14 +398,14 @@ impl Op {
     #[must_use]
     pub fn new_s_gate(qubit: u32) -> Self {
         let mut op = Self::new_1q_gate(ops::S, qubit);
-        op._00r = 1.0; // |0⟩⟨0| coefficient
-        op._00i = 0.0;
-        op._01r = 0.0; // |0⟩⟨1| coefficient
-        op._01i = 0.0;
-        op._10r = 0.0; // |1⟩⟨0| coefficient
-        op._10i = 0.0;
-        op._11r = 0.0; // |1⟩⟨1| coefficient (real part of i)
-        op._11i = 1.0; // |1⟩⟨1| coefficient (imaginary part of i)
+        op.r00 = 1.0; // |0⟩⟨0| coefficient
+        op.i00 = 0.0;
+        op.r01 = 0.0; // |0⟩⟨1| coefficient
+        op.i01 = 0.0;
+        op.r10 = 0.0; // |1⟩⟨0| coefficient
+        op.i10 = 0.0;
+        op.r11 = 0.0; // |1⟩⟨1| coefficient (real part of i)
+        op.i11 = 1.0; // |1⟩⟨1| coefficient (imaginary part of i)
         op
     }
 
@@ -342,14 +413,14 @@ impl Op {
     #[must_use]
     pub fn new_s_adj_gate(qubit: u32) -> Self {
         let mut op = Self::new_1q_gate(ops::S_ADJ, qubit);
-        op._00r = 1.0; // |0⟩⟨0| coefficient
-        op._00i = 0.0;
-        op._01r = 0.0; // |0⟩⟨1| coefficient
-        op._01i = 0.0;
-        op._10r = 0.0; // |1⟩⟨0| coefficient
-        op._10i = 0.0;
-        op._11r = 0.0; // |1⟩⟨1| coefficient (real part of -i)
-        op._11i = -1.0; // |1⟩⟨1| coefficient (imaginary part of -i)
+        op.r00 = 1.0; // |0⟩⟨0| coefficient
+        op.i00 = 0.0;
+        op.r01 = 0.0; // |0⟩⟨1| coefficient
+        op.i01 = 0.0;
+        op.r10 = 0.0; // |1⟩⟨0| coefficient
+        op.i10 = 0.0;
+        op.r11 = 0.0; // |1⟩⟨1| coefficient (real part of -i)
+        op.i11 = -1.0; // |1⟩⟨1| coefficient (imaginary part of -i)
         op
     }
 
@@ -357,14 +428,14 @@ impl Op {
     #[must_use]
     pub fn new_t_gate(qubit: u32) -> Self {
         let mut op = Self::new_1q_gate(ops::T, qubit);
-        op._00r = 1.0; // |0⟩⟨0| coefficient
-        op._00i = 0.0;
-        op._01r = 0.0; // |0⟩⟨1| coefficient
-        op._01i = 0.0;
-        op._10r = 0.0; // |1⟩⟨0| coefficient
-        op._10i = 0.0;
-        op._11r = FRAC_1_SQRT_2; // |1⟩⟨1| coefficient (real part of e^(iπ/4))
-        op._11i = FRAC_1_SQRT_2; // |1⟩⟨1| coefficient (imaginary part of e^(iπ/4))
+        op.r00 = 1.0; // |0⟩⟨0| coefficient
+        op.i00 = 0.0;
+        op.r01 = 0.0; // |0⟩⟨1| coefficient
+        op.i01 = 0.0;
+        op.r10 = 0.0; // |1⟩⟨0| coefficient
+        op.i10 = 0.0;
+        op.r11 = FRAC_1_SQRT_2; // |1⟩⟨1| coefficient (real part of e^(iπ/4))
+        op.i11 = FRAC_1_SQRT_2; // |1⟩⟨1| coefficient (imaginary part of e^(iπ/4))
         op
     }
 
@@ -372,14 +443,14 @@ impl Op {
     #[must_use]
     pub fn new_t_adj_gate(qubit: u32) -> Self {
         let mut op = Self::new_1q_gate(ops::T_ADJ, qubit);
-        op._00r = 1.0; // |0⟩⟨0| coefficient
-        op._00i = 0.0;
-        op._01r = 0.0; // |0⟩⟨1| coefficient
-        op._01i = 0.0;
-        op._10r = 0.0; // |1⟩⟨0| coefficient
-        op._10i = 0.0;
-        op._11r = FRAC_1_SQRT_2; // |1⟩⟨1| coefficient (real part of e^(-iπ/4))
-        op._11i = -FRAC_1_SQRT_2; // |1⟩⟨1| coefficient (imaginary part of e^(-iπ/4))
+        op.r00 = 1.0; // |0⟩⟨0| coefficient
+        op.i00 = 0.0;
+        op.r01 = 0.0; // |0⟩⟨1| coefficient
+        op.i01 = 0.0;
+        op.r10 = 0.0; // |1⟩⟨0| coefficient
+        op.i10 = 0.0;
+        op.r11 = FRAC_1_SQRT_2; // |1⟩⟨1| coefficient (real part of e^(-iπ/4))
+        op.i11 = -FRAC_1_SQRT_2; // |1⟩⟨1| coefficient (imaginary part of e^(-iπ/4))
         op
     }
 
@@ -388,14 +459,14 @@ impl Op {
     pub fn new_sx_gate(qubit: u32) -> Self {
         let mut op = Self::new_1q_gate(ops::SX, qubit);
         // SX = (1/2) * [[1+i, 1-i], [1-i, 1+i]]
-        op._00r = 0.5; // |0⟩⟨0| coefficient (real part of (1+i)/2)
-        op._00i = 0.5; // |0⟩⟨0| coefficient (imaginary part of (1+i)/2)
-        op._01r = 0.5; // |0⟩⟨1| coefficient (real part of (1-i)/2)
-        op._01i = -0.5; // |0⟩⟨1| coefficient (imaginary part of (1-i)/2)
-        op._10r = 0.5; // |1⟩⟨0| coefficient (real part of (1-i)/2)
-        op._10i = -0.5; // |1⟩⟨0| coefficient (imaginary part of (1-i)/2)
-        op._11r = 0.5; // |1⟩⟨1| coefficient (real part of (1+i)/2)
-        op._11i = 0.5; // |1⟩⟨1| coefficient (imaginary part of (1+i)/2)
+        op.r00 = 0.5; // |0⟩⟨0| coefficient (real part of (1+i)/2)
+        op.i00 = 0.5; // |0⟩⟨0| coefficient (imaginary part of (1+i)/2)
+        op.r01 = 0.5; // |0⟩⟨1| coefficient (real part of (1-i)/2)
+        op.i01 = -0.5; // |0⟩⟨1| coefficient (imaginary part of (1-i)/2)
+        op.r10 = 0.5; // |1⟩⟨0| coefficient (real part of (1-i)/2)
+        op.i10 = -0.5; // |1⟩⟨0| coefficient (imaginary part of (1-i)/2)
+        op.r11 = 0.5; // |1⟩⟨1| coefficient (real part of (1+i)/2)
+        op.i11 = 0.5; // |1⟩⟨1| coefficient (imaginary part of (1+i)/2)
         op
     }
 
@@ -404,14 +475,14 @@ impl Op {
     pub fn new_sx_adj_gate(qubit: u32) -> Self {
         let mut op = Self::new_1q_gate(ops::SX_ADJ, qubit);
         // SX† = (1/2) * [[1-i, 1+i], [1+i, 1-i]]
-        op._00r = 0.5; // |0⟩⟨0| coefficient (real part of (1-i)/2)
-        op._00i = -0.5; // |0⟩⟨0| coefficient (imaginary part of (1-i)/2)
-        op._01r = 0.5; // |0⟩⟨1| coefficient (real part of (1+i)/2)
-        op._01i = 0.5; // |0⟩⟨1| coefficient (imaginary part of (1+i)/2)
-        op._10r = 0.5; // |1⟩⟨0| coefficient (real part of (1+i)/2)
-        op._10i = 0.5; // |1⟩⟨0| coefficient (imaginary part of (1+i)/2)
-        op._11r = 0.5; // |1⟩⟨1| coefficient (real part of (1-i)/2)
-        op._11i = -0.5; // |1⟩⟨1| coefficient (imaginary part of (1-i)/2)
+        op.r00 = 0.5; // |0⟩⟨0| coefficient (real part of (1-i)/2)
+        op.i00 = -0.5; // |0⟩⟨0| coefficient (imaginary part of (1-i)/2)
+        op.r01 = 0.5; // |0⟩⟨1| coefficient (real part of (1+i)/2)
+        op.i01 = 0.5; // |0⟩⟨1| coefficient (imaginary part of (1+i)/2)
+        op.r10 = 0.5; // |1⟩⟨0| coefficient (real part of (1+i)/2)
+        op.i10 = 0.5; // |1⟩⟨0| coefficient (imaginary part of (1+i)/2)
+        op.r11 = 0.5; // |1⟩⟨1| coefficient (real part of (1-i)/2)
+        op.i11 = -0.5; // |1⟩⟨1| coefficient (imaginary part of (1-i)/2)
         op
     }
 
@@ -423,14 +494,14 @@ impl Op {
         let cos_half = half_angle.cos();
         let sin_half = half_angle.sin();
 
-        op._00r = cos_half; // |0⟩⟨0| coefficient
-        op._00i = 0.0;
-        op._01r = 0.0; // |0⟩⟨1| coefficient (real part of -i*sin(θ/2))
-        op._01i = -sin_half; // |0⟩⟨1| coefficient (imaginary part of -i*sin(θ/2))
-        op._10r = 0.0; // |1⟩⟨0| coefficient (real part of -i*sin(θ/2))
-        op._10i = -sin_half; // |1⟩⟨0| coefficient (imaginary part of -i*sin(θ/2))
-        op._11r = cos_half; // |1⟩⟨1| coefficient
-        op._11i = 0.0;
+        op.r00 = cos_half; // |0⟩⟨0| coefficient
+        op.i00 = 0.0;
+        op.r01 = 0.0; // |0⟩⟨1| coefficient (real part of -i*sin(θ/2))
+        op.i01 = -sin_half; // |0⟩⟨1| coefficient (imaginary part of -i*sin(θ/2))
+        op.r10 = 0.0; // |1⟩⟨0| coefficient (real part of -i*sin(θ/2))
+        op.i10 = -sin_half; // |1⟩⟨0| coefficient (imaginary part of -i*sin(θ/2))
+        op.r11 = cos_half; // |1⟩⟨1| coefficient
+        op.i11 = 0.0;
         op
     }
 
@@ -442,14 +513,14 @@ impl Op {
         let cos_half = half_angle.cos();
         let sin_half = half_angle.sin();
 
-        op._00r = cos_half; // |0⟩⟨0| coefficient
-        op._00i = 0.0;
-        op._01r = -sin_half; // |0⟩⟨1| coefficient
-        op._01i = 0.0;
-        op._10r = sin_half; // |1⟩⟨0| coefficient
-        op._10i = 0.0;
-        op._11r = cos_half; // |1⟩⟨1| coefficient
-        op._11i = 0.0;
+        op.r00 = cos_half; // |0⟩⟨0| coefficient
+        op.i00 = 0.0;
+        op.r01 = -sin_half; // |0⟩⟨1| coefficient
+        op.i01 = 0.0;
+        op.r10 = sin_half; // |1⟩⟨0| coefficient
+        op.i10 = 0.0;
+        op.r11 = cos_half; // |1⟩⟨1| coefficient
+        op.i11 = 0.0;
         op
     }
 
@@ -458,20 +529,41 @@ impl Op {
     pub fn new_rz_gate(angle: f32, qubit: u32) -> Self {
         let mut op = Self::new_1q_gate(ops::RZ, qubit);
 
-        // The shader uses an optimization relying on these two values
-        op.rzr = angle.cos();
-        op.rzi = angle.sin();
-
         // In case we need to return to a uniform processing based on 2x2 matrix
-        let half_angle = angle / 2.0;
-        op._00r = (-half_angle).cos(); // |0⟩⟨0| coefficient (real part of e^(-iθ/2))
-        op._00i = (-half_angle).sin(); // |0⟩⟨0| coefficient (imaginary part of e^(-iθ/2))
-        op._01r = 0.0; // |0⟩⟨1| coefficient
-        op._01i = 0.0;
-        op._10r = 0.0; // |1⟩⟨0| coefficient
-        op._10i = 0.0;
-        op._11r = half_angle.cos(); // |1⟩⟨1| coefficient (real part of e^(iθ/2))
-        op._11i = half_angle.sin(); // |1⟩⟨1| coefficient (imaginary part of e^(iθ/2))
+        // let half_angle = angle / 2.0;
+        op.r00 = 1.0;
+        op.i00 = 0.0;
+        op.r01 = 0.0; // |0⟩⟨1| coefficient
+        op.i01 = 0.0;
+        op.r10 = 0.0; // |1⟩⟨0| coefficient
+        op.i10 = 0.0;
+        op.r11 = angle.cos(); // |1⟩⟨1| coefficient (real part of e^(iθ))
+        op.i11 = angle.sin(); // |1⟩⟨1| coefficient (imaginary part of e^(iθ))
+        op
+    }
+
+    #[must_use]
+    pub fn new_pauli_noise_1q(qubit: u32, p_x: f32, p_y: f32, p_z: f32) -> Self {
+        let mut op = Self::new_1q_gate(ops::PAULI_NOISE_1Q, qubit);
+        op.r00 = p_x;
+        op.r01 = p_y;
+        op.r02 = p_z;
+        op
+    }
+
+    #[must_use]
+    pub fn new_pauli_noise_2q(q1: u32, q2: u32, p_x: f32, p_y: f32, p_z: f32) -> Self {
+        let mut op = Self::new_2q_gate(ops::PAULI_NOISE_2Q, q1, q2);
+        op.r00 = p_x;
+        op.r01 = p_y;
+        op.r02 = p_z;
+        op
+    }
+
+    #[must_use]
+    pub fn new_loss_noise(qubit: u32, p_loss: f32) -> Self {
+        let mut op = Self::new_1q_gate(ops::LOSS_NOISE, qubit);
+        op.r00 = p_loss;
         op
     }
 
@@ -489,14 +581,24 @@ impl Op {
     /// Matrix representation is handled in the shader for 2-qubit gates
     #[must_use]
     pub fn new_cx_gate(control: u32, target: u32) -> Self {
-        Self::new_2q_gate(ops::CX, control, target)
+        let mut op = Self::new_2q_gate(ops::CX, control, target);
+        op.r00 = 1.0;
+        op.r11 = 1.0;
+        op.r23 = 1.0;
+        op.r32 = 1.0;
+        op
     }
 
     /// CZ gate (Controlled-Z): Controlled-Z gate
     /// Matrix representation is handled in the shader for 2-qubit gates
     #[must_use]
     pub fn new_cz_gate(control: u32, target: u32) -> Self {
-        Self::new_2q_gate(ops::CZ, control, target)
+        let mut op = Self::new_2q_gate(ops::CZ, control, target);
+        op.r00 = 1.0;
+        op.r11 = 1.0;
+        op.r22 = 1.0;
+        op.r33 = -1.0;
+        op
     }
 
     /// RXX gate: Two-qubit rotation around XX
@@ -513,28 +615,28 @@ impl Op {
         let sin_half = half_angle.sin();
 
         // |00⟩⟨00| and |11⟩⟨11| coefficients
-        op._00r = cos_half;
-        op._00i = 0.0;
-        op._33r = cos_half;
-        op._33i = 0.0;
+        op.r00 = cos_half;
+        op.i00 = 0.0;
+        op.r33 = cos_half;
+        op.i33 = 0.0;
 
         // |01⟩⟨01| and |10⟩⟨10| coefficients
-        op._11r = cos_half;
-        op._11i = 0.0;
-        op._22r = cos_half;
-        op._22i = 0.0;
+        op.r11 = cos_half;
+        op.i11 = 0.0;
+        op.r22 = cos_half;
+        op.i22 = 0.0;
 
         // |00⟩⟨11| and |11⟩⟨00| coefficients (-i*sin(θ/2))
-        op._03r = 0.0;
-        op._03i = -sin_half;
-        op._30r = 0.0;
-        op._30i = -sin_half;
+        op.r03 = 0.0;
+        op.i03 = -sin_half;
+        op.r30 = 0.0;
+        op.i30 = -sin_half;
 
         // |01⟩⟨10| and |10⟩⟨01| coefficients (-i*sin(θ/2))
-        op._12r = 0.0;
-        op._12i = -sin_half;
-        op._21r = 0.0;
-        op._21i = -sin_half;
+        op.r12 = 0.0;
+        op.i12 = -sin_half;
+        op.r21 = 0.0;
+        op.i21 = -sin_half;
 
         // All other coefficients are 0 (already set by new_2q_gate)
         op
@@ -554,28 +656,28 @@ impl Op {
         let sin_half = half_angle.sin();
 
         // |00⟩⟨00| and |11⟩⟨11| coefficients
-        op._00r = cos_half;
-        op._00i = 0.0;
-        op._33r = cos_half;
-        op._33i = 0.0;
+        op.r00 = cos_half;
+        op.i00 = 0.0;
+        op.r33 = cos_half;
+        op.i33 = 0.0;
 
         // |01⟩⟨01| and |10⟩⟨10| coefficients
-        op._11r = cos_half;
-        op._11i = 0.0;
-        op._22r = cos_half;
-        op._22i = 0.0;
+        op.r11 = cos_half;
+        op.i11 = 0.0;
+        op.r22 = cos_half;
+        op.i22 = 0.0;
 
         // |00⟩⟨11| and |11⟩⟨00| coefficients (i*sin(θ/2))
-        op._03r = 0.0;
-        op._03i = sin_half;
-        op._30r = 0.0;
-        op._30i = sin_half;
+        op.r03 = 0.0;
+        op.i03 = sin_half;
+        op.r30 = 0.0;
+        op.i30 = sin_half;
 
         // |01⟩⟨10| and |10⟩⟨01| coefficients (-i*sin(θ/2))
-        op._12r = 0.0;
-        op._12i = -sin_half;
-        op._21r = 0.0;
-        op._21i = -sin_half;
+        op.r12 = 0.0;
+        op.i12 = -sin_half;
+        op.r21 = 0.0;
+        op.i21 = -sin_half;
 
         // All other coefficients are 0 (already set by new_2q_gate)
         op
@@ -583,30 +685,27 @@ impl Op {
 
     /// RZZ gate: Two-qubit rotation around ZZ
     /// Matrix: exp(-i*θ/2 * (Z ⊗ Z))
-    /// [[e^(-i*θ/2), 0, 0, 0],
-    ///  [0, e^(i*θ/2), 0, 0],
-    ///  [0, 0, e^(i*θ/2), 0],
-    ///  [0, 0, 0, e^(-i*θ/2)]]
+    /// [[1, 0,       0, 0],
+    ///  [0, e^(i*θ), 0, 0],
+    ///  [0, 0, e^(i*θ), 0],
+    ///  [0, 0,       0, 1]]
     #[must_use]
     pub fn new_rzz_gate(angle: f32, qubit1: u32, qubit2: u32) -> Self {
         let mut op = Self::new_2q_gate(ops::RZZ, qubit1, qubit2);
-        let half_angle = angle / 2.0;
 
         // |00⟩⟨00| coefficient (e^(-i*θ/2))
-        op._00r = (-half_angle).cos();
-        op._00i = (-half_angle).sin();
+        op.r00 = 1.0;
 
-        // |01⟩⟨01| coefficient (e^(i*θ/2))
-        op._11r = half_angle.cos();
-        op._11i = half_angle.sin();
+        // |01⟩⟨01| coefficient (e^(i*θ))
+        op.r11 = angle.cos();
+        op.i11 = angle.sin();
 
-        // |10⟩⟨10| coefficient (e^(i*θ/2))
-        op._22r = half_angle.cos();
-        op._22i = half_angle.sin();
+        // |10⟩⟨10| coefficient (e^(i*θ))
+        op.r22 = angle.cos();
+        op.i22 = angle.sin();
 
         // |11⟩⟨11| coefficient (e^(-i*θ/2))
-        op._33r = (-half_angle).cos();
-        op._33i = (-half_angle).sin();
+        op.r33 = 1.0;
 
         // All off-diagonal elements are 0 (already set by new_2q_gate)
         op
@@ -632,14 +731,14 @@ impl Op {
         m11: (f32, f32),
     ) -> Self {
         let mut op = Self::new_1q_gate(ops::MATRIX, qubit);
-        op._00r = m00.0;
-        op._00i = m00.1;
-        op._01r = m01.0;
-        op._01i = m01.1;
-        op._10r = m10.0;
-        op._10i = m10.1;
-        op._11r = m11.0;
-        op._11i = m11.1;
+        op.r00 = m00.0;
+        op.i00 = m00.1;
+        op.r01 = m01.0;
+        op.i01 = m01.1;
+        op.r10 = m10.0;
+        op.i10 = m10.1;
+        op.r11 = m11.0;
+        op.i11 = m11.1;
         op
     }
 
@@ -669,44 +768,44 @@ impl Op {
         let mut op = Self::new_2q_gate(ops::MATRIX_2Q, qubit1, qubit2);
 
         // Standard matrix layout: Row 0 -> _00, _01, _02, _03
-        op._00r = row0[0].0;
-        op._00i = row0[0].1;
-        op._01r = row0[1].0;
-        op._01i = row0[1].1;
-        op._02r = row0[2].0;
-        op._02i = row0[2].1;
-        op._03r = row0[3].0;
-        op._03i = row0[3].1;
+        op.r00 = row0[0].0;
+        op.i00 = row0[0].1;
+        op.r01 = row0[1].0;
+        op.i01 = row0[1].1;
+        op.r02 = row0[2].0;
+        op.i02 = row0[2].1;
+        op.r03 = row0[3].0;
+        op.i03 = row0[3].1;
 
         // Standard matrix layout: Row 1 -> _10, _11, _12, _13
-        op._10r = row1[0].0;
-        op._10i = row1[0].1;
-        op._11r = row1[1].0;
-        op._11i = row1[1].1;
-        op._12r = row1[2].0;
-        op._12i = row1[2].1;
-        op._13r = row1[3].0;
-        op._13i = row1[3].1;
+        op.r10 = row1[0].0;
+        op.i10 = row1[0].1;
+        op.r11 = row1[1].0;
+        op.i11 = row1[1].1;
+        op.r12 = row1[2].0;
+        op.i12 = row1[2].1;
+        op.r13 = row1[3].0;
+        op.i13 = row1[3].1;
 
         // Standard matrix layout: Row 2 -> _20, _21, _22, _23
-        op._20r = row2[0].0;
-        op._20i = row2[0].1;
-        op._21r = row2[1].0;
-        op._21i = row2[1].1;
-        op._22r = row2[2].0;
-        op._22i = row2[2].1;
-        op._23r = row2[3].0;
-        op._23i = row2[3].1;
+        op.r20 = row2[0].0;
+        op.i20 = row2[0].1;
+        op.r21 = row2[1].0;
+        op.i21 = row2[1].1;
+        op.r22 = row2[2].0;
+        op.i22 = row2[2].1;
+        op.r23 = row2[3].0;
+        op.i23 = row2[3].1;
 
         // Standard matrix layout: Row 3 -> _30, _31, _32, _33
-        op._30r = row3[0].0;
-        op._30i = row3[0].1;
-        op._31r = row3[1].0;
-        op._31i = row3[1].1;
-        op._32r = row3[2].0;
-        op._32i = row3[2].1;
-        op._33r = row3[3].0;
-        op._33i = row3[3].1;
+        op.r30 = row3[0].0;
+        op.i30 = row3[0].1;
+        op.r31 = row3[1].0;
+        op.i31 = row3[1].1;
+        op.r32 = row3[2].0;
+        op.i32 = row3[2].1;
+        op.r33 = row3[3].0;
+        op.i33 = row3[3].1;
 
         op
     }

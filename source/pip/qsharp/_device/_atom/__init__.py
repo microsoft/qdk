@@ -28,6 +28,7 @@ class AC1000(Device):
         self,
         program: str | QirInputData,
         verbose: bool = False,
+        schedule: bool = False,
     ) -> QirInputData:
         """
         Compile a QIR program for the AC1000 device. This includes decomposing gates to the native gate set,
@@ -142,6 +143,13 @@ class AC1000(Device):
             print(
                 f"Finished compiling program {name} in {end_time - all_start_time:.2f} seconds"
             )
+
+        if schedule:
+            from ._validate import ValidateSingleBlock
+            from ._scheduler import Schedule
+
+            ValidateSingleBlock().run(module)
+            Schedule(self).run(module)
 
         return QirInputData(name, str(module))
 
