@@ -87,29 +87,23 @@ impl OperationOrGroupExt for Op {
             .collect();
         results.into_iter().collect()
     }
-    fn group_data_mut(
-        &mut self,
-    ) -> Option<(
-        &mut Vec<Self>,
-        &mut ScopeStack<Vec<Self::SourceLocation>, Self::Scope>,
-    )>
+    fn children_mut(&mut self) -> Option<&mut Vec<Self>>
     where
         Self: std::marker::Sized,
     {
         if let OperationKind::Group {
             children: last_scope_children,
-            scope_stack: last_scope_stack,
-            scope_span: _,
+            ..
         } = &mut self.kind
         {
-            Some((last_scope_children, last_scope_stack))
+            Some(last_scope_children)
         } else {
             None
         }
     }
 
     fn group(
-        scope_stack: ScopeStack<Vec<Self::SourceLocation>, Self::Scope>,
+        scope_stack: ScopeStack<Self::SourceLocation, Self::Scope>,
         children: Vec<Self>,
     ) -> Self
     where
@@ -155,14 +149,58 @@ impl OperationOrGroupExt for Op {
         self.target_results.sort_unstable();
         self.target_results.dedup();
     }
+
+    fn scope_stack_if_group(&self) -> Option<&ScopeStack<Self::SourceLocation, Self::Scope>> {
+        match &self.kind {
+            OperationKind::Group { scope_stack, .. } => Some(scope_stack),
+            _ => None,
+        }
+    }
 }
 
 pub(crate) type InstructionStack = Vec<DbgLocationId>; // Can be empty
 
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct ScopeStack<InstructionStack, Scope> {
-    pub(crate) caller: InstructionStack,
-    pub(crate) scope: Scope,
+pub(crate) struct ScopeStack<SourceLocation, Scope> {
+    caller: Vec<SourceLocation>,
+    scope: Scope,
+}
+
+impl<SourceLocation, Scope> ScopeStack<SourceLocation, Scope>
+where
+    Scope: std::fmt::Debug + std::fmt::Display + Default + PartialEq,
+    SourceLocation: PartialEq + Sized,
+{
+    pub(crate) fn caller(&self) -> &[SourceLocation] {
+        &self.caller
+    }
+
+    pub(crate) fn current_lexical_scope(&self) -> &Scope {
+        assert!(!self.is_top(), "top scope has no lexical scope");
+        &self.scope
+    }
+
+    pub(crate) fn is_top(&self) -> bool {
+        self.caller.is_empty() && self.scope == Scope::default()
+    }
+
+    pub(crate) fn top() -> Self {
+        ScopeStack {
+            caller: Vec::new(),
+            scope: Scope::default(),
+        }
+    }
+
+    pub(crate) fn resolve_scope(
+        &self,
+        scope_resolver: &impl ScopeResolver<ScopeId = Scope>,
+    ) -> LexicalScope {
+        if self.is_top() {
+            LexicalScope::top()
+        } else {
+            scope_resolver.resolve_scope(&self.scope)
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -178,7 +216,7 @@ enum OperationKind {
     },
     Group {
         children: Vec<Op>,
-        scope_stack: ScopeStack<InstructionStack, DbgScopeId>,
+        scope_stack: ScopeStack<DbgLocationId, DbgScopeId>,
         scope_span: Option<PackageOffset>,
     },
     ConditionalGroup {
@@ -245,12 +283,7 @@ impl Op {
             .or(
                 // fall back to scope span for groups
                 if let OperationKind::Group { scope_stack, .. } = &self.kind {
-                    Some(
-                        dbg_stuff
-                            .dbg_info
-                            .resolve_scope(&scope_stack.scope)
-                            .location,
-                    )
+                    Some(scope_stack.resolve_scope(dbg_stuff.dbg_info).location())
                 } else {
                     None
                 },
@@ -288,11 +321,7 @@ impl Op {
                 scope_stack,
                 ..
             } => Operation::Unitary(Unitary {
-                gate: dbg_stuff
-                    .dbg_info
-                    .resolve_scope(&scope_stack.scope)
-                    .name
-                    .to_string(),
+                gate: scope_stack.resolve_scope(dbg_stuff.dbg_info).name(),
                 args,
                 children: vec![ComponentColumn {
                     components: children
@@ -440,16 +469,14 @@ fn resolve_location(
     dbg_location: DbgLocationId,
 ) -> Option<PackageOffset> {
     let location_stack = instruction_logical_stack(dbg_stuff, dbg_location);
-    let location_stack = retain_user_frames(dbg_stuff, user_package_ids, location_stack);
-    location_stack.and_then(|stack| {
-        stack
-            .last()
-            .map(|l| dbg_stuff.dbg_info.get_location(*l).location)
-            .map(|span| PackageOffset {
-                package_id: span.package,
-                offset: span.span.lo,
-            })
-    })
+    let stack = retain_user_frames(dbg_stuff, user_package_ids, location_stack);
+    stack
+        .last()
+        .map(|l| dbg_stuff.dbg_info.get_location(*l).location)
+        .map(|span| PackageOffset {
+            package_id: span.package,
+            offset: span.span.lo,
+        })
 }
 
 /// true result means done
@@ -1016,7 +1043,7 @@ impl ScopeResolver for DbgInfo {
 
     fn resolve_scope(&self, scope_id: &Self::ScopeId) -> LexicalScope {
         match &self.get_scope(*scope_id) {
-            DbgMetadataScope::SubProgram { name, location } => LexicalScope {
+            DbgMetadataScope::SubProgram { name, location } => LexicalScope::Named {
                 name: name.clone(),
                 location: PackageOffset {
                     package_id: location.package,
@@ -1028,26 +1055,30 @@ impl ScopeResolver for DbgInfo {
 }
 
 pub(crate) trait DbgStuffExt {
-    type SourceLocation;
-    type ScopeId;
+    type SourceLocation: PartialEq + Sized + Clone + PartialEq;
+    type ScopeId: std::fmt::Debug + std::fmt::Display + Default + PartialEq;
 
     fn package_id(&self, location: &Self::SourceLocation) -> PackageId;
-    fn scope_id(&self, top: &Self::SourceLocation) -> Self::ScopeId;
+    fn lexical_scope(&self, top: &Self::SourceLocation) -> Self::ScopeId;
 
-    fn strip_stack_prefix(
+    /// full is a call stack
+    /// prefix is a scope stack
+    /// if prefix isn't a prefix of full, return None
+    /// if it is, return the rest of full after removing prefix,
+    /// starting from the first location in full that is in the scope of prefix.scope
+    fn strip_scope_stack_prefix(
         &self,
-        full: &[Self::SourceLocation],
-        prefix: &ScopeStack<Vec<Self::SourceLocation>, Self::ScopeId>,
-    ) -> Option<Vec<Self::SourceLocation>>
-    where
-        Self::ScopeId: PartialEq,
-        Self::ScopeId: std::fmt::Debug,
-        Self::SourceLocation: Clone,
-        Self::SourceLocation: PartialEq,
-    {
-        if full.len() > prefix.caller.len() {
-            if let Some(rest) = full.strip_prefix(prefix.caller.as_slice()) {
-                if self.scope_id(&rest[0]) == prefix.scope {
+        full_call_stack: &[Self::SourceLocation],
+        prefix_scope_stack: &ScopeStack<Self::SourceLocation, Self::ScopeId>,
+    ) -> Option<Vec<Self::SourceLocation>> {
+        if prefix_scope_stack.is_top() {
+            return Some(full_call_stack.to_vec());
+        }
+
+        if full_call_stack.len() > prefix_scope_stack.caller().len() {
+            if let Some(rest) = full_call_stack.strip_prefix(prefix_scope_stack.caller()) {
+                if self.lexical_scope(&rest[0]) == *prefix_scope_stack.current_lexical_scope() {
+                    assert!(!rest.is_empty());
                     return Some(rest.to_vec());
                 }
             }
@@ -1057,44 +1088,44 @@ pub(crate) trait DbgStuffExt {
 
     fn concat_stacks(
         &self,
-        scope_stack: Option<&ScopeStack<Vec<Self::SourceLocation>, Self::ScopeId>>,
+        scope_stack: &ScopeStack<Self::SourceLocation, Self::ScopeId>,
         tail: &[Self::SourceLocation],
     ) -> Vec<Self::SourceLocation>
     where
-        Self::ScopeId: PartialEq,
-        Self::ScopeId: std::fmt::Debug,
-        Self::SourceLocation: Clone,
+        Self::ScopeId: std::fmt::Display + std::fmt::Debug + Default + PartialEq,
+        Self::SourceLocation: Clone + PartialEq,
     {
-        match scope_stack {
-            Some(scope_stack) => {
-                if let Some(oldest_scope) = tail.first().map(|loc| self.scope_id(loc)) {
-                    assert_eq!(
-                        oldest_scope, scope_stack.scope,
-                        "concatenating stacks that don't seem to match"
-                    );
-                }
-
-                [&scope_stack.caller, tail].concat()
+        if scope_stack.is_top() {
+            tail.to_vec()
+        } else {
+            if let Some(oldest_scope) = tail.first().map(|loc| self.lexical_scope(loc)) {
+                assert_eq!(
+                    oldest_scope,
+                    *scope_stack.current_lexical_scope(),
+                    "concatenating stacks that don't seem to match"
+                );
             }
-            None => tail.to_vec(),
+
+            [scope_stack.caller(), tail].concat()
         }
     }
 
     fn scope_stack(
         &self,
         instruction_stack: &[Self::SourceLocation],
-    ) -> Option<ScopeStack<Vec<Self::SourceLocation>, Self::ScopeId>>
+    ) -> ScopeStack<Self::SourceLocation, Self::ScopeId>
     where
         Self::SourceLocation: Clone,
     {
         instruction_stack
             .split_last()
-            .map(
-                |(youngest, prefix)| ScopeStack::<Vec<Self::SourceLocation>, Self::ScopeId> {
-                    caller: prefix.to_vec(),
-                    scope: self.scope_id(youngest),
-                },
-            )
+            .map_or(ScopeStack::top(), |(youngest, prefix)| ScopeStack::<
+                Self::SourceLocation,
+                Self::ScopeId,
+            > {
+                caller: prefix.to_vec(),
+                scope: self.lexical_scope(youngest),
+            })
     }
 }
 
@@ -1102,13 +1133,13 @@ impl DbgStuffExt for DbgStuff<'_> {
     type SourceLocation = DbgLocationId;
     type ScopeId = DbgScopeId;
 
-    fn scope_id(&self, location: &Self::SourceLocation) -> Self::ScopeId {
+    fn lexical_scope(&self, location: &Self::SourceLocation) -> Self::ScopeId {
         self.dbg_info.get_location(*location).scope
     }
 
     fn package_id(&self, location: &Self::SourceLocation) -> PackageId {
         // TODO: I think we have problems here when it comes to entry expr
-        match &self.dbg_info.get_scope(self.scope_id(location)) {
+        match &self.dbg_info.get_scope(self.lexical_scope(location)) {
             DbgMetadataScope::SubProgram { name: _, location } => location.package,
         }
     }
@@ -1117,20 +1148,24 @@ impl DbgStuffExt for DbgStuff<'_> {
 fn loc_name(dbg_info: &DbgInfo, location: DbgLocationId) -> (String, u32) {
     let dbg_location = &dbg_info.get_location(location);
     let scope_id: DbgScopeId = dbg_location.scope;
-    let scope_name = dbg_info.resolve_scope(&scope_id).name.to_string();
+    let scope_name = dbg_info.resolve_scope(&scope_id).name();
     let offset = dbg_location.location.span.lo;
 
     (scope_name, offset)
 }
 
 #[allow(dead_code)]
-fn fmt_scope_stack(dbg_info: &DbgInfo, stack: &ScopeStack<InstructionStack, DbgScopeId>) -> String {
+fn fmt_scope_stack(dbg_info: &DbgInfo, stack: &ScopeStack<DbgLocationId, DbgScopeId>) -> String {
+    if stack.is_top() {
+        return "<top>".to_string();
+    }
+
     let mut names: Vec<String> = stack
-        .caller
+        .caller()
         .iter()
         .map(|loc| fmt_loc(dbg_info, *loc))
         .collect();
-    names.push(dbg_info.resolve_scope(&stack.scope).name.to_string());
+    names.push(dbg_info.resolve_scope(stack.current_lexical_scope()).name());
     names.join("->")
 }
 
@@ -1145,7 +1180,7 @@ fn fmt_ops(dbg_info: &DbgInfo, ops: &[Op]) -> String {
                 | OperationKind::Ket { label }
                 | OperationKind::ConditionalGroup { label, .. } => label.clone(),
                 OperationKind::Group { scope_stack, .. } => {
-                    dbg_info.resolve_scope(&scope_stack.scope).name.to_string()
+                    scope_stack.resolve_scope(dbg_info).name()
                 }
             };
             let stack_and_children = match &op.kind {
@@ -1203,7 +1238,7 @@ fn fmt_ops_with_trailing_comma(dbg_info: &DbgInfo, ops: &[Op]) -> String {
                 | OperationKind::Ket { label }
                 | OperationKind::ConditionalGroup { label, .. } => label.clone(),
                 OperationKind::Group { scope_stack, .. } => {
-                    dbg_info.resolve_scope(&scope_stack.scope).name.to_string()
+                    scope_stack.resolve_scope(dbg_info).name()
                 }
             };
             let stack_and_children = match &op.kind {
@@ -1262,81 +1297,63 @@ pub(crate) fn add_scoped_op<
 >(
     dbg_stuff: &impl DbgStuffExt<ScopeId = Scope, SourceLocation = SourceLocation>,
     current_container: &mut Vec<OG>,
-    current_scope_stack: Option<ScopeStack<Vec<SourceLocation>, Scope>>,
+    current_scope_stack_abs: ScopeStack<SourceLocation, Scope>,
     op: OG,
-    op_call_stack: Option<&[SourceLocation]>,
+    op_call_stack_rel: &[SourceLocation],
 ) where
-    Scope: PartialEq,
-    Scope: std::fmt::Debug,
-    Scope: Clone,
+    Scope: PartialEq + std::fmt::Display + std::fmt::Debug + Clone + Default,
     SourceLocation: Clone,
     SourceLocation: PartialEq,
     SourceLocation: Sized,
 {
-    if let Some(op_call_stack) = op_call_stack {
-        // Operation has call stack info
+    let op_scope_stack_rel = dbg_stuff.scope_stack(op_call_stack_rel);
+    if !op_scope_stack_rel.is_top() {
+        let op_call_stack_abs =
+            dbg_stuff.concat_stacks(&current_scope_stack_abs, op_call_stack_rel);
+        if let Some(last_op) = current_container.last_mut() {
+            // See if we can add to the last scope inside the current container
+            if let Some(last_scope_stack_abs) = last_op.scope_stack_if_group() {
+                if let Some(op_call_stack_rel_to_last_scope) =
+                    dbg_stuff.strip_scope_stack_prefix(&op_call_stack_abs, last_scope_stack_abs)
+                {
+                    let last_scope_stack_abs = last_scope_stack_abs.clone();
 
-        let op_scope_stack = dbg_stuff.scope_stack(op_call_stack);
-
-        if let Some(op_scope_stack) = op_scope_stack {
-            let op_full_call_stack =
-                dbg_stuff.concat_stacks(current_scope_stack.as_ref(), op_call_stack);
-
-            if let Some(last_op) = current_container.last_mut() {
-                // See if we can add to the last scope inside the current container
-
-                let mut rest_of_op_call_stack = None;
-                if let Some((_, last_scope_stack)) = last_op.group_data_mut() {
-                    if let Some(rest) =
-                        dbg_stuff.strip_stack_prefix(&op_full_call_stack, last_scope_stack)
-                    {
-                        rest_of_op_call_stack = Some(rest);
-                    }
-                }
-                if let Some(rest_of_op_call_stack) = rest_of_op_call_stack {
-                    // Partial stack match
-
+                    // The last scope matched, add to it
                     last_op.extend_target_qubits(&op.all_qubits());
                     last_op.extend_target_results(&op.all_results());
-
-                    let Some((last_scope_children, last_scope_stack)) = last_op.group_data_mut()
-                    else {
-                        panic!("operation should be a group")
-                    };
+                    let last_op_children =
+                        last_op.children_mut().expect("operation should be a group");
 
                     // Recursively add to the children
                     add_scoped_op(
                         dbg_stuff,
-                        last_scope_children,
-                        Some(last_scope_stack.clone()),
+                        last_op_children,
+                        last_scope_stack_abs,
                         op,
-                        Some(&rest_of_op_call_stack),
+                        &op_call_stack_rel_to_last_scope,
                     );
 
                     return;
                 }
             }
+        }
 
-            // The last scope didn't match, make a new one
-
-            let full_scope_stack = dbg_stuff
-                .scope_stack(&op_full_call_stack)
-                .expect("we got here because we had a scope, so what the hell is this");
-
-            if current_scope_stack != Some(full_scope_stack.clone()) {
-                let scope_group = OG::group(full_scope_stack, vec![op]);
-
-                add_scoped_op(
-                    dbg_stuff,
-                    current_container,
-                    current_scope_stack,
-                    scope_group,
-                    Some(&op_scope_stack.caller),
-                );
-                return;
-            }
+        let full_scope_stack = dbg_stuff.scope_stack(&op_call_stack_abs);
+        if current_scope_stack_abs != full_scope_stack.clone() {
+            let scope_group = OG::group(full_scope_stack, vec![op]);
+            add_scoped_op(
+                dbg_stuff,
+                current_container,
+                current_scope_stack_abs,
+                scope_group,
+                op_scope_stack_rel.caller(),
+            );
+            return;
         }
     }
+
+    // op_call_stack = None
+    // op_call_stack = [] (op_scope_stack = None)
 
     // no scope, top level, just push to current operations
     current_container.push(op);

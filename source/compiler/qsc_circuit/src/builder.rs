@@ -27,7 +27,11 @@ use qsc_fir::fir::{self, PackageId, PackageStoreLookup, StoreItemId};
 use qsc_frontend::compile::PackageStore;
 use qsc_lowerer::map_fir_package_to_hir;
 use rustc_hash::FxHashSet;
-use std::{fmt::Write, mem::replace, rc::Rc};
+use std::{
+    fmt::{Display, Write},
+    mem::replace,
+    rc::Rc,
+};
 
 /// Circuit builder that implements the `Tracer` trait to build a circuit
 /// while tracing execution.
@@ -618,13 +622,9 @@ impl OperationOrGroup {
                 children,
             } => {
                 if let Some(fir_package_store) = fir_package_store {
-                    let label = fir_package_store
-                        .resolve_scope(&scope_stack.scope)
-                        .name
-                        .to_string();
+                    let label = scope_stack.resolve_scope(fir_package_store).name();
                     *self.op.gate_mut() = label;
-                    let scope_location =
-                        fir_package_store.resolve_scope(&scope_stack.scope).location;
+                    let scope_location = scope_stack.resolve_scope(fir_package_store).location();
                     *self.op.source_mut() = Some(SourceLocation::Unresolved(scope_location));
                 }
                 *self.op.children_mut() = vec![ComponentColumn {
@@ -643,12 +643,10 @@ impl OperationOrGroup {
 enum OperationOrGroupKind {
     Single,
     Group {
-        scope_stack: ScopeStack<Vec<SourceLocationMetadata>, ScopeId>,
+        scope_stack: ScopeStack<SourceLocationMetadata, ScopeId>,
         children: Vec<OperationOrGroup>,
     },
 }
-
-type GroupFields<'a, T, L, S> = (&'a mut Vec<T>, &'a mut ScopeStack<Vec<L>, S>);
 
 pub(crate) trait OperationOrGroupExt {
     type OpType;
@@ -659,16 +657,17 @@ pub(crate) trait OperationOrGroupExt {
     fn instruction_stack(&self, dbg_stuff: &Self::DbgStuff<'_>) -> Vec<Self::SourceLocation>;
 
     fn group(
-        scope_stack: ScopeStack<Vec<Self::SourceLocation>, Self::Scope>,
+        scope_stack: ScopeStack<Self::SourceLocation, Self::Scope>,
         children: Vec<Self>,
     ) -> Self
     where
         Self: std::marker::Sized;
 
-    fn group_data_mut(&mut self) -> Option<GroupFields<Self, Self::SourceLocation, Self::Scope>>
+    fn children_mut(&mut self) -> Option<&mut Vec<Self>>
     where
         Self: std::marker::Sized;
 
+    fn scope_stack_if_group(&self) -> Option<&ScopeStack<Self::SourceLocation, Self::Scope>>;
     fn all_qubits(&self) -> Vec<QubitWire>;
     fn all_results(&self) -> Vec<ResultWire>;
     fn extend_target_qubits(&mut self, target_qubits: &[QubitWire]);
@@ -731,29 +730,19 @@ impl OperationOrGroupExt for OperationOrGroup {
         .collect();
         results.into_iter().collect()
     }
-    fn group_data_mut(
-        &mut self,
-    ) -> Option<(
-        &mut Vec<Self>,
-        &mut ScopeStack<Vec<Self::SourceLocation>, Self::Scope>,
-    )>
+    fn children_mut(&mut self) -> Option<&mut Vec<Self>>
     where
         Self: std::marker::Sized,
     {
-        if let OperationOrGroupKind::Group {
-            children,
-            scope_stack,
-            ..
-        } = &mut self.kind
-        {
-            Some((children, scope_stack))
+        if let OperationOrGroupKind::Group { children, .. } = &mut self.kind {
+            Some(children)
         } else {
             None
         }
     }
 
     fn group(
-        scope_stack: ScopeStack<Vec<Self::SourceLocation>, Self::Scope>,
+        scope_stack: ScopeStack<Self::SourceLocation, Self::Scope>,
         children: Vec<Self>,
     ) -> Self {
         let all_qubits = children
@@ -851,6 +840,14 @@ impl OperationOrGroupExt for OperationOrGroup {
                 }
                 Operation::Ket(_) => {}
             }
+        }
+    }
+
+    fn scope_stack_if_group(&self) -> Option<&ScopeStack<Self::SourceLocation, Self::Scope>> {
+        if let OperationOrGroupKind::Group { scope_stack, .. } = &self.kind {
+            Some(scope_stack)
+        } else {
+            None
         }
     }
 }
@@ -1032,6 +1029,34 @@ pub(crate) struct GateInputs<'a> {
 #[derive(Clone, Debug, PartialEq, Eq, Copy)]
 pub(crate) struct ScopeId(StoreItemId);
 
+impl Default for ScopeId {
+    fn default() -> Self {
+        ScopeId(StoreItemId {
+            package: usize::MAX.into(),
+            item: usize::MAX.into(),
+        })
+    }
+}
+
+impl Display for ScopeId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // map integers to letters, like 0->A, 1->B, ..., 25->Z, 26->AA, etc.
+        let mut n = usize::from(self.0.item);
+        let mut letters = String::new();
+        loop {
+            let rem = n % 26;
+            letters.push((b'A' + u8::try_from(rem).expect("n % 26 should fit in u8")) as char);
+            n /= 26;
+            if n == 0 {
+                break;
+            }
+            n -= 1; // adjust for 0-based indexing
+        }
+        let rev_letters: String = letters.chars().rev().collect();
+        write!(f, "{rev_letters}")
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct SourceLocationMetadata {
     location: PackageOffset,
@@ -1039,9 +1064,36 @@ struct SourceLocationMetadata {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct LexicalScope {
-    pub(crate) name: Rc<str>,
-    pub(crate) location: PackageOffset,
+pub(crate) enum LexicalScope {
+    Top,
+    Named {
+        name: Rc<str>,
+        location: PackageOffset,
+    },
+}
+
+impl LexicalScope {
+    pub(crate) fn top() -> Self {
+        LexicalScope::Top
+    }
+
+    pub(crate) fn location(&self) -> PackageOffset {
+        match self {
+            // TODO: handle Top case properly
+            LexicalScope::Top => PackageOffset {
+                package_id: PackageId::CORE.successor().successor(),
+                offset: 0,
+            },
+            LexicalScope::Named { location, .. } => *location,
+        }
+    }
+
+    pub(crate) fn name(&self) -> String {
+        match self {
+            LexicalScope::Top => "Top".to_string(),
+            LexicalScope::Named { name, .. } => name.to_string(),
+        }
+    }
 }
 
 pub(crate) fn add_op_with_grouping<
@@ -1062,9 +1114,7 @@ pub(crate) fn add_op_with_grouping<
     operations: &mut Vec<OG>,
     op: OG,
 ) where
-    Scope: PartialEq,
-    Scope: std::fmt::Debug,
-    Scope: Clone,
+    Scope: PartialEq + std::fmt::Debug + std::fmt::Display + Clone + Default,
     SourceLocation: Clone,
     SourceLocation: PartialEq,
     SourceLocation: Sized,
@@ -1078,9 +1128,9 @@ pub(crate) fn add_op_with_grouping<
     add_scoped_op(
         dbg_stuff,
         operations,
-        None,
+        ScopeStack::top(),
         op,
-        instruction_stack.as_deref(),
+        &instruction_stack,
     );
 }
 
@@ -1088,17 +1138,13 @@ pub(crate) fn retain_user_frames<SourceLocation>(
     dbg_stuff: &impl DbgStuffExt<SourceLocation = SourceLocation>,
     user_package_ids: &[PackageId],
     mut location_stack: Vec<SourceLocation>,
-) -> Option<Vec<SourceLocation>> {
+) -> Vec<SourceLocation> {
     location_stack.retain(|location| {
         let package_id = dbg_stuff.package_id(location);
         user_package_ids.is_empty() || user_package_ids.contains(&package_id)
     });
 
-    if location_stack.is_empty() {
-        return None;
-    }
-
-    Some(location_stack)
+    location_stack
 }
 
 impl ScopeResolver for fir::PackageStore {
@@ -1121,7 +1167,7 @@ impl ScopeResolver for fir::PackageStore {
             _ => panic!("only callables should be in the stack"),
         };
 
-        LexicalScope {
+        LexicalScope::Named {
             location: PackageOffset {
                 package_id: scope_id.0.package,
                 offset: scope_offset,
@@ -1137,7 +1183,7 @@ impl DbgStuffExt for DbgStuffForEval {
     type SourceLocation = SourceLocationMetadata;
     type ScopeId = ScopeId;
 
-    fn scope_id(&self, location: &Self::SourceLocation) -> Self::ScopeId {
+    fn lexical_scope(&self, location: &Self::SourceLocation) -> Self::ScopeId {
         location.scope_id
     }
 

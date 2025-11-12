@@ -125,3 +125,28 @@ impl From<DbgScopeId> for usize {
         value.0
     }
 }
+
+impl Default for DbgScopeId {
+    fn default() -> Self {
+        DbgScopeId(usize::MAX)
+    }
+}
+
+impl Display for DbgScopeId {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        // map integers to letters, like 0->A, 1->B, ..., 25->Z, 26->AA, etc.
+        let mut n = self.0;
+        let mut letters = String::new();
+        loop {
+            let rem = n % 26;
+            letters.push((b'A' + u8::try_from(rem).expect("n % 26 should fit in u8")) as char);
+            n /= 26;
+            if n == 0 {
+                break;
+            }
+            n -= 1; // adjust for 0-based indexing
+        }
+        let rev_letters: String = letters.chars().rev().collect();
+        write!(f, "{rev_letters}")
+    }
+}
