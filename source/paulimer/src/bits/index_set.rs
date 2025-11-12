@@ -1,10 +1,6 @@
-// Copyright (c) Microsoft Corporation.
-// Licensed under the MIT License.
-
 use super::{BitVec, BitwiseNeutralElement, BorrowAsBitIterator, FromBits, OverlapWeight};
 use crate::bits::{are_supports_equal, Bitwise, BitwiseBinaryOps, Dot, IndexAssignable};
 use crate::NeutralElement;
-use itertools::{equal, sorted, Itertools};
 use sorted_iter::{assume::AssumeSortedByItemExt, SortedIterator};
 use sorted_vec::SortedSet;
 
@@ -154,8 +150,7 @@ impl<T: IndexAssignable + BorrowAsBitIterator> OverlapWeight<IndexSet> for T {
 }
 
 fn is_sorted<Items: Iterator<Item = usize>>(items: Items) -> bool {
-    let vec_items: Vec<usize> = items.collect();
-    equal(sorted(vec_items.iter()), vec_items.iter())
+    items.into_iter().is_sorted()
 }
 
 impl<T: IndexAssignable + BorrowAsBitIterator> BitwiseBinaryOps<IndexSet> for T {
@@ -218,7 +213,7 @@ impl<'life, const WORD_COUNT: usize> From<&'life BitVec<WORD_COUNT>> for IndexSe
     fn from(value: &'life BitVec<WORD_COUNT>) -> Self {
         unsafe {
             IndexSet {
-                indexes: SortedSet::from_sorted(value.support().collect_vec()),
+                indexes: SortedSet::from_sorted(value.support().collect::<Vec<_>>()),
             }
         }
     }
@@ -235,7 +230,7 @@ where
     fn from(value: T) -> Self {
         unsafe {
             IndexSet {
-                indexes: SortedSet::from_sorted(value.collect_vec()),
+                indexes: SortedSet::from_sorted(value.collect::<Vec<_>>()),
             }
         }
     }
