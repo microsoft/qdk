@@ -36,6 +36,13 @@ def move_direction(source: Location, destination: Location) -> tuple[int, int]:
     return (int(source[0] < destination[0]), int(source[1] < destination[1]))
 
 
+def move_qubit_id(move: Move) -> int:
+    """Returns the qubit id of the move."""
+    id = qubit_id(move[0])
+    assert id is not None, "Qubit id should be known"
+    return id
+
+
 def is_invalid_move_pair(move1: Move, move2: Move) -> bool:
     """
     Returns true if the two moves are incompatible, i.e., if they have the same
@@ -133,7 +140,9 @@ class ParallelMoves:
         for pc in self.parallel_candidates:
             remaining_moves -= pc.moves
 
-        for move in remaining_moves:
+        # Add remaining moves to existing parallel candidates or create new ones.
+        # Sort remaining moves by qubit id to have a deterministic order.
+        for move in sorted(remaining_moves, key=lambda m: move_qubit_id(m)):
             for pc in self.parallel_candidates:
                 if pc.move_scale == move_scale(move, pc.ref_move):
                     pc.moves.add(move)
@@ -147,7 +156,10 @@ class ParallelMoves:
     def try_take(self, number_of_moves: int) -> list[Move]:
         # Take `number_of_moves` from the largest parallel candidate.
         largest_parallel_candidate = max(self.parallel_candidates, key=len)
-        moves = list(islice(largest_parallel_candidate.moves, number_of_moves))
+        # Ensure moves are sorted by qubit ID to have a deterministic order.
+        moves = sorted(
+            list(largest_parallel_candidate.moves), key=lambda m: move_qubit_id(m)
+        )[:number_of_moves]
         moves_set = set(moves)
         # Remove the taken moves from all parallel candidates.
         for parallel_candidate in self.parallel_candidates:
