@@ -6,7 +6,6 @@ from expecttest import assert_expected_inline
 
 import qsharp
 from qsharp._device._atom._optimize import (
-    PruneInitializeCalls,
     PruneUnusedFunctions,
     OptimizeSingleQubitGates,
 )
@@ -22,7 +21,7 @@ SKIP_REASON = "PyQIR is not available"
 
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
-def test_prune_init_call() -> None:
+def test_prune_init_handled_by_unused_functions_pass() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
     qir = qsharp.compile(
         """
@@ -34,59 +33,6 @@ def test_prune_init_call() -> None:
     )
 
     module = pyqir.Module.from_ir(pyqir.Context(), str(qir))
-    PruneInitializeCalls().run(module)
-
-    assert_expected_inline(
-        str(module),
-        """\
-
-%Qubit = type opaque
-
-@empty_tag = internal constant [1 x i8] zeroinitializer
-
-define i64 @ENTRYPOINT__main() #0 {
-block_0:
-  call void @__quantum__qis__x__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
-  ret i64 0
-}
-
-declare void @__quantum__rt__initialize(i8*)
-
-declare void @__quantum__qis__x__body(%Qubit*)
-
-declare void @__quantum__rt__tuple_record_output(i64, i8*)
-
-attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
-
-!llvm.module.flags = !{!0, !1, !2, !3, !4, !6}
-
-!0 = !{i32 1, !"qir_major_version", i32 1}
-!1 = !{i32 7, !"qir_minor_version", i32 0}
-!2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-!3 = !{i32 1, !"dynamic_result_management", i1 false}
-!4 = !{i32 5, !"int_computations", !5}
-!5 = !{!"i64"}
-!6 = !{i32 5, !"float_computations", !7}
-!7 = !{!"double"}
-""",
-    )
-
-
-@pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
-def test_prune_init_and_unused_functions() -> None:
-    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
-    qir = qsharp.compile(
-        """
-        {
-            use q = Qubit();
-            X(q);
-        }
-        """
-    )
-
-    module = pyqir.Module.from_ir(pyqir.Context(), str(qir))
-    PruneInitializeCalls().run(module)
     PruneUnusedFunctions().run(module)
 
     assert_expected_inline(

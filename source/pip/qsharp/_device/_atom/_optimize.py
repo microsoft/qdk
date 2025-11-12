@@ -192,6 +192,11 @@ class OptimizeSingleQubitGates(QirModuleVisitor):
             self._drop_ops([call.args[0]])
         elif call.callee.name == "__quantum__qis__move__body":
             self._drop_ops([call.args[0]])
+        elif call.callee.name == "__quantum__qis__barrier__body":
+            # Don't optimize across barrier calls. Treat this as a drop of all tracked gates,
+            # which effectively flushes all scheduled operations.
+            self.qubit_ops = {}
+            self.last_meas = {}
         else:
             super()._on_call_instr(call)
 
@@ -288,12 +293,6 @@ class OptimizeSingleQubitGates(QirModuleVisitor):
             self._schedule_gate(call, id, "reset", "")
 
 
-class PruneInitializeCalls(QirModuleVisitor):
-    def _on_call_instr(self, call):
-        if call.callee.name == "__quantum__rt__initialize":
-            call.erase()
-
-
 class PruneUnusedFunctions(QirModuleVisitor):
     def _on_module(self, module):
         # Assume every non-entry point function is unused.
@@ -304,7 +303,13 @@ class PruneUnusedFunctions(QirModuleVisitor):
             func.delete()
 
     def _on_call_instr(self, call):
-        if call.callee in self.funcs_to_drop:
+        # Remove calls to initialization and barrier functions, since they aren't handled
+        # by most of the stack.
+        if call.callee.name == "__quantum__rt__initialize":
+            call.erase()
+        elif call.callee.name == "__quantum__qis__barrier__body":
+            call.erase()
+        elif call.callee in self.funcs_to_drop:
             # This function is used in a call, so remove it from the list of
             # functions to drop.
             assert isinstance(call.callee, Function)

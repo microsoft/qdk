@@ -2,10 +2,10 @@
 # Licensed under the MIT License.
 
 from .._device import Device, Zone, ZoneType
-from ..._simulation import clifford_simulation, NoiseConfig
+from ..._simulation import clifford_simulation, NoiseConfig, run_qir_gpu
 from ..._qsharp import QirInputData
 
-from typing import List
+from typing import List, Literal
 
 
 class AC1000(Device):
@@ -42,7 +42,6 @@ class AC1000(Device):
 
         from ._optimize import (
             OptimizeSingleQubitGates,
-            PruneInitializeCalls,
             PruneUnusedFunctions,
         )
         from ._decomp import (
@@ -126,7 +125,6 @@ class AC1000(Device):
             )
             start_time = end_time
 
-        PruneInitializeCalls().run(module)
         PruneUnusedFunctions().run(module)
         if verbose:
             end_time = time.time()
@@ -183,7 +181,7 @@ class AC1000(Device):
         qir: str | QirInputData,
         shots=1,
         noise: NoiseConfig | None = None,
-        type="clifford",
+        type: Literal["clifford", "gpu"] = "clifford",
     ) -> List:
         """
         Simulate a QIR program on the AC1000 device. This includes approximate layout and scheduling of the program
@@ -217,6 +215,9 @@ class AC1000(Device):
                 shots,
                 noise,
             )
+
+        if type == "gpu":
+            return run_qir_gpu(str(module), shots, noise)
 
         raise ValueError(f"Simulation type {type} is not supported")
 
