@@ -577,6 +577,25 @@ export async function submitJob(
   return { jobId, storageUris, quantumUris, token };
 }
 
+export async function deleteJobRequest(
+  workspace: WorkspaceConnection,
+  token: string,
+  jobId: string,
+): Promise<void> {
+  const quantumUris = new QuantumUris(workspace.endpointUri, workspace.id);
+
+  const deleteJobUri = quantumUris.jobs(jobId);
+
+  await azureRequest(
+    deleteJobUri,
+    token,
+    undefined,
+    "DELETE",
+    undefined,
+    false,
+  );
+}
+
 export async function cancelPendingJob(
   workspace: WorkspaceConnection,
   token: string,
@@ -584,9 +603,9 @@ export async function cancelPendingJob(
 ): Promise<void> {
   const quantumUris = new QuantumUris(workspace.endpointUri, workspace.id);
 
-  const cancelJobUri = quantumUris.jobs(jobId);
+  const cancelJobUri = quantumUris.cancelJobUri(jobId);
 
-  await azureRequest(cancelJobUri, token, undefined, "DELETE", undefined);
+  await azureRequest(cancelJobUri, token, undefined, "POST", undefined, false);
 }
 
 async function putJobData(

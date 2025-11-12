@@ -11,6 +11,7 @@ export async function azureRequest(
   associationId?: string,
   method = "GET",
   body?: string,
+  expectResponse = true,
 ) {
   const headers: [string, string][] = [
     ["Content-Type", "application/json"],
@@ -50,14 +51,13 @@ export async function azureRequest(
 
     log.debug(`Got response ${response.status} ${response.statusText}`);
 
-    // No payload is expected from delete requests
-    if (method === "DELETE") {
-      return;
-    } else {
+    if (expectResponse) {
       const result = await response.json();
       log.trace("Response value: ", result);
 
       return result;
+    } else {
+      return;
     }
   } catch (e) {
     if (associationId) {
@@ -234,6 +234,10 @@ export class QuantumUris {
     return !jobId
       ? `${this.endpoint}${this.id}/jobs?api-version=${this.apiVersion}`
       : `${this.endpoint}${this.id}/jobs/${jobId}?api-version=${this.apiVersion}`;
+  }
+
+  cancelJobUri(jobId: string) {
+    return `${this.endpoint}${this.id}/jobs/${jobId}/cancel?api-version=${this.apiVersion}`;
   }
 
   // Needs to POST an application/json payload such as: {"containerName": "job-073064ed-2a47-11ee-b8e7-010101010000","blobName":"outputData"}
