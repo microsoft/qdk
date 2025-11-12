@@ -1,11 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use std::fmt::Write;
 use std::rc::Rc;
 
 use crate::{
     builder::{QubitWire, add_op_with_grouping},
-    rir_to_circuit::{DbgStuff, Op, OperationKind, fmt_ops},
+    rir_to_circuit::{DbgStuff, Op, OperationKind},
 };
 use expect_test::{Expect, expect};
 use qsc_data_structures::{
@@ -289,4 +290,120 @@ fn two_ops_same_parent_scope() {
             ]
         "#]],
     );
+}
+
+#[allow(dead_code)]
+fn fmt_ops_with_trailing_comma(dbg_info: &DbgInfo, ops: &[Op]) -> String {
+    let items: Vec<String> = ops
+        .iter()
+        .map(|op| {
+            let name = match &op.kind {
+                OperationKind::Unitary { label }
+                | OperationKind::Measurement { label }
+                | OperationKind::Ket { label }
+                | OperationKind::ConditionalGroup { label, .. } => label.clone(),
+                OperationKind::Group { scope_stack, .. } => {
+                    scope_stack.resolve_scope(dbg_info).name()
+                }
+            };
+            let stack_and_children = match &op.kind {
+                OperationKind::Group {
+                    children,
+                    scope_stack: stack,
+                    scope_span: _,
+                } => {
+                    format!(
+                        "stack={}, children={}",
+                        stack.fmt_with_resolved_scopes(&DbgStuff { dbg_info }, dbg_info),
+                        fmt_ops_with_trailing_comma(dbg_info, children)
+                    )
+                }
+                OperationKind::ConditionalGroup { children, .. } => {
+                    format!(
+                        "children={}",
+                        fmt_ops_with_trailing_comma(dbg_info, children)
+                    )
+                }
+                _ => String::new(),
+            };
+            if stack_and_children.is_empty() {
+                format!(
+                    "({name}, q={:?})",
+                    op.target_qubits.iter().map(|q| q.0).collect::<Vec<_>>()
+                )
+            } else {
+                format!(
+                    "({name}, q={:?}), {}",
+                    op.target_qubits.iter().map(|q| q.0).collect::<Vec<_>>(),
+                    stack_and_children
+                )
+            }
+        })
+        .collect();
+    format!(
+        "[{}]",
+        if items.is_empty() {
+            String::new()
+        } else {
+            format!("{}, ", items.join(", "))
+        }
+    )
+}
+
+#[allow(dead_code)]
+fn fmt_ops(dbg_info: &DbgInfo, ops: &[Op]) -> String {
+    let items: Vec<String> = ops
+        .iter()
+        .map(|op| {
+            let name = match &op.kind {
+                OperationKind::Unitary { label }
+                | OperationKind::Measurement { label }
+                | OperationKind::Ket { label }
+                | OperationKind::ConditionalGroup { label, .. } => label.clone(),
+                OperationKind::Group { scope_stack, .. } => {
+                    scope_stack.resolve_scope(dbg_info).name()
+                }
+            };
+            let stack_and_children = match &op.kind {
+                OperationKind::Group {
+                    children,
+                    scope_stack: stack,
+                    scope_span: _,
+                } => {
+                    format!(
+                        "stack={}, children={}",
+                        stack.fmt_with_resolved_scopes(&DbgStuff { dbg_info }, dbg_info),
+                        fmt_ops_with_trailing_comma(dbg_info, children)
+                    )
+                }
+                OperationKind::ConditionalGroup { children, .. } => {
+                    format!(
+                        "children={}",
+                        fmt_ops_with_trailing_comma(dbg_info, children)
+                    )
+                }
+                _ => String::new(),
+            };
+            if stack_and_children.is_empty() {
+                format!(
+                    "({name}, q={:?})",
+                    op.target_qubits.iter().map(|q| q.0).collect::<Vec<_>>()
+                )
+            } else {
+                format!(
+                    "({name}, q={:?}, {})",
+                    op.target_qubits.iter().map(|q| q.0).collect::<Vec<_>>(),
+                    stack_and_children
+                )
+            }
+        })
+        .collect();
+    let mut s = String::new();
+    let _ = writeln!(s, "[");
+    for item in items {
+        let _ = writeln!(s, "  {item}");
+    }
+    let _ = writeln!(s, "]");
+
+    s
 }

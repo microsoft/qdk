@@ -6,10 +6,7 @@ mod tests;
 pub(crate) mod tracer;
 
 use core::panic;
-use std::{
-    fmt::{Display, Write},
-    vec,
-};
+use std::{fmt::Display, vec};
 
 use crate::{
     Circuit, ComponentColumn, Error, Ket, Measurement, Operation, Register, TracerConfig, Unitary,
@@ -200,6 +197,57 @@ where
         } else {
             scope_resolver.resolve_scope(&self.scope)
         }
+    }
+
+    #[allow(dead_code)]
+    pub fn fmt(
+        &self,
+        dbg_info: &impl DbgStuffExt<ScopeId = Scope, SourceLocation = SourceLocation>,
+    ) -> String {
+        if self.is_top() {
+            return "<top>".to_string();
+        }
+
+        let mut names: Vec<String> = self
+            .caller()
+            .iter()
+            .map(|location| {
+                let scope_id = &dbg_info.lexical_scope(location);
+                format!("{scope_id}@{}", dbg_info.resolve_location(location).offset)
+            })
+            .collect();
+        names.push(self.current_lexical_scope().to_string());
+        names.join("->")
+    }
+
+    #[cfg(test)]
+    pub fn fmt_with_resolved_scopes(
+        &self,
+        dbg_info: &impl DbgStuffExt<ScopeId = Scope, SourceLocation = SourceLocation>,
+        scope_resolver: &impl ScopeResolver<ScopeId = Scope>,
+    ) -> String {
+        if self.is_top() {
+            return "<top>".to_string();
+        }
+
+        let mut names: Vec<String> = self
+            .caller()
+            .iter()
+            .map(|location| {
+                let scope_id = &dbg_info.lexical_scope(location);
+                let scope_name = scope_resolver.resolve_scope(scope_id).name();
+                format!(
+                    "{scope_name}@{}",
+                    dbg_info.resolve_location(location).offset
+                )
+            })
+            .collect();
+        names.push(
+            scope_resolver
+                .resolve_scope(self.current_lexical_scope())
+                .name(),
+        );
+        names.join("->")
     }
 }
 
@@ -1060,6 +1108,7 @@ pub(crate) trait DbgStuffExt {
 
     fn package_id(&self, location: &Self::SourceLocation) -> PackageId;
     fn lexical_scope(&self, top: &Self::SourceLocation) -> Self::ScopeId;
+    fn resolve_location(&self, location: &Self::SourceLocation) -> PackageOffset;
 
     /// full is a call stack
     /// prefix is a scope stack
@@ -1143,151 +1192,14 @@ impl DbgStuffExt for DbgStuff<'_> {
             DbgMetadataScope::SubProgram { name: _, location } => location.package,
         }
     }
-}
 
-fn loc_name(dbg_info: &DbgInfo, location: DbgLocationId) -> (String, u32) {
-    let dbg_location = &dbg_info.get_location(location);
-    let scope_id: DbgScopeId = dbg_location.scope;
-    let scope_name = dbg_info.resolve_scope(&scope_id).name();
-    let offset = dbg_location.location.span.lo;
-
-    (scope_name, offset)
-}
-
-#[allow(dead_code)]
-fn fmt_scope_stack(dbg_info: &DbgInfo, stack: &ScopeStack<DbgLocationId, DbgScopeId>) -> String {
-    if stack.is_top() {
-        return "<top>".to_string();
-    }
-
-    let mut names: Vec<String> = stack
-        .caller()
-        .iter()
-        .map(|loc| fmt_loc(dbg_info, *loc))
-        .collect();
-    names.push(dbg_info.resolve_scope(stack.current_lexical_scope()).name());
-    names.join("->")
-}
-
-#[allow(dead_code)]
-fn fmt_ops(dbg_info: &DbgInfo, ops: &[Op]) -> String {
-    let items: Vec<String> = ops
-        .iter()
-        .map(|op| {
-            let name = match &op.kind {
-                OperationKind::Unitary { label }
-                | OperationKind::Measurement { label }
-                | OperationKind::Ket { label }
-                | OperationKind::ConditionalGroup { label, .. } => label.clone(),
-                OperationKind::Group { scope_stack, .. } => {
-                    scope_stack.resolve_scope(dbg_info).name()
-                }
-            };
-            let stack_and_children = match &op.kind {
-                OperationKind::Group {
-                    children,
-                    scope_stack: stack,
-                    scope_span: _,
-                } => {
-                    format!(
-                        "stack={}, children={}",
-                        fmt_scope_stack(dbg_info, stack),
-                        fmt_ops_with_trailing_comma(dbg_info, children)
-                    )
-                }
-                OperationKind::ConditionalGroup { children, .. } => {
-                    format!(
-                        "children={}",
-                        fmt_ops_with_trailing_comma(dbg_info, children)
-                    )
-                }
-                _ => String::new(),
-            };
-            if stack_and_children.is_empty() {
-                format!(
-                    "({name}, q={:?})",
-                    op.target_qubits.iter().map(|q| q.0).collect::<Vec<_>>()
-                )
-            } else {
-                format!(
-                    "({name}, q={:?}, {})",
-                    op.target_qubits.iter().map(|q| q.0).collect::<Vec<_>>(),
-                    stack_and_children
-                )
-            }
-        })
-        .collect();
-    let mut s = String::new();
-    let _ = writeln!(s, "[");
-    for item in items {
-        let _ = writeln!(s, "  {item}");
-    }
-    let _ = writeln!(s, "]");
-
-    s
-}
-
-#[allow(dead_code)]
-fn fmt_ops_with_trailing_comma(dbg_info: &DbgInfo, ops: &[Op]) -> String {
-    let items: Vec<String> = ops
-        .iter()
-        .map(|op| {
-            let name = match &op.kind {
-                OperationKind::Unitary { label }
-                | OperationKind::Measurement { label }
-                | OperationKind::Ket { label }
-                | OperationKind::ConditionalGroup { label, .. } => label.clone(),
-                OperationKind::Group { scope_stack, .. } => {
-                    scope_stack.resolve_scope(dbg_info).name()
-                }
-            };
-            let stack_and_children = match &op.kind {
-                OperationKind::Group {
-                    children,
-                    scope_stack: stack,
-                    scope_span: _,
-                } => {
-                    format!(
-                        "stack={}, children={}",
-                        fmt_scope_stack(dbg_info, stack),
-                        fmt_ops_with_trailing_comma(dbg_info, children)
-                    )
-                }
-                OperationKind::ConditionalGroup { children, .. } => {
-                    format!(
-                        "children={}",
-                        fmt_ops_with_trailing_comma(dbg_info, children)
-                    )
-                }
-                _ => String::new(),
-            };
-            if stack_and_children.is_empty() {
-                format!(
-                    "({name}, q={:?})",
-                    op.target_qubits.iter().map(|q| q.0).collect::<Vec<_>>()
-                )
-            } else {
-                format!(
-                    "({name}, q={:?}), {}",
-                    op.target_qubits.iter().map(|q| q.0).collect::<Vec<_>>(),
-                    stack_and_children
-                )
-            }
-        })
-        .collect();
-    format!(
-        "[{}]",
-        if items.is_empty() {
-            String::new()
-        } else {
-            format!("{}, ", items.join(", "))
+    fn resolve_location(&self, location: &Self::SourceLocation) -> PackageOffset {
+        let dbg_location = self.dbg_info.get_location(*location);
+        PackageOffset {
+            package_id: dbg_location.location.package,
+            offset: dbg_location.location.span.lo,
         }
-    )
-}
-
-fn fmt_loc(dbg_info: &DbgInfo, location: DbgLocationId) -> String {
-    let (name, offset) = loc_name(dbg_info, location);
-    format!("{name}@{offset}")
+    }
 }
 
 pub(crate) fn add_scoped_op<

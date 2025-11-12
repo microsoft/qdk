@@ -1190,4 +1190,8 @@ impl DbgStuffExt for DbgStuffForEval {
     fn package_id(&self, location: &Self::SourceLocation) -> PackageId {
         location.location.package_id
     }
+
+    fn resolve_location(&self, location: &Self::SourceLocation) -> PackageOffset {
+        location.location
+    }
 }
