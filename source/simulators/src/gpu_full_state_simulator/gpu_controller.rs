@@ -37,7 +37,7 @@ const MAX_SHOT_ENTRIES: usize = MAX_BUFFER_SIZE / SIZEOF_SHOTDATA;
 
 // There is no hard limit here, but for very large circuits we may need to split into multiple dispatches.
 // TODO: See if there is a way to query the GPU for max dispatches per submit, or derive it from other limits
-const MAX_DISPATCHES_PER_SUBMIT: u32 = 10000;
+const MAX_DISPATCHES_PER_SUBMIT: u32 = 100_000;
 
 pub struct GpuContext {
     device: Device,
@@ -617,7 +617,9 @@ impl GpuContext {
 
         // TODO: Support multiple batches of shots
         if self.run_params.batch_count != 1 {
-            unimplemented!("Multiple batches of shots not yet supported");
+            unimplemented!(
+                "Too many shots for the circuit size. Please reduce the shot count and try again."
+            );
         }
 
         let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -627,7 +629,10 @@ impl GpuContext {
 
         // TODO: Break into multiple dispatches if too many ops
         if self.run_params.op_count > MAX_DISPATCHES_PER_SUBMIT as usize {
-            unimplemented!("Multiple submits per circuit not yet supported");
+            unimplemented!(
+                "This circuit exceeds the current upper limit of {} operations",
+                MAX_DISPATCHES_PER_SUBMIT
+            );
         }
 
         compute_pass.set_bind_group(0, &resources.bind_group, &[]);
