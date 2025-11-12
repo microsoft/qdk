@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use itertools::{enumerate, Itertools};
 use paulimer::bits::{BitMatrix, BitVec, Bitwise, IndexSet};
 use paulimer::clifford::generic_algos::{clifford_from_images, clifford_to_prepare_bell_states};
 use paulimer::clifford::{
@@ -266,8 +265,8 @@ proptest! {
         let qubit_count = c1.num_qubits() + c2.num_qubits();
         let mut c3 = random_diagonal_clifford::<CliffordUnitaryModPauli>(qubit_count).multiply_with(&random_css_clifford(qubit_count));
 
-        let support = c1.qubits().collect_vec();
-        let support_complement = (c1.num_qubits()..c3.num_qubits()).collect_vec();
+        let support = c1.qubits().collect::<Vec<_>>();
+        let support_complement = (c1.num_qubits()..c3.num_qubits()).collect::<Vec<_>>();
 
         c3.left_mul_clifford(&c1, &support);
         c3.left_mul_clifford(&c2, &support_complement);
@@ -283,7 +282,7 @@ proptest! {
                 assert!(c3.preimage(&split_clifford1.image_z(qubit_index)).x_bits().is_zero());
             }
 
-             // tensor product of split_clifford1, split_clifford2 encode the same state as c4
+            // tensor product of split_clifford1, split_clifford2 encode the same state as c4
             let mut c4 = CliffordUnitaryModPauli::identity(qubit_count);
             c4.left_mul_clifford(&split_clifford1, &support);
             c4.left_mul_clifford(&split_clifford2, &support_complement);
@@ -303,17 +302,6 @@ proptest! {
         assert_eq!(dimension, identity.num_qubits());
     }
 
-    // #[test]
-    // fn identity_images(dimension in 0..100usize) {
-    //     let identity = CliffordUnitary::<WORD_COUNT_DEFAULT>::identity(dimension);
-    //     let mut identity_images = vec![];
-    //     for index in 0..dimension {
-    //         identity_images.push(x_at(index, dimension));
-    //         identity_images.push(z_at(index, dimension));
-    //     }
-    //     assert_eq!(CliffordUnitary::from_images(identity_images), identity);
-    // }
-
     #[test]
     fn identity_multiplication_is_trivial(clifford in arbitrary_clifford(0..10)) {
         let identity = CliffordUnitary::identity(clifford.num_qubits());
@@ -324,7 +312,7 @@ proptest! {
     #[test]
     fn group_encoding_clifford_of_test(clifford in arbitrary_clifford(1..20), qubit_count in 1usize..20  ) {
         let num_images = qubit_count.min(clifford.num_qubits());
-        let images = (0 .. num_images).map(|id| clifford.image_z(id) ).collect_vec();
+        let images = (0 .. num_images).map(|id| clifford.image_z(id) ).collect::<Vec<_>>();
         let encoding_clifford = group_encoding_clifford_of(&images,clifford.num_qubits());
         for image in images {
             let preimage = encoding_clifford.preimage(&image);
@@ -333,8 +321,6 @@ proptest! {
             assert_eq!(preimage.xz_phase_exponent(),0);
         }
     }
-
-
 
     #[test]
     fn left_mul_root_and_apply_root_are_consistent(qubit_count in 1..10usize) {
@@ -426,12 +412,11 @@ proptest! {
         let zero = prepare_all_zero(qubit_count);
         let plus_axes = split_qubit_tensor_product_encoder(&c.multiply_with(&plus)).unwrap();
         let zero_axes = split_qubit_tensor_product_encoder(&c.multiply_with(&zero)).unwrap();
-        for (qubit_index,(zero,plus)) in enumerate(std::iter::zip(zero_axes,plus_axes)) {
+        for (qubit_index,(zero,plus)) in std::iter::zip(zero_axes, plus_axes).enumerate() {
             apply_qubit_clifford_by_axis(&mut r, qubit_index, zero, plus);
         }
         assert_eq!(c,r);
     }
-
 }
 
 prop_compose! {
@@ -1243,7 +1228,7 @@ fn generic_diagonal_clifford_test<CliffordLike: TestableClifford>(c: &CliffordLi
     let qubit_count = c.num_qubits();
     let mut c2 = CliffordLike::identity(qubit_count);
     transverse_h(&mut c2);
-    c2.left_mul_clifford(c, &c.qubits().collect_vec());
+    c2.left_mul_clifford(c, &c.qubits().collect::<Vec<_>>());
     assert!(c2.is_diagonal_resource_encoder(Z));
     let c3 = c2.unitary_from_diagonal_resource_state(Z).unwrap();
     assert!(c3.is_valid());

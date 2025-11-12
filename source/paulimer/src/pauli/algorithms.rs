@@ -1,13 +1,9 @@
-// Copyright (c) Microsoft Corporation.
-// Licensed under the MIT License.
-
 use super::{anti_commutes_with, DensePauli, Pauli, PauliBinaryOps};
 use crate::{
     bits::{BitMatrix, Bitwise},
     setwise::complement,
     NeutralElement,
 };
-use itertools::enumerate;
 
 /// # Panics
 /// Will panic if the input `paulis` are not independent
@@ -43,7 +39,7 @@ pub fn bitmatrix_from_paulis<PauliLike: Pauli>(
     qubit_count: usize,
 ) -> BitMatrix {
     let mut result = BitMatrix::zeros(paulis.len(), 2 * qubit_count);
-    for (row_index, pauli) in enumerate(paulis) {
+    for (row_index, pauli) in paulis.iter().enumerate() {
         for x_column_index in pauli.x_bits().support() {
             result.set((row_index, x_column_index), true);
         }

@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use itertools::iproduct;
 use paulimer::bits::bitmatrix::{directly_summed, kernel_basis_matrix, rref_with_transforms};
 use paulimer::bits::tiny_matrix::{tiny_matrix_from_bitmatrix, tiny_matrix_rref};
 use paulimer::bits::{BitMatrix, BitVec, Bitwise, BitwiseBinaryOps, WORD_COUNT_DEFAULT};
@@ -26,23 +25,19 @@ proptest! {
     #[test]
     fn zeros(rowcount in 0..100usize, columncount in 0..100usize) {
         let matrix = BitMatrix::<WORD_COUNT_DEFAULT>::zeros(rowcount, columncount);
-        for index in iproduct!(0..matrix.rowcount(), 0..matrix.columncount()) {
-            assert!(!matrix[index]);
+        for irow in 0..matrix.rowcount() {
+            for icol in 0..matrix.columncount() {
+                assert!(!matrix[(irow, icol)]);
+            }
         }
     }
 
-    // #[test]
-    // fn ones(rowcount in 0..100usize, columncount in 0..100usize) {
-    //     let matrix = BitMatrix::ones(rowcount, columncount);
-    //     for index in iproduct!(0..matrix.rowcount(), 0..matrix.columncount()) {
-    //         assert_eq!(matrix[index], true);
-    //     }
-    // }
-
     #[test]
     fn indexing(matrix in arbitrary_bitmatrix(100)) {
-        for index in iproduct!(0..matrix.rowcount(), 0..matrix.columncount()) {
-            assert_eq!(matrix[index], matrix[[index.0, index.1]]);
+        for irow in 0..matrix.rowcount() {
+            for icol in 0..matrix.columncount() {
+                assert_eq!(matrix[(irow, icol)], matrix[[irow, icol]]);
+            }
         }
     }
 
@@ -86,8 +81,11 @@ proptest! {
     #[test]
     fn addition((left, right) in equal_shape_bitmatrices(100)) {
         let sum = &left + &right;
-        for index in iproduct!(0..left.rowcount(), 0..right.columncount()) {
-            assert_eq!(sum[index], left[index] ^ right[index]);
+        for irow in 0..left.rowcount() {
+            for icol in 0..right.columncount() {
+                let index = (irow, icol);
+                assert_eq!(sum[index], left[index] ^ right[index]);
+            }
         }
         assert_eq!(sum, &right + &left);
     }
@@ -114,8 +112,11 @@ proptest! {
     #[test]
     fn and((left, right) in equal_shape_bitmatrices(100)) {
         let and = &left & &right;
-        for index in iproduct!(0..left.rowcount(), 0..left.columncount()) {
-            assert_eq!(and[index], left[index] & right[index]);
+        for irow in 0..left.rowcount() {
+            for icol in 0..left.columncount() {
+                let index = (irow, icol);
+                assert_eq!(and[index], left[index] & right[index]);
+            }
         }
         assert_eq!(and, &right & &left);
     }
@@ -132,8 +133,11 @@ proptest! {
     fn equality(left in arbitrary_bitmatrix(100), right in arbitrary_bitmatrix(100)) {
         let mut are_equal = left.shape() == right.shape();
         if are_equal {
-            for index in iproduct!(0..left.rowcount(), 0..right.columncount()) {
-                are_equal &= left[index] == right[index];
+            for irow in 0..left.rowcount() {
+                for icol in 0..right.columncount() {
+                    let index = (irow, icol);
+                    are_equal &= left[index] == right[index];
+                }
             }
         }
         assert_eq!(left == right, are_equal);

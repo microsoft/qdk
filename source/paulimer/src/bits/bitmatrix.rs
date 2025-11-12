@@ -1,14 +1,10 @@
-// Copyright (c) Microsoft Corporation.
-// Licensed under the MIT License.
-
+use super::bitvec::WORD_COUNT_DEFAULT;
+use super::{BitwiseNeutralElement, OverlapWeight};
 use crate::bits::bitblock::{BitAccessor, BitBlock};
 use crate::bits::{
     BitVec, BitView, Bitwise, BitwiseBinaryOps, Dot, IndexAssignable, MutableBitView,
 };
 use crate::NeutralElement;
-// use bit_vec::BitVec;
-use itertools::enumerate;
-use itertools::iproduct;
 use sorted_iter::assume::AssumeSortedByItemExt;
 use sorted_iter::SortedIterator;
 use std::cmp::PartialEq;
@@ -18,9 +14,6 @@ use std::mem::size_of;
 use std::ops::{Add, AddAssign, BitAnd, BitAndAssign, BitXor, BitXorAssign, Mul};
 use std::ops::{Index, Range};
 use std::str::FromStr;
-
-use super::bitvec::WORD_COUNT_DEFAULT;
-use super::{BitwiseNeutralElement, OverlapWeight};
 
 #[must_use]
 #[derive(Debug, Eq)]
@@ -540,9 +533,11 @@ impl<const WORD_COUNT: usize> PartialEq for BitMatrix<WORD_COUNT> {
         if self.shape() != other.shape() {
             return false;
         }
-        for index in iproduct!(0..self.rowcount(), 0..self.columncount()) {
-            if self[index] != other[index] {
-                return false;
+        for irow in 0..self.rowcount() {
+            for icol in 0..self.columncount() {
+                if self[(irow, icol)] != other[(irow, icol)] {
+                    return false;
+                }
             }
         }
         true
@@ -886,7 +881,7 @@ pub fn kernel_basis_matrix<const WORD_COUNT: usize>(
     let rank_profile_complement = crate::setwise::complement(&rank_profile, num_cols);
     let res_row_count = num_cols - rank_profile.len();
     let mut res = BitMatrix::zeros(res_row_count, num_cols);
-    for (index, elt) in enumerate(rank_profile) {
+    for (index, elt) in rank_profile.into_iter().enumerate() {
         for (row_pos, col_src) in rank_profile_complement
             .iter()
             .enumerate()
@@ -895,7 +890,7 @@ pub fn kernel_basis_matrix<const WORD_COUNT: usize>(
             res.set((row_pos, elt), rr[(index, *col_src)]);
         }
     }
-    for (index, position) in enumerate(rank_profile_complement) {
+    for (index, position) in rank_profile_complement.into_iter().enumerate() {
         res.set((index, position), true);
     }
     res
@@ -1073,13 +1068,13 @@ impl<'life, const WORD_COUNT: usize> BitwiseBinaryOps<Column<'life, WORD_COUNT>>
     for BitVec<WORD_COUNT>
 {
     fn assign(&mut self, other: &Column<'life, WORD_COUNT>) {
-        for (index, val) in itertools::enumerate(other.into_iter()) {
+        for (index, val) in other.into_iter().enumerate() {
             self.assign_index(index, val);
         }
     }
 
     fn bitxor_assign(&mut self, other: &Column<'life, WORD_COUNT>) {
-        for (index, val) in itertools::enumerate(other.into_iter()) {
+        for (index, val) in other.into_iter().enumerate() {
             if val {
                 self.negate_index(index);
             }
@@ -1087,7 +1082,7 @@ impl<'life, const WORD_COUNT: usize> BitwiseBinaryOps<Column<'life, WORD_COUNT>>
     }
 
     fn bitand_assign(&mut self, other: &Column<'life, WORD_COUNT>) {
-        for (index, val) in itertools::enumerate(other.into_iter()) {
+        for (index, val) in other.into_iter().enumerate() {
             if !val {
                 self.assign_index(index, false);
             }
@@ -1099,13 +1094,13 @@ impl<'life1, const WORD_COUNT_1: usize, const WORD_COUNT_2: usize>
     BitwiseBinaryOps<Column<'life1, WORD_COUNT_1>> for MutableBitView<'_, WORD_COUNT_2>
 {
     fn assign(&mut self, other: &Column<'life1, WORD_COUNT_1>) {
-        for (index, val) in itertools::enumerate(other.into_iter()) {
+        for (index, val) in other.into_iter().enumerate() {
             self.assign_index(index, val);
         }
     }
 
     fn bitxor_assign(&mut self, other: &Column<'life1, WORD_COUNT_1>) {
-        for (index, val) in itertools::enumerate(other.into_iter()) {
+        for (index, val) in other.into_iter().enumerate() {
             if val {
                 self.negate_index(index);
             }
@@ -1113,7 +1108,7 @@ impl<'life1, const WORD_COUNT_1: usize, const WORD_COUNT_2: usize>
     }
 
     fn bitand_assign(&mut self, other: &Column<'life1, WORD_COUNT_1>) {
-        for (index, val) in itertools::enumerate(other.into_iter()) {
+        for (index, val) in other.into_iter().enumerate() {
             if !val {
                 self.assign_index(index, false);
             }
@@ -1122,7 +1117,10 @@ impl<'life1, const WORD_COUNT_1: usize, const WORD_COUNT_2: usize>
 }
 
 pub fn is_zero_padded_identity(row_iterator: impl ExactSizeIterator<Item: Bitwise>) -> bool {
-    enumerate(row_iterator).all(|(row_index, row)| row.is_one_bit(row_index))
+    row_iterator
+        .into_iter()
+        .enumerate()
+        .all(|(row_index, row)| row.is_one_bit(row_index))
 }
 
 pub fn is_zero_padded_symmetric<'life, const WORD_COUNT: usize>(

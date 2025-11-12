@@ -1,8 +1,3 @@
-// Copyright (c) Microsoft Corporation.
-// Licensed under the MIT License.
-
-use itertools::Itertools;
-
 use super::{Clifford, CliffordMutable, MutablePreImages, PreimageViews};
 use crate::pauli::{PauliMutable, PauliMutableBits, PauliNeutralElement};
 use crate::{
@@ -216,12 +211,12 @@ where
     let mut a = BitMatrix::zeros(2 * support_complement.len(), num_qubits);
     let complement_size = support_complement.len();
 
-    for (j, qubit_index) in itertools::enumerate(support_complement) {
+    for (j, qubit_index) in support_complement.iter().enumerate() {
         let pre_img_x = clifford.preimage_x_view(*qubit_index);
         a.row_mut(j).assign(pre_img_x.x_bits());
     }
 
-    for (j, qubit_index) in itertools::enumerate(support_complement) {
+    for (j, qubit_index) in support_complement.iter().enumerate() {
         let pre_img_z = clifford.preimage_z_view(*qubit_index);
         a.row_mut(j + complement_size).assign(pre_img_z.x_bits());
     }
@@ -370,7 +365,7 @@ pub fn clifford_is_identity<CliffordLike: Clifford + PreimageViews>(
 ///
 /// Will panic if preimages do not correspond to a Clifford unitary
 pub fn clifford_from_preimages<'life, Paulis, PauliLike: Pauli + 'life, CliffordLike>(
-    preimages: Paulis,
+    mut preimages: Paulis,
 ) -> CliffordLike
 where
     CliffordLike: Clifford + MutablePreImages + PreimageViews,
@@ -378,11 +373,15 @@ where
         PauliBinaryOps<PauliLike>,
     Paulis: ExactSizeIterator<Item = &'life PauliLike>,
 {
-    let preimages_iter = preimages.into_iter();
-    assert!(preimages_iter.len().is_multiple_of(2));
-    let mut res = CliffordLike::zero(preimages_iter.len() / 2);
-    for (qubit_index, xz_preimage) in preimages_iter.tuples().enumerate() {
-        let (x_preimage, z_preimage) = xz_preimage;
+    assert!(preimages.len().is_multiple_of(2));
+    let mut res = CliffordLike::zero(preimages.len() / 2);
+    for qubit_index in 0..(preimages.len() / 2) {
+        let x_preimage = preimages
+            .next()
+            .expect("there should be `preimages.len()` items");
+        let z_preimage = preimages
+            .next()
+            .expect("there should be `preimages.len()` items");
         res.preimage_x_view_mut(qubit_index).assign(x_preimage);
         res.preimage_z_view_mut(qubit_index).assign(z_preimage);
     }
