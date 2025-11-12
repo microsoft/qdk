@@ -207,7 +207,7 @@
         },
         {
           "command": "qsharp-vscode.deleteJob",
-          "when": "qsharp-vscode.treeItemIsCancelable"
+          "when": "qsharp-vscode.treeItemIsDeletable"
         },
         {
           "command": "qsharp-vscode.cancelJob",
@@ -283,7 +283,7 @@
         {
           "command": "qsharp-vscode.deleteJob",
           "group": "inline",
-          "when": "view == quantum-workspaces && viewItem == job-cancelable"
+          "when": "view == quantum-workspaces && (viewItem == job || viewItem == job-cancelable || viewItem == result || viewItem == result-download)"
         },
         {
           "command": "qsharp-vscode.cancelJob",

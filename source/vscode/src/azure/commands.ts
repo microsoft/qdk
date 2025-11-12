@@ -74,11 +74,12 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     treeView.onDidChangeSelection(async (e) => {
-      // Capture the selected item and set context if the supports job submission or results download.
+      // Capture the selected item and set context based on supported item actions.
       let supportsQir = false;
       let supportsDownload = false;
       let isWorkspace = false;
       let isCancelable = false;
+      let isDeletable = false;
 
       if (e.selection.length === 1) {
         currentTreeItem = e.selection[0] as WorkspaceTreeItem;
@@ -90,6 +91,7 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
         }
         if (currentTreeItem.type === "job") {
           const job = currentTreeItem.itemData as Job;
+          isDeletable = true;
           if (
             (job.status === "Succeeded" || job.status === "Completed") &&
             job.outputDataUri
@@ -125,6 +127,11 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
         "setContext",
         `${qsharpExtensionId}.treeItemIsWorkspace`,
         isWorkspace,
+      );
+      await vscode.commands.executeCommand(
+        "setContext",
+        `${qsharpExtensionId}.treeItemIsDeletable`,
+        isDeletable,
       );
       await vscode.commands.executeCommand(
         "setContext",
