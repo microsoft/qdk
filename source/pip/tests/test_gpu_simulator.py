@@ -163,7 +163,7 @@ def build_x_chain_qir(n_instances: int, n_x: int) -> str:
 @pytest.mark.parametrize(
     "p_noise, n_x, n_instances, n_shots, max_percent",
     [
-        (0.0005, 500, 10, 2048, 2.0),
+        (0.0005, 500, 10, 8192, 1.0),
         (0.005, 500, 10, 4096, 2.0),
         (0.0005, 20, 20, 100, 4.0),  # Only 100 shots produces imprecise results
     ],
