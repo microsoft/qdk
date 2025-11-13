@@ -447,6 +447,14 @@ def run_qir_gpu(
     passtoRun = AggregateGatesPass()
     (gates, required_num_qubits, required_num_results) = passtoRun.run(mod)
 
-    return run_parallel_shots(
-        gates, shots, required_num_qubits, required_num_results, noise, seed
+    recorder = OutputRecordingPass()
+    recorder.run(mod)
+
+    return list(
+        map(
+            recorder.process_output,
+            run_parallel_shots(
+                gates, shots, required_num_qubits, required_num_results, noise, seed
+            ),
+        )
     )

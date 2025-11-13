@@ -4,6 +4,7 @@
 import importlib.metadata
 import pathlib
 import time
+from typing import Literal
 
 import anywidget
 import traitlets
@@ -117,6 +118,10 @@ class Histogram(anywidget.AnyWidget):
     comp = traitlets.Unicode("Histogram").tag(sync=True)
     buckets = traitlets.Dict().tag(sync=True)
     shot_count = traitlets.Integer().tag(sync=True)
+    shot_header = traitlets.Bool(True).tag(sync=True)
+    labels = traitlets.Unicode("raw").tag(sync=True)
+    items = traitlets.Unicode("all").tag(sync=True)
+    sort = traitlets.Unicode("a-to-z").tag(sync=True)
 
     def _update_ui(self):
         self.buckets = self._new_buckets.copy()
@@ -133,12 +138,25 @@ class Histogram(anywidget.AnyWidget):
         if time.time() - self._last_message >= 0.1:
             self._update_ui()
 
-    def __init__(self, results=None):
+    def __init__(
+        self,
+        results=None,
+        *,
+        shot_header=True,
+        bar_values=None,
+        labels: Literal["raw", "kets", "none"] = "raw",
+        items: Literal["all", "top-10", "top-25"] = "all",
+        sort: Literal["a-to-z", "high-to-low", "low-to-high"] = "a-to-z",
+    ):
         super().__init__()
 
         self._new_buckets = {}
         self._new_count = 0
         self._last_message = time.time()
+        self.shot_header = shot_header
+        self.labels = labels
+        self.items = items
+        self.sort = sort
 
         # If provided a list of results, count the buckets and update.
         # Need to distinguish between the case where we're provided a list of results
@@ -152,6 +170,10 @@ class Histogram(anywidget.AnyWidget):
                     self._add_result({"result": result, "events": []})
 
             self._update_ui()
+        elif bar_values is not None:
+            self.buckets = bar_values
+            self.shot_count = 0
+            self.shot_header = False
 
     def run(self, entry_expr, shots):
         import qsharp

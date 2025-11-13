@@ -369,6 +369,10 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   pointer-events: none;
 }
 
+.bar-label-ket {
+  font-family: "Courier", monospace;
+}
+
 .histo-label {
   font-size: 3.5pt;
   fill: var(--vscode-foreground, #3b3b3b);
