@@ -1,28 +1,29 @@
 name: fuzz
 run-name: Fuzz
 env:
-  OWNER_RDPATH: ./source                      # Rel path to the dir that contains the fuzzing infra (contains "fuzz" dir).
-  DURATION_SEC: 7200                          # Fuzzing run duration in seconds.
-  STDERR_LOG_FNAME: fuzz.stderr.log           # File name to redirect the fuzzing run's stderr to.
-  TMIN_LOG_FNAME: fuzz.tmin.log               # File name to redirect the fuzzing input minimization log to.
-  GH_ISSUE_TEMPLATE_RFPATH: .github/ISSUE_TEMPLATE/fuzz_bug_report.md
-                                              # GitHub issue template rel file path.
-  ARTIFACTS_RDPATH: fuzz/artifacts            # Fuzzing artifacts rel dir path.
-  SEEDS_RDPATH: fuzz/seed_inputs              # Fuzzing seed inputs rel dir path.
-  SEEDS_FNAME: list.txt                       # Fuzzing seed inputs list file name.
+  OWNER_RDPATH: ./source # Rel path to the dir that contains the fuzzing infra (contains "fuzz" dir).
+  DURATION_SEC: 7200 # Fuzzing run duration in seconds.
+  STDERR_LOG_FNAME: fuzz.stderr.log # File name to redirect the fuzzing run's stderr to.
+  TMIN_LOG_FNAME: fuzz.tmin.log # File name to redirect the fuzzing input minimization log to.
+  GH_ISSUE_TEMPLATE_RFPATH:
+    .github/ISSUE_TEMPLATE/fuzz_bug_report.md
+    # GitHub issue template rel file path.
+  ARTIFACTS_RDPATH: fuzz/artifacts # Fuzzing artifacts rel dir path.
+  SEEDS_RDPATH: fuzz/seed_inputs # Fuzzing seed inputs rel dir path.
+  SEEDS_FNAME: list.txt # Fuzzing seed inputs list file name.
 on:
-  workflow_dispatch:                          # Manual runs.
+  workflow_dispatch: # Manual runs.
   push:
     branches:
-      - main                                  # Development runs against main branch.
+      - main # Development runs against main branch.
     paths:
-      - 'source/compiler/**'                  # Run if the compiler was changed.
-      - 'source/fuzz/**'                      # Run if the fuzzing infra was changed.
-      - '.github/ISSUE_TEMPLATE/fuzz_bug_report.md'
-                                              # Run if the GitHub issue template was changed.
-      - '.github/workflows/fuzz.yml'          # Run if the workflow itself was changed.
-      - '!source/compiler/qsc_eval/**'        # Exclude the qsc_eval dir.
-      - '!source/compiler/qsc_codegen/**'     # Exclude the qsc_codegen dir.
+      - "source/compiler/**" # Run if the compiler was changed.
+      - "source/fuzz/**" # Run if the fuzzing infra was changed.
+      - ".github/ISSUE_TEMPLATE/fuzz_bug_report.md"
+        # Run if the GitHub issue template was changed.
+      - ".github/workflows/fuzz.yml" # Run if the workflow itself was changed.
+      - "!source/compiler/qsc_eval/**" # Exclude the qsc_eval dir.
+      - "!source/compiler/qsc_codegen/**" # Exclude the qsc_codegen dir.
 
 jobs:
   fuzz:
@@ -30,8 +31,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]                   # Fuzzing is not supported on Win. The macos is temporarily removed
-                                              # because of low availability.
+        os:
+          [ubuntu-latest] # Fuzzing is not supported on Win. The macos is temporarily removed
+          # because of low availability.
         target_name: [qsharp, qasm]
 
     runs-on: ${{ matrix.os }}
@@ -211,7 +213,7 @@ jobs:
         if: failure()
         uses: JasonEtco/create-an-issue@v2
         env:
-          GITHUB_TOKEN:     ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           WORKFLOW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         with:
           filename: ${{ env.GH_ISSUE_TEMPLATE_RFPATH }}

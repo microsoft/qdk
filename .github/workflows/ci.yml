@@ -4,8 +4,8 @@ on:
   pull_request:
     branches:
       - main
-      - 'feature/**'
-      - 'release/**'
+      - "feature/**"
+      - "release/**"
   merge_group:
   workflow_dispatch:
 
@@ -187,7 +187,16 @@ jobs:
 
   status-check:
     name: Status Check
-    needs: [format, clippy, web-check, build, unit-tests, format-qsc, integration-tests]
+    needs:
+      [
+        format,
+        clippy,
+        web-check,
+        build,
+        unit-tests,
+        format-qsc,
+        integration-tests,
+      ]
     runs-on: ubuntu-latest
     if: failure()
     steps:
