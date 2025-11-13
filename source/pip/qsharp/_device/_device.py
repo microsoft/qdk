@@ -45,41 +45,14 @@ class Device:
             zone.set_offset(offset)
             offset += zone.row_count * self.column_count
 
-        # Compute the home locations of qubits in the register zones.
-        # The home location is the (row, column) position of the qubit in the device layout, using only
-        # the register zones.
-        self.home_locs = [(0, 0)] * sum(
-            zone.row_count * self.column_count
-            for zone in zones
-            if zone.type == ZoneType.REG
-        )
-        curr_zone = 0
-        curr_id_offset = 0
-        for i in range(len(self.home_locs)):
-            # Distribute qubits evenly across the register zones.
-            home_loc = None
-            while home_loc is None:
-                if curr_zone >= len(self.zones):
-                    raise ValueError("Not enough register space for qubits")
-                if self.zones[curr_zone].type != ZoneType.REG:
-                    curr_zone += 1
-                    continue
-                loc = i
-                if loc < self.zones[curr_zone].offset and curr_id_offset == 0:
-                    curr_id_offset = (
-                        self.zones[curr_zone - 1].row_count * self.column_count
-                    )
-                loc += curr_id_offset
-                if (
-                    loc
-                    >= self.zones[curr_zone].offset
-                    + self.zones[curr_zone].row_count * self.column_count
-                ):
-                    curr_zone += 1
-                    continue
-                # Save the (row, column) location of the qubit.
-                home_loc = (loc // self.column_count, loc % self.column_count)
-            self.home_locs[i] = home_loc
+        self.home_locs = []
+        self._init_home_locs()
+
+    def _init_home_locs(self):
+        """
+        Initialize the home locations of qubits in the device layout.
+        """
+        raise NotImplementedError("Subclasses must implement _init_home_locs")
 
     def get_home_loc(self, qubit_id: int) -> tuple[int, int]:
         """
@@ -94,6 +67,30 @@ class Device:
         if qubit_id < 0 or qubit_id >= len(self.home_locs):
             raise ValueError(f"Qubit id {qubit_id} is out of range")
         return self.home_locs[qubit_id]
+
+    def get_ordering(self, qubit_id: int) -> int:
+        """
+        Get the ordering index of the qubit with the given id.
+
+        Args:
+            qubit_id (int): The id of the qubit.
+
+        Returns:
+            int: The ordering index of the qubit.
+        """
+        if qubit_id < 0 or qubit_id >= len(self.home_locs):
+            raise ValueError(f"Qubit id {qubit_id} is out of range")
+        row, col = self.home_locs[qubit_id]
+        return row * self.column_count + col
+
+    def get_register_zones(self) -> list[Zone]:
+        """
+        Get the register zones in the device.
+
+        Returns:
+            list[Zone]: The register zones.
+        """
+        return [zone for zone in self.zones if zone.type == ZoneType.REG]
 
     def get_interaction_zones(self) -> list[Zone]:
         """
@@ -120,7 +117,7 @@ class Device:
         Args:
             program (str): The program to compile.
         """
-        raise NotImplementedError("Device.compile is only implemented in subclasses")
+        raise NotImplementedError("Subclasses must implement compile")
 
     def as_dict(self) -> dict:
         """
