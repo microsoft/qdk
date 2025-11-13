@@ -33,25 +33,16 @@ class AC1000(Device):
             and self.zones[2].type == ZoneType.REG
         )
         assert self.zones[0].row_count == self.zones[2].row_count
-        rz1_rows = range(0, self.zones[0].row_count)
+        rz1_rows = range(self.zones[0].row_count - 1, -1, -1)
         rz2_rows = range(
             self.zones[0].row_count + self.zones[1].row_count,
             self.zones[0].row_count + self.zones[1].row_count + self.zones[2].row_count,
         )
         self.home_locs = []
-        remainder_row_count = self.zones[0].row_count % self.zones[1].row_count
-        for row in range(self.zones[2].row_count - remainder_row_count):
+        for row in range(self.zones[2].row_count):
             for col in range(self.column_count):
                 self.home_locs.append((rz2_rows[row], col))
-        for row in range(remainder_row_count, self.zones[0].row_count):
-            for col in range(self.column_count):
-                self.home_locs.append((rz1_rows[row], col))
-        for row in range(
-            self.zones[2].row_count - remainder_row_count, self.zones[2].row_count
-        ):
-            for col in range(self.column_count):
-                self.home_locs.append((rz2_rows[row], col))
-        for row in range(remainder_row_count):
+        for row in range(self.zones[0].row_count):
             for col in range(self.column_count):
                 self.home_locs.append((rz1_rows[row], col))
 
