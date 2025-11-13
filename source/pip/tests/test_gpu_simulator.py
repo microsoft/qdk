@@ -3,6 +3,8 @@
 
 import pytest
 
+from qsharp._native import Result
+
 SKIP_REASON = "GPU is not available"
 
 try:
@@ -38,95 +40,95 @@ def read_file_relative(file_name: str) -> str:
     return Path(current_dir / file_name).read_text(encoding="utf-8")
 
 
-# TODO: Re-enable these tests when GPU simulator changes are stable.
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_smoke():
+    qsharp.init(target_profile=TargetProfile.Base)
+    qsharp.eval(read_file_relative("CliffordIsing.qs"))
 
-# @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-# def test_smoke():
-#     qsharp.init(target_profile=TargetProfile.Base)
-#     qsharp.eval(read_file_relative("CliffordIsing.qs"))
+    input = qsharp.compile(
+        "IsingModel2DEvolution(5, 5, PI() / 2.0, PI() / 2.0, 2.0, 2)"
+    )
 
-#     input = qsharp.compile(
-#         "IsingModel2DEvolution(5, 5, PI() / 2.0, PI() / 2.0, 2.0, 2)"
-#     )
-
-#     output = run_qir_gpu(str(input))
-#     print(output)
+    output = run_qir_gpu(str(input))
+    print(output)
 
 
-# @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-# def test_smoke2():
-#     qsharp.init(target_profile=TargetProfile.Base)
-#     qsharp.eval(read_file_relative("CliffordIsing.qs"))
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_smoke2():
+    qsharp.init(target_profile=TargetProfile.Base)
+    qsharp.eval(read_file_relative("CliffordIsing.qs"))
 
-#     input = qsharp.compile(
-#         "IsingModel2DEvolution(5, 5, PI() / 2.0, PI() / 2.0, 10.0, 10)"
-#     )
+    input = qsharp.compile(
+        "IsingModel2DEvolution(5, 5, PI() / 2.0, PI() / 2.0, 10.0, 10)"
+    )
 
-#     output = run_qir_gpu(str(input))
-#     print(output)
-
-
-# @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-# def test_smoke_noise():
-#     qsharp.init(target_profile=TargetProfile.Base)
-#     qsharp.eval(read_file_relative("CliffordIsing.qs"))
-
-#     input = qsharp.compile(
-#         "IsingModel2DEvolution(5, 5, PI() / 2.0, PI() / 2.0, 10.0, 10)"
-#     )
-
-#     output = run_qir_gpu(str(input), shots=3, noise=BitFlipNoise(0.01), seed=None)
-#     print(output)
+    output = run_qir_gpu(str(input))
+    print(output)
 
 
-# @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-# def test_gpu_sampling():
-#     qsharp.init(target_profile=TargetProfile.Base)
-#     qsharp.eval(
-#         """
-# operation BellTest() : Result[] {
-#     use qs = Qubit[2];
-#     H(qs[0]);
-#     CNOT(qs[0], qs[1]);
-#     MResetEachZ(qs)
-# }
-# """
-#     )
 
-#     qir = str(qsharp.compile("BellTest()"))
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_smoke_noise():
+    qsharp.init(target_profile=TargetProfile.Base)
+    qsharp.eval(read_file_relative("CliffordIsing.qs"))
 
-#     results = [run_shot_gpu(qir, None, seed) for seed in range(12)]
+    input = qsharp.compile(
+        "IsingModel2DEvolution(5, 5, PI() / 2.0, PI() / 2.0, 10.0, 10)"
+    )
 
-#     # Results will be an array of 12 tuples of (bit_string, probability)
-#     # Each result string should be "00" or "11"
-#     # Running with fixed seeds of 0..11 gives 6 results of each
-#     # Note: 0.5 probability returned is actually about 0.49999997
+    p_noise = 0.01
+    noise = NoiseConfig()
+    noise.rx.set_bitflip(p_noise)
+    noise.rzz.set_bitflip(p_noise)
+    noise.mresetz.set_bitflip(p_noise)
+    
+    output = run_qir_gpu(str(input), shots=3, noise=noise, seed=None)
+    print(output)
 
-#     # Verify we have 6 of each result
-#     count_00 = sum(1 for r, p in results if r == "00")
-#     count_11 = sum(1 for r, p in results if r == "11")
-#     assert count_00 == 6
-#     assert count_11 == 6
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_smoke_noise_2():
+    qsharp.init(target_profile=TargetProfile.Base)
+    qsharp.eval(read_file_relative("CliffordIsing.qs"))
 
-#     # Verify probabilities are all about 0.5
-#     for r, p in results:
-#         assert abs(p - 0.5) < 0.00001
+    input = qsharp.compile(
+        "IsingModel2DEvolution(5, 5, PI() / 2.0, PI() / 2.0, 4.0, 4)"
+    )
 
+    noise = NoiseConfig()
+    noise.rz.set_bitflip(0.1)
+    noise.rz.loss = 0.03
+    noise.rzz.set_depolarizing(0.1)
+    noise.rzz.loss = 0.03
 
-# @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-# def test_smoke_noise_config():
-#     qsharp.init(target_profile=TargetProfile.Base)
-#     qsharp.eval(read_file_relative("CliffordIsing.qs"))
+    output = run_qir_gpu(str(input), shots=3, noise=noise, seed=None)
+    print(output)
 
-#     input = qsharp.compile(
-#         "IsingModel2DEvolution(5, 5, PI() / 2.0, PI() / 2.0, 4.0, 4)"
-#     )
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_gpu_sampling():
+    qsharp.init(target_profile=TargetProfile.Base)
+    qsharp.eval(
+        """
+        operation BellTest() : Result[] {
+            use qs = Qubit[2];
+            H(qs[0]);
+            CNOT(qs[0], qs[1]);
+            MResetEachZ(qs)
+        }
+        """
+    )
 
-#     noise = NoiseConfig()
-#     noise.rz.set_bitflip(0.1)
-#     noise.rz.loss = 0.03
-#     noise.rzz.set_depolarizing(0.1)
-#     noise.rzz.loss = 0.03
+    qir = str(qsharp.compile("BellTest()"))
 
-#     output = run_qir_gpu(str(input), shots=3, noise=noise, seed=None)
-#     print(output)
+    results = [run_qir_gpu(qir, 1, None, seed)[0] for seed in range(12)]
+    print(results)
+
+    # Results will be an array of 12 lists [Result, Result]
+    # Each result should be [Zero, Zero] or [One, One]
+    # As evident from a manual experiment running with the seeds of 0..11
+    # gives 6 results of each. Experiment should be repeatable for fixed seeds.
+
+    # Verify we have 6 of each result
+    count_00 = sum(1 for r in results if r == [Result.Zero, Result.Zero])
+    count_11 = sum(1 for r in results if r == [Result.One, Result.One])
+    assert count_00 == 6
+    assert count_11 == 6
