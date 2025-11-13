@@ -16,16 +16,25 @@ from pyqir import (
     Value,
 )
 from .._device import Device
+from dataclasses import dataclass
 from itertools import combinations, islice, chain
-from typing import Iterable, TypeAlias, Optional
+from typing import Iterable, TypeAlias, Optional, Tuple
 from fractions import Fraction
 from functools import lru_cache
 
 QubitId: TypeAlias = Value
 Location: TypeAlias = tuple[int, int]
 MoveScale: TypeAlias = tuple[bool | Fraction, bool | Fraction]
-PartialMove: TypeAlias = tuple[QubitId, Location]
 Move: TypeAlias = tuple[QubitId, Location, Location]
+
+
+@dataclass
+class PartialMove:
+    qubit_id_ptr: Value
+    src_loc: Location
+
+
+PartialMovePair: TypeAlias = tuple[PartialMove, PartialMove]
 
 
 def partial_move_parity(source: Location) -> int:
@@ -256,13 +265,12 @@ class ParallelMoves:
 
 class MoveScheduler:
 
-    def __init__(self, qubits_to_move: list[QubitId], device: Device):
+    def __init__(
+        self, qubits_to_move: list[QubitId | tuple[QubitId, QubitId]], device: Device
+    ):
         self.device = device
         self.available_iz_locations = self.build_iz_locations()
-        self.partial_disjoint_groups = self.split_partial_moves_by_parity_and_direction(
-            qubits_to_move
-        )
-        self.pending_partial_moves = list(chain(*self.partial_disjoint_groups))
+        self.pending_partial_moves = self.qubits_to_partial_moves(qubits_to_move)
         self.disjoint_groups: list[ParallelMoves] = [
             ParallelMoves([], (row_parity, col_parity), (ud, lr))
             for row_parity in (0, 1)
@@ -271,19 +279,47 @@ class MoveScheduler:
             for lr in (0, 1)
         ]
 
-    def build_iz_locations(self) -> set[Location]:
+    def build_iz_locations(self) -> dict[Location, None]:
         interaction_zone = self.device.get_interaction_zones()[0]
         interaction_zone_row_offset = (
             interaction_zone.offset // self.device.column_count
         )
-        return set(
-            (row, col)
+        # We use a dict with None values instead of a set to preserve order.
+        return {
+            (row, col): None
             for row in range(
                 interaction_zone_row_offset,
                 interaction_zone_row_offset + interaction_zone.row_count,
             )
             for col in range(self.device.column_count)
-        )
+        }
+
+    def qubits_to_partial_moves(
+        self, qubits_to_move: list[QubitId | tuple[QubitId, QubitId]]
+    ) -> list[PartialMove | PartialMovePair]:
+        partial_moves = []
+        for elt in qubits_to_move:
+            if isinstance(elt, tuple):
+                q_id1 = qubit_id(elt[0])
+                q_id2 = qubit_id(elt[1])
+                assert q_id1 is not None
+                assert q_id2 is not None
+                mov1 = PartialMove(elt[0], self.device.get_home_loc(q_id1))
+                mov2 = PartialMove(elt[1], self.device.get_home_loc(q_id2))
+                partial_moves.append((mov1, mov2))
+            else:
+                q_id = qubit_id(elt)
+                assert q_id is not None
+                mov = PartialMove(elt, self.device.get_home_loc(q_id))
+                partial_moves.append(mov)
+
+        def sort_key(partial_move: PartialMove | PartialMovePair):
+            if isinstance(partial_move, PartialMove):
+                return partial_move.src_loc
+            else:
+                return partial_move[0].src_loc
+
+        return sorted(partial_moves, key=sort_key)
 
     def split_partial_moves_by_parity_and_direction(
         self, qubits_to_move: list[QubitId]
@@ -302,9 +338,11 @@ class MoveScheduler:
     def pending_partial_moves_is_empty(self):
         return not bool(self.pending_partial_moves)
 
-    def next_pending_partial_moves(self) -> Optional[PartialMove]:
+    def next_pending_partial_move(
+        self,
+    ) -> Optional[PartialMove | PartialMovePair]:
         try:
-            return self.pending_partial_moves.pop()
+            return self.pending_partial_moves.pop(0)
         except IndexError:
             return None
 
@@ -336,8 +374,8 @@ class MoveScheduler:
     def push_to_largest_compatible_parallel_moves(
         self, partial_move: PartialMove
     ) -> ParallelMoves:
-        row_parity = partial_move_parity(partial_move[1])
-        ud_direction = partial_move_direction(partial_move[1])
+        row_parity = partial_move_parity(partial_move.src_loc)
+        ud_direction = partial_move_direction(partial_move.src_loc)
         compatible_parallel_moves = [
             self.disjoint_groups[
                 index_from_parity_and_direction(
@@ -358,29 +396,88 @@ class MoveScheduler:
         print(self.available_iz_locations, len(self.pending_partial_moves))
         raise Exception("not enough IZ space to schedule all moves")
 
+    def push_pair_to_largest_compatible_parallel_moves(
+        self, partial_move_pair: PartialMovePair
+    ) -> ParallelMoves:
+        partial_move = partial_move_pair[0]
+        row_parity = partial_move_parity(partial_move.src_loc)
+        ud_direction = partial_move_direction(partial_move.src_loc)
+        compatible_parallel_moves = [
+            self.disjoint_groups[
+                index_from_parity_and_direction(
+                    row_parity, col_parity, ud_direction, lr_direction
+                )
+            ]
+            for col_parity in (0, 1)
+            for lr_direction in (0, 1)
+        ]
+        compatible_parallel_moves.sort(
+            key=lambda pm: pm.largest_parallel_candidate_len(), reverse=True
+        )
+        for pm in compatible_parallel_moves:
+            if move1 := self.get_compatible_pending_move_for_pair(pm, partial_move):
+                # Push the move corresponding to the first qubit of the CZ pair.
+                pm.push(move1)
+
+                # Build the move corresponding to the second qubit of the CZ pair.
+                dest2 = (move1[2][0], move1[2][1] + 1)
+                move2 = (
+                    partial_move_pair[1].qubit_id_ptr,
+                    partial_move_pair[1].src_loc,
+                    dest2,
+                )
+
+                self.disjoint_groups[
+                    index_from_parity_and_direction(
+                        *move_parity(*move2[1:]), *move_direction(*move2[1:])
+                    )
+                ].push(move2)
+
+                # print(f"pushed move: {move}")
+                return pm
+        print(self.available_iz_locations, len(self.pending_partial_moves))
+        raise Exception("not enough IZ space to schedule all moves")
+
     def get_compatible_pending_move(
         self, parallel_moves: ParallelMoves, partial_move: Optional[PartialMove] = None
     ) -> Optional[Move]:
         if partial_move:
-            id, source = partial_move
+            id = partial_move.qubit_id_ptr
+            source = partial_move.src_loc
             for destination in self.available_iz_locations:
                 if parallel_moves.parity == move_parity(
                     source, destination
                 ) and parallel_moves.direction == move_direction(source, destination):
-                    self.available_iz_locations.remove(destination)
+                    del self.available_iz_locations[destination]
                     return (id, source, destination)
         else:
-            for partial_move in self.pending_partial_moves:
-                id, source = partial_move
-                for destination in self.available_iz_locations:
-                    if parallel_moves.parity == move_parity(
-                        source, destination
-                    ) and parallel_moves.direction == move_direction(
-                        source, destination
-                    ):
-                        self.available_iz_locations.remove(destination)
-                        self.pending_partial_moves.remove(partial_move)
-                        return (id, source, destination)
+            raise NotImplementedError
+            # for partial_move in self.pending_partial_moves:
+            #     id, source = partial_move
+            #     for destination in self.available_iz_locations:
+            #         if parallel_moves.parity == move_parity(
+            #             source, destination
+            #         ) and parallel_moves.direction == move_direction(
+            #             source, destination
+            #         ):
+            #             del self.available_iz_locations[destination]
+            #             self.pending_partial_moves.remove(partial_move)
+            #             return (id, source, destination)
+
+    def get_compatible_pending_move_for_pair(
+        self, parallel_moves: ParallelMoves, partial_move: Optional[PartialMove] = None
+    ) -> Optional[Move]:
+        if partial_move:
+            id = partial_move.qubit_id_ptr
+            source = partial_move.src_loc
+            for destination in self.available_iz_locations:
+                if (
+                    destination[1] % 2 == 0
+                    and parallel_moves.parity == move_parity(source, destination)
+                    and parallel_moves.direction == move_direction(source, destination)
+                ):
+                    del self.available_iz_locations[destination]
+                    return (id, source, destination)
 
     def __iter__(self):
         return self
@@ -395,16 +492,19 @@ class MoveScheduler:
         # parallel candidates and try to fetch pending moves for them?
 
         # Stepping through the pending moves looks like this.
-        # Stats: 27884 steps AND 40s
+        # Stats: 15336 steps AND 30s
         # Before: ~16k steps and 22s
-        while partial_move := self.next_pending_partial_moves():
-            pm = self.push_to_largest_compatible_parallel_moves(partial_move)
+        while partial_move := self.next_pending_partial_move():
+            if isinstance(partial_move, PartialMove):
+                pm = self.push_to_largest_compatible_parallel_moves(partial_move)
+            else:
+                pm = self.push_pair_to_largest_compatible_parallel_moves(partial_move)
             if pm.largest_parallel_candidate_len() >= 36:
                 return self.try_take(36, pm)
 
         # On the other hand, steping through the
         # largest_parallel_candidates looks like this.
-        # Stats: 34856 steps AND 13m 28s
+        # Stats: 27016 steps AND 11m 33s
         # while not self.pending_partial_moves_is_empty():
         #     for pm in self.sorted_parallel_moves():
         #         pc = pm.largest_parallel_candidate()
@@ -525,7 +625,7 @@ class Schedule(QirModuleVisitor):
         self.measurements = []
 
         # Track pending moves (qubit, (row, col)).
-        self.pending_moves = []
+        self.pending_moves: list[QubitId | tuple[QubitId, QubitId]] = []
 
         # Track values used in CZ ops and measurements to avoid putting operations on the
         # same qubit in the same batch.
@@ -544,10 +644,15 @@ class Schedule(QirModuleVisitor):
 
                 # If this qubit is involved in pending moves, that implies a CZ or measurement is pending, so flush now.
                 if len(self.pending_moves) > 0 and any(
-                    [
+                    (
                         gate["qubit_args"][0] == qubit_id(q)
-                        for q, _ in self.pending_moves
-                    ]
+                        if isinstance(q, QubitId)
+                        else (
+                            gate["qubit_args"][0] == qubit_id(q[0])
+                            or gate["qubit_args"][0] == qubit_id(q[1])
+                        )
+                    )
+                    for q in self.pending_moves
                 ):
                     self.flush_pending(instr)
 
@@ -580,19 +685,14 @@ class Schedule(QirModuleVisitor):
                     row < interaction_zone.row_count
                 ), "Should have found a row for CZ operation"
 
-                # Compute the column of the interaction zone pair location for each qubit.
-                col1 = (len(self.cz_ops_by_row[row]) - 1) * 2
-                col2 = col1 + 1
-                loc1 = (row + interaction_zone_row_offset, col1)
-                loc2 = (row + interaction_zone_row_offset, col2)
                 # Prefer using matching relative column ordering to home locations to reduce move crossings.
                 if (
                     self.device.get_home_loc(gate["qubit_args"][0])[1]
                     > self.device.get_home_loc(gate["qubit_args"][1])[1]
                 ):
-                    loc1, loc2 = loc2, loc1
-                self.pending_moves.append((instr.args[0], loc1))
-                self.pending_moves.append((instr.args[1], loc2))
+                    self.pending_moves.append((instr.args[1], instr.args[0]))
+                else:
+                    self.pending_moves.append((instr.args[0], instr.args[1]))
 
             elif gate != {} and len(gate["result_args"]) == 1:
                 # This is a measurement; queue it up to be executed in the measurement zone.
@@ -628,7 +728,7 @@ class Schedule(QirModuleVisitor):
                 loc = (row + measurement_zone_row_offset, col)
                 self.measurements.append((instr, gate))
                 self.vals_used_in_measurements.update(vals_used)
-                self.pending_moves.append((instr.args[0], loc))
+                self.pending_moves.append(instr.args[0])
             else:
                 # This is not a gate or measurement; flush any pending operations and leave the instruction in place.
                 # This uses a while loop to ensure all pending operations are flushed before the instruction.
@@ -702,7 +802,7 @@ class Schedule(QirModuleVisitor):
                         qubit = self.single_qubit_ops[q][0][0].args[0]
                         if self.single_qubit_ops[q][0][1]["gate"] == "rz":
                             qubit = self.single_qubit_ops[q][0][0].args[1]
-                        self.pending_moves.append((qubit, loc))
+                        self.pending_moves.append(qubit)
                 self.insert_moves()
                 for target_qubits in target_qubits_by_row:
                     self.flush_single_qubit_ops(target_qubits)
@@ -711,7 +811,7 @@ class Schedule(QirModuleVisitor):
             return
 
     def parallelize_pending_moves(self) -> Iterable[list[Move]]:
-        qubits_to_move = [move[0] for move in self.pending_moves]
+        qubits_to_move = self.pending_moves
         return MoveScheduler(qubits_to_move, self.device)
 
     def insert_moves(self):
@@ -720,7 +820,6 @@ class Schedule(QirModuleVisitor):
         given qubit to the given (row, col) location.
         """
 
-        print("inserting moves...")
         move_set_id = 0
         for parallel_set in self.parallelize_pending_moves():
             # Schedule the same moves back, so that we don't have to
@@ -749,7 +848,6 @@ class Schedule(QirModuleVisitor):
         # End the parallel section if it hasn't been ended.
         if move_set_id != 0:
             self.builder.call(self.end_func, [])
-        print("DONE: moves inserted\n")
 
     def insert_moves_back(self):
         move_set_id = 0
