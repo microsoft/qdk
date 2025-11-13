@@ -161,18 +161,18 @@ def build_x_chain_qir(n_instances: int, n_x: int) -> str:
 
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
 @pytest.mark.parametrize(
-    "p_noise, n_x, n_shots, n_instances, max_percent",
+    "p_noise, n_x, n_instances, n_shots, max_percent",
     [
-        (0.0005, 500, 2048, 10, 2.0),
-        (0.005, 500, 4096, 10, 2.0),
-        (0.0005, 20, 100, 20, 5.0), # Only 100 shots produces imprecise results
+        (0.0005, 500, 10, 2048, 2.0),
+        (0.005, 500, 10, 4096, 2.0),
+        (0.0005, 20, 20, 100, 4.0),  # Only 100 shots produces imprecise results
     ],
 )
 def test_gpu_x_chain(
     p_noise: float,
     n_x: int,
-    n_shots: int,
     n_instances: int,
+    n_shots: int,
     max_percent: float
 ):
     """
