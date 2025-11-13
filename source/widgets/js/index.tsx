@@ -41,7 +41,7 @@ type RenderArgs = {
   el: HTMLElement;
 };
 
-export function render({ model, el }: RenderArgs) {
+function render({ model, el }: RenderArgs) {
   const componentType = model.get("comp");
 
   // There is an existing issue where in VS Code it always shows the widget background as white.
@@ -86,6 +86,10 @@ export function render({ model, el }: RenderArgs) {
       throw new Error(`Unknown component type ${componentType}`);
   }
 }
+
+export default {
+  render,
+};
 
 function renderTable({ model, el }: RenderArgs) {
   const onChange = () => {
