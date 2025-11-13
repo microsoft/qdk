@@ -1,6 +1,10 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+from pathlib import Path
+from typing import Sequence, cast
+import math
+
 import pytest
 
 from qsharp._native import Result
@@ -18,12 +22,9 @@ except OSError as e:
     SKIP_REASON = str(e)
 
 
-from pathlib import Path
-
-from qsharp import BitFlipNoise
-
 import qsharp
 from qsharp import TargetProfile
+from qsharp import openqasm
 
 from qsharp._simulation import run_qir_gpu, NoiseConfig
 
@@ -132,3 +133,76 @@ def test_gpu_sampling():
     count_11 = sum(1 for r in results if r == [Result.One, Result.One])
     assert count_00 == 6
     assert count_11 == 6
+
+
+def build_x_chain_qir(n_instances: int, n_x: int) -> str:
+    # Construct multiple instances of x gate chains
+    prefix = f"""
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        bit[{n_instances}] c;
+        qubit[{n_instances}] q;
+    """
+
+    infix = """
+        x q;
+    """
+
+    suffix = """
+        c = measure q;
+    """
+
+    src_parallel = prefix + infix * n_x + suffix
+
+    # Compile resulting program
+    qsharp.init(target_profile=TargetProfile.Base)
+    qir_parallel = openqasm.compile(src_parallel)
+    return str(qir_parallel)
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+@pytest.mark.parametrize(
+    "p_noise, n_x, n_shots, n_instances, max_percent",
+    [
+        (0.0005, 500, 2048, 10, 2.0),
+        (0.005, 500, 4096, 10, 2.0),
+        (0.0005, 20, 100, 20, 5.0), # Only 100 shots produces imprecise results
+    ],
+)
+def test_gpu_x_chain(
+    p_noise: float,
+    n_x: int,
+    n_shots: int,
+    n_instances: int,
+    max_percent: float
+):
+    """
+    Simulate multi-instance X-chain with bitflip noise many times
+    Compare result frequencies with analytically computed probabilities
+    """
+    # Use the GPU simulator with noise
+    noise = NoiseConfig()
+    noise.x.set_bitflip(p_noise)
+
+    qir = build_x_chain_qir(n_instances, n_x)
+    output = run_qir_gpu(qir, shots=n_shots, noise=noise, seed=18)
+    histogram = [0 for _ in range(n_instances+1)]
+    for shot in output:
+        shot_results = cast(Sequence[Result], shot)
+        count_1 = shot_results.count(Result.One)
+        histogram[count_1] += 1
+
+    # Probability of obtaining 0 and 1 at the end of the X chain.
+    p_0 = ((2.0*p_noise - 1.0)**n_x + 1.0) / 2.0
+    p_1 = 1.0 - p_0
+
+    # Number of results with k ones that should be there.
+    p_N = [p_0 ** ((n_instances-k)) * (p_1 ** k) * math.comb(n_instances, k) * n_shots for k in range(n_instances+1)]
+
+    # Error % for deviation from analytical value
+    error_percent = [abs(a - b) * 100.0 / n_shots for (a, b) in zip(histogram, p_N)]
+    print(", ".join(f"{a} (Δ≈{b:.1f}%)" for (a, b) in zip(histogram, error_percent)))
+
+    # We tolerate configured percentage error.
+    assert all(
+        err < max_percent for err in error_percent
+    ), f"Error percent too high: {error_percent}"
