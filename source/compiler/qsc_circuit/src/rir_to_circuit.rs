@@ -57,16 +57,6 @@ impl OperationOrGroupExt for Op {
     type SourceLocation = DbgLocationId;
     type DbgStuff<'a> = DbgStuff<'a>;
 
-    fn full_call_stack(
-        &self,
-        dbg_stuff: &Self::DbgStuff<'_>,
-    ) -> Vec<Self::SourceLocation> {
-        self.location
-            .as_ref()
-            .map(|dbg_location| dbg_stuff.instruction_logical_stack(*dbg_location))
-            .unwrap_or_default()
-    }
-
     fn all_qubits(&self) -> Vec<QubitWire> {
         let qubits: FxHashSet<QubitWire> = self
             .control_qubits
@@ -230,29 +220,6 @@ where
         names.push(self.current_lexical_scope().to_string());
         names.join("->")
     }
-
-    #[allow(dead_code)]
-    pub fn fmt_with_resolved_scopes(
-        &self,
-        dbg_info: &impl DbgStuffExt<Scope = Scope, SourceLocation = SourceLocation>,
-        scope_resolver: &impl ScopeResolver<ScopeId = Scope>,
-    ) -> String {
-        if self.is_top() {
-            return "<top>".to_string();
-        }
-
-        let mut names: Vec<String> = self
-            .caller()
-            .iter()
-            .map(|location| fmt_location_with_resolved_scopes(dbg_info, scope_resolver, location))
-            .collect();
-        names.push(
-            scope_resolver
-                .resolve_scope(self.current_lexical_scope())
-                .name(),
-        );
-        names.join("->")
-    }
 }
 
 fn fmt_location<Scope, SourceLocation>(
@@ -264,32 +231,6 @@ where
 {
     let scope_id = &dbg_stuff.lexical_scope(location);
     format!("{scope_id}@{}", dbg_stuff.source_location(location).offset)
-}
-
-fn fmt_call_stack<Scope, SourceLocation>(
-    dbg_stuff: &impl DbgStuffExt<Scope = Scope, SourceLocation = SourceLocation>,
-    call_stack: &[SourceLocation],
-) -> String
-where
-    Scope: Display,
-{
-    let names: Vec<String> = call_stack
-        .iter()
-        .map(|location| fmt_location(dbg_stuff, location))
-        .collect();
-    names.join("->")
-}
-
-#[allow(dead_code)]
-pub(crate) fn fmt_location_with_resolved_scopes<Scope, SourceLocation>(
-    dbg_info: &impl DbgStuffExt<Scope = Scope, SourceLocation = SourceLocation>,
-    scope_resolver: &impl ScopeResolver<ScopeId = Scope>,
-    location: &SourceLocation,
-) -> String {
-    let scope_name = scope_resolver
-        .resolve_scope(&dbg_info.lexical_scope(location))
-        .name();
-    format!("{scope_name}@{}", dbg_info.source_location(location).offset)
 }
 
 #[derive(Clone, Debug)]
@@ -923,7 +864,19 @@ fn extend_with_successors(
 
         for op in block.operations {
             if config.group_scopes {
-                add_op_with_grouping(user_package_ids, dbg_stuff, &mut operations, op);
+                let op_call_stack = op
+                    .location
+                    .as_ref()
+                    .map(|dbg_location| dbg_stuff.instruction_logical_stack(*dbg_location))
+                    .unwrap_or_default();
+
+                add_op_with_grouping(
+                    user_package_ids,
+                    dbg_stuff,
+                    &mut operations,
+                    op,
+                    op_call_stack,
+                );
             } else {
                 operations.push(op);
             }

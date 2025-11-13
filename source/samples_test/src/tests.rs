@@ -21,7 +21,9 @@ mod OpenQASM;
 mod OpenQASM_generated;
 
 use qsc::{
-    LanguageFeatures, PackageType, SourceMap, TargetCapabilityFlags, compile,
+    LanguageFeatures, PackageType, SourceMap, TargetCapabilityFlags,
+    circuit::TracerConfig,
+    compile,
     hir::PackageId,
     interpret::{GenericReceiver, Interpreter},
     packages::BuildableProgram,
@@ -56,7 +58,13 @@ fn compile_and_run_internal(sources: SourceMap, debug: bool) -> String {
             LanguageFeatures::default(),
             store,
             &[(std_id, None)],
-            Default::default(),
+            TracerConfig {
+                group_scopes: false,
+                collapse_qubit_registers: false,
+                source_locations: false,
+                loop_detection: false,
+                max_operations: 0,
+            },
         )
     } else {
         Interpreter::new(

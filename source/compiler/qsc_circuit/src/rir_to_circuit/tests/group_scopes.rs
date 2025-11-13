@@ -19,7 +19,14 @@ fn check(instructions: Vec<Instruction>, expect: Expect) {
 
     let mut grouped = vec![];
     for op in ops {
-        add_op_with_grouping(&[], &(), &mut grouped, op);
+        let op_call_stack = match &op {
+            Op::Single { call_stack, .. } => call_stack.clone(),
+            Op::Group { .. } => {
+                panic!("didn't expect instruction_stack to be called for a group")
+            }
+        };
+
+        add_op_with_grouping(&[], &(), &mut grouped, op, op_call_stack);
     }
 
     let fmt_ops = |grouped: &[Op]| -> String {
@@ -126,15 +133,6 @@ impl OperationOrGroupExt for Op {
             Op::Single { name, .. } => name.clone(),
             Op::Group { scope_stack, .. } => {
                 format!("group: {}", scope_stack.current_lexical_scope())
-            }
-        }
-    }
-
-    fn full_call_stack(&self, _dbg_stuff: &Self::DbgStuff<'_>) -> Vec<Self::SourceLocation> {
-        match self {
-            Op::Single { call_stack, .. } => call_stack.clone(),
-            Op::Group { .. } => {
-                panic!("didn't expect instruction_stack to be called for a group")
             }
         }
     }
