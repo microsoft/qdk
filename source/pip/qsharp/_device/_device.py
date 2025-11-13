@@ -68,6 +68,21 @@ class Device:
             raise ValueError(f"Qubit id {qubit_id} is out of range")
         return self.home_locs[qubit_id]
 
+    def get_ordering(self, qubit_id: int) -> int:
+        """
+        Get the ordering index of the qubit with the given id.
+
+        Args:
+            qubit_id (int): The id of the qubit.
+
+        Returns:
+            int: The ordering index of the qubit.
+        """
+        if qubit_id < 0 or qubit_id >= len(self.home_locs):
+            raise ValueError(f"Qubit id {qubit_id} is out of range")
+        row, col = self.home_locs[qubit_id]
+        return row * self.column_count + col
+
     def get_register_zones(self) -> list[Zone]:
         """
         Get the register zones in the device.

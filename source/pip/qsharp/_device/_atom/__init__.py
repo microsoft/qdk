@@ -176,7 +176,7 @@ class AC1000(Device):
             print(f"  Pruned unused functions in {end_time - start_time:.2f} seconds")
             start_time = end_time
 
-        Reorder().run(module)
+        Reorder(self).run(module)
         if verbose:
             end_time = time.time()
             print(f"  Reordered instructions in {end_time - start_time:.2f} seconds")
