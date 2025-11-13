@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use itertools::enumerate;
 use paulimer::bits::BitMatrix;
 use paulimer::bits::BitView;
 use paulimer::bits::Bitwise;
@@ -99,7 +98,7 @@ fn cx_cz_outcome_specific_test() {
 
 #[must_use]
 pub fn is_column_reduced_with_profile(matrix: &BitMatrix, rank_profile: &[usize]) -> bool {
-    for (col, row) in enumerate(rank_profile) {
+    for (col, row) in rank_profile.iter().enumerate() {
         if !is_standard_basis_element(&matrix.row(*row), col) {
             return false;
         }

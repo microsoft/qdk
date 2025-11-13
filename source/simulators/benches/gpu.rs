@@ -1,3 +1,4 @@
+/* TODO: Update for the new GPU simulator APIs
 #![allow(clippy::unit_arg)]
 
 use criterion::{Criterion, criterion_group, criterion_main};
@@ -351,3 +352,4 @@ criterion_group!(
 criterion_group!(benches_rand_1q, sim_1k_1q_gates, sim_5k_1q_gates);
 criterion_group!(benches_rand_2q, sim_1k_2q_gates);
 criterion_main!(benches_1q, benches_2q, benches_rand_1q, benches_rand_2q);
+*/

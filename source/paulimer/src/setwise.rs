@@ -1,7 +1,3 @@
-// Copyright (c) Microsoft Corporation.
-// Licensed under the MIT License.
-
-use itertools::Itertools;
 use sorted_iter::{assume::AssumeSortedByItemExt, SortedIterator};
 use std::borrow::Borrow;
 
@@ -74,8 +70,7 @@ where
 {
     values
         .into_iter()
-        .tuple_windows()
-        .all(|(left, right)| left.borrow() <= right.borrow())
+        .is_sorted_by(|a, b| a.borrow() < b.borrow())
 }
 
 #[test]

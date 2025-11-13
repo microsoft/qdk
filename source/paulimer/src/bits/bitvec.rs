@@ -1,6 +1,3 @@
-// Copyright (c) Microsoft Corporation.
-// Licensed under the MIT License.
-
 use crate::bits::bitblock::{BitBlock, Word};
 use crate::bits::bitview::{BitView, MutableBitView};
 use crate::bits::index_set::IndexSet;
@@ -10,8 +7,6 @@ use crate::NeutralElement;
 use super::standard_types::{BitIterator, BitsPerBlock};
 use super::{are_supports_equal, BorrowAsBitIterator};
 use super::{BitwiseNeutralElement, FromBits};
-
-use itertools::Itertools;
 
 pub const WORD_COUNT_DEFAULT: usize = 8usize;
 
@@ -378,14 +373,23 @@ bitblock_dot!(&mut BitBlock<WORD_COUNT>);
 impl<const WORD_COUNT: usize> FromIterator<bool> for BitVec<WORD_COUNT> {
     fn from_iter<Iterator: IntoIterator<Item = bool>>(iterator: Iterator) -> Self {
         let mut blocks = vec![];
-        for chunk in &iterator.into_iter().chunks(Self::bits_per_block()) {
+        let mut iterator = iterator.into_iter();
+
+        // Note: once `Iterator::array_chunks` is stabilized, we can use that instead.
+        loop {
             let mut block = [0 as Word; WORD_COUNT];
-            for (index, bit) in chunk.enumerate() {
-                block.assign_index(index, bit);
+            for index in 0..Self::bits_per_block() {
+                match iterator.next() {
+                    Some(bit) => block.assign_index(index, bit),
+                    None if index == 0 => return BitVec { blocks },
+                    None => {
+                        blocks.push(block);
+                        return BitVec { blocks };
+                    }
+                }
             }
             blocks.push(block);
         }
-        BitVec { blocks }
     }
 }
 
@@ -518,6 +522,3 @@ impl<
         res
     }
 }
-
-// traits::implement_bitwise_inherently!(BitVec);
-// traits::implement_index_assignable_inherently!(BitVec);

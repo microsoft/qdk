@@ -2,19 +2,6 @@
 // Licensed under the MIT License.
 
 use super::{id, x, y, z, All, Axis, DirectedAxis, PauliMatrix, PauliObservable};
-use itertools::iproduct;
-
-#[test]
-fn iter_and_print_test() {
-    for (a, b, p, po) in iproduct!(
-        Axis::all(),
-        DirectedAxis::all(),
-        PauliMatrix::all(),
-        PauliObservable::all()
-    ) {
-        println!("{:?} {:?} {:?} {:?} {:?}", a, b, p, po, (a, b, p, -po));
-    }
-}
 
 #[test]
 fn neg_neg_is_identity() {

@@ -1,8 +1,4 @@
-// Copyright (c) Microsoft Corporation.
-// Licensed under the MIT License.
-
 use crate::quantum_core::{y, Axis};
-use itertools::{enumerate, Itertools};
 use sorted_iter::assume::AssumeSortedByItemExt;
 use sorted_iter::SortedIterator;
 
@@ -864,7 +860,7 @@ macro_rules! clifford_mutable_common_multi_qubit_impl {
                     self.preimage_z_view(support[permutation[elt_index]]).into(),
                 ));
             }
-            for (elt_index, elt) in enumerate(support) {
+            for (elt_index, elt) in support.into_iter().enumerate() {
                 <Self as MutablePreImages>::preimage_x_view_mut(self, *elt)
                     .assign(&new_preimages[elt_index].0);
                 <Self as MutablePreImages>::preimage_z_view_mut(self, *elt)
@@ -968,7 +964,7 @@ impl CliffordMutable for CliffordUnitaryModPauli {
             new_preimages.push((self.preimage(&px_on_support), self.preimage(&pz_on_support)));
         }
 
-        for (elt_index, elt) in enumerate(support) {
+        for (elt_index, elt) in support.iter().enumerate() {
             self.preimage_x_view_mut(*elt)
                 .assign(&new_preimages[elt_index].0);
             self.preimage_z_view_mut(*elt)
@@ -1127,7 +1123,7 @@ impl CliffordMutable for CliffordUnitary {
             new_preimages.push((self.preimage(&px_on_support), self.preimage(&pz_on_support)));
         }
 
-        for (elt_index, elt) in enumerate(support) {
+        for (elt_index, elt) in support.iter().enumerate() {
             self.preimage_x_view_mut(*elt)
                 .assign(&new_preimages[elt_index].0);
             self.preimage_z_view_mut(*elt)
@@ -1209,7 +1205,7 @@ where
     let pauli_images = trimmed.split(['\n', ',']);
     let mut image_pairs = Vec::new();
     for pauli_image in pauli_images {
-        let image_parts = pauli_image.split([':', '→']).collect_vec();
+        let image_parts = pauli_image.split([':', '→']).collect::<Vec<_>>();
         if image_parts.len() == 2 {
             let from = image_parts[0].parse::<SparsePauliLike>();
             let to = image_parts[1].parse::<SparsePauliLike>();
@@ -1596,7 +1592,7 @@ impl<const WORD_COUNT: usize, const QUBIT_COUNT: usize> CliffordMutable
             new_preimages.push((self.preimage(&px_on_support), self.preimage(&pz_on_support)));
         }
 
-        for (elt_index, elt) in enumerate(support) {
+        for (elt_index, elt) in support.iter().enumerate() {
             self.preimage_x_view_mut(*elt)
                 .assign(&new_preimages[elt_index].0);
             self.preimage_z_view_mut(*elt)
@@ -1754,7 +1750,7 @@ where
     let chain = clifford
         .block(X, Z)
         .chain(clifford.block(Z, Z))
-        .collect_vec();
+        .collect::<Vec<_>>();
     is_reduced_symmetric(qubit_count, chain)
 }
 
@@ -1796,7 +1792,7 @@ where
     let chain = clifford
         .block(Z, Z)
         .chain(clifford.block(X, Z))
-        .collect_vec();
+        .collect::<Vec<_>>();
     is_reduced_symmetric(qubit_count, chain)
 }
 
@@ -1874,7 +1870,7 @@ pub fn split_clifford_mod_pauli_with_transforms(
     let stacked_rows = restriction_transform
         .rows()
         .chain(restriction_transform_complement.rows())
-        .collect_vec();
+        .collect::<Vec<_>>();
     let stacked = BitMatrix::from_row_iter(stacked_rows.into_iter(), clifford.num_qubits());
     let stacked_inv_transpose = stacked.inverted().transposed();
     let split_transform = CliffordUnitaryModPauli::from_css_preimage_indicators(
@@ -1951,9 +1947,9 @@ pub fn split_clifford_encoder(
     first_part_qubit_count: usize,
     tensor_product_encoder: &CliffordUnitary,
 ) -> Option<(CliffordUnitary, CliffordUnitary)> {
-    let first_part_qubits = (0..first_part_qubit_count).collect_vec();
+    let first_part_qubits = (0..first_part_qubit_count).collect::<Vec<_>>();
     let second_part_qubits =
-        (first_part_qubit_count..tensor_product_encoder.num_qubits()).collect_vec();
+        (first_part_qubit_count..tensor_product_encoder.num_qubits()).collect::<Vec<_>>();
     if let Some((first_part_encoder_mod_pauli, second_part_encoder_mod_pauli)) =
         split_clifford_encoder_mod_pauli(
             &tensor_product_encoder.clone().into(),
@@ -1984,7 +1980,7 @@ pub fn prepare_all_zero(qubit_count: usize) -> CliffordUnitaryModPauli {
 }
 
 pub fn prepare_all_plus(qubit_count: usize) -> CliffordUnitaryModPauli {
-    prepare_zero_plus(qubit_count, &(0..qubit_count).collect_vec())
+    prepare_zero_plus(qubit_count, &(0..qubit_count).collect::<Vec<_>>())
 }
 
 pub fn prepare_zero_plus(qubit_count: usize, plus_indicies: &[usize]) -> CliffordUnitaryModPauli {
@@ -2045,7 +2041,7 @@ pub fn split_qubit_cliffords_and_css(
         split_qubit_tensor_product_encoder(&zero_resource),
     ) {
         let mut qubit_product = CliffordUnitaryModPauli::identity(clifford.num_qubits());
-        for (qubit_index, (zero_image, plus_image)) in enumerate(zip(zero_axes, plus_axes)) {
+        for (qubit_index, (zero_image, plus_image)) in zip(zero_axes, plus_axes).enumerate() {
             apply_qubit_clifford_by_axis(&mut qubit_product, qubit_index, zero_image, plus_image)?;
         }
         let css_remainder = qubit_product.inverse().multiply_with(clifford);
@@ -2140,7 +2136,7 @@ where
     let mut current_images = generators
         .iter()
         .map(|sparse| dense_from(sparse, qubit_count))
-        .collect_vec();
+        .collect::<Vec<_>>();
     let mut result = CliffordUnitary::identity(qubit_count);
     let mut pivots = Vec::new();
     for index in 0..current_images.len() {
@@ -2179,8 +2175,8 @@ where
         .iter()
         .chain(current_support.iter())
         .copied()
-        .collect_vec();
-    result.left_mul_permutation(&new_order, &(0..qubit_count).collect_vec());
+        .collect::<Vec<_>>();
+    result.left_mul_permutation(&new_order, &(0..qubit_count).collect::<Vec<_>>());
     result.inverse()
 }
 

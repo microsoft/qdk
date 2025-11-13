@@ -2,10 +2,10 @@
 # Licensed under the MIT License.
 
 from .._device import Device, Zone, ZoneType
-from ..._simulation import clifford_simulation, NoiseConfig
+from ..._simulation import clifford_simulation, NoiseConfig, run_qir_gpu
 from ..._qsharp import QirInputData
 
-from typing import List
+from typing import List, Literal
 
 
 class AC1000(Device):
@@ -24,10 +24,33 @@ class AC1000(Device):
             ],
         )
 
+    def _init_home_locs(self):
+        # Set up the home locations for qubits in the AC1000 layout.
+        assert len(self.zones) == 4
+        assert (
+            self.zones[0].type == ZoneType.REG
+            and self.zones[1].type == ZoneType.INTER
+            and self.zones[2].type == ZoneType.REG
+        )
+        assert self.zones[0].row_count == self.zones[2].row_count
+        rz1_rows = range(self.zones[0].row_count - 1, -1, -1)
+        rz2_rows = range(
+            self.zones[0].row_count + self.zones[1].row_count,
+            self.zones[0].row_count + self.zones[1].row_count + self.zones[2].row_count,
+        )
+        self.home_locs = []
+        for row in range(self.zones[2].row_count):
+            for col in range(self.column_count):
+                self.home_locs.append((rz2_rows[row], col))
+        for row in range(self.zones[0].row_count):
+            for col in range(self.column_count):
+                self.home_locs.append((rz1_rows[row], col))
+
     def compile(
         self,
         program: str | QirInputData,
         verbose: bool = False,
+        schedule: bool = False,
     ) -> QirInputData:
         """
         Compile a QIR program for the AC1000 device. This includes decomposing gates to the native gate set,
@@ -41,7 +64,6 @@ class AC1000(Device):
 
         from ._optimize import (
             OptimizeSingleQubitGates,
-            PruneInitializeCalls,
             PruneUnusedFunctions,
         )
         from ._decomp import (
@@ -125,14 +147,13 @@ class AC1000(Device):
             )
             start_time = end_time
 
-        PruneInitializeCalls().run(module)
         PruneUnusedFunctions().run(module)
         if verbose:
             end_time = time.time()
             print(f"  Pruned unused functions in {end_time - start_time:.2f} seconds")
             start_time = end_time
 
-        Reorder().run(module)
+        Reorder(self).run(module)
         if verbose:
             end_time = time.time()
             print(f"  Reordered instructions in {end_time - start_time:.2f} seconds")
@@ -142,6 +163,13 @@ class AC1000(Device):
             print(
                 f"Finished compiling program {name} in {end_time - all_start_time:.2f} seconds"
             )
+
+        if schedule:
+            from ._validate import ValidateSingleBlock
+            from ._scheduler import Schedule
+
+            ValidateSingleBlock().run(module)
+            Schedule(self).run(module)
 
         return QirInputData(name, str(module))
 
@@ -175,7 +203,7 @@ class AC1000(Device):
         qir: str | QirInputData,
         shots=1,
         noise: NoiseConfig | None = None,
-        type="clifford",
+        type: Literal["clifford", "gpu"] = "clifford",
     ) -> List:
         """
         Simulate a QIR program on the AC1000 device. This includes approximate layout and scheduling of the program
@@ -209,6 +237,9 @@ class AC1000(Device):
                 shots,
                 noise,
             )
+
+        if type == "gpu":
+            return run_qir_gpu(str(module), shots, noise)
 
         raise ValueError(f"Simulation type {type} is not supported")
 

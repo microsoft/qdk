@@ -67,6 +67,7 @@ def mock_qsharp() -> List[str]:
             "PhaseFlipNoise",
             "estimator",
             "openqasm",
+            "utils",
         ]
         # Minimal submodules to back lifted shims
         est = types.ModuleType("qsharp.estimator")
@@ -77,6 +78,10 @@ def mock_qsharp() -> List[str]:
         oq.__doc__ = "mock openqasm"
         sys.modules["qsharp.openqasm"] = oq
         stub.openqasm = oq
+        utils_mod = types.ModuleType("qsharp.utils")
+        utils_mod.dump_operation = _not_impl
+        sys.modules["qsharp.utils"] = utils_mod
+        stub.utils = utils_mod
 
         sys.modules["qsharp"] = stub
         # Telemetry events package with on_qdk_import function expected by qdk import
@@ -99,6 +104,7 @@ def mock_qsharp() -> List[str]:
                 "qsharp",
                 "qsharp.estimator",
                 "qsharp.openqasm",
+                "qsharp.utils",
                 "qsharp.telemetry_events",
                 "qsharp.interop",
                 "qsharp.interop.qiskit",

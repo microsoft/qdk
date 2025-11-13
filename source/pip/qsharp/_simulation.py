@@ -7,11 +7,17 @@ from ._native import (
     QirInstructionId,
     QirInstruction,
     run_clifford,
-    run_gpu_full_state,
-    run_gpu_shot,
+    run_parallel_shots,
     NoiseConfig,
 )
-from ._qsharp import Result
+from pyqir import (
+    Function,
+    FunctionType,
+    Type,
+    qubit_type,
+    Linkage,
+)
+from ._qsharp import QirInputData, Result
 
 
 class AggregateGatesPass(pyqir.QirModuleVisitor):
@@ -289,13 +295,102 @@ class OutputRecordingPass(pyqir.QirModuleVisitor):
         self._counters.append(value.value)
 
 
+class DecomposeCcxPass(pyqir.QirModuleVisitor):
+
+    h_func: Function
+    t_func: Function
+    tadj_func: Function
+    cz_func: Function
+
+    def __init__(self):
+        super().__init__()
+
+    def _on_module(self, module):
+        void = Type.void(module.context)
+        qubit_ty = qubit_type(module.context)
+
+        # Find or create all the needed functions.
+        for func in module.functions:
+            match func.name:
+                case "__quantum__qis__h__body":
+                    self.h_func = func
+                case "__quantum__qis__t__body":
+                    self.t_func = func
+                case "__quantum__qis__t__adj":
+                    self.tadj_func = func
+                case "__quantum__qis__cz__body":
+                    self.cz_func = func
+        if not hasattr(self, "h_func"):
+            self.h_func = Function(
+                FunctionType(void, [qubit_ty]),
+                Linkage.EXTERNAL,
+                "__quantum__qis__h__body",
+                module,
+            )
+        if not hasattr(self, "t_func"):
+            self.t_func = Function(
+                FunctionType(void, [qubit_ty]),
+                Linkage.EXTERNAL,
+                "__quantum__qis__t__body",
+                module,
+            )
+        if not hasattr(self, "tadj_func"):
+            self.tadj_func = Function(
+                FunctionType(void, [qubit_ty]),
+                Linkage.EXTERNAL,
+                "__quantum__qis__t__adj",
+                module,
+            )
+        if not hasattr(self, "cz_func"):
+            self.cz_func = Function(
+                FunctionType(void, [qubit_ty, qubit_ty]),
+                Linkage.EXTERNAL,
+                "__quantum__qis__cz__body",
+                module,
+            )
+        super()._on_module(module)
+
+    def _on_qis_ccx(self, call, ctrl1, ctrl2, target):
+        self.builder.insert_before(call)
+        self.builder.call(self.h_func, [target])
+        self.builder.call(self.tadj_func, [ctrl1])
+        self.builder.call(self.tadj_func, [ctrl2])
+        self.builder.call(self.h_func, [ctrl1])
+        self.builder.call(self.cz_func, [target, ctrl1])
+        self.builder.call(self.h_func, [ctrl1])
+        self.builder.call(self.t_func, [ctrl1])
+        self.builder.call(self.h_func, [target])
+        self.builder.call(self.cz_func, [ctrl2, target])
+        self.builder.call(self.h_func, [target])
+        self.builder.call(self.h_func, [ctrl1])
+        self.builder.call(self.cz_func, [ctrl2, ctrl1])
+        self.builder.call(self.h_func, [ctrl1])
+        self.builder.call(self.t_func, [target])
+        self.builder.call(self.tadj_func, [ctrl1])
+        self.builder.call(self.h_func, [target])
+        self.builder.call(self.cz_func, [ctrl2, target])
+        self.builder.call(self.h_func, [target])
+        self.builder.call(self.h_func, [ctrl1])
+        self.builder.call(self.cz_func, [target, ctrl1])
+        self.builder.call(self.h_func, [ctrl1])
+        self.builder.call(self.tadj_func, [target])
+        self.builder.call(self.t_func, [ctrl1])
+        self.builder.call(self.h_func, [ctrl1])
+        self.builder.call(self.cz_func, [ctrl2, ctrl1])
+        self.builder.call(self.h_func, [ctrl1])
+        self.builder.call(self.h_func, [target])
+        call.erase()
+
+
 def run_qir(
-    input: Union[str, bytes],
+    input: Union[QirInputData, str, bytes],
     shots: Optional[int] = 1,
     noise: Optional[NoiseConfig] = None,
 ) -> List:
     context = pyqir.Context()
-    if isinstance(input, str):
+    if isinstance(input, QirInputData):
+        mod = pyqir.Module.from_ir(context, str(input))
+    elif isinstance(input, str):
         mod = pyqir.Module.from_ir(context, input)
     else:
         mod = pyqir.Module.from_bitcode(context, input)
@@ -325,53 +420,41 @@ clifford_simulation = run_qir  # alias
 
 
 def run_qir_gpu(
-    input: Union[str, bytes],
+    input: Union[QirInputData, str, bytes],
     shots: Optional[int] = 1,
-    noise: Optional[Union[Tuple[float, float, float], NoiseConfig]] = None,
-    loss: Optional[float] = None,
-    seed: Optional[int] = None,
-) -> str:
-    context = pyqir.Context()
-    if isinstance(input, str):
-        mod = pyqir.Module.from_ir(context, input)
-    else:
-        mod = pyqir.Module.from_bitcode(context, input)
-
-    passtoRun = AggregateGatesPass()
-    (gates, required_num_qubits, _) = passtoRun.run(mod)
-
-    if shots is None:
-        shots = 1
-    pauli_noise = None
-    noise_config = None
-    if isinstance(noise, NoiseConfig):
-        noise_config = noise
-        if loss is not None:
-            raise ValueError("loss can only be set when applying simple Pauli noise")
-
-    if isinstance(noise, tuple):
-        pauli_noise = noise
-
-    return run_gpu_full_state(
-        gates, required_num_qubits, shots, pauli_noise, loss, noise_config, seed
-    )
-
-
-def run_shot_gpu(
-    input: Union[str, bytes],
     noise: Optional[NoiseConfig] = None,
     seed: Optional[int] = None,
-) -> Tuple[str, float]:
+) -> List[str]:
+    if shots is None:
+        shots = 1
+
+    if isinstance(noise, tuple):
+        raise ValueError(
+            "Specifying Pauli noise via a tuple is not supported for parallel shot simulation. Use a NoiseConfig instead."
+        )
+
     context = pyqir.Context()
-    if isinstance(input, str):
+    if isinstance(input, QirInputData):
+        mod = pyqir.Module.from_ir(context, str(input))
+    elif isinstance(input, str):
         mod = pyqir.Module.from_ir(context, input)
     else:
         mod = pyqir.Module.from_bitcode(context, input)
+
+    # Ccx is not support in the GPU simulator, decompose it
+    DecomposeCcxPass().run(mod)
 
     passtoRun = AggregateGatesPass()
     (gates, required_num_qubits, required_num_results) = passtoRun.run(mod)
 
-    if noise is None:
-        noise = NoiseConfig()
+    recorder = OutputRecordingPass()
+    recorder.run(mod)
 
-    return run_gpu_shot(gates, required_num_qubits, required_num_results, noise, seed)
+    return list(
+        map(
+            recorder.process_output,
+            run_parallel_shots(
+                gates, shots, required_num_qubits, required_num_results, noise, seed
+            ),
+        )
+    )

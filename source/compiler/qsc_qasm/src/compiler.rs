@@ -369,7 +369,7 @@ impl QasmCompiler {
                 .iter()
                 .map(|s| {
                     let qsharp_ty = self.map_semantic_type_to_qsharp_type(&s.ty, s.ty_span);
-                    (s.name.to_string(), format!("{qsharp_ty}"))
+                    (s.name.clone(), format!("{qsharp_ty}"))
                 })
                 .collect(),
             None => vec![],

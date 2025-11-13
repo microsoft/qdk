@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use itertools::Itertools;
 use paulimer::{
     bits::{
         bitblock::BitBlock, BitVec, Bitwise, BitwiseBinaryOps, BitwiseNeutralElement,
@@ -22,7 +21,7 @@ pub fn test_one_bit_index<T: IndexAssignable + Bitwise + BitwiseNeutralElement>(
     assert!(bits.is_zero());
     bits.assign_index(index, true);
     assert!(bits.index(index));
-    assert!(bits.support().contains(&index));
+    assert!(bits.support().any(|elt| elt == index));
     assert_eq!(bits.support().count(), 1);
     assert_eq!(bits.weight(), 1);
     assert!(bits.parity());

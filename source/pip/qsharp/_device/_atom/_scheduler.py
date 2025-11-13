@@ -66,6 +66,13 @@ def index_from_parity_and_direction(
     return 4 * major_index + minor_index
 
 
+def move_qubit_id(move: Move) -> int:
+    """Returns the qubit id of the move."""
+    id = qubit_id(move[0])
+    assert id is not None, "Qubit id should be known"
+    return id
+
+
 def is_invalid_move_pair(move1: Move, move2: Move) -> bool:
     """
     Returns true if the two moves are incompatible, i.e., if they have the same
@@ -193,6 +200,7 @@ class ParallelMoves:
 
         for move in remaining_moves:
             for pc in self.parallel_candidates_iter():
+
                 if pc.move_scale == move_scale(move, pc.ref_move):
                     pc.moves.add(move)
                     break
