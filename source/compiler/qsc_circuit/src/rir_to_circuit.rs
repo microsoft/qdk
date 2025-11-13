@@ -57,7 +57,10 @@ impl OperationOrGroupExt for Op {
     type SourceLocation = DbgLocationId;
     type DbgStuff<'a> = DbgStuff<'a>;
 
-    fn instruction_stack(&self, dbg_stuff: &Self::DbgStuff<'_>) -> Vec<Self::SourceLocation> {
+    fn full_call_stack(
+        &self,
+        dbg_stuff: &Self::DbgStuff<'_>,
+    ) -> Vec<Self::SourceLocation> {
         self.location
             .as_ref()
             .map(|dbg_location| dbg_stuff.instruction_logical_stack(*dbg_location))
@@ -1172,30 +1175,6 @@ pub(crate) trait DbgStuffExt {
         None
     }
 
-    fn concat_stacks(
-        &self,
-        scope_stack: &ScopeStack<Self::SourceLocation, Self::Scope>,
-        tail: &[Self::SourceLocation],
-    ) -> Vec<Self::SourceLocation>
-    where
-        Self::Scope: std::fmt::Display + std::fmt::Debug + Default + PartialEq,
-        Self::SourceLocation: Clone + PartialEq,
-    {
-        if scope_stack.is_top() {
-            tail.to_vec()
-        } else {
-            if let Some(oldest_scope) = tail.first().map(|loc| self.lexical_scope(loc)) {
-                assert_eq!(
-                    oldest_scope,
-                    *scope_stack.current_lexical_scope(),
-                    "concatenating stacks that don't seem to match"
-                );
-            }
-
-            [scope_stack.caller(), tail].concat()
-        }
-    }
-
     fn scope_stack(
         &self,
         instruction_stack: &[Self::SourceLocation],
@@ -1239,37 +1218,25 @@ impl DbgStuffExt for DbgStuff<'_> {
     }
 }
 
-pub(crate) fn add_scoped_op<
-    SourceLocation,
-    Scope,
-    OG: OperationOrGroupExt<Scope = Scope, SourceLocation = SourceLocation>,
->(
+pub(crate) fn add_scoped_op<OG: OperationOrGroupExt>(
     dbg_stuff: &OG::DbgStuff<'_>,
     current_container: &mut Vec<OG>,
-    current_scope_stack_abs: ScopeStack<SourceLocation, Scope>,
+    current_scope_stack: &ScopeStack<OG::SourceLocation, OG::Scope>,
     op: OG,
-    op_call_stack_rel: &[SourceLocation],
-) where
-    Scope: PartialEq + std::fmt::Display + std::fmt::Debug + Clone + Default,
-    SourceLocation: Clone,
-    SourceLocation: PartialEq,
-    SourceLocation: Sized,
-{
-    eprintln!(
-        "add_scoped_op: {} current_scope_stack_abs: {}, op_call_stack_rel: {}",
-        op.name(dbg_stuff),
-        current_scope_stack_abs.fmt(dbg_stuff),
-        fmt_call_stack(dbg_stuff, op_call_stack_rel)
-    );
-    let op_scope_stack_rel = dbg_stuff.scope_stack(op_call_stack_rel);
-    if !op_scope_stack_rel.is_top() {
-        let op_call_stack_abs =
-            dbg_stuff.concat_stacks(&current_scope_stack_abs, op_call_stack_rel);
+    op_call_stack: &[OG::SourceLocation],
+) {
+    let op_call_stack_rel = dbg_stuff.strip_scope_stack_prefix(
+        op_call_stack,
+        current_scope_stack,
+    ).expect("op_call_stack_rel should be a suffix of op_call_stack_abs after removing current_scope_stack_abs");
+
+    if !op_call_stack_rel.is_empty() {
         if let Some(last_op) = current_container.last_mut() {
             // See if we can add to the last scope inside the current container
             if let Some(last_scope_stack_abs) = last_op.scope_stack_if_group() {
-                if let Some(op_call_stack_rel_to_last_scope) =
-                    dbg_stuff.strip_scope_stack_prefix(&op_call_stack_abs, last_scope_stack_abs)
+                if dbg_stuff
+                    .strip_scope_stack_prefix(op_call_stack, last_scope_stack_abs)
+                    .is_some()
                 {
                     let last_scope_stack_abs = last_scope_stack_abs.clone();
 
@@ -1279,15 +1246,13 @@ pub(crate) fn add_scoped_op<
                     let last_op_children =
                         last_op.children_mut().expect("operation should be a group");
 
-                    eprintln!("    {} adding to last scope", op.name(dbg_stuff));
-
                     // Recursively add to the children
                     add_scoped_op(
                         dbg_stuff,
                         last_op_children,
-                        last_scope_stack_abs,
+                        &last_scope_stack_abs,
                         op,
-                        &op_call_stack_rel_to_last_scope,
+                        op_call_stack,
                     );
 
                     return;
@@ -1295,28 +1260,27 @@ pub(crate) fn add_scoped_op<
             }
         }
 
-        let full_scope_stack = dbg_stuff.scope_stack(&op_call_stack_abs);
-        if current_scope_stack_abs != full_scope_stack.clone() {
-            eprintln!(
-                "    {} adding to new parent scope: {}",
-                op.name(dbg_stuff),
-                full_scope_stack.fmt(dbg_stuff)
-            );
-            let scope_group = OG::group(full_scope_stack, vec![op]);
+        let op_scope_stack = dbg_stuff.scope_stack(op_call_stack);
+        if *current_scope_stack != op_scope_stack {
+            let scope_group = OG::group(op_scope_stack, vec![op]);
 
+            let parent = op_call_stack
+                .split_last()
+                .expect("should have more than one etc")
+                .1
+                .to_vec();
             add_scoped_op(
                 dbg_stuff,
                 current_container,
-                current_scope_stack_abs,
+                current_scope_stack,
                 scope_group,
-                op_scope_stack_rel.caller(),
+                &parent,
             );
 
             return;
         }
     }
 
-    eprintln!("    {} adding to current container", op.name(dbg_stuff),);
     current_container.push(op);
 }
 

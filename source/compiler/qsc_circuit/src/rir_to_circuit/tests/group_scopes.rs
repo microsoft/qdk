@@ -124,11 +124,13 @@ impl OperationOrGroupExt for Op {
     ) -> String {
         match self {
             Op::Single { name, .. } => name.clone(),
-            Op::Group { scope_stack, .. } => scope_stack.current_lexical_scope().to_string(),
+            Op::Group { scope_stack, .. } => {
+                format!("group: {}", scope_stack.current_lexical_scope())
+            }
         }
     }
 
-    fn instruction_stack(&self, _dbg_stuff: &Self::DbgStuff<'_>) -> Vec<Self::SourceLocation> {
+    fn full_call_stack(&self, _dbg_stuff: &Self::DbgStuff<'_>) -> Vec<Self::SourceLocation> {
         match self {
             Op::Single { call_stack, .. } => call_stack.clone(),
             Op::Group { .. } => {
@@ -233,7 +235,7 @@ fn single_op_no_metadata() {
             qubits: vec![],
             stack: None,
         }],
-        expect!["[H] qubits="],
+        expect!["H qubits= stack= "],
     );
 }
 
@@ -250,7 +252,7 @@ fn single_op() {
         }],
         expect![[r#"
             [Main] qubits= stack= Main
-                [H] qubits="#]],
+                H qubits= stack= Main@1"#]],
     );
 }
 
@@ -263,8 +265,8 @@ fn two_ops_in_same_scope() {
         ],
         expect![[r#"
             [Main] qubits=0 stack= Main
-                [H] qubits=0
-                [X] qubits=0"#]],
+                H qubits=0 stack= Main@1
+                X qubits=0 stack= Main@2"#]],
     );
 }
 
@@ -277,9 +279,9 @@ fn two_ops_in_separate_scopes() {
         ],
         expect![[r#"
             [Foo] qubits=0 stack= Foo
-                [H] qubits=0
+                H qubits=0 stack= Foo@1
             [Bar] qubits=0 stack= Bar
-                [X] qubits=0"#]],
+                X qubits=0 stack= Bar@2"#]],
     );
 }
 
@@ -293,9 +295,9 @@ fn two_ops_same_grandparent() {
         expect![[r#"
             [Main] qubits=0 stack= Main
                 [Foo] qubits=0 stack= Main@1->Foo
-                    [H] qubits=0
+                    H qubits=0 stack= Main@1->Foo@2
                 [Bar] qubits=0 stack= Main@1->Bar
-                    [X] qubits=0"#]],
+                    X qubits=0 stack= Main@1->Bar@3"#]],
     );
 }
 
@@ -309,8 +311,26 @@ fn two_ops_same_parent_scope() {
         expect![[r#"
             [Main] qubits=0 stack= Main
                 [Foo] qubits=0 stack= Main@1->Foo
-                    [H] qubits=0
-                    [X] qubits=0"#]],
+                    H qubits=0 stack= Main@1->Foo@2
+                    X qubits=0 stack= Main@1->Foo@3"#]],
+    );
+}
+
+#[test]
+fn two_ops_separate_grandparents() {
+    check(
+        vec![
+            instruction(&[("A", 1), ("B", 3), ("C", 4)], "X"),
+            instruction(&[("A", 2), ("B", 3), ("C", 4)], "X"),
+        ],
+        expect![[r#"
+            [A] qubits=0 stack= A
+                [B] qubits=0 stack= A@1->B
+                    [C] qubits=0 stack= A@1->B@3->C
+                        X qubits=0 stack= A@1->B@3->C@4
+                [B] qubits=0 stack= A@2->B
+                    [C] qubits=0 stack= A@2->B@3->C
+                        X qubits=0 stack= A@2->B@3->C@4"#]],
     );
 }
 
@@ -326,6 +346,7 @@ fn ad_hoc() {
             instruction(&[("A", 2), ("B", 5), ("F", 11)], "Z"),
             instruction(&[("A", 2), ("B", 6), ("F", 10)], "Y"),
             instruction(&[("A", 2), ("B", 6), ("F", 11)], "Z"),
+            instruction(&[("A", 1), ("B", 5), ("F", 9)], "X"),
             instruction(&[("A", 1)], "Y"),
             instruction(&[("A", 1)], "Z"),
             instruction(&[("A", 2), ("B", 5), ("F", 10)], "Y"),
@@ -334,33 +355,38 @@ fn ad_hoc() {
             instruction(&[("A", 4), ("D", 7)], "H"),
             instruction(&[("A", 4), ("D", 8)], "I"),
             instruction(&[("A", 5)], "E"),
+            instruction(&[("A", 5)], "G"),
         ],
         expect![[r#"
             [A] qubits=0 stack= A
                 [B] qubits=0 stack= A@1->B
                     [F] qubits=0 stack= A@1->B@5->F
-                        [X] qubits=0
-                        [Y] qubits=0
-                        [Z] qubits=0
+                        X qubits=0 stack= A@1->B@5->F@9
+                        Y qubits=0 stack= A@1->B@5->F@10
+                        Z qubits=0 stack= A@1->B@5->F@11
                 [B] qubits=0 stack= A@2->B
                     [F] qubits=0 stack= A@2->B@5->F
-                        [X] qubits=0
-                        [Y] qubits=0
-                        [Z] qubits=0
+                        X qubits=0 stack= A@2->B@5->F@9
+                        Y qubits=0 stack= A@2->B@5->F@10
+                        Z qubits=0 stack= A@2->B@5->F@11
                     [F] qubits=0 stack= A@2->B@6->F
-                        [Y] qubits=0
-                        [Z] qubits=0
-                [Y] qubits=0
-                [Z] qubits=0
+                        Y qubits=0 stack= A@2->B@6->F@10
+                        Z qubits=0 stack= A@2->B@6->F@11
+                [B] qubits=0 stack= A@1->B
+                    [F] qubits=0 stack= A@1->B@5->F
+                        X qubits=0 stack= A@1->B@5->F@9
+                Y qubits=0 stack= A@1
+                Z qubits=0 stack= A@1
                 [B] qubits=0 stack= A@2->B
                     [F] qubits=0 stack= A@2->B@5->F
-                        [Y] qubits=0
-                        [Z] qubits=0
-                [C] qubits=0
+                        Y qubits=0 stack= A@2->B@5->F@10
+                        Z qubits=0 stack= A@2->B@5->F@11
+                C qubits=0 stack= A@3
                 [D] qubits=0 stack= A@4->D
-                    [H] qubits=0
-                    [I] qubits=0
-                [E] qubits=0"#]],
+                    H qubits=0 stack= A@4->D@7
+                    I qubits=0 stack= A@4->D@8
+                E qubits=0 stack= A@5
+                G qubits=0 stack= A@5"#]],
     );
 }
 
@@ -396,12 +422,18 @@ fn fmt_ops(f: &mut impl Write, indent_level: usize, ops: &[Op]) -> fmt::Result {
 }
 
 fn fmt_op(f: &mut impl Write, indent_level: usize, op: &Op) -> fmt::Result {
-    let name = op.name(&());
+    match op {
+        Op::Single { name, .. } => {
+            write!(&mut set_indentation(indented(f), indent_level), "{name}")?;
+        }
+        Op::Group { scope_stack, .. } => write!(
+            &mut set_indentation(indented(f), indent_level),
+            "[{}]",
+            scope_stack.current_lexical_scope()
+        )?,
+    }
 
-    write!(
-        &mut set_indentation(indented(f), indent_level),
-        "[{name}] qubits="
-    )?;
+    write!(f, " qubits=")?;
 
     let qubits = op.all_qubits();
     let mut qubits = qubits.iter().peekable();
@@ -414,6 +446,17 @@ fn fmt_op(f: &mut impl Write, indent_level: usize, op: &Op) -> fmt::Result {
 
     if let Op::Group { scope_stack, .. } = &op {
         write!(f, " stack= {}", scope_stack.fmt(&()))?;
+    }
+
+    if let Op::Single { call_stack, .. } = &op {
+        write!(f, " stack= ")?;
+        let mut call_stack = call_stack.iter().peekable();
+        while let Some((scope, offset)) = call_stack.next() {
+            write!(f, "{scope}@{offset}")?;
+            if call_stack.peek().is_some() {
+                write!(f, "->")?;
+            }
+        }
     }
 
     if let Op::Group { children, .. } = &op {
@@ -438,6 +481,7 @@ where
         5 => indent.with_str("                    "),
         6 => indent.with_str("                        "),
         7 => indent.with_str("                            "),
-        _ => unimplemented!("indentation level not supported: {}", level),
+        8 => indent.with_str("                                "),
+        _ => indent.with_str("                                ..."),
     }
 }

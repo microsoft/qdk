@@ -649,8 +649,8 @@ enum OperationOrGroupKind {
 }
 
 pub(crate) trait OperationOrGroupExt {
-    type Scope;
-    type SourceLocation;
+    type Scope: PartialEq + std::fmt::Display + std::fmt::Debug + Clone + Default;
+    type SourceLocation: PartialEq + Clone + Sized;
     type DbgStuff<'a>: DbgStuffExt<SourceLocation = Self::SourceLocation, Scope = Self::Scope>;
 
     fn group(
@@ -660,11 +660,12 @@ pub(crate) trait OperationOrGroupExt {
     where
         Self: std::marker::Sized;
 
+    #[allow(dead_code)]
     fn name(
         &self,
         dbg_stuff: &impl DbgStuffExt<SourceLocation = Self::SourceLocation, Scope = Self::Scope>,
     ) -> String;
-    fn instruction_stack(&self, dbg_stuff: &Self::DbgStuff<'_>) -> Vec<Self::SourceLocation>;
+    fn full_call_stack(&self, dbg_stuff: &Self::DbgStuff<'_>) -> Vec<Self::SourceLocation>;
     fn children_mut(&mut self) -> Option<&mut Vec<Self>>
     where
         Self: std::marker::Sized;
@@ -681,7 +682,7 @@ impl OperationOrGroupExt for OperationOrGroup {
     type SourceLocation = SourceLocationMetadata;
     type DbgStuff<'a> = DbgStuffForEval;
 
-    fn instruction_stack(&self, _dbg_stuff: &Self::DbgStuff<'_>) -> Vec<Self::SourceLocation> {
+    fn full_call_stack(&self, _dbg_stuff: &Self::DbgStuff<'_>) -> Vec<Self::SourceLocation> {
         self.instruction_stack
             .iter()
             .map(|frame| SourceLocationMetadata {
@@ -1123,7 +1124,7 @@ pub(crate) fn add_op_with_grouping<
     SourceLocation: Sized,
 {
     let instruction_stack =
-        retain_user_frames(dbg_stuff, user_package_ids, op.instruction_stack(dbg_stuff));
+        retain_user_frames(dbg_stuff, user_package_ids, op.full_call_stack(dbg_stuff));
 
     // TODO: I'm pretty sure this is wrong if we have a NO call stack operation
     // in between call-stacked operations. We should probably unscope those. Add tests.
@@ -1131,7 +1132,7 @@ pub(crate) fn add_op_with_grouping<
     add_scoped_op(
         dbg_stuff,
         operations,
-        ScopeStack::top(),
+        &ScopeStack::top(),
         op,
         &instruction_stack,
     );
