@@ -24,6 +24,51 @@ class AC1000(Device):
             ],
         )
 
+    def _init_home_locs(self):
+        # Set up the home locations for qubits in the AC1000 layout.
+        assert len(self.zones) == 4
+        assert (
+            self.zones[0].type == ZoneType.REG
+            and self.zones[1].type == ZoneType.INTER
+            and self.zones[2].type == ZoneType.REG
+        )
+        assert self.zones[0].row_count == self.zones[2].row_count
+        rz1_rows = range(0, self.zones[0].row_count)
+        rz2_rows = range(
+            self.zones[0].row_count + self.zones[1].row_count,
+            self.zones[0].row_count + self.zones[1].row_count + self.zones[2].row_count,
+        )
+        self.home_locs = []
+        num_reps = self.zones[0].row_count // self.zones[1].row_count
+        # Grab alternating chunks of rows from each register zone matching the size of the interaction zone,
+        # preferring rows closer to the interaction zone first.
+        for i in range(num_reps):
+            for row in range(self.zones[1].row_count):
+                for col in range(self.column_count):
+                    self.home_locs.append(
+                        (rz2_rows[row + (i * self.zones[1].row_count)], col)
+                    )
+            for row in range(self.zones[1].row_count):
+                for col in range(self.column_count):
+                    self.home_locs.append(
+                        (
+                            rz1_rows[
+                                self.zones[0].row_count
+                                - (self.zones[1].row_count * (i + 1))
+                                + row
+                            ],
+                            col,
+                        )
+                    )
+        # The leftovers rows that don't fit into the same number of rows as the interaction zone get processed here
+        for row in range(self.zones[0].row_count % self.zones[1].row_count):
+            for col in range(self.column_count):
+                self.home_locs.append(
+                    (rz2_rows[num_reps * self.zones[1].row_count + row], col)
+                )
+            for col in range(self.column_count):
+                self.home_locs.append((rz1_rows[row], col))
+
     def compile(
         self,
         program: str | QirInputData,
