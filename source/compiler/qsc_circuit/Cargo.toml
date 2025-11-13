@@ -9,6 +9,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+indenter = { workspace = true }
 log = { workspace = true }
 miette = { workspace = true }
 num-bigint = { workspace = true }

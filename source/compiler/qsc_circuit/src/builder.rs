@@ -649,12 +649,9 @@ enum OperationOrGroupKind {
 }
 
 pub(crate) trait OperationOrGroupExt {
-    type OpType;
     type Scope;
     type SourceLocation;
-    type DbgStuff<'a>: DbgStuffExt<SourceLocation = Self::SourceLocation, ScopeId = Self::Scope>;
-
-    fn instruction_stack(&self, dbg_stuff: &Self::DbgStuff<'_>) -> Vec<Self::SourceLocation>;
+    type DbgStuff<'a>: DbgStuffExt<SourceLocation = Self::SourceLocation, Scope = Self::Scope>;
 
     fn group(
         scope_stack: ScopeStack<Self::SourceLocation, Self::Scope>,
@@ -663,6 +660,11 @@ pub(crate) trait OperationOrGroupExt {
     where
         Self: std::marker::Sized;
 
+    fn name(
+        &self,
+        dbg_stuff: &impl DbgStuffExt<SourceLocation = Self::SourceLocation, Scope = Self::Scope>,
+    ) -> String;
+    fn instruction_stack(&self, dbg_stuff: &Self::DbgStuff<'_>) -> Vec<Self::SourceLocation>;
     fn children_mut(&mut self) -> Option<&mut Vec<Self>>
     where
         Self: std::marker::Sized;
@@ -675,7 +677,6 @@ pub(crate) trait OperationOrGroupExt {
 }
 
 impl OperationOrGroupExt for OperationOrGroup {
-    type OpType = Operation;
     type Scope = ScopeId;
     type SourceLocation = SourceLocationMetadata;
     type DbgStuff<'a> = DbgStuffForEval;
@@ -848,6 +849,16 @@ impl OperationOrGroupExt for OperationOrGroup {
             Some(scope_stack)
         } else {
             None
+        }
+    }
+
+    fn name(
+        &self,
+        dbg_stuff: &impl DbgStuffExt<SourceLocation = Self::SourceLocation, Scope = Self::Scope>,
+    ) -> String {
+        match &self.kind {
+            OperationOrGroupKind::Single => self.op.gate(),
+            OperationOrGroupKind::Group { scope_stack, .. } => scope_stack.fmt(dbg_stuff),
         }
     }
 }
@@ -1097,20 +1108,12 @@ impl LexicalScope {
 }
 
 pub(crate) fn add_op_with_grouping<
-    'a,
     SourceLocation,
     Scope,
-    D: DbgStuffExt<SourceLocation = SourceLocation, ScopeId = Scope>,
-    O,
-    OG: OperationOrGroupExt<
-            OpType = O,
-            SourceLocation = SourceLocation,
-            Scope = Scope,
-            DbgStuff<'a> = D,
-        >,
+    OG: OperationOrGroupExt<SourceLocation = SourceLocation, Scope = Scope>,
 >(
     user_package_ids: &[PackageId],
-    dbg_stuff: &D,
+    dbg_stuff: &OG::DbgStuff<'_>,
     operations: &mut Vec<OG>,
     op: OG,
 ) where
@@ -1181,9 +1184,9 @@ struct DbgStuffForEval {}
 
 impl DbgStuffExt for DbgStuffForEval {
     type SourceLocation = SourceLocationMetadata;
-    type ScopeId = ScopeId;
+    type Scope = ScopeId;
 
-    fn lexical_scope(&self, location: &Self::SourceLocation) -> Self::ScopeId {
+    fn lexical_scope(&self, location: &Self::SourceLocation) -> Self::Scope {
         location.scope_id
     }
 
@@ -1191,7 +1194,7 @@ impl DbgStuffExt for DbgStuffForEval {
         location.location.package_id
     }
 
-    fn resolve_location(&self, location: &Self::SourceLocation) -> PackageOffset {
+    fn source_location(&self, location: &Self::SourceLocation) -> PackageOffset {
         location.location
     }
 }

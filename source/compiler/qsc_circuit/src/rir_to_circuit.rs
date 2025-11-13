@@ -53,7 +53,6 @@ pub(crate) struct Op {
 }
 
 impl OperationOrGroupExt for Op {
-    type OpType = Op;
     type Scope = DbgScopeId;
     type SourceLocation = DbgLocationId;
     type DbgStuff<'a> = DbgStuff<'a>;
@@ -61,7 +60,7 @@ impl OperationOrGroupExt for Op {
     fn instruction_stack(&self, dbg_stuff: &Self::DbgStuff<'_>) -> Vec<Self::SourceLocation> {
         self.location
             .as_ref()
-            .map(|dbg_location| instruction_logical_stack(dbg_stuff, *dbg_location))
+            .map(|dbg_location| dbg_stuff.instruction_logical_stack(*dbg_location))
             .unwrap_or_default()
     }
 
@@ -153,9 +152,20 @@ impl OperationOrGroupExt for Op {
             _ => None,
         }
     }
-}
 
-pub(crate) type InstructionStack = Vec<DbgLocationId>; // Can be empty
+    fn name(
+        &self,
+        dbg_stuff: &impl DbgStuffExt<SourceLocation = Self::SourceLocation, Scope = Self::Scope>,
+    ) -> String {
+        match &self.kind {
+            OperationKind::Group { scope_stack, .. } => scope_stack.fmt(dbg_stuff),
+            OperationKind::ConditionalGroup { label, .. }
+            | OperationKind::Unitary { label }
+            | OperationKind::Measurement { label }
+            | OperationKind::Ket { label } => label.to_string(),
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ScopeStack<SourceLocation, Scope> {
@@ -202,28 +212,26 @@ where
     #[allow(dead_code)]
     pub fn fmt(
         &self,
-        dbg_info: &impl DbgStuffExt<ScopeId = Scope, SourceLocation = SourceLocation>,
+        dbg_stuff: &impl DbgStuffExt<Scope = Scope, SourceLocation = SourceLocation>,
     ) -> String {
         if self.is_top() {
             return "<top>".to_string();
         }
 
-        let mut names: Vec<String> = self
-            .caller()
+        let call_stack = self.caller();
+
+        let mut names: Vec<String> = call_stack
             .iter()
-            .map(|location| {
-                let scope_id = &dbg_info.lexical_scope(location);
-                format!("{scope_id}@{}", dbg_info.resolve_location(location).offset)
-            })
+            .map(|location| fmt_location(dbg_stuff, location))
             .collect();
         names.push(self.current_lexical_scope().to_string());
         names.join("->")
     }
 
-    #[cfg(test)]
+    #[allow(dead_code)]
     pub fn fmt_with_resolved_scopes(
         &self,
-        dbg_info: &impl DbgStuffExt<ScopeId = Scope, SourceLocation = SourceLocation>,
+        dbg_info: &impl DbgStuffExt<Scope = Scope, SourceLocation = SourceLocation>,
         scope_resolver: &impl ScopeResolver<ScopeId = Scope>,
     ) -> String {
         if self.is_top() {
@@ -233,14 +241,7 @@ where
         let mut names: Vec<String> = self
             .caller()
             .iter()
-            .map(|location| {
-                let scope_id = &dbg_info.lexical_scope(location);
-                let scope_name = scope_resolver.resolve_scope(scope_id).name();
-                format!(
-                    "{scope_name}@{}",
-                    dbg_info.resolve_location(location).offset
-                )
-            })
+            .map(|location| fmt_location_with_resolved_scopes(dbg_info, scope_resolver, location))
             .collect();
         names.push(
             scope_resolver
@@ -249,6 +250,43 @@ where
         );
         names.join("->")
     }
+}
+
+fn fmt_location<Scope, SourceLocation>(
+    dbg_stuff: &impl DbgStuffExt<Scope = Scope, SourceLocation = SourceLocation>,
+    location: &SourceLocation,
+) -> String
+where
+    Scope: Display,
+{
+    let scope_id = &dbg_stuff.lexical_scope(location);
+    format!("{scope_id}@{}", dbg_stuff.source_location(location).offset)
+}
+
+fn fmt_call_stack<Scope, SourceLocation>(
+    dbg_stuff: &impl DbgStuffExt<Scope = Scope, SourceLocation = SourceLocation>,
+    call_stack: &[SourceLocation],
+) -> String
+where
+    Scope: Display,
+{
+    let names: Vec<String> = call_stack
+        .iter()
+        .map(|location| fmt_location(dbg_stuff, location))
+        .collect();
+    names.join("->")
+}
+
+#[allow(dead_code)]
+pub(crate) fn fmt_location_with_resolved_scopes<Scope, SourceLocation>(
+    dbg_info: &impl DbgStuffExt<Scope = Scope, SourceLocation = SourceLocation>,
+    scope_resolver: &impl ScopeResolver<ScopeId = Scope>,
+    location: &SourceLocation,
+) -> String {
+    let scope_name = scope_resolver
+        .resolve_scope(&dbg_info.lexical_scope(location))
+        .name();
+    format!("{scope_name}@{}", dbg_info.source_location(location).offset)
 }
 
 #[derive(Clone, Debug)]
@@ -516,7 +554,7 @@ fn resolve_location(
     dbg_stuff: &DbgStuff,
     dbg_location: DbgLocationId,
 ) -> Option<PackageOffset> {
-    let location_stack = instruction_logical_stack(dbg_stuff, dbg_location);
+    let location_stack = dbg_stuff.instruction_logical_stack(dbg_location);
     let stack = retain_user_frames(dbg_stuff, user_package_ids, location_stack);
     stack
         .last()
@@ -1060,25 +1098,24 @@ fn operations_in_block(
     })
 }
 
-/// Returns oldest->youngest
-fn instruction_logical_stack(
-    dbg_stuff: &DbgStuff,
-    dbg_location_idx: DbgLocationId,
-) -> InstructionStack {
-    let mut location_stack = vec![];
-    let mut current_location_idx = Some(dbg_location_idx);
-
-    while let Some(location_idx) = current_location_idx {
-        location_stack.push(location_idx);
-        let location = dbg_stuff.dbg_info.get_location(location_idx);
-        current_location_idx = location.inlined_at;
-    }
-    location_stack.reverse();
-    location_stack
-}
-
 pub(crate) struct DbgStuff<'a> {
     dbg_info: &'a DbgInfo,
+}
+
+impl DbgStuff<'_> {
+    /// Returns oldest->youngest
+    fn instruction_logical_stack(&self, dbg_location_idx: DbgLocationId) -> Vec<DbgLocationId> {
+        let mut location_stack = vec![];
+        let mut current_location_idx = Some(dbg_location_idx);
+
+        while let Some(location_idx) = current_location_idx {
+            location_stack.push(location_idx);
+            let location = self.dbg_info.get_location(location_idx);
+            current_location_idx = location.inlined_at;
+        }
+        location_stack.reverse();
+        location_stack
+    }
 }
 
 pub(crate) trait ScopeResolver {
@@ -1104,11 +1141,11 @@ impl ScopeResolver for DbgInfo {
 
 pub(crate) trait DbgStuffExt {
     type SourceLocation: PartialEq + Sized + Clone + PartialEq;
-    type ScopeId: std::fmt::Debug + std::fmt::Display + Default + PartialEq;
+    type Scope: std::fmt::Debug + std::fmt::Display + Default + PartialEq;
 
     fn package_id(&self, location: &Self::SourceLocation) -> PackageId;
-    fn lexical_scope(&self, top: &Self::SourceLocation) -> Self::ScopeId;
-    fn resolve_location(&self, location: &Self::SourceLocation) -> PackageOffset;
+    fn lexical_scope(&self, location: &Self::SourceLocation) -> Self::Scope;
+    fn source_location(&self, location: &Self::SourceLocation) -> PackageOffset;
 
     /// full is a call stack
     /// prefix is a scope stack
@@ -1118,7 +1155,7 @@ pub(crate) trait DbgStuffExt {
     fn strip_scope_stack_prefix(
         &self,
         full_call_stack: &[Self::SourceLocation],
-        prefix_scope_stack: &ScopeStack<Self::SourceLocation, Self::ScopeId>,
+        prefix_scope_stack: &ScopeStack<Self::SourceLocation, Self::Scope>,
     ) -> Option<Vec<Self::SourceLocation>> {
         if prefix_scope_stack.is_top() {
             return Some(full_call_stack.to_vec());
@@ -1137,11 +1174,11 @@ pub(crate) trait DbgStuffExt {
 
     fn concat_stacks(
         &self,
-        scope_stack: &ScopeStack<Self::SourceLocation, Self::ScopeId>,
+        scope_stack: &ScopeStack<Self::SourceLocation, Self::Scope>,
         tail: &[Self::SourceLocation],
     ) -> Vec<Self::SourceLocation>
     where
-        Self::ScopeId: std::fmt::Display + std::fmt::Debug + Default + PartialEq,
+        Self::Scope: std::fmt::Display + std::fmt::Debug + Default + PartialEq,
         Self::SourceLocation: Clone + PartialEq,
     {
         if scope_stack.is_top() {
@@ -1162,7 +1199,7 @@ pub(crate) trait DbgStuffExt {
     fn scope_stack(
         &self,
         instruction_stack: &[Self::SourceLocation],
-    ) -> ScopeStack<Self::SourceLocation, Self::ScopeId>
+    ) -> ScopeStack<Self::SourceLocation, Self::Scope>
     where
         Self::SourceLocation: Clone,
     {
@@ -1170,7 +1207,7 @@ pub(crate) trait DbgStuffExt {
             .split_last()
             .map_or(ScopeStack::top(), |(youngest, prefix)| ScopeStack::<
                 Self::SourceLocation,
-                Self::ScopeId,
+                Self::Scope,
             > {
                 caller: prefix.to_vec(),
                 scope: self.lexical_scope(youngest),
@@ -1180,9 +1217,9 @@ pub(crate) trait DbgStuffExt {
 
 impl DbgStuffExt for DbgStuff<'_> {
     type SourceLocation = DbgLocationId;
-    type ScopeId = DbgScopeId;
+    type Scope = DbgScopeId;
 
-    fn lexical_scope(&self, location: &Self::SourceLocation) -> Self::ScopeId {
+    fn lexical_scope(&self, location: &Self::SourceLocation) -> Self::Scope {
         self.dbg_info.get_location(*location).scope
     }
 
@@ -1193,7 +1230,7 @@ impl DbgStuffExt for DbgStuff<'_> {
         }
     }
 
-    fn resolve_location(&self, location: &Self::SourceLocation) -> PackageOffset {
+    fn source_location(&self, location: &Self::SourceLocation) -> PackageOffset {
         let dbg_location = self.dbg_info.get_location(*location);
         PackageOffset {
             package_id: dbg_location.location.package,
@@ -1207,7 +1244,7 @@ pub(crate) fn add_scoped_op<
     Scope,
     OG: OperationOrGroupExt<Scope = Scope, SourceLocation = SourceLocation>,
 >(
-    dbg_stuff: &impl DbgStuffExt<ScopeId = Scope, SourceLocation = SourceLocation>,
+    dbg_stuff: &OG::DbgStuff<'_>,
     current_container: &mut Vec<OG>,
     current_scope_stack_abs: ScopeStack<SourceLocation, Scope>,
     op: OG,
@@ -1218,6 +1255,12 @@ pub(crate) fn add_scoped_op<
     SourceLocation: PartialEq,
     SourceLocation: Sized,
 {
+    eprintln!(
+        "add_scoped_op: {} current_scope_stack_abs: {}, op_call_stack_rel: {}",
+        op.name(dbg_stuff),
+        current_scope_stack_abs.fmt(dbg_stuff),
+        fmt_call_stack(dbg_stuff, op_call_stack_rel)
+    );
     let op_scope_stack_rel = dbg_stuff.scope_stack(op_call_stack_rel);
     if !op_scope_stack_rel.is_top() {
         let op_call_stack_abs =
@@ -1236,6 +1279,8 @@ pub(crate) fn add_scoped_op<
                     let last_op_children =
                         last_op.children_mut().expect("operation should be a group");
 
+                    eprintln!("    {} adding to last scope", op.name(dbg_stuff));
+
                     // Recursively add to the children
                     add_scoped_op(
                         dbg_stuff,
@@ -1252,7 +1297,13 @@ pub(crate) fn add_scoped_op<
 
         let full_scope_stack = dbg_stuff.scope_stack(&op_call_stack_abs);
         if current_scope_stack_abs != full_scope_stack.clone() {
+            eprintln!(
+                "    {} adding to new parent scope: {}",
+                op.name(dbg_stuff),
+                full_scope_stack.fmt(dbg_stuff)
+            );
             let scope_group = OG::group(full_scope_stack, vec![op]);
+
             add_scoped_op(
                 dbg_stuff,
                 current_container,
@@ -1260,14 +1311,12 @@ pub(crate) fn add_scoped_op<
                 scope_group,
                 op_scope_stack_rel.caller(),
             );
+
             return;
         }
     }
 
-    // op_call_stack = None
-    // op_call_stack = [] (op_scope_stack = None)
-
-    // no scope, top level, just push to current operations
+    eprintln!("    {} adding to current container", op.name(dbg_stuff),);
     current_container.push(op);
 }
 
