@@ -17,40 +17,49 @@ from pyqir import (
 )
 from .._device import Device
 from dataclasses import dataclass
-from itertools import combinations, islice, chain
-from typing import Iterable, TypeAlias, Optional, Tuple
+from itertools import islice, chain
+from typing import Iterable, TypeAlias, Optional
 from fractions import Fraction
 from functools import lru_cache
 
 QubitId: TypeAlias = Value
 Location: TypeAlias = tuple[int, int]
 MoveScale: TypeAlias = tuple[bool | Fraction, bool | Fraction]
-Move: TypeAlias = tuple[QubitId, Location, Location]
+
+
+@dataclass
+class Move:
+    qubit_id_ptr: Value
+    src_loc: Location
+    dst_loc: Location
+
+    def __hash__(self):
+        return hash(self.qubit_id_ptr)
+
+    def parity(self):
+        return move_parity(self.src_loc, self.dst_loc)
+
+    def direction(self):
+        return move_direction(self.src_loc, self.dst_loc)
 
 
 @dataclass
 class PartialMove:
+    """A move missing its destination location."""
+
     qubit_id_ptr: Value
     src_loc: Location
+
+    def into_move(self, dst_loc: Location) -> Move:
+        return Move(self.qubit_id_ptr, self.src_loc, dst_loc)
 
 
 PartialMovePair: TypeAlias = tuple[PartialMove, PartialMove]
 
 
-def partial_move_parity(source: Location) -> int:
-    """Returns the parity of the source column."""
-    return source[1] % 2
-
-
 def move_parity(source: Location, destination: Location) -> tuple[int, int]:
-    """Returns a tuple representing the parities of the source and destination columns."""
+    """Returns a tuple representing the parities of the source and destination columns of a move."""
     return (source[1] % 2, destination[1] % 2)
-
-
-def partial_move_direction(source: Location) -> int:
-    """Return an int representing if the move is up or down."""
-    # TODO: this should be a function of the Device.
-    return int(source[0] < 17)
 
 
 def move_direction(source: Location, destination: Location) -> tuple[int, int]:
@@ -66,13 +75,6 @@ def index_from_parity_and_direction(
     return 4 * major_index + minor_index
 
 
-def move_qubit_id(move: Move) -> int:
-    """Returns the qubit id of the move."""
-    id = qubit_id(move[0])
-    assert id is not None, "Qubit id should be known"
-    return id
-
-
 def is_invalid_move_pair(move1: Move, move2: Move) -> bool:
     """
     Returns true if the two moves are incompatible, i.e., if they have the same
@@ -80,10 +82,10 @@ def is_invalid_move_pair(move1: Move, move2: Move) -> bool:
     same source column then they must have the same destination column.
     """
 
-    source_row_diff = move1[1][0] - move2[1][0]
-    destination_row_diff = move1[2][0] - move2[2][0]
-    source_col_diff = move1[1][1] - move2[1][1]
-    destination_col_diff = move1[2][1] - move2[2][1]
+    source_row_diff = move1.src_loc[0] - move2.src_loc[0]
+    destination_row_diff = move1.dst_loc[0] - move2.dst_loc[0]
+    source_col_diff = move1.src_loc[1] - move2.src_loc[1]
+    destination_col_diff = move1.dst_loc[1] - move2.dst_loc[1]
 
     return (
         (source_row_diff == 0 and destination_row_diff != 0)
@@ -103,22 +105,27 @@ def move_scale(move1: Move, move2: Move) -> MoveScale:
     Returns a tuple of two elements, representing the row displacement ratio and column
     displacement ratio between the moves.
     """
-    source_row_diff = move1[1][0] - move2[1][0]
-    destination_row_diff = move1[2][0] - move2[2][0]
-    source_col_diff = move1[1][1] - move2[1][1]
-    destination_col_diff = move1[2][1] - move2[2][1]
+
+    source_row_diff = move1.src_loc[0] - move2.src_loc[0]
+    destination_row_diff = move1.dst_loc[0] - move2.dst_loc[0]
+    source_col_diff = move1.src_loc[1] - move2.src_loc[1]
+    destination_col_diff = move1.dst_loc[1] - move2.dst_loc[1]
+
     return move_scale_helper(source_row_diff, destination_row_diff), move_scale_helper(
         source_col_diff, destination_col_diff
     )
 
 
-class ParallelCandidate:
+class MoveGroupCandidate:
     """
-    Represents a parallel move set candidate. It has three fields:
+    Represents a group of moves that can be done at the same time.
+    It has three fields:
         moves[set]: A set of moves that can be performed in parallel.
         move_scale[Optional[tuple[Fraction, Fraction]]]: A tuple of fractions
             representing the scale factors in the row and col axes between
             moves. `None`, if there is a single element in the move set.
+        ref_move[Move]: A move used as a representative of the group, used
+            to test compatibility of other moves with the group.
     """
 
     def __init__(self, moves: Iterable[Move]):
@@ -130,8 +137,10 @@ class ParallelCandidate:
         return len(self.moves)
 
     def add(self, move: Move):
-        if not self.move_scale:
-            raise Exception("this parallel candidate is an individual move")
+        # A move group with a single move doesn't have an associated move_scale.
+        # Therefore, we cannot test if a move is compatible with it, which means
+        # we cannot add moves to it.
+        assert self.move_scale, "cannot add to move group candidate with a single move"
         self.moves.add(move)
 
     def remove(self, move: Move):
@@ -141,131 +150,86 @@ class ParallelCandidate:
         self.moves.discard(move)
 
 
-class ParallelMoves:
+class MoveGroupPool:
     """
-    A data structure that organizes moves into parallelizable sets.
-    It provides an `is_empty()` method to check if there are any moves
-    left, and a `try_take(n)` method to take up to `n` parallelizable
-    moves from the data structure.
+    A data structure that takes individual moves as input and organizes them
+    into groups of moves that can be executed in parallel.
+
+    It provides:
+        - An `add(move)` method to add moves to the data structure.
+        - A `try_take(n)` that draws a group of up to n moves from the data structure.
+        - An `is_empty()` method to check if there are any moves left.
     """
 
-    def __init__(
-        self,
-        moves: list[Move],
-        parity: Optional[tuple[int, int]] = None,
-        direction: Optional[tuple[int, int]] = None,
-    ):
-        self.moves = set(moves)
-        self.parallel_candidates: dict[Optional[MoveScale], list[ParallelCandidate]] = {
-            None: []
-        }
+    def __init__(self, parity: tuple[int, int], direction: tuple[int, int]):
+        self.moves = set()
+        self.move_group_candidates: dict[
+            Optional[MoveScale], list[MoveGroupCandidate]
+        ] = {None: []}
+        self.parity = parity
+        self.direction = direction
 
-        # Edge case with no moves
-        if len(moves) == 0:
-            self.parity = parity
-            self.direction = direction
-            return
-
-        self.parity = move_parity(moves[0][1], moves[0][2])
-        self.direction = move_direction(moves[0][1], moves[0][2])
-
-        # Edge case in which there is a single move.
-        if len(moves) == 1:
-            self.parallel_candidates = {None: [ParallelCandidate(moves)]}
-            return
-
-        for pair in combinations(moves, 2):
-            if is_invalid_move_pair(pair[0], pair[1]):
-                continue
-            s = move_scale(pair[0], pair[1])
-            scaled_pairs = self.parallel_candidates.get(s, [])
-            for pc in scaled_pairs:
-                if pair[0] in pc.moves:
-                    pc.moves.add(pair[1])
-                    break
-                elif pair[1] in pc.moves:
-                    pc.moves.add(pair[0])
-                    break
-                elif s == move_scale(pair[0], pc.ref_move):
-                    pc.moves.add(pair[0])
-                    pc.moves.add(pair[1])
-                    break
-            else:
-                scaled_pairs.append(ParallelCandidate(pair))
-                self.parallel_candidates[s] = scaled_pairs
-
-        remaining_moves = self.moves.copy()
-        for pc in self.parallel_candidates_iter():
-            remaining_moves -= pc.moves
-
-        for move in remaining_moves:
-            for pc in self.parallel_candidates_iter():
-
-                if pc.move_scale == move_scale(move, pc.ref_move):
-                    pc.moves.add(move)
-                    break
-            else:
-                self.parallel_candidates[None].append(ParallelCandidate([move]))
-
-    def parallel_candidates_iter(self) -> Iterable[ParallelCandidate]:
-        return chain(*self.parallel_candidates.values())
+    def move_group_candidates_iter(self) -> Iterable[MoveGroupCandidate]:
+        return chain(*self.move_group_candidates.values())
 
     def is_empty(self) -> bool:
-        return not any(s.moves for s in self.parallel_candidates_iter())
+        return not any(s.moves for s in self.move_group_candidates_iter())
 
-    def largest_parallel_candidate(self) -> Optional[ParallelCandidate]:
+    def largest_move_group_candidate(self) -> Optional[MoveGroupCandidate]:
         try:
-            return max(self.parallel_candidates_iter(), key=len)
+            return max(self.move_group_candidates_iter(), key=len)
         except ValueError:
             return None
 
-    def largest_parallel_candidate_len(self) -> int:
+    def largest_move_group_candidate_len(self) -> int:
         try:
-            return len(max(self.parallel_candidates_iter(), key=len).moves)
+            return len(max(self.move_group_candidates_iter(), key=len).moves)
         except ValueError:
             return 0
 
-    def push(self, move: Move):
+    def add(self, move: Move):
         move_added = False
         for move2 in self.moves:
             pair = (move, move2)
             if is_invalid_move_pair(pair[0], pair[1]):
                 continue
             s = move_scale(pair[0], pair[1])
-            scaled_pairs = self.parallel_candidates.get(s, [])
-            for pc in scaled_pairs:
-                if pair[0] in pc.moves:
-                    pc.moves.add(pair[1])
+            candidates_with_same_move_scale = self.move_group_candidates.get(s, [])
+            for group in candidates_with_same_move_scale:
+                if pair[0] in group.moves:
+                    group.moves.add(pair[1])
                     move_added = True
                     break
-                elif pair[1] in pc.moves:
-                    pc.moves.add(pair[0])
+                elif pair[1] in group.moves:
+                    group.moves.add(pair[0])
                     move_added = True
                     break
-                elif s == move_scale(pair[0], pc.ref_move):
-                    pc.moves.add(pair[0])
-                    pc.moves.add(pair[1])
+                elif s == move_scale(pair[0], group.ref_move):
+                    group.moves.add(pair[0])
+                    group.moves.add(pair[1])
                     move_added = True
                     break
             else:
-                scaled_pairs.append(ParallelCandidate(pair))
-                self.parallel_candidates[s] = scaled_pairs
+                candidates_with_same_move_scale.append(MoveGroupCandidate(pair))
+                self.move_group_candidates[s] = candidates_with_same_move_scale
                 move_added = True
 
+        # This case triggers if `move` is not compatible with any move in `self.moves`.
         if not move_added:
-            self.parallel_candidates[None].append(ParallelCandidate([move]))
+            self.move_group_candidates[None].append(MoveGroupCandidate([move]))
 
         self.moves.add(move)
 
     def try_take(self, number_of_moves: int) -> list[Move]:
-        # Take `number_of_moves` from the largest parallel candidate.
-        if largest_parallel_candidate := self.largest_parallel_candidate():
-            moves = list(islice(largest_parallel_candidate.moves, number_of_moves))
+        """Take up to `number_of_moves` from the largest move group candidate."""
+
+        if largest_move_group_candidate := self.largest_move_group_candidate():
+            moves = list(islice(largest_move_group_candidate.moves, number_of_moves))
             moves_set = set(moves)
             self.moves -= moves_set
-            # Remove the taken moves from all parallel candidates.
-            for parallel_candidate in self.parallel_candidates_iter():
-                parallel_candidate.moves -= moves_set
+            # Remove the taken moves from all candidates.
+            for group in self.move_group_candidates_iter():
+                group.moves -= moves_set
             return moves
         else:
             return []
@@ -279,8 +243,8 @@ class MoveScheduler:
         self.device = device
         self.available_iz_locations = self.build_iz_locations()
         self.pending_partial_moves = self.qubits_to_partial_moves(qubits_to_move)
-        self.disjoint_groups: list[ParallelMoves] = [
-            ParallelMoves([], (row_parity, col_parity), (ud, lr))
+        self.disjoint_pools: list[MoveGroupPool] = [
+            MoveGroupPool((row_parity, col_parity), (ud, lr))
             for row_parity in (0, 1)
             for col_parity in (0, 1)
             for ud in (0, 1)
@@ -329,20 +293,6 @@ class MoveScheduler:
 
         return sorted(partial_moves, key=sort_key)
 
-    def split_partial_moves_by_parity_and_direction(
-        self, qubits_to_move: list[QubitId]
-    ) -> list[list[PartialMove]]:
-        partial_moves_by_parity_and_direction = [[] for _ in range(4)]
-        for id in qubits_to_move:
-            q_id = qubit_id(id)
-            assert q_id is not None, "Qubit id should be known"
-            source = self.device.get_home_loc(q_id)
-            parity = partial_move_parity(source)
-            direction = partial_move_direction(source)
-            index = 2 * parity + direction
-            partial_moves_by_parity_and_direction[index].append((id, source))
-        return partial_moves_by_parity_and_direction
-
     def pending_partial_moves_is_empty(self):
         return not bool(self.pending_partial_moves)
 
@@ -357,135 +307,105 @@ class MoveScheduler:
     def is_empty(self):
         """
         Returns `True` if all pending moves were scheduled.
-        That is, all disjoint groups are empty, and all
-        parallel candidates are empty.
+        That is, there no pending partial moves and all disjoint pools are empty.
         """
         return self.pending_partial_moves_is_empty() and all(
-            s.is_empty() for s in self.disjoint_groups
+            s.is_empty() for s in self.disjoint_pools
         )
 
-    def largest_parallel_moves(self) -> ParallelMoves:
+    def largest_move_group_pool(self) -> MoveGroupPool:
         return max(
-            self.disjoint_groups, key=lambda x: x.largest_parallel_candidate_len()
+            self.disjoint_pools, key=lambda x: x.largest_move_group_candidate_len()
         )
 
-    def try_take(self, n: int, pm: Optional[ParallelMoves] = None) -> list[Move]:
-        if not pm:
-            pm = self.largest_parallel_moves()
-        return pm.try_take(n)
-
-    def sorted_parallel_moves(self):
-        return sorted(
-            self.disjoint_groups, key=lambda x: x.largest_parallel_candidate_len()
-        )
-
-    def push_to_largest_compatible_parallel_moves(
+    def push_to_largest_compatible_move_group(
         self, partial_move: PartialMove
-    ) -> ParallelMoves:
-        row_parity = partial_move_parity(partial_move.src_loc)
-        ud_direction = partial_move_direction(partial_move.src_loc)
-        compatible_parallel_moves = [
-            self.disjoint_groups[
+    ) -> MoveGroupPool:
+        interaction_zone = self.device.get_interaction_zones()[0]
+        interaction_zone_row_offset = (
+            interaction_zone.offset // self.device.column_count
+        )
+        src_col_parity = partial_move.src_loc[1] % 2
+        ud_direction = int(partial_move.src_loc[0] < interaction_zone_row_offset)
+        compatible_move_group_pools = [
+            self.disjoint_pools[
                 index_from_parity_and_direction(
-                    row_parity, col_parity, ud_direction, lr_direction
+                    src_col_parity, dst_col_parity, ud_direction, lr_direction
                 )
             ]
-            for col_parity in (0, 1)
+            for dst_col_parity in (0, 1)
             for lr_direction in (0, 1)
         ]
-        compatible_parallel_moves.sort(
-            key=lambda pm: pm.largest_parallel_candidate_len(), reverse=True
+        compatible_move_group_pools.sort(
+            key=lambda pool: pool.largest_move_group_candidate_len(), reverse=True
         )
-        for pm in compatible_parallel_moves:
-            if move := self.get_compatible_pending_move(pm, partial_move):
-                pm.push(move)
+        for pool in compatible_move_group_pools:
+            if move := self.get_compatible_pending_move(pool, partial_move):
+                pool.add(move)
                 # print(f"pushed move: {move}")
-                return pm
-        print(self.available_iz_locations, len(self.pending_partial_moves))
+                return pool
         raise Exception("not enough IZ space to schedule all moves")
 
-    def push_pair_to_largest_compatible_parallel_moves(
+    def push_pair_to_largest_compatible_move_group(
         self, partial_move_pair: PartialMovePair
-    ) -> ParallelMoves:
+    ) -> MoveGroupPool:
+        interaction_zone = self.device.get_interaction_zones()[0]
+        interaction_zone_row_offset = (
+            interaction_zone.offset // self.device.column_count
+        )
         partial_move = partial_move_pair[0]
-        row_parity = partial_move_parity(partial_move.src_loc)
-        ud_direction = partial_move_direction(partial_move.src_loc)
-        compatible_parallel_moves = [
-            self.disjoint_groups[
+        src_col_parity = partial_move.src_loc[1] % 2
+        ud_direction = int(partial_move.src_loc[0] < interaction_zone_row_offset)
+        compatible_move_group_pools = [
+            self.disjoint_pools[
                 index_from_parity_and_direction(
-                    row_parity, col_parity, ud_direction, lr_direction
+                    src_col_parity, dst_col_parity, ud_direction, lr_direction
                 )
             ]
-            for col_parity in (0, 1)
+            for dst_col_parity in (0, 1)
             for lr_direction in (0, 1)
         ]
-        compatible_parallel_moves.sort(
-            key=lambda pm: pm.largest_parallel_candidate_len(), reverse=True
+        compatible_move_group_pools.sort(
+            key=lambda pool: pool.largest_move_group_candidate_len(), reverse=True
         )
-        for pm in compatible_parallel_moves:
-            if move1 := self.get_compatible_pending_move_for_pair(pm, partial_move):
+        for pool in compatible_move_group_pools:
+            if move1 := self.get_compatible_pending_move_for_pair(pool, partial_move):
                 # Push the move corresponding to the first qubit of the CZ pair.
-                pm.push(move1)
+                pool.add(move1)
 
                 # Build the move corresponding to the second qubit of the CZ pair.
-                dest2 = (move1[2][0], move1[2][1] + 1)
-                move2 = (
-                    partial_move_pair[1].qubit_id_ptr,
-                    partial_move_pair[1].src_loc,
-                    dest2,
-                )
+                dest2 = (move1.dst_loc[0], move1.dst_loc[1] + 1)
+                move2 = partial_move_pair[1].into_move(dest2)
+                self.disjoint_pools[
+                    index_from_parity_and_direction(*move2.parity(), *move2.direction())
+                ].add(move2)
 
-                self.disjoint_groups[
-                    index_from_parity_and_direction(
-                        *move_parity(*move2[1:]), *move_direction(*move2[1:])
-                    )
-                ].push(move2)
-
-                # print(f"pushed move: {move}")
-                return pm
-        print(self.available_iz_locations, len(self.pending_partial_moves))
+                return pool
         raise Exception("not enough IZ space to schedule all moves")
 
     def get_compatible_pending_move(
-        self, parallel_moves: ParallelMoves, partial_move: Optional[PartialMove] = None
+        self, pool: MoveGroupPool, partial_move: PartialMove
     ) -> Optional[Move]:
-        if partial_move:
-            id = partial_move.qubit_id_ptr
-            source = partial_move.src_loc
-            for destination in self.available_iz_locations:
-                if parallel_moves.parity == move_parity(
-                    source, destination
-                ) and parallel_moves.direction == move_direction(source, destination):
-                    del self.available_iz_locations[destination]
-                    return (id, source, destination)
-        else:
-            raise NotImplementedError
-            # for partial_move in self.pending_partial_moves:
-            #     id, source = partial_move
-            #     for destination in self.available_iz_locations:
-            #         if parallel_moves.parity == move_parity(
-            #             source, destination
-            #         ) and parallel_moves.direction == move_direction(
-            #             source, destination
-            #         ):
-            #             del self.available_iz_locations[destination]
-            #             self.pending_partial_moves.remove(partial_move)
-            #             return (id, source, destination)
+        source = partial_move.src_loc
+        for destination in self.available_iz_locations:
+            if pool.parity == move_parity(
+                source, destination
+            ) and pool.direction == move_direction(source, destination):
+                del self.available_iz_locations[destination]
+                return partial_move.into_move(destination)
 
     def get_compatible_pending_move_for_pair(
-        self, parallel_moves: ParallelMoves, partial_move: Optional[PartialMove] = None
+        self, pool: MoveGroupPool, partial_move: PartialMove
     ) -> Optional[Move]:
-        if partial_move:
-            id = partial_move.qubit_id_ptr
-            source = partial_move.src_loc
-            for destination in self.available_iz_locations:
-                if (
-                    destination[1] % 2 == 0
-                    and parallel_moves.parity == move_parity(source, destination)
-                    and parallel_moves.direction == move_direction(source, destination)
-                ):
-                    del self.available_iz_locations[destination]
-                    return (id, source, destination)
+        source = partial_move.src_loc
+        for destination in self.available_iz_locations:
+            if (
+                destination[1] % 2 == 0
+                and pool.parity == move_parity(source, destination)
+                and pool.direction == move_direction(source, destination)
+            ):
+                del self.available_iz_locations[destination]
+                return partial_move.into_move(destination)
 
     def __iter__(self):
         return self
@@ -495,36 +415,19 @@ class MoveScheduler:
         if self.is_empty():
             raise StopIteration
 
-        # Should I step through the pending moves and try to push them
-        # in the best parallel candidate? Or step through the largest
-        # parallel candidates and try to fetch pending moves for them?
-
-        # Stepping through the pending moves looks like this.
-        # Stats: 15336 steps AND 30s
-        # Before: ~16k steps and 22s
+        # Step through the pending moves and push them to the largest
+        # candidate they are compatible with.
         while partial_move := self.next_pending_partial_move():
             if isinstance(partial_move, PartialMove):
-                pm = self.push_to_largest_compatible_parallel_moves(partial_move)
+                pool = self.push_to_largest_compatible_move_group(partial_move)
             else:
-                pm = self.push_pair_to_largest_compatible_parallel_moves(partial_move)
-            if pm.largest_parallel_candidate_len() >= 36:
-                return self.try_take(36, pm)
+                pool = self.push_pair_to_largest_compatible_move_group(partial_move)
+            if pool.largest_move_group_candidate_len() >= self.device.column_count:
+                return pool.try_take(self.device.column_count)
 
-        # On the other hand, steping through the
-        # largest_parallel_candidates looks like this.
-        # Stats: 27016 steps AND 11m 33s
-        # while not self.pending_partial_moves_is_empty():
-        #     for pm in self.sorted_parallel_moves():
-        #         pc = pm.largest_parallel_candidate()
-        #         if pc and len(pc) >= 36:
-        #             return self.try_take(36, pm)
-        #         if move := self.get_compatible_pending_move(pm):
-        #             pm.push(move)
-        #             break
-
-        # Once pending moves are exhausted, we try_get(36)
-        # from the largest parallel candidate.
-        return self.try_take(36)
+        # Once pending moves are exhausted, we try_get
+        # from the largest candidate.
+        return self.largest_move_group_pool().try_take(self.device.column_count)
 
 
 class Schedule(QirModuleVisitor):
@@ -818,9 +721,8 @@ class Schedule(QirModuleVisitor):
                 self.pending_moves = []
             return
 
-    def parallelize_pending_moves(self) -> Iterable[list[Move]]:
-        qubits_to_move = self.pending_moves
-        return MoveScheduler(qubits_to_move, self.device)
+    def schedule_pending_moves(self) -> Iterable[list[Move]]:
+        return MoveScheduler(self.pending_moves, self.device)
 
     def insert_moves(self):
         """
@@ -828,60 +730,60 @@ class Schedule(QirModuleVisitor):
         given qubit to the given (row, col) location.
         """
 
-        move_set_id = 0
-        for parallel_set in self.parallelize_pending_moves():
+        move_group_id = 0
+        for move_group in self.schedule_pending_moves():
             # Schedule the same moves back, so that we don't have to
             # recompute the parallel moves when moving the qubits
             # back to their home location.
-            self.pending_moves_back.append(parallel_set)
+            self.pending_moves_back.append(move_group)
 
-            # We can execute 4 movement sets in parallel, if
+            # We can execute 4 move groups in parallel, if
             # this is the first one, start a parallel section.
-            if move_set_id == 0:
+            if move_group_id == 0:
                 self.builder.call(self.begin_func, [])
 
-            # Move all the moves in a parallel_set using the same
-            # move function.
-            for id, _, loc in parallel_set:
-                self.builder.call(self.move_funcs[move_set_id], [id, loc[0], loc[1]])
+            # Insert all the moves in a group using the same move function.
+            for move in move_group:
+                self.builder.call(
+                    self.move_funcs[move_group_id], (move.qubit_id_ptr, *move.dst_loc)
+                )
 
-            # There 4 move sets, so we increment the id modulo 4.
-            move_set_id = (move_set_id + 1) % 4
+            # There 4 move groups, so we increment the id modulo 4.
+            move_group_id = (move_group_id + 1) % 4
 
-            # We can execute 4 movement sets in parallel, if
+            # We can execute 4 move groups in parallel, if
             # this is the fourth one, end the parallel section.
-            if move_set_id == 0:
+            if move_group_id == 0:
                 self.builder.call(self.end_func, [])
 
         # End the parallel section if it hasn't been ended.
-        if move_set_id != 0:
+        if move_group_id != 0:
             self.builder.call(self.end_func, [])
 
     def insert_moves_back(self):
-        move_set_id = 0
-        for parallel_set in self.pending_moves_back:
-            # We can execute 4 movement sets in parallel, if
+        move_group_id = 0
+        for move_group in self.pending_moves_back:
+            # We can execute 4 move groups in parallel, if
             # this is the first one, start a parallel section.
-            if move_set_id == 0:
+            if move_group_id == 0:
                 self.builder.call(self.begin_func, [])
 
-            # Move all the moves in a parallel_set using the same
-            # move function.
-            for id, home_loc, _ in parallel_set:
+            # Insert all the moves in a group using the same move function.
+            for move in move_group:
                 self.builder.call(
-                    self.move_funcs[move_set_id], [id, home_loc[0], home_loc[1]]
+                    self.move_funcs[move_group_id], (move.qubit_id_ptr, *move.src_loc)
                 )
 
-            # There 4 move sets, so we increment the id modulo 4.
-            move_set_id = (move_set_id + 1) % 4
+            # There 4 move groups, so we increment the id modulo 4.
+            move_group_id = (move_group_id + 1) % 4
 
-            # We can execute 4 movement sets in parallel, if
+            # We can execute 4 move groups in parallel, if
             # this is the fourth one, end the parallel section.
-            if move_set_id == 0:
+            if move_group_id == 0:
                 self.builder.call(self.end_func, [])
 
         # End the parallel section if it hasn't been ended.
-        if move_set_id != 0:
+        if move_group_id != 0:
             self.builder.call(self.end_func, [])
 
         # Clear pending moves back.
