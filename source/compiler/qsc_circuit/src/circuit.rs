@@ -8,6 +8,7 @@ use log::warn;
 use qsc_fir::fir::PackageId;
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
+use std::slice::from_ref;
 use std::{cmp::max, hash::Hasher};
 use std::{
     cmp::{self},
@@ -360,10 +361,10 @@ impl Row {
 
     fn add_measurement(&mut self, column: usize, source: Option<&SourceLocation>) {
         let mut gate_label = String::from("M");
-        if self.render_locations {
-            if let Some(SourceLocation::Resolved(loc)) = source {
-                let _ = write!(&mut gate_label, "@{loc}");
-            }
+        if self.render_locations
+            && let Some(SourceLocation::Resolved(loc)) = source
+        {
+            let _ = write!(&mut gate_label, "@{loc}");
         }
         self.add(column, CircuitObject::Object(gate_label.to_string()));
     }
@@ -387,10 +388,10 @@ impl Row {
             let _ = write!(&mut gate_label, "({args})");
         }
 
-        if self.render_locations {
-            if let Some(SourceLocation::Resolved(loc)) = source {
-                let _ = write!(&mut gate_label, "@{}:{}:{}", loc.file, loc.line, loc.column);
-            }
+        if self.render_locations
+            && let Some(SourceLocation::Resolved(loc)) = source
+        {
+            let _ = write!(&mut gate_label, "@{}:{}:{}", loc.file, loc.line, loc.column);
         }
 
         self.add_object(column, gate_label.as_str());
@@ -1134,7 +1135,7 @@ fn make_repeated_parent(base: &Operation, count: usize) -> Operation {
         *tail.gate_mut() = format!("{}(×{})", tail.gate(), count - 1);
         if let Operation::Unitary(u) = &mut tail {
             // Merge targets and controls into targets; clear controls
-            u.targets = merge_unitary_registers(&[base.clone()]);
+            u.targets = merge_unitary_registers(from_ref(base));
             u.controls.clear();
         } else {
             warn!("merging targets/controls is only implemented for unitaries");

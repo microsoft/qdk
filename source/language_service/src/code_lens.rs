@@ -90,7 +90,10 @@ pub(crate) fn get_code_lenses(
                                 total_num_qubits: 0,
                             }),
                         });
-                    } else if let Some((_, total_num_qubits)) = qubit_param_info(item) {
+                    } else if let Some(QubitParamInfo {
+                        total_num_qubits, ..
+                    }) = qubit_param_info(item)
+                    {
                         accum.push(CodeLens {
                             range,
                             command: CodeLensCommand::Circuit(OperationInfo {

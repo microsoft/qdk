@@ -13,6 +13,8 @@ use indenter::indented;
 use qsc_fir::fir::PackageId;
 use rustc_hash::FxHashSet;
 
+// TODO: add tests to this crate that validate source locations
+
 #[allow(clippy::needless_pass_by_value)]
 fn check(instructions: Vec<Instruction>, expect: Expect) {
     let ops = program(instructions);
@@ -26,7 +28,7 @@ fn check(instructions: Vec<Instruction>, expect: Expect) {
             }
         };
 
-        add_op_with_grouping(true, &[], &(), &mut grouped, op, op_call_stack);
+        add_op_with_grouping(false, true, &[], &(), &mut grouped, op, op_call_stack);
     }
 
     let fmt_ops = |grouped: &[Op]| -> String {
@@ -179,6 +181,18 @@ impl OperationOrGroupExt for Op {
     }
 
     fn extend_target_results(&mut self, _target_results: &[crate::builder::ResultWire]) {}
+
+    fn set_location(&mut self, _location: PackageOffset) {
+        // no-op
+    }
+
+    fn into_operation(
+        self,
+        _dbg_stuff: &Self::DbgStuff<'_>,
+        _scope_resolver: Option<&impl ScopeResolver<ScopeId = Self::Scope>>,
+    ) -> crate::Operation {
+        todo!()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
