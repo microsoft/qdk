@@ -96,7 +96,7 @@ def is_invalid_move_pair(move1: Move, move2: Move) -> bool:
 
 
 @lru_cache(maxsize=1 << 14)
-def move_scale_helper(source_diff, destination_diff):
+def scale_factor_helper(source_diff, destination_diff):
     return True if destination_diff == 0 else Fraction(source_diff, destination_diff)
 
 
@@ -111,9 +111,9 @@ def scale_factor(move1: Move, move2: Move) -> MoveGroupScaleFactor:
     source_col_diff = move1.src_loc[1] - move2.src_loc[1]
     destination_col_diff = move1.dst_loc[1] - move2.dst_loc[1]
 
-    return move_scale_helper(source_row_diff, destination_row_diff), move_scale_helper(
-        source_col_diff, destination_col_diff
-    )
+    return scale_factor_helper(
+        source_row_diff, destination_row_diff
+    ), scale_factor_helper(source_col_diff, destination_col_diff)
 
 
 class MoveGroupCandidate:
@@ -137,7 +137,7 @@ class MoveGroupCandidate:
         return len(self.moves)
 
     def add(self, move: Move):
-        # A move group with a single move doesn't have an associated move_scale.
+        # A move group with a single move doesn't have an associated scale factor.
         # Therefore, we cannot test if a move is compatible with it, which means
         # we cannot add moves to it.
         assert (
@@ -196,8 +196,8 @@ class MoveGroupPool:
             if is_invalid_move_pair(pair[0], pair[1]):
                 continue
             s = scale_factor(pair[0], pair[1])
-            candidates_with_same_move_scale = self.move_group_candidates.get(s, [])
-            for group in candidates_with_same_move_scale:
+            candidates_with_same_scale_factor = self.move_group_candidates.get(s, [])
+            for group in candidates_with_same_scale_factor:
                 if pair[0] in group.moves:
                     group.moves.add(pair[1])
                     move_added = True
@@ -212,8 +212,8 @@ class MoveGroupPool:
                     move_added = True
                     break
             else:
-                candidates_with_same_move_scale.append(MoveGroupCandidate(pair))
-                self.move_group_candidates[s] = candidates_with_same_move_scale
+                candidates_with_same_scale_factor.append(MoveGroupCandidate(pair))
+                self.move_group_candidates[s] = candidates_with_same_scale_factor
                 move_added = True
 
         # This case triggers if `move` is not compatible with any move in `self.moves`.
