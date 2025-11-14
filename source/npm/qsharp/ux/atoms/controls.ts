@@ -48,6 +48,22 @@ export function getIcon(name: string): SVGGElement {
         appendChildren(g, [circle, path1, path2]);
       }
       break;
+    case "info":
+      {
+        const [dot, line] = createSvgElements("circle", "path");
+        setAttributes(dot, {
+          cx: "128",
+          cy: "68",
+          r: "12",
+          class: "qs-atoms-info-dot",
+        });
+        setAttributes(line, {
+          d: "M128,116 v72",
+          class: "qs-atoms-icon-line",
+        });
+        appendChildren(g, [circle, dot, line]);
+      }
+      break;
     case "zoom-in":
       {
         const [path1] = createSvgElements("path");
@@ -101,18 +117,21 @@ export function createPlayerControls(): SVGSVGElement {
 
 export function createZoomControls(): SVGSVGElement {
   const svg = createSvgElements("svg")[0] as SVGSVGElement;
-  const width = 256 * 2 + 32;
+  const width = 256 * 3 + 32 * 2;
   setAttributes(svg, {
     viewBox: `0 0 ${width} 256`,
     class: "qs-atoms-toolbar qs-atoms-toolbar-left",
   });
+  const info = getIcon("info");
+  info.setAttribute("transform", "translate(0)");
+
   const zoomIn = getIcon("zoom-in");
-  zoomIn.setAttribute("transform", "translate(0)");
+  zoomIn.setAttribute("transform", "translate(288)");
 
   const zoomOut = getIcon("zoom-out");
-  zoomOut.setAttribute("transform", "translate(288)");
+  zoomOut.setAttribute("transform", "translate(576)");
 
-  appendChildren(svg, [zoomIn, zoomOut]);
+  appendChildren(svg, [info, zoomIn, zoomOut]);
   return svg;
 }
 
@@ -132,7 +151,7 @@ export function createScrubberControls(): Scrubber {
   let max = 0;
 
   const div = document.createElement("div");
-  div.style.margin = "0 auto";
+  div.style.display = "flex";
 
   const span = document.createElement("span");
   span.classList.add("qs-atoms-step");

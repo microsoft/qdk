@@ -68,6 +68,7 @@
 .qs-atoms-toolstrip {
   display: flex;
   align-items: center;
+  justify-content: space-between;
 }
 
 .qs-atoms-toolbar {
@@ -80,6 +81,12 @@
   stroke-width: 6;
   fill: transparent;
   cursor: pointer;
+}
+
+.qs-atoms-icon > .qs-atoms-info-dot {
+  fill: var(--qs-atoms-primay-color);
+  stroke: none;
+  pointer-events: none;
 }
 
 .qs-atoms-icon > circle:hover {
@@ -105,9 +112,8 @@
 }
 
 .qs-atoms-step {
-  min-width: 128px;
   text-align: end;
-  margin: 0 20px;
+  margin-right: 20px;
   user-select: none;
   -webkit-user-select: none;
 }
@@ -154,14 +160,14 @@
 
 .qs-atoms-qubit-trail-start {
   stroke: gray;
-  stroke-width: 0.5px;
+  stroke-width: 1px;
   fill: var(--qs-atoms-qubitbox);
-  r: 2.5px;
+  r: 3px;
 }
 
 .qs-atoms-qubit-trail {
   stroke: gray;
-  stroke-width: 0.5px;
+  stroke-width: 1px;
   fill: none;
   stroke-dasharray: 1, 1;
 }
@@ -198,4 +204,23 @@
 
 .qs-atoms-gate-text-small {
   font-size: 4px;
+}
+
+.qs-atoms-info-box {
+  position: absolute;
+  display: none;
+  left: 40px;
+  top: 50px;
+  border: 1px solid gray;
+  border-radius: 8px;
+  background-color: var(--qs-atoms-background-color);
+  color: var(--qs-atoms-primay-color);
+  padding: 16px;
+  width: 250px;
+}
+
+.qs-atoms-info-box-grid {
+  display: grid;
+  grid-template-columns: 50px 200px;
+  padding: 8px;
 }

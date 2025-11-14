@@ -21,3 +21,4 @@ export { EstimatesPanel } from "./estimatesPanel.js";
 export { Circuit, CircuitPanel } from "./circuit.js";
 export { setRenderer, Markdown } from "./renderers.js";
 export { Atoms, type ZoneLayout, type TraceData } from "./atoms/index.js";
+export { MoleculeViewer } from "./chem/index.js";

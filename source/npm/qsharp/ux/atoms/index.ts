@@ -104,6 +104,9 @@ export function Atoms(
     }
   });
 
+  const info = container.querySelector(
+    "[data-control='info']",
+  ) as SVGCircleElement;
   const next = container.querySelector(
     "[data-control='next']",
   ) as SVGCircleElement;
@@ -152,6 +155,30 @@ export function Atoms(
     }
     playTimer = setTimeout(onTimeout, 0);
   }
+
+  const infoBox = document.createElement("div");
+  infoBox.innerHTML = `
+  <b>Keyboard shortcuts</b>
+  <div class="qs-atoms-info-box-grid">
+    <div>Left</div><div>Step back</div>
+    <div>Right</div><div>Step forward</div>
+    <div>Up</div><div>Zoom in</div>
+    <div>Down</div><div>Zoom out</div>
+    <div>P</div><div>Play / Pause </div>
+    <div>F</div><div>Faster animation</div>
+    <div>S</div><div>Slower animation</div>
+    <div>T</div><div>Toggle animation type</div>
+  </div>
+  `;
+  infoBox.classList.add("qs-atoms-info-box");
+  container.appendChild(infoBox);
+
+  info.addEventListener("mouseover", () => {
+    infoBox.style.display = "block";
+  });
+  info.addEventListener("mouseout", () => {
+    infoBox.style.display = "none";
+  });
 
   next.addEventListener("click", () => scrubberControls.next());
   prev.addEventListener("click", () => scrubberControls.prev());
