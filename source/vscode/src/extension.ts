@@ -128,6 +128,10 @@ export async function activate(
 
           const document = await vscode.workspace.openTextDocument(l.uri);
 
+          // Force the document to open and take focus first in our preferred
+          // view column - this prevents the `goToLocations` command
+          // below from opening the document in whatever view column currently
+          // has focus.
           await vscode.window.showTextDocument(document, {
             viewColumn,
           });
