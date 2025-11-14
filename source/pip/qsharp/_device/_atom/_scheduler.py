@@ -15,7 +15,7 @@ from pyqir import (
     IntType,
     Value,
 )
-from .._device import Device
+from .._device import Device, Zone, ZoneType
 from dataclasses import dataclass
 from itertools import islice, chain
 from typing import Iterable, TypeAlias, Optional
@@ -240,10 +240,14 @@ class MoveGroupPool:
 class MoveScheduler:
 
     def __init__(
-        self, device: Device, qubits_to_move: list[QubitId | tuple[QubitId, QubitId]]
+        self,
+        device: Device,
+        zone: Zone,
+        qubits_to_move: list[QubitId | tuple[QubitId, QubitId]],
     ):
         self.device = device
-        self.available_iz_locations = self.build_iz_locations()
+        self.zone = zone
+        self.available_dst_locations = self.build_zone_locations(zone)
         self.partial_moves = self.qubits_to_partial_moves(qubits_to_move)
         self.disjoint_pools: list[MoveGroupPool] = [
             MoveGroupPool((row_parity, col_parity), (ud, lr))
@@ -253,17 +257,14 @@ class MoveScheduler:
             for lr in (0, 1)
         ]
 
-    def build_iz_locations(self) -> dict[Location, None]:
-        interaction_zone = self.device.get_interaction_zones()[0]
-        interaction_zone_row_offset = (
-            interaction_zone.offset // self.device.column_count
-        )
+    def build_zone_locations(self, zone: Zone) -> dict[Location, None]:
+        zone_row_offset = zone.offset // self.device.column_count
         # We use a dict with None values instead of a set to preserve order.
         return {
             (row, col): None
             for row in range(
-                interaction_zone_row_offset,
-                interaction_zone_row_offset + interaction_zone.row_count,
+                zone_row_offset,
+                zone_row_offset + zone.row_count,
             )
             for col in range(self.device.column_count)
         }
@@ -323,12 +324,9 @@ class MoveScheduler:
     def add_to_largest_compatible_move_group(
         self, partial_move: PartialMove
     ) -> MoveGroupPool:
-        interaction_zone = self.device.get_interaction_zones()[0]
-        interaction_zone_row_offset = (
-            interaction_zone.offset // self.device.column_count
-        )
+        zone_row_offset = self.zone.offset // self.device.column_count
         src_col_parity = partial_move.src_loc[1] % 2
-        ud_direction = int(partial_move.src_loc[0] < interaction_zone_row_offset)
+        ud_direction = int(partial_move.src_loc[0] < zone_row_offset)
         compatible_move_group_pools = [
             self.disjoint_pools[
                 index_from_parity_and_direction(
@@ -350,13 +348,10 @@ class MoveScheduler:
     def add_pair_to_largest_compatible_move_group(
         self, partial_move_pair: PartialMovePair
     ) -> MoveGroupPool:
-        interaction_zone = self.device.get_interaction_zones()[0]
-        interaction_zone_row_offset = (
-            interaction_zone.offset // self.device.column_count
-        )
+        zone_row_offset = self.zone.offset // self.device.column_count
         partial_move = partial_move_pair[0]
         src_col_parity = partial_move.src_loc[1] % 2
-        ud_direction = int(partial_move.src_loc[0] < interaction_zone_row_offset)
+        ud_direction = int(partial_move.src_loc[0] < zone_row_offset)
         compatible_move_group_pools = [
             self.disjoint_pools[
                 index_from_parity_and_direction(
@@ -423,7 +418,7 @@ class MoveScheduler:
                 return None
 
         loc = (dst_row, dst_col)
-        if loc in self.available_iz_locations:
+        if loc in self.available_dst_locations:
             return loc
 
     def get_compatible_move(
@@ -435,36 +430,37 @@ class MoveScheduler:
         source = partial_move.src_loc
 
         # First, try finding a large enough group to place the partial movement in.
-        GROUP_SIZE_THRESHOLD = self.device.column_count // 4
-        best_destination: Optional[Location] = None
-        best_destination_group_len = 0
-        for scale, groups in pool.move_group_candidates.items():
-            if not scale:
-                continue
-            for group in sorted(groups, key=len, reverse=True):
-                if (
-                    len(group) < GROUP_SIZE_THRESHOLD
-                    or len(group) < best_destination_group_len
-                ):
-                    break
-                if destination := self.get_destination(partial_move, scale, group):
-                    if (not is_pair) or destination[1] % 2 == 0:
-                        best_destination = destination
-                        best_destination_group_len = len(group)
+        if self.zone.type != ZoneType.MEAS:
+            GROUP_SIZE_THRESHOLD = self.device.column_count // 4
+            best_destination: Optional[Location] = None
+            best_destination_group_len = 0
+            for scale, groups in pool.move_group_candidates.items():
+                if not scale:
+                    continue
+                for group in sorted(groups, key=len, reverse=True):
+                    if (
+                        len(group) < GROUP_SIZE_THRESHOLD
+                        or len(group) < best_destination_group_len
+                    ):
                         break
-        if best_destination:
-            del self.available_iz_locations[best_destination]
-            return partial_move.into_move(best_destination)
+                    if destination := self.get_destination(partial_move, scale, group):
+                        if (not is_pair) or destination[1] % 2 == 0:
+                            best_destination = destination
+                            best_destination_group_len = len(group)
+                            break
+            if best_destination:
+                del self.available_dst_locations[best_destination]
+                return partial_move.into_move(best_destination)
 
         # If we didn't find a group to place the partial_move in,
         # just pick the next available IZ location.
-        for destination in self.available_iz_locations:
+        for destination in self.available_dst_locations:
             if (
                 ((not is_pair) or destination[1] % 2 == 0)
                 and pool.parity == move_parity(source, destination)
                 and pool.direction == move_direction(source, destination)
             ):
-                del self.available_iz_locations[destination]
+                del self.available_dst_locations[destination]
                 return partial_move.into_move(destination)
 
     def __iter__(self):
@@ -503,6 +499,7 @@ class Schedule(QirModuleVisitor):
         self.device = device
         self.num_qubits = len(self.device.home_locs)
         self.pending_moves_back: list[list[Move]] = []
+        self.pending_moves_zone = device.get_interaction_zones()[0]
 
     def _on_module(self, module):
         i64_ty = IntType(module.context, 64)
@@ -663,6 +660,7 @@ class Schedule(QirModuleVisitor):
                     self.pending_moves.append((instr.args[1], instr.args[0]))
                 else:
                     self.pending_moves.append((instr.args[0], instr.args[1]))
+                self.pending_moves_zone = self.device.get_interaction_zones()[0]
 
             elif gate != {} and len(gate["result_args"]) == 1:
                 # This is a measurement; queue it up to be executed in the measurement zone.
@@ -699,6 +697,7 @@ class Schedule(QirModuleVisitor):
                 self.measurements.append((instr, gate))
                 self.vals_used_in_measurements.update(vals_used)
                 self.pending_moves.append(instr.args[0])
+                self.pending_moves_zone = self.device.get_measurement_zones()[0]
             else:
                 # This is not a gate or measurement; flush any pending operations and leave the instruction in place.
                 # This uses a while loop to ensure all pending operations are flushed before the instruction.
@@ -773,6 +772,7 @@ class Schedule(QirModuleVisitor):
                         if self.single_qubit_ops[q][0][1]["gate"] == "rz":
                             qubit = self.single_qubit_ops[q][0][0].args[1]
                         self.pending_moves.append(qubit)
+                self.pending_moves_zone = self.device.get_interaction_zones()[0]
                 self.insert_moves()
                 for target_qubits in target_qubits_by_row:
                     self.flush_single_qubit_ops(target_qubits)
@@ -781,7 +781,7 @@ class Schedule(QirModuleVisitor):
             return
 
     def schedule_pending_moves(self) -> Iterable[list[Move]]:
-        return MoveScheduler(self.device, self.pending_moves)
+        return MoveScheduler(self.device, self.pending_moves_zone, self.pending_moves)
 
     def insert_moves(self):
         """
