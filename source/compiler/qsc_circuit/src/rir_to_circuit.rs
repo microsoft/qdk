@@ -1019,10 +1019,9 @@ fn operations_in_block(
     let mut phis = vec![];
     let mut done = false;
 
-    let binding = DbgStuff { dbg_info };
+    let dbg_stuff = DbgStuff { dbg_info };
     let mut builder = OpListBuilder::new(
         ops_remaining,
-        &binding,
         source_locations,
         group_scopes,
         user_package_ids.to_vec(),
@@ -1039,6 +1038,7 @@ fn operations_in_block(
                 builder: &mut builder,
                 register_map,
             },
+            &dbg_stuff,
             callables,
             &mut phis,
             &mut done,
@@ -1277,13 +1277,14 @@ fn get_operations_for_instruction_vars_only(
 }
 
 struct BuilderWithRegisterMap<'a> {
-    builder: &'a mut OpListBuilder<'a>,
+    builder: &'a mut OpListBuilder,
     register_map: &'a WireMap,
 }
 
 fn get_operations_for_instruction(
     state: &mut ProgramMap,
     mut builder_ctx: BuilderWithRegisterMap,
+    dbg_stuff: &DbgStuff,
     callables: &IndexMap<qsc_partial_eval::CallableId, Callable>,
     phis: &mut Vec<(Variable, Vec<(Expr, BlockId)>)>,
     done: &mut bool,
@@ -1295,6 +1296,7 @@ fn get_operations_for_instruction(
             trace_call(
                 state,
                 &mut builder_ctx,
+                dbg_stuff,
                 callables.get(*callable_id).expect("callable should exist"),
                 operands,
                 instruction.metadata.as_ref(),
@@ -1324,7 +1326,7 @@ fn get_operations_for_instruction(
         Instruction::Branch(variable, block_id_1, block_id_2) => {
             *done = true;
             extend_block_with_branch_instruction(
-                dbg_info,
+                dbg_stuff.dbg_info,
                 &mut terminator,
                 instruction,
                 *variable,
@@ -2024,14 +2026,21 @@ fn process_callable_variables(
 fn trace_call(
     state: &mut ProgramMap,
     builder_ctx: &mut BuilderWithRegisterMap,
+    dbg_stuff: &DbgStuff,
     callable: &Callable,
     operands: &[Operand],
     metadata: Option<&InstructionMetadata>,
 ) -> Result<(), Error> {
     match callable.call_type {
-        CallableType::Measurement => trace_measurement(builder_ctx, callable, operands, metadata),
-        CallableType::Reset => trace_reset(state, builder_ctx, callable, operands, metadata),
-        CallableType::Regular => trace_gate(state, builder_ctx, callable, operands, metadata),
+        CallableType::Measurement => {
+            trace_measurement(builder_ctx, dbg_stuff, callable, operands, metadata)
+        }
+        CallableType::Reset => {
+            trace_reset(state, builder_ctx, dbg_stuff, callable, operands, metadata)
+        }
+        CallableType::Regular => {
+            trace_gate(state, builder_ctx, dbg_stuff, callable, operands, metadata)
+        }
         CallableType::Readout | CallableType::OutputRecording | CallableType::Initialize => Ok(()),
     }
 }
@@ -2039,6 +2048,7 @@ fn trace_call(
 fn trace_gate(
     state: &mut ProgramMap,
     builder_ctx: &mut BuilderWithRegisterMap,
+    dbg_stuff: &DbgStuff,
     callable: &Callable,
     operands: &[Operand],
     metadata: Option<&InstructionMetadata>,
@@ -2063,6 +2073,7 @@ fn trace_gate(
             .unwrap_or_default();
 
         builder_ctx.builder.gate(
+            dbg_stuff,
             builder_ctx.register_map,
             name,
             is_adjoint,
@@ -2081,6 +2092,7 @@ fn trace_gate(
 fn trace_reset(
     state: &mut ProgramMap,
     builder_ctx: &mut BuilderWithRegisterMap,
+    dbg_stuff: &DbgStuff,
     callable: &Callable,
     operands: &[Operand],
     metadata: Option<&InstructionMetadata>,
@@ -2110,7 +2122,7 @@ fn trace_reset(
                 .unwrap_or_default();
             builder_ctx
                 .builder
-                .reset(builder_ctx.register_map, qubit, &op_call_stack);
+                .reset(dbg_stuff, builder_ctx.register_map, qubit, &op_call_stack);
         }
         name => {
             return Err(Error::UnsupportedFeature(format!(
@@ -2123,6 +2135,7 @@ fn trace_reset(
 
 fn trace_measurement(
     builder_ctx: &mut BuilderWithRegisterMap,
+    dbg_stuff: &DbgStuff,
     callable: &Callable,
     operands: &[Operand],
     metadata: Option<&InstructionMetadata>,
@@ -2131,24 +2144,27 @@ fn trace_measurement(
 
     let op_call_stack = metadata
         .and_then(|md| md.dbg_location)
-        .map(|dbg_location| {
-            builder_ctx
-                .builder
-                .dbg_stuff
-                .instruction_logical_stack(dbg_location)
-        })
+        .map(|dbg_location| dbg_stuff.instruction_logical_stack(dbg_location))
         .unwrap_or_default();
 
     match callable.name.as_str() {
         "__quantum__qis__mresetz__body" => {
-            builder_ctx
-                .builder
-                .mresetz(builder_ctx.register_map, qubit, result, &op_call_stack);
+            builder_ctx.builder.mresetz(
+                dbg_stuff,
+                builder_ctx.register_map,
+                qubit,
+                result,
+                &op_call_stack,
+            );
         }
         "__quantum__qis__m__body" => {
-            builder_ctx
-                .builder
-                .m(builder_ctx.register_map, qubit, result, &op_call_stack);
+            builder_ctx.builder.m(
+                dbg_stuff,
+                builder_ctx.register_map,
+                qubit,
+                result,
+                &op_call_stack,
+            );
         }
         name => panic!("unknown measurement callable: {name}"),
     }
@@ -2415,8 +2431,7 @@ fn match_operands(
 // TODO: __quantum__rt__read_loss
 
 // TODO: merge with OperationListBuilder
-struct OpListBuilder<'a> {
-    dbg_stuff: &'a DbgStuff<'a>,
+struct OpListBuilder {
     max_ops: usize,
     max_ops_exceeded: bool,
     operations: Vec<Op>,
@@ -2425,10 +2440,9 @@ struct OpListBuilder<'a> {
     user_package_ids: Vec<PackageId>,
 }
 
-impl<'a> OpListBuilder<'a> {
+impl OpListBuilder {
     pub fn new(
         max_operations: usize,
-        dbg_stuff: &'a DbgStuff<'a>,
         source_locations: bool,
         group_scopes: bool,
         user_package_ids: Vec<PackageId>,
@@ -2437,25 +2451,32 @@ impl<'a> OpListBuilder<'a> {
             max_ops: max_operations,
             max_ops_exceeded: false,
             operations: vec![],
-            dbg_stuff,
             source_locations,
             group_scopes,
             user_package_ids,
         }
     }
 
-    fn push_op(&mut self, op: Op, unfiltered_call_stack: Vec<DbgLocationId>) {
+    fn push_op(
+        &mut self,
+        dbg_stuff: &DbgStuff,
+        mut op: Op,
+        unfiltered_call_stack: Vec<DbgLocationId>,
+    ) {
         if self.max_ops_exceeded || self.operations.len() >= self.max_ops {
             // Stop adding gates and leave the circuit as is
             self.max_ops_exceeded = true;
             return;
         }
 
+        // TODO: I'm out of hacks
+        op.location_metadata = unfiltered_call_stack.last().cloned();
+
         add_op_with_grouping(
             self.source_locations,
-            self.group_scopes,
+            false,
             &self.user_package_ids,
-            self.dbg_stuff,
+            dbg_stuff,
             &mut self.operations,
             op,
             unfiltered_call_stack,
@@ -2468,6 +2489,7 @@ impl<'a> OpListBuilder<'a> {
 
     fn gate(
         &mut self,
+        dbg_stuff: &DbgStuff,
         wire_map: &WireMap,
         name: &str,
         is_adjoint: bool,
@@ -2476,13 +2498,22 @@ impl<'a> OpListBuilder<'a> {
         call_stack: &[DbgLocationId],
     ) {
         self.push_op(
+            dbg_stuff,
             Self::new_unitary(wire_map, name, is_adjoint, inputs, args),
             call_stack.to_vec(),
         );
     }
 
-    fn m(&mut self, wire_map: &WireMap, qubit: usize, result: usize, call_stack: &[DbgLocationId]) {
+    fn m(
+        &mut self,
+        dbg_stuff: &DbgStuff,
+        wire_map: &WireMap,
+        qubit: usize,
+        result: usize,
+        call_stack: &[DbgLocationId],
+    ) {
         self.push_op(
+            dbg_stuff,
             Self::new_measurement("M", wire_map, qubit, result),
             call_stack.to_vec(),
         );
@@ -2490,20 +2521,36 @@ impl<'a> OpListBuilder<'a> {
 
     fn mresetz(
         &mut self,
+        dbg_stuff: &DbgStuff,
         wire_map: &WireMap,
         qubit: usize,
         result: usize,
         call_stack: &[DbgLocationId],
     ) {
         self.push_op(
+            dbg_stuff,
             Self::new_measurement("MResetZ", wire_map, qubit, result),
             call_stack.to_vec(),
         );
-        self.push_op(Self::new_ket(wire_map, qubit), call_stack.to_vec());
+        self.push_op(
+            dbg_stuff,
+            Self::new_ket(wire_map, qubit),
+            call_stack.to_vec(),
+        );
     }
 
-    fn reset(&mut self, wire_map: &WireMap, qubit: usize, call_stack: &[DbgLocationId]) {
-        self.push_op(Self::new_ket(wire_map, qubit), call_stack.to_vec());
+    fn reset(
+        &mut self,
+        dbg_stuff: &DbgStuff,
+        wire_map: &WireMap,
+        qubit: usize,
+        call_stack: &[DbgLocationId],
+    ) {
+        self.push_op(
+            dbg_stuff,
+            Self::new_ket(wire_map, qubit),
+            call_stack.to_vec(),
+        );
     }
 
     fn new_unitary(
