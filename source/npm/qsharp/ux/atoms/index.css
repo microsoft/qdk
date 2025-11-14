@@ -68,6 +68,7 @@
 .qs-atoms-toolstrip {
   display: flex;
   align-items: center;
+  justify-content: space-between;
 }
 
 .qs-atoms-toolbar {
@@ -111,9 +112,8 @@
 }
 
 .qs-atoms-step {
-  min-width: 128px;
   text-align: end;
-  margin: 0 20px;
+  margin-right: 20px;
   user-select: none;
   -webkit-user-select: none;
 }
@@ -209,8 +209,8 @@
 .qs-atoms-info-box {
   position: absolute;
   display: none;
-  left: 42px;
-  top: 54px;
+  left: 40px;
+  top: 50px;
   border: 1px solid gray;
   border-radius: 8px;
   background-color: var(--qs-atoms-background-color);

@@ -577,9 +577,9 @@ export class Layout {
   cycleAnimation() {
     if (!this.showTracks) {
       this.showTracks = true;
-      this.showDottedPath = false;
-    } else if (this.showTracks && !this.showDottedPath) {
       this.showDottedPath = true;
+    } else if (this.showTracks && this.showDottedPath) {
+      this.showDottedPath = false;
     } else {
       this.showTracks = false;
       this.showDottedPath = false;

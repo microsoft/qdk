@@ -151,7 +151,7 @@ export function createScrubberControls(): Scrubber {
   let max = 0;
 
   const div = document.createElement("div");
-  div.style.margin = "0 auto";
+  div.style.display = "flex";
 
   const span = document.createElement("span");
   span.classList.add("qs-atoms-step");
