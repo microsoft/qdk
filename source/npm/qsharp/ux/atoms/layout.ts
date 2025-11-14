@@ -228,7 +228,7 @@ export class Layout {
   trace: TraceData;
   getStepLayout: (step: number) => Uint16Array;
   showTracks = true;
-  showDottedPath = false;
+  showDottedPath = true;
   stepInterval = 500; // Used for playing and animations
 
   constructor(
@@ -584,6 +584,7 @@ export class Layout {
       this.showTracks = false;
       this.showDottedPath = false;
     }
+    this.gotoStep(this.currentStep);
   }
 
   getQubitRowOffset(row: number) {
@@ -651,7 +652,7 @@ export class Layout {
           const [newX, newY] = this.getLocationCenter(move.to[0], move.to[1]);
           const qubit = this.qubits[move.qubit][2];
           if (!qubit) throw "Invalid qubit index";
-          if (forwards && this.showTracks) {
+          if (this.showTracks) {
             if (this.showDottedPath) {
               // Render a hollow circle at the start position
               const [startCircle, trail] = createSvgElements("circle", "line");
