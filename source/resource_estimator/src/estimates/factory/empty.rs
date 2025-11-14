@@ -32,7 +32,7 @@ impl<E: ErrorCorrection<Parameter = impl Clone>> FactoryBuilder<E> for NoFactori
         _magic_state_type: usize,
         _output_error_rate: f64,
         _max_code_parameter: &<E as ErrorCorrection>::Parameter,
-    ) -> Result<Vec<std::borrow::Cow<Self::Factory>>, String> {
+    ) -> Result<Vec<std::borrow::Cow<'_, Self::Factory>>, String> {
         unreachable!()
     }
 
@@ -56,7 +56,7 @@ impl<P: Clone> Factory for NoFactory<P> {
         unreachable!()
     }
 
-    fn max_code_parameter(&self) -> Option<std::borrow::Cow<Self::Parameter>> {
+    fn max_code_parameter(&self) -> Option<std::borrow::Cow<'_, Self::Parameter>> {
         unreachable!()
     }
 }

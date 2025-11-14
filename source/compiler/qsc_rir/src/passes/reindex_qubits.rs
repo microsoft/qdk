@@ -266,10 +266,10 @@ fn qubit_used_in_instrs<'a>(id: u32, instrs: impl Iterator<Item = &'a Instructio
     for instr in instrs {
         if let Instruction::Call(_, args, _) = instr {
             for arg in args {
-                if let Operand::Literal(Literal::Qubit(qubit_id)) = arg {
-                    if *qubit_id == id {
-                        return true;
-                    }
+                if let Operand::Literal(Literal::Qubit(qubit_id)) = arg
+                    && *qubit_id == id
+                {
+                    return true;
                 }
             }
         }

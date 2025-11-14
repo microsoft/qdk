@@ -1,9 +1,7 @@
 package-lock.json
 __pycache__/
-.ado/
 .cargo/
 .devcontainer/
-.github/
 .pytest_cache/
 .vscode/
 .vscode-test-web/

@@ -52,30 +52,30 @@ fn quick_fixes(
 
     // For all diagnostics that are lints, we extract the code action edits from them.
     for diagnostic in diagnostics {
-        if let ErrorKind::Lint(lint) = diagnostic.error() {
-            if !lint.code_action_edits.is_empty() {
-                let source = compilation
-                    .user_unit()
-                    .sources
-                    .find_by_name(source_name)
-                    .expect("source should exist");
-                let text_edits: Vec<TextEdit> = lint
-                    .code_action_edits
-                    .iter()
-                    .map(|(new_text, span)| TextEdit {
-                        new_text: new_text.clone(),
-                        range: qsc::line_column::Range::from_span(encoding, &source.contents, span),
-                    })
-                    .collect();
-                code_actions.push(CodeAction {
-                    title: diagnostic.to_string(),
-                    edit: Some(WorkspaceEdit {
-                        changes: vec![(source_name.to_string(), text_edits)],
-                    }),
-                    kind: Some(CodeActionKind::QuickFix),
-                    is_preferred: None,
-                });
-            }
+        if let ErrorKind::Lint(lint) = diagnostic.error()
+            && !lint.code_action_edits.is_empty()
+        {
+            let source = compilation
+                .user_unit()
+                .sources
+                .find_by_name(source_name)
+                .expect("source should exist");
+            let text_edits: Vec<TextEdit> = lint
+                .code_action_edits
+                .iter()
+                .map(|(new_text, span)| TextEdit {
+                    new_text: new_text.clone(),
+                    range: qsc::line_column::Range::from_span(encoding, &source.contents, span),
+                })
+                .collect();
+            code_actions.push(CodeAction {
+                title: diagnostic.to_string(),
+                edit: Some(WorkspaceEdit {
+                    changes: vec![(source_name.to_string(), text_edits)],
+                }),
+                kind: Some(CodeActionKind::QuickFix),
+                is_preferred: None,
+            });
         }
     }
 

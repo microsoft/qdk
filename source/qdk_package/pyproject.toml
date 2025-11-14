@@ -9,7 +9,7 @@ description = "Quantum Development Kit Python Package"
 readme = "README.md"
 authors = [ { name = "Microsoft" } ]
 license = { file = "LICENSE.txt" }
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = ["qsharp==0.0.0"]
 
 [project.optional-dependencies]

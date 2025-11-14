@@ -181,10 +181,14 @@ type JobOverview = {
   target: string;
   status:
     | "Waiting"
+    | "Queued"
     | "Executing"
+    | "Completed"
     | "Succeeded"
     | "Failed"
     | "Finishing"
+    | "CancellationRequested"
+    | "Cancelling"
     | "Cancelled";
   count?: number;
   shots?: number;
@@ -233,7 +237,7 @@ export async function downloadJobResults(
 ): Promise<DownloadJobResult> {
   const job = (await getJob(toolState, args)).result;
 
-  if (job.status !== "Succeeded") {
+  if (job.status !== "Succeeded" && job.status !== "Completed") {
     throw new CopilotToolError("Job has not completed successfully.");
   }
 

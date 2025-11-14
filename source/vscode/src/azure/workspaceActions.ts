@@ -412,10 +412,6 @@ export async function queryWorkspace(workspace: WorkspaceConnection) {
     log.trace(`Got jobs: ${JSON.stringify(jobs, null, 2)}`);
   }
 
-  if (jobs.nextLink) {
-    log.error("Jobs returned a nextLink. This is not supported yet.");
-  }
-
   if (jobs.value.length === 0) {
     sendTelemetryEvent(
       EventType.QueryWorkspaceEnd,

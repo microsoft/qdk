@@ -8,7 +8,14 @@ import { targetSupportQir } from "./providerProperties";
 
 // See docs at https://code.visualstudio.com/api/extension-guides/tree-view
 
-const pendingStatuses = ["Waiting", "Executing", "Finishing"];
+const pendingStatuses = [
+  "Waiting",
+  "Queued",
+  "Executing",
+  "Finishing",
+  "CancellationRequested",
+  "Cancelling",
+];
 const noQirMsq = `Note: As this target does not currently support QIR, this VS Code extension cannot submit jobs to it. See https://aka.ms/qdk.qir for more info`;
 
 // Convert a date such as "2023-07-24T17:25:09.1309979Z" into local time
@@ -126,10 +133,14 @@ export type Job = {
   target: string;
   status:
     | "Waiting"
+    | "Queued"
     | "Executing"
+    | "Completed"
     | "Succeeded"
     | "Failed"
     | "Finishing"
+    | "CancellationRequested"
+    | "Cancelling"
     | "Cancelled";
   outputDataUri?: string;
   count?: number;
@@ -248,9 +259,14 @@ export class WorkspaceTreeItem extends vscode.TreeItem {
           case "Finishing":
             this.iconPath = new vscode.ThemeIcon("run-all");
             break;
+          case "Queued":
           case "Waiting":
             this.iconPath = new vscode.ThemeIcon("loading~spin");
             this.contextValue = "job-cancelable";
+            break;
+          case "CancellationRequested":
+          case "Cancelling":
+            this.iconPath = new vscode.ThemeIcon("circle-slash");
             break;
           case "Cancelled":
             this.iconPath = new vscode.ThemeIcon("circle-slash");
@@ -260,6 +276,7 @@ export class WorkspaceTreeItem extends vscode.TreeItem {
             this.iconPath = new vscode.ThemeIcon("error");
             this.contextValue = "result";
             break;
+          case "Completed":
           case "Succeeded":
             this.iconPath = new vscode.ThemeIcon("pass");
             this.contextValue = "result-download";

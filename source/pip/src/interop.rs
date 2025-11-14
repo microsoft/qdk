@@ -1,6 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#![allow(
+    clippy::doc_markdown,
+    reason = "docstrings in this module conform to the python docstring format."
+)]
+
 use std::fmt::Write;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -428,13 +433,13 @@ pub(crate) fn map_entry_compilation_errors(
                 // The entry expression is invalid. This is likely due to a type mismatch
                 // or missing parameter(s). We should provide a more helpful error message.
                 let mut message = format_error(&error);
-                writeln!(message).unwrap();
-                writeln!(message, "failed to compile entry point.").unwrap();
+                writeln!(message).expect("write should succeed");
+                writeln!(message, "failed to compile entry point.").expect("write should succeed");
                 writeln!(
                     message,
                     "  help: check that the parameter types match the supplied parameters"
                 )
-                .unwrap();
+                .expect("write should succeed");
 
                 write!(message, "  help: Parameters: {}", sig.input_params())
                     .expect("writing to string should succeed");
@@ -460,25 +465,25 @@ fn map_qirgen_errors(errors: Vec<interpret::Error>) -> PyErr {
                 // We've gotten this far with no compilation errors, so if we get one here
                 // then the entry expression is invalid.
                 let mut message = format_error(&error);
-                writeln!(message).unwrap();
-                writeln!(message, "failed to compile entry point.").unwrap();
+                writeln!(message).expect("write should succeed");
+                writeln!(message, "failed to compile entry point.").expect("write should succeed");
                 writeln!(
                     message,
                     "  help: check that the parameter types match the entry point signature"
                 )
-                .unwrap();
+                .expect("write should succeed");
 
                 semantic.push(message);
             }
             interpret::Error::PartialEvaluation(pe) => match pe.error() {
                 qsc::partial_eval::Error::OutputResultLiteral(..) => {
                     let mut message = format_error(&error);
-                    writeln!(message).unwrap();
+                    writeln!(message).expect("write should succeed");
                     writeln!(
                         message,
                         "  help: ensure all output registers have been measured into."
                     )
-                    .unwrap();
+                    .expect("write should succeed");
 
                     semantic.push(message);
                 }
@@ -515,7 +520,7 @@ fn estimate_qasm(
     resource_estimator::estimate_entry(&mut interpreter, params)
 }
 
-/// Synthesizes a circuit for an OpenQASM program.
+/// Synthesizes a circuit for an `OpenQASM` program.
 ///
 /// Note:
 ///     This call while exported is not intended to be used directly by the user.
@@ -523,22 +528,22 @@ fn estimate_qasm(
 ///     callbacks and other Python specific details.
 ///
 /// Args:
-///     source (str): An OpenQASM program. Alternatively, a callable can be provided,
+///     source (str): An `OpenQASM` program. Alternatively, a callable can be provided,
 ///         which must be an already imported global callable.
-///     read_file (Callable[[str], Tuple[str, str]]): A callable that reads a file and returns its content and path.
-///     list_directory (Callable[[str], List[Dict[str, str]]]): A callable that lists the contents of a directory.
-///     resolve_path (Callable[[str, str], str]): A callable that resolves a file path given a base path and a relative path.
-///     fetch_github (Callable[[str, str, str, str], str]): A callable that fetches a file from GitHub.
+///     `read_file` (Callable[[str], Tuple[str, str]]): A callable that reads a file and returns its content and path.
+///     `list_directory` (Callable[[str], List[Dict[str, str]]]): A callable that lists the contents of a directory.
+///     `resolve_path` (Callable[[str, str], str]): A callable that resolves a file path given a base path and a relative path.
+///     `fetch_github` (Callable[[str, str, str, str], str]): A callable that fetches a file from GitHub.
 ///     **kwargs: Additional keyword arguments to pass to the execution.
 ///       - name (str): The name of the program. This is used as the entry point for the program.
-///       - search_path (Optional[str]): The optional search path for resolving file references.
+///       - `search_path` (Optional[str]): The optional search path for resolving file references.
 /// Returns:
 ///     Circuit: The synthesized circuit.
 ///
 /// Raises:
-///     QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
-///     QSharpError: If there is an error evaluating the program.
-///     QSharpError: If there is an error synthesizing the circuit.
+///     `QasmError`: If there is an error generating, parsing, or analyzing the `OpenQASM` source.
+///     `QSharpError`: If there is an error evaluating the program.
+///     `QSharpError`: If there is an error synthesizing the circuit.
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
 #[pyo3(
@@ -634,7 +639,7 @@ pub(crate) fn format_qasm_errors(errors: Vec<WithSource<qsc::qasm::error::Error>
         .map(|e| {
             let mut message = String::new();
             let report = miette::Report::new(e);
-            write!(message, "{report:?}").unwrap();
+            write!(message, "{report:?}").expect("write should succeed");
             message
         })
         .collect::<String>()
@@ -648,7 +653,7 @@ pub(crate) fn create_filesystem_from_py(
     list_directory: Option<PyObject>,
     resolve_path: Option<PyObject>,
     fetch_github: Option<PyObject>,
-) -> impl FileSystem + '_ {
+) -> impl FileSystem {
     file_system(
         py,
         read_file.expect("file system hooks should have been passed in with a read file callback"),

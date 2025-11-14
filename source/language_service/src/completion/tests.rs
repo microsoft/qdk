@@ -146,11 +146,11 @@ fn assert_no_duplicates(mut actual_completions: CompletionList) {
     let mut dups: Vec<&CompletionItem> = vec![];
     let mut last: Option<&CompletionItem> = None;
     for completion in &actual_completions.items {
-        if let Some(last) = last.take() {
-            if last.label == completion.label {
-                dups.push(last);
-                dups.push(completion);
-            }
+        if let Some(last) = last.take()
+            && last.label == completion.label
+        {
+            dups.push(last);
+            dups.push(completion);
         }
         last.replace(completion);
     }

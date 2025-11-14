@@ -131,7 +131,7 @@ impl Checker {
         (self.table, self.errors)
     }
 
-    pub(crate) fn drain_errors(&mut self) -> vec::Drain<Error> {
+    pub(crate) fn drain_errors(&mut self) -> vec::Drain<'_, Error> {
         self.errors.drain(..)
     }
 

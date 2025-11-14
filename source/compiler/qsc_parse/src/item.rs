@@ -177,11 +177,11 @@ pub fn parse_namespaces_or_implicit(
             s,
         )
         .map(|x| vec![x])?;
-        if let Some(ref mut ns) = ns.get_mut(0) {
-            if let Some(x) = ns.items.get_mut(0) {
-                x.span.lo = lo;
-                x.doc = doc;
-            }
+        if let Some(ref mut ns) = ns.get_mut(0)
+            && let Some(x) = ns.items.get_mut(0)
+        {
+            x.span.lo = lo;
+            x.doc = doc;
         }
         Ok(ns)
     } else {
@@ -265,12 +265,9 @@ fn validate_namespace_name(error_span: Span, name: &str) -> Result<Box<Ident>> {
     // we just directly use the ident parser here instead of trying to recreate
     // validation rules
     let ident = ident(&mut s)
-        .map_err(|_| Error::new(ErrorKind::InvalidFileName(error_span, name.to_string())))?;
+        .map_err(|_| Error::new(ErrorKind::InvalidFileName(error_span, name.clone())))?;
     if s.peek().kind != TokenKind::Eof {
-        return Err(Error::new(ErrorKind::InvalidFileName(
-            error_span,
-            name.to_string(),
-        )));
+        return Err(Error::new(ErrorKind::InvalidFileName(error_span, name)));
     }
     Ok(ident)
 }

@@ -2,12 +2,12 @@ name: DevSkim
 
 on:
   pull_request:
-    branches: [ main ]
+    branches: [main]
   merge_group:
   workflow_dispatch:
   schedule:
     # set schedule to run at 2AM PT on Saturdays
-    - cron: '0 9 * * Sat'
+    - cron: "0 9 * * Sat"
 
 jobs:
   lint:

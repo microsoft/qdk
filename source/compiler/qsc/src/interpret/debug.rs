@@ -42,10 +42,10 @@ pub(crate) fn format_call_stack(
             write!(trace, "Controlled({}) ", frame.functor.controlled)
                 .expect("writing to string should succeed");
         }
-        if let Some(item) = get_item_parent(store, frame.id) {
-            if let Some(ns) = get_ns_name(&item) {
-                write!(trace, "{ns}.").expect("writing to string should succeed");
-            }
+        if let Some(item) = get_item_parent(store, frame.id)
+            && let Some(ns) = get_ns_name(&item)
+        {
+            write!(trace, "{ns}.").expect("writing to string should succeed");
         }
         write!(trace, "{}", call.name.name).expect("writing to string should succeed");
 

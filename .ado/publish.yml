@@ -5,64 +5,63 @@ name: qdk-publish-$(BuildId)
 trigger:
   branches:
     include:
-    - main
+      - main
 
 # Run the pipeline every day at 6:00 AM to ensure
 # codeql and other governance checks are up-to-date.
 schedules:
-- cron: "0 6 * * *"
-  displayName: 'Build for Component Governance'
-  branches:
-    include:
-    - main
-  always: true
+  - cron: "0 6 * * *"
+    displayName: "Build for Component Governance"
+    branches:
+      include:
+        - main
+    always: true
 
 variables:
   CARGO_TERM_COLOR: always
-  RUST_TOOLCHAIN_VERSION: "1.88"
+  RUST_TOOLCHAIN_VERSION: "1.90"
 
 resources:
   repositories:
-  - repository: 1ESPipelineTemplates
-    type: git
-    name: 1ESPipelineTemplates/1ESPipelineTemplates
-    ref: refs/tags/release
+    - repository: 1ESPipelineTemplates
+      type: git
+      name: 1ESPipelineTemplates/1ESPipelineTemplates
+      ref: refs/tags/release
 
 parameters:
-- name: matrix
-  type: object
-  default:
-  - name: linux_x86_64
-    poolName: 'Azure-Pipelines-DevTools-EO'
-    imageName: 'ubuntu-22.04'
-    os: linux
-    arch: x86_64
-    additionalTargets: wasm32-unknown-unknown
-  - name: linux_aarch64
-    poolName: 'Azure-Pipelines-DevTools-ARM64-EO'
-    imageName: 'mariner-2.0-arm64'
-    os: linux
-    arch: aarch64
-    additionalRustTargets: wasm32-unknown-unknown
-  - name: mac_universal
-    poolName: 'Azure Pipelines'
-    imageName: 'macOS-latest'       # MacOS-specific Py (Mac is usually quite limited).
-    os: macOS
-    arch: x86_64
-    additionalRustTargets: aarch64-apple-darwin wasm32-unknown-unknown
-  - name: windows_x86_64
-    poolName: 'Azure-Pipelines-DevTools-EO'
-    imageName: 'windows-latest'     # Win-specific Py + Platform-independent Py.
-    os: windows
-    arch: x86_64
-    additionalTargets: wasm32-unknown-unknown
-  - name: windows_aarch64
-    poolName: 'Azure-Pipelines-DevTools-EO'
-    imageName: 'windows-latest'     # Win-specific Py + Platform-independent Py.
-    os: windows
-    arch: aarch64
-    additionalRustTargets: aarch64-pc-windows-msvc wasm32-unknown-unknown
-
+  - name: matrix
+    type: object
+    default:
+      - name: linux_x86_64
+        poolName: "Azure-Pipelines-DevTools-EO"
+        imageName: "ubuntu-22.04"
+        os: linux
+        arch: x86_64
+        additionalTargets: wasm32-unknown-unknown
+      - name: linux_aarch64
+        poolName: "Azure-Pipelines-DevTools-ARM64-EO"
+        imageName: "azurelinux-3.0-arm64"
+        os: linux
+        arch: aarch64
+        additionalRustTargets: wasm32-unknown-unknown
+      - name: mac_universal
+        poolName: "Azure Pipelines"
+        imageName: "macOS-latest" # MacOS-specific Py (Mac is usually quite limited).
+        os: macOS
+        arch: x86_64
+        additionalRustTargets: aarch64-apple-darwin wasm32-unknown-unknown
+      - name: windows_x86_64
+        poolName: "Azure-Pipelines-DevTools-EO"
+        imageName: "windows-latest" # Win-specific Py + Platform-independent Py.
+        os: windows
+        arch: x86_64
+        additionalTargets: wasm32-unknown-unknown
+      - name: windows_aarch64
+        poolName: "Azure-Pipelines-DevTools-EO"
+        imageName: "windows-latest" # Win-specific Py + Platform-independent Py.
+        os: windows
+        arch: aarch64
+        additionalRustTargets: aarch64-pc-windows-msvc wasm32-unknown-unknown
 
 # variables set by pipeline
 # - BASE_IMAGE
@@ -78,432 +77,440 @@ extends:
   parameters:
     sdl:
       sourceAnalysisPool:
-        name: 'Azure-Pipelines-DevTools-EO'
+        name: "Azure-Pipelines-DevTools-EO"
         image: windows-2022
         os: windows
     stages:
-    - stage: build
-      displayName: Build
-      jobs:
-      - job: "Node"
-        pool:
-          name: 'Azure-Pipelines-DevTools-EO'
-          image: 'ubuntu-latest'
-          os: linux
-        timeoutInMinutes: 90
-        templateContext:
-          outputs:
-          - output: pipelineArtifact
-            displayName: 'Upload NPM Package Artifact'
-            targetPath: $(System.DefaultWorkingDirectory)/target/npm/qsharp
-            artifactName: NPM
-            condition: succeeded()
-        steps:
-          # common init steps
-          - task: RustInstaller@1
-            inputs:
-              rustVersion: ms-$(RUST_TOOLCHAIN_VERSION)
-              additionalTargets: wasm32-unknown-unknown
-              cratesIoFeedOverride: $(cratesIoFeedOverride)
-              toolchainFeed: $(toolchainFeed)
-            displayName: Install Rust toolchain
+      - stage: build
+        displayName: Build
+        jobs:
+          - job: "Node"
+            pool:
+              name: "Azure-Pipelines-DevTools-EO"
+              image: "ubuntu-latest"
+              os: linux
+            timeoutInMinutes: 90
+            templateContext:
+              outputs:
+                - output: pipelineArtifact
+                  displayName: "Upload NPM Package Artifact"
+                  targetPath: $(System.DefaultWorkingDirectory)/target/npm/qsharp
+                  artifactName: NPM
+                  condition: succeeded()
+            steps:
+              # common init steps
+              - task: RustInstaller@1
+                inputs:
+                  rustVersion: ms-prod-$(RUST_TOOLCHAIN_VERSION)
+                  additionalTargets: wasm32-unknown-unknown
+                  cratesIoFeedOverride: $(cratesIoFeedOverride)
+                  toolchainFeed: $(toolchainFeed)
+                displayName: Install Rust toolchain
 
-          - task: UsePythonVersion@0
-            inputs:
-              versionSpec: '3.11'
+              - task: UsePythonVersion@0
+                inputs:
+                  versionSpec: "3.11"
 
-          - task: UseNode@1
-            inputs:
-              version: "22.x"
+              - task: UseNode@1
+                inputs:
+                  version: "22.x"
 
-          - script: |
-              python ./prereqs.py --install && python ./version.py
-            displayName: Install Prereqs and set version
+              - script: |
+                  python ./prereqs.py --install && python ./version.py
+                displayName: Install Prereqs and set version
 
-          # build steps
+              # build steps
 
-          - script: |
-              python build.py --npm --wasm --no-check-prereqs
-            displayName: Build VSCode Extension
+              - script: |
+                  python build.py --npm --wasm --no-check-prereqs
+                displayName: Build VSCode Extension
 
-          - script: |
-              mkdir -p $(System.DefaultWorkingDirectory)/target/npm/qsharp
-              npm pack --pack-destination $(System.DefaultWorkingDirectory)/target/npm/qsharp
-            displayName: Pack NPM Package
-            workingDirectory: $(System.DefaultWorkingDirectory)/source/npm/qsharp
+              - script: |
+                  mkdir -p $(System.DefaultWorkingDirectory)/target/npm/qsharp
+                  npm pack --pack-destination $(System.DefaultWorkingDirectory)/target/npm/qsharp
+                displayName: Pack NPM Package
+                workingDirectory: $(System.DefaultWorkingDirectory)/source/npm/qsharp
 
-      - job: "VSCode"
-        pool:
-          name: 'Azure-Pipelines-DevTools-EO'
-          image: 'ubuntu-latest'
-          os: linux
-        timeoutInMinutes: 90
-        templateContext:
-          outputs:
-          - output: pipelineArtifact
-            displayName: 'Upload VSCode Extension Artifact'
-            targetPath: $(System.DefaultWorkingDirectory)/target/vscode
-            artifactName: VSIX
-            condition: succeeded()
-        steps:
-        # common init steps
-        - task: RustInstaller@1
-          inputs:
-            rustVersion: ms-$(RUST_TOOLCHAIN_VERSION)
-            additionalTargets: wasm32-unknown-unknown
-            cratesIoFeedOverride: $(cratesIoFeedOverride)
-            toolchainFeed: $(toolchainFeed)
-          displayName: Install Rust toolchain
+          - job: "VSCode"
+            pool:
+              name: "Azure-Pipelines-DevTools-EO"
+              image: "ubuntu-latest"
+              os: linux
+            timeoutInMinutes: 90
+            templateContext:
+              outputs:
+                - output: pipelineArtifact
+                  displayName: "Upload VSCode Extension Artifact"
+                  targetPath: $(System.DefaultWorkingDirectory)/target/vscode
+                  artifactName: VSIX
+                  condition: succeeded()
+            steps:
+              # common init steps
+              - task: RustInstaller@1
+                inputs:
+                  rustVersion: ms-prod-$(RUST_TOOLCHAIN_VERSION)
+                  additionalTargets: wasm32-unknown-unknown
+                  cratesIoFeedOverride: $(cratesIoFeedOverride)
+                  toolchainFeed: $(toolchainFeed)
+                displayName: Install Rust toolchain
 
-        - task: UsePythonVersion@0
-          inputs:
-            versionSpec: '3.11'
+              - task: UsePythonVersion@0
+                inputs:
+                  versionSpec: "3.11"
 
-        - task: UseNode@1
-          inputs:
-            version: "22.x"
+              - task: UseNode@1
+                inputs:
+                  version: "22.x"
 
-        - script: |
-            python ./prereqs.py --install && python ./version.py
-          displayName: Install Prereqs and set version
+              - script: |
+                  python ./prereqs.py --install && python ./version.py
+                displayName: Install Prereqs and set version
 
-        # Below VS Code extension build only needs to run on one platform (Linux x86_64 for now)
-        - script: |
-            npm install -g @vscode/vsce
-          displayName: Install Prereqs for VSCode Extension
+              # Below VS Code extension build only needs to run on one platform (Linux x86_64 for now)
+              - script: |
+                  npm install -g @vscode/vsce
+                displayName: Install Prereqs for VSCode Extension
 
-        # build steps
+              # build steps
 
-        - script: |
-            python build.py --wasm --npm --vscode --integration-tests --no-check-prereqs
-          displayName: Build VSCode Extension
+              - script: |
+                  python build.py --wasm --npm --vscode --integration-tests --no-check-prereqs
+                displayName: Build VSCode Extension
 
-        - script: |
-            vsce package --pre-release
-            mkdir -p $(System.DefaultWorkingDirectory)/target/vscode
-            mv *.vsix $(System.DefaultWorkingDirectory)/target/vscode
-          condition: and(succeeded(), eq(variables['BUILD_TYPE'], 'dev'))
-          displayName: Pack pre-release VSCode Extension
-          workingDirectory: '$(System.DefaultWorkingDirectory)/source/vscode'
+              - script: |
+                  vsce package --pre-release
+                  mkdir -p $(System.DefaultWorkingDirectory)/target/vscode
+                  mv *.vsix $(System.DefaultWorkingDirectory)/target/vscode
+                condition: and(succeeded(), eq(variables['BUILD_TYPE'], 'dev'))
+                displayName: Pack pre-release VSCode Extension
+                workingDirectory: "$(System.DefaultWorkingDirectory)/source/vscode"
 
-        - script: |
-            vsce package
-            mkdir -p $(System.DefaultWorkingDirectory)/target/vscode
-            mv *.vsix $(System.DefaultWorkingDirectory)/target/vscode
-          condition: and(succeeded(), ne(variables['BUILD_TYPE'], 'dev'))
-          displayName: Pack VSCode Extension
-          workingDirectory: '$(System.DefaultWorkingDirectory)/source/vscode'
+              - script: |
+                  vsce package
+                  mkdir -p $(System.DefaultWorkingDirectory)/target/vscode
+                  mv *.vsix $(System.DefaultWorkingDirectory)/target/vscode
+                condition: and(succeeded(), ne(variables['BUILD_TYPE'], 'dev'))
+                displayName: Pack VSCode Extension
+                workingDirectory: "$(System.DefaultWorkingDirectory)/source/vscode"
 
-      - job: "Platform_Agnostic_Python"
-        pool:
-          name: 'Azure-Pipelines-DevTools-EO'
-          image: 'ubuntu-latest'
-          os: linux
-        timeoutInMinutes: 90
-        templateContext:
-          outputs:
-          - output: pipelineArtifact
-            displayName: 'Upload Platform-Agnostic Python Artifacts'
-            targetPath: $(System.DefaultWorkingDirectory)/target/wheels/
-            artifactName: Wheels.PlatformAgnostic
-            condition: succeeded()
-        steps:
-        # common init steps
-        - task: RustInstaller@1
-          inputs:
-            rustVersion: ms-$(RUST_TOOLCHAIN_VERSION)
-            cratesIoFeedOverride: $(cratesIoFeedOverride)
-            toolchainFeed: $(toolchainFeed)
-          displayName: Install Rust toolchain
+          - job: "Platform_Agnostic_Python"
+            pool:
+              name: "Azure-Pipelines-DevTools-EO"
+              image: "ubuntu-latest"
+              os: linux
+            timeoutInMinutes: 90
+            templateContext:
+              outputs:
+                - output: pipelineArtifact
+                  displayName: "Upload Platform-Agnostic Python Artifacts"
+                  targetPath: $(System.DefaultWorkingDirectory)/target/wheels/
+                  artifactName: Wheels.PlatformAgnostic
+                  condition: succeeded()
+            steps:
+              # common init steps
+              - task: RustInstaller@1
+                inputs:
+                  rustVersion: ms-prod-$(RUST_TOOLCHAIN_VERSION)
+                  cratesIoFeedOverride: $(cratesIoFeedOverride)
+                  toolchainFeed: $(toolchainFeed)
+                displayName: Install Rust toolchain
 
-        - task: UsePythonVersion@0
-          inputs:
-            versionSpec: '3.11'
+              - task: UsePythonVersion@0
+                inputs:
+                  versionSpec: "3.11"
 
-        - task: UseNode@1
-          inputs:
-            version: "22.x"
+              - task: UseNode@1
+                inputs:
+                  version: "22.x"
 
-        - script: |
-            python ./prereqs.py --skip-wasm && python ./version.py
-          displayName: Install Prereqs and set version
+              - script: |
+                  python ./prereqs.py --skip-wasm && python ./version.py
+                displayName: Install Prereqs and set version
 
-        # The jupyterlab and widgets packages have no tests. The qdk package has minimal tests but
-        # they also depend on the qsharp package which is platform-dependent. So we skip tests here
-        # and rely on the GitHub CI to run the few `qdk` tests on every PR.
-        - script: |
-            python ./build.py --jupyterlab --widgets --qdk --no-check --no-test --no-check-prereqs
-          displayName: Build Platform-Agnostic Packages
+              # The jupyterlab and widgets packages have no tests. The qdk package has minimal tests but
+              # they also depend on the qsharp package which is platform-dependent. So we skip tests here
+              # and rely on the GitHub CI to run the few `qdk` tests on every PR.
+              - script: |
+                  python ./build.py --jupyterlab --widgets --qdk --no-check --no-test --no-check-prereqs
+                displayName: Build Platform-Agnostic Packages
 
-        - script: |
-            ls target/wheels/*
+              - script: |
+                  ls target/wheels/*
 
-      - ${{ each target in parameters.matrix }}:
-        - job: Python_${{ target.name }}_job
-          pool:
-            name: ${{ target.poolName }}
-            image: ${{ target.imageName }}
-            os: ${{ target.os }}
-            ${{ if and(eq(target.arch, 'aarch64'), eq(target.os, 'linux')) }}:
-              hostArchitecture: Arm64
-          variables:
-            arch: ${{ target.arch }}
-            additionalRustTargets: ${{ target.additionalRustTargets }}
-          timeoutInMinutes: 90
-          templateContext:
-            outputs:
-            - output: pipelineArtifact
-              displayName: 'Upload Python Artifacts Mac'
-              condition: and(succeeded(), eq(variables['Agent.OS'], 'Darwin'))
-              targetPath: $(System.DefaultWorkingDirectory)/target/wheels
-              artifactName: Wheels.Mac
-            - output: pipelineArtifact
-              displayName: 'Upload Python Artifacts Win'
-              condition: and(succeeded(), eq(variables['Agent.OS'], 'Windows_NT'))
-              targetPath: $(System.DefaultWorkingDirectory)/target/wheels
-              artifactName: Wheels.Win.${{ target.arch }}
-            - output: pipelineArtifact
-              displayName: 'Upload Python Artifacts Linux'
-              condition: and(succeeded(), eq(variables['Agent.OS'], 'Linux'))
-              targetPath: $(System.DefaultWorkingDirectory)/target/wheels
-              artifactName: Wheels.Linux.${{ target.arch }}
-          steps:
-          # common init steps
-          # if we have additional rust targets, we need to install them
-          - task: RustInstaller@1
-            inputs:
-              rustVersion: ms-$(RUST_TOOLCHAIN_VERSION)
-              additionalTargets: $(additionalRustTargets)
-              cratesIoFeedOverride: $(cratesIoFeedOverride)
-              toolchainFeed: $(toolchainFeed)
-            displayName: Install Rust toolchain
-            condition: ne(variables['additionalRustTargets'], '')
+          - ${{ each target in parameters.matrix }}:
+              - job: Python_${{ target.name }}_job
+                pool:
+                  name: ${{ target.poolName }}
+                  image: ${{ target.imageName }}
+                  os: ${{ target.os }}
+                  ${{ if and(eq(target.arch, 'aarch64'), eq(target.os, 'linux')) }}:
+                    hostArchitecture: Arm64
+                variables:
+                  arch: ${{ target.arch }}
+                  additionalRustTargets: ${{ target.additionalRustTargets }}
+                timeoutInMinutes: 90
+                templateContext:
+                  outputs:
+                    - output: pipelineArtifact
+                      displayName: "Upload Python Artifacts Mac"
+                      condition: and(succeeded(), eq(variables['Agent.OS'], 'Darwin'))
+                      targetPath: $(System.DefaultWorkingDirectory)/target/wheels
+                      artifactName: Wheels.Mac
+                    - output: pipelineArtifact
+                      displayName: "Upload Python Artifacts Win"
+                      condition: and(succeeded(), eq(variables['Agent.OS'], 'Windows_NT'))
+                      targetPath: $(System.DefaultWorkingDirectory)/target/wheels
+                      artifactName: Wheels.Win.${{ target.arch }}
+                    - output: pipelineArtifact
+                      displayName: "Upload Python Artifacts Linux"
+                      condition: and(succeeded(), eq(variables['Agent.OS'], 'Linux'))
+                      targetPath: $(System.DefaultWorkingDirectory)/target/wheels
+                      artifactName: Wheels.Linux.${{ target.arch }}
+                steps:
+                  # common init steps
+                  # if we have additional rust targets, we need to install them
+                  - task: RustInstaller@1
+                    inputs:
+                      rustVersion: ms-prod-$(RUST_TOOLCHAIN_VERSION)
+                      additionalTargets: $(additionalRustTargets)
+                      cratesIoFeedOverride: $(cratesIoFeedOverride)
+                      toolchainFeed: $(toolchainFeed)
+                    displayName: Install Rust toolchain
+                    condition: ne(variables['additionalRustTargets'], '')
 
-          # otherwise just install the default toolchain
-          - task: RustInstaller@1
-            inputs:
-              rustVersion: ms-$(RUST_TOOLCHAIN_VERSION)
-              cratesIoFeedOverride: $(cratesIoFeedOverride)
-              toolchainFeed: $(toolchainFeed)
-            displayName: Install Rust toolchain
-            condition: eq(variables['additionalRustTargets'], '')
+                  # otherwise just install the default toolchain
+                  - task: RustInstaller@1
+                    inputs:
+                      rustVersion: ms-prod-$(RUST_TOOLCHAIN_VERSION)
+                      cratesIoFeedOverride: $(cratesIoFeedOverride)
+                      toolchainFeed: $(toolchainFeed)
+                    displayName: Install Rust toolchain
+                    condition: eq(variables['additionalRustTargets'], '')
 
-          - script: |
-              rustc --version
-              rustc --print target-list
-            displayName: View rust target info
+                  - script: |
+                      rustc --version
+                      rustc --print target-list
+                    displayName: View rust target info
 
-          - task: UsePythonVersion@0
-            inputs:
-              versionSpec: '3.11'
-            condition: and(ne(variables['Agent.OS'], 'Linux'), ne(variables['arch'], 'aarch64'))
+                  - task: UsePythonVersion@0
+                    inputs:
+                      versionSpec: "3.11"
+                    condition: and(ne(variables['Agent.OS'], 'Linux'), ne(variables['arch'], 'aarch64'))
 
-          - task: UseNode@1
-            inputs:
-              version: "22.x"
+                  # UsePythonVersion@0 does not support aarch64, so we install Python manually
+                  # using tdnf on Azure Linux 3.0 aarch64
+                  # We also need alias python3 as python
+                  - script: |
+                      sudo tdnf install python3-3.12.9 python3-pip-24.2 -y
+                      sudo alternatives --install /usr/bin/python python /usr/bin/python3 1
+                    displayName: Install Python on Azure Linux 3.0 aarch64
+                    condition: and(succeeded(), eq(variables['Agent.OS'], 'Linux'), eq(variables['arch'], 'aarch64'))
 
-          - script: |
-              sudo apt update
-              sudo apt install -y patchelf
-            displayName: Install Linux x86_64 prereqs
-            condition: and(eq(variables['Agent.OS'], 'Linux'), eq(variables['arch'], 'x86_64'))
+                  - task: UseNode@1
+                    inputs:
+                      version: "22.x"
 
-          # on mariner we need to install:
-          # ld with binutils
-          # crt1.o and others with glibc-devel
-          # std lib headers with kernel-headers
-          # patchelf for modifying ELF files via auditwheel
-          - script: |
-              sudo tdnf install binutils glibc-devel kernel-headers patchelf -y
-            displayName: Install c++ build tools on mariner
-            condition: and(succeeded(), eq(variables['Agent.OS'], 'Linux'), eq(variables['arch'], 'aarch64'))
+                  - script: |
+                      sudo apt update
+                      sudo apt install -y patchelf
+                    displayName: Install Linux x86_64 prereqs
+                    condition: and(eq(variables['Agent.OS'], 'Linux'), eq(variables['arch'], 'x86_64'))
 
-          - script: |
-              python ./prereqs.py --skip-wasm
-            displayName: Install Prereqs
-            condition: and(ne(variables['Agent.OS'], 'Linux'), ne(variables['arch'], 'aarch64'))
+                  # on Azure Linux 3.0 aarch64 we need to install:
+                  # ld with binutils
+                  # crt1.o and others with glibc-devel
+                  # std lib headers with kernel-headers
+                  # patchelf for modifying ELF files via auditwheel
+                  - script: |
+                      sudo tdnf install binutils glibc-devel kernel-headers patchelf gcc -y
+                    displayName: Install c++ build tools on Azure Linux 3.0 aarch64
+                    condition: and(succeeded(), eq(variables['Agent.OS'], 'Linux'), eq(variables['arch'], 'aarch64'))
 
-          - script: |
-              python ./version.py
-            displayName: Set version
+                  - script: |
+                      python ./prereqs.py --skip-wasm
+                    displayName: Install Prereqs
+                    condition: and(ne(variables['Agent.OS'], 'Linux'), ne(variables['arch'], 'aarch64'))
 
-          # On anything except Windows aarch64, we can build and run tests normally
-          - script: |
-              python build.py --pip --no-check-prereqs --integration-tests --manylinux
-            displayName: Build Platform-Dependent Py Packages
-            condition: not(and(eq(variables['Agent.OS'], 'Windows_NT'), eq(variables['arch'], 'aarch64')))
+                  - script: |
+                      python ./version.py
+                    displayName: Set version
 
-          # On Windows aarch64 we need to set the cargo build target to cross-compile properly
-          - script: |
-              echo ##vso[task.setvariable variable=CARGO_BUILD_TARGET]aarch64-pc-windows-msvc
-            displayName: Set cargo build target for Windows aarch64
-            condition: and(eq(variables['Agent.OS'], 'Windows_NT'), eq(variables['arch'], 'aarch64'))
+                  # On anything except Windows aarch64, we can build and run tests normally
+                  - script: |
+                      python build.py --pip --no-check-prereqs --integration-tests --manylinux
+                    displayName: Build Platform-Dependent Py Packages
+                    condition: not(and(eq(variables['Agent.OS'], 'Windows_NT'), eq(variables['arch'], 'aarch64')))
 
-          # now build the Windows aarch64 packages but skip tests as we can't run them
-          - script: |
-              python build.py --pip --no-check-prereqs --no-check --no-test
-            displayName: Cross Build Windows aarch64 Py Packages
-            condition: and(eq(variables['Agent.OS'], 'Windows_NT'), eq(variables['arch'], 'aarch64'))
+                  # On Windows aarch64 we need to set the cargo build target to cross-compile properly
+                  - script: |
+                      echo ##vso[task.setvariable variable=CARGO_BUILD_TARGET]aarch64-pc-windows-msvc
+                    displayName: Set cargo build target for Windows aarch64
+                    condition: and(eq(variables['Agent.OS'], 'Windows_NT'), eq(variables['arch'], 'aarch64'))
 
-          - script: |
-              dir target\wheels\*
-            displayName: List Py Packages on Win
-            condition: eq(variables['Agent.OS'], 'Windows_NT')
+                  # now build the Windows aarch64 packages but skip tests as we can't run them
+                  - script: |
+                      python build.py --pip --no-check-prereqs --no-check --no-test
+                    displayName: Cross Build Windows aarch64 Py Packages
+                    condition: and(eq(variables['Agent.OS'], 'Windows_NT'), eq(variables['arch'], 'aarch64'))
 
-          - script: |
-              ls target/wheels/*
-            displayName: List Py Packages on non-Win
-            condition: ne(variables['Agent.OS'], 'Windows_NT')
+                  - script: |
+                      dir target\wheels\*
+                    displayName: List Py Packages on Win
+                    condition: eq(variables['Agent.OS'], 'Windows_NT')
 
-    - stage: approval
-      displayName: Approval
-      dependsOn: build
-      condition: and(succeeded(), eq(variables['Build.Reason'], 'Manual'))
-      jobs:
-      - job: "Approval"
-        pool: server
-        timeoutInMinutes: 1440 # job times out in 1 day
-        steps:
-        - task: ManualValidation@0
-          timeoutInMinutes: 1440 # task times out in 1 day
-          inputs:
-            notifyUsers: ''
-            instructions: 'Please verify artifacts and approve the release'
-            onTimeout: 'reject'
+                  - script: |
+                      ls target/wheels/*
+                    displayName: List Py Packages on non-Win
+                    condition: ne(variables['Agent.OS'], 'Windows_NT')
 
-    - stage: release
-      displayName: Release
-      dependsOn: approval
-      condition: and(succeeded(), eq(variables['Build.Reason'], 'Manual'))
-      jobs:
-      - job: "Publish_VSIX_Package"
-        pool:
-          name: 'Azure-Pipelines-DevTools-EO'
-          image: 'ubuntu-latest'
-          os: linux
-        templateContext:
-          type: releaseJob
-          isProduction: true
-          inputs:  # All input build artifacts must be declared here
-          - input: pipelineArtifact
-            artifactName: VSIX
-            targetPath: $(System.DefaultWorkingDirectory)/target/vscode
-        steps:
-        - script: |
-            npm install -g @vscode/vsce
-          displayName: Install Prereqs for VSCode Ext Publishing
+      - stage: approval
+        displayName: Approval
+        dependsOn: build
+        condition: and(succeeded(), eq(variables['Build.Reason'], 'Manual'))
+        jobs:
+          - job: "Approval"
+            pool: server
+            timeoutInMinutes: 1440 # job times out in 1 day
+            steps:
+              - task: ManualValidation@0
+                timeoutInMinutes: 1440 # task times out in 1 day
+                inputs:
+                  notifyUsers: ""
+                  instructions: "Please verify artifacts and approve the release"
+                  onTimeout: "reject"
 
-        - script: |
-            VSIX_RPATH="$(System.DefaultWorkingDirectory)/target/vscode"
-            VSIX_FNAME=`ls $VSIX_RPATH/*.vsix`
-            echo "RPATH: $VSIX_RPATH"
-            echo "FNAME: $VSIX_FNAME"
-            vsce publish --pre-release --packagePath $VSIX_FNAME 2>&1 > pub.log
-          condition: and(succeeded(), eq(variables['BUILD_TYPE'], 'dev'))
-          displayName: Publish pre-release VSCode Extension
-          env:
-            VSCE_PAT: $(PAT)
+      - stage: release
+        displayName: Release
+        dependsOn: approval
+        condition: and(succeeded(), eq(variables['Build.Reason'], 'Manual'))
+        jobs:
+          - job: "Publish_VSIX_Package"
+            pool:
+              name: "Azure-Pipelines-DevTools-EO"
+              image: "ubuntu-latest"
+              os: linux
+            templateContext:
+              type: releaseJob
+              isProduction: true
+              inputs: # All input build artifacts must be declared here
+                - input: pipelineArtifact
+                  artifactName: VSIX
+                  targetPath: $(System.DefaultWorkingDirectory)/target/vscode
+            steps:
+              - script: |
+                  npm install -g @vscode/vsce
+                displayName: Install Prereqs for VSCode Ext Publishing
 
-        - script: |
-            VSIX_RPATH="$(System.DefaultWorkingDirectory)/target/vscode"
-            VSIX_FNAME=`ls $VSIX_RPATH/*.vsix`
-            echo "RPATH: $VSIX_RPATH"
-            echo "FNAME: $VSIX_FNAME"
-            vsce publish --packagePath $VSIX_FNAME 2>&1 > pub.log
-          condition: and(succeeded(), ne(variables['BUILD_TYPE'], 'dev'))
-          displayName: Publish VSCode Extension
-          env:
-            VSCE_PAT: $(PAT)
+              - script: |
+                  VSIX_RPATH="$(System.DefaultWorkingDirectory)/target/vscode"
+                  VSIX_FNAME=`ls $VSIX_RPATH/*.vsix`
+                  echo "RPATH: $VSIX_RPATH"
+                  echo "FNAME: $VSIX_FNAME"
+                  vsce publish --pre-release --packagePath $VSIX_FNAME 2>&1 > pub.log
+                condition: and(succeeded(), eq(variables['BUILD_TYPE'], 'dev'))
+                displayName: Publish pre-release VSCode Extension
+                env:
+                  VSCE_PAT: $(PAT)
 
-        - script: |
-            dir
-            cat pub.log
-          displayName: If failed, display VSCode Publishing Results
-          condition: failed()
-          workingDirectory: '$(System.DefaultWorkingDirectory)'
+              - script: |
+                  VSIX_RPATH="$(System.DefaultWorkingDirectory)/target/vscode"
+                  VSIX_FNAME=`ls $VSIX_RPATH/*.vsix`
+                  echo "RPATH: $VSIX_RPATH"
+                  echo "FNAME: $VSIX_FNAME"
+                  vsce publish --packagePath $VSIX_FNAME 2>&1 > pub.log
+                condition: and(succeeded(), ne(variables['BUILD_TYPE'], 'dev'))
+                displayName: Publish VSCode Extension
+                env:
+                  VSCE_PAT: $(PAT)
 
+              - script: |
+                  dir
+                  cat pub.log
+                displayName: If failed, display VSCode Publishing Results
+                condition: failed()
+                workingDirectory: "$(System.DefaultWorkingDirectory)"
 
-      - job: "Publish_Python_Packages"
-        pool:
-          name: 'Azure-Pipelines-DevTools-EO'
-          image: 'ubuntu-latest'
-          os: linux
-        templateContext:
-          type: releaseJob
-          isProduction: true
-          inputs:  # All input build artifacts must be declared here
-          - input: pipelineArtifact
-            artifactName: Wheels.Win.x86_64
-            targetPath: $(System.DefaultWorkingDirectory)/artifacts/win-x86_64
-          - input: pipelineArtifact
-            artifactName: Wheels.Win.aarch64
-            targetPath: $(System.DefaultWorkingDirectory)/artifacts/win-aarch64
-          - input: pipelineArtifact
-            artifactName: Wheels.Mac
-            targetPath: $(System.DefaultWorkingDirectory)/artifacts/mac
-          - input: pipelineArtifact
-            artifactName: Wheels.Linux.x86_64
-            targetPath: $(System.DefaultWorkingDirectory)/artifacts/linux-x86_64
-          - input: pipelineArtifact
-            artifactName: Wheels.Linux.aarch64
-            targetPath: $(System.DefaultWorkingDirectory)/artifacts/linux-aarch64
-          - input: pipelineArtifact
-            artifactName: Wheels.PlatformAgnostic
-            targetPath: $(System.DefaultWorkingDirectory)/artifacts/platform-agnostic
-        steps:
-        - script: |
-            mkdir -p $(System.DefaultWorkingDirectory)/target/wheels
-            find $(System.DefaultWorkingDirectory)/artifacts -name "*.whl" -exec cp {} $(System.DefaultWorkingDirectory)/target/wheels/ \;
-            ls $(System.DefaultWorkingDirectory)/target/wheels
-          displayName: Collect and Display Py Artifacts in Publishing Dir
+          - job: "Publish_Python_Packages"
+            pool:
+              name: "Azure-Pipelines-DevTools-EO"
+              image: "ubuntu-latest"
+              os: linux
+            templateContext:
+              type: releaseJob
+              isProduction: true
+              inputs: # All input build artifacts must be declared here
+                - input: pipelineArtifact
+                  artifactName: Wheels.Win.x86_64
+                  targetPath: $(System.DefaultWorkingDirectory)/artifacts/win-x86_64
+                - input: pipelineArtifact
+                  artifactName: Wheels.Win.aarch64
+                  targetPath: $(System.DefaultWorkingDirectory)/artifacts/win-aarch64
+                - input: pipelineArtifact
+                  artifactName: Wheels.Mac
+                  targetPath: $(System.DefaultWorkingDirectory)/artifacts/mac
+                - input: pipelineArtifact
+                  artifactName: Wheels.Linux.x86_64
+                  targetPath: $(System.DefaultWorkingDirectory)/artifacts/linux-x86_64
+                - input: pipelineArtifact
+                  artifactName: Wheels.Linux.aarch64
+                  targetPath: $(System.DefaultWorkingDirectory)/artifacts/linux-aarch64
+                - input: pipelineArtifact
+                  artifactName: Wheels.PlatformAgnostic
+                  targetPath: $(System.DefaultWorkingDirectory)/artifacts/platform-agnostic
+            steps:
+              - script: |
+                  mkdir -p $(System.DefaultWorkingDirectory)/target/wheels
+                  find $(System.DefaultWorkingDirectory)/artifacts -name "*.whl" -exec cp {} $(System.DefaultWorkingDirectory)/target/wheels/ \;
+                  ls $(System.DefaultWorkingDirectory)/target/wheels
+                displayName: Collect and Display Py Artifacts in Publishing Dir
 
-        - task: EsrpRelease@9
-          condition: succeeded()
-          displayName: Publish Py Packages
-          inputs:
-            connectedservicename: 'PME ESRP Azure Connection'
-            usemanagedidentity: true
-            keyvaultname: 'quantum-esrp-kv'
-            signcertname: ESRPCert
-            clientid: '832c049d-cd07-4c1c-bfa5-c07250d190cb'
-            contenttype: PyPi
-            domaintenantid: '975f013f-7f24-47e8-a7d3-abc4752bf346'
-            folderlocation: '$(System.DefaultWorkingDirectory)/target/wheels'
-            waitforreleasecompletion: true
-            owners: 'billti@microsoft.com'
-            approvers: 'billti@microsoft.com'
-            mainpublisher: ESRPRELPACMAN
+              - task: EsrpRelease@9
+                condition: succeeded()
+                displayName: Publish Py Packages
+                inputs:
+                  connectedservicename: "PME ESRP Azure Connection"
+                  usemanagedidentity: true
+                  keyvaultname: "quantum-esrp-kv"
+                  signcertname: ESRPCert
+                  clientid: "832c049d-cd07-4c1c-bfa5-c07250d190cb"
+                  contenttype: PyPi
+                  domaintenantid: "975f013f-7f24-47e8-a7d3-abc4752bf346"
+                  folderlocation: "$(System.DefaultWorkingDirectory)/target/wheels"
+                  waitforreleasecompletion: true
+                  owners: "billti@microsoft.com"
+                  approvers: "billti@microsoft.com"
+                  mainpublisher: ESRPRELPACMAN
 
-      - job: "Publish_NPM_Package"
-        pool:
-          name: 'Azure-Pipelines-DevTools-EO'
-          image: 'ubuntu-latest'
-          os: linux
-        templateContext:
-          type: releaseJob
-          isProduction: true
-          inputs:  # All input build artifacts must be declared here
-          - input: pipelineArtifact
-            artifactName: NPM
-            targetPath: $(System.DefaultWorkingDirectory)/target/npm/qsharp
-        steps:
-        - script: |
-            ls $(System.DefaultWorkingDirectory)/target/npm/qsharp/*
-          displayName: Display NPM Artifacts in Publishing Dir
+          - job: "Publish_NPM_Package"
+            pool:
+              name: "Azure-Pipelines-DevTools-EO"
+              image: "ubuntu-latest"
+              os: linux
+            templateContext:
+              type: releaseJob
+              isProduction: true
+              inputs: # All input build artifacts must be declared here
+                - input: pipelineArtifact
+                  artifactName: NPM
+                  targetPath: $(System.DefaultWorkingDirectory)/target/npm/qsharp
+            steps:
+              - script: |
+                  ls $(System.DefaultWorkingDirectory)/target/npm/qsharp/*
+                displayName: Display NPM Artifacts in Publishing Dir
 
-        - task: EsrpRelease@9
-          condition: succeeded()
-          displayName: Publish NPM Package
-          inputs:
-            connectedservicename: 'PME ESRP Azure Connection'
-            usemanagedidentity: true
-            keyvaultname: 'quantum-esrp-kv'
-            signcertname: ESRPCert
-            clientid: '832c049d-cd07-4c1c-bfa5-c07250d190cb'
-            contenttype: 'NPM'
-            domaintenantid: '975f013f-7f24-47e8-a7d3-abc4752bf346'
-            folderlocation: '$(System.DefaultWorkingDirectory)/target/npm/qsharp'
-            waitforreleasecompletion: true
-            owners: 'billti@microsoft.com'
-            approvers: 'billti@microsoft.com'
-            mainpublisher: ESRPRELPACMAN
+              - task: EsrpRelease@9
+                condition: succeeded()
+                displayName: Publish NPM Package
+                inputs:
+                  connectedservicename: "PME ESRP Azure Connection"
+                  usemanagedidentity: true
+                  keyvaultname: "quantum-esrp-kv"
+                  signcertname: ESRPCert
+                  clientid: "832c049d-cd07-4c1c-bfa5-c07250d190cb"
+                  contenttype: "NPM"
+                  domaintenantid: "975f013f-7f24-47e8-a7d3-abc4752bf346"
+                  folderlocation: "$(System.DefaultWorkingDirectory)/target/npm/qsharp"
+                  waitforreleasecompletion: true
+                  owners: "billti@microsoft.com"
+                  approvers: "billti@microsoft.com"
+                  mainpublisher: ESRPRELPACMAN

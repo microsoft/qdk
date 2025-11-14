@@ -369,7 +369,7 @@ impl QasmCompiler {
                 .iter()
                 .map(|s| {
                     let qsharp_ty = self.map_semantic_type_to_qsharp_type(&s.ty, s.ty_span);
-                    (s.name.to_string(), format!("{qsharp_ty}"))
+                    (s.name.clone(), format!("{qsharp_ty}"))
                 })
                 .collect(),
             None => vec![],
@@ -1210,14 +1210,13 @@ impl QasmCompiler {
 
         match (pragma, stmt.value.as_ref()) {
             (PragmaKind::QdkBoxOpen, Some(value)) => {
-                if let Ok(symbol) = self.symbols.get_symbol_by_name(value) {
-                    if let crate::semantic::types::Type::Function(args, return_ty) = &symbol.1.ty {
-                        if is_parameterless_and_returns_void(args, return_ty) {
-                            self.pragma_config
-                                .insert(PragmaKind::QdkBoxOpen, value.clone());
-                            return;
-                        }
-                    }
+                if let Ok(symbol) = self.symbols.get_symbol_by_name(value)
+                    && let crate::semantic::types::Type::Function(args, return_ty) = &symbol.1.ty
+                    && is_parameterless_and_returns_void(args, return_ty)
+                {
+                    self.pragma_config
+                        .insert(PragmaKind::QdkBoxOpen, value.clone());
+                    return;
                 }
                 self.push_compiler_error(CompilerErrorKind::InvalidBoxPragmaTarget(
                     value.to_string(),
@@ -1225,14 +1224,13 @@ impl QasmCompiler {
                 ));
             }
             (PragmaKind::QdkBoxClose, Some(value)) => {
-                if let Ok(symbol) = self.symbols.get_symbol_by_name(value) {
-                    if let crate::semantic::types::Type::Function(args, return_ty) = &symbol.1.ty {
-                        if is_parameterless_and_returns_void(args, return_ty) {
-                            self.pragma_config
-                                .insert(PragmaKind::QdkBoxClose, value.clone());
-                            return;
-                        }
-                    }
+                if let Ok(symbol) = self.symbols.get_symbol_by_name(value)
+                    && let crate::semantic::types::Type::Function(args, return_ty) = &symbol.1.ty
+                    && is_parameterless_and_returns_void(args, return_ty)
+                {
+                    self.pragma_config
+                        .insert(PragmaKind::QdkBoxClose, value.clone());
+                    return;
                 }
                 self.push_compiler_error(CompilerErrorKind::InvalidBoxPragmaTarget(
                     value.to_string(),
@@ -1519,10 +1517,10 @@ impl QasmCompiler {
     }
 
     fn compile_expr(&mut self, expr: &semast::Expr) -> qsast::Expr {
-        if expr.ty.is_const() {
-            if let Some(value) = expr.get_const_value() {
-                return self.compile_literal_expr(&value, expr.span);
-            }
+        if expr.ty.is_const()
+            && let Some(value) = expr.get_const_value()
+        {
+            return self.compile_literal_expr(&value, expr.span);
         }
 
         match expr.kind.as_ref() {

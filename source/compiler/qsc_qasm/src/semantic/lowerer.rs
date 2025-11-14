@@ -185,13 +185,14 @@ impl Lowerer {
                     format!("{version}"),
                     version.span,
                 ));
-            } else if let Some(minor) = version.minor {
-                if minor != 0 && minor != 1 {
-                    self.push_semantic_error(SemanticErrorKind::UnsupportedVersion(
-                        format!("{version}"),
-                        version.span,
-                    ));
-                }
+            } else if let Some(minor) = version.minor
+                && minor != 0
+                && minor != 1
+            {
+                self.push_semantic_error(SemanticErrorKind::UnsupportedVersion(
+                    format!("{version}"),
+                    version.span,
+                ));
             }
             return Some(crate::semantic::ast::Version {
                 span: version.span,
@@ -2357,17 +2358,17 @@ impl Lowerer {
         // 3. Check that the gate_name actually refers to a gate in the symbol table
         //    and get its symbol_id & symbol. Make sure to use the name that could've
         //    been overridden by the Q# name and the span of the original name.
-        if self.symbols.get_symbol_by_name(&name).is_err() {
-            if let Some(include) = self.get_include_file_defining_standard_gate(&name) {
-                // The symbol is not defined, but the name is a standard gate name
-                // and it is being used like a gate call. Tell the user that that they likely
-                // need the appropriate include.
-                self.push_semantic_error(SemanticErrorKind::StdGateCalledButNotIncluded(
-                    include.to_string(),
-                    stmt.span,
-                ));
-                return vec![semantic::StmtKind::Err];
-            }
+        if self.symbols.get_symbol_by_name(&name).is_err()
+            && let Some(include) = self.get_include_file_defining_standard_gate(&name)
+        {
+            // The symbol is not defined, but the name is a standard gate name
+            // and it is being used like a gate call. Tell the user that that they likely
+            // need the appropriate include.
+            self.push_semantic_error(SemanticErrorKind::StdGateCalledButNotIncluded(
+                include.to_string(),
+                stmt.span,
+            ));
+            return vec![semantic::StmtKind::Err];
         }
         let (symbol_id, symbol) = self.try_get_existing_or_insert_err_symbol(name, stmt.name.span);
 
@@ -2427,11 +2428,11 @@ impl Lowerer {
         let mut register_type = None;
 
         for qubit in &qubits {
-            if let semantic::GateOperandKind::Expr(expr) = &qubit.kind {
-                if matches!(expr.ty, Type::QubitArray(..)) {
-                    register_type = Some(&expr.ty);
-                    break;
-                }
+            if let semantic::GateOperandKind::Expr(expr) = &qubit.kind
+                && matches!(expr.ty, Type::QubitArray(..))
+            {
+                register_type = Some(&expr.ty);
+                break;
             }
         }
 
@@ -2441,19 +2442,18 @@ impl Lowerer {
             // 6.1 Check that all the quantum registers are of the same type/size.
             let mut resgisters_sizes_disagree = false;
             for qubit in &qubits {
-                if let semantic::GateOperandKind::Expr(expr) = &qubit.kind {
-                    if !matches!(&expr.ty, Type::Qubit)
-                        && !base_types_equal(register_type, &expr.ty)
-                    {
-                        resgisters_sizes_disagree = true;
-                        self.push_semantic_error(
-                            SemanticErrorKind::BroadcastCallQuantumArgsDisagreeInSize(
-                                register_type.to_string(),
-                                expr.ty.to_string(),
-                                expr.span,
-                            ),
-                        );
-                    }
+                if let semantic::GateOperandKind::Expr(expr) = &qubit.kind
+                    && !matches!(&expr.ty, Type::Qubit)
+                    && !base_types_equal(register_type, &expr.ty)
+                {
+                    resgisters_sizes_disagree = true;
+                    self.push_semantic_error(
+                        SemanticErrorKind::BroadcastCallQuantumArgsDisagreeInSize(
+                            register_type.to_string(),
+                            expr.ty.to_string(),
+                            expr.span,
+                        ),
+                    );
                 }
             }
 
@@ -2976,14 +2976,14 @@ impl Lowerer {
 
         // We push a semantic error on switch statements if version is less than 3.1,
         // as they were introduced in 3.1.
-        if let Some(ref version) = self.version {
-            if version < &SWITCH_MINIMUM_SUPPORTED_VERSION {
-                self.push_unsuported_in_this_version_error_message(
-                    "switch statements",
-                    &SWITCH_MINIMUM_SUPPORTED_VERSION,
-                    stmt.span,
-                );
-            }
+        if let Some(ref version) = self.version
+            && version < &SWITCH_MINIMUM_SUPPORTED_VERSION
+        {
+            self.push_unsuported_in_this_version_error_message(
+                "switch statements",
+                &SWITCH_MINIMUM_SUPPORTED_VERSION,
+                stmt.span,
+            );
         }
 
         semantic::StmtKind::Switch(semantic::SwitchStmt {
@@ -3680,34 +3680,32 @@ impl Lowerer {
             }
             _ => (false, 0),
         };
-        if is_int_to_bit_array {
-            if let semantic::LiteralKind::Int(value) = kind {
-                if *value < 0 || *value >= (1 << size) {
-                    return Err(Self::invalid_literal_cast_error(ty, &rhs.ty, rhs.span));
-                }
-
-                let u_size = size as usize;
-                let bitstring = format!("{value:0u_size$b}");
-                let Ok(value) = BigInt::from_str_radix(&bitstring, 2) else {
-                    return Err(Self::invalid_literal_cast_error(ty, &rhs.ty, rhs.span));
-                };
-
-                return Ok(semantic::Expr::new(
-                    span,
-                    semantic::ExprKind::Lit(semantic::LiteralKind::Bitstring(value, size)),
-                    lhs_ty.as_const(),
-                ));
+        if is_int_to_bit_array && let semantic::LiteralKind::Int(value) = kind {
+            if *value < 0 || *value >= (1 << size) {
+                return Err(Self::invalid_literal_cast_error(ty, &rhs.ty, rhs.span));
             }
+
+            let u_size = size as usize;
+            let bitstring = format!("{value:0u_size$b}");
+            let Ok(value) = BigInt::from_str_radix(&bitstring, 2) else {
+                return Err(Self::invalid_literal_cast_error(ty, &rhs.ty, rhs.span));
+            };
+
+            return Ok(semantic::Expr::new(
+                span,
+                semantic::ExprKind::Lit(semantic::LiteralKind::Bitstring(value, size)),
+                lhs_ty.as_const(),
+            ));
         }
-        if matches!(lhs_ty, Type::UInt(..)) {
-            if let semantic::LiteralKind::Int(value) = kind {
-                // this should have been validated by can_cast_literal_with_value_knowledge
-                return Ok(semantic::Expr::new(
-                    span,
-                    semantic::ExprKind::Lit(semantic::LiteralKind::Int(*value)),
-                    lhs_ty.as_const(),
-                ));
-            }
+        if matches!(lhs_ty, Type::UInt(..))
+            && let semantic::LiteralKind::Int(value) = kind
+        {
+            // this should have been validated by can_cast_literal_with_value_knowledge
+            return Ok(semantic::Expr::new(
+                span,
+                semantic::ExprKind::Lit(semantic::LiteralKind::Int(*value)),
+                lhs_ty.as_const(),
+            ));
         }
         let result = match (&lhs_ty, &rhs_ty) {
             (Type::Float(..), Type::Int(..) | Type::UInt(..)) => {
@@ -3741,16 +3739,16 @@ impl Lowerer {
             }
             (Type::Angle(width, _), Type::Int(..) | Type::UInt(..)) => {
                 // compatibility case for existing code
-                if let semantic::LiteralKind::Int(value) = kind {
-                    if *value == 0 {
-                        return Ok(semantic::Expr::new(
-                            span,
-                            semantic::ExprKind::Lit(semantic::LiteralKind::Angle(
-                                Angle::from_u64_maybe_sized(0, *width),
-                            )),
-                            lhs_ty.as_const(),
-                        ));
-                    }
+                if let semantic::LiteralKind::Int(value) = kind
+                    && *value == 0
+                {
+                    return Ok(semantic::Expr::new(
+                        span,
+                        semantic::ExprKind::Lit(semantic::LiteralKind::Angle(
+                            Angle::from_u64_maybe_sized(0, *width),
+                        )),
+                        lhs_ty.as_const(),
+                    ));
                 }
                 None
             }
@@ -4588,13 +4586,12 @@ impl Lowerer {
 
         // The spec says that the step cannot be zero, so we push an error in that case.
         // <https://openqasm.com/language/types.html#register-concatenation-and-slicing>
-        if let Some(Some(step)) = &step {
-            if let Some(semantic::LiteralKind::Int(val)) = step.get_const_value() {
-                if val == 0 {
-                    self.push_semantic_error(SemanticErrorKind::ZeroStepInRange(range.span));
-                    return None;
-                }
-            }
+        if let Some(Some(step)) = &step
+            && let Some(semantic::LiteralKind::Int(val)) = step.get_const_value()
+            && val == 0
+        {
+            self.push_semantic_error(SemanticErrorKind::ZeroStepInRange(range.span));
+            return None;
         }
 
         macro_rules! shortcircuit_inner {
@@ -5091,10 +5088,10 @@ fn wrap_expr_in_cast_expr(ty: Type, rhs: semantic::Expr) -> semantic::Expr {
 }
 
 fn get_measurement_ty_from_gate_operand(operand: &semantic::GateOperand) -> Type {
-    if let semantic::GateOperandKind::Expr(expr) = &operand.kind {
-        if let Type::QubitArray(size) = expr.ty {
-            return Type::BitArray(size, false);
-        }
+    if let semantic::GateOperandKind::Expr(expr) = &operand.kind
+        && let Type::QubitArray(size) = expr.ty
+    {
+        return Type::BitArray(size, false);
     }
 
     Type::Bit(false)

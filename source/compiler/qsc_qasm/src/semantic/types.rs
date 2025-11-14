@@ -1152,23 +1152,23 @@ pub fn can_cast_literal(lhs_ty: &Type, ty_lit: &Type) -> bool {
 /// some literals can be cast to a specific type if the value is known
 /// This is useful to avoid generating a cast expression in the AST
 pub(crate) fn can_cast_literal_with_value_knowledge(lhs_ty: &Type, kind: &LiteralKind) -> bool {
-    if matches!(lhs_ty, &Type::Bit(_)) {
-        if let LiteralKind::Int(value) = kind {
-            return *value == 0 || *value == 1;
-        }
+    if matches!(lhs_ty, &Type::Bit(_))
+        && let LiteralKind::Int(value) = kind
+    {
+        return *value == 0 || *value == 1;
     }
-    if matches!(lhs_ty, &Type::UInt(..)) {
-        if let LiteralKind::Int(value) = kind {
-            return *value >= 0;
-        }
+    if matches!(lhs_ty, &Type::UInt(..))
+        && let LiteralKind::Int(value) = kind
+    {
+        return *value >= 0;
     }
     // Much existing OpenQASM code uses 0 as a literal for angles
     // and Qiskit generates this code. While this is not allowed
     // in the spec, we allow it for compatibility.
-    if matches!(lhs_ty, &Type::Angle(..)) {
-        if let LiteralKind::Int(value) = kind {
-            return *value == 0;
-        }
+    if matches!(lhs_ty, &Type::Angle(..))
+        && let LiteralKind::Int(value) = kind
+    {
+        return *value == 0;
     }
     false
 }

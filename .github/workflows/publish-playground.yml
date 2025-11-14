@@ -11,7 +11,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_TOOLCHAIN_VERSION: "1.88"
+  RUST_TOOLCHAIN_VERSION: "1.90"
   RUST_TOOLCHAIN_COMPONENTS: rustfmt clippy
 
 # Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
@@ -42,10 +42,10 @@ jobs:
           components: ${{ env.RUST_TOOLCHAIN_COMPONENTS }}
       - uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
+          python-version: "3.11"
       - uses: actions/setup-node@v3
         with:
-          node-version: '22.14.0'
+          node-version: "22.14.0"
       - uses: Swatinem/rust-cache@v2
       - name: Prereqs
         run: python ./prereqs.py --install
