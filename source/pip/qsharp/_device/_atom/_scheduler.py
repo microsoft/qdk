@@ -24,7 +24,7 @@ from functools import lru_cache
 
 QubitId: TypeAlias = Value
 Location: TypeAlias = tuple[int, int]
-MoveScale: TypeAlias = tuple[bool | Fraction, bool | Fraction]
+MoveGroupScaleFactor: TypeAlias = tuple[bool | Fraction, bool | Fraction]
 
 
 @dataclass
@@ -100,7 +100,7 @@ def move_scale_helper(source_diff, destination_diff):
     return True if destination_diff == 0 else Fraction(source_diff, destination_diff)
 
 
-def move_scale(move1: Move, move2: Move) -> MoveScale:
+def scale_factor(move1: Move, move2: Move) -> MoveGroupScaleFactor:
     """
     Returns a tuple of two elements, representing the row displacement ratio and column
     displacement ratio between the moves.
@@ -121,7 +121,7 @@ class MoveGroupCandidate:
     Represents a group of moves that can be done at the same time.
     It has three fields:
         moves[set]: A set of moves that can be performed in parallel.
-        move_scale[Optional[tuple[Fraction, Fraction]]]: A tuple of fractions
+        scale_factor[Optional[tuple[Fraction, Fraction]]]: A tuple of fractions
             representing the scale factors in the row and col axes between
             moves. `None`, if there is a single element in the move set.
         ref_move[Move]: A move used as a representative of the group, used
@@ -130,7 +130,7 @@ class MoveGroupCandidate:
 
     def __init__(self, moves: Iterable[Move]):
         self.moves = set(moves)
-        self.move_scale = move_scale(*moves) if len(self.moves) > 1 else None
+        self.scale_factor = scale_factor(*moves) if len(self.moves) > 1 else None
         self.ref_move = next(iter(moves))
 
     def __len__(self) -> int:
@@ -140,7 +140,9 @@ class MoveGroupCandidate:
         # A move group with a single move doesn't have an associated move_scale.
         # Therefore, we cannot test if a move is compatible with it, which means
         # we cannot add moves to it.
-        assert self.move_scale, "cannot add to move group candidate with a single move"
+        assert (
+            self.scale_factor
+        ), "cannot add to move group candidate with a single move"
         self.moves.add(move)
 
     def remove(self, move: Move):
@@ -164,7 +166,7 @@ class MoveGroupPool:
     def __init__(self, parity: tuple[int, int], direction: tuple[int, int]):
         self.moves = set()
         self.move_group_candidates: dict[
-            Optional[MoveScale], list[MoveGroupCandidate]
+            Optional[MoveGroupScaleFactor], list[MoveGroupCandidate]
         ] = {None: []}
         self.parity = parity
         self.direction = direction
@@ -193,7 +195,7 @@ class MoveGroupPool:
             pair = (move, move2)
             if is_invalid_move_pair(pair[0], pair[1]):
                 continue
-            s = move_scale(pair[0], pair[1])
+            s = scale_factor(pair[0], pair[1])
             candidates_with_same_move_scale = self.move_group_candidates.get(s, [])
             for group in candidates_with_same_move_scale:
                 if pair[0] in group.moves:
@@ -204,7 +206,7 @@ class MoveGroupPool:
                     group.moves.add(pair[0])
                     move_added = True
                     break
-                elif s == move_scale(pair[0], group.ref_move):
+                elif s == scale_factor(pair[0], group.ref_move):
                     group.moves.add(pair[0])
                     group.moves.add(pair[1])
                     move_added = True
@@ -318,7 +320,7 @@ class MoveScheduler:
             self.disjoint_pools, key=lambda x: x.largest_move_group_candidate_len()
         )
 
-    def push_to_largest_compatible_move_group(
+    def add_to_largest_compatible_move_group(
         self, partial_move: PartialMove
     ) -> MoveGroupPool:
         interaction_zone = self.device.get_interaction_zones()[0]
@@ -342,11 +344,10 @@ class MoveScheduler:
         for pool in compatible_move_group_pools:
             if move := self.get_compatible_move(pool, partial_move):
                 pool.add(move)
-                # print(f"pushed move: {move}")
                 return pool
         raise Exception("not enough IZ space to schedule all moves")
 
-    def push_pair_to_largest_compatible_move_group(
+    def add_pair_to_largest_compatible_move_group(
         self, partial_move_pair: PartialMovePair
     ) -> MoveGroupPool:
         interaction_zone = self.device.get_interaction_zones()[0]
@@ -369,7 +370,7 @@ class MoveScheduler:
             key=lambda pool: pool.largest_move_group_candidate_len(), reverse=True
         )
         for pool in compatible_move_group_pools:
-            if move1 := self.get_compatible_move_for_pair(pool, partial_move):
+            if move1 := self.get_compatible_move(pool, partial_move, is_pair=True):
                 # Push the move corresponding to the first qubit of the CZ pair.
                 pool.add(move1)
 
@@ -383,24 +384,83 @@ class MoveScheduler:
                 return pool
         raise Exception("not enough IZ space to schedule all moves")
 
-    def get_compatible_move(
-        self, pool: MoveGroupPool, partial_move: PartialMove
-    ) -> Optional[Move]:
-        source = partial_move.src_loc
-        for destination in self.available_iz_locations:
-            if pool.parity == move_parity(
-                source, destination
-            ) and pool.direction == move_direction(source, destination):
-                del self.available_iz_locations[destination]
-                return partial_move.into_move(destination)
+    def get_destination(
+        self,
+        partial_move: PartialMove,
+        scale_factor: MoveGroupScaleFactor,
+        group: MoveGroupCandidate,
+    ) -> Optional[Location]:
+        """
+        Returns an available destination location that would make `partial_move`
+        fit in the given group, or `None` if no such location exists.
+        """
+        row_scale_factor, col_scale_factor = scale_factor
 
-    def get_compatible_move_for_pair(
-        self, pool: MoveGroupPool, partial_move: PartialMove
+        if row_scale_factor is True:
+            dst_row = group.ref_move.dst_loc[0]
+        else:
+            # We compute the destination row by solving this equation for `dst_row`:
+            # src_row_diff / (group.ref_move.dst_loc[0] - dst_row) == row_scale_factor
+            src_row_diff = group.ref_move.src_loc[0] - partial_move.src_loc[0]
+            dst_row = group.ref_move.dst_loc[0] - src_row_diff / row_scale_factor
+            assert isinstance(dst_row, Fraction)
+            if dst_row.denominator == 1:
+                dst_row = dst_row.numerator
+            else:
+                return None
+
+        if col_scale_factor is True:
+            dst_col = group.ref_move.dst_loc[1]
+        else:
+            # We compute the destination col by solving this equation for `dst_col`:
+            # src_col_diff / (group.ref_move.dst_loc[1] - dst_col) == col_scale_factor
+            src_col_diff = group.ref_move.src_loc[1] - partial_move.src_loc[1]
+            dst_col = group.ref_move.dst_loc[1] - src_col_diff / col_scale_factor
+            assert isinstance(dst_col, Fraction)
+            if dst_col.denominator == 1:
+                dst_col = dst_col.numerator
+            else:
+                return None
+
+        loc = (dst_row, dst_col)
+        if loc in self.available_iz_locations:
+            return loc
+
+    def get_compatible_move(
+        self,
+        pool: MoveGroupPool,
+        partial_move: PartialMove,
+        is_pair=False,
     ) -> Optional[Move]:
         source = partial_move.src_loc
+
+        # First, try finding a large enough group to place the partial movement in.
+        GROUP_SIZE_THRESHOLD = self.device.column_count // 4
+        best_destination: Optional[Location] = None
+        best_destination_group_len = 0
+        for scale, groups in pool.move_group_candidates.items():
+            if not scale:
+                continue
+            for group in sorted(groups, key=len, reverse=True):
+                if (
+                    len(group) < GROUP_SIZE_THRESHOLD
+                    or len(group) < best_destination_group_len
+                ):
+                    break
+                if destination := self.get_destination(partial_move, scale, group):
+                    if (not is_pair) or destination[1] % 2 == 0:
+                        best_destination = destination
+                        best_destination_group_len = len(group)
+                        break
+        if best_destination:
+            del self.available_iz_locations[best_destination]
+            return partial_move.into_move(best_destination)
+
+        # If we didn't find a group to place the partial_move in,
+        # just pick the next available IZ location.
         for destination in self.available_iz_locations:
             if (
-                destination[1] % 2 == 0
+                ((not is_pair) or destination[1] % 2 == 0)
                 and pool.parity == move_parity(source, destination)
                 and pool.direction == move_direction(source, destination)
             ):
@@ -419,9 +479,9 @@ class MoveScheduler:
         # candidate they are compatible with.
         while partial_move := self.next_partial_move():
             if isinstance(partial_move, PartialMove):
-                pool = self.push_to_largest_compatible_move_group(partial_move)
+                pool = self.add_to_largest_compatible_move_group(partial_move)
             else:
-                pool = self.push_pair_to_largest_compatible_move_group(partial_move)
+                pool = self.add_pair_to_largest_compatible_move_group(partial_move)
             if pool.largest_move_group_candidate_len() >= self.device.column_count:
                 return pool.try_take(self.device.column_count)
 
