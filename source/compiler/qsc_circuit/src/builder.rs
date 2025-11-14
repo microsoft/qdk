@@ -696,6 +696,8 @@ pub(crate) trait OperationOrGroupExt {
     where
         Self: std::marker::Sized;
 
+    fn set_location(&mut self, location: Self::SourceLocation);
+
     fn all_qubits(&self) -> Vec<QubitWire>;
     fn all_results(&self) -> Vec<ResultWire>;
     fn extend_target_qubits(&mut self, target_qubits: &[QubitWire]);
@@ -873,6 +875,12 @@ impl OperationOrGroupExt for OperationOrGroup {
             OperationOrGroupKind::Group { scope_stack, .. } => scope_stack.fmt(dbg_stuff),
         }
     }
+
+    fn set_location(&mut self, location: Self::SourceLocation) {
+        self.op
+            .source_mut()
+            .replace(SourceLocation::Unresolved(location));
+    }
 }
 
 /// Builds a list of circuit operations with a maximum operation limit.
@@ -905,13 +913,28 @@ impl OperationListBuilder {
         }
     }
 
-    fn push_op(&mut self, op: (OperationOrGroup, Vec<SourceLocationMetadata>)) {
+    fn push_op(
+        &mut self,
+        op: OperationOrGroup,
+        unfiltered_call_stack: Vec<SourceLocationMetadata>,
+    ) {
         if self.max_ops_exceeded || self.operations.len() >= self.max_ops {
             // Stop adding gates and leave the circuit as is
             self.max_ops_exceeded = true;
             return;
         }
-        let (op, unfiltered_call_stack) = op;
+
+        if self.source_locations {
+            let called_at = retain_user_frames(
+                &DbgStuffForEval {},
+                &self.user_package_ids,
+                call_stack.to_vec(),
+            )
+            .last()
+            .cloned();
+
+            op.set_location(called_at);
+        }
 
         add_op_with_grouping(
             self.group_scopes,
@@ -940,22 +963,10 @@ impl OperationListBuilder {
         args: Vec<String>,
         call_stack: &[SourceLocationMetadata],
     ) {
-        let called_at = if self.source_locations {
-            retain_user_frames(
-                &DbgStuffForEval {},
-                &self.user_package_ids,
-                call_stack.to_vec(),
-            )
-            .last()
-            .cloned()
-        } else {
-            None
-        };
-
-        self.push_op((
-            Self::new_unitary(wire_map, name, is_adjoint, inputs, args, called_at),
+        self.push_op(
+            Self::new_unitary(wire_map, name, is_adjoint, inputs, args),
             call_stack.to_vec(),
-        ));
+        );
     }
 
     fn m(
@@ -977,10 +988,10 @@ impl OperationListBuilder {
             None
         };
 
-        self.push_op((
+        self.push_op(
             Self::new_measurement("M", wire_map, qubit, result, called_at),
             call_stack.to_vec(),
-        ));
+        );
     }
 
     fn mresetz(
@@ -1002,14 +1013,14 @@ impl OperationListBuilder {
             None
         };
 
-        self.push_op((
+        self.push_op(
             Self::new_measurement("MResetZ", wire_map, qubit, result, called_at.clone()),
             call_stack.to_vec(),
-        ));
-        self.push_op((
+        );
+        self.push_op(
             Self::new_ket(wire_map, qubit, called_at),
             call_stack.to_vec(),
-        ));
+        );
     }
 
     fn reset(&mut self, wire_map: &WireMap, qubit: usize, call_stack: &[SourceLocationMetadata]) {
@@ -1025,10 +1036,10 @@ impl OperationListBuilder {
             None
         };
 
-        self.push_op((
+        self.push_op(
             Self::new_ket(wire_map, qubit, called_at),
             call_stack.to_vec(),
-        ));
+        );
     }
 
     fn new_unitary(
@@ -1037,7 +1048,6 @@ impl OperationListBuilder {
         is_adjoint: bool,
         inputs: &GateInputs<'_>,
         args: Vec<String>,
-        called_at: Option<SourceLocationMetadata>,
     ) -> OperationOrGroup {
         OperationOrGroup::single(Operation::Unitary(Unitary {
             gate: name.to_string(),
@@ -1060,9 +1070,7 @@ impl OperationListBuilder {
                 })
                 .collect(),
             is_adjoint,
-            source: called_at
-                .map(|md| md.location)
-                .map(SourceLocation::Unresolved),
+            source: None,
         }))
     }
 
