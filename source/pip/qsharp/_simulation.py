@@ -1,6 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+import random
 from typing import List, Optional, Tuple, Union
 import pyqir
 from ._native import (
@@ -427,6 +428,10 @@ def run_qir_gpu(
 ) -> List[str]:
     if shots is None:
         shots = 1
+
+    # If no seed specified, generate a random u32 to use
+    if seed is None:
+        seed = random.randint(0, 2**32 - 1)
 
     if isinstance(noise, tuple):
         raise ValueError(

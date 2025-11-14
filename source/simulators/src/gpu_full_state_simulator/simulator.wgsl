@@ -167,6 +167,14 @@ struct DiagnosticData {
 @group(0) @binding(5)
 var<storage, read_write> diagnostics: DiagnosticData;
 
+struct Uniforms {
+    batch_start_shot_id: u32,
+    rng_seed: u32,
+}
+
+@group(0) @binding(6)
+var<uniform> uniforms: Uniforms;
+
 // For every qubit, each 'execute' kernel thread will update its own workgroup storage location for accumulating probabilities
 // The final probabilities will be reduced and written back to the shot state after the parallel execution completes.
 struct QubitProbabilityPerThread {
@@ -196,22 +204,22 @@ fn shot_init_per_op(shot_idx: u32) {
     shot.rand_loss = next_rand_f32(shot_idx);
 }
 
-fn reset_all(shot_idx: u32, op_idx: u32) {
+fn reset_all(shot_idx: i32) {
     let shot = &shots[shot_idx];
-    let op = &ops[op_idx];
 
-    let rng_seed: u32 = op.q2; // The rng seed is passed in q2
-    let shot_offset: u32 = op.q3; // The shot offset (e.g. first shot_id in the new batch) is passed in q3
+    // One of the main goals of the shot_id is to seed the RNG state uniquely per shot
+    let rng_seed = uniforms.rng_seed;
+    let shot_id = uniforms.batch_start_shot_id + u32(shot_idx);
 
     // Zero init all the existing shot data
     *shot = ShotData();
-    // Set the shot_id and rng_state based on the op data
-    shot.shot_id = shot_offset + shot_idx;
-    shot.rng_state.x[0] = rng_seed ^ hash_pcg(shot.shot_id);
-    shot.rng_state.x[1] = rng_seed ^ hash_pcg(shot.shot_id + 1);
-    shot.rng_state.x[2] = rng_seed ^ hash_pcg(shot.shot_id + 2);
-    shot.rng_state.x[3] = rng_seed ^ hash_pcg(shot.shot_id + 3);
-    shot.rng_state.x[4] = rng_seed ^ hash_pcg(shot.shot_id + 4);
+
+    shot.shot_id = shot_id;
+    shot.rng_state.x[0] = rng_seed ^ hash_pcg(shot_id);
+    shot.rng_state.x[1] = rng_seed ^ hash_pcg(shot_id + 1);
+    shot.rng_state.x[2] = rng_seed ^ hash_pcg(shot_id + 2);
+    shot.rng_state.x[3] = rng_seed ^ hash_pcg(shot_id + 3);
+    shot.rng_state.x[4] = rng_seed ^ hash_pcg(shot_id + 4);
     shot.duration = 0.0;
     shot.renormalize = 1.0;
 
@@ -226,12 +234,8 @@ fn reset_all(shot_idx: u32, op_idx: u32) {
     shot.qubit_is_1_mask = 0u;
     shot.qubits_updated_last_op_mask = 0;
 
-    // Tell the execute_op stage about the op to execute
-    shot.op_idx = op_idx;
-    shot.op_type = op.id;
-
-    // Advance to the next op for the next 'prepare' dispatch
-    shot.next_op_idx = op_idx + 1u;
+    // After init, start execution from the first op
+    shot.next_op_idx = 0u;
 }
 
 fn update_qubit_state(shot_idx: u32) {
@@ -630,12 +634,6 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
     shot_init_per_op(shot_idx);
     shot.unitary = op.unitary;
 
-    //  If the op is a full batch reset (i.e. start of a new batch), clean the state and exit
-    if (op.id == OPID_RESET && op.q1 == ALL_QUBITS) {
-        reset_all(shot_idx, op_idx);
-        return;
-    }
-
     // Update the shot state based on the results of the last executed op (if needed)
     if (shot.qubits_updated_last_op_mask != 0) {
         update_qubit_state(shot_idx);
@@ -734,6 +732,28 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
 }
 
 @compute @workgroup_size(THREADS_PER_WORKGROUP)
+fn initialize(
+        @builtin(workgroup_id) workgroupId: vec3<u32>,
+        @builtin(local_invocation_index) tid: u32) {
+    // Get the params
+    let params = get_shot_params(workgroupId.x, tid, 0 /* qubits per op */);
+
+    // We want every thread to zero out its portion of the state vector for the shot
+    // We also want threads executing in lockstep to update adjacent entries for better memory access patterns
+    for (var i = 0; i < params.op_iterations; i++) {
+        let entry_index: i32 = params.thread_idx_in_shot + i * params.total_threads_per_shot;
+        stateVector[params.shot_state_vector_start + entry_index] = vec2f(0.0, 0.0);
+    }
+
+    // NOTE: No need to synchronize here, as each thread is writing to unique locations
+    if (params.thread_idx_in_shot == 0) {
+        // Set the |0...0> amplitude to 1.0 from the first workgroup & thread for the shot
+        stateVector[params.shot_state_vector_start] = vec2f(1.0, 0.0);
+        reset_all(params.shot_idx);
+    }
+}
+
+@compute @workgroup_size(THREADS_PER_WORKGROUP)
 fn execute_op(
         @builtin(workgroup_id) workgroupId: vec3<u32>,
         @builtin(local_invocation_index) tid: u32) {
@@ -747,21 +767,6 @@ fn execute_op(
 
     // Exit early if an id op with no renomalization required
     if (shot.op_type == OPID_ID && shot.renormalize == 1.0) {
-        return;
-    }
-
-    if (shot.op_type == OPID_RESET && op.q1 == ALL_QUBITS) {
-        let thread_start_idx: i32 = params.shot_state_vector_start +
-                                params.workgroup_idx_in_shot * ((1 << u32(QUBIT_COUNT)) / WORKGROUPS_PER_SHOT) +
-                                i32(tid) * ENTRIES_PER_THREAD;
-        // Set the state vector to |0...0> by zeroing all amplitudes except the first one
-        for(var i: i32 = 0; i < ENTRIES_PER_THREAD; i++) {
-            stateVector[thread_start_idx + i] = vec2f(0.0, 0.0);
-        }
-        // Set the |0...0> amplitude to 1.0 from the first workgroup & thread for the shot
-        if (tid == 0 && params.workgroup_idx_in_shot == 0) {
-            stateVector[thread_start_idx] = vec2f(1.0, 0.0);
-        }
         return;
     }
 

@@ -50,10 +50,7 @@ pub fn run_parallel_shots<'py>(
 
     let mut ops = Vec::with_capacity(instructions.len() + 1);
 
-    // Add the 'initialize' op
-    let mut init_op = Op::new_reset_gate(u32::MAX);
-    init_op.q2 = seed.unwrap_or(0xdead_beef);
-    ops.push(init_op);
+    let rng_seed = seed.unwrap_or(0xfeed_face);
 
     let noise = noise_config.map(|noise_config| unbind_noise_config(py, noise_config));
 
@@ -62,10 +59,10 @@ pub fn run_parallel_shots<'py>(
         if let Some(op) = op {
             let mut add_ops: Vec<Op> = vec![op];
             // If there's a NoiseConfig, and we get noise for this op, append it
-            if let Some(noise) = noise {
-                if let Some(noise_ops) = get_noise_ops(&op, &noise) {
-                    add_ops.extend(noise_ops);
-                }
+            if let Some(noise) = noise
+                && let Some(noise_ops) = get_noise_ops(&op, &noise)
+            {
+                add_ops.extend(noise_ops);
             }
             // If it's an MResetZ with noise, change to an Id with noise, followed by MResetZ
             // (This is just simpler to implement than doing noise inline with MResetZ for now)
@@ -91,8 +88,9 @@ pub fn run_parallel_shots<'py>(
     // array index. (Only program return type of Result[] is supported for now)
 
     // Run the final op sequence on the GPU for the specified number of shots
-    let sim_results = qdk_simulators::run_parallel_shots(qubit_count, result_count, ops, shots)
-        .map_err(PyRuntimeError::new_err)?;
+    let sim_results =
+        qdk_simulators::run_parallel_shots(qubit_count, result_count, ops, shots, rng_seed)
+            .map_err(PyRuntimeError::new_err)?;
 
     // Collect and format the results into a Python list of strings
 

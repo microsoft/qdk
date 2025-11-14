@@ -9,7 +9,6 @@ use super::shader_types::{Op, Result, ops};
 
 use bytemuck::{Pod, Zeroable};
 use futures::FutureExt;
-use rand::distributions::uniform;
 use std::{cmp::max, cmp::min, num::NonZeroU64};
 use wgpu::{
     Adapter, BindGroup, BindGroupLayout, Buffer, BufferDescriptor, BufferUsages, ComputePipeline,
@@ -46,12 +45,14 @@ pub struct GpuContext {
     bind_group_layout: BindGroupLayout,
     ops: Vec<Op>,
     qubit_count: u32,
+    rng_seed: u32,
     resources: Option<GpuResources>,
     run_params: RunParams,
     dbg_capture: bool,
 }
 
 struct GpuResources {
+    pipeline_init_op: ComputePipeline,
     pipeline_prepare_op: ComputePipeline,
     pipeline_execute_op: ComputePipeline,
     pipeline_execute_2q_op: ComputePipeline,
@@ -61,6 +62,7 @@ struct GpuResources {
 }
 
 struct GpuBuffers {
+    uniform_buffer: Buffer,
     workgroup_collation: Buffer,
     shot_state: Buffer,
     state_vector: Buffer,
@@ -83,6 +85,7 @@ struct RunParams {
     entries_per_thread: usize,
     batch_count: usize,
     shots_per_batch: usize,
+    shots_count: usize,
     workgroups_per_shot: usize,
     op_count: usize,
     gate_op_count: usize,
@@ -90,6 +93,13 @@ struct RunParams {
 }
 
 // ********* The below structure should be kept in sync with the WGSL shader code *********
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+struct Uniforms {
+    batch_start_shot_id: u32,
+    rng_seed: u32,
+}
 
 // The follow data is copied back from the GPU for diagnostics
 #[repr(C)]
@@ -222,6 +232,7 @@ impl GpuContext {
         result_count: u32,
         ops: Vec<Op>,
         shots: u32,
+        rng_seed: u32,
         dbg_capture: bool,
     ) -> std::result::Result<Self, String> {
         // Validate the range of inputs
@@ -325,6 +336,7 @@ impl GpuContext {
             resources: None,
             ops,
             qubit_count,
+            rng_seed,
             run_params,
             dbg_capture,
         })
@@ -390,6 +402,7 @@ impl GpuContext {
             batch_count,
             workgroups_per_shot,
             shots_per_batch,
+            shots_count: shot_count as usize,
             op_count: op_count as usize,
             gate_op_count: gate_op_count as usize,
             result_count: (result_count + 1) as usize,
@@ -397,6 +410,13 @@ impl GpuContext {
     }
 
     fn create_buffers(&mut self) -> GpuBuffers {
+        let uniform_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Uniforms Buffer"),
+            size: std::mem::size_of::<Uniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
         let workgroup_collation = self.device.create_buffer(&wgpu::wgt::BufferDescriptor {
             label: Some("Workgroup Collation Buffer"),
             size: std::mem::size_of::<WorkgroupCollationBuffer>() as u64,
@@ -444,6 +464,7 @@ impl GpuContext {
         });
 
         GpuBuffers {
+            uniform_buffer,
             workgroup_collation,
             shot_state,
             state_vector,
@@ -487,6 +508,10 @@ impl GpuContext {
                     binding: 5,
                     resource: buffers.diagnostics.as_entire_binding(),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: buffers.uniform_buffer.as_entire_binding(),
+                },
             ],
         });
 
@@ -497,6 +522,20 @@ impl GpuContext {
                     label: Some("GPU simulator pipeline layout"),
                     bind_group_layouts: &[&self.bind_group_layout],
                     push_constant_ranges: &[],
+                });
+
+        let pipeline_init_op =
+            self.device
+                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some("initialize pipeline"),
+                    layout: Some(pipeline_layout),
+                    module: &self.shader_module,
+                    entry_point: Some("initialize"),
+                    compilation_options: wgpu::PipelineCompilationOptions {
+                        constants: &[],
+                        ..Default::default()
+                    },
+                    cache: None,
                 });
 
         let pipeline_prepare_op =
@@ -556,6 +595,7 @@ impl GpuContext {
                 });
 
         self.resources = Some(GpuResources {
+            pipeline_init_op,
             pipeline_prepare_op,
             pipeline_execute_op,
             pipeline_execute_2q_op,
@@ -569,19 +609,24 @@ impl GpuContext {
     pub async fn run(&self) -> Vec<u32> {
         let resources: &GpuResources = self.resources.as_ref().expect("Resources not initialized");
 
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("StateVector Command Encoder"),
-            });
+        // Star the upload the ops to the GPU ASAP
+        let mut ops_copy_encoder =
+            self.device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Ops Upload Command Encoder"),
+                });
 
-        encoder.copy_buffer_to_buffer(
+        ops_copy_encoder.copy_buffer_to_buffer(
             &resources.buffers.ops_upload,
             0,
             &resources.buffers.ops,
             0,
             resources.buffers.ops.size(),
         );
+
+        let ops_command_buffer = ops_copy_encoder.finish();
+        self.queue.submit([ops_command_buffer]);
+
         /*
         GPU processing of shots is as follows. Note the following considerations:
 
@@ -615,139 +660,176 @@ impl GpuContext {
         - Return the collated shot results
          */
 
-        // TODO: Support multiple batches of shots
-        if self.run_params.batch_count != 1 {
-            unimplemented!(
-                "Too many shots for the circuit size. Please reduce the shot count and try again."
+        let mut results: Vec<u32> = Vec::new();
+
+        // TODO: Just make this an i32 in the first place
+        #[allow(clippy::cast_possible_truncation)]
+        #[allow(clippy::cast_possible_wrap)]
+        let mut shots_remaining: i32 = self.run_params.shots_count as i32;
+
+        for batch_idx in 0..self.run_params.batch_count {
+            let shots_this_batch =
+                min(shots_remaining, self.run_params.shots_per_batch as i32) as usize;
+
+            // Update the uniforms for this batch
+            let uniforms = Uniforms {
+                #[allow(clippy::cast_possible_truncation)]
+                batch_start_shot_id: (batch_idx * self.run_params.shots_per_batch) as u32,
+                rng_seed: self.rng_seed,
+            };
+
+            // When this is put directly on the queue, it will be submitted when the next submit occurs, but will run before that submit's work
+            self.queue.write_buffer(
+                &resources.buffers.uniform_buffer,
+                0,
+                bytemuck::bytes_of(&uniforms),
             );
-        }
 
-        let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("StateVector Compute Pass"),
-            timestamp_writes: None,
-        });
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("StateVector Command Encoder"),
+                });
 
-        // TODO: Break into multiple dispatches if too many ops
-        if self.run_params.op_count > MAX_DISPATCHES_PER_SUBMIT as usize {
-            unimplemented!(
-                "This circuit exceeds the current upper limit of {} operations",
-                MAX_DISPATCHES_PER_SUBMIT
-            );
-        }
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("StateVector Compute Pass"),
+                timestamp_writes: None,
+            });
 
-        compute_pass.set_bind_group(0, &resources.bind_group, &[]);
+            // TODO: Break into multiple dispatches if too many ops
+            if self.run_params.op_count > MAX_DISPATCHES_PER_SUBMIT as usize {
+                unimplemented!(
+                    "This circuit exceeds the current upper limit of {} operations",
+                    MAX_DISPATCHES_PER_SUBMIT
+                );
+            }
 
-        // Currently always 1 workgroup per shot (assume 1 thread per workgroup) for the prepare_op stage
-        let prepare_workgroup_count = u32::try_from(self.run_params.shots_per_batch)
-            .expect("shots_per_batch should fit in u32");
-        // Workgroups for execute_op depends on qubit count
-        let execute_workgroup_count =
-            u32::try_from(self.run_params.workgroups_per_shot * self.run_params.shots_per_batch)
-                .expect("workgroups_per_shot * shots_per_batch should fit in u32");
+            compute_pass.set_bind_group(0, &resources.bind_group, &[]);
 
-        // Dispatch the compute shaders for each op for this batch of shots
-        for op in &self.ops {
-            match op.id {
-                // One qubit gates
-                ops::ID..=ops::RZ | ops::MOVE => {
-                    compute_pass.set_pipeline(&resources.pipeline_prepare_op);
-                    compute_pass.dispatch_workgroups(prepare_workgroup_count, 1, 1);
+            let prepare_workgroup_count =
+                u32::try_from(shots_this_batch).expect("shots_per_batch should fit in u32");
+            // Workgroups for execute_op depends on qubit count
+            let execute_workgroup_count =
+                u32::try_from(self.run_params.workgroups_per_shot * shots_this_batch)
+                    .expect("workgroups_per_shot * shots_per_batch should fit in u32");
 
-                    compute_pass.set_pipeline(&resources.pipeline_execute_op);
-                    compute_pass.dispatch_workgroups(execute_workgroup_count, 1, 1);
-                }
-                // Two qubit gates
-                ops::CX..=ops::RZZ => {
-                    compute_pass.set_pipeline(&resources.pipeline_prepare_op);
-                    compute_pass.dispatch_workgroups(prepare_workgroup_count, 1, 1);
+            // Start by dispatching an 'init' kernel for the batch of shots
+            compute_pass.set_pipeline(&resources.pipeline_init_op);
+            compute_pass.dispatch_workgroups(execute_workgroup_count, 1, 1);
 
-                    compute_pass.set_pipeline(&resources.pipeline_execute_2q_op);
-                    compute_pass.dispatch_workgroups(execute_workgroup_count, 1, 1);
-                }
-                ops::MRESETZ | ops::MZ => {
-                    // Measurement has its own execute pipeline
-                    compute_pass.set_pipeline(&resources.pipeline_prepare_op);
-                    compute_pass.dispatch_workgroups(prepare_workgroup_count, 1, 1);
+            // Dispatch the compute shaders for each op for this batch of shots
+            for op in &self.ops {
+                match op.id {
+                    // One qubit gates
+                    ops::ID..=ops::RZ | ops::MOVE => {
+                        compute_pass.set_pipeline(&resources.pipeline_prepare_op);
+                        compute_pass.dispatch_workgroups(prepare_workgroup_count, 1, 1);
 
-                    compute_pass.set_pipeline(&resources.pipeline_execute_mz);
-                    compute_pass.dispatch_workgroups(execute_workgroup_count, 1, 1);
-                }
-                // Skip over noise ops
-                ops::PAULI_NOISE_1Q..=ops::LOSS_NOISE => {}
-                _ => {
-                    panic!("Unsupported op ID {}", op.id);
+                        compute_pass.set_pipeline(&resources.pipeline_execute_op);
+                        compute_pass.dispatch_workgroups(execute_workgroup_count, 1, 1);
+                    }
+                    // Two qubit gates
+                    ops::CX..=ops::RZZ => {
+                        compute_pass.set_pipeline(&resources.pipeline_prepare_op);
+                        compute_pass.dispatch_workgroups(prepare_workgroup_count, 1, 1);
+
+                        compute_pass.set_pipeline(&resources.pipeline_execute_2q_op);
+                        compute_pass.dispatch_workgroups(execute_workgroup_count, 1, 1);
+                    }
+                    ops::MRESETZ | ops::MZ => {
+                        // Measurement has its own execute pipeline
+                        compute_pass.set_pipeline(&resources.pipeline_prepare_op);
+                        compute_pass.dispatch_workgroups(prepare_workgroup_count, 1, 1);
+
+                        compute_pass.set_pipeline(&resources.pipeline_execute_mz);
+                        compute_pass.dispatch_workgroups(execute_workgroup_count, 1, 1);
+                    }
+                    // Skip over noise ops
+                    ops::PAULI_NOISE_1Q..=ops::LOSS_NOISE => {}
+                    _ => {
+                        panic!("Unsupported op ID {}", op.id);
+                    }
                 }
             }
-        }
 
-        drop(compute_pass);
+            drop(compute_pass);
 
-        // Copy the results and diagnostics to the download buffer
-        encoder.copy_buffer_to_buffer(
-            &resources.buffers.results,
-            0,
-            &resources.buffers.download,
-            0,
-            resources.buffers.results.size(),
-        );
+            // Copy the results and diagnostics to the download buffer
+            encoder.copy_buffer_to_buffer(
+                &resources.buffers.results,
+                0,
+                &resources.buffers.download,
+                0,
+                resources.buffers.results.size(),
+            );
 
-        encoder.copy_buffer_to_buffer(
-            &resources.buffers.diagnostics,
-            0,
-            &resources.buffers.download,
-            resources.buffers.results.size(),
-            resources.buffers.diagnostics.size(),
-        );
+            encoder.copy_buffer_to_buffer(
+                &resources.buffers.diagnostics,
+                0,
+                &resources.buffers.download,
+                resources.buffers.results.size(),
+                resources.buffers.diagnostics.size(),
+            );
 
-        let command_buffer = encoder.finish();
-        self.queue.submit([command_buffer]);
+            let command_buffer = encoder.finish();
+            self.queue.submit([command_buffer]);
 
-        // Fetching the actual results is a real pain. For details, see:
-        // https://github.com/gfx-rs/wgpu/blob/v26/examples/features/src/repeated_compute/mod.rs#L74
+            // Fetching the actual results is a real pain. For details, see:
+            // https://github.com/gfx-rs/wgpu/blob/v26/examples/features/src/repeated_compute/mod.rs#L74
 
-        // Cross-platform readback: async map + native poll
-        let buffer_slice = resources.buffers.download.slice(..);
+            // Cross-platform readback: async map + native poll
+            let buffer_slice = resources.buffers.download.slice(..);
 
-        let (sender, receiver) = futures::channel::oneshot::channel();
+            let (sender, receiver) = futures::channel::oneshot::channel();
 
-        buffer_slice.map_async(wgpu::MapMode::Read, move |_| {
-            sender
-                .send(())
-                .expect("Unable to download the results buffer from the GPU");
-        });
+            buffer_slice.map_async(wgpu::MapMode::Read, move |_| {
+                sender
+                    .send(())
+                    .expect("Unable to download the results buffer from the GPU");
+            });
 
-        // On native, drive the GPU and mapping to completion. No-op on the web (where it automatically polls).
-        // Retry polling up to 5 times in case of transient failures
-        let mut poll_attempts = 0;
-        loop {
-            match self.device.poll(wgpu::PollType::Wait) {
-                Ok(_) => break,
-                Err(e) => {
-                    poll_attempts += 1;
-                    assert!(
-                        (poll_attempts < 5),
-                        "GPU polling failed after 5 attempts: {e}"
-                    );
-                    eprintln!("GPU poll attempt {poll_attempts} failed: {e}, retrying...");
+            // On native, drive the GPU and mapping to completion. No-op on the web (where it automatically polls).
+            // Retry polling up to 5 times in case of transient failures
+            let mut poll_attempts = 0;
+            loop {
+                match self.device.poll(wgpu::PollType::Wait) {
+                    Ok(_) => break,
+                    Err(e) => {
+                        poll_attempts += 1;
+                        assert!(
+                            (poll_attempts < 5),
+                            "GPU polling failed after 5 attempts: {e}"
+                        );
+                        eprintln!("GPU poll attempt {poll_attempts} failed: {e}, retrying...");
+                    }
                 }
             }
+
+            receiver.await.expect("Failed to receive map completion");
+
+            // Read, copy out, and unmap.
+            let data = buffer_slice.get_mapped_range();
+
+            // Fetch results and diagnostics from the download buffer
+            let result_bytes = self.run_params.results_buffer_size;
+            let results_data = &data[..result_bytes];
+            let diagnositcs_data = &data[result_bytes..];
+
+            let batch_results: Vec<u32> = bytemuck::cast_slice(results_data).to_vec();
+
+            results.extend(batch_results);
+
+            // TODO: Capture and return only the first populated diagnostics
+            let diagnostics = bytemuck::from_bytes::<DiagnosticsData>(diagnositcs_data);
+
+            drop(data);
+            resources.buffers.download.unmap();
+
+            shots_remaining -= self.run_params.shots_per_batch as i32;
         }
 
-        receiver.await.expect("Failed to receive map completion");
-
-        // Read, copy out, and unmap.
-        let data = buffer_slice.get_mapped_range();
-
-        // Fetch results and diagnostics from the download buffer
-        let result_bytes = self.run_params.results_buffer_size;
-        let results_data = &data[..result_bytes];
-        let diagnositcs_data = &data[result_bytes..];
-
-        let results: Vec<u32> = bytemuck::cast_slice(results_data).to_vec();
-        let diagnostics = bytemuck::from_bytes::<DiagnosticsData>(diagnositcs_data);
-
-        drop(data);
-        resources.buffers.download.unmap();
+        // We may have had extra shots if the last batch was not full. Truncate if so.
+        results.truncate(self.run_params.shots_count * self.run_params.result_count);
 
         if self.dbg_capture {
             unsafe {
@@ -761,24 +843,32 @@ impl GpuContext {
 
 fn create_bind_group_layout(device: &Device) -> BindGroupLayout {
     let buffers = [
-        ("WorkgroupCollation", 0, false),
-        ("ShotState", 1, false),
-        ("Ops", 2, true),
-        ("StateVector", 3, false),
-        ("Results", 4, false),
-        ("Diagnostics", 5, false),
+        // name, index, is_uniform, read_only
+        ("WorkgroupCollation", 0, false, false),
+        ("ShotState", 1, false, false),
+        ("Ops", 2, false, true),
+        ("StateVector", 3, false, false),
+        ("Results", 4, false, false),
+        ("Diagnostics", 5, false, false),
+        ("Uniforms", 6, true, false),
     ]
     .into_iter()
-    .map(|(_, binding, read_only)| wgpu::BindGroupLayoutEntry {
-        binding,
-        visibility: wgpu::ShaderStages::COMPUTE,
-        ty: wgpu::BindingType::Buffer {
-            ty: wgpu::BufferBindingType::Storage { read_only },
-            has_dynamic_offset: false,
-            min_binding_size: None,
+    .map(
+        |(_, binding, is_uniform, read_only)| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::COMPUTE,
+            ty: wgpu::BindingType::Buffer {
+                ty: if is_uniform {
+                    wgpu::BufferBindingType::Uniform
+                } else {
+                    wgpu::BufferBindingType::Storage { read_only }
+                },
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
         },
-        count: None,
-    })
+    )
     .collect::<Vec<_>>();
 
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
