@@ -238,11 +238,11 @@ class MoveGroupPool:
 class MoveScheduler:
 
     def __init__(
-        self, qubits_to_move: list[QubitId | tuple[QubitId, QubitId]], device: Device
+        self, device: Device, qubits_to_move: list[QubitId | tuple[QubitId, QubitId]]
     ):
         self.device = device
         self.available_iz_locations = self.build_iz_locations()
-        self.pending_partial_moves = self.qubits_to_partial_moves(qubits_to_move)
+        self.partial_moves = self.qubits_to_partial_moves(qubits_to_move)
         self.disjoint_pools: list[MoveGroupPool] = [
             MoveGroupPool((row_parity, col_parity), (ud, lr))
             for row_parity in (0, 1)
@@ -293,23 +293,23 @@ class MoveScheduler:
 
         return sorted(partial_moves, key=sort_key)
 
-    def pending_partial_moves_is_empty(self):
-        return not bool(self.pending_partial_moves)
+    def partial_moves_is_empty(self):
+        return not bool(self.partial_moves)
 
-    def next_pending_partial_move(
+    def next_partial_move(
         self,
     ) -> Optional[PartialMove | PartialMovePair]:
         try:
-            return self.pending_partial_moves.pop(0)
+            return self.partial_moves.pop(0)
         except IndexError:
             return None
 
     def is_empty(self):
         """
-        Returns `True` if all pending moves were scheduled.
-        That is, there no pending partial moves and all disjoint pools are empty.
+        Returns `True` if all moves were scheduled.
+        That is, there are no partial moves and all disjoint pools are empty.
         """
-        return self.pending_partial_moves_is_empty() and all(
+        return self.partial_moves_is_empty() and all(
             s.is_empty() for s in self.disjoint_pools
         )
 
@@ -340,7 +340,7 @@ class MoveScheduler:
             key=lambda pool: pool.largest_move_group_candidate_len(), reverse=True
         )
         for pool in compatible_move_group_pools:
-            if move := self.get_compatible_pending_move(pool, partial_move):
+            if move := self.get_compatible_move(pool, partial_move):
                 pool.add(move)
                 # print(f"pushed move: {move}")
                 return pool
@@ -369,7 +369,7 @@ class MoveScheduler:
             key=lambda pool: pool.largest_move_group_candidate_len(), reverse=True
         )
         for pool in compatible_move_group_pools:
-            if move1 := self.get_compatible_pending_move_for_pair(pool, partial_move):
+            if move1 := self.get_compatible_move_for_pair(pool, partial_move):
                 # Push the move corresponding to the first qubit of the CZ pair.
                 pool.add(move1)
 
@@ -383,7 +383,7 @@ class MoveScheduler:
                 return pool
         raise Exception("not enough IZ space to schedule all moves")
 
-    def get_compatible_pending_move(
+    def get_compatible_move(
         self, pool: MoveGroupPool, partial_move: PartialMove
     ) -> Optional[Move]:
         source = partial_move.src_loc
@@ -394,7 +394,7 @@ class MoveScheduler:
                 del self.available_iz_locations[destination]
                 return partial_move.into_move(destination)
 
-    def get_compatible_pending_move_for_pair(
+    def get_compatible_move_for_pair(
         self, pool: MoveGroupPool, partial_move: PartialMove
     ) -> Optional[Move]:
         source = partial_move.src_loc
@@ -415,9 +415,9 @@ class MoveScheduler:
         if self.is_empty():
             raise StopIteration
 
-        # Step through the pending moves and push them to the largest
+        # Step through the partial moves and push them to the largest
         # candidate they are compatible with.
-        while partial_move := self.next_pending_partial_move():
+        while partial_move := self.next_partial_move():
             if isinstance(partial_move, PartialMove):
                 pool = self.push_to_largest_compatible_move_group(partial_move)
             else:
@@ -425,8 +425,7 @@ class MoveScheduler:
             if pool.largest_move_group_candidate_len() >= self.device.column_count:
                 return pool.try_take(self.device.column_count)
 
-        # Once pending moves are exhausted, we try_get
-        # from the largest candidate.
+        # Once partial moves are exhausted, we try_get from the largest candidate.
         return self.largest_move_group_pool().try_take(self.device.column_count)
 
 
@@ -722,7 +721,7 @@ class Schedule(QirModuleVisitor):
             return
 
     def schedule_pending_moves(self) -> Iterable[list[Move]]:
-        return MoveScheduler(self.pending_moves, self.device)
+        return MoveScheduler(self.device, self.pending_moves)
 
     def insert_moves(self):
         """
