@@ -871,6 +871,7 @@ fn extend_with_successors(
                     .unwrap_or_default();
 
                 add_op_with_grouping(
+                    true,
                     user_package_ids,
                     dbg_stuff,
                     &mut operations,

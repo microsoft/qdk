@@ -26,7 +26,7 @@ fn check(instructions: Vec<Instruction>, expect: Expect) {
             }
         };
 
-        add_op_with_grouping(&[], &(), &mut grouped, op, op_call_stack);
+        add_op_with_grouping(true, &[], &(), &mut grouped, op, op_call_stack);
     }
 
     let fmt_ops = |grouped: &[Op]| -> String {

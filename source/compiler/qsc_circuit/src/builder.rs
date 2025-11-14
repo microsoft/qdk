@@ -77,7 +77,7 @@ impl Tracer for CircuitTracer {
                 control_results: &[],
             },
             display_args,
-            stack,
+            &full_call_stack(stack),
         );
     }
 
@@ -92,17 +92,25 @@ impl Tracer for CircuitTracer {
         };
         self.wire_map_builder.link_result_to_qubit(q, r);
         if name == "MResetZ" {
-            self.circuit_builder
-                .mresetz(self.wire_map_builder.current(), q, r, stack);
+            self.circuit_builder.mresetz(
+                self.wire_map_builder.current(),
+                q,
+                r,
+                &full_call_stack(stack),
+            );
         } else {
-            self.circuit_builder
-                .m(self.wire_map_builder.current(), q, r, stack);
+            self.circuit_builder.m(
+                self.wire_map_builder.current(),
+                q,
+                r,
+                &full_call_stack(stack),
+            );
         }
     }
 
     fn reset(&mut self, stack: &[Frame], q: usize) {
         self.circuit_builder
-            .reset(self.wire_map_builder.current(), q, stack);
+            .reset(self.wire_map_builder.current(), q, &full_call_stack(stack));
     }
 
     fn custom_intrinsic(&mut self, stack: &[Frame], name: &str, arg: Value) {
@@ -130,7 +138,7 @@ impl Tracer for CircuitTracer {
             } else {
                 vec![classical_args]
             },
-            stack,
+            &full_call_stack(stack),
         );
     }
 
@@ -148,6 +156,7 @@ impl CircuitTracer {
             circuit_builder: OperationListBuilder::new(
                 config.max_operations,
                 user_package_ids.to_vec(),
+                config.group_scopes,
             ),
             next_result_id: 0,
             user_package_ids: user_package_ids.to_vec(),
@@ -185,6 +194,7 @@ impl CircuitTracer {
             circuit_builder: OperationListBuilder::new(
                 config.max_operations,
                 user_package_ids.to_vec(),
+                config.group_scopes,
             ),
             next_result_id: 0,
             user_package_ids: user_package_ids.to_vec(),
@@ -212,7 +222,11 @@ impl CircuitTracer {
     ) -> Circuit {
         let ops = replace(
             &mut self.circuit_builder,
-            OperationListBuilder::new(self.config.max_operations, self.user_package_ids.clone()),
+            OperationListBuilder::new(
+                self.config.max_operations,
+                self.user_package_ids.clone(),
+                self.config.group_scopes,
+            ),
         )
         .into_operations();
 
@@ -872,16 +886,22 @@ pub(crate) struct OperationListBuilder {
     operations: Vec<OperationOrGroup>,
     source_locations: bool,
     user_package_ids: Vec<PackageId>,
+    group_scopes: bool,
 }
 
 impl OperationListBuilder {
-    pub fn new(max_operations: usize, user_package_ids: Vec<PackageId>) -> Self {
+    pub fn new(
+        max_operations: usize,
+        user_package_ids: Vec<PackageId>,
+        group_scopes: bool,
+    ) -> Self {
         Self {
             max_ops: max_operations,
             max_ops_exceeded: false,
             operations: vec![],
             source_locations: true,
             user_package_ids,
+            group_scopes,
         }
     }
 
@@ -894,6 +914,7 @@ impl OperationListBuilder {
         let (op, unfiltered_call_stack) = op;
 
         add_op_with_grouping(
+            self.group_scopes,
             &self.user_package_ids,
             &DbgStuffForEval {},
             &mut self.operations,
@@ -917,58 +938,106 @@ impl OperationListBuilder {
         is_adjoint: bool,
         inputs: &GateInputs,
         args: Vec<String>,
-        called_at: &[Frame],
+        call_stack: &[SourceLocationMetadata],
     ) {
-        let unfiltered_call_stack = full_call_stack(called_at);
+        let called_at = if self.source_locations {
+            retain_user_frames(
+                &DbgStuffForEval {},
+                &self.user_package_ids,
+                call_stack.to_vec(),
+            )
+            .last()
+            .cloned()
+        } else {
+            None
+        };
+
         self.push_op((
-            self.new_unitary(wire_map, name, is_adjoint, inputs, args, called_at),
-            unfiltered_call_stack,
+            Self::new_unitary(wire_map, name, is_adjoint, inputs, args, called_at),
+            call_stack.to_vec(),
         ));
     }
 
-    fn m(&mut self, wire_map: &WireMap, qubit: usize, result: usize, called_at: &[Frame]) {
-        let unfiltered_call_stack = full_call_stack(called_at);
+    fn m(
+        &mut self,
+        wire_map: &WireMap,
+        qubit: usize,
+        result: usize,
+        call_stack: &[SourceLocationMetadata],
+    ) {
+        let called_at = if self.source_locations {
+            retain_user_frames(
+                &DbgStuffForEval {},
+                &self.user_package_ids,
+                call_stack.to_vec(),
+            )
+            .last()
+            .cloned()
+        } else {
+            None
+        };
+
         self.push_op((
-            self.new_measurement("M", wire_map, qubit, result, called_at),
-            unfiltered_call_stack,
+            Self::new_measurement("M", wire_map, qubit, result, called_at),
+            call_stack.to_vec(),
         ));
     }
 
-    fn mresetz(&mut self, wire_map: &WireMap, qubit: usize, result: usize, called_at: &[Frame]) {
-        let unfiltered_call_stack = full_call_stack(called_at);
+    fn mresetz(
+        &mut self,
+        wire_map: &WireMap,
+        qubit: usize,
+        result: usize,
+        call_stack: &[SourceLocationMetadata],
+    ) {
+        let called_at = if self.source_locations {
+            retain_user_frames(
+                &DbgStuffForEval {},
+                &self.user_package_ids,
+                call_stack.to_vec(),
+            )
+            .last()
+            .cloned()
+        } else {
+            None
+        };
+
         self.push_op((
-            self.new_measurement("MResetZ", wire_map, qubit, result, called_at),
-            unfiltered_call_stack.clone(),
+            Self::new_measurement("MResetZ", wire_map, qubit, result, called_at.clone()),
+            call_stack.to_vec(),
         ));
         self.push_op((
-            self.new_ket(wire_map, qubit, called_at),
-            unfiltered_call_stack,
+            Self::new_ket(wire_map, qubit, called_at),
+            call_stack.to_vec(),
         ));
     }
 
-    fn reset(&mut self, wire_map: &WireMap, qubit: usize, called_at: &[Frame]) {
-        let unfiltered_call_stack = full_call_stack(called_at);
-        self.push_op((
-            self.new_ket(wire_map, qubit, called_at),
-            unfiltered_call_stack,
-        ));
-    }
+    fn reset(&mut self, wire_map: &WireMap, qubit: usize, call_stack: &[SourceLocationMetadata]) {
+        let called_at = if self.source_locations {
+            retain_user_frames(
+                &DbgStuffForEval {},
+                &self.user_package_ids,
+                call_stack.to_vec(),
+            )
+            .last()
+            .cloned()
+        } else {
+            None
+        };
 
-    fn user_code_call_location(&self, stack: &[Frame]) -> Option<PackageOffset> {
-        if !self.source_locations || stack.is_empty() || self.user_package_ids.is_empty() {
-            return None;
-        }
-        first_user_code_location(&self.user_package_ids, stack)
+        self.push_op((
+            Self::new_ket(wire_map, qubit, called_at),
+            call_stack.to_vec(),
+        ));
     }
 
     fn new_unitary(
-        &self,
         wire_map: &WireMap,
         name: &str,
         is_adjoint: bool,
         inputs: &GateInputs<'_>,
         args: Vec<String>,
-        stack: &[Frame],
+        called_at: Option<SourceLocationMetadata>,
     ) -> OperationOrGroup {
         OperationOrGroup::single(Operation::Unitary(Unitary {
             gate: name.to_string(),
@@ -991,19 +1060,18 @@ impl OperationListBuilder {
                 })
                 .collect(),
             is_adjoint,
-            source: self
-                .user_code_call_location(stack)
+            source: called_at
+                .map(|md| md.location)
                 .map(SourceLocation::Unresolved),
         }))
     }
 
     fn new_measurement(
-        &self,
         label: &str,
         wire_map: &WireMap,
         qubit: usize,
         result: usize,
-        stack: &[Frame],
+        called_at: Option<SourceLocationMetadata>,
     ) -> OperationOrGroup {
         let result_wire = wire_map.result_wire(result);
 
@@ -1019,13 +1087,17 @@ impl OperationListBuilder {
                 qubit: result_wire.0,
                 result: Some(result_wire.1),
             }],
-            source: self
-                .user_code_call_location(stack)
+            source: called_at
+                .map(|md| md.location)
                 .map(SourceLocation::Unresolved),
         }))
     }
 
-    fn new_ket(&self, wire_map: &WireMap, qubit: usize, stack: &[Frame]) -> OperationOrGroup {
+    fn new_ket(
+        wire_map: &WireMap,
+        qubit: usize,
+        called_at: Option<SourceLocationMetadata>,
+    ) -> OperationOrGroup {
         OperationOrGroup::single(Operation::Ket(Ket {
             gate: "0".to_string(),
             args: vec![],
@@ -1034,8 +1106,8 @@ impl OperationListBuilder {
                 qubit: wire_map.qubit_wire(qubit).0,
                 result: None,
             }],
-            source: self
-                .user_code_call_location(stack)
+            source: called_at
+                .map(|md| md.location)
                 .map(SourceLocation::Unresolved),
         }))
     }
@@ -1118,13 +1190,18 @@ impl LexicalScope {
 }
 
 pub(crate) fn add_op_with_grouping<OG: OperationOrGroupExt>(
+    group_scopes: bool,
     user_package_ids: &[PackageId],
     dbg_stuff: &OG::DbgStuff<'_>,
     operations: &mut Vec<OG>,
     op: OG,
     unfiltered_call_stack: Vec<OG::SourceLocation>,
 ) {
-    let op_call_stack = retain_user_frames(dbg_stuff, user_package_ids, unfiltered_call_stack);
+    let op_call_stack = if group_scopes {
+        retain_user_frames(dbg_stuff, user_package_ids, unfiltered_call_stack)
+    } else {
+        vec![]
+    };
 
     // TODO: I'm pretty sure this is wrong if we have a NO call stack operation
     // in between call-stacked operations. We should probably unscope those. Add tests.
