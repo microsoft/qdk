@@ -104,10 +104,10 @@ impl<'a> Visitor<'a> for SepCheck {
     }
 
     fn visit_expr(&mut self, expr: &'a Expr) {
-        if let ExprKind::Call(callee, _) = &expr.kind {
-            if matches!(&callee.ty, Ty::Arrow(arrow) if arrow.kind == CallableKind::Operation) {
-                self.errors.push(Error::OpCallForbidden(expr.span));
-            }
+        if let ExprKind::Call(callee, _) = &expr.kind
+            && matches!(&callee.ty, Ty::Arrow(arrow) if arrow.kind == CallableKind::Operation)
+        {
+            self.errors.push(Error::OpCallForbidden(expr.span));
         }
         walk_expr(self, expr);
     }

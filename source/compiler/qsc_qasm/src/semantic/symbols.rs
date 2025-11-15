@@ -523,25 +523,24 @@ impl SymbolTable {
             }
         }
 
-        if let Some(scope) = last_false {
-            if let Some((id, symbol)) = scope.get_symbol_by_name(name.as_ref()) {
-                if symbol.ty.is_const()
-                    || matches!(symbol.ty, Type::Gate(..) | Type::Void | Type::Function(..))
-                    || self.is_scope_rooted_in_global()
-                {
-                    return Ok((id, symbol));
-                }
-                return Err(SymbolLookupError::NotVisible);
+        if let Some(scope) = last_false
+            && let Some((id, symbol)) = scope.get_symbol_by_name(name.as_ref())
+        {
+            if symbol.ty.is_const()
+                || matches!(symbol.ty, Type::Gate(..) | Type::Void | Type::Function(..))
+                || self.is_scope_rooted_in_global()
+            {
+                return Ok((id, symbol));
             }
+            return Err(SymbolLookupError::NotVisible);
         }
         // we should be at the global, function, or gate scope now
         for scope in scopes {
-            if let Some((id, symbol)) = scope.get_symbol_by_name(name.as_ref()) {
-                if symbol.ty.is_const()
-                    || matches!(symbol.ty, Type::Gate(..) | Type::Void | Type::Function(..))
-                {
-                    return Ok((id, symbol));
-                }
+            if let Some((id, symbol)) = scope.get_symbol_by_name(name.as_ref())
+                && (symbol.ty.is_const()
+                    || matches!(symbol.ty, Type::Gate(..) | Type::Void | Type::Function(..)))
+            {
+                return Ok((id, symbol));
             }
         }
 

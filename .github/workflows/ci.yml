@@ -4,8 +4,8 @@ on:
   pull_request:
     branches:
       - main
-      - 'feature/**'
-      - 'release/**'
+      - "feature/**"
+      - "release/**"
   merge_group:
   workflow_dispatch:
 
@@ -20,7 +20,7 @@ env:
   CARGO_TERM_COLOR: always
   NODE_VERSION: "22.14.0"
   PYTHON_VERSION: "3.11"
-  RUST_TOOLCHAIN_VERSION: "1.88"
+  RUST_TOOLCHAIN_VERSION: "1.90"
   RUST_TOOLCHAIN_COMPONENTS: rustfmt clippy
 
 jobs:
@@ -187,7 +187,16 @@ jobs:
 
   status-check:
     name: Status Check
-    needs: [format, clippy, web-check, build, unit-tests, format-qsc, integration-tests]
+    needs:
+      [
+        format,
+        clippy,
+        web-check,
+        build,
+        unit-tests,
+        format-qsc,
+        integration-tests,
+      ]
     runs-on: ubuntu-latest
     if: failure()
     steps:

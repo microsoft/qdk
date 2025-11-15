@@ -16,7 +16,7 @@ pub(super) struct Locals<'a> {
 }
 
 impl Locals<'_> {
-    pub fn new(offset: u32, compilation: &Compilation) -> Locals {
+    pub fn new(offset: u32, compilation: &Compilation) -> Locals<'_> {
         Locals {
             compilation,
             offset,

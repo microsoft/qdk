@@ -857,10 +857,10 @@ pub struct UdtField {
 
 impl Display for UdtField {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        if let Some(n) = &self.name {
-            if let Some(s) = &self.name_span {
-                write!(f, "\nname: {n} {s}")?;
-            }
+        if let Some(n) = &self.name
+            && let Some(s) = &self.name_span
+        {
+            write!(f, "\nname: {n} {s}")?;
         }
         write!(f, "\ntype: {}", self.ty)?;
         Ok(())
