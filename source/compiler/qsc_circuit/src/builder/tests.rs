@@ -6,17 +6,21 @@ use expect_test::expect;
 
 #[test]
 fn exceed_max_operations() {
-    let mut builder = Builder::new(Config { max_operations: 2 });
+    let mut builder = CircuitTracer::new(
+        TracerConfig {
+            max_operations: 2,
+            source_locations: false,
+        },
+        &[],
+    );
 
-    let q = builder.qubit_allocate();
+    builder.qubit_allocate(&[], 0);
 
-    builder.x(q);
-    builder.x(q);
-    builder.x(q);
+    builder.gate(&[], "X", false, &[0], &[], None);
+    builder.gate(&[], "X", false, &[0], &[], None);
+    builder.gate(&[], "X", false, &[0], &[], None);
 
-    builder.qubit_release(q);
-
-    let circuit = builder.finish();
+    let circuit = builder.finish(None);
 
     // The current behavior is to silently truncate the circuit
     // if it exceeds the maximum allowed number of operations.
@@ -28,17 +32,21 @@ fn exceed_max_operations() {
 
 #[test]
 fn exceed_max_operations_deferred_measurements() {
-    let mut builder = Builder::new(Config { max_operations: 2 });
+    let mut builder = CircuitTracer::new(
+        TracerConfig {
+            max_operations: 2,
+            source_locations: false,
+        },
+        &[],
+    );
 
-    let q = builder.qubit_allocate();
+    builder.qubit_allocate(&[], 0);
 
-    builder.x(q);
-    builder.m(q);
-    builder.x(q);
+    builder.gate(&[], "X", false, &[0], &[], None);
+    builder.measure(&[], "M", 0, &(0.into()));
+    builder.gate(&[], "X", false, &[0], &[], None);
 
-    builder.qubit_release(q);
-
-    let circuit = builder.finish();
+    let circuit = builder.finish(None);
 
     // The current behavior is to silently truncate the circuit
     // if it exceeds the maximum allowed number of operations.

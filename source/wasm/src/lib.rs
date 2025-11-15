@@ -141,17 +141,49 @@ pub(crate) fn get_estimates_from_openqasm(
     })
 }
 
+serializable_type! {
+    CircuitConfig,
+    {
+        max_operations: usize,
+        generation_method: String,
+        source_locations: bool,
+    },
+    r#"export interface ICircuitConfig {
+        maxOperations: number;
+        generationMethod: "simulate" | "classicalEval" ;
+        sourceLocations: boolean;
+    }"#,
+    ICircuitConfig
+}
+
 #[wasm_bindgen]
 pub fn get_circuit(
     program: ProgramConfig,
-    simulate: bool,
     operation: Option<IOperationInfo>,
+    config: ICircuitConfig,
 ) -> Result<JsValue, String> {
+    let config: CircuitConfig = config.into();
+    let method = match config.generation_method.as_str() {
+        "simulate" => qsc::interpret::CircuitGenerationMethod::Simulate,
+        "classicalEval" => qsc::interpret::CircuitGenerationMethod::ClassicalEval,
+        _ => {
+            panic!(
+                "Invalid generation method option: {}",
+                config.generation_method
+            )
+        }
+    };
+    let tracer_config = qsc::circuit::TracerConfig {
+        source_locations: config.source_locations,
+        max_operations: config.max_operations,
+    };
+
     if is_openqasm_program(&program) {
         let (sources, capabilities) = into_openqasm_arg(program);
         let (_, mut interpreter) = get_interpreter_from_openqasm(&sources, capabilities)?;
+
         let circuit = interpreter
-            .circuit(CircuitEntryPoint::EntryPoint, simulate)
+            .circuit(CircuitEntryPoint::EntryPoint, method, tracer_config)
             .map_err(interpret_errors_into_qsharp_errors_json)?;
         serde_wasm_bindgen::to_value(&circuit).map_err(|e| e.to_string())
     } else {
@@ -181,7 +213,7 @@ pub fn get_circuit(
         .map_err(interpret_errors_into_qsharp_errors_json)?;
 
         let circuit = interpreter
-            .circuit(entry_point, simulate)
+            .circuit(entry_point, method, tracer_config)
             .map_err(interpret_errors_into_qsharp_errors_json)?;
 
         serde_wasm_bindgen::to_value(&circuit).map_err(|e| e.to_string())

@@ -101,6 +101,7 @@ fn to_circuit_group(mut json: Map<String, Value>) -> Result<CircuitGroup, Error>
                                 .unwrap_or(0),
                         )
                         .map_err(|_| Error::custom("Value of 'numChildren' is out of range"))?,
+                        declarations: vec![],
                     })
                 })
                 .collect::<Result<Vec<Qubit>, Error>>()?

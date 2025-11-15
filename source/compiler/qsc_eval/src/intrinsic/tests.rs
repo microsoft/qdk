@@ -27,8 +27,6 @@ struct CustomSim {
 }
 
 impl Backend for CustomSim {
-    type ResultType = val::Result;
-
     fn ccx(&mut self, ctl0: usize, ctl1: usize, q: usize) {
         self.sim.ccx(ctl0, ctl1, q);
     }
@@ -49,11 +47,11 @@ impl Backend for CustomSim {
         self.sim.h(q);
     }
 
-    fn m(&mut self, q: usize) -> Self::ResultType {
+    fn m(&mut self, q: usize) -> val::Result {
         self.sim.m(q)
     }
 
-    fn mresetz(&mut self, q: usize) -> Self::ResultType {
+    fn mresetz(&mut self, q: usize) -> val::Result {
         self.sim.mresetz(q)
     }
 

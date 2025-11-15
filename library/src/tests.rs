@@ -17,7 +17,7 @@ mod table_lookup;
 use indoc::indoc;
 use qsc::{
     Backend, LanguageFeatures, PackageType, SourceMap, SparseSim,
-    interpret::{self, GenericReceiver, Interpreter, Result, Value},
+    interpret::{self, GenericReceiver, Interpreter, Value},
     target::Profile,
 };
 
@@ -57,7 +57,7 @@ pub fn test_expression_with_lib_and_profile_and_sim(
     expr: &str,
     lib: &str,
     profile: Profile,
-    sim: &mut impl Backend<ResultType = impl Into<Result>>,
+    sim: &mut impl Backend,
     expected: &Value,
 ) -> String {
     let mut stdout = vec![];
@@ -106,7 +106,7 @@ pub fn test_expression_fails_with_lib_and_profile_and_sim(
     expr: &str,
     lib: &str,
     profile: Profile,
-    sim: &mut impl Backend<ResultType = impl Into<Result>>,
+    sim: &mut impl Backend,
 ) -> String {
     let mut stdout = vec![];
     let mut out = GenericReceiver::new(&mut stdout);
