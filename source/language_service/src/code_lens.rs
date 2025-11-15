@@ -43,9 +43,9 @@ pub(crate) fn get_code_lenses(
         .items
         .iter()
         .fold(Vec::new(), |mut accum, (_, item)| {
-            if source_span.contains(item.span.lo) {
-                if let ItemKind::Callable(decl) = &item.kind {
-                    if let Some(ItemKind::Namespace(ns, _)) = item
+            if source_span.contains(item.span.lo)
+                && let ItemKind::Callable(decl) = &item.kind
+                    && let Some(ItemKind::Namespace(ns, _)) = item
                         .parent
                         .and_then(|parent_id| package.items.get(parent_id))
                         .map(|parent| &parent.kind)
@@ -106,8 +106,6 @@ pub(crate) fn get_code_lenses(
 
                         return accum;
                     }
-                }
-            }
             accum
         })
 }

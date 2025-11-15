@@ -330,11 +330,10 @@ impl Row {
 
     fn add_measurement(&mut self, column: usize, source: Option<&SourceLocation>) {
         let mut gate_label = String::from("M");
-        if self.render_locations {
-            if let Some(SourceLocation::Resolved(loc)) = source {
+        if self.render_locations
+            && let Some(SourceLocation::Resolved(loc)) = source {
                 let _ = write!(&mut gate_label, "@{loc}");
             }
-        }
         self.add(column, CircuitObject::Object(gate_label.to_string()));
     }
 
@@ -357,11 +356,10 @@ impl Row {
             let _ = write!(&mut gate_label, "({args})");
         }
 
-        if self.render_locations {
-            if let Some(SourceLocation::Resolved(loc)) = source {
+        if self.render_locations
+            && let Some(SourceLocation::Resolved(loc)) = source {
                 let _ = write!(&mut gate_label, "@{}:{}:{}", loc.file, loc.line, loc.column);
             }
-        }
 
         self.add_object(column, gate_label.as_str());
     }
