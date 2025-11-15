@@ -2537,6 +2537,42 @@ fn branch_on_dynamic_bool() {
 }
 
 #[test]
+fn nested_callables_in_branch_buggy() {
+    // TODO: nesting should happen inside the branch as well
+    let circ = circuit_static(
+        r"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    use q = Qubit();
+                    Foo(q);
+                    use q1 = Qubit();
+                    H(q1);
+                    if (M(q1) == One) {
+                        Foo(q);
+                    }
+                }
+                operation Foo(q: Qubit) : Unit {
+                    Bar(q);
+                }
+                operation Bar(q: Qubit) : Unit {
+                    X(q);
+                    Y(q);
+                }
+            }
+        ",
+    );
+
+    expect![[r#"
+        q_0    ─ [[ ─── [Main@test.qs:3:16] ──────── [[ ───────── [Foo@test.qs:12:16] ── [[ ─── [Bar@test.qs:15:16] ── X@test.qs:16:20 ── Y@test.qs:17:20 ── ]] ─── ]] ────────────────────── [[ ──── [check (c_0 = |1〉)@test.qs:9:24] ──── [[ ─── [true] ─── X@test.qs:16:20 ── Y@test.qs:17:20 ── ]] ─── ]] ─── ]] ──
+                                 ┆                                                                                                                                                                                    │                               │              │                  │
+        q_1    ─ [[ ─── [Main@test.qs:3:16] ── H@test.qs:7:20 ──────────────────────────────────────────────────────────────────────────────────────────────────────────── M@test.qs:8:24 ────────────────────────────┼───────────────────────────────┼──────────────┼──────────────────┼──────────────────────── ]] ──
+               ═ [[ ═══ [Main@test.qs:3:16] ═                                                                                                                                     ╘══════════════════════════════════ ● ═════════════════════════════ ● ════════════ ● ════════════════ ● ═══════════════════════ ]] ══
+    "#]]
+    .assert_eq(&circ.to_string());
+}
+
+#[test]
 fn teleportation() {
     let circ = circuit_static(
         r#"
