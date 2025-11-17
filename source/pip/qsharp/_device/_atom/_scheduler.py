@@ -303,6 +303,10 @@ class MoveScheduler:
             zone: The zone the moves will be scheduled to.
             qubits_to_move: A list of qubits to move.
         """
+        # Remove duplicates while preserving order.
+        assert len(qubits_to_move) == len(
+            set(qubits_to_move)
+        ), f"{len(qubits_to_move)} != {len(set(qubits_to_move))}"
         self.device = device
         self.zone = zone
         self.available_dst_locations = self.build_zone_locations(zone)
@@ -562,8 +566,7 @@ class Schedule(QirModuleVisitor):
         super().__init__()
         self.device = device
         self.num_qubits = len(self.device.home_locs)
-        self.pending_moves_back: list[list[Move]] = []
-        self.pending_moves_zone = device.get_interaction_zones()[0]
+        self.pending_moves: list[list[Move]] = []
 
     def _on_module(self, module):
         i64_ty = IntType(module.context, 64)
@@ -636,27 +639,21 @@ class Schedule(QirModuleVisitor):
     def _on_block(self, block):
         # Use only the first interaction and measurement zone; more could be supported in future.
         interaction_zone = self.device.get_interaction_zones()[0]
-        interaction_zone_row_offset = (
-            interaction_zone.offset // self.device.column_count
-        )
         measurement_zone = self.device.get_measurement_zones()[0]
-        measurement_zone_row_offset = (
-            measurement_zone.offset // self.device.column_count
-        )
-        iz_pairs_per_row = self.device.column_count // 2
+        max_iz_pairs = (self.device.column_count // 2) * interaction_zone.row_count
         max_measurements = self.device.column_count * measurement_zone.row_count
 
         # Track pending/queued single qubit operations by qubit id.
-        self.single_qubit_ops = [[] for i in range(self.num_qubits)]
+        self.single_qubit_ops = [[] for _ in range(self.num_qubits)]
 
-        # Track pending CZ operations by interaction zone row.
-        self.cz_ops_by_row = [[] for i in range(interaction_zone.row_count)]
+        # Track pending CZ operations.
+        self.curr_cz_ops = []
 
         # Track pending measurements.
         self.measurements = []
 
-        # Track pending moves (qubit, (row, col)).
-        self.pending_moves: list[QubitId | tuple[QubitId, QubitId]] = []
+        # Track pending qubits to move to an interaction or measurement zone.
+        self.pending_qubits_to_move: list[QubitId | tuple[QubitId, QubitId]] = []
 
         # Track values used in CZ ops and measurements to avoid putting operations on the
         # same qubit in the same batch.
@@ -674,7 +671,7 @@ class Schedule(QirModuleVisitor):
                 # This is a single qubit gate; queue it up for later execution when this qubit is needed for CZ or measurement.
 
                 # If this qubit is involved in pending moves, that implies a CZ or measurement is pending, so flush now.
-                if len(self.pending_moves) > 0 and any(
+                if any(
                     (
                         gate["qubit_args"][0] == qubit_id(q)
                         if isinstance(q, QubitId)
@@ -683,7 +680,7 @@ class Schedule(QirModuleVisitor):
                             or gate["qubit_args"][0] == qubit_id(q[1])
                         )
                     )
-                    for q in self.pending_moves
+                    for q in self.pending_qubits_to_move
                 ):
                     self.flush_pending(instr)
 
@@ -699,32 +696,23 @@ class Schedule(QirModuleVisitor):
                 assert isinstance(instr, Call)
                 (vals_used, _) = get_used_values(instr)
                 if (
-                    len(self.measurements) > 0
+                    self.measurements
                     or uses_any_value(vals_used, self.vals_used_in_cz_ops)
-                    or len(self.cz_ops_by_row[-1]) >= iz_pairs_per_row
+                    or len(self.curr_cz_ops) >= max_iz_pairs
                 ):
                     self.flush_pending(instr)
                 instr.remove()
-                row = 0
-                while row < interaction_zone.row_count:
-                    if len(self.cz_ops_by_row[row]) < iz_pairs_per_row:
-                        self.cz_ops_by_row[row].append((instr, gate))
-                        self.vals_used_in_cz_ops.update(vals_used)
-                        break
-                    row += 1
-                assert (
-                    row < interaction_zone.row_count
-                ), "Should have found a row for CZ operation"
+                self.curr_cz_ops.append(instr)
+                self.vals_used_in_cz_ops.update(vals_used)
 
                 # Prefer using matching relative column ordering to home locations to reduce move crossings.
                 if (
                     self.device.get_home_loc(gate["qubit_args"][0])[1]
                     > self.device.get_home_loc(gate["qubit_args"][1])[1]
                 ):
-                    self.pending_moves.append((instr.args[1], instr.args[0]))
+                    self.pending_qubits_to_move.append((instr.args[1], instr.args[0]))
                 else:
-                    self.pending_moves.append((instr.args[0], instr.args[1]))
-                self.pending_moves_zone = self.device.get_interaction_zones()[0]
+                    self.pending_qubits_to_move.append((instr.args[0], instr.args[1]))
 
             elif gate != {} and len(gate["result_args"]) == 1:
                 # This is a measurement; queue it up to be executed in the measurement zone.
@@ -734,7 +722,7 @@ class Schedule(QirModuleVisitor):
                 assert isinstance(instr, Call)
                 (vals_used, _) = get_used_values(instr)
                 if (
-                    len(self.measurements) == 0
+                    not self.measurements
                     or len(self.measurements) >= max_measurements
                     or uses_any_value(vals_used, self.vals_used_in_measurements)
                 ):
@@ -746,58 +734,60 @@ class Schedule(QirModuleVisitor):
                     # been queued so that this flush affects the single qubit ops but not the measurements.
                     temp_meas = self.measurements
                     self.measurements = []
-                    temp_moves = self.pending_moves
-                    self.pending_moves = []
+                    temp_moves = self.pending_qubits_to_move
+                    self.pending_qubits_to_move = []
                     self.flush_pending(instr)
                     self.measurements = temp_meas
-                    self.pending_moves = temp_moves
+                    self.pending_qubits_to_move = temp_moves
 
                 # Remove the measurement from the block and queue it.
                 instr.remove()
-                idx = len(self.measurements)
-                row = idx // self.device.column_count
-                col = idx % self.device.column_count
-                loc = (row + measurement_zone_row_offset, col)
                 self.measurements.append((instr, gate))
                 self.vals_used_in_measurements.update(vals_used)
-                self.pending_moves.append(instr.args[0])
-                self.pending_moves_zone = self.device.get_measurement_zones()[0]
+                self.pending_qubits_to_move.append(instr.args[0])
             else:
                 # This is not a gate or measurement; flush any pending operations and leave the instruction in place.
                 # This uses a while loop to ensure all pending operations are flushed before the instruction.
-                while (
-                    any(len(q_ops) > 0 for q_ops in self.single_qubit_ops)
-                    or any(len(row) > 0 for row in self.cz_ops_by_row)
-                    or len(self.measurements) > 0
-                ):
+                while self.any_pending_ops():
                     self.flush_pending(instr)
 
+    def any_pending_single_qubit_ops(self):
+        return any(ops for ops in self.single_qubit_ops)
+
+    def any_pending_czs(self):
+        return bool(self.curr_cz_ops)
+
+    def any_pending_measurements(self):
+        return bool(self.measurements)
+
+    def any_pending_ops(self):
+        return (
+            self.any_pending_czs()
+            or self.any_pending_single_qubit_ops()
+            or self.any_pending_measurements()
+        )
+
     def flush_pending(self, insert_before: Instruction):
+        interaction_zone = self.device.get_interaction_zones()[0]
         self.builder.insert_before(insert_before)
         # If cz ops pending, insert accumulated moves, single qubits ops matching cz rows, then the cz ops, then move back.
-        if any(len(cz_row) > 0 for cz_row in self.cz_ops_by_row):
+        if self.curr_cz_ops:
+            self.schedule_pending_moves(interaction_zone)
             self.insert_moves()
-            all_cz_ops = []
-            for row_ops in self.cz_ops_by_row:
-                targets_in_row = []
-                for cz_op, cz_gate in row_ops:
-                    targets_in_row.append(cz_gate["qubit_args"][0])
-                    targets_in_row.append(cz_gate["qubit_args"][1])
-                    all_cz_ops.append(cz_op)
-                self.flush_single_qubit_ops(targets_in_row)
+            qubits_by_row = self.target_qubits_by_row(interaction_zone)
+            for qubits_in_row in qubits_by_row:
+                self.flush_single_qubit_ops(qubits_in_row)
             self.builder.call(self.begin_func, [])
-            for cz_op in all_cz_ops:
+            for cz_op in self.curr_cz_ops:
                 self.builder.instr(cz_op)
             self.builder.call(self.end_func, [])
-            self.cz_ops_by_row = [
-                [] for i in range(self.device.get_interaction_zones()[0].row_count)
-            ]
+            self.curr_cz_ops = []
             self.insert_moves_back()
-            self.pending_moves = []
             self.vals_used_in_cz_ops = set()
             return
         # If measurements pending, insert accumulated moves, then measurements, then move back.
         elif len(self.measurements) > 0:
+            self.schedule_pending_moves(self.device.get_measurement_zones()[0])
             self.insert_moves()
             self.builder.call(self.begin_func, [])
             for meas_op, meas_gate in self.measurements:
@@ -806,17 +796,12 @@ class Schedule(QirModuleVisitor):
             self.measurements = []
             self.vals_used_in_measurements = set()
             self.insert_moves_back()
-            self.pending_moves = []
             return
         # Else, create movements for remaining single qubit ops to the first interaction zone,
         # insert those moves, then the ops, then move back.
         else:
-            interaction_zone = self.device.get_interaction_zones()[0]
-            interaction_zone_row_offset = (
-                interaction_zone.offset // self.device.column_count
-            )
-            while any(len(q_ops) > 0 for q_ops in self.single_qubit_ops):
-                target_qubits_by_row = [[] for i in range(interaction_zone.row_count)]
+            while self.any_pending_single_qubit_ops():
+                target_qubits_by_row = [[] for _ in range(interaction_zone.row_count)]
                 curr_row = 0
                 for q in range(self.num_qubits):
                     if len(self.single_qubit_ops[q]) > 0:
@@ -828,38 +813,42 @@ class Schedule(QirModuleVisitor):
                             curr_row += 1
                             if curr_row >= interaction_zone.row_count:
                                 break
-                for row, target_qubits in enumerate(target_qubits_by_row):
-                    for i, q in enumerate(target_qubits):
-                        col = i
-                        loc = (row + interaction_zone_row_offset, col)
+                for target_qubits in target_qubits_by_row:
+                    for q in target_qubits:
                         qubit = self.single_qubit_ops[q][0][0].args[0]
                         if self.single_qubit_ops[q][0][1]["gate"] == "rz":
                             qubit = self.single_qubit_ops[q][0][0].args[1]
-                        self.pending_moves.append(qubit)
-                self.pending_moves_zone = self.device.get_interaction_zones()[0]
+                        self.pending_qubits_to_move.append(qubit)
+                self.schedule_pending_moves(interaction_zone)
                 self.insert_moves()
-                for target_qubits in target_qubits_by_row:
-                    self.flush_single_qubit_ops(target_qubits)
+                qubits_by_row = self.target_qubits_by_row(interaction_zone)
+                for qubits_in_row in qubits_by_row:
+                    self.flush_single_qubit_ops(qubits_in_row)
                 self.insert_moves_back()
-                self.pending_moves = []
             return
 
-    def schedule_pending_moves(self) -> Iterable[list[Move]]:
-        return MoveScheduler(self.device, self.pending_moves_zone, self.pending_moves)
+    def target_qubits_by_row(self, zone: Zone) -> list[list[int]]:
+        zone_row_offset = zone.offset // self.device.column_count
+        qubits_by_row: list[list[int]] = [[] for _ in range(zone.row_count)]
+        for group in self.pending_moves:
+            for move in group:
+                row_idx = move.dst_loc[0] - zone_row_offset
+                qubits_by_row[row_idx].append(move.qubit_id)
+        return qubits_by_row
+
+    def schedule_pending_moves(self, zone: Zone):
+        move_scheduler = MoveScheduler(self.device, zone, self.pending_qubits_to_move)
+        for move_group in move_scheduler:
+            self.pending_moves.append(move_group)
+        self.pending_qubits_to_move = []
 
     def insert_moves(self):
         """
         For each pending move, insert a call to the move function that moves the
         given qubit to the given (row, col) location.
         """
-
         move_group_id = 0
-        for move_group in self.schedule_pending_moves():
-            # Schedule the same moves back, so that we don't have to
-            # recompute the parallel moves when moving the qubits
-            # back to their home location.
-            self.pending_moves_back.append(move_group)
-
+        for move_group in self.pending_moves:
             # We can execute 4 move groups in parallel, if
             # this is the first one, start a parallel section.
             if move_group_id == 0:
@@ -885,7 +874,7 @@ class Schedule(QirModuleVisitor):
 
     def insert_moves_back(self):
         move_group_id = 0
-        for move_group in self.pending_moves_back:
+        for move_group in self.pending_moves:
             # We can execute 4 move groups in parallel, if
             # this is the first one, start a parallel section.
             if move_group_id == 0:
@@ -909,8 +898,8 @@ class Schedule(QirModuleVisitor):
         if move_group_id != 0:
             self.builder.call(self.end_func, [])
 
-        # Clear pending moves back.
-        self.pending_moves_back = []
+        # Clear pending moves.
+        self.pending_moves = []
 
     def flush_single_qubit_ops(self, target_qubits):
         # Flush all pending single qubit ops for the given target qubits, combining
