@@ -288,18 +288,11 @@ pub fn eval(
     exec_graph: ExecGraph,
     globals: &impl PackageStoreLookup,
     env: &mut Env,
-    tracing_backend: &mut TracingBackend,
+    sim: &mut TracingBackend,
     receiver: &mut impl Receiver,
 ) -> Result<Value, (Error, Vec<Frame>)> {
     let mut state = State::new(package, exec_graph, seed, ErrorBehavior::FailOnError);
-    let res = state.eval(
-        globals,
-        env,
-        tracing_backend,
-        receiver,
-        &[],
-        StepAction::Continue,
-    )?;
+    let res = state.eval(globals, env, sim, receiver, &[], StepAction::Continue)?;
     let StepResult::Return(value) = res else {
         panic!("eval should always return a value");
     };
@@ -317,7 +310,7 @@ pub fn invoke(
     seed: Option<u64>,
     globals: &impl PackageStoreLookup,
     env: &mut Env,
-    tracing_backend: &mut TracingBackend,
+    sim: &mut TracingBackend,
     receiver: &mut impl Receiver,
     callable: Value,
     args: Value,
@@ -334,7 +327,7 @@ pub fn invoke(
     state
         .eval_call(
             env,
-            tracing_backend,
+            sim,
             globals,
             Span::default(),
             Span::default(),
@@ -344,14 +337,7 @@ pub fn invoke(
 
     // Trigger evaluation of the state until the end of the stack is reached and a return value is obtained, which will be the final
     // result of the invocation.
-    let res = state.eval(
-        globals,
-        env,
-        tracing_backend,
-        receiver,
-        &[],
-        StepAction::Continue,
-    )?;
+    let res = state.eval(globals, env, sim, receiver, &[], StepAction::Continue)?;
     let StepResult::Return(value) = res else {
         panic!("eval should always return a value");
     };
@@ -739,7 +725,7 @@ impl State {
         &mut self,
         globals: &impl PackageStoreLookup,
         env: &mut Env,
-        tracing_backend: &mut TracingBackend,
+        sim: &mut TracingBackend,
         out: &mut impl Receiver,
         breakpoints: &[StmtId],
         step: StepAction,
@@ -758,7 +744,7 @@ impl State {
                 }
                 Some(ExecGraphNode::Expr(expr)) => {
                     self.idx += 1;
-                    match self.eval_expr(env, tracing_backend, globals, out, *expr) {
+                    match self.eval_expr(env, sim, globals, out, *expr) {
                         Ok(()) => continue,
                         Err(e) => {
                             if self.error_behavior == ErrorBehavior::StopOnError {
@@ -932,7 +918,7 @@ impl State {
     fn eval_expr(
         &mut self,
         env: &mut Env,
-        tracing_backend: &mut TracingBackend,
+        sim: &mut TracingBackend,
         globals: &impl PackageStoreLookup,
         out: &mut impl Receiver,
         expr: ExprId,
@@ -954,7 +940,7 @@ impl State {
                         return Ok(());
                     }
                     let rhs_val = self.take_val_register();
-                    self.eval_expr(env, tracing_backend, globals, out, *lhs)?;
+                    self.eval_expr(env, sim, globals, out, *lhs)?;
                     self.push_val();
                     self.set_val_register(rhs_val);
                 }
@@ -974,7 +960,7 @@ impl State {
                     return Ok(());
                 }
                 self.push_val();
-                self.eval_expr(env, tracing_backend, globals, out, *lhs)?;
+                self.eval_expr(env, sim, globals, out, *lhs)?;
                 self.eval_update_index(mid_span)?;
                 self.eval_assign(env, globals, *lhs)?;
             }
@@ -986,7 +972,7 @@ impl State {
             ExprKind::Call(callee_expr, args_expr) => {
                 let callable_span = globals.get_expr((self.package, *callee_expr).into()).span;
                 let args_span = globals.get_expr((self.package, *args_expr).into()).span;
-                self.eval_call(env, tracing_backend, globals, callable_span, args_span, out)?;
+                self.eval_call(env, sim, globals, callable_span, args_span, out)?;
             }
             ExprKind::Closure(args, callable) => {
                 let closure = resolve_closure(env, self.package, expr.span, args, *callable)?;
@@ -1171,7 +1157,7 @@ impl State {
     fn eval_call(
         &mut self,
         env: &mut Env,
-        tracing_backend: &mut TracingBackend,
+        sim: &mut TracingBackend,
         globals: &impl PackageStoreLookup,
         callable_span: Span,
         arg_span: Span,
@@ -1217,7 +1203,7 @@ impl State {
                 callee_id,
                 functor,
                 callee,
-                tracing_backend,
+                sim,
                 callee_span,
                 arg,
                 arg_span,
