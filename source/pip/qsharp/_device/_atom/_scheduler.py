@@ -122,15 +122,16 @@ def scale_factor(move1: Move, move2: Move) -> MoveGroupScaleFactor:
     ), scale_factor_helper(source_col_diff, destination_col_diff)
 
 
-class MoveGroupCandidate:
+class MoveGroup:
     """
     Represents a group of moves that can be done at the same time.
-    It has three fields:
-        moves[set]: A set of moves that can be performed in parallel.
-        scale_factor[Optional[tuple[Fraction, Fraction]]]: A tuple of fractions
+
+    Attributes:
+        moves (set): A set of moves that can be performed in parallel.
+        scale_factor (Optional[tuple[Fraction, Fraction]]): A tuple of fractions
             representing the scale factors in the row and col axes between
             moves. `None`, if there is a single element in the move set.
-        ref_move[Move]: A move used as a representative of the group, used
+        ref_move (Move): A move used as a representative of the group, used
             to test compatibility of other moves with the group.
     """
 
@@ -143,6 +144,13 @@ class MoveGroupCandidate:
         return len(self.moves)
 
     def add(self, move: Move):
+        """
+        Adds a move to this move group.
+
+        Args:
+            move (Move): The move to add.
+        """
+
         # A move group with a single move doesn't have an associated scale factor.
         # Therefore, we cannot test if a move is compatible with it, which means
         # we cannot add moves to it.
@@ -159,31 +167,42 @@ class MoveGroupCandidate:
 
 
 class MoveGroupPool:
-    """
-    A data structure that takes individual moves as input and organizes them
+    """A data structure that takes individual moves as input and organizes them
     into groups of moves that can be executed in parallel.
 
-    It provides:
-        - An `add(move)` method to add moves to the data structure.
-        - A `try_take(n)` that draws a group of up to n moves from the data structure.
-        - An `is_empty()` method to check if there are any moves left.
+    Attributes:
+        moves: A set containing all the moves in the move-group pool.
+        move_group_candidates: A dict organizing the move-group candidates
+            by scale factor.
+        parity: The parity of source and destination columns of all the moves
+            in this pool.
+        direction: The up/down and left/right direction of all the moves
+            in this pool.
     """
 
     def __init__(self, parity: tuple[int, int], direction: tuple[int, int]):
+        """Initializes a move-group pool for moves of the given `parity` and `direction`.
+        Args:
+            parity: The parity of source and destination columns of all the moves
+                in this pool.
+            direction: The up/down and left/right direction of all the moves
+                in this pool.
+        """
         self.moves = set()
         self.move_group_candidates: dict[
-            Optional[MoveGroupScaleFactor], list[MoveGroupCandidate]
+            Optional[MoveGroupScaleFactor], list[MoveGroup]
         ] = {None: []}
         self.parity = parity
         self.direction = direction
 
-    def move_group_candidates_iter(self) -> Iterable[MoveGroupCandidate]:
+    def move_group_candidates_iter(self) -> Iterable[MoveGroup]:
         return chain(*self.move_group_candidates.values())
 
     def is_empty(self) -> bool:
+        """Returns `True` if there are no moves left, `False` otherwise."""
         return not any(s.moves for s in self.move_group_candidates_iter())
 
-    def largest_move_group_candidate(self) -> Optional[MoveGroupCandidate]:
+    def largest_move_group_candidate(self) -> Optional[MoveGroup]:
         try:
             return max(self.move_group_candidates_iter(), key=len)
         except ValueError:
@@ -196,6 +215,14 @@ class MoveGroupPool:
             return 0
 
     def add(self, move: Move):
+        """Adds a move to the move-group pool.
+        Args:
+            move: The move to add. It must be of the same parity and direction as
+                the rest of the moves in this pool.
+        """
+        assert move.parity() == self.parity
+        assert move.direction() == self.direction
+
         move_added = False
         for move2 in self.moves:
             pair = (move, move2)
@@ -218,18 +245,21 @@ class MoveGroupPool:
                     move_added = True
                     break
             else:
-                candidates_with_same_scale_factor.append(MoveGroupCandidate(pair))
+                candidates_with_same_scale_factor.append(MoveGroup(pair))
                 self.move_group_candidates[s] = candidates_with_same_scale_factor
                 move_added = True
 
         # This case triggers if `move` is not compatible with any move in `self.moves`.
         if not move_added:
-            self.move_group_candidates[None].append(MoveGroupCandidate([move]))
+            self.move_group_candidates[None].append(MoveGroup([move]))
 
         self.moves.add(move)
 
     def try_take(self, number_of_moves: int) -> list[Move]:
-        """Take up to `number_of_moves` from the largest move group candidate."""
+        """Take up to `number_of_moves` from the largest move group candidate.
+        Args:
+            number_of_moves: The number of moves to take from this pool.
+        """
 
         if largest_move_group_candidate := self.largest_move_group_candidate():
             # Ensure moves are sorted by qubit ID to have a deterministic order.
@@ -247,6 +277,18 @@ class MoveGroupPool:
 
 
 class MoveScheduler:
+    """
+    Takes a device, a target zone, and a list of qubits to move to that
+    target zone and builds an iterator that returns groups of moves
+    that can be executed in parallel.
+
+    Attributes:
+        device: An object containing information about the device.
+        zone: The zone the moves will be scheduled to.
+        available_dst_locations: The available destinations in the `zone`.
+        partial_moves: The moves that haven't been assigned a destination location.
+        disjoint_pools: A list containing one pool of move-groups for each parity and direction.
+    """
 
     def __init__(
         self,
@@ -254,6 +296,13 @@ class MoveScheduler:
         zone: Zone,
         qubits_to_move: list[QubitId | tuple[QubitId, QubitId]],
     ):
+        """Initializes the move scheduler from a device, a target zone,
+        and a list of qubits to move to that target zone.
+        Args:
+            device: An object containing information about the device.
+            zone: The zone the moves will be scheduled to.
+            qubits_to_move: A list of qubits to move.
+        """
         self.device = device
         self.zone = zone
         self.available_dst_locations = self.build_zone_locations(zone)
@@ -398,7 +447,7 @@ class MoveScheduler:
         self,
         partial_move: PartialMove,
         scale_factor: MoveGroupScaleFactor,
-        group: MoveGroupCandidate,
+        group: MoveGroup,
     ) -> Optional[Location]:
         """
         Returns an available destination location that would make `partial_move`
