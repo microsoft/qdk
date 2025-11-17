@@ -22,9 +22,9 @@ use qdk_simulators::shader_types::{self, Op};
 /// - No compatible GPU is found
 /// - GPU drivers are missing or not functioning properly
 #[pyfunction]
-pub fn try_create_gpu_adapter() -> PyResult<()> {
-    qdk_simulators::try_create_gpu_adapter().map_err(PyOSError::new_err)?;
-    Ok(())
+pub fn try_create_gpu_adapter() -> PyResult<String> {
+    let name = qdk_simulators::try_create_gpu_adapter().map_err(PyOSError::new_err)?;
+    Ok(name)
 }
 
 #[pyfunction]
@@ -37,7 +37,7 @@ pub fn run_parallel_shots<'py>(
     noise_config: Option<&Bound<'py, NoiseConfig>>,
     seed: Option<u32>,
 ) -> PyResult<PyObject> {
-    try_create_gpu_adapter()?;
+    let _ = try_create_gpu_adapter()?;
 
     // Get the list of QirInstructions from the Python input list
     let mut instructions: Vec<QirInstruction> = vec![];
