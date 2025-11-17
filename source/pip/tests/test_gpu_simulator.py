@@ -40,72 +40,19 @@ def read_file(file_name: str) -> str:
 def read_file_relative(file_name: str) -> str:
     return Path(current_dir / file_name).read_text(encoding="utf-8")
 
+def result_array_to_string(results: Sequence[Result]) -> str:
+    chars = []
+    for value in results:
+        if value == Result.Zero:
+            chars.append("0")
+        elif value == Result.One:
+            chars.append("1")
+        else:
+            chars.append("-")
+    return "".join(chars)
 
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_smoke():
-    qsharp.init(target_profile=TargetProfile.Base)
-    qsharp.eval(read_file_relative("CliffordIsing.qs"))
-
-    input = qsharp.compile(
-        "IsingModel2DEvolution(5, 5, PI() / 2.0, PI() / 2.0, 2.0, 2)"
-    )
-
-    output = run_qir_gpu(str(input))
-    print(output)
-
-
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_smoke2():
-    qsharp.init(target_profile=TargetProfile.Base)
-    qsharp.eval(read_file_relative("CliffordIsing.qs"))
-
-    input = qsharp.compile(
-        "IsingModel2DEvolution(5, 5, PI() / 2.0, PI() / 2.0, 10.0, 10)"
-    )
-
-    output = run_qir_gpu(str(input))
-    print(output)
-
-
-
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_smoke_noise():
-    qsharp.init(target_profile=TargetProfile.Base)
-    qsharp.eval(read_file_relative("CliffordIsing.qs"))
-
-    input = qsharp.compile(
-        "IsingModel2DEvolution(5, 5, PI() / 2.0, PI() / 2.0, 10.0, 10)"
-    )
-
-    p_noise = 0.01
-    noise = NoiseConfig()
-    noise.rx.set_bitflip(p_noise)
-    noise.rzz.set_bitflip(p_noise)
-    noise.mresetz.set_bitflip(p_noise)
-    
-    output = run_qir_gpu(str(input), shots=3, noise=noise, seed=None)
-    print(output)
-
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_smoke_noise_2():
-    qsharp.init(target_profile=TargetProfile.Base)
-    qsharp.eval(read_file_relative("CliffordIsing.qs"))
-
-    input = qsharp.compile(
-        "IsingModel2DEvolution(5, 5, PI() / 2.0, PI() / 2.0, 4.0, 4)"
-    )
-
-    noise = NoiseConfig()
-    noise.rz.set_bitflip(0.1)
-    noise.rz.loss = 0.03
-    noise.rzz.set_depolarizing(0.1)
-    noise.rzz.loss = 0.03
-
-    output = run_qir_gpu(str(input), shots=3, noise=noise, seed=None)
-    print(output)
-
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_gpu_sampling():
+def test_gpu_seeding_no_noise():
     qsharp.init(target_profile=TargetProfile.Base)
     qsharp.eval(
         """
@@ -134,6 +81,67 @@ def test_gpu_sampling():
     assert count_00 == 6
     assert count_11 == 6
 
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_gpu_no_noise():
+    """Simple test that GPU simulator works without noise."""
+    qsharp.init(target_profile=TargetProfile.Base)
+    qsharp.eval(read_file_relative("CliffordIsing.qs"))
+
+    input = qsharp.compile(
+        "IsingModel2DEvolution(5, 5, PI() / 2.0, PI() / 2.0, 10.0, 10)"
+    )
+
+    output = run_qir_gpu(str(input))
+    print(output)
+    # Expecting deterministic output, no randomization seed needed.
+    assert output == [[Result.Zero]*25], "Expected result of 0s with pi/2 angles."
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_gpu_bitflip_noise():
+    """Bitflip noise for GPU simulator."""
+    qsharp.init(target_profile=TargetProfile.Base)
+    qsharp.eval(read_file_relative("CliffordIsing.qs"))
+
+    input = qsharp.compile(
+        "IsingModel2DEvolution(5, 5, PI() / 2.0, PI() / 2.0, 10.0, 10)"
+    )
+
+    p_noise = 0.005
+    noise = NoiseConfig()
+    noise.rx.set_bitflip(p_noise)
+    noise.rzz.set_bitflip(p_noise)
+    noise.mresetz.set_bitflip(p_noise)
+    
+    output = run_qir_gpu(str(input), shots=3, noise=noise, seed=17)
+    result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
+    print(result)
+    assert result == [
+        '0000000000011100001001110',
+        '0001001000000000000100100',
+        '0000001000110000000100011']
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_gpu_mixed_noise():
+    qsharp.init(target_profile=TargetProfile.Base)
+    qsharp.eval(read_file_relative("CliffordIsing.qs"))
+
+    input = qsharp.compile(
+        "IsingModel2DEvolution(5, 5, PI() / 2.0, PI() / 2.0, 4.0, 4)"
+    )
+
+    noise = NoiseConfig()
+    noise.rz.set_bitflip(0.005)
+    noise.rz.loss = 0.003
+    noise.rzz.set_depolarizing(0.005)
+    noise.rzz.loss = 0.003
+
+    output = run_qir_gpu(str(input), shots=3, noise=noise, seed=53)
+    result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
+    print(result)
+    assert result == [
+        '00000-00010000-0000000001',
+        '00000000000-0000000000-00',
+        '000000000000001-000000000']
 
 def build_x_chain_qir(n_instances: int, n_x: int) -> str:
     # Construct multiple instances of x gate chains
