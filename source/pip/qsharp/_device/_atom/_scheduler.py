@@ -36,6 +36,12 @@ class Move:
     def __hash__(self):
         return hash(self.qubit_id_ptr)
 
+    @property
+    def qubit_id(self) -> int:
+        q_id = qubit_id(self.qubit_id_ptr)
+        assert q_id is not None, "Qubit id should be known"
+        return q_id
+
     def parity(self):
         return move_parity(self.src_loc, self.dst_loc)
 
@@ -226,7 +232,10 @@ class MoveGroupPool:
         """Take up to `number_of_moves` from the largest move group candidate."""
 
         if largest_move_group_candidate := self.largest_move_group_candidate():
-            moves = list(islice(largest_move_group_candidate.moves, number_of_moves))
+            # Ensure moves are sorted by qubit ID to have a deterministic order.
+            moves = sorted(
+                list(largest_move_group_candidate.moves), key=lambda m: m.qubit_id
+            )[:number_of_moves]
             moves_set = set(moves)
             self.moves -= moves_set
             # Remove the taken moves from all candidates.
@@ -290,9 +299,15 @@ class MoveScheduler:
 
         def sort_key(partial_move: PartialMove | PartialMovePair):
             if isinstance(partial_move, PartialMove):
-                return partial_move.src_loc
+                q_id = qubit_id(partial_move.qubit_id_ptr)
+                assert q_id is not None
+                return self.device.get_ordering(q_id)
+                # return partial_move.src_loc
             else:
-                return partial_move[0].src_loc
+                q_id = qubit_id(partial_move[0].qubit_id_ptr)
+                assert q_id is not None
+                return self.device.get_ordering(q_id)
+                # return partial_move[0].src_loc
 
         return sorted(partial_moves, key=sort_key)
 
@@ -478,8 +493,8 @@ class MoveScheduler:
                 pool = self.add_to_largest_compatible_move_group(partial_move)
             else:
                 pool = self.add_pair_to_largest_compatible_move_group(partial_move)
-            if pool.largest_move_group_candidate_len() >= self.device.column_count:
-                return pool.try_take(self.device.column_count)
+            # if pool.largest_move_group_candidate_len() >= self.device.column_count:
+            #     return pool.try_take(self.device.column_count)
 
         # Once partial moves are exhausted, we try_get from the largest candidate.
         return self.largest_move_group_pool().try_take(self.device.column_count)
