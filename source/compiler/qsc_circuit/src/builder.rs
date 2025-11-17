@@ -9,7 +9,7 @@ use crate::{
         Circuit, Ket, Measurement, Operation, PackageOffset, Qubit, Register,
         ResolvedSourceLocation, SourceLocation, Unitary, operation_list_to_grid,
     },
-    operations::QubitParamInfo,
+    operations::QubitParam,
 };
 use qsc_data_structures::{
     index_map::IndexMap,
@@ -145,7 +145,7 @@ impl CircuitTracer {
     pub fn with_qubit_input_params(
         config: TracerConfig,
         user_package_ids: &[PackageId],
-        operation_qubit_params: Option<(PackageId, QubitParamInfo)>,
+        operation_qubit_params: Option<(PackageId, Vec<QubitParam>)>,
     ) -> Self {
         // Pre-initialize the qubit declaration locations for the operation's
         // input parameters. These will get allocated during execution, but
@@ -154,8 +154,8 @@ impl CircuitTracer {
         let params = operation_qubit_params
             .map(|(package_id, info)| {
                 let mut decls = vec![];
-                for param in &info.qubit_params {
-                    for _ in 0..param.elements {
+                for param in &info {
+                    for _ in 0..param.num_qubits() {
                         decls.push(PackageOffset {
                             package_id,
                             offset: param.source_offset,
@@ -176,12 +176,12 @@ impl CircuitTracer {
     }
 
     #[must_use]
-    pub fn snapshot(&self, source_lookup: Option<&PackageStore>) -> Circuit {
+    pub fn snapshot(&self, source_lookup: &impl SourceLookup) -> Circuit {
         self.finish_circuit(self.circuit_builder.operations().clone(), source_lookup)
     }
 
     #[must_use]
-    pub fn finish(mut self, source_lookup: Option<&PackageStore>) -> Circuit {
+    pub fn finish(mut self, source_lookup: &impl SourceLookup) -> Circuit {
         let ops = replace(
             &mut self.circuit_builder,
             OperationListBuilder::new(self.config.max_operations),
@@ -194,12 +194,12 @@ impl CircuitTracer {
     fn finish_circuit(
         &self,
         operations: Vec<Operation>,
-        dbg_lookup: Option<&PackageStore>,
+        source_lookup: &impl SourceLookup,
     ) -> Circuit {
         finish_circuit(
             self.wire_map_builder.wire_map.to_qubits(),
             operations,
-            dbg_lookup,
+            source_lookup,
         )
     }
 
@@ -303,15 +303,13 @@ fn first_user_code_location(
 fn finish_circuit(
     mut qubits: Vec<Qubit>,
     mut operations: Vec<Operation>,
-    source_location_lookup: Option<&PackageStore>,
+    source_location_lookup: &impl SourceLookup,
 ) -> Circuit {
-    if let Some(source_location_lookup) = source_location_lookup {
-        resolve_locations(&mut operations, source_location_lookup);
+    resolve_locations(&mut operations, source_location_lookup);
 
-        for q in &mut qubits {
-            for source_location in &mut q.declarations {
-                resolve_source_location_if_unresolved(source_location, source_location_lookup);
-            }
+    for q in &mut qubits {
+        for source_location in &mut q.declarations {
+            resolve_source_location_if_unresolved(source_location, source_location_lookup);
         }
     }
 
@@ -322,7 +320,36 @@ fn finish_circuit(
     }
 }
 
-fn resolve_locations(operations: &mut [Operation], source_location_lookup: &PackageStore) {
+pub trait SourceLookup {
+    fn resolve_location(&self, package_offset: &PackageOffset) -> ResolvedSourceLocation;
+}
+
+impl SourceLookup for PackageStore {
+    fn resolve_location(&self, package_offset: &PackageOffset) -> ResolvedSourceLocation {
+        let package = self
+            .get(map_fir_package_to_hir(package_offset.package_id))
+            .expect("package id must exist in store");
+
+        let source = package
+            .sources
+            .find_by_offset(package_offset.offset)
+            .expect("source should exist for offset");
+
+        let pos = Position::from_utf8_byte_offset(
+            Encoding::Utf8,
+            &source.contents,
+            package_offset.offset - source.offset,
+        );
+
+        ResolvedSourceLocation {
+            file: source.name.to_string(),
+            line: pos.line,
+            column: pos.column,
+        }
+    }
+}
+
+fn resolve_locations(operations: &mut [Operation], source_location_lookup: &impl SourceLookup) {
     for op in operations {
         let children_columns = op.children_mut();
         for column in children_columns {
@@ -337,31 +364,13 @@ fn resolve_locations(operations: &mut [Operation], source_location_lookup: &Pack
 
 fn resolve_source_location_if_unresolved(
     source_location: &mut SourceLocation,
-    package_store: &PackageStore,
+    source_location_lookup: &impl SourceLookup,
 ) {
     match source_location {
         SourceLocation::Resolved(_) => {}
         SourceLocation::Unresolved(package_offset) => {
-            let package = package_store
-                .get(map_fir_package_to_hir(package_offset.package_id))
-                .expect("package id must exist in store");
-
-            let source = package
-                .sources
-                .find_by_offset(package_offset.offset)
-                .expect("source should exist for offset");
-
-            let pos = Position::from_utf8_byte_offset(
-                Encoding::Utf8,
-                &source.contents,
-                package_offset.offset - source.offset,
-            );
-
-            *source_location = SourceLocation::Resolved(ResolvedSourceLocation {
-                file: source.name.to_string(),
-                line: pos.line,
-                column: pos.column,
-            });
+            let resolved_source_location = source_location_lookup.resolve_location(package_offset);
+            *source_location = SourceLocation::Resolved(resolved_source_location);
         }
     }
 }

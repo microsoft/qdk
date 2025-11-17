@@ -331,10 +331,11 @@ impl Row {
     fn add_measurement(&mut self, column: usize, source: Option<&SourceLocation>) {
         let mut gate_label = String::from("M");
         if self.render_locations
-            && let Some(SourceLocation::Resolved(loc)) = source {
-                let _ = write!(&mut gate_label, "@{loc}");
-            }
-        self.add(column, CircuitObject::Object(gate_label.to_string()));
+            && let Some(SourceLocation::Resolved(loc)) = source
+        {
+            let _ = write!(&mut gate_label, "@{loc}");
+        }
+        self.add(column, CircuitObject::Object(gate_label.clone()));
     }
 
     fn add_gate(
@@ -357,9 +358,10 @@ impl Row {
         }
 
         if self.render_locations
-            && let Some(SourceLocation::Resolved(loc)) = source {
-                let _ = write!(&mut gate_label, "@{}:{}:{}", loc.file, loc.line, loc.column);
-            }
+            && let Some(SourceLocation::Resolved(loc)) = source
+        {
+            let _ = write!(&mut gate_label, "@{}:{}:{}", loc.file, loc.line, loc.column);
+        }
 
         self.add_object(column, gate_label.as_str());
     }
@@ -751,22 +753,34 @@ fn finalize_columns(rows: &[Row]) -> Vec<Column> {
         .max_by_key(|r| r.next_column)
         .map_or(1, |r| r.next_column);
 
+    let longest_qubit_label = rows
+        .iter()
+        .map(|r| {
+            if let Wire::Qubit { label } = &r.wire {
+                label.len()
+            } else {
+                0
+            }
+        })
+        .chain(std::iter::once(MIN_COLUMN_WIDTH))
+        .max()
+        .unwrap_or_default();
+
     // To be able to fit long-named operations, we calculate the required width for each column,
     // based on the maximum length needed for gates, where a gate X is printed as "- X -".
-    (0..end_column)
-        .map(|column| {
-            Column::new(
-                rows.iter()
-                    .filter_map(|row| row.objects.get(&column))
-                    .filter_map(|object| match object {
-                        CircuitObject::Object(string) => Some(string.len() + 4),
-                        _ => None,
-                    })
-                    .chain(std::iter::once(MIN_COLUMN_WIDTH))
-                    .max()
-                    .expect("Column width should be at least 1"),
-            )
-        })
+    std::iter::once(longest_qubit_label)
+        .chain((1..end_column).map(|column| {
+            rows.iter()
+                .filter_map(|row| row.objects.get(&column))
+                .filter_map(|object| match object {
+                    CircuitObject::Object(string) => Some(string.len() + 4),
+                    _ => None,
+                })
+                .chain(std::iter::once(MIN_COLUMN_WIDTH))
+                .max()
+                .expect("Column width should be at least 1")
+        }))
+        .map(Column::new)
         .collect()
 }
 

@@ -27,22 +27,20 @@ pub enum Error {
     ControlledUnsupported,
 }
 
-pub struct QubitParamInfo {
-    /// The qubit parameters this operation takes.
-    pub(crate) qubit_params: Vec<QubitParam>,
-    /// The total number of qubits that would
-    /// need be allocated to run this operation for the purposes of circuit generation.
-    pub total_num_qubits: u32,
-}
-
-pub(crate) struct QubitParam {
-    /// The number of dimensions of the qubit parameter.
+pub struct QubitParam {
+    /// The number of array dimensions of the qubit input parameter.
     /// `Qubit` is 0, `Qubit[]` is 1, `Qubit[][]` is 2, etc.
-    dimensions: u32,
-    /// The total number of qubit elements for this parameter.
-    pub(crate) elements: u32,
+    pub(crate) dimensions: u32,
     /// The source offset of the parameter in the operation declaration.
     pub(crate) source_offset: u32,
+}
+
+impl QubitParam {
+    /// The total number of qubit array elements for this input parameter.
+    #[must_use]
+    pub fn num_qubits(&self) -> u32 {
+        NUM_QUBITS.pow(self.dimensions)
+    }
 }
 
 /// If the item is a callable, returns the information that would
@@ -54,19 +52,16 @@ pub(crate) struct QubitParam {
 /// If the callable only takes qubit parameters (including qubit arrays) or no parameters,
 /// returns the qubit parameter information.
 #[must_use]
-pub fn qubit_param_info(item: &Item) -> Option<QubitParamInfo> {
+pub fn qubit_param_info(item: &Item) -> Option<Vec<QubitParam>> {
     if let ItemKind::Callable(decl) = &item.kind {
         if decl.input.ty == Ty::UNIT {
             // Support no parameters by allocating 0 qubits.
-            return Some(QubitParamInfo {
-                qubit_params: vec![],
-                total_num_qubits: 0,
-            });
+            return Some(vec![]);
         }
 
         let param_info = get_qubit_param_info(&decl.input);
 
-        if !param_info.qubit_params.is_empty() {
+        if !param_info.is_empty() {
             return Some(param_info);
         }
     }
@@ -91,15 +86,7 @@ pub fn entry_expr_for_qubit_operation(
     }
 
     if let Some(param_info) = qubit_param_info(item) {
-        return Ok(operation_circuit_entry_expr(
-            operation_expr,
-            &param_info
-                .qubit_params
-                .iter()
-                .map(|p| p.dimensions)
-                .collect::<Vec<_>>(),
-            param_info.total_num_qubits,
-        ));
+        return Ok(operation_circuit_entry_expr(operation_expr, &param_info));
     }
 
     Err(Error::NoQubitParameters)
@@ -108,26 +95,23 @@ pub fn entry_expr_for_qubit_operation(
 /// Generates the entry expression to call the operation described by `params`.
 /// The expression allocates qubits and invokes the operation.
 #[must_use]
-fn operation_circuit_entry_expr(
-    operation_expr: &str,
-    qubit_param_dimensions: &[u32],
-    total_num_qubits: u32,
-) -> String {
-    let alloc_qubits = format!("use qs = Qubit[{total_num_qubits}];");
+fn operation_circuit_entry_expr(operation_expr: &str, qubit_params: &[QubitParam]) -> String {
+    let alloc_qubits = format!(
+        "use qs = Qubit[{}];",
+        qubit_params.iter().map(QubitParam::num_qubits).sum::<u32>()
+    );
 
     let mut qs_start = 0;
     let mut call_args = vec![];
-    for dim in qubit_param_dimensions {
-        let dim = *dim;
-        let qs_len = NUM_QUBITS.pow(dim);
+    for q in qubit_params {
         // Q# ranges are end-inclusive
-        let qs_end = qs_start + qs_len - 1;
-        if dim == 0 {
+        let qs_end = qs_start + q.num_qubits() - 1;
+        if q.dimensions == 0 {
             call_args.push(format!("qs[{qs_start}]"));
         } else {
             // Array argument - use a range to index
             let mut call_arg = format!("qs[{qs_start}..{qs_end}]");
-            for _ in 1..dim {
+            for _ in 1..q.dimensions {
                 // Chunk the array for multi-dimensional array arguments
                 call_arg = format!("Microsoft.Quantum.Arrays.Chunks({NUM_QUBITS}, {call_arg})");
             }
@@ -156,29 +140,21 @@ fn operation_circuit_entry_expr(
 /// in the operation arguments.
 const NUM_QUBITS: u32 = 2;
 
-fn get_qubit_param_info(input: &Pat) -> QubitParamInfo {
+fn get_qubit_param_info(input: &Pat) -> Vec<QubitParam> {
     match &input.ty {
         Ty::Prim(Prim::Qubit) => {
-            return QubitParamInfo {
-                qubit_params: vec![QubitParam {
-                    dimensions: 0,
-                    elements: 1,
-                    source_offset: input.span.lo,
-                }],
-                total_num_qubits: 1,
-            };
+            return vec![QubitParam {
+                dimensions: 0,
+                source_offset: input.span.lo,
+            }];
         }
         Ty::Array(ty) => {
             if let Some(element_dim) = get_array_dimension(ty) {
                 let dim = element_dim + 1;
-                return QubitParamInfo {
-                    qubit_params: vec![QubitParam {
-                        dimensions: dim,
-                        elements: NUM_QUBITS.pow(dim),
-                        source_offset: input.span.lo,
-                    }],
-                    total_num_qubits: NUM_QUBITS.pow(dim),
-                };
+                return vec![QubitParam {
+                    dimensions: dim,
+                    source_offset: input.span.lo,
+                }];
             }
         }
         Ty::Tuple(tys) => {
@@ -187,7 +163,6 @@ fn get_qubit_param_info(input: &Pat) -> QubitParamInfo {
                     .map(|p| {
                         get_array_dimension(&p.ty).map(|dimension| QubitParam {
                             dimensions: dimension,
-                            elements: NUM_QUBITS.pow(dimension),
                             source_offset: p.span.lo,
                         })
                     })
@@ -197,7 +172,6 @@ fn get_qubit_param_info(input: &Pat) -> QubitParamInfo {
                     .map(|ty| {
                         get_array_dimension(ty).map(|dimension| QubitParam {
                             dimensions: dimension,
-                            elements: NUM_QUBITS.pow(dimension),
                             source_offset: input.span.lo,
                         })
                     })
@@ -206,13 +180,9 @@ fn get_qubit_param_info(input: &Pat) -> QubitParamInfo {
 
             if params.iter().all(Option::is_some) {
                 return params.into_iter().map(Option::unwrap).fold(
-                    QubitParamInfo {
-                        qubit_params: vec![],
-                        total_num_qubits: 0,
-                    },
+                    vec![],
                     |mut param_info, param| {
-                        param_info.total_num_qubits += NUM_QUBITS.pow(param.dimensions);
-                        param_info.qubit_params.push(param);
+                        param_info.push(param);
                         param_info
                     },
                 );
@@ -220,10 +190,7 @@ fn get_qubit_param_info(input: &Pat) -> QubitParamInfo {
         }
         _ => {}
     }
-    QubitParamInfo {
-        qubit_params: vec![],
-        total_num_qubits: 0,
-    }
+    vec![]
 }
 
 /// If `Ty` is a qubit or a qubit array, returns the number of dimensions of the array.
