@@ -152,14 +152,6 @@
             "experimental"
           ],
           "description": "Upload supplemental input data (circuit diagram) to the storage container when submitting jobs to Azure Quantum."
-        },
-        "Q#.azure.experimental.enableJobDelete": {
-          "type": "boolean",
-          "default": false,
-          "tags": [
-            "experimental"
-          ],
-          "description": "Enable the Azure Quantum job delete command and related UI elements. This feature is experimental; service-side support may not yet be available."
         }
       }
     },
