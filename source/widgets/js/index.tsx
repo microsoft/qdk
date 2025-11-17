@@ -15,6 +15,7 @@ import {
   Atoms,
   type MachineLayout,
   type TraceData,
+  MoleculeViewer,
 } from "qsharp-lang/ux";
 import markdownIt from "markdown-it";
 import "./widgets.css";
@@ -41,7 +42,7 @@ type RenderArgs = {
   el: HTMLElement;
 };
 
-export function render({ model, el }: RenderArgs) {
+function render({ model, el }: RenderArgs) {
   const componentType = model.get("comp");
 
   // There is an existing issue where in VS Code it always shows the widget background as white.
@@ -82,10 +83,17 @@ export function render({ model, el }: RenderArgs) {
     case "Atoms":
       renderAtoms({ model, el });
       break;
+    case "MoleculeViewer":
+      renderMoleculeViewer({ model, el });
+      break;
     default:
       throw new Error(`Unknown component type ${componentType}`);
   }
 }
+
+export default {
+  render,
+};
 
 function renderTable({ model, el }: RenderArgs) {
   const onChange = () => {
@@ -278,4 +286,21 @@ function renderAtoms({ model, el }: RenderArgs) {
   onChange();
   model.on("change:machine_layout", onChange);
   model.on("change:trace_data", onChange);
+}
+
+function renderMoleculeViewer({ model, el }: RenderArgs) {
+  const onChange = () => {
+    const moleculeData = model.get("molecule_data") as string;
+    const cubeData = model.get("cube_data") as { [key: string]: string };
+    prender(
+      <MoleculeViewer
+        moleculeData={moleculeData}
+        cubeData={cubeData || {}}
+      ></MoleculeViewer>,
+      el,
+    );
+  };
+  onChange();
+  model.on("change:molecule_data", onChange);
+  model.on("change:cube_data", onChange);
 }

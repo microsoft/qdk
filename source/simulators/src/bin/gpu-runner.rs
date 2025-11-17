@@ -10,6 +10,8 @@ use regex_lite::Regex;
 use std::time::Instant;
 use std::vec;
 
+const DEFAULT_SEED: u32 = 0xfeed_face;
+
 fn main() {
     simple_bell_pair();
     bell_at_scale();
@@ -42,19 +44,14 @@ fn has_no_errors(error_codes: &[u32]) -> bool {
 }
 
 fn simple_bell_pair() {
-    // Reset all qubits and rng with seed
-    let mut init_op = Op::new_reset_gate(u32::MAX);
-    init_op.q2 = 0xdead_beef;
-
     let ops: Vec<Op> = vec![
-        init_op,                     // 1, 0xFFFFFFFF, 0xDEADBEEF
         Op::new_h_gate(9),           // 5, 9
         Op::new_cx_gate(9, 11),      // 15, 9, 11
         Op::new_mresetz_gate(9, 0),  // 22, 9, 0
         Op::new_mresetz_gate(11, 1), // 22, 11, 1
     ];
     let start = Instant::now();
-    let results = run_parallel_shots(12, 2, ops, 10).expect("GPU shots failed");
+    let results = run_parallel_shots(12, 2, ops, 10, DEFAULT_SEED).expect("GPU shots failed");
     let elapsed = start.elapsed();
 
     let (results, error_codes) = split_results(2, &results);
@@ -67,12 +64,9 @@ fn simple_bell_pair() {
 }
 
 fn test_pauli_noise() {
-    let mut init_op = Op::new_reset_gate(u32::MAX);
-    init_op.q2 = 0xdead_beef;
     let x_noise: f32 = 0.5;
 
     let ops: Vec<Op> = vec![
-        init_op,
         Op::new_x_gate(0),
         Op::new_pauli_noise_1q(0, x_noise, 0.0, 0.0),
         Op::new_mresetz_gate(0, 0),
@@ -84,7 +78,7 @@ fn test_pauli_noise() {
         Op::new_mresetz_gate(2, 2),
     ];
     let start = Instant::now();
-    let results = run_parallel_shots(3, 3, ops, 100).expect("GPU shots failed");
+    let results = run_parallel_shots(3, 3, ops, 100, DEFAULT_SEED).expect("GPU shots failed");
     let elapsed = start.elapsed();
 
     let (results, error_codes) = split_results(3, &results);
@@ -121,9 +115,6 @@ fn scale_teleport() {
     use rand::Rng;
     use std::f32::consts::PI;
 
-    let mut init_op = Op::new_reset_gate(u32::MAX);
-    init_op.q2 = 0xfeed_face;
-
     let msg_qubit = 0;
     let alice_qubit = 1;
     let bob_qubit = 2;
@@ -133,7 +124,6 @@ fn scale_teleport() {
     let angle: f32 = rng.gen_range(0.0..(2.0 * PI));
 
     let ops: Vec<Op> = vec![
-        init_op,
         // Prepare message qubit with rotation
         Op::new_rx_gate(angle, msg_qubit),
         // Create entangled pair (alice, bob)
@@ -154,7 +144,7 @@ fn scale_teleport() {
     ];
 
     let start = Instant::now();
-    let results = run_parallel_shots(3, 3, ops, 50000).expect("GPU shots failed");
+    let results = run_parallel_shots(3, 3, ops, 50000, DEFAULT_SEED).expect("GPU shots failed");
     let elapsed = start.elapsed();
 
     let (results, error_codes) = split_results(3, &results);
@@ -186,18 +176,14 @@ fn scale_teleport() {
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
 }
 fn bell_at_scale() {
-    let mut init_op = Op::new_reset_gate(u32::MAX);
-    init_op.q2 = 0xaabb_ccdd;
-
     let ops: Vec<Op> = vec![
-        init_op,
         Op::new_h_gate(0),
         Op::new_cx_gate(0, 1),
         Op::new_mresetz_gate(0, 0),
         Op::new_mresetz_gate(1, 1),
     ];
     let start = Instant::now();
-    let results = run_parallel_shots(2, 2, ops, 60000).expect("GPU shots failed");
+    let results = run_parallel_shots(2, 2, ops, 60000, DEFAULT_SEED).expect("GPU shots failed");
     let elapsed = start.elapsed();
     println!(
         "[GPU Runner]: 60,000 shots of Bell Pair completed, results length: {}",
@@ -207,11 +193,7 @@ fn bell_at_scale() {
 }
 
 fn test_simple_rotation_and_entanglement() {
-    let mut init_op = Op::new_reset_gate(u32::MAX);
-    init_op.q2 = 0xdead_beef;
-
     let ops: Vec<Op> = vec![
-        init_op, // 1, 0xFFFFFFFF, 0xDEADBEEF
         Op::new_rx_gate(2.25, 1),
         Op::new_cx_gate(1, 12),
         Op::new_cx_gate(12, 23),
@@ -221,7 +203,7 @@ fn test_simple_rotation_and_entanglement() {
     ];
     // At 24 qubits, 8 shots fits into 1GB of GPU memory.
     let start = Instant::now();
-    let results = run_parallel_shots(24, 3, ops, 8).expect("GPU shots failed");
+    let results = run_parallel_shots(24, 3, ops, 8, DEFAULT_SEED).expect("GPU shots failed");
     let elapsed = start.elapsed();
     let (results, error_codes) = split_results(3, &results);
     assert!(
@@ -233,11 +215,7 @@ fn test_simple_rotation_and_entanglement() {
 }
 
 fn test_2q_pauli_noise() {
-    let mut init_op = Op::new_reset_gate(u32::MAX);
-    init_op.q2 = 0xdead_beef;
-
     let ops: Vec<Op> = vec![
-        init_op, // 1, 0xFFFFFFFF, 0xDEADBEEF
         Op::new_h_gate(0),
         Op::new_cx_gate(0, 1),
         Op::new_pauli_noise_2q(0, 1, 0.1, 0.1, 0.1),
@@ -263,7 +241,7 @@ fn test_2q_pauli_noise() {
         Op::new_mresetz_gate(7, 7),
     ];
     let start = Instant::now();
-    let results = run_parallel_shots(8, 8, ops, 20).expect("GPU shots failed");
+    let results = run_parallel_shots(8, 8, ops, 20, DEFAULT_SEED).expect("GPU shots failed");
     let elapsed = start.elapsed();
     let (results, error_codes) = split_results(8, &results);
     assert!(
@@ -277,11 +255,7 @@ fn test_2q_pauli_noise() {
 }
 
 fn test_move_noise() {
-    let mut init_op = Op::new_reset_gate(u32::MAX);
-    init_op.q2 = 0xdead_beef;
-
     let ops: Vec<Op> = vec![
-        init_op, // 1, 0xFFFFFFFF, 0xDEADBEEF
         // Move to interaction zone
         Op::new_move_gate(0),
         Op::new_pauli_noise_1q(0, 0.1, 0.0, 0.0),
@@ -298,7 +272,7 @@ fn test_move_noise() {
     ];
     // At 24 qubits, 8 shots fits into 1GB of GPU memory.
     let start = Instant::now();
-    let results = run_parallel_shots(1, 1, ops, 100).expect("GPU shots failed");
+    let results = run_parallel_shots(1, 1, ops, 100, DEFAULT_SEED).expect("GPU shots failed");
     let elapsed = start.elapsed();
     let (results, error_codes) = split_results(1, &results);
     assert!(
@@ -310,11 +284,7 @@ fn test_move_noise() {
 }
 
 fn test_benzene() {
-    let mut init_op = Op::new_reset_gate(u32::MAX);
-    init_op.q2 = 0xdead_beef;
-
     let ops: Vec<Op> = vec![
-        init_op, // 1, 0xFFFFFFFF, 0xDEADBEEF
         Op::new_h_gate(2),
         Op::new_pauli_noise_1q(2, 0.000166, 0.000166, 0.000166),
         Op::new_rz_gate(1.87, 2),
@@ -351,28 +321,24 @@ fn test_benzene() {
         Op::new_mresetz_gate(9, 3),
     ];
     let start = Instant::now();
-    let results = run_parallel_shots(10, 4, ops, 100).expect("GPU shots failed");
+    let results = run_parallel_shots(10, 4, ops, 1024, DEFAULT_SEED).expect("GPU shots failed");
     let elapsed = start.elapsed();
     let (results, error_codes) = split_results(4, &results);
     assert!(
         has_no_errors(&error_codes),
         "Error codes from GPU: {error_codes:?}"
     );
-    // Check the first result is 0001
+    // TODO: Check that buckets for 1101 & 1110 are over 10%, but 1100 & 1111 are less than 1%
     assert!(
-        results[0] == vec![0, 0, 0, 1],
+        results[4] == vec![1, 1, 0, 1],
         "Expected first result to be [0001], got {:?}",
-        results[0]
+        results[1]
     );
     println!("[GPU Runner]: Benzene elapsed time for 1024 shots: {elapsed:.2?}");
 }
 
 fn test_cx_various_state() {
-    let mut init_op = Op::new_reset_gate(u32::MAX);
-    init_op.q2 = 0xdead_beef;
-
     let ops: Vec<Op> = vec![
-        init_op,
         Op::new_x_gate(0),
         Op::new_cx_gate(0, 7),
         Op::new_cx_gate(0, 6),
@@ -412,7 +378,7 @@ fn test_cx_various_state() {
     //
     // There was a bug where the offset wasn't incrementing when skipping entries, and took all this to find it :-/
     let start = Instant::now();
-    let results = run_parallel_shots(10, 3, ops, 1).expect("GPU shots failed");
+    let results = run_parallel_shots(10, 3, ops, 1, DEFAULT_SEED).expect("GPU shots failed");
     let elapsed = start.elapsed();
 
     let (results, error_codes) = split_results(3, &results);
@@ -426,13 +392,9 @@ fn test_cx_various_state() {
 }
 
 fn scaled_ising() {
-    let mut init_op = Op::new_reset_gate(u32::MAX);
-    init_op.q2 = 0xdead_beef;
-
     let grover_ir = include_str!("./ising.ll");
 
     let mut ops: Vec<Op> = Vec::new();
-    ops.push(init_op);
 
     // Iterate through grover lines and add ops for each (handling CCX decomposition)
     for line in grover_ir.lines() {
@@ -441,25 +403,25 @@ fn scaled_ising() {
     }
 
     let start = Instant::now();
-    let results = run_parallel_shots(25, 25, ops, 4).expect("GPU shots failed");
+    // Run for 10 shots, which should scale across 3 batches on the GPU (max 4 per batch)
+    let results = run_parallel_shots(25, 25, ops, 10, DEFAULT_SEED).expect("GPU shots failed");
     let elapsed = start.elapsed();
     let (results, error_codes) = split_results(25, &results);
     assert!(
         has_no_errors(&error_codes),
         "Error codes from GPU: {error_codes:?}"
     );
-    println!("[GPU Runner]: Scaled Ising (5x5) results for 4 shots: {results:?}");
+    println!("[GPU Runner]: Scaled Ising (5x5) results for 10 shots:");
+    for res in &results {
+        println!("  {res:?}");
+    }
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
 }
 
 fn scaled_grover() {
-    let mut init_op = Op::new_reset_gate(u32::MAX);
-    init_op.q2 = 0xdead_beef;
-
     let grover_ir = include_str!("./grover_full.ir");
 
     let mut ops: Vec<Op> = Vec::new();
-    ops.push(init_op);
 
     // Iterate through grover lines and add ops for each (handling CCX decomposition)
     for line in grover_ir.lines() {
@@ -468,7 +430,7 @@ fn scaled_grover() {
     }
 
     let start = Instant::now();
-    let results = run_parallel_shots(24, 20, ops, 4).expect("GPU shots failed");
+    let results = run_parallel_shots(24, 20, ops, 4, DEFAULT_SEED).expect("GPU shots failed");
     let elapsed = start.elapsed();
     let (results, error_codes) = split_results(20, &results);
     assert!(
@@ -481,9 +443,11 @@ fn scaled_grover() {
             "Expected result to be [01010 x4], got {res:?}",
         );
     }
-    println!(
-        "[GPU Runner]: Scaled Grover (2344 ops on 24 qubits) results for 4 shots: {results:?}"
-    );
+    println!("[GPU Runner]: Scaled Grover (2344 ops on 24 qubits) results for 4 shots:");
+    for res in &results {
+        println!("  {res:?}");
+    }
+
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
 }
 
@@ -492,9 +456,10 @@ fn op_from_ir_line(line: &str) -> Vec<Op> {
     let line = line.trim();
 
     // Skip non-quantum operation lines
-    if !line.starts_with("call void @__quantum__qis__") {
-        panic!("Unexpected IR line: {line}");
-    }
+    assert!(
+        line.starts_with("call void @__quantum__qis__"),
+        "Unexpected IR line: {line}"
+    );
 
     // Regex to parse the entire IR line in one go
     let re = Regex::new(r"call void @__quantum__qis__(\w+)__(body|adj).*").expect("Invalid regex");

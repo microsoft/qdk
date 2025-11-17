@@ -24,6 +24,28 @@ class AC1000(Device):
             ],
         )
 
+    def _init_home_locs(self):
+        # Set up the home locations for qubits in the AC1000 layout.
+        assert len(self.zones) == 4
+        assert (
+            self.zones[0].type == ZoneType.REG
+            and self.zones[1].type == ZoneType.INTER
+            and self.zones[2].type == ZoneType.REG
+        )
+        assert self.zones[0].row_count == self.zones[2].row_count
+        rz1_rows = range(self.zones[0].row_count - 1, -1, -1)
+        rz2_rows = range(
+            self.zones[0].row_count + self.zones[1].row_count,
+            self.zones[0].row_count + self.zones[1].row_count + self.zones[2].row_count,
+        )
+        self.home_locs = []
+        for row in range(self.zones[2].row_count):
+            for col in range(self.column_count):
+                self.home_locs.append((rz2_rows[row], col))
+        for row in range(self.zones[0].row_count):
+            for col in range(self.column_count):
+                self.home_locs.append((rz1_rows[row], col))
+
     def compile(
         self,
         program: str | QirInputData,
@@ -131,7 +153,7 @@ class AC1000(Device):
             print(f"  Pruned unused functions in {end_time - start_time:.2f} seconds")
             start_time = end_time
 
-        Reorder().run(module)
+        Reorder(self).run(module)
         if verbose:
             end_time = time.time()
             print(f"  Reordered instructions in {end_time - start_time:.2f} seconds")

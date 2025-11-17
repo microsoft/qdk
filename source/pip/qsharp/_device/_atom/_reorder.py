@@ -2,6 +2,7 @@
 # Licensed under the MIT License.
 
 from ._utils import as_qis_gate, get_used_values, uses_any_value
+from .._device import Device
 from pyqir import (
     Call,
     Instruction,
@@ -22,28 +23,22 @@ def is_irreversible(instr: Instruction):
     return False
 
 
-# Key function for sorting instructions. Instructions are sorted by gate type first and then by qubit arguments.
-def instr_key(instr: Instruction):
-    gate = as_qis_gate(instr)
-    if gate != {}:
-        qubits = sorted(gate["qubit_args"])
-        if len(qubits) == 2:
-            # Sort CZ to the end of a step using "2", then by the qubit ids used.
-            return (2, qubits[0], qubits[1])
-        if len(gate["result_args"]) > 0:
-            # Measurements should all be in their own step, so use "0" and just sort by qubit id.
-            return (0, gate["qubit_args"][0])
-        # All 1 qubit gates should happen before CZ, so use "1" and sort by qubit id.
-        return (1, qubits[0])
-    # Any non-gate, non-measurement instructions should get sorted first using a single-arity tuple of "0."
-    return (0,)
-
-
 class Reorder(QirModuleVisitor):
     """
     Reorder instructions within a block to find contiguous sequences of the same gate on
     different qubits. This enables both layout and scheduling at a later stage.
     """
+
+    def __init__(self, device: Device):
+        super().__init__()
+        self.device = device
+
+    def instr_key(self, instr: Instruction):
+        gate = as_qis_gate(instr)
+        if gate != {}:
+            qubits = sorted(map(self.device.get_ordering, gate["qubit_args"]))
+            return qubits[0]
+        return 0
 
     def _on_block(self, block):
         # The instructions are collected into an ordered list of steps, where each step
@@ -110,7 +105,7 @@ class Reorder(QirModuleVisitor):
         # Insert the instructions back into the block in the correct order.
         self.builder.insert_at_end(block)
         for step in steps:
-            for instr in sorted(step, key=instr_key):
+            for instr in sorted(step, key=self.instr_key):
                 self.builder.instr(instr)
         # Add output recording instructions and terminator at the end of the block.
         for instr in output_recording:
