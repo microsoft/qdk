@@ -806,7 +806,7 @@ def run_clifford(
     """ """
     ...
 
-def try_create_gpu_adapter():
+def try_create_gpu_adapter() -> str:
     """
     Checks if a compatible GPU adapter is available on the system.
 

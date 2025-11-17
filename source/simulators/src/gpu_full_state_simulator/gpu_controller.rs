@@ -12,7 +12,7 @@ use futures::FutureExt;
 use std::{cmp::max, cmp::min, num::NonZeroU64};
 use wgpu::{
     Adapter, BindGroup, BindGroupLayout, Buffer, BufferDescriptor, BufferUsages, ComputePipeline,
-    Device, Limits, Queue, RequestAdapterError, ShaderModule,
+    Device, Limits, Queue, RequestAdapterError, RequestAdapterOptions, ShaderModule,
 };
 
 // Some of these values are to align with WebGPU default limits
@@ -37,6 +37,12 @@ const MAX_SHOT_ENTRIES: usize = MAX_BUFFER_SIZE / SIZEOF_SHOTDATA;
 // There is no hard limit here, but for very large circuits we may need to split into multiple dispatches.
 // TODO: See if there is a way to query the GPU for max dispatches per submit, or derive it from other limits
 const MAX_DISPATCHES_PER_SUBMIT: u32 = 100_000;
+
+const ADAPTER_OPTIONS: RequestAdapterOptions = wgpu::RequestAdapterOptions {
+    power_preference: wgpu::PowerPreference::HighPerformance,
+    compatible_surface: None,
+    force_fallback_adapter: false,
+};
 
 pub struct GpuContext {
     device: Device,
@@ -180,7 +186,7 @@ impl GpuContext {
     pub async fn get_adapter() -> std::result::Result<Adapter, String> {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
         instance
-            .request_adapter(&wgpu::RequestAdapterOptions::default())
+            .request_adapter(&ADAPTER_OPTIONS)
             .await
             .map_err(|e| e.to_string())
     }
@@ -268,11 +274,7 @@ impl GpuContext {
             Self::get_params(qubit_count, result_count, op_count, gate_op_count, shots)?;
 
         let adapter = wgpu::Instance::new(&wgpu::InstanceDescriptor::default())
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                compatible_surface: None,
-                force_fallback_adapter: false,
-            })
+            .request_adapter(&ADAPTER_OPTIONS)
             .await
             .map_err(|e| e.to_string())?;
 
