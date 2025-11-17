@@ -152,6 +152,14 @@
             "experimental"
           ],
           "description": "Upload supplemental input data (circuit diagram) to the storage container when submitting jobs to Azure Quantum."
+        },
+        "Q#.azure.experimental.enableJobDelete": {
+          "type": "boolean",
+          "default": false,
+          "tags": [
+            "experimental"
+          ],
+          "description": "Enable the Azure Quantum job delete command and related UI elements. This feature is experimental; service-side support may not yet be available."
         }
       }
     },
@@ -207,7 +215,7 @@
         },
         {
           "command": "qsharp-vscode.deleteJob",
-          "when": "qsharp-vscode.treeItemIsDeletable"
+          "when": "qsharp-vscode.treeItemIsDeletable && qsharp-vscode.deleteJobsEnabled"
         },
         {
           "command": "qsharp-vscode.cancelJob",
@@ -283,7 +291,7 @@
         {
           "command": "qsharp-vscode.deleteJob",
           "group": "inline",
-          "when": "view == quantum-workspaces && (viewItem == job || viewItem == job-cancelable || viewItem == result || viewItem == result-download)"
+          "when": "view == quantum-workspaces && (viewItem == job || viewItem == job-cancelable || viewItem == result || viewItem == result-download) && qsharp-vscode.deleteJobsEnabled"
         },
         {
           "command": "qsharp-vscode.cancelJob",
@@ -446,7 +454,8 @@
         "command": "qsharp-vscode.deleteJob",
         "category": "QDK",
         "title": "Delete Azure Quantum job",
-        "icon": "$(trash)"
+        "icon": "$(trash)",
+        "enablement": "qsharp-vscode.deleteJobsEnabled"
       },
       {
         "command": "qsharp-vscode.cancelJob",

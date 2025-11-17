@@ -138,8 +138,32 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
         `${qsharpExtensionId}.treeItemIsCancelable`,
         isCancelable,
       );
+      // Also (re)apply the delete jobs feature flag context so palette menu conditions re-evaluate.
+      await setDeleteJobsFeatureFlagContext();
     }),
   );
+
+  // Initialize the delete job feature flag context key.
+  await setDeleteJobsFeatureFlagContext();
+  // Listen for configuration changes to update the feature flag context.
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration(async (e) => {
+      if (e.affectsConfiguration("Q#.azure.experimental.enableJobDelete")) {
+        await setDeleteJobsFeatureFlagContext();
+      }
+    }),
+  );
+
+  async function setDeleteJobsFeatureFlagContext() {
+    const enabled = vscode.workspace
+      .getConfiguration("Q#")
+      .get<boolean>("azure.experimental.enableJobDelete", false);
+    await vscode.commands.executeCommand(
+      "setContext",
+      `${qsharpExtensionId}.deleteJobsEnabled`,
+      enabled,
+    );
+  }
 
   context.subscriptions.push(
     vscode.commands.registerCommand(
