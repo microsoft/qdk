@@ -495,7 +495,7 @@ pub fn make_circuit(
             .into_iter()
             .map(|o| o.into_operation(&dbg_stuff, Some(dbg_stuff.dbg_info)))
             .collect(),
-        Some(package_store),
+        package_store,
         config.loop_detection,
         config.collapse_qubit_registers,
     );
@@ -1003,6 +1003,7 @@ struct CircuitBlock {
     terminator: Option<Terminator>,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn operations_in_block(
     source_locations: bool,
     group_scopes: bool,
@@ -2436,7 +2437,7 @@ struct OpListBuilder {
     max_ops_exceeded: bool,
     operations: Vec<Op>,
     source_locations: bool,
-    group_scopes: bool,
+    _group_scopes: bool,
     user_package_ids: Vec<PackageId>,
 }
 
@@ -2452,7 +2453,7 @@ impl OpListBuilder {
             max_ops_exceeded: false,
             operations: vec![],
             source_locations,
-            group_scopes,
+            _group_scopes: group_scopes,
             user_package_ids,
         }
     }
@@ -2470,7 +2471,7 @@ impl OpListBuilder {
         }
 
         // TODO: I'm out of hacks
-        op.location_metadata = unfiltered_call_stack.last().cloned();
+        op.location_metadata = unfiltered_call_stack.last().copied();
 
         add_op_with_grouping(
             self.source_locations,
@@ -2487,6 +2488,7 @@ impl OpListBuilder {
         self.operations
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn gate(
         &mut self,
         dbg_stuff: &DbgStuff,

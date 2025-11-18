@@ -99,7 +99,7 @@ export class QSharpTools {
           const failureKey = `${failure.document}-${diagnostic.message}-${diagnostic.range?.start.line}-${diagnostic.range?.start.character}`;
           if (!uniqueFailures.has(failureKey)) {
             uniqueFailures.add(failureKey);
-            sampleFailures.push(diagnostic);
+            sampleFailures.push(failure);
           }
           if (sampleFailures.length === 3) {
             break;
@@ -122,24 +122,6 @@ export class QSharpTools {
 
     if (result.status === "compilation error(s)") {
       const failures = result.errors;
-
-      if (failures && failures?.length > 0) {
-        throw new CopilotToolError(
-          `Program failed with compilation errors. ${JSON.stringify(failures)}`,
-        );
-      }
-    }
-
-    if (result.doneReason === "compilation error(s)") {
-      const failures = result.results
-        .map((r) => {
-          if (!r.success && r.result && typeof r.result !== "string") {
-            return r.result.errors;
-          }
-          return null;
-        })
-        .filter((e) => e !== null)
-        .flat();
 
       if (failures && failures?.length > 0) {
         throw new CopilotToolError(

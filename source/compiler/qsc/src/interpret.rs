@@ -1019,7 +1019,7 @@ impl Interpreter {
                 if let Some((callable, args)) = invoke_params {
                     // TODO: Static circuit generation from a callable is not yet supported.
                     self.invoke_with_tracing_backend(
-                        &mut TracingBackend::no_backend(&mut tracer),
+                        &mut TracingBackend::<SparseSim>::no_backend(&mut tracer),
                         &mut out,
                         callable,
                         args,

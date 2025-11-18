@@ -87,6 +87,8 @@ fn source_locations_enabled() {
         TracerConfig {
             max_operations: 10,
             source_locations: true,
+            group_scopes: false,
+            ..Default::default()
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -102,7 +104,7 @@ fn source_locations_enabled() {
         None,
     );
 
-    let circuit = builder.finish(&FakeCompilation {});
+    let circuit = builder.finish(&FakeCompilation {}, None);
 
     expect![[r#"
         q_0    ─ X@user_code.qs:0:10 ─
@@ -113,7 +115,7 @@ fn source_locations_enabled() {
     expect![[r#"
         q_0    ── X ──
     "#]]
-    .assert_eq(&circuit.display_no_locations().to_string());
+    .assert_eq(&circuit.display_basic().to_string());
 }
 
 #[test]
@@ -140,7 +142,7 @@ fn source_locations_disabled() {
         None,
     );
 
-    let circuit = builder.finish(&FakeCompilation {});
+    let circuit = builder.finish(&FakeCompilation {}, None);
 
     expect![[r#"
         q_0    ── X ──
@@ -154,6 +156,8 @@ fn source_locations_multiple_user_frames() {
         TracerConfig {
             max_operations: 10,
             source_locations: true,
+            group_scopes: false,
+            ..Default::default()
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -172,7 +176,7 @@ fn source_locations_multiple_user_frames() {
         None,
     );
 
-    let circuit = builder.finish(&FakeCompilation {});
+    let circuit = builder.finish(&FakeCompilation {}, None);
 
     // Use the most current user frame for the source location.
     expect![[r#"
@@ -184,7 +188,7 @@ fn source_locations_multiple_user_frames() {
     expect![[r#"
         q_0    ── X ──
     "#]]
-    .assert_eq(&circuit.display_no_locations().to_string());
+    .assert_eq(&circuit.display_basic().to_string());
 }
 
 #[test]
@@ -193,6 +197,8 @@ fn source_locations_library_frames_excluded() {
         TracerConfig {
             max_operations: 10,
             source_locations: true,
+            group_scopes: false,
+            ..Default::default()
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -210,7 +216,7 @@ fn source_locations_library_frames_excluded() {
         None,
     );
 
-    let circuit = builder.finish(&FakeCompilation {});
+    let circuit = builder.finish(&FakeCompilation {}, None);
 
     // Most recent frame is a library frame - source
     // location should fall back to the nearest user frame.
@@ -226,6 +232,8 @@ fn source_locations_only_library_frames() {
         TracerConfig {
             max_operations: 10,
             source_locations: true,
+            group_scopes: false,
+            ..Default::default()
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -244,7 +252,7 @@ fn source_locations_only_library_frames() {
         None,
     );
 
-    let circuit = builder.finish(&FakeCompilation {});
+    let circuit = builder.finish(&FakeCompilation {}, None);
 
     // Only library frames, no user source to show
     expect![[r#"
@@ -259,6 +267,8 @@ fn source_locations_enabled_no_stack() {
         TracerConfig {
             max_operations: 10,
             source_locations: true,
+            group_scopes: false,
+            ..Default::default()
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -282,6 +292,8 @@ fn qubit_source_locations_via_stack() {
         TracerConfig {
             max_operations: 10,
             source_locations: true,
+            group_scopes: false,
+            ..Default::default()
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -290,7 +302,7 @@ fn qubit_source_locations_via_stack() {
 
     builder.gate(&[], "X", false, &[0], &[], None);
 
-    let circuit = builder.finish(&FakeCompilation {});
+    let circuit = builder.finish(&FakeCompilation {}, None);
 
     expect![[r#"
         q_0@user_code.qs:0:10 ── X ──
@@ -304,6 +316,8 @@ fn qubit_labels_for_preallocated_qubits() {
         TracerConfig {
             max_operations: 10,
             source_locations: true,
+            group_scopes: false,
+            ..Default::default()
         },
         &FakeCompilation::user_package_ids(),
         Some((
@@ -326,7 +340,7 @@ fn qubit_labels_for_preallocated_qubits() {
         None,
     );
 
-    let circuit = builder.finish(&FakeCompilation {});
+    let circuit = builder.finish(&FakeCompilation {}, None);
 
     expect![[r#"
         q_0@user_code.qs:0:10 ─ X@user_code.qs:0:20 ─

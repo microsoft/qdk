@@ -12,7 +12,6 @@ use crate::{
     },
     group_qubits,
     operations::QubitParam,
-    operations::QubitParamInfo,
     rir_to_circuit::{DbgStuffExt, ScopeResolver, ScopeStack},
 };
 use qsc_data_structures::{
@@ -158,6 +157,7 @@ impl CircuitTracer {
                 config.max_operations,
                 user_package_ids.to_vec(),
                 config.group_scopes,
+                config.source_locations,
             ),
             next_result_id: 0,
             user_package_ids: user_package_ids.to_vec(),
@@ -196,6 +196,7 @@ impl CircuitTracer {
                 config.max_operations,
                 user_package_ids.to_vec(),
                 config.group_scopes,
+                config.source_locations,
             ),
             next_result_id: 0,
             user_package_ids: user_package_ids.to_vec(),
@@ -227,6 +228,7 @@ impl CircuitTracer {
                 self.config.max_operations,
                 self.user_package_ids.clone(),
                 self.config.group_scopes,
+                self.config.source_locations,
             ),
         )
         .into_operations();
@@ -924,12 +926,13 @@ impl OperationListBuilder {
         max_operations: usize,
         user_package_ids: Vec<PackageId>,
         group_scopes: bool,
+        source_locations: bool,
     ) -> Self {
         Self {
             max_ops: max_operations,
             max_ops_exceeded: false,
             operations: vec![],
-            source_locations: true,
+            source_locations,
             user_package_ids,
             group_scopes,
         }
