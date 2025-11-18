@@ -15,6 +15,7 @@ export {
   type Unitary,
   type Parameter,
   type Qubit,
+  type SourceLocation,
 } from "../../src/data-structures/circuit.js";
 
 export { CURRENT_VERSION } from "../../src/data-structures/circuit.js";
