@@ -74,9 +74,9 @@ def move_direction(source: Location, destination: Location) -> tuple[int, int]:
 
 
 def index_from_parity_and_direction(
-    row_parity: int, col_parity, ud: int, lr: int
+    src_col_parity: int, dst_col_parity, ud: int, lr: int
 ) -> int:
-    major_index = 2 * row_parity + col_parity
+    major_index = 2 * src_col_parity + dst_col_parity
     minor_index = 2 * ud + lr
     return 4 * major_index + minor_index
 
@@ -188,7 +188,7 @@ class MoveGroupPool:
             direction: The up/down and left/right direction of all the moves
                 in this pool.
         """
-        self.moves = set()
+        self.moves: Optional[list[Move]] = []
         self.move_group_candidates: dict[
             Optional[MoveGroupScaleFactor], list[MoveGroup]
         ] = {None: []}
@@ -220,8 +220,11 @@ class MoveGroupPool:
             move: The move to add. It must be of the same parity and direction as
                 the rest of the moves in this pool.
         """
-        assert move.parity() == self.parity
-        assert move.direction() == self.direction
+        assert move.parity() == self.parity, f"{move.parity()} != {self.parity}"
+        assert (
+            move.direction() == self.direction
+        ), f"{move.direction()} != {self.direction}"
+        assert self.moves is not None
 
         move_added = False
         for move2 in self.moves:
@@ -232,16 +235,16 @@ class MoveGroupPool:
             candidates_with_same_scale_factor = self.move_group_candidates.get(s, [])
             for group in candidates_with_same_scale_factor:
                 if pair[0] in group.moves:
-                    group.moves.add(pair[1])
+                    group.add(pair[1])
                     move_added = True
                     break
                 elif pair[1] in group.moves:
-                    group.moves.add(pair[0])
+                    group.add(pair[0])
                     move_added = True
                     break
                 elif s == scale_factor(pair[0], group.ref_move):
-                    group.moves.add(pair[0])
-                    group.moves.add(pair[1])
+                    group.add(pair[0])
+                    group.add(pair[1])
                     move_added = True
                     break
             else:
@@ -253,13 +256,16 @@ class MoveGroupPool:
         if not move_added:
             self.move_group_candidates[None].append(MoveGroup([move]))
 
-        self.moves.add(move)
+        self.moves.append(move)
 
     def try_take(self, number_of_moves: int) -> list[Move]:
         """Take up to `number_of_moves` from the largest move group candidate.
         Args:
             number_of_moves: The number of moves to take from this pool.
         """
+        # Once we start taking moves from the MoveGroup, we don't need to add
+        # new moves. So we set `self.moves` to `None` as a safety measure.
+        self.moves = None
 
         if largest_move_group_candidate := self.largest_move_group_candidate():
             # Ensure moves are sorted by qubit ID to have a deterministic order.
@@ -267,7 +273,6 @@ class MoveGroupPool:
                 list(largest_move_group_candidate.moves), key=lambda m: m.qubit_id
             )[:number_of_moves]
             moves_set = set(moves)
-            self.moves -= moves_set
             # Remove the taken moves from all candidates.
             for group in self.move_group_candidates_iter():
                 group.moves -= moves_set
@@ -303,18 +308,14 @@ class MoveScheduler:
             zone: The zone the moves will be scheduled to.
             qubits_to_move: A list of qubits to move.
         """
-        # Remove duplicates while preserving order.
-        assert len(qubits_to_move) == len(
-            set(qubits_to_move)
-        ), f"{len(qubits_to_move)} != {len(set(qubits_to_move))}"
         self.device = device
         self.zone = zone
         self.available_dst_locations = self.build_zone_locations(zone)
         self.partial_moves = self.qubits_to_partial_moves(qubits_to_move)
         self.disjoint_pools: list[MoveGroupPool] = [
-            MoveGroupPool((row_parity, col_parity), (ud, lr))
-            for row_parity in (0, 1)
-            for col_parity in (0, 1)
+            MoveGroupPool((src_col_parity, dst_col_parity), (ud, lr))
+            for src_col_parity in (0, 1)
+            for dst_col_parity in (0, 1)
             for ud in (0, 1)
             for lr in (0, 1)
         ]
@@ -407,10 +408,27 @@ class MoveScheduler:
         compatible_move_group_pools.sort(
             key=lambda pool: pool.largest_move_group_candidate_len(), reverse=True
         )
+
+        # Heuristic: Prefer moves that are straight up or down.
+        for row in range(zone_row_offset, zone_row_offset + self.zone.row_count):
+            dst_loc = (row, partial_move.src_loc[1])
+            if dst_loc in self.available_dst_locations:
+                move = partial_move.into_move(dst_loc)
+                pool = self.disjoint_pools[
+                    index_from_parity_and_direction(
+                        src_col_parity, src_col_parity, ud_direction, 0
+                    )
+                ]
+                pool.add(move)
+                del self.available_dst_locations[move.dst_loc]
+                return pool
+
         for pool in compatible_move_group_pools:
             if move := self.get_compatible_move(pool, partial_move):
                 pool.add(move)
+                del self.available_dst_locations[move.dst_loc]
                 return pool
+
         raise Exception("not enough IZ space to schedule all moves")
 
     def add_pair_to_largest_compatible_move_group(
@@ -432,6 +450,34 @@ class MoveScheduler:
         compatible_move_group_pools.sort(
             key=lambda pool: pool.largest_move_group_candidate_len(), reverse=True
         )
+
+        # Heuristic: Prefer moves that are straight up or down.
+        if partial_move.src_loc[1] % 2 == 0:
+            for row in range(zone_row_offset, zone_row_offset + self.zone.row_count):
+                dst_loc1 = (row, partial_move.src_loc[1])
+                dst_loc2 = (row, partial_move.src_loc[1] + 1)
+                if (
+                    dst_loc1 in self.available_dst_locations
+                    and dst_loc2 in self.available_dst_locations
+                ):
+                    move1 = partial_move.into_move(dst_loc1)
+                    move2 = partial_move_pair[1].into_move(dst_loc2)
+                    pool1 = self.disjoint_pools[
+                        index_from_parity_and_direction(
+                            *move1.parity(), *move1.direction()
+                        )
+                    ]
+                    pool2 = self.disjoint_pools[
+                        index_from_parity_and_direction(
+                            *move2.parity(), *move2.direction()
+                        )
+                    ]
+                    pool1.add(move1)
+                    pool2.add(move2)
+                    del self.available_dst_locations[dst_loc1]
+                    del self.available_dst_locations[dst_loc2]
+                    return pool1
+
         for pool in compatible_move_group_pools:
             if move1 := self.get_compatible_move(pool, partial_move, is_pair=True):
                 # Push the move corresponding to the first qubit of the CZ pair.
@@ -443,7 +489,8 @@ class MoveScheduler:
                 self.disjoint_pools[
                     index_from_parity_and_direction(*move2.parity(), *move2.direction())
                 ].add(move2)
-
+                del self.available_dst_locations[move1.dst_loc]
+                del self.available_dst_locations[move2.dst_loc]
                 return pool
         raise Exception("not enough IZ space to schedule all moves")
 
@@ -497,7 +544,7 @@ class MoveScheduler:
     ) -> Optional[Move]:
         source = partial_move.src_loc
 
-        # First, try finding a large enough group to place the partial movement in.
+        # First, try finding a large enough group to place the partial move in.
         if self.zone.type != ZoneType.MEAS:
             GROUP_SIZE_THRESHOLD = self.device.column_count // 4
             best_destination: Optional[Location] = None
@@ -512,12 +559,15 @@ class MoveScheduler:
                     ):
                         break
                     if destination := self.get_destination(partial_move, scale, group):
-                        if (not is_pair) or destination[1] % 2 == 0:
+                        if (
+                            ((not is_pair) or destination[1] % 2 == 0)
+                            and pool.parity == move_parity(source, destination)
+                            and pool.direction == move_direction(source, destination)
+                        ):
                             best_destination = destination
                             best_destination_group_len = len(group)
                             break
             if best_destination:
-                del self.available_dst_locations[best_destination]
                 return partial_move.into_move(best_destination)
 
         # If we didn't find a group to place the partial_move in,
@@ -528,7 +578,6 @@ class MoveScheduler:
                 and pool.parity == move_parity(source, destination)
                 and pool.direction == move_direction(source, destination)
             ):
-                del self.available_dst_locations[destination]
                 return partial_move.into_move(destination)
 
     def __iter__(self):
