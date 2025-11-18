@@ -592,11 +592,9 @@ class MoveScheduler:
         # candidate they are compatible with.
         while partial_move := self.next_partial_move():
             if isinstance(partial_move, PartialMove):
-                pool = self.add_to_largest_compatible_move_group(partial_move)
+                self.add_to_largest_compatible_move_group(partial_move)
             else:
-                pool = self.add_pair_to_largest_compatible_move_group(partial_move)
-            # if pool.largest_move_group_candidate_len() >= self.device.column_count:
-            #     return pool.try_take(self.device.column_count)
+                self.add_pair_to_largest_compatible_move_group(partial_move)
 
         # Once partial moves are exhausted, we try_get from the largest candidate.
         return self.largest_move_group_pool().try_take(self.device.column_count)
