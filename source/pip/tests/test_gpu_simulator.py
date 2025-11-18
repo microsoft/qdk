@@ -11,10 +11,12 @@ from qsharp._native import Result
 
 SKIP_REASON = "GPU is not available"
 
+gpu_name = "Unknown"
+
 try:
     from qsharp._native import try_create_gpu_adapter
 
-    try_create_gpu_adapter()
+    gpu_name = try_create_gpu_adapter()
 
     GPU_AVAILABLE = True
 except OSError as e:
@@ -92,6 +94,7 @@ def test_gpu_no_noise():
     )
 
     output = run_qir_gpu(str(input))
+    print(gpu_name)
     print(output)
     # Expecting deterministic output, no randomization seed needed.
     assert output == [[Result.Zero]*25], "Expected result of 0s with pi/2 angles."
@@ -115,6 +118,7 @@ def test_gpu_bitflip_noise():
     output = run_qir_gpu(str(input), shots=3, noise=noise, seed=17)
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
     print(result)
+    # Reasonable results obtained from manual run
     assert result == [
         '0000000000011100001001110',
         '0001001000000000000100100',
@@ -138,6 +142,7 @@ def test_gpu_mixed_noise():
     output = run_qir_gpu(str(input), shots=3, noise=noise, seed=53)
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
     print(result)
+    # Reasonable results obtained from manual run
     assert result == [
         '00000-00010000-0000000001',
         '00000000000-0000000000-00',
