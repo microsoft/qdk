@@ -1,23 +1,30 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use std::fmt::{self, Write};
+use std::{
+    fmt::{self, Write},
+    rc::Rc,
+};
 
 use crate::{
-    builder::{LexicalScope, OperationOrGroupExt, QubitWire, add_op_with_grouping},
+    Operation,
+    builder::{
+        LexicalScope, OperationOrGroupExt, QubitWire, ScopeId, SourceLocationMetadata,
+        SourceLookup, add_op_with_grouping,
+    },
     circuit::PackageOffset,
-    rir_to_circuit::{DbgStuffExt, ScopeResolver, ScopeStack},
+    rir_to_circuit::{ScopeLookup, ScopeStack},
 };
 use expect_test::{Expect, expect};
 use indenter::indented;
-use qsc_fir::fir::PackageId;
-use rustc_hash::FxHashSet;
+use qsc_fir::fir::StoreItemId;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 // TODO: add tests to this crate that validate source locations
 
 #[allow(clippy::needless_pass_by_value)]
 fn check(instructions: Vec<Instruction>, expect: Expect) {
-    let ops = program(instructions);
+    let (ops, scopes) = program(instructions);
 
     let mut grouped = vec![];
     for op in ops {
@@ -28,19 +35,20 @@ fn check(instructions: Vec<Instruction>, expect: Expect) {
             }
         };
 
-        add_op_with_grouping(false, true, &[], &(), &mut grouped, op, op_call_stack);
+        add_op_with_grouping(false, true, &[], &mut grouped, op, op_call_stack);
     }
 
     let fmt_ops = |grouped: &[Op]| -> String {
         let mut s = String::new();
-        fmt_ops(&mut s, 0, grouped).expect("formatting failed");
+        fmt_ops(&mut s, 0, grouped, &scopes).expect("formatting failed");
         s
     };
 
     expect.assert_eq(&fmt_ops(&grouped));
 }
+
 struct Location {
-    scope: String,
+    scope: Rc<str>,
     offset: u32,
 }
 
@@ -55,34 +63,66 @@ pub struct InstructionMetadata {
     dbg_location: Option<DbgLocation>,
 }
 
-impl DbgStuffExt for () {
-    type SourceLocation = (String, u32);
-    type Scope = String;
+impl SourceLookup for () {
+    // type SourceLocationMetadata = (String, u32);
+    // type ScopeId = String;
 
-    fn package_id(&self, _location: &Self::SourceLocation) -> qsc_fir::fir::PackageId {
-        PackageId::CORE
+    // fn package_id(&self, _location: &Self::SourceLocationMetadata) -> qsc_fir::fir::PackageId {
+    //     PackageId::CORE
+    // }
+
+    // fn lexical_scope(&self, location: &Self::SourceLocationMetadata) -> Self::ScopeId {
+    //     location.0.clone()
+    // }
+
+    // fn source_location(&self, location: &Self::SourceLocationMetadata) -> PackageOffset {
+    //     PackageOffset {
+    //         package_id: PackageId::CORE,
+    //         offset: location.1,
+    //     }
+    // }
+
+    fn resolve_location(
+        &self,
+        _package_offset: &PackageOffset,
+    ) -> crate::circuit::ResolvedSourceLocation {
+        todo!()
     }
+}
 
-    fn lexical_scope(&self, location: &Self::SourceLocation) -> Self::Scope {
-        location.0.clone()
-    }
+#[derive(Default)]
+struct Scopes {
+    id_to_name: FxHashMap<ScopeId, Rc<str>>,
+    name_to_id: FxHashMap<Rc<str>, ScopeId>,
+}
 
-    fn source_location(&self, location: &Self::SourceLocation) -> PackageOffset {
-        PackageOffset {
-            package_id: PackageId::CORE,
-            offset: location.1,
+impl Scopes {
+    fn get_or_create_scope(&mut self, name: &Rc<str>) -> ScopeId {
+        if let Some(scope_id) = self.name_to_id.get(name) {
+            *scope_id
+        } else {
+            let scope_id = ScopeId(StoreItemId {
+                package: 0.into(),
+                item: self.id_to_name.len().into(),
+            });
+            self.id_to_name.insert(scope_id, name.clone());
+            self.name_to_id.insert(name.clone(), scope_id);
+            scope_id
         }
     }
 }
 
-impl ScopeResolver for () {
-    type ScopeId = String;
-
-    fn resolve_scope(&self, scope: &Self::ScopeId) -> crate::builder::LexicalScope {
+impl ScopeLookup for Scopes {
+    fn resolve_scope(&self, scope: ScopeId) -> crate::builder::LexicalScope {
+        let name = self
+            .id_to_name
+            .get(&scope)
+            .expect("unknown scope id")
+            .clone();
         LexicalScope::Named {
-            name: scope.clone().into(),
+            name,
             location: PackageOffset {
-                package_id: 0.into(),
+                package_id: scope.0.package,
                 offset: 0,
             },
         }
@@ -92,25 +132,18 @@ impl ScopeResolver for () {
 enum Op {
     Single {
         name: String,
-        call_stack: Vec<(String, u32)>,
+        call_stack: Vec<SourceLocationMetadata>,
         qubits: Vec<QubitWire>,
     },
     Group {
-        scope_stack: ScopeStack<(String, u32), String>,
+        scope_stack: ScopeStack,
         children: Vec<Op>,
         qubits: Vec<QubitWire>,
     },
 }
 
 impl OperationOrGroupExt for Op {
-    type Scope = String;
-    type SourceLocation = (String, u32);
-    type DbgStuff<'a> = ();
-
-    fn group(
-        scope_stack: ScopeStack<Self::SourceLocation, Self::Scope>,
-        children: Vec<Self>,
-    ) -> Self
+    fn group(scope_stack: ScopeStack, children: Vec<Self>) -> Self
     where
         Self: std::marker::Sized,
     {
@@ -127,14 +160,16 @@ impl OperationOrGroupExt for Op {
         }
     }
 
-    fn name(
-        &self,
-        _dbg_stuff: &impl DbgStuffExt<SourceLocation = Self::SourceLocation, Scope = Self::Scope>,
-    ) -> String {
+    fn name(&self, scope_resolver: &impl ScopeLookup) -> String {
         match self {
             Op::Single { name, .. } => name.clone(),
             Op::Group { scope_stack, .. } => {
-                format!("group: {}", scope_stack.current_lexical_scope())
+                format!(
+                    "group: {}",
+                    scope_resolver
+                        .resolve_scope(scope_stack.current_lexical_scope())
+                        .name()
+                )
             }
         }
     }
@@ -149,9 +184,7 @@ impl OperationOrGroupExt for Op {
         }
     }
 
-    fn scope_stack_if_group(
-        &self,
-    ) -> Option<&crate::rir_to_circuit::ScopeStack<Self::SourceLocation, Self::Scope>> {
+    fn scope_stack_if_group(&self) -> Option<&crate::rir_to_circuit::ScopeStack> {
         match self {
             Op::Group { scope_stack, .. } => Some(scope_stack),
             Op::Single { .. } => None,
@@ -188,20 +221,21 @@ impl OperationOrGroupExt for Op {
 
     fn into_operation(
         self,
-        _dbg_stuff: &Self::DbgStuff<'_>,
-        _scope_resolver: Option<&impl ScopeResolver<ScopeId = Self::Scope>>,
-    ) -> crate::Operation {
+        _source_lookup: &impl SourceLookup,
+        _scope_resolver: &impl ScopeLookup,
+    ) -> Operation {
         todo!()
     }
 }
 
 #[derive(Clone, Debug, PartialEq)]
 struct DbgLocation {
-    call_stack: Vec<(String, u32)>,
+    call_stack: Vec<SourceLocationMetadata>,
 }
 
-fn program(instructions: Vec<Instruction>) -> Vec<Op> {
+fn program(instructions: Vec<Instruction>) -> (Vec<Op>, Scopes) {
     let mut ops = vec![];
+    let mut scopes = Scopes::default();
 
     for i in instructions {
         ops.push(unitary(
@@ -211,13 +245,22 @@ fn program(instructions: Vec<Instruction>) -> Vec<Op> {
                 dbg_location: i.stack.map(|stack| DbgLocation {
                     call_stack: stack
                         .iter()
-                        .map(|loc| (loc.scope.clone(), loc.offset))
+                        .map(|loc| {
+                            let scope_id = scopes.get_or_create_scope(&loc.scope);
+                            SourceLocationMetadata::new(
+                                PackageOffset {
+                                    package_id: 0.into(),
+                                    offset: loc.offset,
+                                },
+                                scope_id,
+                            )
+                        })
                         .collect(),
                 }),
             }),
         ));
     }
-    ops
+    (ops, scopes)
 }
 
 fn unitary(label: String, qubits: Vec<QubitWire>, metadata: Option<InstructionMetadata>) -> Op {
@@ -228,9 +271,7 @@ fn unitary(label: String, qubits: Vec<QubitWire>, metadata: Option<InstructionMe
             .and_then(|m| m.dbg_location)
             .map(|d| d.call_stack)
             .unwrap_or_default()
-            .iter()
-            .map(|(s, o)| (s.clone(), *o))
-            .collect(),
+            .clone(),
     }
 }
 
@@ -418,13 +459,18 @@ fn location(scope: &str, offset: u32) -> Location {
 }
 
 #[allow(dead_code)]
-fn fmt_ops(f: &mut impl Write, indent_level: usize, ops: &[Op]) -> fmt::Result {
+fn fmt_ops(
+    f: &mut impl Write,
+    indent_level: usize,
+    ops: &[Op],
+    scope_resolver: &impl ScopeLookup,
+) -> fmt::Result {
     let mut iter = ops.iter().peekable();
     if iter.peek().is_none() {
         write!(f, " <empty>")
     } else {
         while let Some(elt) = iter.next() {
-            fmt_op(f, indent_level, elt)?;
+            fmt_op(f, indent_level, elt, scope_resolver)?;
             if iter.peek().is_some() {
                 writeln!(f)?;
             }
@@ -433,7 +479,12 @@ fn fmt_ops(f: &mut impl Write, indent_level: usize, ops: &[Op]) -> fmt::Result {
     }
 }
 
-fn fmt_op(f: &mut impl Write, indent_level: usize, op: &Op) -> fmt::Result {
+fn fmt_op(
+    f: &mut impl Write,
+    indent_level: usize,
+    op: &Op,
+    scope_resolver: &impl ScopeLookup,
+) -> fmt::Result {
     match op {
         Op::Single { name, .. } => {
             write!(&mut set_indentation(indented(f), indent_level), "{name}")?;
@@ -441,7 +492,9 @@ fn fmt_op(f: &mut impl Write, indent_level: usize, op: &Op) -> fmt::Result {
         Op::Group { scope_stack, .. } => write!(
             &mut set_indentation(indented(f), indent_level),
             "[{}]",
-            scope_stack.current_lexical_scope()
+            scope_resolver
+                .resolve_scope(scope_stack.current_lexical_scope())
+                .name()
         )?,
     }
 
@@ -457,14 +510,17 @@ fn fmt_op(f: &mut impl Write, indent_level: usize, op: &Op) -> fmt::Result {
     }
 
     if let Op::Group { scope_stack, .. } = &op {
-        write!(f, " stack= {}", scope_stack.fmt(&()))?;
+        write!(f, " stack= {}", scope_stack.fmt(scope_resolver))?;
     }
 
     if let Op::Single { call_stack, .. } = &op {
         write!(f, " stack= ")?;
         let mut call_stack = call_stack.iter().peekable();
-        while let Some((scope, offset)) = call_stack.next() {
-            write!(f, "{scope}@{offset}")?;
+        while let Some(source_location_metadata) = call_stack.next() {
+            let scope_id = source_location_metadata.lexical_scope();
+            let offset = source_location_metadata.source_location().offset;
+            let scope_name = scope_resolver.resolve_scope(scope_id).name();
+            write!(f, "{scope_name}@{offset}",)?;
             if call_stack.peek().is_some() {
                 write!(f, "->")?;
             }
@@ -473,7 +529,7 @@ fn fmt_op(f: &mut impl Write, indent_level: usize, op: &Op) -> fmt::Result {
 
     if let Op::Group { children, .. } = &op {
         writeln!(f)?;
-        fmt_ops(f, indent_level + 1, children)?;
+        fmt_ops(f, indent_level + 1, children, scope_resolver)?;
     }
 
     Ok(())

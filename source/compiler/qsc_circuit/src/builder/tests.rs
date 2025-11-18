@@ -20,23 +20,53 @@ impl SourceLookup for FakeCompilation {
         }
     }
 }
+
+impl ScopeLookup for FakeCompilation {
+    fn resolve_scope(&self, scope_id: ScopeId) -> LexicalScope {
+        match usize::from(scope_id.0.item) {
+            FakeCompilation::USER_SCOPE_ITEM_ID => LexicalScope::Named {
+                name: "user_item".into(),
+                location: PackageOffset {
+                    package_id: Self::LIBRARY_PACKAGE_ID.into(),
+                    offset: 0,
+                },
+            },
+            FakeCompilation::LIBRARY_SCOPE_ITEM_ID => LexicalScope::Named {
+                name: "library_item".into(),
+                location: PackageOffset {
+                    package_id: Self::USER_PACKAGE_ID.into(),
+                    offset: 0,
+                },
+            },
+            _ => panic!("unexpected scope id"),
+        }
+    }
+}
+
 impl FakeCompilation {
     const LIBRARY_PACKAGE_ID: usize = 0;
     const USER_PACKAGE_ID: usize = 2;
+
+    const USER_SCOPE_ITEM_ID: usize = 10;
+    const LIBRARY_SCOPE_ITEM_ID: usize = 11;
 
     fn user_package_ids() -> Vec<PackageId> {
         vec![Self::USER_PACKAGE_ID.into()]
     }
 
     fn library_frame(offset: u32) -> Frame {
-        Self::frame(Self::LIBRARY_PACKAGE_ID, offset)
+        Self::frame(
+            Self::LIBRARY_PACKAGE_ID,
+            Self::LIBRARY_SCOPE_ITEM_ID,
+            offset,
+        )
     }
 
     fn user_code_frame(offset: u32) -> Frame {
-        Self::frame(Self::USER_PACKAGE_ID, offset)
+        Self::frame(Self::USER_PACKAGE_ID, Self::USER_SCOPE_ITEM_ID, offset)
     }
 
-    fn frame(package_id: usize, offset: u32) -> Frame {
+    fn frame(package_id: usize, scope_item_id: usize, offset: u32) -> Frame {
         Frame {
             span: Span {
                 lo: offset,
@@ -44,7 +74,7 @@ impl FakeCompilation {
             },
             id: qsc_fir::fir::StoreItemId {
                 package: package_id.into(),
-                item: 0.into(),
+                item: scope_item_id.into(),
             },
             caller: PackageId::CORE,
             functor: Default::default(),
@@ -69,7 +99,7 @@ fn exceed_max_operations() {
     builder.gate(&[], "X", false, &[0], &[], None);
     builder.gate(&[], "X", false, &[0], &[], None);
 
-    let circuit = builder.finish(&FakeCompilation {}, None);
+    let circuit = builder.finish(&FakeCompilation {}, &FakeCompilation {});
 
     // The current behavior is to silently truncate the circuit
     // if it exceeds the maximum allowed number of operations.
@@ -101,7 +131,7 @@ fn source_locations_enabled() {
         None,
     );
 
-    let circuit = builder.finish(&FakeCompilation {}, None);
+    let circuit = builder.finish(&FakeCompilation {}, &FakeCompilation {});
 
     expect![[r#"
         q_0    ─ X@user_code.qs:0:10 ─
@@ -137,7 +167,7 @@ fn source_locations_disabled() {
         None,
     );
 
-    let circuit = builder.finish(&FakeCompilation {}, None);
+    let circuit = builder.finish(&FakeCompilation {}, &FakeCompilation {});
 
     expect![[r#"
         q_0    ── X ──
@@ -170,7 +200,7 @@ fn source_locations_multiple_user_frames() {
         None,
     );
 
-    let circuit = builder.finish(&FakeCompilation {}, None);
+    let circuit = builder.finish(&FakeCompilation {}, &FakeCompilation {});
 
     // Use the most current user frame for the source location.
     expect![[r#"
@@ -209,7 +239,7 @@ fn source_locations_library_frames_excluded() {
         None,
     );
 
-    let circuit = builder.finish(&FakeCompilation {}, None);
+    let circuit = builder.finish(&FakeCompilation {}, &FakeCompilation {});
 
     // Most recent frame is a library frame - source
     // location should fall back to the nearest user frame.
@@ -244,7 +274,7 @@ fn source_locations_only_library_frames() {
         None,
     );
 
-    let circuit = builder.finish(&FakeCompilation {}, None);
+    let circuit = builder.finish(&FakeCompilation {}, &FakeCompilation {});
 
     // Only library frames, no user source to show
     expect![[r#"
@@ -268,7 +298,7 @@ fn source_locations_enabled_no_stack() {
 
     builder.gate(&[], "X", false, &[0], &[], None);
 
-    let circuit = builder.finish(&FakeCompilation {}, None);
+    let circuit = builder.finish(&FakeCompilation {}, &FakeCompilation {});
 
     // No stack was passed, so no source location to show
     expect![[r#"
@@ -292,7 +322,7 @@ fn qubit_source_locations_via_stack() {
 
     builder.gate(&[], "X", false, &[0], &[], None);
 
-    let circuit = builder.finish(&FakeCompilation {}, None);
+    let circuit = builder.finish(&FakeCompilation {}, &FakeCompilation {});
 
     expect![[r#"
         q_0@user_code.qs:0:10 ── X ──
@@ -329,7 +359,7 @@ fn qubit_labels_for_preallocated_qubits() {
         None,
     );
 
-    let circuit = builder.finish(&FakeCompilation {}, None);
+    let circuit = builder.finish(&FakeCompilation {}, &FakeCompilation {});
 
     expect![[r#"
         q_0@user_code.qs:0:10 ─ X@user_code.qs:0:20 ─
