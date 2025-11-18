@@ -19,7 +19,7 @@ use wgpu::{
 // See https://gpuweb.github.io/gpuweb/#limits
 const MAX_BUFFER_SIZE: usize = 1 << 30; // 1 GB limit due to some wgpu restrictions
 const MAX_QUBIT_COUNT: u32 = 27; // 2^27 * 8 bytes per complex32 = 1 GB buffer limit
-const MAX_QUBITS_PER_WORKGROUP: u32 = 20; // Max qubits to be processed by a single workgroup
+const MAX_QUBITS_PER_WORKGROUP: u32 = 18; // Max qubits to be processed by a single workgroup
 const THREADS_PER_WORKGROUP: u32 = 32; // 32 gives good occupancy across various GPUs
 
 // Once a shot is big enough to need multiple workgroups, what's the max number of workgroups possible
