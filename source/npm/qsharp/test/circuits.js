@@ -230,36 +230,57 @@ test("circuit snapshot tests - .qs files", async (t) => {
     const relName = path.basename(file);
     await t.test(`${relName}`, async (tt) => {
       const circuitSource = fs.readFileSync(file, "utf8");
-      const compiler = getCompiler();
-      const container = createContainerElement(`circuit`);
-      try {
-        // Generate the circuit from Q#
-        const circuit = await compiler.getCircuit(
-          {
-            sources: [[relName, circuitSource]],
-            languageFeatures: [],
-            profile: "adaptive_rif",
-          },
-          {
-            generationMethod: "classicalEval",
-            maxOperations: 100,
-            sourceLocations: true,
-          },
-        );
-
-        // Render the circuit
-        draw(circuit, container, {
-          renderLocations,
-        });
-      } catch (e) {
-        const pre = document.createElement("pre");
-        pre.appendChild(
-          document.createTextNode(`Error generating circuit: ${e}`),
-        );
-        container.appendChild(pre);
-      }
+      await generateAndDrawCircuit(
+        relName,
+        circuitSource,
+        "circuit-eval",
+        "classicalEval",
+      );
 
       await checkDocumentSnapshot(tt, tt.name);
     });
   }
 });
+
+/**
+ * @param {string} name
+ * @param {string} circuitSource
+ * @param {string} id
+ * @param { "classicalEval" | "simulate"} generationMethod
+ */
+async function generateAndDrawCircuit(
+  name,
+  circuitSource,
+  id,
+  generationMethod,
+) {
+  const compiler = getCompiler();
+  const container = createContainerElement(id);
+  try {
+    // Generate the circuit from Q#
+    const circuit = await compiler.getCircuit(
+      {
+        sources: [[name, circuitSource]],
+        languageFeatures: [],
+        profile: "adaptive_rif",
+      },
+      {
+        generationMethod,
+        groupScopes: true,
+        maxOperations: 100,
+        sourceLocations: true,
+      },
+      undefined,
+    );
+
+    // Render the circuit
+    draw(circuit, container, {
+      renderDepth: 10,
+      renderLocations,
+    });
+  } catch (e) {
+    const pre = document.createElement("pre");
+    pre.appendChild(document.createTextNode(`Error generating circuit: ${e}`));
+    container.appendChild(pre);
+  }
+}

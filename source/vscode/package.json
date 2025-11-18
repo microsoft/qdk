@@ -103,6 +103,7 @@
           "default": {
             "maxOperations": 10001,
             "generationMethod": "classicalEval",
+            "groupScopes": true,
             "sourceLocations": true
           },
           "properties": {
@@ -111,6 +112,11 @@
               "default": 10001,
               "minimum": 1,
               "description": "The maximum number of operations to include in the circuit diagram."
+            },
+            "groupScopes": {
+              "type": "boolean",
+              "default": true,
+              "description": "Whether to group operations into scopes based on the original source code."
             },
             "generationMethod": {
               "type": "string",

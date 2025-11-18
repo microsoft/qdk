@@ -204,6 +204,32 @@ fn two_measurements() {
 }
 
 #[test]
+fn left_align_operations() {
+    let qubits = vec![qubit_with_results(0, 1), qubit(1), qubit(2)];
+    let operations = vec![
+        measurement(0, 0),
+        ctl_unitary("X", vec![q_reg(0)], vec![]),
+        ctl_unitary("X", vec![q_reg(2)], vec![]),
+        ctl_unitary("X", vec![q_reg(1)], vec![]),
+        ctl_unitary("X", vec![q_reg(1)], vec![q_reg(0)]),
+        ctl_unitary("X", vec![q_reg(1)], vec![q_reg(0)]),
+    ];
+    let component_grid = operation_list_to_grid(operations, qubits.len());
+    let c = Circuit {
+        qubits,
+        component_grid,
+    };
+
+    expect![[r#"
+        q_0    ── M ──── X ──── ● ──── ● ──
+                  ╘═════════════╪══════╪═══
+        q_1    ── X ─────────── X ──── X ──
+        q_2    ── X ───────────────────────
+    "#]]
+    .assert_eq(&c.to_string());
+}
+
+#[test]
 fn with_args() {
     let c = Circuit {
         qubits: vec![qubit(0)],

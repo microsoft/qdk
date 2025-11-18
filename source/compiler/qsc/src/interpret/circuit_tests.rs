@@ -113,7 +113,7 @@ fn one_gate() {
     );
 
     expect![[r#"
-        q_0@test.qs:4:20 ─ H@test.qs:5:20 ──
+        q_0@test.qs:4:20 ─ [[ ─── [Main@test.qs:3:16] ── H@test.qs:5:20 ─── ]] ──
     "#]]
     .assert_eq(&circ);
 }
@@ -137,9 +137,9 @@ fn measure_same_qubit_twice() {
     );
 
     expect![[r#"
-        q_0@test.qs:4:20 ─ H@test.qs:5:20 ─── M@test.qs:6:29 ─── M@test.qs:7:29 ──
-                                                     ╘══════════════════╪═════════
-                                                                        ╘═════════
+        q_0@test.qs:4:20 ─ [[ ─── [Main@test.qs:3:16] ── H@test.qs:5:20 ─── M@test.qs:6:29 ─── M@test.qs:7:29 ─── ]] ──
+                         ═ [[ ═══ [Main@test.qs:3:16] ═                            ╘══════════════════╪══════════ ]] ══
+                         ═ [[ ═══ [Main@test.qs:3:16] ═                                               ╘══════════ ]] ══
     "#]]
     .assert_eq(&circ);
 }
@@ -160,9 +160,11 @@ fn toffoli() {
     );
 
     expect![[r#"
-        q_0@test.qs:4:20 ──────── ● ────────
-        q_1@test.qs:4:20 ──────── ● ────────
-        q_2@test.qs:4:20 ─ X@test.qs:5:20 ──
+        q_0@test.qs:4:20 ─ [[ ─── [Main@test.qs:3:16] ───────── ● ───────── ]] ──
+                                           ┆                    │
+        q_1@test.qs:4:20 ─ [[ ─── [Main@test.qs:3:16] ───────── ● ───────── ]] ──
+                                           ┆                    │
+        q_2@test.qs:4:20 ─ [[ ─── [Main@test.qs:3:16] ── X@test.qs:5:20 ─── ]] ──
     "#]]
     .assert_eq(&circ);
 }
@@ -183,7 +185,7 @@ fn rotation_gate() {
     );
 
     expect![[r#"
-        q_0@test.qs:4:20 ─ Rx(1.5708)@test.qs:5:20 ─
+        q_0@test.qs:4:20 ─ [[ ─── [Main@test.qs:3:16] ── Rx(1.5708)@test.qs:5:20 ── ]] ──
     "#]]
     .assert_eq(&circ);
 }
@@ -206,9 +208,136 @@ fn classical_for_loop() {
     );
 
     expect![[r#"
-        q_0@test.qs:4:20 ─ X@test.qs:6:24 ─── X@test.qs:6:24 ─── X@test.qs:6:24 ─── X@test.qs:6:24 ─── X@test.qs:6:24 ─── X@test.qs:6:24 ──
+        q_0@test.qs:4:20 ─ [[ ─── [Main@test.qs:3:16] ── X@test.qs:6:24 ─── X@test.qs:6:24 ─── X@test.qs:6:24 ─── X@test.qs:6:24 ─── X@test.qs:6:24 ─── X@test.qs:6:24 ─── ]] ──
     "#]]
     .assert_eq(&circ);
+}
+
+#[test]
+fn for_loop_in_function_call() {
+    let circ = circuit(
+        r"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    use q = Qubit();
+                    for i in 0..5 {
+                        X(q);
+                    }
+                    Foo();
+                }
+                operation Foo() : Unit {
+                    use q = Qubit();
+                    for i in 0..5 {
+                        X(q);
+                    }
+                }
+            }
+        ",
+        CircuitEntryPoint::EntryPoint,
+    );
+
+    expect![[r#"
+        q_0@test.qs:4:20 ─ [[ ─── [Main@test.qs:3:16] ── X@test.qs:6:24 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── X@test.qs:6:24 ─── X@test.qs:6:24 ─── X@test.qs:6:24 ─── X@test.qs:6:24 ─── X@test.qs:6:24 ─── ]] ──
+                                           ┆
+        q_1@test.qs:11:20 ─ [[ ─── [Main@test.qs:3:16] ──────── [[ ───────── [Foo@test.qs:10:16] ── X@test.qs:13:24 ── X@test.qs:13:24 ── X@test.qs:13:24 ── X@test.qs:13:24 ── X@test.qs:13:24 ── X@test.qs:13:24 ── ]] ────────────────────────────────────────────────────────────────────────────────────────────────── ]] ──
+    "#]]
+    .assert_eq(&circ);
+}
+
+#[test]
+fn nested_callables() {
+    let circ = circuit(
+        r"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    use q = Qubit();
+                    Foo(q);
+                    Bar(q);
+                    Bar(q);
+                }
+                operation Foo(q: Qubit) : Unit {
+                    Bar(q);
+                }
+                operation Bar(q: Qubit) : Unit {
+                    X(q);
+                    Y(q);
+                }
+            }
+        ",
+        CircuitEntryPoint::EntryPoint,
+    );
+
+    expect![[r#"
+        q_0@test.qs:4:20 ─ [[ ─── [Main@test.qs:3:16] ── [[ ─── [Foo@test.qs:9:16] ─── [[ ─── [Bar@test.qs:12:16] ── X@test.qs:13:20 ── Y@test.qs:14:20 ── ]] ─── ]] ─── [[ ─── [Bar@test.qs:12:16] ── X@test.qs:13:20 ── Y@test.qs:14:20 ── ]] ─── [[ ─── [Bar@test.qs:12:16] ── X@test.qs:13:20 ── Y@test.qs:14:20 ── ]] ─── ]] ──
+    "#]]
+    .assert_eq(&circ);
+}
+
+#[test]
+fn nested_callables_with_measurement() {
+    // TODO: we should be able to do measurements
+    let circ = circuit(
+        r"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    use q = Qubit();
+                    Foo(q);
+                    Bar(q);
+                }
+                operation Foo(q: Qubit) : Unit {
+                    Bar(q);
+                }
+                operation Bar(q: Qubit) : Unit {
+                    X(q);
+                    Y(q);
+                    MResetZ(q);
+                }
+            }
+        ",
+        CircuitEntryPoint::EntryPoint,
+    );
+
+    expect![[r#"
+        q_0@test.qs:4:20 ─ [[ ─── [Main@test.qs:3:16] ── [[ ─── [Foo@test.qs:8:16] ─── [[ ─── [Bar@test.qs:11:16] ── X@test.qs:12:20 ── Y@test.qs:13:20 ── M@test.qs:14:20 ─── |0〉@test.qs:14:20 ─── ]] ─── ]] ─── [[ ─── [Bar@test.qs:11:16] ── X@test.qs:12:20 ── Y@test.qs:13:20 ── M@test.qs:14:20 ─── |0〉@test.qs:14:20 ─── ]] ─── ]] ──
+                         ═ [[ ═══ [Main@test.qs:3:16] ══ [[ ═══ [Foo@test.qs:8:16] ═══ [[ ═══ [Bar@test.qs:11:16] ═                                               ╘═════════════════════════════════ ]] ═══ ]] ════════════════════┆══════════════════════════════════════════════════════════╪════════════════════════════════════════ ]] ══
+                         ═ [[ ═══ [Main@test.qs:3:16] ═                                                                                                                                                          ═ [[ ═══ [Bar@test.qs:11:16] ═                                               ╘═════════════════════════════════ ]] ═══ ]] ══
+    "#]]
+    .assert_eq(&circ);
+}
+
+#[test]
+fn callables_nested_and_sibling() {
+    let circ = circuit(
+        r"
+            operation Main() : Unit {
+                use q = Qubit();
+                Foo(q);
+                Foo(q);
+                Bar(q);
+            }
+
+            operation Bar(q: Qubit) : Unit {
+                Foo(q);
+                for _ in 1..2 {
+                    X(q);
+                    Y(q);
+                }
+            }
+
+            operation Foo(q: Qubit) : Unit {
+                H(q);
+            }
+            ",
+        CircuitEntryPoint::EntryPoint,
+    );
+
+    expect![[r#"
+        q_0@test.qs:2:16 ─ [[ ─── [Main@test.qs:1:12] ── [[ ─── [Foo@test.qs:16:12] ── H@test.qs:17:16 ── ]] ─── [[ ─── [Foo@test.qs:16:12] ── H@test.qs:17:16 ── ]] ─── [[ ─── [Bar@test.qs:8:12] ─── [[ ─── [Foo@test.qs:16:12] ── H@test.qs:17:16 ── ]] ─── X@test.qs:11:20 ── Y@test.qs:12:20 ── X@test.qs:11:20 ── Y@test.qs:12:20 ── ]] ─── ]] ──
+    "#]]
+    .assert_eq(&circ.to_string());
 }
 
 #[test]
@@ -233,8 +362,8 @@ fn m_base_profile() {
     .expect("circuit generation should succeed");
 
     expect![[r#"
-        q_0@test.qs:5:20 ─ H@test.qs:6:20 ─── M@test.qs:7:21 ──
-                                                     ╘═════════
+        q_0@test.qs:5:20 ─ [[ ─── [Main@test.qs:4:16] ── H@test.qs:6:20 ─── M@test.qs:7:21 ─── ]] ──
+                         ═ [[ ═══ [Main@test.qs:4:16] ═                            ╘══════════ ]] ══
     "#]]
     .assert_eq(&circ.to_string());
 }
@@ -257,8 +386,8 @@ fn m_default_profile() {
     );
 
     expect![[r#"
-        q_0@test.qs:5:20 ─ H@test.qs:6:20 ─── M@test.qs:7:21 ──
-                                                     ╘═════════
+        q_0@test.qs:5:20 ─ [[ ─── [Main@test.qs:4:16] ── H@test.qs:6:20 ─── M@test.qs:7:21 ─── ]] ──
+                         ═ [[ ═══ [Main@test.qs:4:16] ═                            ╘══════════ ]] ══
     "#]]
     .assert_eq(&circ);
 }
@@ -281,8 +410,8 @@ fn mresetz_unrestricted_profile() {
     );
 
     expect![[r#"
-        q_0@test.qs:5:20 ─ H@test.qs:6:20 ─── M@test.qs:7:21 ──── |0〉@test.qs:7:21 ───
-                                                     ╘════════════════════════════════
+        q_0@test.qs:5:20 ─ [[ ─── [Main@test.qs:4:16] ── H@test.qs:6:20 ─── M@test.qs:7:21 ──── |0〉@test.qs:7:21 ──── ]] ──
+                         ═ [[ ═══ [Main@test.qs:4:16] ═                            ╘═════════════════════════════════ ]] ══
     "#]]
     .assert_eq(&circ);
 }
@@ -310,8 +439,8 @@ fn mresetz_base_profile() {
 
     // code gen in Base turns the MResetZ into an M
     expect![[r#"
-        q_0@test.qs:5:20 ─ H@test.qs:6:20 ─── M@test.qs:7:21 ──── |0〉@test.qs:7:21 ───
-                                                     ╘════════════════════════════════
+        q_0@test.qs:5:20 ─ [[ ─── [Main@test.qs:4:16] ── H@test.qs:6:20 ─── M@test.qs:7:21 ──── |0〉@test.qs:7:21 ──── ]] ──
+                         ═ [[ ═══ [Main@test.qs:4:16] ═                            ╘═════════════════════════════════ ]] ══
     "#]]
     .assert_eq(&circ.to_string());
 }
@@ -337,10 +466,10 @@ fn qubit_relabel() {
     );
 
     expect![[r#"
-        q_0@test.qs:3:32 ─ H@test.qs:4:16 ────────── ● ──────────────────────────── X@test.qs:8:16 ─── M@test.qs:10:16 ─── |0〉@test.qs:10:16 ──
-                                                     │                                     │                  ╘════════════════════════════════
-        q_1@test.qs:3:41 ──────────────────── X@test.qs:5:16 ─── H@test.qs:7:16 ────────── ● ───────── M@test.qs:9:16 ──── |0〉@test.qs:9:16 ───
-                                                                                                              ╘════════════════════════════════
+        q_0@test.qs:3:32 ─ [[ ─── [Main@test.qs:2:12] ── H@test.qs:4:16 ────────── ● ──────────────────────────── X@test.qs:8:16 ─── M@test.qs:10:16 ─── |0〉@test.qs:10:16 ─── ]] ──
+                         ═ [[ ═══ [Main@test.qs:2:12] ═                            │                                     │                  ╘═════════════════════════════════ ]] ══
+        q_1@test.qs:3:41 ─ [[ ─── [Main@test.qs:2:12] ───────────────────── X@test.qs:5:16 ─── H@test.qs:7:16 ────────── ● ───────── M@test.qs:9:16 ──── |0〉@test.qs:9:16 ──── ]] ──
+                         ═ [[ ═══ [Main@test.qs:2:12] ═                                                                                     ╘═════════════════════════════════ ]] ══
     "#]]
     .assert_eq(&circ);
 }
@@ -368,9 +497,9 @@ fn qubit_reuse() {
     );
 
     expect![[r#"
-        q_0@test.qs:4:20, test.qs:9:20 ─ X@test.qs:5:20 ─── M@test.qs:6:20 ──── |0〉@test.qs:6:20 ──── Y@test.qs:10:20 ── M@test.qs:11:20 ─── |0〉@test.qs:11:20 ──
-                                                                   ╘════════════════════════════════════════════════════════════╪════════════════════════════════
-                                                                                                                                ╘════════════════════════════════
+        q_0@test.qs:4:20, test.qs:9:20 ─ [[ ─── [Main@test.qs:2:12] ── X@test.qs:5:20 ─── M@test.qs:6:20 ──── |0〉@test.qs:6:20 ──── Y@test.qs:10:20 ── M@test.qs:11:20 ─── |0〉@test.qs:11:20 ─── ]] ──
+                                       ═ [[ ═══ [Main@test.qs:2:12] ═                            ╘════════════════════════════════════════════════════════════╪═════════════════════════════════ ]] ══
+                                       ═ [[ ═══ [Main@test.qs:2:12] ═                                                                                         ╘═════════════════════════════════ ]] ══
     "#]]
     .assert_eq(&circ);
 }
@@ -398,7 +527,7 @@ fn qubit_reuse_no_measurements() {
     );
 
     expect![[r#"
-        q_0@test.qs:4:20, test.qs:9:20 ─ X@test.qs:5:20 ──── |0〉@test.qs:6:20 ──── Y@test.qs:10:20 ─── |0〉@test.qs:11:20 ──
+        q_0@test.qs:4:20, test.qs:9:20 ─ [[ ─── [Main@test.qs:2:12] ── X@test.qs:5:20 ──── |0〉@test.qs:6:20 ──── Y@test.qs:10:20 ─── |0〉@test.qs:11:20 ─── ]] ──
     "#]]
     .assert_eq(&circ);
 }
@@ -464,10 +593,10 @@ fn unrestricted_profile_result_comparison() {
         .expect("circuit generation should succeed");
 
     expect![[r#"
-        q_0@test.qs:5:20 ─ H@test.qs:7:20 ─── M@test.qs:9:29 ───── X@test.qs:12:24 ───── |0〉@test.qs:14:20 ──
-                                                     ╘═══════════════════════════════════════════════════════
-        q_1@test.qs:6:20 ─ H@test.qs:8:20 ─── M@test.qs:10:29 ─── |0〉@test.qs:14:20 ─────────────────────────
-                                                     ╘═══════════════════════════════════════════════════════
+        q_0@test.qs:5:20 ─ [[ ─── [Main@test.qs:4:16] ── H@test.qs:7:20 ─── M@test.qs:9:29 ───── X@test.qs:12:24 ───── |0〉@test.qs:14:20 ─── ]] ──
+                         ═ [[ ═══ [Main@test.qs:4:16] ═                            ╘════════════════════════════════════════════════════════ ]] ══
+        q_1@test.qs:6:20 ─ [[ ─── [Main@test.qs:4:16] ── H@test.qs:8:20 ─── M@test.qs:10:29 ─── |0〉@test.qs:14:20 ────────────────────────── ]] ──
+                         ═ [[ ═══ [Main@test.qs:4:16] ═                            ╘════════════════════════════════════════════════════════ ]] ══
     "#]]
     .assert_eq(&circ.to_string());
 
@@ -481,12 +610,64 @@ fn unrestricted_profile_result_comparison() {
 
     let circuit = interpreter.get_circuit();
     expect![[r#"
-        q_0@test.qs:5:20 ─ H@test.qs:7:20 ─── M@test.qs:9:29 ───── X@test.qs:12:24 ───── |0〉@test.qs:14:20 ──
-                                                     ╘═══════════════════════════════════════════════════════
-        q_1@test.qs:6:20 ─ H@test.qs:8:20 ─── M@test.qs:10:29 ─── |0〉@test.qs:14:20 ─────────────────────────
-                                                     ╘═══════════════════════════════════════════════════════
+        q_0@test.qs:5:20 ─ [[ ─── [Main@test.qs:4:16] ── H@test.qs:7:20 ─── M@test.qs:9:29 ───── X@test.qs:12:24 ───── |0〉@test.qs:14:20 ─── ]] ──
+                         ═ [[ ═══ [Main@test.qs:4:16] ═                            ╘════════════════════════════════════════════════════════ ]] ══
+        q_1@test.qs:6:20 ─ [[ ─── [Main@test.qs:4:16] ── H@test.qs:8:20 ─── M@test.qs:10:29 ─── |0〉@test.qs:14:20 ────────────────────────── ]] ──
+                         ═ [[ ═══ [Main@test.qs:4:16] ═                            ╘════════════════════════════════════════════════════════ ]] ══
     "#]]
     .assert_eq(&circuit.to_string());
+}
+
+#[test]
+fn loop_and_scope() {
+    let circ = circuit(
+        r"
+            namespace Test {
+            operation Main() : Unit {
+                use qs = Qubit[2];
+
+                PrepareSomething(qs);
+                DoSomethingElse(qs);
+                DoSomethingDifferent(qs);
+
+                ResetAll(qs);
+            }
+
+            operation PrepareSomething(qs : Qubit[]) : Unit {
+                for iteration in 1..10 {
+                    H(qs[0]);
+                    X(qs[0]);
+                    CNOT(qs[0], qs[1]);
+                }
+            }
+
+            operation DoSomethingElse(qs : Qubit[]) : Unit {
+                for iteration in 1..10 {
+                    H(qs[1]);
+                    X(qs[0]);
+                    X(qs[1]);
+                    CNOT(qs[1], qs[0]);
+                }
+            }
+
+            operation DoSomethingDifferent(qs : Qubit[]) : Unit {
+                for iteration in 1..10 {
+                    H(qs[0]);
+                    Z(qs[0]);
+                    CNOT(qs[0], qs[1]);
+                }
+            }
+    }
+    ",
+        CircuitEntryPoint::Operation("Test.Main".into()),
+    );
+
+    expect![[r#"
+        q_0@test.qs:3:16 ─ [[ ─── [Main@test.qs:2:12] ── [[ ─── [PrepareSomething@test.qs:12:12] ─── H@test.qs:14:20 ── X@test.qs:15:20 ───────── ● ───────── H@test.qs:14:20 ── X@test.qs:15:20 ───────── ● ───────── H@test.qs:14:20 ── X@test.qs:15:20 ───────── ● ───────── H@test.qs:14:20 ── X@test.qs:15:20 ───────── ● ───────── H@test.qs:14:20 ── X@test.qs:15:20 ───────── ● ───────── H@test.qs:14:20 ── X@test.qs:15:20 ───────── ● ───────── H@test.qs:14:20 ── X@test.qs:15:20 ───────── ● ───────── H@test.qs:14:20 ── X@test.qs:15:20 ───────── ● ───────── H@test.qs:14:20 ── X@test.qs:15:20 ───────── ● ───────── H@test.qs:14:20 ── X@test.qs:15:20 ───────── ● ───────── ]] ─── [[ ─── [DoSomethingElse@test.qs:20:12] ── X@test.qs:23:20 ───────────────────── X@test.qs:25:20 ── X@test.qs:23:20 ───────────────────── X@test.qs:25:20 ── X@test.qs:23:20 ───────────────────── X@test.qs:25:20 ── X@test.qs:23:20 ───────────────────── X@test.qs:25:20 ── X@test.qs:23:20 ───────────────────── X@test.qs:25:20 ── X@test.qs:23:20 ───────────────────── X@test.qs:25:20 ── X@test.qs:23:20 ───────────────────── X@test.qs:25:20 ── X@test.qs:23:20 ───────────────────── X@test.qs:25:20 ── X@test.qs:23:20 ───────────────────── X@test.qs:25:20 ── X@test.qs:23:20 ───────────────────── X@test.qs:25:20 ── ]] ─── [[ ─── [DoSomethingDifferent@test.qs:29:12] ─── H@test.qs:31:20 ── Z@test.qs:32:20 ───────── ● ───────── H@test.qs:31:20 ── Z@test.qs:32:20 ───────── ● ───────── H@test.qs:31:20 ── Z@test.qs:32:20 ───────── ● ───────── H@test.qs:31:20 ── Z@test.qs:32:20 ───────── ● ───────── H@test.qs:31:20 ── Z@test.qs:32:20 ───────── ● ───────── H@test.qs:31:20 ── Z@test.qs:32:20 ───────── ● ───────── H@test.qs:31:20 ── Z@test.qs:32:20 ───────── ● ───────── H@test.qs:31:20 ── Z@test.qs:32:20 ───────── ● ───────── H@test.qs:31:20 ── Z@test.qs:32:20 ───────── ● ───────── H@test.qs:31:20 ── Z@test.qs:32:20 ───────── ● ───────── ]] ──── |0〉@test.qs:9:16 ──── ]] ──
+                                           ┆                                    ┆                                                                 │                                                        │                                                        │                                                        │                                                        │                                                        │                                                        │                                                        │                                                        │                                                        │                                        ┆                                                                │                                                        │                                                        │                                                        │                                                        │                                                        │                                                        │                                                        │                                                        │                                                        │                                           ┆                                                                   │                                                        │                                                        │                                                        │                                                        │                                                        │                                                        │                                                        │                                                        │                                                        │
+        q_1@test.qs:3:16 ─ [[ ─── [Main@test.qs:2:12] ── [[ ─── [PrepareSomething@test.qs:12:12] ───────────────────────────────────────── X@test.qs:16:20 ──────────────────────────────────────── X@test.qs:16:20 ──────────────────────────────────────── X@test.qs:16:20 ──────────────────────────────────────── X@test.qs:16:20 ──────────────────────────────────────── X@test.qs:16:20 ──────────────────────────────────────── X@test.qs:16:20 ──────────────────────────────────────── X@test.qs:16:20 ──────────────────────────────────────── X@test.qs:16:20 ──────────────────────────────────────── X@test.qs:16:20 ──────────────────────────────────────── X@test.qs:16:20 ── ]] ─── [[ ─── [DoSomethingElse@test.qs:20:12] ── H@test.qs:22:20 ── X@test.qs:24:20 ───────── ● ───────── H@test.qs:22:20 ── X@test.qs:24:20 ───────── ● ───────── H@test.qs:22:20 ── X@test.qs:24:20 ───────── ● ───────── H@test.qs:22:20 ── X@test.qs:24:20 ───────── ● ───────── H@test.qs:22:20 ── X@test.qs:24:20 ───────── ● ───────── H@test.qs:22:20 ── X@test.qs:24:20 ───────── ● ───────── H@test.qs:22:20 ── X@test.qs:24:20 ───────── ● ───────── H@test.qs:22:20 ── X@test.qs:24:20 ───────── ● ───────── H@test.qs:22:20 ── X@test.qs:24:20 ───────── ● ───────── H@test.qs:22:20 ── X@test.qs:24:20 ───────── ● ───────── ]] ─── [[ ─── [DoSomethingDifferent@test.qs:29:12] ───────────────────────────────────────── X@test.qs:33:20 ──────────────────────────────────────── X@test.qs:33:20 ──────────────────────────────────────── X@test.qs:33:20 ──────────────────────────────────────── X@test.qs:33:20 ──────────────────────────────────────── X@test.qs:33:20 ──────────────────────────────────────── X@test.qs:33:20 ──────────────────────────────────────── X@test.qs:33:20 ──────────────────────────────────────── X@test.qs:33:20 ──────────────────────────────────────── X@test.qs:33:20 ──────────────────────────────────────── X@test.qs:33:20 ── ]] ──── |0〉@test.qs:9:16 ──── ]] ──
+    "#]]
+    .assert_eq(&circ);
 }
 
 #[test]
@@ -508,7 +689,7 @@ fn custom_intrinsic() {
     );
 
     expect![[r#"
-        q_0@test.qs:8:12 ─ foo@test.qs:9:12 ──
+        q_0@test.qs:8:12 ─ [[ ─── [Main@test.qs:7:8] ─── foo@test.qs:9:12 ─── ]] ──
     "#]]
     .assert_eq(&circ);
 }
@@ -535,7 +716,7 @@ fn custom_intrinsic_classical_arg() {
     // A custom intrinsic that doesn't take qubits just doesn't
     // show up on the circuit.
     expect![[r#"
-        q_0@test.qs:8:12 ─ X@test.qs:9:12 ──
+        q_0@test.qs:8:12 ─ [[ ─── [Main@test.qs:7:8] ─── X@test.qs:9:12 ─── ]] ──
     "#]]
     .assert_eq(&circ);
 }
@@ -560,7 +741,7 @@ fn custom_intrinsic_one_classical_arg() {
     );
 
     expect![[r#"
-        q_0@test.qs:8:12 ─ X@test.qs:9:12 ─── foo(4)@test.qs:10:12 ──
+        q_0@test.qs:8:12 ─ [[ ─── [Main@test.qs:7:8] ─── X@test.qs:9:12 ─── foo(4)@test.qs:10:12 ─── ]] ──
     "#]]
     .assert_eq(&circ);
 }
@@ -592,25 +773,25 @@ fn custom_intrinsic_mixed_args() {
     );
 
     expect![[r#"
-        q_0@test.qs:6:12 ─ AccountForEstimatesInternal([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], 1)@test.qs:7:12 ─
-                                                                         ┆
-        q_1@test.qs:6:12 ─ AccountForEstimatesInternal([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], 1)@test.qs:7:12 ─
-                                                                         ┆
-        q_2@test.qs:6:12 ─ AccountForEstimatesInternal([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], 1)@test.qs:7:12 ─
-                                                                         ┆
-        q_3@test.qs:6:12 ─ AccountForEstimatesInternal([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], 1)@test.qs:7:12 ─
-                                                                         ┆
-        q_4@test.qs:6:12 ─ AccountForEstimatesInternal([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], 1)@test.qs:7:12 ─
-                                                                         ┆
-        q_5@test.qs:6:12 ─ AccountForEstimatesInternal([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], 1)@test.qs:7:12 ─
-                                                                         ┆
-        q_6@test.qs:6:12 ─ AccountForEstimatesInternal([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], 1)@test.qs:7:12 ─
-                                                                         ┆
-        q_7@test.qs:6:12 ─ AccountForEstimatesInternal([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], 1)@test.qs:7:12 ─
-                                                                         ┆
-        q_8@test.qs:6:12 ─ AccountForEstimatesInternal([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], 1)@test.qs:7:12 ─
-                                                                         ┆
-        q_9@test.qs:6:12 ─ AccountForEstimatesInternal([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], 1)@test.qs:7:12 ─
+        q_0@test.qs:6:12 ─ [[ ─── [Main@test.qs:5:8] ─── AccountForEstimatesInternal([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], 1)@test.qs:7:12 ── ]] ──
+                                           ┆                                                           ┆
+        q_1@test.qs:6:12 ─ [[ ─── [Main@test.qs:5:8] ─── AccountForEstimatesInternal([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], 1)@test.qs:7:12 ── ]] ──
+                                           ┆                                                           ┆
+        q_2@test.qs:6:12 ─ [[ ─── [Main@test.qs:5:8] ─── AccountForEstimatesInternal([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], 1)@test.qs:7:12 ── ]] ──
+                                           ┆                                                           ┆
+        q_3@test.qs:6:12 ─ [[ ─── [Main@test.qs:5:8] ─── AccountForEstimatesInternal([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], 1)@test.qs:7:12 ── ]] ──
+                                           ┆                                                           ┆
+        q_4@test.qs:6:12 ─ [[ ─── [Main@test.qs:5:8] ─── AccountForEstimatesInternal([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], 1)@test.qs:7:12 ── ]] ──
+                                           ┆                                                           ┆
+        q_5@test.qs:6:12 ─ [[ ─── [Main@test.qs:5:8] ─── AccountForEstimatesInternal([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], 1)@test.qs:7:12 ── ]] ──
+                                           ┆                                                           ┆
+        q_6@test.qs:6:12 ─ [[ ─── [Main@test.qs:5:8] ─── AccountForEstimatesInternal([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], 1)@test.qs:7:12 ── ]] ──
+                                           ┆                                                           ┆
+        q_7@test.qs:6:12 ─ [[ ─── [Main@test.qs:5:8] ─── AccountForEstimatesInternal([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], 1)@test.qs:7:12 ── ]] ──
+                                           ┆                                                           ┆
+        q_8@test.qs:6:12 ─ [[ ─── [Main@test.qs:5:8] ─── AccountForEstimatesInternal([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], 1)@test.qs:7:12 ── ]] ──
+                                           ┆                                                           ┆
+        q_9@test.qs:6:12 ─ [[ ─── [Main@test.qs:5:8] ─── AccountForEstimatesInternal([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], 1)@test.qs:7:12 ── ]] ──
     "#]]
     .assert_eq(&circ);
 }
@@ -632,9 +813,9 @@ fn custom_intrinsic_apply_idle_noise() {
     );
 
     expect![[r#"
-        q_0@test.qs:6:12 ─ ApplyIdleNoise@test.qs:7:12 ─
+        q_0@test.qs:6:12 ─ [[ ─── [Main@test.qs:4:8] ─── ApplyIdleNoise@test.qs:7:12 ── ]] ──
     "#]]
-    .assert_eq(&circ);
+    .assert_eq(&circ.to_string());
 }
 
 #[test]
@@ -656,10 +837,10 @@ fn operation_with_qubits() {
     );
 
     expect![[r#"
-        q_0@test.qs:5:27 ─ H@test.qs:6:16 ────────── ● ───────── M@test.qs:8:17 ──
-                                                     │                  ╘═════════
-        q_1@test.qs:5:38 ──────────────────── X@test.qs:7:16 ─── M@test.qs:8:24 ──
-                                                                        ╘═════════
+        q_0@test.qs:5:27 ─ [[ ─── [Test@test.qs:5:12] ── H@test.qs:6:16 ────────── ● ───────── M@test.qs:8:17 ─── ]] ──
+                         ═ [[ ═══ [Test@test.qs:5:12] ═                            │                  ╘══════════ ]] ══
+        q_1@test.qs:5:38 ─ [[ ─── [Test@test.qs:5:12] ───────────────────── X@test.qs:7:16 ─── M@test.qs:8:24 ─── ]] ──
+                         ═ [[ ═══ [Test@test.qs:5:12] ═                                               ╘══════════ ]] ══
     "#]]
     .assert_eq(&circ);
 }
@@ -697,23 +878,35 @@ fn operation_with_qubit_arrays() {
     );
 
     expect![[r#"
-        q_0@test.qs:6:27 ─ H@test.qs:8:20 ─── M@test.qs:23:16 ─
-                                                     ╘═════════
-        q_1@test.qs:6:27 ─ H@test.qs:8:20 ─── M@test.qs:23:16 ─
-                                                     ╘═════════
-        q_2@test.qs:6:40 ─ X@test.qs:12:24 ────────────────────
-        q_3@test.qs:6:40 ─ X@test.qs:12:24 ────────────────────
-        q_4@test.qs:6:40 ─ X@test.qs:12:24 ────────────────────
-        q_5@test.qs:6:40 ─ X@test.qs:12:24 ────────────────────
-        q_6@test.qs:6:55 ─ Y@test.qs:18:28 ────────────────────
-        q_7@test.qs:6:55 ─ Y@test.qs:18:28 ────────────────────
-        q_8@test.qs:6:55 ─ Y@test.qs:18:28 ────────────────────
-        q_9@test.qs:6:55 ─ Y@test.qs:18:28 ────────────────────
-        q_10@test.qs:6:55 ─ Y@test.qs:18:28 ────────────────────
-        q_11@test.qs:6:55 ─ Y@test.qs:18:28 ────────────────────
-        q_12@test.qs:6:55 ─ Y@test.qs:18:28 ────────────────────
-        q_13@test.qs:6:55 ─ Y@test.qs:18:28 ────────────────────
-        q_14@test.qs:6:72 ─ X@test.qs:22:16 ────────────────────
+        q_0@test.qs:6:27 ─ [[ ─── [Test@test.qs:6:12] ── H@test.qs:8:20 ─── M@test.qs:23:16 ── ]] ──
+                         ═ [[ ═══ [Test@test.qs:6:12] ═                            ╘══════════ ]] ══
+        q_1@test.qs:6:27 ─ [[ ─── [Test@test.qs:6:12] ── H@test.qs:8:20 ─── M@test.qs:23:16 ── ]] ──
+                         ═ [[ ═══ [Test@test.qs:6:12] ═                            ╘══════════ ]] ══
+        q_2@test.qs:6:40 ─ [[ ─── [Test@test.qs:6:12] ── X@test.qs:12:24 ───────────────────── ]] ──
+                                           ┆
+        q_3@test.qs:6:40 ─ [[ ─── [Test@test.qs:6:12] ── X@test.qs:12:24 ───────────────────── ]] ──
+                                           ┆
+        q_4@test.qs:6:40 ─ [[ ─── [Test@test.qs:6:12] ── X@test.qs:12:24 ───────────────────── ]] ──
+                                           ┆
+        q_5@test.qs:6:40 ─ [[ ─── [Test@test.qs:6:12] ── X@test.qs:12:24 ───────────────────── ]] ──
+                                           ┆
+        q_6@test.qs:6:55 ─ [[ ─── [Test@test.qs:6:12] ── Y@test.qs:18:28 ───────────────────── ]] ──
+                                           ┆
+        q_7@test.qs:6:55 ─ [[ ─── [Test@test.qs:6:12] ── Y@test.qs:18:28 ───────────────────── ]] ──
+                                           ┆
+        q_8@test.qs:6:55 ─ [[ ─── [Test@test.qs:6:12] ── Y@test.qs:18:28 ───────────────────── ]] ──
+                                           ┆
+        q_9@test.qs:6:55 ─ [[ ─── [Test@test.qs:6:12] ── Y@test.qs:18:28 ───────────────────── ]] ──
+                                           ┆
+        q_10@test.qs:6:55 ─ [[ ─── [Test@test.qs:6:12] ── Y@test.qs:18:28 ───────────────────── ]] ──
+                                           ┆
+        q_11@test.qs:6:55 ─ [[ ─── [Test@test.qs:6:12] ── Y@test.qs:18:28 ───────────────────── ]] ──
+                                           ┆
+        q_12@test.qs:6:55 ─ [[ ─── [Test@test.qs:6:12] ── Y@test.qs:18:28 ───────────────────── ]] ──
+                                           ┆
+        q_13@test.qs:6:55 ─ [[ ─── [Test@test.qs:6:12] ── Y@test.qs:18:28 ───────────────────── ]] ──
+                                           ┆
+        q_14@test.qs:6:72 ─ [[ ─── [Test@test.qs:6:12] ── X@test.qs:22:16 ───────────────────── ]] ──
     "#]]
     .assert_eq(&circ);
 }
@@ -746,7 +939,7 @@ fn adjoint_operation() {
     );
 
     expect![[r#"
-        q_0@test.qs:5:27 ─ Y@test.qs:13:20 ─
+        q_0@test.qs:5:27 ─ [[ ─── [Foo@test.qs:8:16] ─── Y@test.qs:13:20 ── ]] ──
     "#]]
     .assert_eq(&circ);
 }
@@ -763,7 +956,7 @@ fn lambda() {
     );
 
     expect![[r#"
-        q_0@line_0:0:0 ─ H@<entry>:2:18 ──
+        q_0@line_0:0:0 ─ [[ ─── [<lambda>@<entry>:2:18] ── H@<entry>:2:18 ─── ]] ──
     "#]]
     .assert_eq(&circ);
 }
@@ -832,10 +1025,10 @@ fn internal_operation() {
     );
 
     expect![[r#"
-        q_0@test.qs:5:36 ─ H@test.qs:6:16 ────────── ● ───────── M@test.qs:8:17 ──
-                                                     │                  ╘═════════
-        q_1@test.qs:5:47 ──────────────────── X@test.qs:7:16 ─── M@test.qs:8:24 ──
-                                                                        ╘═════════
+        q_0@test.qs:5:36 ─ [[ ─── [Test@test.qs:5:21] ── H@test.qs:6:16 ────────── ● ───────── M@test.qs:8:17 ─── ]] ──
+                         ═ [[ ═══ [Test@test.qs:5:21] ═                            │                  ╘══════════ ]] ══
+        q_1@test.qs:5:47 ─ [[ ─── [Test@test.qs:5:21] ───────────────────── X@test.qs:7:16 ─── M@test.qs:8:24 ─── ]] ──
+                         ═ [[ ═══ [Test@test.qs:5:21] ═                                               ╘══════════ ]] ══
     "#]]
     .assert_eq(&circ);
 }
@@ -909,13 +1102,14 @@ fn operation_with_long_gates_properly_aligned() {
     );
 
     expect![[r#"
-        q_0@test.qs:6:20 ─ H@test.qs:9:20 ───────────────────────────────────────────────────────────────────────── ● ────────────── M@test.qs:14:20 ─────────────────────────────────────────────────────────────────── ● ───────────────────────────
-                                                                                                                    │                       ╘════════════════════════════════════════════════════════════════════════════╪════════════════════════════
-        q_1@test.qs:7:20 ─ H@test.qs:10:20 ─────── X@test.qs:11:20 ─────── Ry(1.0000)@test.qs:12:20 ──────── X@test.qs:13:20 ─────────────────────────────────────────────────────── Rxx(1.0000)@test.qs:27:20 ──────────┼────────── M@test.qs:31:21 ─
-                                                                                                                                                                                                 ┆                       │                  ╘═════════
-        q_2@test.qs:16:20 ─ H@test.qs:18:20 ── Rx(1.0000)@test.qs:19:20 ──────── H@test.qs:20:20 ─────── Rx(1.0000)@test.qs:21:20 ─── H@test.qs:22:20 ── Rx(1.0000)@test.qs:23:20 ────────────────┆───────────────────────┼────────────────────────────
-        q_3@test.qs:25:20 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── Rxx(1.0000)@test.qs:27:20 ── X@test.qs:29:20 ── M@test.qs:31:28 ─
-                                                                                                                                                                                                                                            ╘═════════
+        q_0@test.qs:6:20 ─ [[ ─── [Main@test.qs:5:16] ── H@test.qs:9:20 ───────────────────────────────────────────────────────────────────────── ● ────────────── M@test.qs:14:20 ─────────────────────────────────────────────────────────────────── ● ──────────────────────────── ]] ──
+                         ═ [[ ═══ [Main@test.qs:5:16] ═                                                                                           │                       ╘════════════════════════════════════════════════════════════════════════════╪═════════════════════════════ ]] ══
+        q_1@test.qs:7:20 ─ [[ ─── [Main@test.qs:5:16] ── H@test.qs:10:20 ─────── X@test.qs:11:20 ─────── Ry(1.0000)@test.qs:12:20 ──────── X@test.qs:13:20 ─────────────────────────────────────────────────────── Rxx(1.0000)@test.qs:27:20 ──────────┼────────── M@test.qs:31:21 ── ]] ──
+                         ═ [[ ═══ [Main@test.qs:5:16] ═                                                                                                                                                                        ┆                       │                  ╘══════════ ]] ══
+        q_2@test.qs:16:20 ─ [[ ─── [Main@test.qs:5:16] ── H@test.qs:18:20 ── Rx(1.0000)@test.qs:19:20 ──────── H@test.qs:20:20 ─────── Rx(1.0000)@test.qs:21:20 ─── H@test.qs:22:20 ── Rx(1.0000)@test.qs:23:20 ────────────────┆───────────────────────┼───────────────────────────── ]] ──
+                                           ┆                                                                                                                                                                                   ┆                       │
+        q_3@test.qs:25:20 ─ [[ ─── [Main@test.qs:5:16] ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── Rxx(1.0000)@test.qs:27:20 ── X@test.qs:29:20 ── M@test.qs:31:28 ── ]] ──
+                         ═ [[ ═══ [Main@test.qs:5:16] ═                                                                                                                                                                                                                   ╘══════════ ]] ══
     "#]]
     .assert_eq(&circ);
 }
@@ -943,12 +1137,13 @@ fn operation_with_subsequent_qubits_gets_horizontal_lines() {
     );
 
     expect![[r#"
-        q_0@test.qs:6:20 ─ Rxx(1.0000)@test.qs:8:20 ──
-                                       ┆
-        q_1@test.qs:7:20 ─ Rxx(1.0000)@test.qs:8:20 ──
-        q_2@test.qs:10:20 ─ Rxx(1.0000)@test.qs:12:20 ─
-                                       ┆
-        q_3@test.qs:11:20 ─ Rxx(1.0000)@test.qs:12:20 ─
+        q_0@test.qs:6:20 ─ [[ ─── [Main@test.qs:5:16] ── Rxx(1.0000)@test.qs:8:20 ─── ]] ──
+                                           ┆                         ┆
+        q_1@test.qs:7:20 ─ [[ ─── [Main@test.qs:5:16] ── Rxx(1.0000)@test.qs:8:20 ─── ]] ──
+                                           ┆
+        q_2@test.qs:10:20 ─ [[ ─── [Main@test.qs:5:16] ── Rxx(1.0000)@test.qs:12:20 ── ]] ──
+                                           ┆                         ┆
+        q_3@test.qs:11:20 ─ [[ ─── [Main@test.qs:5:16] ── Rxx(1.0000)@test.qs:12:20 ── ]] ──
     "#]]
     .assert_eq(&circ);
 }
@@ -973,9 +1168,9 @@ fn operation_with_subsequent_qubits_no_double_rows() {
     );
 
     expect![[r#"
-        q_0@test.qs:6:20 ─ Rxx(1.0000)@test.qs:8:20 ─── Rxx(1.0000)@test.qs:9:20 ──
-                                       ┆                            ┆
-        q_1@test.qs:7:20 ─ Rxx(1.0000)@test.qs:8:20 ─── Rxx(1.0000)@test.qs:9:20 ──
+        q_0@test.qs:6:20 ─ [[ ─── [Main@test.qs:5:16] ── Rxx(1.0000)@test.qs:8:20 ─── Rxx(1.0000)@test.qs:9:20 ─── ]] ──
+                                           ┆                         ┆                            ┆
+        q_1@test.qs:7:20 ─ [[ ─── [Main@test.qs:5:16] ── Rxx(1.0000)@test.qs:8:20 ─── Rxx(1.0000)@test.qs:9:20 ─── ]] ──
     "#]]
     .assert_eq(&circ);
 }
@@ -1005,12 +1200,13 @@ fn operation_with_subsequent_qubits_no_added_rows() {
     );
 
     expect![[r#"
-        q_0@test.qs:6:20 ─ Rxx(1.0000)@test.qs:8:20 ─── M@test.qs:14:21 ─
-                                       ┆                       ╘═════════
-        q_1@test.qs:7:20 ─ Rxx(1.0000)@test.qs:8:20 ─────────────────────
-        q_2@test.qs:10:20 ─ Rxx(1.0000)@test.qs:12:20 ── M@test.qs:14:28 ─
-                                       ┆                       ╘═════════
-        q_3@test.qs:11:20 ─ Rxx(1.0000)@test.qs:12:20 ────────────────────
+        q_0@test.qs:6:20 ─ [[ ─── [Main@test.qs:5:16] ── Rxx(1.0000)@test.qs:8:20 ─── M@test.qs:14:21 ── ]] ──
+                         ═ [[ ═══ [Main@test.qs:5:16] ═              ┆                       ╘══════════ ]] ══
+        q_1@test.qs:7:20 ─ [[ ─── [Main@test.qs:5:16] ── Rxx(1.0000)@test.qs:8:20 ────────────────────── ]] ──
+                                           ┆
+        q_2@test.qs:10:20 ─ [[ ─── [Main@test.qs:5:16] ── Rxx(1.0000)@test.qs:12:20 ── M@test.qs:14:28 ── ]] ──
+                         ═ [[ ═══ [Main@test.qs:5:16] ═              ┆                       ╘══════════ ]] ══
+        q_3@test.qs:11:20 ─ [[ ─── [Main@test.qs:5:16] ── Rxx(1.0000)@test.qs:12:20 ───────────────────── ]] ──
     "#]]
     .assert_eq(&circ);
 }
@@ -1086,19 +1282,19 @@ mod debugger_stepping {
             step:
             q_0@test.qs:5:24
             step:
-            q_0@test.qs:5:24 ─ H@test.qs:6:24 ──
+            q_0@test.qs:5:24 ─ [[ ─── [Main@test.qs:4:20] ── H@test.qs:6:24 ─── ]] ──
             step:
-            q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ──
-                                                         ╘═════════
+            q_0@test.qs:5:24 ─ [[ ─── [Main@test.qs:4:20] ── H@test.qs:6:24 ─── M@test.qs:7:32 ─── ]] ──
+                             ═ [[ ═══ [Main@test.qs:4:20] ═                            ╘══════════ ]] ══
             step:
-            q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ──── |0〉@test.qs:8:24 ───
-                                                         ╘════════════════════════════════
+            q_0@test.qs:5:24 ─ [[ ─── [Main@test.qs:4:20] ── H@test.qs:6:24 ─── M@test.qs:7:32 ──── |0〉@test.qs:8:24 ──── ]] ──
+                             ═ [[ ═══ [Main@test.qs:4:20] ═                            ╘═════════════════════════════════ ]] ══
             step:
-            q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ──── |0〉@test.qs:8:24 ───
-                                                         ╘════════════════════════════════
+            q_0@test.qs:5:24 ─ [[ ─── [Main@test.qs:4:20] ── H@test.qs:6:24 ─── M@test.qs:7:32 ──── |0〉@test.qs:8:24 ──── ]] ──
+                             ═ [[ ═══ [Main@test.qs:4:20] ═                            ╘═════════════════════════════════ ]] ══
             step:
-            q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ──── |0〉@test.qs:8:24 ───
-                                                         ╘════════════════════════════════
+            q_0@test.qs:5:24 ─ [[ ─── [Main@test.qs:4:20] ── H@test.qs:6:24 ─── M@test.qs:7:32 ──── |0〉@test.qs:8:24 ──── ]] ──
+                             ═ [[ ═══ [Main@test.qs:4:20] ═                            ╘═════════════════════════════════ ]] ══
         "#]]
         .assert_eq(&circs);
     }
@@ -1127,19 +1323,19 @@ mod debugger_stepping {
             step:
             q_0@test.qs:5:24
             step:
-            q_0@test.qs:5:24 ─ H@test.qs:6:24 ──
+            q_0@test.qs:5:24 ─ [[ ─── [Main@test.qs:4:20] ── H@test.qs:6:24 ─── ]] ──
             step:
-            q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ──
-                                                         ╘═════════
+            q_0@test.qs:5:24 ─ [[ ─── [Main@test.qs:4:20] ── H@test.qs:6:24 ─── M@test.qs:7:32 ─── ]] ──
+                             ═ [[ ═══ [Main@test.qs:4:20] ═                            ╘══════════ ]] ══
             step:
-            q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ──── |0〉@test.qs:8:24 ───
-                                                         ╘════════════════════════════════
+            q_0@test.qs:5:24 ─ [[ ─── [Main@test.qs:4:20] ── H@test.qs:6:24 ─── M@test.qs:7:32 ──── |0〉@test.qs:8:24 ──── ]] ──
+                             ═ [[ ═══ [Main@test.qs:4:20] ═                            ╘═════════════════════════════════ ]] ══
             step:
-            q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ──── |0〉@test.qs:8:24 ───
-                                                         ╘════════════════════════════════
+            q_0@test.qs:5:24 ─ [[ ─── [Main@test.qs:4:20] ── H@test.qs:6:24 ─── M@test.qs:7:32 ──── |0〉@test.qs:8:24 ──── ]] ──
+                             ═ [[ ═══ [Main@test.qs:4:20] ═                            ╘═════════════════════════════════ ]] ══
             step:
-            q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ──── |0〉@test.qs:8:24 ───
-                                                         ╘════════════════════════════════
+            q_0@test.qs:5:24 ─ [[ ─── [Main@test.qs:4:20] ── H@test.qs:6:24 ─── M@test.qs:7:32 ──── |0〉@test.qs:8:24 ──── ]] ──
+                             ═ [[ ═══ [Main@test.qs:4:20] ═                            ╘═════════════════════════════════ ]] ══
         "#]]
         .assert_eq(&circs);
     }
@@ -1174,25 +1370,25 @@ mod debugger_stepping {
             step:
             q_0@test.qs:5:24
             step:
-            q_0@test.qs:5:24 ─ H@test.qs:6:24 ──
+            q_0@test.qs:5:24 ─ [[ ─── [Main@test.qs:4:20] ── H@test.qs:6:24 ─── ]] ──
             step:
-            q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ──
-                                                         ╘═════════
+            q_0@test.qs:5:24 ─ [[ ─── [Main@test.qs:4:20] ── H@test.qs:6:24 ─── M@test.qs:7:32 ─── ]] ──
+                             ═ [[ ═══ [Main@test.qs:4:20] ═                            ╘══════════ ]] ══
             step:
-            q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ──
-                                                         ╘═════════
+            q_0@test.qs:5:24 ─ [[ ─── [Main@test.qs:4:20] ── H@test.qs:6:24 ─── M@test.qs:7:32 ─── ]] ──
+                             ═ [[ ═══ [Main@test.qs:4:20] ═                            ╘══════════ ]] ══
             step:
-            q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ─── X@test.qs:9:28 ──
-                                                         ╘════════════════════════════
+            q_0@test.qs:5:24 ─ [[ ─── [Main@test.qs:4:20] ── H@test.qs:6:24 ─── M@test.qs:7:32 ─── X@test.qs:9:28 ─── ]] ──
+                             ═ [[ ═══ [Main@test.qs:4:20] ═                            ╘═════════════════════════════ ]] ══
             step:
-            q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ─── X@test.qs:9:28 ──
-                                                         ╘════════════════════════════
+            q_0@test.qs:5:24 ─ [[ ─── [Main@test.qs:4:20] ── H@test.qs:6:24 ─── M@test.qs:7:32 ─── X@test.qs:9:28 ─── ]] ──
+                             ═ [[ ═══ [Main@test.qs:4:20] ═                            ╘═════════════════════════════ ]] ══
             step:
-            q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ─── X@test.qs:9:28 ──
-                                                         ╘════════════════════════════
+            q_0@test.qs:5:24 ─ [[ ─── [Main@test.qs:4:20] ── H@test.qs:6:24 ─── M@test.qs:7:32 ─── X@test.qs:9:28 ─── ]] ──
+                             ═ [[ ═══ [Main@test.qs:4:20] ═                            ╘═════════════════════════════ ]] ══
             step:
-            q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ─── X@test.qs:9:28 ──
-                                                         ╘════════════════════════════
+            q_0@test.qs:5:24 ─ [[ ─── [Main@test.qs:4:20] ── H@test.qs:6:24 ─── M@test.qs:7:32 ─── X@test.qs:9:28 ─── ]] ──
+                             ═ [[ ═══ [Main@test.qs:4:20] ═                            ╘═════════════════════════════ ]] ══
         "#]]
         .assert_eq(&circs);
     }

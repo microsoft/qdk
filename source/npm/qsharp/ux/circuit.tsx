@@ -74,13 +74,18 @@ function ZoomableCircuit(props: {
   const [zoomLevel, setZoomLevel] = useState(100);
   const [rendering, setRendering] = useState(true);
   const [zoomOnResize, setZoomOnResize] = useState(true);
+  const [expandDepth, setExpandDepth] = useState(0);
+
+  const { circuitDepth, numGates } = getSize(
+    props.circuitGroup.circuits.map((c) => c.componentGrid),
+  );
 
   useEffect(() => {
     // Enable "rendering" text while the circuit is being drawn
     setRendering(true);
     const container = circuitDiv.current!;
     container.innerHTML = "";
-  }, [props.circuitGroup]);
+  }, [props.circuitGroup, expandDepth]);
 
   useEffect(() => {
     if (rendering) {
@@ -89,6 +94,7 @@ function ZoomableCircuit(props: {
       const svg = renderCircuits(
         props.circuitGroup,
         container,
+        expandDepth,
         props.isEditable,
         props.renderLocations,
         props.editCallback,
@@ -118,18 +124,41 @@ function ZoomableCircuit(props: {
   useEffect(() => {
     updateWidth();
   }, [zoomLevel]);
-
   return (
     <div>
       <div>
         {props.isEditable || rendering ? null : (
+          <DepthControl
+            max={circuitDepth}
+            initial={expandDepth}
+            onInput={setExpandDepth}
+          />
+        )}
+        {props.isEditable || rendering ? null : (
           <ZoomControl zoom={zoomLevel} onInput={userSetZoomLevel} />
         )}
       </div>
-      <div>
-        {rendering
-          ? `Rendering diagram with ${props.circuitGroup.circuits[0].componentGrid.length} gates...`
-          : ""}
+      <div
+        className={rendering ? "rendering-message" : ""}
+        style={{
+          opacity: 0,
+          transition: "opacity 0.1s ease-in",
+          animationDelay: "1s",
+          animationDuration: "0.1s",
+          animationFillMode: "forwards",
+        }}
+      >
+        <style>
+          {`
+            .rendering-message {
+              animation: showMessage 0.1s ease-in 1s forwards;
+            }
+            @keyframes showMessage {
+              to { opacity: 1; }
+            }
+          `}
+        </style>
+        {rendering ? `Rendering diagram with ${numGates} gates...` : ""}
       </div>
       <div class="qs-circuit" ref={circuitDiv}></div>
     </div>
@@ -176,12 +205,14 @@ function ZoomableCircuit(props: {
   function renderCircuits(
     circuitGroup: qviz.CircuitGroup,
     container: HTMLDivElement,
+    expandDepth: number,
     isEditable: boolean,
     renderLocations?: (s: SourceLocation[]) => { title: string; href: string },
     editCallback?: (fileData: qviz.CircuitGroup) => void,
     runCallback?: () => void,
   ) {
     qviz.draw(circuitGroup, container, {
+      renderDepth: expandDepth,
       isEditable,
       editCallback,
       runCallback,
@@ -201,7 +232,9 @@ function ZoomableCircuit(props: {
 
     svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
     const zoom = Math.min(Math.ceil((containerWidth / width) * 100), 100);
-    return zoom;
+    // never auto-zoom lower than 70%
+    return Math.max(zoom, 70);
+    // return zoom;/
   }
 
   function currentSvg(): SVGElement | undefined {
@@ -212,6 +245,53 @@ function ZoomableCircuit(props: {
     setZoomOnResize(false);
     setZoomLevel(zoom);
   }
+}
+
+function DepthControl(props: {
+  max: number;
+  initial: number;
+  onInput: (depth: number) => void;
+}) {
+  const [currentDepth, setCurrentDepth] = useState(props.initial);
+
+  useEffect(() => {
+    props.onInput(currentDepth);
+  }, [currentDepth]);
+
+  return (
+    <p>
+      {/* <label htmlFor="qs-circuit-render-depth">Expand</label> */}
+      <button
+        onClick={() => {
+          const newDepth = Math.max(0, currentDepth - 1);
+          setCurrentDepth(newDepth);
+        }}
+        disabled={currentDepth === 0}
+      >
+        Collapse -
+      </button>
+      <button
+        onClick={() => {
+          const newDepth = Math.min(props.max, currentDepth + 1);
+          setCurrentDepth(newDepth);
+        }}
+        disabled={currentDepth === props.max}
+      >
+        Expand +
+      </button>
+      {/* <input
+        id="qs-circuit-render-depth"
+        type="number"
+        min="0"
+        max={props.max}
+        step="1"
+        value={currentDepth}
+        onInput={(e) =>
+          props.onInput(parseInt((e.target as HTMLInputElement).value) || 0)
+        }
+      /> */}
+    </p>
+  );
 }
 
 function Unrenderable(props: {
@@ -336,6 +416,39 @@ export function CircuitPanel(props: CircuitProps) {
       ) : null}
     </div>
   );
+}
+
+function getSize(grids: qviz.ComponentGrid[]): {
+  circuitDepth: number;
+  numGates: number;
+} {
+  // Return the maximum componentGrid depth (number of "columns"/steps)
+  // across all circuits in the group. Be defensive about missing fields.
+  if (!grids || !Array.isArray(grids)) return { circuitDepth: 0, numGates: 0 };
+
+  let numGates = 0;
+  let maxDepth = 0;
+  for (const componentGrid of grids) {
+    for (const column of componentGrid ?? []) {
+      for (const component of column.components ?? []) {
+        numGates += 1;
+        if (component.children && component.children.length > 0) {
+          const { circuitDepth: childDepth, numGates: childNumGates } = getSize(
+            [component.children],
+          );
+          numGates += childNumGates;
+          if (childDepth + 1 > maxDepth) {
+            maxDepth = childDepth + 1;
+          }
+        }
+      }
+    }
+  }
+
+  return {
+    circuitDepth: maxDepth,
+    numGates,
+  };
 }
 
 function renderLocations(locations: SourceLocation[]) {

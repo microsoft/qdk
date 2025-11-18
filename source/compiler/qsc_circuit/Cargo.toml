@@ -29,6 +29,7 @@ thiserror = { workspace = true }
 [dev-dependencies]
 expect-test = { workspace = true }
 indoc = { workspace = true }
+indenter = { workspace = true }
 qsc_passes = { path = "../qsc_passes" }
 
 [lints]

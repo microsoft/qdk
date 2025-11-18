@@ -1038,6 +1038,7 @@ name = "qsc_circuit"
 version = "0.0.0"
 dependencies = [
  "expect-test",
+ "indenter",
  "indoc",
  "log",
  "miette",

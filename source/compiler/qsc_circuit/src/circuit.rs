@@ -7,6 +7,7 @@ mod tests;
 use qsc_fir::fir::PackageId;
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
+use std::cmp::max;
 use std::{
     cmp::{self},
     fmt::{Display, Write},
@@ -44,10 +45,11 @@ pub struct Circuit {
 
 impl Circuit {
     #[must_use]
-    pub fn display_no_locations(&self) -> impl Display {
+    pub fn display_basic(&self) -> impl Display {
         CircuitDisplay {
             circuit: self,
             render_locations: false,
+            render_groups: false,
         }
     }
 }
@@ -60,6 +62,7 @@ impl Display for Circuit {
             CircuitDisplay {
                 circuit: self,
                 render_locations: true,
+                render_groups: true,
             }
         )
     }
@@ -101,6 +104,14 @@ impl Operation {
         }
     }
 
+    pub fn gate_mut(&mut self) -> &mut String {
+        match self {
+            Self::Measurement(measurement) => &mut measurement.gate,
+            Self::Unitary(unitary) => &mut unitary.gate,
+            Self::Ket(ket) => &mut ket.gate,
+        }
+    }
+
     /// Returns the arguments for the operation.
     #[must_use]
     pub fn args(&self) -> Vec<String> {
@@ -108,6 +119,14 @@ impl Operation {
             Operation::Measurement(m) => m.args.clone(),
             Operation::Unitary(u) => u.args.clone(),
             Operation::Ket(k) => k.args.clone(),
+        }
+    }
+
+    pub fn args_mut(&mut self) -> &mut Vec<String> {
+        match self {
+            Self::Measurement(measurement) => &mut measurement.args,
+            Self::Unitary(unitary) => &mut unitary.args,
+            Self::Ket(ket) => &mut ket.args,
         }
     }
 
@@ -146,6 +165,16 @@ impl Operation {
             Operation::Measurement(m) => &mut m.children,
             Operation::Unitary(u) => &mut u.children,
             Operation::Ket(k) => &mut k.children,
+        }
+    }
+
+    /// Returns the source location for the operation.
+    #[must_use]
+    pub fn source_location(&self) -> &Option<SourceLocation> {
+        match self {
+            Operation::Measurement(m) => &m.source,
+            Operation::Unitary(u) => &u.source,
+            Operation::Ket(k) => &k.source,
         }
     }
 
@@ -279,7 +308,7 @@ pub enum SourceLocation {
     Unresolved(PackageOffset),
 }
 
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Debug, Copy, PartialEq, Eq)]
 pub struct PackageOffset {
     pub package_id: PackageId,
     pub offset: u32,
@@ -464,14 +493,6 @@ struct Column {
     column_width: usize,
 }
 
-impl Default for Column {
-    fn default() -> Self {
-        Self {
-            column_width: MIN_COLUMN_WIDTH,
-        }
-    }
-}
-
 impl Column {
     fn new(column_width: usize) -> Self {
         // Column widths should be odd numbers for this struct to work well
@@ -543,6 +564,7 @@ impl Column {
 struct CircuitDisplay<'a> {
     circuit: &'a Circuit,
     render_locations: bool,
+    render_groups: bool,
 }
 
 impl Display for CircuitDisplay<'_> {
@@ -565,7 +587,12 @@ impl Display for CircuitDisplay<'_> {
         self.initialize_rows(&mut rows, &mut register_to_row, &qubits_with_gap_row_below);
 
         // Add operations to the diagram
-        self.add_operations_to_diagram(&mut rows, &register_to_row);
+        self.add_operations_to_diagram(
+            1,
+            &self.circuit.component_grid,
+            &mut rows,
+            &register_to_row,
+        );
 
         // Finalize the diagram by extending wires and formatting columns
         let columns = finalize_columns(&rows);
@@ -664,10 +691,14 @@ impl CircuitDisplay<'_> {
     /// Adds operations to the diagram.
     fn add_operations_to_diagram(
         &self,
+        start_column: usize,
+        component_grid: &ComponentGrid,
         rows: &mut [Row],
         register_to_row: &FxHashMap<(usize, Option<usize>), usize>,
-    ) {
-        for (col_index, col) in self.circuit.component_grid.iter().enumerate() {
+    ) -> usize {
+        let mut column = start_column;
+        let mut next_column = start_column;
+        for col in component_grid {
             for op in &col.components {
                 let targets = get_row_indexes(op, register_to_row, true);
                 let controls = get_row_indexes(op, register_to_row, false);
@@ -683,11 +714,40 @@ impl CircuitDisplay<'_> {
                     (*first, tail.last().unwrap_or(first) + 1)
                 });
 
-                let column = col_index + 1;
-
-                add_operation_to_rows(op, rows, &targets, &controls, column, begin, end);
+                let children = op.children();
+                if children.is_empty() {
+                    add_operation_to_rows(op, rows, &targets, &controls, column, begin, end);
+                    next_column = max(next_column, column + 1);
+                } else {
+                    let mut offset = 0;
+                    if self.render_groups {
+                        add_operation_box_start_to_rows(
+                            op,
+                            rows,
+                            &targets,
+                            &controls,
+                            column + offset,
+                            begin,
+                            end,
+                        );
+                        offset += 2;
+                    }
+                    offset += self.add_operations_to_diagram(
+                        column + offset,
+                        children,
+                        rows,
+                        register_to_row,
+                    );
+                    if self.render_groups {
+                        add_operation_box_end_to_rows(op, rows, &targets, column + offset);
+                        offset += 1;
+                    }
+                    next_column = max(next_column, column + offset);
+                }
             }
+            column = next_column;
         }
+        next_column - start_column
     }
 }
 
@@ -741,6 +801,87 @@ fn add_operation_to_rows(
         for row in &mut rows[begin..end] {
             row.add_dashed_vertical(column);
         }
+    }
+}
+
+fn add_operation_box_start_to_rows(
+    operation: &Operation,
+    rows: &mut [Row],
+    targets: &[usize],
+    controls: &[usize],
+    column: usize,
+    begin: usize,
+    end: usize,
+) {
+    assert!(
+        !operation.children().is_empty(),
+        "must only be called for an operation with children"
+    );
+    for i in targets {
+        let row = &mut rows[*i];
+        row.add_object(column, "[[");
+
+        let mut gate_label = String::new();
+        gate_label.push('[');
+        gate_label.push_str(&operation.gate());
+        if operation.is_adjoint() {
+            gate_label.push('\'');
+        }
+        let args = operation.args();
+
+        if !args.is_empty() {
+            let args = args.join(", ");
+            let _ = write!(&mut gate_label, "({args})");
+        }
+
+        if let Some(SourceLocation::Resolved(loc)) = operation.source() {
+            let _ = write!(&mut gate_label, "@{loc}");
+        }
+
+        gate_label.push(']');
+
+        row.add_object(column + 1, gate_label.as_str());
+    }
+
+    if operation.is_controlled() || operation.is_measurement() {
+        for i in controls {
+            let row = &mut rows[*i];
+            if matches!(row.wire, Wire::Qubit { .. }) && operation.is_measurement() {
+                row.add_measurement(column + 1, operation.source().as_ref());
+            } else {
+                row.add_object(column + 1, "●");
+            }
+        }
+
+        // If we have a control wire, draw vertical lines spanning all
+        // control and target wires and crossing any in between
+        // (vertical lines may overlap if there are multiple controls/targets,
+        // this is ok in practice)
+        for row in &mut rows[begin..end] {
+            row.add_vertical(column + 1);
+        }
+    } else {
+        // No control wire. Draw dashed vertical lines to connect
+        // target wires if there are multiple targets
+        for row in &mut rows[begin..end] {
+            row.add_dashed_vertical(column + 1);
+        }
+    }
+}
+
+fn add_operation_box_end_to_rows(
+    operation: &Operation,
+    rows: &mut [Row],
+    targets: &[usize],
+    column: usize,
+) {
+    assert!(
+        !operation.children().is_empty(),
+        "must only be called for an operation with children"
+    );
+    for i in targets {
+        let row = &mut rows[*i];
+        row.add_object(column, "]]");
     }
 }
 

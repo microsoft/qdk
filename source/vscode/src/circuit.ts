@@ -308,6 +308,7 @@ async function getCircuitOrError(
 export function getConfig() {
   const defaultConfig = {
     maxOperations: 10001,
+    groupScopes: true,
     generationMethod: "classicalEval" as const,
     sourceLocations: true,
   };
@@ -321,6 +322,10 @@ export function getConfig() {
       "maxOperations" in config && typeof config.maxOperations === "number"
         ? config.maxOperations
         : defaultConfig.maxOperations,
+    groupScopes:
+      "groupScopes" in config && typeof config.groupScopes === "boolean"
+        ? config.groupScopes
+        : defaultConfig.groupScopes,
     generationMethod:
       "generationMethod" in config &&
       typeof config.generationMethod === "string" &&

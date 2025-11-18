@@ -1343,7 +1343,7 @@ impl Circuit {
     fn __repr__(&self) -> String {
         // Disable rendering source locations for user-facing string representation,
         // as they make the circuit look cluttered.
-        self.0.display_no_locations().to_string()
+        self.0.display_basic().to_string()
     }
 
     fn __str__(&self) -> String {

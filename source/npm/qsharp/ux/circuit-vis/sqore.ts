@@ -59,6 +59,7 @@ export type DrawOptions = {
 export class Sqore {
   circuit: Circuit;
   gateRegistry: GateRegistry = {};
+  renderDepth: number = this.options.renderDepth ?? 0;
   /**
    * Initializes Sqore object.
    *
@@ -106,7 +107,6 @@ export class Sqore {
     // Create copy of circuit to prevent mutation
     const _circuit: Circuit =
       circuit ?? JSON.parse(JSON.stringify(this.circuit));
-    const renderDepth = this.options.renderDepth || 0;
 
     // Assign unique locations to each operation
     _circuit.componentGrid.forEach((col, colIndex) =>
@@ -116,25 +116,13 @@ export class Sqore {
     );
 
     // Render operations starting at given depth
-    _circuit.componentGrid = this.selectOpsAtDepth(
-      _circuit.componentGrid,
-      renderDepth,
-    );
+    // _circuit.componentGrid = this.selectOpsAtDepth(
+    //   _circuit.componentGrid,
+    //   renderDepth,
+    // );
 
-    // If only one top-level operation, expand automatically:
-    if (
-      _circuit.componentGrid.length == 1 &&
-      _circuit.componentGrid[0].components.length == 1 &&
-      _circuit.componentGrid[0].components[0].dataAttributes != null &&
-      Object.prototype.hasOwnProperty.call(
-        _circuit.componentGrid[0].components[0].dataAttributes,
-        "location",
-      )
-    ) {
-      const location: string =
-        _circuit.componentGrid[0].components[0].dataAttributes["location"];
-      this.expandOperation(_circuit.componentGrid, location);
-    }
+    const grid = _circuit.componentGrid;
+    this.expandUntilDepth(grid, this.renderDepth);
 
     // Create visualization components
     const composedSqore: ComposedSqore = this.compose(_circuit);
@@ -163,6 +151,29 @@ export class Sqore {
       enableEvents(container, this, () => this.renderCircuit(container));
       if (this.options.editCallback != undefined) {
         this.options.editCallback(this.minimizeCircuits(this.circuitGroup));
+      }
+    }
+  }
+
+  private expandUntilDepth(grid: ComponentGrid, depth: number): void {
+    if (depth <= 0) return;
+
+    for (const col of grid) {
+      for (const op of col.components) {
+        if (
+          op.children &&
+          op.children.length > 0 &&
+          op.dataAttributes != null &&
+          Object.prototype.hasOwnProperty.call(op.dataAttributes, "location")
+        ) {
+          // const location: string = op.dataAttributes["location"];
+          // this.expandOperation(op.children, location);
+
+          op.conditionalRender = ConditionalRender.AsGroup;
+          op.dataAttributes["expanded"] = "true";
+
+          this.expandUntilDepth(op.children, depth - 1);
+        }
       }
     }
   }
@@ -337,11 +348,11 @@ export class Sqore {
         } else {
           selectedCol.push(op);
         }
-        selectedOps.push({ components: selectedCol });
-        if (extraCols.length > 0) {
-          selectedOps.push(...extraCols);
-        }
       });
+      selectedOps.push({ components: selectedCol });
+      if (extraCols.length > 0) {
+        selectedOps.push(...extraCols);
+      }
     });
     return selectedOps;
   }
