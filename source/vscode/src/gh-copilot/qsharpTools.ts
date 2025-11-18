@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { TargetProfile } from "qsharp-lang";
+import { IQSharpError, TargetProfile } from "qsharp-lang";
 import vscode from "vscode";
 import {
   CircuitOrError,
@@ -40,11 +40,11 @@ type RunProgramResult = ProjectInfo &
   (
     | {
         output: string;
-        result: string | vscode.Diagnostic;
+        result: string | IQSharpError;
       }
     | {
         histogram: HistogramData;
-        sampleFailures: vscode.Diagnostic[];
+        sampleFailures: IQSharpError[];
         message: string;
       }
   );
@@ -66,7 +66,7 @@ export class QSharpTools {
 
     const output: string[] = [];
     let finalHistogram: HistogramData | undefined;
-    let sampleFailures: vscode.Diagnostic[] = [];
+    let sampleFailures: IQSharpError[] = [];
     const panelId = programConfig.projectName;
 
     const start = performance.now();
@@ -84,21 +84,19 @@ export class QSharpTools {
       sendTelemetryEvent(EventType.HistogramStart, { associationId }, {});
     }
 
-    const result = await runProgram(
-      this.extensionUri,
-      programConfig,
-      "",
+    const result = await runProgram(this.extensionUri, programConfig, {
+      entry: "",
       shots,
-      (msg) => {
+      onConsoleOut: (msg) => {
         output.push(msg);
       },
-      (histogram, failures) => {
+      onResultsUpdate: (histogram, failures) => {
         finalHistogram = histogram;
         const uniqueFailures = new Set<string>();
         sampleFailures = [];
         for (const failure of failures) {
           const diagnostic = toVsCodeDiagnostic(failure.diagnostic);
-          const failureKey = `${diagnostic.message}-${diagnostic.range?.start.line}-${diagnostic.range?.start.character}`;
+          const failureKey = `${failure.document}-${diagnostic.message}-${diagnostic.range?.start.line}-${diagnostic.range?.start.character}`;
           if (!uniqueFailures.has(failureKey)) {
             uniqueFailures.add(failureKey);
             sampleFailures.push(diagnostic);
@@ -120,7 +118,17 @@ export class QSharpTools {
           );
         }
       },
-    );
+    });
+
+    if (result.status === "compilation error(s)") {
+      const failures = result.errors;
+
+      if (failures && failures?.length > 0) {
+        throw new CopilotToolError(
+          `Program failed with compilation errors. ${JSON.stringify(failures)}`,
+        );
+      }
+    }
 
     if (result.doneReason === "compilation error(s)") {
       const failures = result.results

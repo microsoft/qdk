@@ -211,6 +211,14 @@ where
     }
 }
 
+/// The JSON object returned here is of type
+/// `VSDiagnostic & { errors: IQSharpError[] }`
+///
+/// `VSDiagnostic` is only the first error, and is returned
+/// only for backward compatibility with versions of the WASM API
+/// that returned a single diagnostic.
+///
+/// The `errors` field contains all the errors and richer information.
 pub fn interpret_errors_to_run_result(errs: &[interpret::Error]) -> serde_json::Value {
     let qsharp_errors = interpret_errors_into_qsharp_errors(errs);
     let mut vs_diagnostic = qsharp_errors[0].diagnostic.json();

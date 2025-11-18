@@ -858,6 +858,29 @@ def test_circuit_from_callable() -> None:
     )
 
 
+def test_circuit_with_generation_method() -> None:
+    qsharp.init()
+    qsharp.eval(
+        """
+    operation Foo() : Unit {
+        use q1 = Qubit();
+        use q2 = Qubit();
+        X(q1);
+        Reset(q1);
+    }
+    """
+    )
+    circuit = qsharp.circuit(
+        qsharp.code.Foo, generation_method=qsharp.CircuitGenerationMethod.Simulate
+    )
+    assert str(circuit) == dedent(
+        """\
+        q_0    ── X ──── |0〉 ──
+        q_1    ────────────────
+        """
+    )
+
+
 def test_circuit_from_callable_with_args() -> None:
     qsharp.init()
     qsharp.eval(

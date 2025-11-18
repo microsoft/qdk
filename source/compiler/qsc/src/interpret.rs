@@ -864,7 +864,7 @@ impl Interpreter {
         self.circuit_tracer
             .as_ref()
             .expect("to call get_circuit, the interpreter should be initialized with circuit tracing enabled")
-            .snapshot(Some(self.compiler.package_store()), Some(&self.fir_store))
+            .snapshot(self.compiler.package_store(), Some(&self.fir_store))
     }
 
     /// Performs QIR codegen using the given entry expression on a new instance of the environment
@@ -966,7 +966,7 @@ impl Interpreter {
         method: CircuitGenerationMethod,
         tracer_config: TracerConfig,
     ) -> std::result::Result<Circuit, Vec<Error>> {
-        let (entry_expr, qubit_param_info, invoke_params) = match entry {
+        let (entry_expr, qubit_params, invoke_params) = match entry {
             CircuitEntryPoint::Operation(operation_expr) => {
                 let (package_id, item, functor_app) = self.eval_to_operation(&operation_expr)?;
                 let qubit_param_info = qubit_param_info(item);
@@ -986,7 +986,7 @@ impl Interpreter {
         let mut tracer = CircuitTracer::with_qubit_input_params(
             tracer_config,
             &[self.package, self.source_package],
-            qubit_param_info,
+            qubit_params,
         );
         match method {
             CircuitGenerationMethod::Simulate => {
@@ -1008,7 +1008,7 @@ impl Interpreter {
                 }
             }
             CircuitGenerationMethod::ClassicalEval => {
-                let mut tracer = TracingBackend::no_backend(&mut tracer);
+                let mut tracer = TracingBackend::<SparseSim>::no_backend(&mut tracer);
                 if let Some((callable, args)) = invoke_params {
                     self.invoke_with_tracing_backend(&mut tracer, &mut out, callable, args)?;
                 } else {
@@ -1029,7 +1029,7 @@ impl Interpreter {
             }
         }
 
-        let circuit = tracer.finish(Some(self.compiler.package_store()), Some(&self.fir_store));
+        let circuit = tracer.finish(self.compiler.package_store(), Some(&self.fir_store));
 
         Ok(circuit)
     }
@@ -1164,9 +1164,9 @@ impl Interpreter {
         )
     }
 
-    fn run_with_tracing_backend(
+    fn run_with_tracing_backend<B: Backend>(
         &mut self,
-        tracing_backend: &mut TracingBackend,
+        tracing_backend: &mut TracingBackend<'_, B>,
         out: &mut GenericReceiver,
         entry_expr: Option<&str>,
     ) -> InterpretResult {
@@ -1210,9 +1210,9 @@ impl Interpreter {
         )
     }
 
-    fn invoke_with_tracing_backend(
+    fn invoke_with_tracing_backend<B: Backend>(
         &mut self,
-        tracing_backend: &mut TracingBackend,
+        tracing_backend: &mut TracingBackend<'_, B>,
         receiver: &mut impl Receiver,
         callable: Value,
         args: Value,
@@ -1564,14 +1564,14 @@ impl Debugger {
 
 /// Wrapper function for `qsc_eval::eval` that handles error conversion.
 #[allow(clippy::too_many_arguments)]
-fn eval(
+fn eval<B: Backend>(
     package: PackageId,
     classical_seed: Option<u64>,
     exec_graph: ExecGraph,
     package_store: &PackageStore,
     fir_store: &fir::PackageStore,
     env: &mut Env,
-    tracing_backend: &mut TracingBackend,
+    tracing_backend: &mut TracingBackend<'_, B>,
     receiver: &mut impl Receiver,
 ) -> InterpretResult {
     qsc_eval::eval(

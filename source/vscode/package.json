@@ -403,7 +403,8 @@
       {
         "command": "qsharp-vscode.runProgram",
         "title": "Run program",
-        "category": "QDK"
+        "category": "QDK",
+        "icon": "$(play)"
       },
       {
         "command": "qsharp-vscode.runEditorContentsWithCircuit",

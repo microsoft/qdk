@@ -13,7 +13,7 @@ import {
 } from "../programConfig";
 import { getRandomGuid } from "../utils";
 import { QscDebugSession } from "./session";
-import { runProgramInTerminal, runProgram } from "../run";
+import { runProgramInTerminal } from "../run";
 
 let debugServiceWorkerFactory: () => IDebugServiceWorker;
 

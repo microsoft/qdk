@@ -576,7 +576,7 @@ fn m_default_profile() {
         q_0    ─ [[ ─── [Main@test.qs:4:16] ── H@test.qs:6:20 ─── M@test.qs:7:21 ─── ]] ──
                ═ [[ ═══ [Main@test.qs:4:16] ═                            ╘══════════ ]] ══
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
@@ -1257,7 +1257,7 @@ fn custom_intrinsic_mixed_args_classical_eval() {
                                                      ┆                                                           ┆
         q_9@test.qs:6:12 ────── [[ ──────── [Main@test.qs:5:8] ─── AccountForEstimatesInternal([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)], 1)@test.qs:7:12 ─────── ]] ───────
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
@@ -1346,7 +1346,7 @@ fn custom_intrinsic_apply_idle_noise_static() {
     expect![[r#"
         q_0
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
@@ -1380,7 +1380,7 @@ fn operation_with_qubits() {
         q_1    ─ [[ ─── [Test@test.qs:5:12] ───────────────────── X@test.qs:7:16 ─── M@test.qs:8:24 ─── ]] ──
                ═ [[ ═══ [Test@test.qs:5:12] ═                                               ╘══════════ ]] ══
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
@@ -1515,7 +1515,7 @@ fn adjoint_operation() {
         Static:
         q_0    ─ [[ ─── [Foo@test.qs:5:12] ─── Y@test.qs:13:20 ── ]] ──
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
@@ -1536,7 +1536,7 @@ fn lambda() {
         Static:
         q_0    ─ [[ ─── [<lambda>@<entry>:2:13] ── H@<entry>:2:18 ─── ]] ──
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
@@ -1615,7 +1615,7 @@ fn internal_operation() {
         q_1    ─ [[ ─── [Test@test.qs:5:21] ───────────────────── X@test.qs:7:16 ─── M@test.qs:8:24 ─── ]] ──
                ═ [[ ═══ [Test@test.qs:5:21] ═                                               ╘══════════ ]] ══
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
@@ -1707,7 +1707,7 @@ fn operation_with_long_gates_properly_aligned() {
         q_3    ─ [[ ─── [Main@test.qs:5:16] ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── Rxx(1.0000)@test.qs:27:20 ── X@test.qs:29:20 ── M@test.qs:31:28 ── ]] ──
                ═ [[ ═══ [Main@test.qs:5:16] ═                                                                                                                                                                                                                   ╘══════════ ]] ══
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
@@ -1751,7 +1751,7 @@ fn operation_with_subsequent_qubits_gets_horizontal_lines() {
                                  ┆                         ┆
         q_3    ─ [[ ─── [Main@test.qs:5:16] ── Rxx(1.0000)@test.qs:12:20 ── ]] ──
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
@@ -1777,7 +1777,7 @@ fn operation_with_subsequent_qubits_no_double_rows() {
                                  ┆                         ┆                            ┆
         q_1    ─ [[ ─── [Main@test.qs:5:16] ── Rxx(1.0000)@test.qs:8:20 ─── Rxx(1.0000)@test.qs:9:20 ─── ]] ──
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
@@ -1812,7 +1812,7 @@ fn operation_with_subsequent_qubits_no_added_rows() {
                ═ [[ ═══ [Main@test.qs:5:16] ═              ┆                       ╘══════════ ]] ══
         q_3    ─ [[ ─── [Main@test.qs:5:16] ── Rxx(1.0000)@test.qs:12:20 ───────────────────── ]] ──
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]

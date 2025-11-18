@@ -366,7 +366,7 @@ impl Row {
         {
             let _ = write!(&mut gate_label, "@{loc}");
         }
-        self.add(column, CircuitObject::Object(gate_label.to_string()));
+        self.add(column, CircuitObject::Object(gate_label.clone()));
     }
 
     fn add_gate(
@@ -898,30 +898,32 @@ fn finalize_columns(rows: &[Row]) -> Vec<Column> {
 
     let longest_qubit_label = rows
         .iter()
-        .filter_map(|r| match &r.wire {
-            Wire::Qubit { label } => Some(label.len() + 1), // +1 for space after label
-            Wire::Classical { .. } => None,
+        .map(|r| {
+            if let Wire::Qubit { label } = &r.wire {
+                label.len()
+            } else {
+                0
+            }
         })
+        .chain(std::iter::once(MIN_COLUMN_WIDTH))
         .max()
-        .unwrap_or(0);
+        .unwrap_or_default();
 
     // To be able to fit long-named operations, we calculate the required width for each column,
     // based on the maximum length needed for gates, where a gate X is printed as "- X -".
-    (0..end_column)
-        .map(|column| {
-            Column::new(
-                rows.iter()
-                    .filter_map(|row| row.objects.get(&column))
-                    .filter_map(|object| match object {
-                        CircuitObject::Object(string) => Some(string.len() + 4),
-                        _ => None,
-                    })
-                    .chain(std::iter::once(MIN_COLUMN_WIDTH))
-                    .chain(std::iter::once(longest_qubit_label))
-                    .max()
-                    .expect("Column width should be at least 1"),
-            )
-        })
+    std::iter::once(longest_qubit_label)
+        .chain((1..end_column).map(|column| {
+            rows.iter()
+                .filter_map(|row| row.objects.get(&column))
+                .filter_map(|object| match object {
+                    CircuitObject::Object(string) => Some(string.len() + 4),
+                    _ => None,
+                })
+                .chain(std::iter::once(MIN_COLUMN_WIDTH))
+                .max()
+                .expect("Column width should be at least 1")
+        }))
+        .map(Column::new)
         .collect()
 }
 

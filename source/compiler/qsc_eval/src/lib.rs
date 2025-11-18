@@ -25,7 +25,7 @@ pub mod output;
 pub mod state;
 pub mod val;
 
-use crate::backend::TracingBackend;
+use crate::backend::{Backend, TracingBackend};
 use crate::val::{
     Value, index_array, make_range, slice_array, update_index_range, update_index_single,
 };
@@ -284,24 +284,17 @@ pub fn exec_graph_section(graph: &ExecGraph, range: ops::Range<usize>) -> ExecGr
 /// Returns the first error encountered during execution.
 /// # Panics
 /// On internal error where no result is returned.
-pub fn eval(
+pub fn eval<B: Backend>(
     package: PackageId,
     seed: Option<u64>,
     exec_graph: ExecGraph,
     globals: &impl PackageStoreLookup,
     env: &mut Env,
-    tracing_backend: &mut TracingBackend,
+    sim: &mut TracingBackend<'_, B>,
     receiver: &mut impl Receiver,
 ) -> Result<Value, (Error, Vec<Frame>)> {
     let mut state = State::new(package, exec_graph, seed, ErrorBehavior::FailOnError);
-    let res = state.eval(
-        globals,
-        env,
-        tracing_backend,
-        receiver,
-        &[],
-        StepAction::Continue,
-    )?;
+    let res = state.eval(globals, env, sim, receiver, &[], StepAction::Continue)?;
     let StepResult::Return(value) = res else {
         panic!("eval should always return a value");
     };
@@ -314,12 +307,12 @@ pub fn eval(
 /// # Panics
 /// On internal error where no result is returned.
 #[allow(clippy::too_many_arguments)]
-pub fn invoke(
+pub fn invoke<B: Backend>(
     package: PackageId,
     seed: Option<u64>,
     globals: &impl PackageStoreLookup,
     env: &mut Env,
-    tracing_backend: &mut TracingBackend,
+    sim: &mut TracingBackend<'_, B>,
     receiver: &mut impl Receiver,
     callable: Value,
     args: Value,
@@ -336,7 +329,7 @@ pub fn invoke(
     state
         .eval_call(
             env,
-            tracing_backend,
+            sim,
             globals,
             Span::default(),
             Span::default(),
@@ -346,14 +339,7 @@ pub fn invoke(
 
     // Trigger evaluation of the state until the end of the stack is reached and a return value is obtained, which will be the final
     // result of the invocation.
-    let res = state.eval(
-        globals,
-        env,
-        tracing_backend,
-        receiver,
-        &[],
-        StepAction::Continue,
-    )?;
+    let res = state.eval(globals, env, sim, receiver, &[], StepAction::Continue)?;
     let StepResult::Return(value) = res else {
         panic!("eval should always return a value");
     };
@@ -707,7 +693,10 @@ impl State {
     }
 
     #[must_use]
-    pub fn capture_stack_if_trace_enabled(&self, tracing_backend: &TracingBackend) -> Vec<Frame> {
+    pub fn capture_stack_if_trace_enabled<B: Backend>(
+        &self,
+        tracing_backend: &TracingBackend<'_, B>,
+    ) -> Vec<Frame> {
         if tracing_backend.is_stacks_enabled() {
             self.capture_stack()
         } else {
@@ -737,11 +726,11 @@ impl State {
     /// # Panics
     /// When returning a value in the middle of execution.
     #[allow(clippy::too_many_lines)]
-    pub fn eval(
+    pub fn eval<B: Backend>(
         &mut self,
         globals: &impl PackageStoreLookup,
         env: &mut Env,
-        tracing_backend: &mut TracingBackend,
+        sim: &mut TracingBackend<'_, B>,
         out: &mut impl Receiver,
         breakpoints: &[StmtId],
         step: StepAction,
@@ -760,7 +749,7 @@ impl State {
                 }
                 Some(ExecGraphNode::Expr(expr)) => {
                     self.idx += 1;
-                    match self.eval_expr(env, tracing_backend, globals, out, *expr) {
+                    match self.eval_expr(env, sim, globals, out, *expr) {
                         Ok(()) => continue,
                         Err(e) => {
                             if self.error_behavior == ErrorBehavior::StopOnError {
@@ -931,10 +920,10 @@ impl State {
     }
 
     #[allow(clippy::similar_names)]
-    fn eval_expr(
+    fn eval_expr<B: Backend>(
         &mut self,
         env: &mut Env,
-        tracing_backend: &mut TracingBackend,
+        sim: &mut TracingBackend<'_, B>,
         globals: &impl PackageStoreLookup,
         out: &mut impl Receiver,
         expr: ExprId,
@@ -956,7 +945,7 @@ impl State {
                         return Ok(());
                     }
                     let rhs_val = self.take_val_register();
-                    self.eval_expr(env, tracing_backend, globals, out, *lhs)?;
+                    self.eval_expr(env, sim, globals, out, *lhs)?;
                     self.push_val();
                     self.set_val_register(rhs_val);
                 }
@@ -976,7 +965,7 @@ impl State {
                     return Ok(());
                 }
                 self.push_val();
-                self.eval_expr(env, tracing_backend, globals, out, *lhs)?;
+                self.eval_expr(env, sim, globals, out, *lhs)?;
                 self.eval_update_index(mid_span)?;
                 self.eval_assign(env, globals, *lhs)?;
             }
@@ -988,7 +977,7 @@ impl State {
             ExprKind::Call(callee_expr, args_expr) => {
                 let callable_span = globals.get_expr((self.package, *callee_expr).into()).span;
                 let args_span = globals.get_expr((self.package, *args_expr).into()).span;
-                self.eval_call(env, tracing_backend, globals, callable_span, args_span, out)?;
+                self.eval_call(env, sim, globals, callable_span, args_span, out)?;
             }
             ExprKind::Closure(args, callable) => {
                 let closure = resolve_closure(env, self.package, expr.span, args, *callable)?;
@@ -1170,11 +1159,10 @@ impl State {
         Ok(())
     }
 
-    #[allow(clippy::needless_pass_by_value)]
-    fn eval_call(
+    fn eval_call<B: Backend>(
         &mut self,
         env: &mut Env,
-        tracing_backend: &mut TracingBackend,
+        sim: &mut TracingBackend<'_, B>,
         globals: &impl PackageStoreLookup,
         callable_span: Span,
         arg_span: Span,
@@ -1220,7 +1208,7 @@ impl State {
                 callee_id,
                 functor,
                 callee,
-                tracing_backend,
+                sim,
                 callee_span,
                 arg,
                 arg_span,
@@ -1270,13 +1258,13 @@ impl State {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn eval_intrinsic(
+    fn eval_intrinsic<B: Backend>(
         &mut self,
         env: &mut Env,
         callee_id: StoreItemId,
         functor: FunctorApp,
         callee: &fir::CallableDecl,
-        sim: &mut TracingBackend,
+        sim: &mut TracingBackend<'_, B>,
         callee_span: PackageSpan,
         arg: Value,
         arg_span: PackageSpan,

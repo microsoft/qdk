@@ -108,30 +108,43 @@ export async function activate(
           return;
         }
 
+        // First search through open tabs to find if any of the locations
+        // are already open, and if so, get the view column they are in.
+        // Otherwise, VS Code will use whichever view column currently
+        // has the focus and open a new editor in that column, which
+        // is rarely the UX we want.
+        //
+        // e.g. when navigating back to Q# source from the circuit viewer, we
+        // want to locate and focus on the Q# source in the view column *next to* the
+        // circuit viewer, instead of opening a new instance of the source file
+        // in the same view column as the circuit viewer.
+        const viewColumn = getViewColumnForLocations(validLocations);
         for (const l of validLocations) {
-          const document = await vscode.workspace.openTextDocument(l.uri);
-          const existingEditor = vscode.window.visibleTextEditors.find(
-            (e) => e.document.uri.toString() === l.uri.toString(),
-          );
-          const viewColumn =
-            existingEditor?.viewColumn ?? vscode.ViewColumn.One;
-
           // Force the document to open and take focus first in our preferred
           // view column - this prevents the `goToLocations` command
           // below from opening the document in whatever view column currently
           // has focus.
-          await vscode.window.showTextDocument(document, {
-            viewColumn,
-          });
+          // The `vscode.open` command is preferred over `showTextDocument` here.
+          // For custom editor documents like the circuit editor,
+          // `showTextDocument` will not open the custom editor.
+          await vscode.commands.executeCommand(
+            "vscode.open",
+            l.uri,
+            viewColumn ?? vscode.ViewColumn.One,
+          );
         }
 
-        vscode.commands.executeCommand(
-          "editor.action.goToLocations",
-          validLocations[0].uri,
-          validLocations[0].range.start,
-          validLocations,
-          "peek",
-        );
+        // Now invoke go-to-locations to navigate to the specific locations
+        // within the file (or open the peek view if there are multiple locations).
+        if (validLocations.length > 0) {
+          vscode.commands.executeCommand(
+            "editor.action.goToLocations",
+            validLocations[0].uri,
+            validLocations[0].range.start,
+            validLocations,
+            "peek",
+          );
+        }
       },
     ),
   );
@@ -139,6 +152,29 @@ export async function activate(
   log.info("Q# extension activated.");
 
   return api;
+}
+
+/**
+ * Finds the view column where any of the given locations is already open in a tab.
+ * Returns the view column of the first matching tab
+ */
+function getViewColumnForLocations(
+  validLocations: vscode.Location[],
+): vscode.ViewColumn | undefined {
+  for (const l of validLocations) {
+    for (const tabGroup of vscode.window.tabGroups.all) {
+      for (const tab of tabGroup.tabs) {
+        if (
+          (tab.input instanceof vscode.TabInputText ||
+            tab.input instanceof vscode.TabInputCustom) &&
+          tab.input.uri.toString() === l.uri.toString()
+        ) {
+          return tabGroup.viewColumn;
+        }
+      }
+    }
+  }
+  return undefined;
 }
 
 function parseLocations(locations: ILocation[]): vscode.Location[] {
