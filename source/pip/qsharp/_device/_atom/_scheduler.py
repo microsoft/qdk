@@ -356,12 +356,10 @@ class MoveScheduler:
                 q_id = qubit_id(partial_move.qubit_id_ptr)
                 assert q_id is not None
                 return self.device.get_ordering(q_id)
-                # return partial_move.src_loc
             else:
                 q_id = qubit_id(partial_move[0].qubit_id_ptr)
                 assert q_id is not None
                 return self.device.get_ordering(q_id)
-                # return partial_move[0].src_loc
 
         return sorted(partial_moves, key=sort_key)
 
