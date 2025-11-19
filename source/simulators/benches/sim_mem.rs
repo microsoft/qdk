@@ -3,11 +3,18 @@ mod bench {
     #![allow(clippy::unit_arg)]
 
     use iai_callgrind::{library_benchmark, library_benchmark_group};
-    use stabilizer_simulator::{Simulator, noise_config::NoiseConfig, operation::*};
+    use qdk_simulators::{
+        noise_config::NoiseConfig,
+        stabilizer_simulator::{
+            Simulator,
+            operation::{Operation, cz, h, id, mz, s, x, y, z},
+        },
+    };
     use std::hint::black_box;
     fn setup(gates: Vec<Operation>) -> (Simulator, Vec<Operation>) {
         const NUM_QUBITS: usize = 1224;
-        let simulator = Simulator::new(NUM_QUBITS, NoiseConfig::NOISELESS);
+        const NUM_RESULTS: usize = NUM_QUBITS;
+        let simulator = Simulator::new(NUM_QUBITS, NUM_RESULTS, NoiseConfig::NOISELESS);
         (simulator, gates)
     }
 
