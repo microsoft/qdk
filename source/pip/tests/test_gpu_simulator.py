@@ -17,6 +17,7 @@ try:
     from qsharp._native import try_create_gpu_adapter
 
     gpu_name = try_create_gpu_adapter()
+    print(f"Using GPU adapter: {gpu_name}")
 
     GPU_AVAILABLE = True
 except OSError as e:
@@ -42,6 +43,7 @@ def read_file(file_name: str) -> str:
 def read_file_relative(file_name: str) -> str:
     return Path(current_dir / file_name).read_text(encoding="utf-8")
 
+
 def result_array_to_string(results: Sequence[Result]) -> str:
     chars = []
     for value in results:
@@ -52,6 +54,7 @@ def result_array_to_string(results: Sequence[Result]) -> str:
         else:
             chars.append("-")
     return "".join(chars)
+
 
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
 def test_gpu_seeding_no_noise():
@@ -83,6 +86,7 @@ def test_gpu_seeding_no_noise():
     assert count_00 == 6
     assert count_11 == 6
 
+
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
 def test_gpu_no_noise():
     """Simple test that GPU simulator works without noise."""
@@ -97,7 +101,8 @@ def test_gpu_no_noise():
     print(gpu_name)
     print(output)
     # Expecting deterministic output, no randomization seed needed.
-    assert output == [[Result.Zero]*25], "Expected result of 0s with pi/2 angles."
+    assert output == [[Result.Zero] * 25], "Expected result of 0s with pi/2 angles."
+
 
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
 def test_gpu_bitflip_noise():
@@ -114,15 +119,17 @@ def test_gpu_bitflip_noise():
     noise.rx.set_bitflip(p_noise)
     noise.rzz.set_bitflip(p_noise)
     noise.mresetz.set_bitflip(p_noise)
-    
+
     output = run_qir_gpu(str(input), shots=3, noise=noise, seed=17)
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
     print(result)
     # Reasonable results obtained from manual run
     assert result == [
-        '0000000000011100001001110',
-        '0001001000000000000100100',
-        '0000001000110000000100011']
+        "0000000000011100001001110",
+        "0001001000000000000100100",
+        "0000001000110000000100011",
+    ]
+
 
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
 def test_gpu_mixed_noise():
@@ -144,9 +151,11 @@ def test_gpu_mixed_noise():
     print(result)
     # Reasonable results obtained from manual run
     assert result == [
-        '00000-00010000-0000000001',
-        '00000000000-0000000000-00',
-        '000000000000001-000000000']
+        "00000-00010000-0000000001",
+        "00000000000-0000000000-00",
+        "000000000000001-000000000",
+    ]
+
 
 def build_x_chain_qir(n_instances: int, n_x: int) -> str:
     # Construct multiple instances of x gate chains
@@ -172,6 +181,7 @@ def build_x_chain_qir(n_instances: int, n_x: int) -> str:
     qir_parallel = openqasm.compile(src_parallel)
     return str(qir_parallel)
 
+
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
 @pytest.mark.parametrize(
     "p_noise, n_x, n_instances, n_shots, max_percent",
@@ -182,11 +192,7 @@ def build_x_chain_qir(n_instances: int, n_x: int) -> str:
     ],
 )
 def test_gpu_x_chain(
-    p_noise: float,
-    n_x: int,
-    n_instances: int,
-    n_shots: int,
-    max_percent: float
+    p_noise: float, n_x: int, n_instances: int, n_shots: int, max_percent: float
 ):
     """
     Simulate multi-instance X-chain with bitflip noise many times
@@ -198,18 +204,21 @@ def test_gpu_x_chain(
 
     qir = build_x_chain_qir(n_instances, n_x)
     output = run_qir_gpu(qir, shots=n_shots, noise=noise, seed=18)
-    histogram = [0 for _ in range(n_instances+1)]
+    histogram = [0 for _ in range(n_instances + 1)]
     for shot in output:
         shot_results = cast(Sequence[Result], shot)
         count_1 = shot_results.count(Result.One)
         histogram[count_1] += 1
 
     # Probability of obtaining 0 and 1 at the end of the X chain.
-    p_0 = ((2.0*p_noise - 1.0)**n_x + 1.0) / 2.0
+    p_0 = ((2.0 * p_noise - 1.0) ** n_x + 1.0) / 2.0
     p_1 = 1.0 - p_0
 
     # Number of results with k ones that should be there.
-    p_N = [p_0 ** ((n_instances-k)) * (p_1 ** k) * math.comb(n_instances, k) * n_shots for k in range(n_instances+1)]
+    p_N = [
+        p_0 ** ((n_instances - k)) * (p_1**k) * math.comb(n_instances, k) * n_shots
+        for k in range(n_instances + 1)
+    ]
 
     # Error % for deviation from analytical value
     error_percent = [abs(a - b) * 100.0 / n_shots for (a, b) in zip(histogram, p_N)]
