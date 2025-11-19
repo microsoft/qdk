@@ -11,6 +11,7 @@ const themeAttribute = "data-vscode-theme-kind";
 export function MoleculeViewer(props: {
   moleculeData: string;
   cubeData: { [key: string]: string };
+  isoValue?: number;
 }) {
   // Holds reference to the viewer div and 3Dmol viewer object.
   const viewerRef = useRef<HTMLDivElement>(null);
@@ -18,13 +19,8 @@ export function MoleculeViewer(props: {
   const activeCubeData = useRef([] as any[]);
 
   const [viewStyle, setViewStyle] = useState("Sphere");
-  const [isoval, setIsoval] = useState(0.02);
+  const [isoval, setIsoval] = useState(props.isoValue || 0.02);
   const [cubeKey, setCubeKey] = useState(Object.keys(props.cubeData)[0] || "");
-
-  console.log(
-    "MoleculeViewer rendered. cube keys:",
-    Object.keys(props.cubeData),
-  );
 
   // Runs after the DOM has been created. Create the 3Dmol viewer and adds the model.
   useEffect(() => {
@@ -67,7 +63,6 @@ export function MoleculeViewer(props: {
   }, [props.moleculeData]);
 
   useEffect(() => {
-    console.log("Updating viewer with style:", viewStyle, "isoval:", isoval);
     const currViewer = viewer.current;
     if (!currViewer) {
       return;
@@ -109,6 +104,11 @@ export function MoleculeViewer(props: {
       setCubeKey(Object.keys(props.cubeData)[0]);
     }
   }, [viewStyle, isoval, cubeKey, props.moleculeData, props.cubeData]);
+
+  // React to changes in the initial isovalue prop, just in case the widget updates state in parts.
+  useEffect(() => {
+    setIsoval(props.isoValue || 0.02);
+  }, [props.isoValue]);
 
   return (
     <div id="viewer-container">
@@ -165,6 +165,22 @@ export function MoleculeViewer(props: {
                   (e.target as HTMLInputElement).value,
                 );
                 setIsoval(new_isoval);
+              }}
+            />
+            <input
+              type="number"
+              id="isovalInput"
+              min="0.005"
+              max="0.1"
+              step="0.001"
+              value={isoval}
+              onInput={(e) => {
+                const new_isoval = parseFloat(
+                  (e.target as HTMLInputElement).value,
+                );
+                if (!isNaN(new_isoval)) {
+                  setIsoval(new_isoval);
+                }
               }}
             />
           </div>
