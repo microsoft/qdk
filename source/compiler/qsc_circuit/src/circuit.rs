@@ -242,6 +242,9 @@ pub struct Unitary {
     pub is_adjoint: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<SourceLocation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Only if this operation represents a scope group.
+    pub scope_location: Option<SourceLocation>,
 }
 
 /// Representation of a gate that will set the target to a specific state.

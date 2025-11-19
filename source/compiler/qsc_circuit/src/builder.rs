@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use crate::{
     ComponentColumn,
@@ -483,7 +483,7 @@ impl WireMap {
     pub fn qubit_wire(&self, qubit_id: usize) -> QubitWire {
         self.qubits
             .get(qubit_id)
-            .expect("qubit should already be mapped")
+            .unwrap_or_else(|| panic!("qubit {qubit_id} should already be mapped"))
             .to_owned()
     }
 
@@ -678,6 +678,7 @@ impl OperationOrGroup {
                 .collect(),
             is_adjoint,
             source: None,
+            scope_location: None,
         }))
     }
 
@@ -798,6 +799,7 @@ impl OperationOrGroup {
                 controls: vec![],
                 is_adjoint: false,
                 source: None,
+                scope_location: None,
             }),
         }
     }
@@ -879,11 +881,14 @@ impl OperationOrGroup {
                 scope_stack,
                 children,
             } => {
-                let label = scope_stack.resolve_scope(scope_resolver).name();
-                *self.op.gate_mut() = label;
-                let scope_location = scope_stack.resolve_scope(scope_resolver).location();
-                *self.op.source_mut() = Some(SourceLocation::Unresolved(scope_location));
-                *self.op.children_mut() = vec![ComponentColumn {
+                let Operation::Unitary(u) = &mut self.op else {
+                    panic!("group operation should be a unitary")
+                };
+                let scope = scope_stack.resolve_scope(scope_resolver);
+                let scope_location = scope.location();
+                u.gate = scope.name();
+                u.scope_location = Some(SourceLocation::Unresolved(scope_location));
+                u.children = vec![ComponentColumn {
                     components: children
                         .into_iter()
                         .map(|o| o.into_operation(scope_resolver))
@@ -891,26 +896,6 @@ impl OperationOrGroup {
                 }];
                 self.op
             }
-        }
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn name(&self, scope_resolver: &impl SourceLookup) -> String {
-        match &self.kind {
-            OperationOrGroupKind::Single => self.op.gate(),
-            OperationOrGroupKind::Group { scope_stack, .. } => scope_stack.fmt(scope_resolver),
-        }
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn children(&self) -> Option<&[Self]>
-    where
-        Self: std::marker::Sized,
-    {
-        if let OperationOrGroupKind::Group { children, .. } = &self.kind {
-            Some(children)
-        } else {
-            None
         }
     }
 }

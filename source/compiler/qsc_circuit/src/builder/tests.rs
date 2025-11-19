@@ -1,11 +1,17 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use std::vec;
+
 use super::*;
 use expect_test::expect;
 use qsc_data_structures::span::Span;
+use rustc_hash::FxHashMap;
 
-struct FakeCompilation {}
+#[derive(Default)]
+pub(crate) struct FakeCompilation {
+    scopes: Scopes,
+}
 
 impl SourceLookup for FakeCompilation {
     fn resolve_location(&self, package_offset: &PackageOffset) -> ResolvedSourceLocation {
@@ -21,61 +27,74 @@ impl SourceLookup for FakeCompilation {
     }
 
     fn resolve_scope(&self, scope_id: ScopeId) -> LexicalScope {
-        match usize::from(scope_id.0.item) {
-            FakeCompilation::USER_SCOPE_ITEM_ID => LexicalScope::Named {
-                name: "user_item".into(),
-                location: PackageOffset {
-                    package_id: Self::LIBRARY_PACKAGE_ID.into(),
-                    offset: 0,
-                },
+        let name = self
+            .scopes
+            .id_to_name
+            .get(&scope_id)
+            .expect("unknown scope id")
+            .clone();
+        LexicalScope::Named {
+            name,
+            location: PackageOffset {
+                package_id: scope_id.0.package,
+                offset: 0,
             },
-            FakeCompilation::LIBRARY_SCOPE_ITEM_ID => LexicalScope::Named {
-                name: "library_item".into(),
-                location: PackageOffset {
-                    package_id: Self::USER_PACKAGE_ID.into(),
-                    offset: 0,
-                },
-            },
-            _ => panic!("unexpected scope id"),
         }
     }
 }
 
 impl FakeCompilation {
     const LIBRARY_PACKAGE_ID: usize = 0;
-    const USER_PACKAGE_ID: usize = 2;
+    pub(crate) const USER_PACKAGE_ID: usize = 2;
 
-    const USER_SCOPE_ITEM_ID: usize = 10;
-    const LIBRARY_SCOPE_ITEM_ID: usize = 11;
-
-    fn user_package_ids() -> Vec<PackageId> {
+    pub(crate) fn user_package_ids() -> Vec<PackageId> {
         vec![Self::USER_PACKAGE_ID.into()]
     }
 
-    fn library_frame(offset: u32) -> Frame {
-        Self::frame(
-            Self::LIBRARY_PACKAGE_ID,
-            Self::LIBRARY_SCOPE_ITEM_ID,
-            offset,
-        )
+    fn library_frame(&mut self, offset: u32) -> Frame {
+        let scope_id = self
+            .scopes
+            .get_or_create_scope(Self::LIBRARY_PACKAGE_ID, "library_item");
+        Self::frame(scope_id, offset)
     }
 
-    fn user_code_frame(offset: u32) -> Frame {
-        Self::frame(Self::USER_PACKAGE_ID, Self::USER_SCOPE_ITEM_ID, offset)
+    pub(crate) fn user_code_frame(&mut self, name: &str, offset: u32) -> Frame {
+        let scope_id = self.scopes.get_or_create_scope(Self::USER_PACKAGE_ID, name);
+        Self::frame(scope_id, offset)
     }
 
-    fn frame(package_id: usize, scope_item_id: usize, offset: u32) -> Frame {
+    fn frame(scope_item_id: ScopeId, offset: u32) -> Frame {
         Frame {
             span: Span {
                 lo: offset,
                 hi: offset + 1,
             },
-            id: qsc_fir::fir::StoreItemId {
+            id: scope_item_id.0,
+            caller: PackageId::CORE,     // unused
+            functor: Default::default(), // unused
+        }
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct Scopes {
+    id_to_name: FxHashMap<ScopeId, Rc<str>>,
+    name_to_id: FxHashMap<Rc<str>, ScopeId>,
+}
+
+impl Scopes {
+    fn get_or_create_scope(&mut self, package_id: usize, name: &str) -> ScopeId {
+        let name: Rc<str> = name.into();
+        if let Some(scope_id) = self.name_to_id.get(&name) {
+            *scope_id
+        } else {
+            let scope_id = ScopeId(StoreItemId {
                 package: package_id.into(),
-                item: scope_item_id.into(),
-            },
-            caller: PackageId::CORE,
-            functor: Default::default(),
+                item: self.id_to_name.len().into(),
+            });
+            self.id_to_name.insert(scope_id, name.clone());
+            self.name_to_id.insert(name.clone(), scope_id);
+            scope_id
         }
     }
 }
@@ -97,7 +116,7 @@ fn exceed_max_operations() {
     builder.gate(&[], "X", false, &[0], &[], None);
     builder.gate(&[], "X", false, &[0], &[], None);
 
-    let circuit = builder.finish(&FakeCompilation {});
+    let circuit = builder.finish(&FakeCompilation::default());
 
     // The current behavior is to silently truncate the circuit
     // if it exceeds the maximum allowed number of operations.
@@ -109,6 +128,7 @@ fn exceed_max_operations() {
 
 #[test]
 fn source_locations_enabled() {
+    let mut c = FakeCompilation::default();
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 10,
@@ -121,7 +141,7 @@ fn source_locations_enabled() {
     builder.qubit_allocate(&[], 0);
 
     builder.gate(
-        &[FakeCompilation::user_code_frame(10)],
+        &[c.user_code_frame("Main", 10)],
         "X",
         false,
         &[0],
@@ -129,7 +149,7 @@ fn source_locations_enabled() {
         None,
     );
 
-    let circuit = builder.finish(&FakeCompilation {});
+    let circuit = builder.finish(&c);
 
     expect![[r#"
         q_0    ─ X@user_code.qs:0:10 ─
@@ -145,6 +165,7 @@ fn source_locations_enabled() {
 
 #[test]
 fn source_locations_disabled() {
+    let mut c = FakeCompilation::default();
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 10,
@@ -157,7 +178,7 @@ fn source_locations_disabled() {
     builder.qubit_allocate(&[], 0);
 
     builder.gate(
-        &[FakeCompilation::user_code_frame(10)],
+        &[c.user_code_frame("Main", 10)],
         "X",
         false,
         &[0],
@@ -165,7 +186,7 @@ fn source_locations_disabled() {
         None,
     );
 
-    let circuit = builder.finish(&FakeCompilation {});
+    let circuit = builder.finish(&c);
 
     expect![[r#"
         q_0    ── X ──
@@ -175,6 +196,7 @@ fn source_locations_disabled() {
 
 #[test]
 fn source_locations_multiple_user_frames() {
+    let mut c = FakeCompilation::default();
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 10,
@@ -187,10 +209,7 @@ fn source_locations_multiple_user_frames() {
     builder.qubit_allocate(&[], 0);
 
     builder.gate(
-        &[
-            FakeCompilation::user_code_frame(10),
-            FakeCompilation::user_code_frame(20),
-        ],
+        &[c.user_code_frame("Main", 10), c.user_code_frame("Main", 20)],
         "X",
         false,
         &[0],
@@ -198,7 +217,7 @@ fn source_locations_multiple_user_frames() {
         None,
     );
 
-    let circuit = builder.finish(&FakeCompilation {});
+    let circuit = builder.finish(&c);
 
     // Use the most current user frame for the source location.
     expect![[r#"
@@ -215,6 +234,7 @@ fn source_locations_multiple_user_frames() {
 
 #[test]
 fn source_locations_library_frames_excluded() {
+    let mut c = FakeCompilation::default();
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 10,
@@ -226,10 +246,7 @@ fn source_locations_library_frames_excluded() {
 
     builder.qubit_allocate(&[], 0);
     builder.gate(
-        &[
-            FakeCompilation::user_code_frame(10),
-            FakeCompilation::library_frame(20),
-        ],
+        &[c.user_code_frame("Main", 10), c.library_frame(20)],
         "X",
         false,
         &[0],
@@ -237,7 +254,7 @@ fn source_locations_library_frames_excluded() {
         None,
     );
 
-    let circuit = builder.finish(&FakeCompilation {});
+    let circuit = builder.finish(&c);
 
     // Most recent frame is a library frame - source
     // location should fall back to the nearest user frame.
@@ -249,6 +266,7 @@ fn source_locations_library_frames_excluded() {
 
 #[test]
 fn source_locations_only_library_frames() {
+    let mut c = FakeCompilation::default();
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 10,
@@ -261,10 +279,7 @@ fn source_locations_only_library_frames() {
     builder.qubit_allocate(&[], 0);
 
     builder.gate(
-        &[
-            FakeCompilation::library_frame(20),
-            FakeCompilation::library_frame(30),
-        ],
+        &[c.library_frame(20), c.library_frame(30)],
         "X",
         false,
         &[0],
@@ -272,7 +287,7 @@ fn source_locations_only_library_frames() {
         None,
     );
 
-    let circuit = builder.finish(&FakeCompilation {});
+    let circuit = builder.finish(&c);
 
     // Only library frames, no user source to show
     expect![[r#"
@@ -283,6 +298,7 @@ fn source_locations_only_library_frames() {
 
 #[test]
 fn source_locations_enabled_no_stack() {
+    let c = FakeCompilation::default();
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 10,
@@ -296,7 +312,7 @@ fn source_locations_enabled_no_stack() {
 
     builder.gate(&[], "X", false, &[0], &[], None);
 
-    let circuit = builder.finish(&FakeCompilation {});
+    let circuit = builder.finish(&c);
 
     // No stack was passed, so no source location to show
     expect![[r#"
@@ -307,6 +323,7 @@ fn source_locations_enabled_no_stack() {
 
 #[test]
 fn qubit_source_locations_via_stack() {
+    let mut c = FakeCompilation::default();
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 10,
@@ -316,11 +333,11 @@ fn qubit_source_locations_via_stack() {
         &FakeCompilation::user_package_ids(),
     );
 
-    builder.qubit_allocate(&[FakeCompilation::user_code_frame(10)], 0);
+    builder.qubit_allocate(&[c.user_code_frame("Main", 10)], 0);
 
     builder.gate(&[], "X", false, &[0], &[], None);
 
-    let circuit = builder.finish(&FakeCompilation {});
+    let circuit = builder.finish(&c);
 
     expect![[r#"
         q_0@user_code.qs:0:10 ── X ──
@@ -330,6 +347,7 @@ fn qubit_source_locations_via_stack() {
 
 #[test]
 fn qubit_labels_for_preallocated_qubits() {
+    let mut c = FakeCompilation::default();
     let mut builder = CircuitTracer::with_qubit_input_params(
         TracerConfig {
             max_operations: 10,
@@ -349,7 +367,7 @@ fn qubit_labels_for_preallocated_qubits() {
     builder.qubit_allocate(&[], 0);
 
     builder.gate(
-        &[FakeCompilation::user_code_frame(20)],
+        &[c.user_code_frame("Main", 20)],
         "X",
         false,
         &[0],
@@ -357,7 +375,7 @@ fn qubit_labels_for_preallocated_qubits() {
         None,
     );
 
-    let circuit = builder.finish(&FakeCompilation {});
+    let circuit = builder.finish(&c);
 
     expect![[r#"
         q_0@user_code.qs:0:10 ─ X@user_code.qs:0:20 ─

@@ -40,35 +40,6 @@ impl ScopeStack {
             scope_resolver.resolve_scope(self.scope)
         }
     }
-
-    #[allow(dead_code)]
-    pub fn fmt(&self, scope_resolver: &impl SourceLookup) -> String {
-        if self.is_top() {
-            return "<top>".to_string();
-        }
-
-        let call_stack = self.caller();
-
-        let mut names: Vec<String> = call_stack
-            .iter()
-            .map(|location| fmt_location(location, scope_resolver))
-            .collect();
-        names.push(
-            scope_resolver
-                .resolve_scope(self.current_lexical_scope())
-                .name(),
-        );
-        names.join("->")
-    }
-}
-
-fn fmt_location(location: &SourceLocationMetadata, scope_resolver: &impl SourceLookup) -> String {
-    let scope_id = &location.lexical_scope();
-    format!(
-        "{}@{}",
-        scope_resolver.resolve_scope(*scope_id).name(),
-        location.source_location().offset
-    )
 }
 
 /// full is a call stack

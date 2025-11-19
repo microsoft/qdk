@@ -66,6 +66,7 @@ fn unitary(gate: &str, targets: Vec<Register>) -> Operation {
         targets,
         children: vec![],
         source: None,
+        scope_location: None,
     })
 }
 
@@ -78,6 +79,7 @@ fn ctl_unitary(gate: &str, targets: Vec<Register>, controls: Vec<Register>) -> O
         targets,
         children: vec![],
         source: None,
+        scope_location: None,
     })
 }
 
@@ -241,6 +243,7 @@ fn with_args() {
             targets: vec![Register::quantum(0)],
             children: vec![],
             source: None,
+            scope_location: None,
         })]]),
     };
 
@@ -262,6 +265,7 @@ fn two_targets() {
             targets: vec![Register::quantum(0), Register::quantum(2)],
             children: vec![],
             source: None,
+            scope_location: None,
         })]]),
     };
 
