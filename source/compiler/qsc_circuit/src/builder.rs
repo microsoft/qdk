@@ -11,7 +11,7 @@ use crate::{
         ResolvedSourceLocation, SourceLocation, Unitary, operation_list_to_grid,
     },
     operations::QubitParam,
-    rir_to_circuit::{ScopeLookup, ScopeStack, scope_stack, strip_scope_stack_prefix},
+    rir_to_circuit::{ScopeStack, scope_stack, strip_scope_stack_prefix},
 };
 use qsc_data_structures::{
     index_map::IndexMap,
@@ -202,24 +202,12 @@ impl CircuitTracer {
     }
 
     #[must_use]
-    pub fn snapshot(
-        &self,
-        source_lookup: &impl SourceLookup,
-        scope_lookup: &impl ScopeLookup,
-    ) -> Circuit {
-        self.finish_circuit(
-            self.circuit_builder.operations(),
-            source_lookup,
-            scope_lookup,
-        )
+    pub fn snapshot(&self, source_lookup: &impl SourceLookup) -> Circuit {
+        self.finish_circuit(self.circuit_builder.operations(), source_lookup)
     }
 
     #[must_use]
-    pub fn finish(
-        mut self,
-        source_lookup: &impl SourceLookup,
-        scope_lookup: &impl ScopeLookup,
-    ) -> Circuit {
+    pub fn finish(mut self, source_lookup: &impl SourceLookup) -> Circuit {
         let ops = replace(
             &mut self.circuit_builder,
             OperationListBuilder::new(
@@ -231,18 +219,17 @@ impl CircuitTracer {
         )
         .into_operations();
 
-        self.finish_circuit(&ops, source_lookup, scope_lookup)
+        self.finish_circuit(&ops, source_lookup)
     }
 
     fn finish_circuit(
         &self,
         operations: &[OperationOrGroup],
         source_lookup: &impl SourceLookup,
-        scope_lookup: &impl ScopeLookup,
     ) -> Circuit {
         let operations = operations
             .iter()
-            .map(|o| o.clone().into_operation(scope_lookup))
+            .map(|o| o.clone().into_operation(source_lookup))
             .collect();
 
         finish_circuit(self.wire_map_builder.current(), operations, source_lookup)
@@ -369,6 +356,7 @@ pub(crate) fn finish_circuit(
 
 pub trait SourceLookup {
     fn resolve_location(&self, package_offset: &PackageOffset) -> ResolvedSourceLocation;
+    fn resolve_scope(&self, scope: ScopeId) -> LexicalScope;
 }
 
 impl SourceLookup for PackageStore {
@@ -392,6 +380,34 @@ impl SourceLookup for PackageStore {
             file: source.name.to_string(),
             line: pos.line,
             column: pos.column,
+        }
+    }
+
+    fn resolve_scope(&self, scope_id: ScopeId) -> LexicalScope {
+        let package = self
+            .get(map_fir_package_to_hir(scope_id.0.package))
+            .expect("package id must exist in store");
+
+        let item = package
+            .package
+            .items
+            .get(map_fir_local_item_to_hir(scope_id.0.item))
+            .expect("item id must exist in package");
+
+        let (scope_offset, scope_name) = match &item.kind {
+            hir::ItemKind::Callable(callable_decl) => {
+                // TODO: test with simulatable intrinsics and adjoint / controlled specializations
+                (callable_decl.body.span.lo, callable_decl.name.name.clone())
+            }
+            _ => panic!("only callables should be in the stack"),
+        };
+
+        LexicalScope::Named {
+            location: PackageOffset {
+                package_id: scope_id.0.package,
+                offset: scope_offset,
+            },
+            name: scope_name,
         }
     }
 }
@@ -856,7 +872,7 @@ impl OperationOrGroup {
             .replace(SourceLocation::Unresolved(location));
     }
 
-    fn into_operation(mut self, scope_resolver: &impl ScopeLookup) -> Operation {
+    fn into_operation(mut self, scope_resolver: &impl SourceLookup) -> Operation {
         match self.kind {
             OperationOrGroupKind::Single => self.op,
             OperationOrGroupKind::Group {
@@ -879,7 +895,7 @@ impl OperationOrGroup {
     }
 
     #[allow(dead_code)]
-    pub(crate) fn name(&self, scope_resolver: &impl ScopeLookup) -> String {
+    pub(crate) fn name(&self, scope_resolver: &impl SourceLookup) -> String {
         match &self.kind {
             OperationOrGroupKind::Single => self.op.gate(),
             OperationOrGroupKind::Group { scope_stack, .. } => scope_stack.fmt(scope_resolver),
@@ -1156,36 +1172,6 @@ fn retain_user_frames(
     });
 
     location_stack
-}
-
-impl ScopeLookup for PackageStore {
-    fn resolve_scope(&self, scope_id: ScopeId) -> LexicalScope {
-        let package = self
-            .get(map_fir_package_to_hir(scope_id.0.package))
-            .expect("package id must exist in store");
-
-        let item = package
-            .package
-            .items
-            .get(map_fir_local_item_to_hir(scope_id.0.item))
-            .expect("item id must exist in package");
-
-        let (scope_offset, scope_name) = match &item.kind {
-            hir::ItemKind::Callable(callable_decl) => {
-                // TODO: test with simulatable intrinsics and adjoint / controlled specializations
-                (callable_decl.body.span.lo, callable_decl.name.name.clone())
-            }
-            _ => panic!("only callables should be in the stack"),
-        };
-
-        LexicalScope::Named {
-            location: PackageOffset {
-                package_id: scope_id.0.package,
-                offset: scope_offset,
-            },
-            name: scope_name,
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

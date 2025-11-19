@@ -4,7 +4,7 @@
 #[cfg(test)]
 mod tests;
 
-use crate::builder::{LexicalScope, ScopeId, SourceLocationMetadata};
+use crate::builder::{LexicalScope, ScopeId, SourceLocationMetadata, SourceLookup};
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ScopeStack {
@@ -33,7 +33,7 @@ impl ScopeStack {
         }
     }
 
-    pub(crate) fn resolve_scope(&self, scope_resolver: &impl ScopeLookup) -> LexicalScope {
+    pub(crate) fn resolve_scope(&self, scope_resolver: &impl SourceLookup) -> LexicalScope {
         if self.is_top() {
             LexicalScope::top()
         } else {
@@ -42,7 +42,7 @@ impl ScopeStack {
     }
 
     #[allow(dead_code)]
-    pub fn fmt(&self, scope_resolver: &impl ScopeLookup) -> String {
+    pub fn fmt(&self, scope_resolver: &impl SourceLookup) -> String {
         if self.is_top() {
             return "<top>".to_string();
         }
@@ -62,17 +62,13 @@ impl ScopeStack {
     }
 }
 
-fn fmt_location(location: &SourceLocationMetadata, scope_resolver: &impl ScopeLookup) -> String {
+fn fmt_location(location: &SourceLocationMetadata, scope_resolver: &impl SourceLookup) -> String {
     let scope_id = &location.lexical_scope();
     format!(
         "{}@{}",
         scope_resolver.resolve_scope(*scope_id).name(),
         location.source_location().offset
     )
-}
-
-pub trait ScopeLookup {
-    fn resolve_scope(&self, scope: ScopeId) -> LexicalScope;
 }
 
 /// full is a call stack

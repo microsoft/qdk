@@ -19,9 +19,7 @@ impl SourceLookup for FakeCompilation {
             column: package_offset.offset,
         }
     }
-}
 
-impl ScopeLookup for FakeCompilation {
     fn resolve_scope(&self, scope_id: ScopeId) -> LexicalScope {
         match usize::from(scope_id.0.item) {
             FakeCompilation::USER_SCOPE_ITEM_ID => LexicalScope::Named {
@@ -99,7 +97,7 @@ fn exceed_max_operations() {
     builder.gate(&[], "X", false, &[0], &[], None);
     builder.gate(&[], "X", false, &[0], &[], None);
 
-    let circuit = builder.finish(&FakeCompilation {}, &FakeCompilation {});
+    let circuit = builder.finish(&FakeCompilation {});
 
     // The current behavior is to silently truncate the circuit
     // if it exceeds the maximum allowed number of operations.
@@ -131,7 +129,7 @@ fn source_locations_enabled() {
         None,
     );
 
-    let circuit = builder.finish(&FakeCompilation {}, &FakeCompilation {});
+    let circuit = builder.finish(&FakeCompilation {});
 
     expect![[r#"
         q_0    ─ X@user_code.qs:0:10 ─
@@ -167,7 +165,7 @@ fn source_locations_disabled() {
         None,
     );
 
-    let circuit = builder.finish(&FakeCompilation {}, &FakeCompilation {});
+    let circuit = builder.finish(&FakeCompilation {});
 
     expect![[r#"
         q_0    ── X ──
@@ -200,7 +198,7 @@ fn source_locations_multiple_user_frames() {
         None,
     );
 
-    let circuit = builder.finish(&FakeCompilation {}, &FakeCompilation {});
+    let circuit = builder.finish(&FakeCompilation {});
 
     // Use the most current user frame for the source location.
     expect![[r#"
@@ -239,7 +237,7 @@ fn source_locations_library_frames_excluded() {
         None,
     );
 
-    let circuit = builder.finish(&FakeCompilation {}, &FakeCompilation {});
+    let circuit = builder.finish(&FakeCompilation {});
 
     // Most recent frame is a library frame - source
     // location should fall back to the nearest user frame.
@@ -274,7 +272,7 @@ fn source_locations_only_library_frames() {
         None,
     );
 
-    let circuit = builder.finish(&FakeCompilation {}, &FakeCompilation {});
+    let circuit = builder.finish(&FakeCompilation {});
 
     // Only library frames, no user source to show
     expect![[r#"
@@ -298,7 +296,7 @@ fn source_locations_enabled_no_stack() {
 
     builder.gate(&[], "X", false, &[0], &[], None);
 
-    let circuit = builder.finish(&FakeCompilation {}, &FakeCompilation {});
+    let circuit = builder.finish(&FakeCompilation {});
 
     // No stack was passed, so no source location to show
     expect![[r#"
@@ -322,7 +320,7 @@ fn qubit_source_locations_via_stack() {
 
     builder.gate(&[], "X", false, &[0], &[], None);
 
-    let circuit = builder.finish(&FakeCompilation {}, &FakeCompilation {});
+    let circuit = builder.finish(&FakeCompilation {});
 
     expect![[r#"
         q_0@user_code.qs:0:10 ── X ──
@@ -359,7 +357,7 @@ fn qubit_labels_for_preallocated_qubits() {
         None,
     );
 
-    let circuit = builder.finish(&FakeCompilation {}, &FakeCompilation {});
+    let circuit = builder.finish(&FakeCompilation {});
 
     expect![[r#"
         q_0@user_code.qs:0:10 ─ X@user_code.qs:0:20 ─

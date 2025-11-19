@@ -9,10 +9,9 @@ use std::{
 use crate::{
     builder::{
         LexicalScope, OperationListBuilder, OperationOrGroup, QubitWire, ScopeId,
-        SourceLocationMetadata,
+        SourceLocationMetadata, SourceLookup,
     },
     circuit::PackageOffset,
-    rir_to_circuit::ScopeLookup,
 };
 use expect_test::{Expect, expect};
 use indenter::indented;
@@ -84,7 +83,7 @@ impl Scopes {
     }
 }
 
-impl ScopeLookup for Scopes {
+impl SourceLookup for Scopes {
     fn resolve_scope(&self, scope: ScopeId) -> crate::builder::LexicalScope {
         let name = self
             .id_to_name
@@ -98,6 +97,13 @@ impl ScopeLookup for Scopes {
                 offset: 0,
             },
         }
+    }
+
+    fn resolve_location(
+        &self,
+        _package_offset: &PackageOffset,
+    ) -> crate::circuit::ResolvedSourceLocation {
+        unimplemented!()
     }
 }
 
@@ -325,7 +331,7 @@ fn fmt_ops(
     f: &mut impl Write,
     indent_level: usize,
     ops: &[OperationOrGroup],
-    scope_resolver: &impl ScopeLookup,
+    scope_resolver: &impl SourceLookup,
 ) -> fmt::Result {
     let mut iter = ops.iter().peekable();
     if iter.peek().is_none() {
@@ -345,7 +351,7 @@ fn fmt_op(
     f: &mut impl Write,
     indent_level: usize,
     op: &OperationOrGroup,
-    scope_resolver: &impl ScopeLookup,
+    scope_resolver: &impl SourceLookup,
 ) -> fmt::Result {
     if let Some(scope_stack) = op.scope_stack_if_group() {
         write!(
