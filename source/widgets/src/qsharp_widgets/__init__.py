@@ -231,12 +231,15 @@ class MoleculeViewer(anywidget.AnyWidget):
     comp = traitlets.Unicode("MoleculeViewer").tag(sync=True)
     molecule_data = traitlets.Unicode().tag(sync=True)
     cube_data = traitlets.Dict().tag(sync=True)
+    isoval = traitlets.Float(0.02).tag(sync=True)
 
-    def __init__(self, molecule_data, cube_data={}):
+    def __init__(self, molecule_data, cube_data={}, isoval=0.02):
         """
         This function generates a 3D molecule viewer for the provided molecular data in XYZ format.
 
         Parameters:
         - molecule_data: string containing the molecular data in XYZ format.
         """
-        super().__init__(molecule_data=molecule_data, cube_data=cube_data)
+        super().__init__(
+            molecule_data=molecule_data, cube_data=cube_data, isoval=isoval
+        )

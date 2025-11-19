@@ -33,14 +33,20 @@
   padding-left: 4px;
 }
 
+.view-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .view-option label {
-  margin-right: 6px;
+  margin-right: 0;
+  white-space: nowrap;
+  min-width: 120px;
 }
 
 .view-option select,
 .view-option input[type="range"] {
-  position: absolute;
-  left: 10em;
   color: var(--vscode-editor-foreground);
   background-color: var(--vscode-editor-background);
 }
@@ -68,6 +74,10 @@
 }
 
 #isovalSlider {
-  width: 150px;
+  width: 100px;
   outline: none;
+}
+
+#isovalInput {
+  width: 64px;
 }

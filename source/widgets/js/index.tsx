@@ -292,10 +292,12 @@ function renderMoleculeViewer({ model, el }: RenderArgs) {
   const onChange = () => {
     const moleculeData = model.get("molecule_data") as string;
     const cubeData = model.get("cube_data") as { [key: string]: string };
+    const isoval = model.get("isoval") as number;
     prender(
       <MoleculeViewer
         moleculeData={moleculeData}
         cubeData={cubeData || {}}
+        isoValue={isoval}
       ></MoleculeViewer>,
       el,
     );
@@ -303,4 +305,5 @@ function renderMoleculeViewer({ model, el }: RenderArgs) {
   onChange();
   model.on("change:molecule_data", onChange);
   model.on("change:cube_data", onChange);
+  model.on("change:isoval", onChange);
 }
