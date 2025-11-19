@@ -47,7 +47,7 @@ pub fn run_clifford<'py>(
     let output = (0..shots)
         .collect::<Vec<_>>()
         .par_iter()
-        .map(|_| run_clifford_shot(&instructions, num_qubits, num_results, noise))
+        .map(|_| run_clifford_shot(&instructions, num_qubits, num_results, &noise))
         .collect::<Vec<_>>();
 
     // convert results to a string with one line per shot
@@ -82,9 +82,9 @@ fn run_clifford_shot(
     instructions: &Vec<QirInstruction>,
     num_qubits: u32,
     num_results: u32,
-    noise: qdk_simulators::noise_config::NoiseConfig,
+    noise: &qdk_simulators::noise_config::NoiseConfig,
 ) -> Vec<MeasurementResult> {
-    let mut sim = Simulator::new(num_qubits as usize, num_results as usize, noise);
+    let mut sim = Simulator::new(num_qubits as usize, num_results as usize, *noise);
     for op in instructions {
         match op {
             QirInstruction::OneQubitGate(id, qubit) => match id {
