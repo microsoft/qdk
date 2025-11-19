@@ -9,7 +9,6 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 use std::cmp::max;
 use std::{
-    cmp::{self},
     fmt::{Display, Write},
     hash::Hash,
     ops::Not,
@@ -340,10 +339,12 @@ struct Row {
 }
 
 enum Wire {
+    None,
     Qubit { label: String },
     Classical { start_column: Option<usize> },
 }
 
+#[derive(Debug)]
 enum CircuitObject {
     Blank,
     Wire,
@@ -401,6 +402,7 @@ impl Row {
     fn add_vertical(&mut self, column: usize) {
         if !self.objects.contains_key(&column) {
             match self.wire {
+                Wire::None => self.add(column, CircuitObject::Vertical),
                 Wire::Qubit { .. } => self.add(column, CircuitObject::WireCross),
                 Wire::Classical { start_column } => {
                     if start_column.is_some() {
@@ -416,6 +418,7 @@ impl Row {
     fn add_dashed_vertical(&mut self, column: usize) {
         if !self.objects.contains_key(&column) {
             match self.wire {
+                Wire::None => self.add(column, CircuitObject::VerticalDashed),
                 Wire::Qubit { .. } => self.add(column, CircuitObject::DashedCross),
                 Wire::Classical { start_column } => {
                     if start_column.is_some() {
@@ -444,26 +447,31 @@ impl Row {
         // Temporary string so we can trim whitespace at the end
         let mut s = String::new();
         match &self.wire {
+            Wire::None => {
+                for (column_index, column) in columns.iter().enumerate() {
+                    let obj = self.objects.get(&column_index);
+                    s.write_str(&column.fmt_object(obj))?;
+                }
+            }
             Wire::Qubit { label } => {
                 s.write_str(&fmt_qubit_label(label))?;
                 for (column_index, column) in columns.iter().enumerate().skip(1) {
-                    let val = self.objects.get(&column_index);
-                    let object = val.unwrap_or(&CircuitObject::Wire);
+                    let obj = self.objects.get(&column_index);
 
-                    s.write_str(&column.fmt_qubit_circuit_object(object))?;
+                    s.write_str(&column.fmt_object_on_qubit_wire(obj))?;
                 }
             }
             Wire::Classical { start_column } => {
                 for (column_index, column) in columns.iter().enumerate() {
-                    let val = self.objects.get(&column_index);
+                    let obj = self.objects.get(&column_index);
 
-                    let object = match (val, start_column) {
-                        (Some(v), _) => v,
-                        (None, Some(s)) if column_index > *s => &CircuitObject::Wire,
-                        _ => &CircuitObject::Blank,
-                    };
-
-                    s.write_str(&column.fmt_classical_circuit_object(object))?;
+                    if let Some(start) = *start_column
+                        && column_index > start
+                    {
+                        s.write_str(&column.fmt_object_on_classical_wire(obj))?;
+                    } else {
+                        s.write_str(&column.fmt_object(obj))?;
+                    }
                 }
             }
         }
@@ -517,6 +525,12 @@ impl Column {
         format!("{:═^column_width$}", format!(" {obj} "))
     }
 
+    /// "   A   "
+    fn fmt_on_blank(&self, obj: &str) -> String {
+        let column_width = self.column_width;
+        format!("{: ^column_width$}", format!(" {obj} "))
+    }
+
     fn expand_template(&self, template: &[char; 3]) -> String {
         let half_width = self.column_width / 2;
         let left = template[0].to_string().repeat(half_width);
@@ -525,39 +539,59 @@ impl Column {
         format!("{left}{}{right}", template[1])
     }
 
-    fn fmt_classical_circuit_object(&self, circuit_object: &CircuitObject) -> String {
+    fn fmt_object_on_classical_wire(&self, circuit_object: Option<&CircuitObject>) -> String {
+        let circuit_object = circuit_object.unwrap_or(&CircuitObject::Wire);
+
         if let CircuitObject::Object(label) = circuit_object {
             return self.fmt_on_classical_wire(label.as_str());
         }
 
         let template = match circuit_object {
-            CircuitObject::Blank => BLANK,
             CircuitObject::Wire => CLASSICAL_WIRE,
             CircuitObject::WireCross => CLASSICAL_WIRE_CROSS,
             CircuitObject::WireStart => CLASSICAL_WIRE_START,
             CircuitObject::DashedCross => CLASSICAL_WIRE_DASHED_CROSS,
-            CircuitObject::Vertical => VERTICAL,
-            CircuitObject::VerticalDashed => VERTICAL_DASHED,
-            CircuitObject::Object(_) => unreachable!("This case is covered in the early return."),
+            CircuitObject::Vertical
+            | CircuitObject::VerticalDashed
+            | CircuitObject::Blank
+            | CircuitObject::Object(_) => unreachable!(),
         };
 
         self.expand_template(&template)
     }
 
-    fn fmt_qubit_circuit_object(&self, circuit_object: &CircuitObject) -> String {
+    fn fmt_object_on_qubit_wire(&self, circuit_object: Option<&CircuitObject>) -> String {
+        let circuit_object = circuit_object.unwrap_or(&CircuitObject::Wire);
         if let CircuitObject::Object(label) = circuit_object {
             return self.fmt_on_qubit_wire(label.as_str());
         }
 
         let template = match circuit_object {
-            CircuitObject::WireStart // This should never happen
-            | CircuitObject::Blank => BLANK,
             CircuitObject::Wire => QUBIT_WIRE,
             CircuitObject::WireCross => QUBIT_WIRE_CROSS,
             CircuitObject::DashedCross => QUBIT_WIRE_DASHED_CROSS,
+            CircuitObject::Vertical
+            | CircuitObject::WireStart
+            | CircuitObject::VerticalDashed
+            | CircuitObject::Blank
+            | CircuitObject::Object(_) => unreachable!(),
+        };
+
+        self.expand_template(&template)
+    }
+
+    fn fmt_object(&self, circuit_object: Option<&CircuitObject>) -> String {
+        let circuit_object = circuit_object.unwrap_or(&CircuitObject::Blank);
+        if let CircuitObject::Object(label) = circuit_object {
+            return self.fmt_on_blank(label.as_str());
+        }
+
+        let template = match circuit_object {
+            CircuitObject::WireStart => CLASSICAL_WIRE_START,
+            CircuitObject::Blank => BLANK,
             CircuitObject::Vertical => VERTICAL,
             CircuitObject::VerticalDashed => VERTICAL_DASHED,
-            CircuitObject::Object(_) => unreachable!("This case is covered in the early return."),
+            o => unreachable!("Unexpected object on blank row: {:?}", o),
         };
 
         self.expand_template(&template)
@@ -669,16 +703,7 @@ impl CircuitDisplay<'_> {
 
             register_to_row.insert((q.id, None), rows.len() - 1);
 
-            // If this qubit has no children, but it is in a multi-qubit operation with
-            // the next qubit, we add an empty row to make room for the vertical connector.
-            // We can just use a classical wire type for this row since the wire won't actually be rendered.
-            let extra_rows = if qubits_with_gap_row_below.contains(&q.id) {
-                cmp::max(1, q.num_results)
-            } else {
-                q.num_results
-            };
-
-            for i in 0..extra_rows {
+            for i in 0..q.num_results {
                 rows.push(Row {
                     wire: Wire::Classical { start_column: None },
                     objects: FxHashMap::default(),
@@ -687,6 +712,17 @@ impl CircuitDisplay<'_> {
                 });
 
                 register_to_row.insert((q.id, Some(i)), rows.len() - 1);
+            }
+
+            // If this qubit has no children, but it is in a multi-qubit operation with
+            // the next qubit, we add an empty row to make room for the vertical connector.
+            if qubits_with_gap_row_below.contains(&q.id) && q.num_results == 0 {
+                rows.push(Row {
+                    wire: Wire::None,
+                    objects: FxHashMap::default(),
+                    next_column: 1,
+                    render_locations: self.render_locations,
+                });
             }
         }
     }

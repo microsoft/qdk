@@ -6,7 +6,6 @@ use expect_test::{Expect, expect};
 use qsc_eval::backend::Tracer;
 
 fn check(instructions: &'static [(&'static [(&'static str, u32)], &'static str)], expect: &Expect) {
-    let qubit_id = 0;
     let mut tracer = CircuitTracer::new(
         TracerConfig {
             max_operations: usize::MAX,
@@ -15,9 +14,14 @@ fn check(instructions: &'static [(&'static [(&'static str, u32)], &'static str)]
         },
         &FakeCompilation::user_package_ids(),
     );
-    tracer.qubit_allocate(&[], qubit_id);
     let mut c = FakeCompilation::default();
 
+    let qubit_id = 0;
+
+    // Allocate qubit 0
+    tracer.qubit_allocate(&[], qubit_id);
+
+    // Trace each instruction, applying it to qubit 0
     for i in instructions {
         let stack =
             i.0.iter()
