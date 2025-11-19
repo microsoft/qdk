@@ -168,7 +168,7 @@ struct DiagnosticData {
 var<storage, read_write> diagnostics: DiagnosticData;
 
 struct Uniforms {
-    batch_start_shot_id: u32,
+    batch_start_shot_id: i32,
     rng_seed: u32,
 }
 
@@ -209,7 +209,7 @@ fn reset_all(shot_idx: i32) {
 
     // One of the main goals of the shot_id is to seed the RNG state uniquely per shot
     let rng_seed = uniforms.rng_seed;
-    let shot_id = uniforms.batch_start_shot_id + u32(shot_idx);
+    let shot_id = u32(uniforms.batch_start_shot_id + shot_idx);
 
     // Zero init all the existing shot data
     *shot = ShotData();

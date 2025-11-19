@@ -31,9 +31,9 @@ pub fn try_create_gpu_adapter() -> PyResult<String> {
 pub fn run_parallel_shots<'py>(
     py: Python<'py>,
     input: &Bound<'py, PyList>,
-    shots: u32,
-    qubit_count: u32,
-    result_count: u32,
+    shots: i32,
+    qubit_count: i32,
+    result_count: i32,
     noise_config: Option<&Bound<'py, NoiseConfig>>,
     seed: Option<u32>,
 ) -> PyResult<PyObject> {
@@ -93,17 +93,19 @@ pub fn run_parallel_shots<'py>(
             .map_err(PyRuntimeError::new_err)?;
 
     // Collect and format the results into a Python list of strings
+    let result_count: usize = result_count
+        .try_into()
+        .map_err(|e| PyValueError::new_err(format!("invalid result count {result_count}: {e}")))?;
 
     // Turn each shot's results into a string, with '0' for 0, '1' for 1, and 'L' for lost qubits
     // The results are a flat list of u32, with each shot's results in sequence + one error code,
     // so we need to chunk them up accordingly
     let str_results = sim_results
-        .chunks((result_count + 1) as usize)
-        .map(|chunk| &chunk[..result_count as usize])
+        .chunks(result_count + 1)
+        .map(|chunk| &chunk[..result_count])
         .map(|shot_results| {
-            let mut bitstring = String::with_capacity(result_count as usize);
-            for idx in 0..result_count {
-                let res = shot_results[idx as usize];
+            let mut bitstring = String::with_capacity(result_count);
+            for res in shot_results {
                 let char = match res {
                     0 => '0',
                     1 => '1',

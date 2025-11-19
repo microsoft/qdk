@@ -17,10 +17,10 @@ pub fn try_create_gpu_adapter() -> Result<String, String> {
 }
 
 pub fn run_parallel_shots(
-    qubits: u32,
-    results: u32,
+    qubits: i32,
+    results: i32,
     ops: Vec<Op>,
-    shots: u32,
+    shots: i32,
     rng_seed: u32,
 ) -> Result<Vec<u32>, String> {
     futures::executor::block_on(async {

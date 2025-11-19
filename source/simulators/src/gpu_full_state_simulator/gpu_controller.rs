@@ -1,42 +1,43 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-#![allow(unused)]
-
-use crate::shader_types;
-
-use super::shader_types::{Op, Result, ops};
+use super::shader_types::{Op, ops};
 
 use bytemuck::{Pod, Zeroable};
-use futures::FutureExt;
-use std::{cmp::max, cmp::min, num::NonZeroU64};
+use std::cmp::min;
 use wgpu::{
     Adapter, BindGroup, BindGroupLayout, Buffer, BufferDescriptor, BufferUsages, ComputePipeline,
-    Device, Limits, Queue, RequestAdapterError, RequestAdapterOptions, ShaderModule,
+    Device, Queue, RequestAdapterOptions, ShaderModule,
 };
 
 // Some of these values are to align with WebGPU default limits
 // See https://gpuweb.github.io/gpuweb/#limits
 const MAX_BUFFER_SIZE: usize = 1 << 30; // 1 GB limit due to some wgpu restrictions
-const MAX_QUBIT_COUNT: u32 = 27; // 2^27 * 8 bytes per complex32 = 1 GB buffer limit
-const MAX_QUBITS_PER_WORKGROUP: u32 = 18; // Max qubits to be processed by a single workgroup
-const THREADS_PER_WORKGROUP: u32 = 32; // 32 gives good occupancy across various GPUs
+const MAX_QUBIT_COUNT: i32 = 27; // 2^27 * 8 bytes per complex32 = 1 GB buffer limit
+const MAX_QUBITS_PER_WORKGROUP: i32 = 18; // Max qubits to be processed by a single workgroup
+const THREADS_PER_WORKGROUP: i32 = 32; // 32 gives good occupancy across various GPUs
 
 // Once a shot is big enough to need multiple workgroups, what's the max number of workgroups possible
-const MAX_PARTITIONED_WORKGROUPS: usize = 1 << (MAX_QUBIT_COUNT - MAX_QUBITS_PER_WORKGROUP);
-const MAX_SHOTS_PER_BATCH: u32 = 65535; // To align with max workgroups per dimension WebGPU default
+const MAX_PARTITIONED_WORKGROUPS: i32 = 1 << (MAX_QUBIT_COUNT - MAX_QUBITS_PER_WORKGROUP);
+const MAX_SHOTS_PER_BATCH: i32 = 65535; // To align with max workgroups per dimension WebGPU default
 
 // Round up circuit qubits if smaller to enable to optimizations re unrolling, etc.
 // With min qubit count of 8, this means min 256 entries per shot. Spread across 32 threads = 8 entries per thread.
 // With each iteration in each thread processing 2 or 4 entries, that means 2 or 4 iterations per thread minimum.
-const MIN_QUBIT_COUNT: u32 = 8;
-const MAX_CIRCUIT_OPS: usize = MAX_BUFFER_SIZE / std::mem::size_of::<Op>();
-const SIZEOF_SHOTDATA: usize = 640; // Size of ShotData struct on the GPU in bytes
-const MAX_SHOT_ENTRIES: usize = MAX_BUFFER_SIZE / SIZEOF_SHOTDATA;
+const MIN_QUBIT_COUNT: i32 = 8;
+const SIZEOF_SHOTDATA: usize = std::mem::size_of::<ShotData>(); // Size of ShotData struct on the GPU in bytes
+
+#[allow(clippy::cast_possible_truncation)]
+#[allow(clippy::cast_possible_wrap)]
+const MAX_CIRCUIT_OPS: i32 = (MAX_BUFFER_SIZE / std::mem::size_of::<Op>()) as i32;
+
+#[allow(clippy::cast_possible_truncation)]
+#[allow(clippy::cast_possible_wrap)]
+const MAX_SHOT_ENTRIES: i32 = (MAX_BUFFER_SIZE / SIZEOF_SHOTDATA) as i32;
 
 // There is no hard limit here, but for very large circuits we may need to split into multiple dispatches.
 // TODO: See if there is a way to query the GPU for max dispatches per submit, or derive it from other limits
-const MAX_DISPATCHES_PER_SUBMIT: u32 = 100_000;
+const MAX_DISPATCHES_PER_SUBMIT: i32 = 100_000;
 
 const ADAPTER_OPTIONS: RequestAdapterOptions = wgpu::RequestAdapterOptions {
     power_preference: wgpu::PowerPreference::HighPerformance,
@@ -50,7 +51,6 @@ pub struct GpuContext {
     shader_module: ShaderModule,
     bind_group_layout: BindGroupLayout,
     ops: Vec<Op>,
-    qubit_count: u32,
     rng_seed: u32,
     resources: Option<GpuResources>,
     run_params: RunParams,
@@ -86,16 +86,13 @@ struct RunParams {
     results_buffer_size: usize,
     diagnostics_buffer_size: usize,
     download_buffer_size: usize,
-    entries_per_shot: usize,
-    entries_per_workgroup: usize,
-    entries_per_thread: usize,
-    batch_count: usize,
-    shots_per_batch: usize,
-    shots_count: usize,
-    workgroups_per_shot: usize,
-    op_count: usize,
-    gate_op_count: usize,
-    result_count: usize,
+    entries_per_thread: i32,
+    batch_count: i32,
+    shots_per_batch: i32,
+    shot_count: i32,
+    workgroups_per_shot: i32,
+    op_count: i32,
+    result_count: i32,
 }
 
 // ********* The below structure should be kept in sync with the WGSL shader code *********
@@ -103,7 +100,7 @@ struct RunParams {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 struct Uniforms {
-    batch_start_shot_id: u32,
+    batch_start_shot_id: i32,
     rng_seed: u32,
 }
 
@@ -127,7 +124,7 @@ struct WorkgroupSums {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 struct WorkgroupCollationBuffer {
-    sums: [WorkgroupSums; MAX_PARTITIONED_WORKGROUPS],
+    sums: [WorkgroupSums; MAX_PARTITIONED_WORKGROUPS as usize],
 }
 
 #[repr(C)]
@@ -182,6 +179,15 @@ struct DiagnosticsData {
 }
 // TODO: Implement the Display trait for DiagnosticsData for easier debugging output
 
+// Helpers to ease conversion boilerplate
+fn usize_to_i32(value: usize) -> std::result::Result<i32, String> {
+    i32::try_from(value).map_err(|_| format!("Value {value} can't convert to i32"))
+}
+
+fn i32_to_usize(value: i32) -> std::result::Result<usize, String> {
+    usize::try_from(value).map_err(|_| format!("Value {value} can't convert to usize"))
+}
+
 impl GpuContext {
     pub async fn get_adapter() -> std::result::Result<Adapter, String> {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
@@ -234,10 +240,10 @@ impl GpuContext {
     }
 
     pub async fn new(
-        qubit_count: u32,
-        result_count: u32,
+        qubit_count: i32,
+        result_count: i32,
         ops: Vec<Op>,
-        shots: u32,
+        shots: i32,
         rng_seed: u32,
         dbg_capture: bool,
     ) -> std::result::Result<Self, String> {
@@ -245,22 +251,14 @@ impl GpuContext {
         if ops.is_empty() {
             return Err("Circuit must have at least one operation".to_string());
         }
-        if ops.len() > MAX_CIRCUIT_OPS {
+        if ops.len() > MAX_CIRCUIT_OPS as usize {
             return Err(format!(
                 "Operation count {} exceeds maximum supported operation count of {}",
                 ops.len(),
                 MAX_CIRCUIT_OPS
             ));
         }
-        // gate_op_count should filter out any ops with an ID >= 128 and < 256 (noise ops)
-        // These get combined and executed with the prior op at run time, so don't count towards dispatches
-        let gate_op_count: u32 = ops
-            .iter()
-            .filter(|op| (op.id) < 128)
-            .count()
-            .try_into()
-            .map_err(|_| "Too many operations")?;
-        let op_count: u32 = ops.len().try_into().map_err(|_| "Too many operations")?;
+        let op_count: i32 = ops.len().try_into().map_err(|_| "Too many operations")?;
 
         let qubit_count = qubit_count.max(MIN_QUBIT_COUNT);
         if qubit_count > MAX_QUBIT_COUNT {
@@ -270,8 +268,7 @@ impl GpuContext {
         }
 
         // Add space in the results for an 'error code' per shot
-        let run_params: RunParams =
-            Self::get_params(qubit_count, result_count, op_count, gate_op_count, shots)?;
+        let run_params: RunParams = Self::get_params(qubit_count, result_count, op_count, shots)?;
 
         let adapter = wgpu::Instance::new(&wgpu::InstanceDescriptor::default())
             .request_adapter(&ADAPTER_OPTIONS)
@@ -337,7 +334,6 @@ impl GpuContext {
             bind_group_layout,
             resources: None,
             ops,
-            qubit_count,
             rng_seed,
             run_params,
             dbg_capture,
@@ -345,25 +341,25 @@ impl GpuContext {
     }
 
     fn get_params(
-        qubit_count: u32,
-        result_count: u32,
-        op_count: u32,
-        gate_op_count: u32,
-        shot_count: u32,
+        qubit_count: i32,
+        result_count: i32,
+        op_count: i32,
+        shot_count: i32,
     ) -> std::result::Result<RunParams, String> {
-        let state_vector_entry_size = std::mem::size_of::<f32>() * 2; // complex f32
+        let state_vector_entry_size = 8; // complex containing 2 * f32
         let op_size = std::mem::size_of::<Op>();
 
-        let entries_per_shot: usize = 1 << qubit_count;
+        let entries_per_shot: i32 = 1 << qubit_count;
         let state_vector_size_per_shot = entries_per_shot * state_vector_entry_size;
-        let max_shot_state_vectors = MAX_BUFFER_SIZE / state_vector_size_per_shot;
+        let max_shot_state_vectors: i32 =
+            usize_to_i32(MAX_BUFFER_SIZE / i32_to_usize(state_vector_size_per_shot)?)?;
 
         // How many of the structures would fit
         let max_shots_in_buffer = min(MAX_SHOT_ENTRIES, max_shot_state_vectors);
         // How many would we allow based on the max shots per batch
-        let max_shots_per_batch = min(max_shots_in_buffer, MAX_SHOTS_PER_BATCH as usize);
+        let max_shots_per_batch = min(max_shots_in_buffer, MAX_SHOTS_PER_BATCH);
         // Do that many, of however many shots if less
-        let shots_per_batch = min(shot_count as usize, max_shots_per_batch);
+        let shots_per_batch = min(shot_count, max_shots_per_batch);
 
         let workgroups_per_shot = if qubit_count <= MAX_QUBITS_PER_WORKGROUP {
             1
@@ -371,25 +367,25 @@ impl GpuContext {
             1 << (qubit_count - MAX_QUBITS_PER_WORKGROUP)
         };
 
-        let shots_buffer_size = shots_per_batch * SIZEOF_SHOTDATA;
-        let ops_buffer_size = op_count as usize * op_size;
-        let state_vector_buffer_size = shots_per_batch * state_vector_size_per_shot;
+        let shots_buffer_size = i32_to_usize(shots_per_batch)? * SIZEOF_SHOTDATA;
+        let ops_buffer_size = i32_to_usize(op_count)? * op_size;
+        let state_vector_buffer_size = i32_to_usize(shots_per_batch * state_vector_size_per_shot)?;
         // Each result is a u32, plus one extra on the end for the shader to set an 'error code' if needed
-        let results_buffer_size =
-            shots_per_batch * (result_count + 1) as usize * std::mem::size_of::<u32>();
+        let results_buffer_size: usize =
+            i32_to_usize(shots_per_batch * (result_count + 1))? * std::mem::size_of::<u32>();
 
-        let diagnostics_buffer_size = 4 * 4 /* initial bytes */
-                + 640 + 144 // ShotData + Op
-                + (THREADS_PER_WORKGROUP as usize * (8 * MAX_QUBIT_COUNT as usize)) // Workgroup probabilities
+        let diagnostics_buffer_size: usize = 4 * 4 /* initial bytes */
+                + SIZEOF_SHOTDATA + std::mem::size_of::<Op>() // ShotData + Op
+                + (THREADS_PER_WORKGROUP * 8 * MAX_QUBIT_COUNT) as usize // Workgroup probabilities
                 + std::mem::size_of::<WorkgroupCollationBuffer>(); // Collation buffers
 
         let download_buffer_size = results_buffer_size + diagnostics_buffer_size;
 
-        let batch_count = (shot_count as usize - 1) / shots_per_batch + 1;
+        let batch_count: i32 = (shot_count - 1) / shots_per_batch + 1;
 
         let entries_per_workgroup = entries_per_shot / workgroups_per_shot;
 
-        let entries_per_thread = entries_per_workgroup / THREADS_PER_WORKGROUP as usize;
+        let entries_per_thread = entries_per_workgroup / THREADS_PER_WORKGROUP;
 
         Ok(RunParams {
             shots_buffer_size,
@@ -398,16 +394,13 @@ impl GpuContext {
             results_buffer_size,
             diagnostics_buffer_size,
             download_buffer_size,
-            entries_per_shot,
-            entries_per_workgroup,
             entries_per_thread,
             batch_count,
             workgroups_per_shot,
             shots_per_batch,
-            shots_count: shot_count as usize,
-            op_count: op_count as usize,
-            gate_op_count: gate_op_count as usize,
-            result_count: (result_count + 1) as usize,
+            shot_count,
+            op_count,
+            result_count: (result_count + 1),
         })
     }
 
@@ -667,16 +660,15 @@ impl GpuContext {
         // TODO: Just make this an i32 in the first place
         #[allow(clippy::cast_possible_truncation)]
         #[allow(clippy::cast_possible_wrap)]
-        let mut shots_remaining: i32 = self.run_params.shots_count as i32;
+        let mut shots_remaining = self.run_params.shot_count;
 
         for batch_idx in 0..self.run_params.batch_count {
-            let shots_this_batch =
-                min(shots_remaining, self.run_params.shots_per_batch as i32) as usize;
+            let shots_this_batch = min(shots_remaining, self.run_params.shots_per_batch);
 
             // Update the uniforms for this batch
             let uniforms = Uniforms {
                 #[allow(clippy::cast_possible_truncation)]
-                batch_start_shot_id: (batch_idx * self.run_params.shots_per_batch) as u32,
+                batch_start_shot_id: batch_idx * self.run_params.shots_per_batch,
                 rng_seed: self.rng_seed,
             };
 
@@ -699,7 +691,7 @@ impl GpuContext {
             });
 
             // TODO: Break into multiple dispatches if too many ops
-            if self.run_params.op_count > MAX_DISPATCHES_PER_SUBMIT as usize {
+            if self.run_params.op_count > MAX_DISPATCHES_PER_SUBMIT {
                 unimplemented!(
                     "This circuit exceeds the current upper limit of {} operations",
                     MAX_DISPATCHES_PER_SUBMIT
@@ -815,23 +807,26 @@ impl GpuContext {
             // Fetch results and diagnostics from the download buffer
             let result_bytes = self.run_params.results_buffer_size;
             let results_data = &data[..result_bytes];
-            let diagnositcs_data = &data[result_bytes..];
+
+            // TODO: Capture and return only the first populated diagnostics
+            // let diagnositcs_data = &data[result_bytes..];
+            // let diagnostics = bytemuck::from_bytes::<DiagnosticsData>(diagnositcs_data);
 
             let batch_results: Vec<u32> = bytemuck::cast_slice(results_data).to_vec();
 
             results.extend(batch_results);
 
-            // TODO: Capture and return only the first populated diagnostics
-            let diagnostics = bytemuck::from_bytes::<DiagnosticsData>(diagnositcs_data);
-
             drop(data);
             resources.buffers.download.unmap();
 
-            shots_remaining -= self.run_params.shots_per_batch as i32;
+            shots_remaining -= self.run_params.shots_per_batch;
         }
 
         // We may have had extra shots if the last batch was not full. Truncate if so.
-        results.truncate(self.run_params.shots_count * self.run_params.result_count);
+        let expected_results: usize = (self.run_params.shot_count * self.run_params.result_count)
+            .try_into()
+            .expect("Total expected result count should fit in usize");
+        results.truncate(expected_results);
 
         if self.dbg_capture {
             unsafe {
