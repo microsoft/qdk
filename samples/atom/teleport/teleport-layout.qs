@@ -1,4 +1,4 @@
-operation Teleport(msg : Qubit, alice : Qubit, bob: Qubit) : Unit {
+operation Teleport(msg : Qubit, alice : Qubit, bob : Qubit) : Unit {
     // Create some entanglement that we can use to send our message.
     H(alice);
     CNOT(alice, bob);
@@ -65,13 +65,13 @@ operation TestTeleportRotation() : Unit {
 }
 
 
-operation Layout(instances: Int) : Result[] {
+operation Layout(instances : Int) : Result[] {
     // Partitions the teleport instances across rows and columns on the machine
-    let cols = if instances >= 12 {36} else {instances * 3};
+    let cols = if instances >= 12 { 36 } else { instances * 3 };
     let rows = (instances + 11) / 12;  // 1 to 12 = 1, 13 to 24 = 2, etc.
 
     use qubits = Qubit[instances * 3];
-    mutable results: Result[] = [];
+    mutable results : Result[] = [];
 
     for i in 0..instances-1 {
         let rowId = i / 12;
@@ -83,8 +83,7 @@ operation Layout(instances: Int) : Result[] {
             X(qubits[idx]);
         } elif i % 4 == 2 {
             H(qubits[idx]);
-        }
-        elif i % 4 == 3 {
+        } elif i % 4 == 3 {
             SX(qubits[idx]);
         }
 
@@ -95,8 +94,7 @@ operation Layout(instances: Int) : Result[] {
             X(qubits[idx + 2]);
         } elif i % 4 == 2 {
             H(qubits[idx + 2]);
-        }
-        elif i % 4 == 3 {
+        } elif i % 4 == 3 {
             X(qubits[idx + 2]);
             SX(qubits[idx + 2]);
         }

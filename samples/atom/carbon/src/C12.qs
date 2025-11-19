@@ -32,7 +32,7 @@ operation PrepareZZ(block : Qubit[], ancillas : Qubit[]) : Result[] {
 operation PrepareXX(block : Qubit[], ancillas : Qubit[]) : Result[] {
     let res = PrepareZZ(block, ancillas);
     ApplyToEach(H, block);
-    
+
     // SwapLabels(block[1], block[2]);
     Relabel(block[1..2], [block[2], block[1]]);
     // SwapLabels(block[5], block[6]);
