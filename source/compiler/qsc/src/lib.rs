@@ -56,6 +56,7 @@ pub use qsc_eval::{
         fmt_basis_state_label, fmt_complex, format_state_id, get_matrix_latex, get_phase,
         get_state_latex,
     },
+    val::Result as BackendResult,
 };
 
 pub mod linter {
@@ -68,8 +69,8 @@ pub use qsc_doc_gen::{display, generate_docs};
 
 pub mod circuit {
     pub use qsc_circuit::{
-        CURRENT_VERSION, Circuit, CircuitGroup, Operation, circuit_to_qsharp::circuits_to_qsharp,
-        json_to_circuit::json_to_circuits, operations::*,
+        CURRENT_VERSION, Circuit, CircuitGroup, TracerConfig,
+        circuit_to_qsharp::circuits_to_qsharp, json_to_circuit::json_to_circuits, operations::*,
     };
 }
 

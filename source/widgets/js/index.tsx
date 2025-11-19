@@ -264,7 +264,21 @@ function renderHistogram({ model, el }: RenderArgs) {
 function renderCircuit({ model, el }: RenderArgs) {
   const onChange = () => {
     const circuitJson = model.get("circuit_json") as string;
-    prender(<Circuit circuit={JSON.parse(circuitJson)}></Circuit>, el);
+    prender(
+      <Circuit
+        circuit={JSON.parse(circuitJson)}
+        isEditable={false}
+        renderLocations={(locations) => {
+          return {
+            title: locations
+              .map((loc) => `${loc.file}:${loc.line}:${loc.column}`)
+              .join("\n"),
+            href: "#",
+          };
+        }}
+      ></Circuit>,
+      el,
+    );
   };
 
   onChange();

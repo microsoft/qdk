@@ -10,7 +10,7 @@ use crate::{
     qsc_utils::into_range,
 };
 use qsc::{
-    circuit::qubit_param_info,
+    circuit::{QubitParam, qubit_param_info},
     compile::ErrorKind,
     hir::{CallableKind, ItemKind, ty::Ty},
     line_column::Encoding,
@@ -90,12 +90,15 @@ pub(crate) fn get_code_lenses(
                                 total_num_qubits: 0,
                             }),
                         });
-                    } else if let Some((_, total_num_qubits)) = qubit_param_info(item) {
+                    } else if let Some(params) = qubit_param_info(item) {
                         accum.push(CodeLens {
                             range,
                             command: CodeLensCommand::Circuit(OperationInfo {
                                 operation: format!("{namespace}.{name}"),
-                                total_num_qubits,
+                                total_num_qubits: params
+                                    .iter()
+                                    .map(QubitParam::num_qubits)
+                                    .sum::<u32>(),
                             }),
                         });
                     }
