@@ -7,18 +7,17 @@ use std::{
 };
 
 use crate::{
-    Operation,
     builder::{
-        LexicalScope, OperationOrGroupExt, QubitWire, ScopeId, SourceLocationMetadata,
-        SourceLookup, add_op_with_grouping,
+        LexicalScope, OperationOrGroup, QubitWire, ScopeId, SourceLocationMetadata,
+        add_op_with_grouping,
     },
     circuit::PackageOffset,
-    rir_to_circuit::{ScopeLookup, ScopeStack},
+    rir_to_circuit::ScopeLookup,
 };
 use expect_test::{Expect, expect};
 use indenter::indented;
 use qsc_fir::fir::StoreItemId;
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 
 // TODO: add tests to this crate that validate source locations
 
@@ -27,18 +26,16 @@ fn check(instructions: Vec<Instruction>, expect: Expect) {
     let (ops, scopes) = program(instructions);
 
     let mut grouped = vec![];
-    for op in ops {
-        let op_call_stack = match &op {
-            Op::Single { call_stack, .. } => call_stack.clone(),
-            Op::Group { .. } => {
-                panic!("didn't expect instruction_stack to be called for a group")
-            }
-        };
+    for (op, metadata) in ops {
+        let op_call_stack = metadata
+            .and_then(|md| md.dbg_location)
+            .map(|l| l.call_stack)
+            .unwrap_or_default();
 
         add_op_with_grouping(false, true, &[], &mut grouped, op, op_call_stack);
     }
 
-    let fmt_ops = |grouped: &[Op]| -> String {
+    let fmt_ops = |grouped: &[OperationOrGroup]| -> String {
         let mut s = String::new();
         fmt_ops(&mut s, 0, grouped, &scopes).expect("formatting failed");
         s
@@ -61,33 +58,6 @@ struct Instruction {
 #[derive(Clone, Debug)]
 pub struct InstructionMetadata {
     dbg_location: Option<DbgLocation>,
-}
-
-impl SourceLookup for () {
-    // type SourceLocationMetadata = (String, u32);
-    // type ScopeId = String;
-
-    // fn package_id(&self, _location: &Self::SourceLocationMetadata) -> qsc_fir::fir::PackageId {
-    //     PackageId::CORE
-    // }
-
-    // fn lexical_scope(&self, location: &Self::SourceLocationMetadata) -> Self::ScopeId {
-    //     location.0.clone()
-    // }
-
-    // fn source_location(&self, location: &Self::SourceLocationMetadata) -> PackageOffset {
-    //     PackageOffset {
-    //         package_id: PackageId::CORE,
-    //         offset: location.1,
-    //     }
-    // }
-
-    fn resolve_location(
-        &self,
-        _package_offset: &PackageOffset,
-    ) -> crate::circuit::ResolvedSourceLocation {
-        todo!()
-    }
 }
 
 #[derive(Default)]
@@ -129,118 +99,20 @@ impl ScopeLookup for Scopes {
     }
 }
 
-enum Op {
-    Single {
-        name: String,
-        call_stack: Vec<SourceLocationMetadata>,
-        qubits: Vec<QubitWire>,
-    },
-    Group {
-        scope_stack: ScopeStack,
-        children: Vec<Op>,
-        qubits: Vec<QubitWire>,
-    },
-}
-
-impl OperationOrGroupExt for Op {
-    fn group(scope_stack: ScopeStack, children: Vec<Self>) -> Self
-    where
-        Self: std::marker::Sized,
-    {
-        let all_qubits = children
-            .iter()
-            .flat_map(OperationOrGroupExt::all_qubits)
-            .collect::<FxHashSet<QubitWire>>()
-            .into_iter()
-            .collect::<Vec<QubitWire>>();
-        Op::Group {
-            scope_stack,
-            children,
-            qubits: all_qubits,
-        }
-    }
-
-    fn name(&self, scope_resolver: &impl ScopeLookup) -> String {
-        match self {
-            Op::Single { name, .. } => name.clone(),
-            Op::Group { scope_stack, .. } => {
-                format!(
-                    "group: {}",
-                    scope_resolver
-                        .resolve_scope(scope_stack.current_lexical_scope())
-                        .name()
-                )
-            }
-        }
-    }
-
-    fn children_mut(&mut self) -> Option<&mut Vec<Self>>
-    where
-        Self: std::marker::Sized,
-    {
-        match self {
-            Op::Group { children, .. } => Some(children),
-            Op::Single { .. } => None,
-        }
-    }
-
-    fn scope_stack_if_group(&self) -> Option<&crate::rir_to_circuit::ScopeStack> {
-        match self {
-            Op::Group { scope_stack, .. } => Some(scope_stack),
-            Op::Single { .. } => None,
-        }
-    }
-
-    fn all_qubits(&self) -> Vec<QubitWire> {
-        match self {
-            Op::Group { qubits, .. } | Op::Single { qubits, .. } => qubits.clone(),
-        }
-    }
-
-    fn all_results(&self) -> Vec<crate::builder::ResultWire> {
-        vec![]
-    }
-
-    fn extend_target_qubits(&mut self, target_qubits: &[QubitWire]) {
-        match self {
-            Op::Group { qubits, .. } | Op::Single { qubits, .. } => {
-                for q in target_qubits {
-                    if !qubits.contains(q) {
-                        qubits.push(*q);
-                    }
-                }
-            }
-        }
-    }
-
-    fn extend_target_results(&mut self, _target_results: &[crate::builder::ResultWire]) {}
-
-    fn set_location(&mut self, _location: PackageOffset) {
-        // no-op
-    }
-
-    fn into_operation(
-        self,
-        _source_lookup: &impl SourceLookup,
-        _scope_resolver: &impl ScopeLookup,
-    ) -> Operation {
-        todo!()
-    }
-}
-
 #[derive(Clone, Debug, PartialEq)]
 struct DbgLocation {
     call_stack: Vec<SourceLocationMetadata>,
 }
 
-fn program(instructions: Vec<Instruction>) -> (Vec<Op>, Scopes) {
+fn program(
+    instructions: Vec<Instruction>,
+) -> (Vec<(OperationOrGroup, Option<InstructionMetadata>)>, Scopes) {
     let mut ops = vec![];
     let mut scopes = Scopes::default();
 
     for i in instructions {
-        ops.push(unitary(
-            i.name,
-            i.qubits,
+        ops.push((
+            OperationOrGroup::new_unitary(&i.name, false, &i.qubits, &[], vec![]),
             Some(InstructionMetadata {
                 dbg_location: i.stack.map(|stack| DbgLocation {
                     call_stack: stack
@@ -263,18 +135,6 @@ fn program(instructions: Vec<Instruction>) -> (Vec<Op>, Scopes) {
     (ops, scopes)
 }
 
-fn unitary(label: String, qubits: Vec<QubitWire>, metadata: Option<InstructionMetadata>) -> Op {
-    Op::Single {
-        name: label,
-        qubits,
-        call_stack: metadata
-            .and_then(|m| m.dbg_location)
-            .map(|d| d.call_stack)
-            .unwrap_or_default()
-            .clone(),
-    }
-}
-
 #[test]
 fn empty() {
     check(vec![], expect![" <empty>"]);
@@ -288,7 +148,7 @@ fn single_op_no_metadata() {
             qubits: vec![],
             stack: None,
         }],
-        expect!["H qubits= stack= "],
+        expect!["H qubits="],
     );
 }
 
@@ -305,7 +165,7 @@ fn single_op() {
         }],
         expect![[r#"
             [Main] qubits= stack= Main
-                H qubits= stack= Main@1"#]],
+                H qubits="#]],
     );
 }
 
@@ -318,8 +178,8 @@ fn two_ops_in_same_scope() {
         ],
         expect![[r#"
             [Main] qubits=0 stack= Main
-                H qubits=0 stack= Main@1
-                X qubits=0 stack= Main@2"#]],
+                H qubits=0
+                X qubits=0"#]],
     );
 }
 
@@ -332,9 +192,9 @@ fn two_ops_in_separate_scopes() {
         ],
         expect![[r#"
             [Foo] qubits=0 stack= Foo
-                H qubits=0 stack= Foo@1
+                H qubits=0
             [Bar] qubits=0 stack= Bar
-                X qubits=0 stack= Bar@2"#]],
+                X qubits=0"#]],
     );
 }
 
@@ -348,9 +208,9 @@ fn two_ops_same_grandparent() {
         expect![[r#"
             [Main] qubits=0 stack= Main
                 [Foo] qubits=0 stack= Main@1->Foo
-                    H qubits=0 stack= Main@1->Foo@2
+                    H qubits=0
                 [Bar] qubits=0 stack= Main@1->Bar
-                    X qubits=0 stack= Main@1->Bar@3"#]],
+                    X qubits=0"#]],
     );
 }
 
@@ -364,8 +224,8 @@ fn two_ops_same_parent_scope() {
         expect![[r#"
             [Main] qubits=0 stack= Main
                 [Foo] qubits=0 stack= Main@1->Foo
-                    H qubits=0 stack= Main@1->Foo@2
-                    X qubits=0 stack= Main@1->Foo@3"#]],
+                    H qubits=0
+                    X qubits=0"#]],
     );
 }
 
@@ -380,10 +240,10 @@ fn two_ops_separate_grandparents() {
             [A] qubits=0 stack= A
                 [B] qubits=0 stack= A@1->B
                     [C] qubits=0 stack= A@1->B@3->C
-                        X qubits=0 stack= A@1->B@3->C@4
+                        X qubits=0
                 [B] qubits=0 stack= A@2->B
                     [C] qubits=0 stack= A@2->B@3->C
-                        X qubits=0 stack= A@2->B@3->C@4"#]],
+                        X qubits=0"#]],
     );
 }
 
@@ -414,32 +274,32 @@ fn ad_hoc() {
             [A] qubits=0 stack= A
                 [B] qubits=0 stack= A@1->B
                     [F] qubits=0 stack= A@1->B@5->F
-                        X qubits=0 stack= A@1->B@5->F@9
-                        Y qubits=0 stack= A@1->B@5->F@10
-                        Z qubits=0 stack= A@1->B@5->F@11
+                        X qubits=0
+                        Y qubits=0
+                        Z qubits=0
                 [B] qubits=0 stack= A@2->B
                     [F] qubits=0 stack= A@2->B@5->F
-                        X qubits=0 stack= A@2->B@5->F@9
-                        Y qubits=0 stack= A@2->B@5->F@10
-                        Z qubits=0 stack= A@2->B@5->F@11
+                        X qubits=0
+                        Y qubits=0
+                        Z qubits=0
                     [F] qubits=0 stack= A@2->B@6->F
-                        Y qubits=0 stack= A@2->B@6->F@10
-                        Z qubits=0 stack= A@2->B@6->F@11
+                        Y qubits=0
+                        Z qubits=0
                 [B] qubits=0 stack= A@1->B
                     [F] qubits=0 stack= A@1->B@5->F
-                        X qubits=0 stack= A@1->B@5->F@9
-                Y qubits=0 stack= A@1
-                Z qubits=0 stack= A@1
+                        X qubits=0
+                Y qubits=0
+                Z qubits=0
                 [B] qubits=0 stack= A@2->B
                     [F] qubits=0 stack= A@2->B@5->F
-                        Y qubits=0 stack= A@2->B@5->F@10
-                        Z qubits=0 stack= A@2->B@5->F@11
-                C qubits=0 stack= A@3
+                        Y qubits=0
+                        Z qubits=0
+                C qubits=0
                 [D] qubits=0 stack= A@4->D
-                    H qubits=0 stack= A@4->D@7
-                    I qubits=0 stack= A@4->D@8
-                E qubits=0 stack= A@5
-                G qubits=0 stack= A@5"#]],
+                    H qubits=0
+                    I qubits=0
+                E qubits=0
+                G qubits=0"#]],
     );
 }
 
@@ -462,7 +322,7 @@ fn location(scope: &str, offset: u32) -> Location {
 fn fmt_ops(
     f: &mut impl Write,
     indent_level: usize,
-    ops: &[Op],
+    ops: &[OperationOrGroup],
     scope_resolver: &impl ScopeLookup,
 ) -> fmt::Result {
     let mut iter = ops.iter().peekable();
@@ -482,20 +342,23 @@ fn fmt_ops(
 fn fmt_op(
     f: &mut impl Write,
     indent_level: usize,
-    op: &Op,
+    op: &OperationOrGroup,
     scope_resolver: &impl ScopeLookup,
 ) -> fmt::Result {
-    match op {
-        Op::Single { name, .. } => {
-            write!(&mut set_indentation(indented(f), indent_level), "{name}")?;
-        }
-        Op::Group { scope_stack, .. } => write!(
+    if let Some(scope_stack) = op.scope_stack_if_group() {
+        write!(
             &mut set_indentation(indented(f), indent_level),
             "[{}]",
             scope_resolver
                 .resolve_scope(scope_stack.current_lexical_scope())
                 .name()
-        )?,
+        )?;
+    } else {
+        write!(
+            &mut set_indentation(indented(f), indent_level),
+            "{}",
+            op.name(scope_resolver)
+        )?;
     }
 
     write!(f, " qubits=")?;
@@ -509,25 +372,11 @@ fn fmt_op(
         }
     }
 
-    if let Op::Group { scope_stack, .. } = &op {
+    if let Some(scope_stack) = op.scope_stack_if_group() {
         write!(f, " stack= {}", scope_stack.fmt(scope_resolver))?;
     }
 
-    if let Op::Single { call_stack, .. } = &op {
-        write!(f, " stack= ")?;
-        let mut call_stack = call_stack.iter().peekable();
-        while let Some(source_location_metadata) = call_stack.next() {
-            let scope_id = source_location_metadata.lexical_scope();
-            let offset = source_location_metadata.source_location().offset;
-            let scope_name = scope_resolver.resolve_scope(scope_id).name();
-            write!(f, "{scope_name}@{offset}",)?;
-            if call_stack.peek().is_some() {
-                write!(f, "->")?;
-            }
-        }
-    }
-
-    if let Op::Group { children, .. } = &op {
+    if let Some(children) = op.children() {
         writeln!(f)?;
         fmt_ops(f, indent_level + 1, children, scope_resolver)?;
     }
