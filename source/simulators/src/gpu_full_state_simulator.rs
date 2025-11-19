@@ -13,7 +13,8 @@ use crate::gpu_full_state_simulator::shader_types::Op;
 pub fn try_create_gpu_adapter() -> Result<String, String> {
     let adapter =
         futures::executor::block_on(async { gpu_controller::GpuContext::get_adapter().await })?;
-    Ok(adapter.get_info().name)
+    let info = adapter.get_info();
+    Ok(format!("{} ({:?})", info.name, info.backend))
 }
 
 pub fn run_parallel_shots(
