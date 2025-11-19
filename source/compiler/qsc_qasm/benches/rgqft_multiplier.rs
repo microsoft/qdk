@@ -3,11 +3,12 @@
 
 use std::sync::Arc;
 
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group, criterion_main};
 use qsc_qasm::{
     CompilerConfig, OutputSemantics, ProgramType, QasmCompileUnit, QubitSemantics,
     compiler::parse_and_compile_to_qsharp_ast_with_config, io::InMemorySourceResolver,
 };
+use std::hint::black_box;
 
 fn rgqft_multiplier<S: Into<Arc<str>>>(source: S) -> QasmCompileUnit {
     let config = CompilerConfig::new(

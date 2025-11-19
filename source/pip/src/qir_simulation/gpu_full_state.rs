@@ -259,7 +259,7 @@ fn map_instruction(
             // Ignore for now
             return None;
         }
-        _ => panic!("unsupported instruction: {qir_inst:?}"),
+        QirInstruction::ThreeQubitGate(..) => panic!("unsupported instruction: {qir_inst:?}"),
     };
     Some(op)
 }

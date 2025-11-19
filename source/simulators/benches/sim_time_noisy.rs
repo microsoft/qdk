@@ -3,7 +3,10 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use qdk_simulators::{
     noise_config::{IdleNoiseParams, NoiseConfig},
-    stabilizer_simulator::{QubitID, Simulator, operation::*},
+    stabilizer_simulator::{
+        QubitID, Simulator,
+        operation::{Operation, cz, h, id, mov, mz, s, x, y, z},
+    },
 };
 use rand::{SeedableRng, distributions::Uniform, prelude::Distribution, rngs::StdRng};
 use std::hint::black_box;

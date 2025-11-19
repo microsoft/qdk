@@ -8,6 +8,10 @@ use pyo3::{
 pub(crate) mod clifford;
 pub(crate) mod gpu_full_state;
 
+#[allow(
+    clippy::upper_case_acronyms,
+    reason = "these gates are named as in the rest of our stack"
+)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[pyclass(eq, eq_int)]
 pub enum QirInstructionId {
@@ -115,13 +119,13 @@ pub struct NoiseConfig {
 impl NoiseConfig {
     #[new]
     fn new(py: Python) -> PyResult<Self> {
-        bind_noise_config(py, qdk_simulators::noise_config::NoiseConfig::NOISELESS)
+        bind_noise_config(py, &qdk_simulators::noise_config::NoiseConfig::NOISELESS)
     }
 }
 
 fn bind_noise_config(
     py: Python,
-    value: qdk_simulators::noise_config::NoiseConfig,
+    value: &qdk_simulators::noise_config::NoiseConfig,
 ) -> PyResult<NoiseConfig> {
     Ok(NoiseConfig {
         i: Py::new(py, NoiseTable::from(value.i))?,
