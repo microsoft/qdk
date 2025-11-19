@@ -8,8 +8,8 @@ use std::{
 
 use crate::{
     builder::{
-        LexicalScope, OperationOrGroup, QubitWire, ScopeId, SourceLocationMetadata,
-        add_op_with_grouping,
+        LexicalScope, OperationListBuilder, OperationOrGroup, QubitWire, ScopeId,
+        SourceLocationMetadata,
     },
     circuit::PackageOffset,
     rir_to_circuit::ScopeLookup,
@@ -25,15 +25,17 @@ use rustc_hash::FxHashMap;
 fn check(instructions: Vec<Instruction>, expect: Expect) {
     let (ops, scopes) = program(instructions);
 
-    let mut grouped = vec![];
+    let mut tracer = OperationListBuilder::new(usize::MAX, vec![], true, false);
     for (op, metadata) in ops {
         let op_call_stack = metadata
             .and_then(|md| md.dbg_location)
             .map(|l| l.call_stack)
             .unwrap_or_default();
 
-        add_op_with_grouping(false, true, &[], &mut grouped, op, op_call_stack);
+        tracer.push_op(op, op_call_stack);
     }
+
+    let grouped = tracer.into_operations();
 
     let fmt_ops = |grouped: &[OperationOrGroup]| -> String {
         let mut s = String::new();

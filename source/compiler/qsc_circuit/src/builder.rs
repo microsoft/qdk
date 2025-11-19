@@ -930,7 +930,7 @@ impl OperationListBuilder {
         }
     }
 
-    fn push_op(
+    pub(crate) fn push_op(
         &mut self,
         op: OperationOrGroup,
         unfiltered_call_stack: Vec<SourceLocationMetadata>,
@@ -955,7 +955,7 @@ impl OperationListBuilder {
         &self.operations
     }
 
-    fn into_operations(self) -> Vec<OperationOrGroup> {
+    pub(crate) fn into_operations(self) -> Vec<OperationOrGroup> {
         self.operations
     }
 
@@ -1071,7 +1071,7 @@ impl LexicalScope {
     }
 }
 
-pub(crate) fn add_op_with_grouping(
+fn add_op_with_grouping(
     source_locations: bool,
     group_scopes: bool,
     user_package_ids: &[PackageId],
