@@ -334,10 +334,10 @@ type ObjectsByColumnAndRow = FxHashMap<usize, FxHashMap<i16, CircuitObject>>;
 
 struct RowBuilder {
     wire: Wire,
-    max_height_above_zero: u8,
+    max_depth_above_axis: u8,
     current_top_offset: u8,
     current_bottom_offset: u8,
-    max_height_below_zero: u8,
+    max_depth_below_axis: u8,
     objects: ObjectsByColumnAndRow,
     next_column: usize,
     render_locations: bool,
@@ -375,13 +375,12 @@ impl RowBuilder {
 
     fn increment_current_top_offset(&mut self) {
         self.current_top_offset += 1;
-        self.max_height_above_zero = max(self.max_height_above_zero, self.current_top_offset + 1);
+        self.max_depth_above_axis = max(self.max_depth_above_axis, self.current_top_offset + 1);
     }
 
     fn increment_current_bottom_offset(&mut self) {
         self.current_bottom_offset += 1;
-        self.max_height_below_zero =
-            max(self.max_height_below_zero, self.current_bottom_offset + 1);
+        self.max_depth_below_axis = max(self.max_depth_below_axis, self.current_bottom_offset + 1);
     }
 
     fn decrement_current_top_offset(&mut self) {
@@ -478,7 +477,7 @@ impl RowBuilder {
     fn add_to_all_subrows(&mut self, column: usize, circuit_object: CircuitObject) {
         // TODO: I don't know if this is necessary - we could use add_to_row_wire
         let row_row = self.objects.entry(column).or_default();
-        for i in -i16::from(self.max_height_below_zero)..=i16::from(self.max_height_above_zero) {
+        for i in -i16::from(self.max_depth_below_axis)..=i16::from(self.max_depth_above_axis) {
             row_row.insert(i, circuit_object.clone());
         }
         self.next_column = column + 1;
@@ -497,61 +496,78 @@ impl RowBuilder {
     }
 
     fn expand_rows(mut self) -> Vec<Row> {
-        // Do the wire row (row 0)
-        for (_, column_objects) in &mut self.objects {
+        for column_objects in self.objects.values_mut() {
+            // Do the wire row (row 0)
             if let Some(object) = column_objects.get(&0) {
                 // If we encountered a vertical, we need to fill in the rest of the column
                 if matches!(object, CircuitObject::Vertical) {
-                    for r in 0..self.max_height_above_zero {
+                    for r in 0..self.max_depth_above_axis {
                         column_objects.insert(i16::from(r), CircuitObject::Vertical);
                     }
-                    for r in 0..self.max_height_below_zero {
+                    for r in 0..self.max_depth_below_axis {
                         column_objects.insert(-i16::from(r), CircuitObject::Vertical);
                     }
                 }
             }
-        }
-        // Do the rows above zero
-        for height_offset_from_top in 1..self.max_height_above_zero {
-            for (_, column_objects) in &mut self.objects {
+
+            let mut top_corner_height = None;
+            let mut bottom_corner_height = None;
+            // Do the rows above zero
+            for height_offset_from_top in 1..self.max_depth_above_axis {
                 if let Some(object) = column_objects.get(&i16::from(height_offset_from_top)) {
                     // if we encountered a box corner, we need to fill in the rest of the column
                     if matches!(
                         object,
                         CircuitObject::TopLeftCorner | CircuitObject::TopRightCorner
                     ) {
-                        for row_below in (height_offset_from_top + 1)..self.max_height_above_zero {
-                            column_objects.insert(i16::from(row_below), CircuitObject::Vertical);
-                        }
-                        // Do zero as well
-                        column_objects.insert(0, CircuitObject::Vertical);
+                        top_corner_height.replace(height_offset_from_top);
                     }
                 }
             }
-        }
 
-        // Do the rows below zero
-        for height_offset_from_bottom in 1..self.max_height_below_zero {
-            for (_, column_objects) in &mut self.objects {
+            // Do the rows below zero
+            for height_offset_from_bottom in 1..self.max_depth_below_axis {
                 if let Some(object) = column_objects.get(&-i16::from(height_offset_from_bottom)) {
                     // if we encountered a box corner, we need to fill in the rest of the column
                     if matches!(
                         object,
                         CircuitObject::BottomLeftCorner | CircuitObject::BottomRightCorner
                     ) {
-                        for row_above in height_offset_from_bottom + 1..self.max_height_below_zero {
-                            column_objects.insert(-i16::from(row_above), CircuitObject::Vertical);
-                        }
-                        // Do zero as well
-                        column_objects.insert(0, CircuitObject::Vertical);
+                        bottom_corner_height.replace(height_offset_from_bottom);
                     }
+                }
+            }
+
+            if let Some(top_corner_height) = top_corner_height {
+                for r in (top_corner_height + 1)..self.max_depth_above_axis {
+                    column_objects.insert(i16::from(r), CircuitObject::Vertical);
+                }
+                // Do zero as well
+                column_objects.insert(0, CircuitObject::Vertical);
+
+                // Do the rows below zero
+                for r in 1..bottom_corner_height.map_or(self.max_depth_below_axis, |h| h - 1) {
+                    column_objects.insert(-i16::from(r), CircuitObject::Vertical);
+                }
+            }
+
+            if let Some(bottom_corner_height) = bottom_corner_height {
+                for r in bottom_corner_height + 1..self.max_depth_below_axis {
+                    column_objects.insert(-i16::from(r), CircuitObject::Vertical);
+                }
+                // Do zero as well
+                column_objects.insert(0, CircuitObject::Vertical);
+
+                // Do the rows above zero
+                for r in 1..top_corner_height.map_or(self.max_depth_above_axis, |h| h - 1) {
+                    column_objects.insert(i16::from(r), CircuitObject::Vertical);
                 }
             }
         }
 
         let mut top_rows = Vec::new();
         // Do the rows above zero
-        for height_offset_from_top in 1..self.max_height_above_zero {
+        for height_offset_from_top in 1..self.max_depth_above_axis {
             let mut row_objects = FxHashMap::default();
             for (column, column_objects) in &mut self.objects {
                 if let Some(object) = column_objects.remove(&i16::from(height_offset_from_top)) {
@@ -579,7 +595,7 @@ impl RowBuilder {
 
         let mut bottom_rows = vec![];
         // Do the rows below zero
-        for height_offset_from_bottom in 1..self.max_height_below_zero {
+        for height_offset_from_bottom in 1..self.max_depth_below_axis {
             let mut row_objects = FxHashMap::default();
             for (column, column_objects) in &mut self.objects {
                 if let Some(object) = column_objects.remove(&-i16::from(height_offset_from_bottom))
@@ -842,6 +858,9 @@ impl CircuitDisplay<'_> {
 
         for col in &self.circuit.component_grid {
             for op in &col.components {
+                if !op.children().is_empty() {
+                    continue;
+                }
                 let targets = match op {
                     Operation::Measurement(m) => &m.qubits,
                     Operation::Unitary(u) => &u.targets,
@@ -895,8 +914,8 @@ impl CircuitDisplay<'_> {
 
             rows.push(RowBuilder {
                 wire: Wire::Qubit { label },
-                max_height_above_zero: 1,
-                max_height_below_zero: 0,
+                max_depth_above_axis: 1,
+                max_depth_below_axis: 0,
                 current_top_offset: 0,
                 current_bottom_offset: 0,
                 objects: FxHashMap::default(),
@@ -910,8 +929,8 @@ impl CircuitDisplay<'_> {
             for i in 0..q.num_results {
                 rows.push(RowBuilder {
                     wire: Wire::Classical { start_column: None },
-                    max_height_above_zero: 1,
-                    max_height_below_zero: 0,
+                    max_depth_above_axis: 1,
+                    max_depth_below_axis: 0,
                     current_top_offset: 0,
                     current_bottom_offset: 0,
                     objects: FxHashMap::default(),
@@ -930,10 +949,10 @@ impl CircuitDisplay<'_> {
             if qubits_with_gap_row_below.contains(&q.id) && qubit_bottom_padding == 0 {
                 rows.push(RowBuilder {
                     wire: Wire::None,
-                    max_height_above_zero: 1,
+                    max_depth_above_axis: 1,
                     current_top_offset: 0,
                     current_bottom_offset: 0,
-                    max_height_below_zero: 0,
+                    max_depth_below_axis: 0,
                     objects: FxHashMap::default(),
                     next_column: 1,
                     render_locations: self.render_locations,
