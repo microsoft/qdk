@@ -183,6 +183,17 @@ struct DiagnosticsData {
 // TODO: Implement the Display trait for DiagnosticsData for easier debugging output
 
 impl GpuContext {
+    pub fn list_adapters() -> std::result::Result<Vec<String>, String> {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+        let adapters = instance.enumerate_adapters(wgpu::Backends::all());
+        let mut adapter_infos: Vec<String> = Vec::new();
+        for adapter in adapters {
+            let info = adapter.get_info();
+            adapter_infos.push(format!("{} ({:?})", info.name, info.backend));
+        }
+        Ok(adapter_infos)
+    }
+
     pub async fn get_adapter() -> std::result::Result<Adapter, String> {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
 
