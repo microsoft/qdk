@@ -6,6 +6,7 @@ from typing import Sequence, cast
 import math
 
 import pytest
+import sys
 
 from qsharp._native import Result
 
@@ -59,6 +60,7 @@ def result_array_to_string(results: Sequence[Result]) -> str:
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
 def test_gpu_seeding_no_noise():
     qsharp.init(target_profile=TargetProfile.Base)
+    print(f"*** RUNNING ON GPU: {gpu_name}", file=sys.stderr)
     qsharp.eval(
         """
         operation BellTest() : Result[] {
@@ -97,8 +99,8 @@ def test_gpu_no_noise():
         "IsingModel2DEvolution(5, 5, PI() / 2.0, PI() / 2.0, 10.0, 10)"
     )
 
+    print(f"*** RUNNING ON GPU: {gpu_name}", file=sys.stderr)
     output = run_qir_gpu(str(input))
-    print(gpu_name)
     print(output)
     # Expecting deterministic output, no randomization seed needed.
     assert output == [[Result.Zero] * 25], "Expected result of 0s with pi/2 angles."
@@ -120,6 +122,7 @@ def test_gpu_bitflip_noise():
     noise.rzz.set_bitflip(p_noise)
     noise.mresetz.set_bitflip(p_noise)
 
+    print(f"*** RUNNING ON GPU: {gpu_name}", file=sys.stderr)
     output = run_qir_gpu(str(input), shots=3, noise=noise, seed=17)
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
     print(result)
@@ -146,6 +149,7 @@ def test_gpu_mixed_noise():
     noise.rzz.set_depolarizing(0.005)
     noise.rzz.loss = 0.003
 
+    print(f"*** RUNNING ON GPU: {gpu_name}", file=sys.stderr)
     output = run_qir_gpu(str(input), shots=3, noise=noise, seed=53)
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
     print(result)
@@ -203,6 +207,7 @@ def test_gpu_x_chain(
     noise.x.set_bitflip(p_noise)
 
     qir = build_x_chain_qir(n_instances, n_x)
+    print(f"*** RUNNING ON GPU: {gpu_name}", file=sys.stderr)
     output = run_qir_gpu(qir, shots=n_shots, noise=noise, seed=18)
     histogram = [0 for _ in range(n_instances + 1)]
     for shot in output:
