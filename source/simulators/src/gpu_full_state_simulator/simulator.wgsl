@@ -211,17 +211,28 @@ fn reset_all(shot_idx: i32) {
     let rng_seed = uniforms.rng_seed;
     let shot_id = u32(uniforms.batch_start_shot_id + shot_idx);
 
-    // Zero init all the existing shot data
-    *shot = ShotData();
-
+    // Due to DX12 backend issues, we can't just assign a zeroed struct, so manually reset all fields
     shot.shot_id = shot_id;
+
+    // After init, start execution from the first op
+    shot.next_op_idx = 0u;
+
     shot.rng_state.x[0] = rng_seed ^ hash_pcg(shot_id);
     shot.rng_state.x[1] = rng_seed ^ hash_pcg(shot_id + 1);
     shot.rng_state.x[2] = rng_seed ^ hash_pcg(shot_id + 2);
     shot.rng_state.x[3] = rng_seed ^ hash_pcg(shot_id + 3);
     shot.rng_state.x[4] = rng_seed ^ hash_pcg(shot_id + 4);
+
+    shot.op_type = 0;
+    shot.op_idx = 0;
+
+    // rand_* will be initialized in shot_init_per_op when preparing the first op
     shot.duration = 0.0;
     shot.renormalize = 1.0;
+
+    shot.qubit_is_0_mask = (1u << u32(QUBIT_COUNT)) - 1u; // All qubits are |0>
+    shot.qubit_is_1_mask = 0u;
+    shot.qubits_updated_last_op_mask = 0;
 
     // Initialize all qubit probabilities to 100% |0>
     for (var i: i32 = 0; i < QUBIT_COUNT; i++) {
@@ -230,12 +241,8 @@ fn reset_all(shot_idx: i32) {
         shot.qubit_state[i].heat = 0.0;
         shot.qubit_state[i].idle_since = 0.0;
     }
-    shot.qubit_is_0_mask = (1u << u32(QUBIT_COUNT)) - 1u; // All qubits are |0>
-    shot.qubit_is_1_mask = 0u;
-    shot.qubits_updated_last_op_mask = 0;
 
-    // After init, start execution from the first op
-    shot.next_op_idx = 0u;
+    // unitary will be set in prepare_op
 }
 
 fn update_qubit_state(shot_idx: u32) {
@@ -294,8 +301,9 @@ fn update_qubit_state(shot_idx: u32) {
                     diagnostics.extra1 = q;
                     diagnostics.extra2 = total_zero;
                     diagnostics.extra3 = total_one;
-                    diagnostics.shot = *shot;
-                    diagnostics.op = ops[shot.op_idx];
+                    // TODO: DX12 backend has issues assigning structs. So commenting out for now.
+                    // diagnostics.shot = *shot;
+                    // diagnostics.op = ops[shot.op_idx];
                 }
                 // Store the error value (if none set already)
                 let err_index = (shot_idx + 1) * RESULT_COUNT - 1;
@@ -341,7 +349,6 @@ fn prep_mresetz(shot_idx: u32, op_idx: u32, is_loss: bool) {
             return;
         } else {
             atomicStore(&results[(shot_idx * RESULT_COUNT) + result_id], result);
-            // results[(shot_idx * RESULT_COUNT) + result_id] = result;
         }
     } else {
         shot.qubit_state[qubit].heat = -1.0;
@@ -371,14 +378,6 @@ fn prep_mresetz(shot_idx: u32, op_idx: u32, is_loss: bool) {
         ((1u << u32(QUBIT_COUNT)) - 1u)
         // Exclude qubits already in definite states
             & ~(shot.qubit_is_0_mask | shot.qubit_is_1_mask);
-
-    // We want to ensure the state of this qubit is updated, and also that's it's not marked as
-    // in the definite state, as we don't want the measurement pass to skip over it.
-    // shot.qubits_updated_last_op_mask = shot.qubits_updated_last_op_mask | (1u << qubit);
-
-
-    // The workgroup will sum from its threads into the collation buffer (for multi-workgroup shots)
-    // or directly into the shot (if single workgroup shots) during execute_op, so no need to zero it here.
 
     shot.op_idx = op_idx;
     shot.op_type = OPID_MRESETZ;
@@ -412,7 +411,6 @@ fn apply_1q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
     let shot = &shots[shot_idx];
     let op = &ops[op_idx];
     let noise_op = &ops[noise_idx];
-
 
     // Apply 1-qubit Pauli noise based on the probabilities in the op data, which are stored in
     // the real part (x) of the first 3 vec2 entries of the unitary array.
@@ -725,7 +723,6 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
         shot.qubits_updated_last_op_mask = (1u << op.q1) | (1u << op.q2);
       }
       default {
-        // oops
         // TODO: Set error/diagnostic info here
       }
     }
@@ -765,75 +762,75 @@ fn execute_op(
     let op_idx = shot.op_idx;
     let op = &ops[op_idx];
 
-    // Exit early if an id op with no renomalization required
-    if (shot.op_type == OPID_ID && shot.renormalize == 1.0) {
-        return;
-    }
+    // Skip doing any work if the op is ID (no-op) or if renormalize is 1.0 (i.e., no renormalization needed)
+    if shot.op_type != OPID_ID {
+        let lowMask = (1 << op.q1) - 1;
+        let highMask = (1 << u32(QUBIT_COUNT)) - 1 - lowMask;
 
-    let lowMask = (1 << op.q1) - 1;
-    let highMask = (1 << u32(QUBIT_COUNT)) - 1 - lowMask;
+        // For now, always recompute the probabilities from scratch when a qubit is acted upon.
+        // (Could me a minor optimization to skip if the unitary doesn't change 0/1 probabilities, e.g., Id, S, Rz, etc.)
+        var summed_probs: vec4f = vec4f();
 
-    // For now, always recompute the probabilities from scratch when a qubit is acted upon.
-    // (Could me a minor optimization to skip if the unitary doesn't change 0/1 probabilities, e.g., Id, S, Rz, etc.)
-    var summed_probs: vec4f = vec4f();
+        /* This loop is where all the real work happens. Try to keep this tight and efficient.
 
-    /* This loop is where all the real work happens. Try to keep this tight and efficient.
+        We want a 'structure of arrays' like access pattern here for efficiency, so we process the state vector
+        in blocks where each thread in the workgroup(s) handle an adjacent entry to be processed.
 
-    We want a 'structure of arrays' like access pattern here for efficiency, so we process the state vector
-    in blocks where each thread in the workgroup(s) handle an adjacent entry to be processed.
+        Each thread should start at the state vector shot start + 'thread_idx_in_shot', which is sequential across the workgroup threads
+        Each next entry for the thread is WORKGROUPS_PER_SHOT * THREADS_PER_WORKGROUP away.
+        The thread should process zero_entries / threads_per_shot iterations, which is stored in op_iterations.
+        */
+        var entry_index = params.thread_idx_in_shot;
 
-    Each thread should start at the state vector shot start + 'thread_idx_in_shot', which is sequential across the workgroup threads
-    Each next entry for the thread is WORKGROUPS_PER_SHOT * THREADS_PER_WORKGROUP away.
-    The thread should process zero_entries / threads_per_shot iterations, which is stored in op_iterations.
-    */
-    var entry_index = params.thread_idx_in_shot;
+        for (var i = 0; i < params.op_iterations; i++) {
+            let offset0: i32 = (entry_index & lowMask) | ((entry_index & highMask) << 1);
+            let offset1: i32 = offset0 | (1 << op.q1);
 
-    for (var i = 0; i < params.op_iterations; i++) {
-        let offset0: i32 = (entry_index & lowMask) | ((entry_index & highMask) << 1);
-        let offset1: i32 = offset0 | (1 << op.q1);
+            // See if we can skip doing any work for this pair, because the state vector entries to processes
+            // are both definitely 0.0, as we know they are for states where other qubits are in definite opposite state.
+            let skip_processing = OPT_SKIP_DEFINITE_STATES &&
+                ((offset0 & i32(shots[params.shot_idx].qubit_is_0_mask)) != 0) ||
+                ((~offset1 & i32(shots[params.shot_idx].qubit_is_1_mask)) != 0);
 
-        // See if we can skip doing any work for this pair, because the state vector entries to processes
-        // are both definitely 0.0, as we know they are for states where other qubits are in definite opposite state.
-        let skip_processing = OPT_SKIP_DEFINITE_STATES &&
-            ((offset0 & i32(shots[params.shot_idx].qubit_is_0_mask)) != 0) ||
-            ((~offset1 & i32(shots[params.shot_idx].qubit_is_1_mask)) != 0);
+            if (!skip_processing) {
+                if shot.op_type == OPID_RZ {
+                    // For RZ, we can skip reading/writing the |0> amplitude, as it is unchanged.
+                    // Just apply the phase to the |1> amplitude. Probabilities also don't change.
+                    let amp1: vec2f = stateVector[params.shot_state_vector_start + offset1];
+                    let new1 = cplxMul(amp1, shot.unitary[5]);
+                    stateVector[params.shot_state_vector_start + offset1] = new1;
+                } else {
+                    let amp0: vec2f = stateVector[params.shot_state_vector_start + offset0];
+                    let amp1: vec2f = stateVector[params.shot_state_vector_start + offset1];
 
-        if (!skip_processing) {
-            if shot.op_type == OPID_RZ {
-                // For RZ, we can skip reading/writing the |0> amplitude, as it is unchanged.
-                // Just apply the phase to the |1> amplitude. Probabilities also don't change.
-                let amp1: vec2f = stateVector[params.shot_state_vector_start + offset1];
-                let new1 = cplxMul(amp1, shot.unitary[5]);
-                stateVector[params.shot_state_vector_start + offset1] = new1;
-            } else {
-                let amp0: vec2f = stateVector[params.shot_state_vector_start + offset0];
-                let amp1: vec2f = stateVector[params.shot_state_vector_start + offset1];
+                    let new0 = cplxMul(amp0, shot.unitary[0]) + cplxMul(amp1, shot.unitary[1]);
+                    let new1 = cplxMul(amp0, shot.unitary[4]) + cplxMul(amp1, shot.unitary[5]);
 
-                let new0 = cplxMul(amp0, shot.unitary[0]) + cplxMul(amp1, shot.unitary[1]);
-                let new1 = cplxMul(amp0, shot.unitary[4]) + cplxMul(amp1, shot.unitary[5]);
+                    stateVector[params.shot_state_vector_start + offset0] = new0;
+                    stateVector[params.shot_state_vector_start + offset1] = new1;
 
-                stateVector[params.shot_state_vector_start + offset0] = new0;
-                stateVector[params.shot_state_vector_start + offset1] = new1;
-
-                // Update the probabilities for the acted on qubit
-                summed_probs[0] += cplxMag2(new0);
-                summed_probs[1] += cplxMag2(new1);
+                    // Update the probabilities for the acted on qubit
+                    summed_probs[0] += cplxMag2(new0);
+                    summed_probs[1] += cplxMag2(new1);
+                }
             }
+            entry_index += params.total_threads_per_shot;
         }
-        entry_index += params.total_threads_per_shot;
+
+        if shot.op_type != OPID_RZ {
+            // Update this thread's totals for the two qubits in the workgroup storage
+            qubitProbabilities[tid].zero[op.q1] = summed_probs[0];
+            qubitProbabilities[tid].one[op.q1]  = summed_probs[1];
+        }
     }
 
-    if shot.op_type != OPID_RZ {
-        // Update this thread's totals for the two qubits in the workgroup storage
-        qubitProbabilities[tid].zero[op.q1] = summed_probs[0];
-        qubitProbabilities[tid].one[op.q1]  = summed_probs[1];
-    }
-
+    // workgroupBarrier can't be conditional in DX12 backend, so we have to do an unconditional one here
+    // outside of the skip_work conditional above.
     workgroupBarrier();
 
     // If the workgroup is done updating, have the first thread reduce the per-thread probabilities into the
     // totals for this workgroup. The subsequent 'prepare_op' will sum the workgroup entries into the shot state.
-    if (tid == 0 && shot.op_type != OPID_RZ) {
+    if (tid == 0 && shot.op_type != OPID_RZ && shot.op_type != OPID_ID) {
         sum_thread_totals_to_shot(op.q1, params.shot_idx, params.workgroup_collation_idx);
     }
 }
@@ -1060,8 +1057,9 @@ fn sum_thread_totals_to_shot(q: u32, shot_idx: i32, wkg_collation_idx: i32) {
                 diagnostics.extra1 = q;
                 diagnostics.extra2 = total_zero;
                 diagnostics.extra3 = total_one;
-                diagnostics.shot = *shot;
-                diagnostics.op = ops[shot.op_idx];
+                // DX12 backend has issues copying structs. Add back once we have a solution.
+                // diagnostics.shot = *shot;
+                // diagnostics.op = ops[shot.op_idx];
             }
             let err_index = (shot_idx + 1) * i32(RESULT_COUNT) - 1;
             atomicCompareExchangeWeak(
