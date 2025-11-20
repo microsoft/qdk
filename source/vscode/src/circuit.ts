@@ -7,12 +7,11 @@ import {
   ICompilerWorker,
   IOperationInfo,
   IQSharpError,
-  IRange,
   QdkDiagnostics,
   getCompilerWorker,
   log,
 } from "qsharp-lang";
-import { Uri } from "vscode";
+import { Uri, workspace } from "vscode";
 import { getTargetFriendlyName } from "./config";
 import { clearCommandDiagnostics } from "./diagnostics";
 import { FullProgramConfig, getActiveProgram } from "./programConfig";
@@ -26,6 +25,8 @@ import {
 } from "./telemetry";
 import { getRandomGuid } from "./utils";
 import { sendMessageToPanel } from "./webviewPanel";
+import { ICircuitConfig, IPosition } from "../../npm/qsharp/lib/web/qsc_wasm";
+import { basename } from "./common";
 
 const compilerRunTimeoutMs = 1000 * 60 * 5; // 5 minutes
 
@@ -75,6 +76,7 @@ export async function showCircuitCommand(
     {},
   );
 
+  const circuitConfig = getConfig();
   if (!programConfig) {
     const program = await getActiveProgram({ showModalError: true });
     if (!program.success) {
@@ -96,10 +98,14 @@ export async function showCircuitCommand(
   // Generate the circuit and update the panel.
   // generateCircuits() takes care of handling timeouts and
   // falling back to the simulator for dynamic circuits.
-  const result = await generateCircuit(extensionUri, {
-    program: programConfig,
-    operation,
-  });
+  const result = await generateCircuit(
+    extensionUri,
+    {
+      program: programConfig,
+      operation,
+    },
+    circuitConfig,
+  );
 
   if (result.result === "success") {
     sendTelemetryEvent(EventType.CircuitEnd, {
@@ -140,9 +146,10 @@ export async function showCircuitCommand(
  * that means this is a dynamic circuit. We fall back to using the
  * simulator in this case ("trace" mode), which is slower.
  */
-export async function generateCircuit(
+async function generateCircuit(
   extensionUri: Uri,
   params: CircuitParams,
+  config: ICircuitConfig,
 ): Promise<CircuitOrError> {
   // Before we start, reveal the panel with the "calculating" spinner
   updateCircuitPanel(
@@ -152,14 +159,14 @@ export async function generateCircuit(
     { operation: params.operation, calculating: true },
   );
 
-  // First, try without simulating
-  let result = await getCircuitOrErrorWithTimeout(
-    extensionUri,
-    params,
-    false, // simulate
-  );
+  // First, try with given config (classicalEval by default)
+  let result = await getCircuitOrErrorWithTimeout(extensionUri, params, config);
 
-  if (result.result === "error" && result.hasResultComparisonError) {
+  if (
+    result.result === "error" &&
+    result.hasResultComparisonError &&
+    config.generationMethod === "classicalEval"
+  ) {
     // Retry with the simulator if circuit generation failed because
     // there was a result comparison (i.e. if this is a dynamic circuit)
 
@@ -175,11 +182,9 @@ export async function generateCircuit(
     );
 
     // try again with the simulator
-    result = await getCircuitOrErrorWithTimeout(
-      extensionUri,
-      params,
-      true, // simulate
-    );
+    config.generationMethod = "simulate";
+
+    result = await getCircuitOrErrorWithTimeout(extensionUri, params, config);
   }
 
   // Update the panel with the results
@@ -226,7 +231,7 @@ export async function generateCircuit(
 export async function getCircuitOrErrorWithTimeout(
   extensionUri: Uri,
   params: CircuitParams,
-  simulate: boolean,
+  config: ICircuitConfig,
   timeoutMs: number = compilerRunTimeoutMs,
 ): Promise<CircuitOrError> {
   let timeout = false;
@@ -243,7 +248,7 @@ export async function getCircuitOrErrorWithTimeout(
     worker.terminate();
   }, timeoutMs);
 
-  const result = await getCircuitOrError(worker, params, simulate);
+  const result = await getCircuitOrError(worker, params, config);
   clearTimeout(compilerTimeout);
 
   if (result.result === "error") {
@@ -264,16 +269,21 @@ export async function getCircuitOrErrorWithTimeout(
 async function getCircuitOrError(
   worker: ICompilerWorker,
   params: CircuitParams,
-  simulate: boolean,
+  config: ICircuitConfig,
 ): Promise<CircuitOrError> {
   try {
     const circuit = await worker.getCircuit(
       params.program,
-      simulate,
+      config,
       params.operation,
     );
-    return { result: "success", simulated: simulate, circuit: circuit };
+    return {
+      result: "success",
+      simulated: config.generationMethod === "simulate",
+      circuit: circuit,
+    };
   } catch (e: any) {
+    log.error("Error generating circuit: ", e);
     let errors: IQSharpError[] = [];
     let resultCompError = false;
     if (e instanceof QdkDiagnostics) {
@@ -287,12 +297,44 @@ async function getCircuitOrError(
     }
     return {
       result: "error",
-      simulated: simulate,
+      simulated: config.generationMethod === "simulate",
       errors,
       hasResultComparisonError: resultCompError,
       timeout: false,
     };
   }
+}
+
+export function getConfig() {
+  const defaultConfig = {
+    maxOperations: 10001,
+    generationMethod: "classicalEval" as const,
+    sourceLocations: true,
+  };
+
+  const config = workspace
+    .getConfiguration("Q#")
+    .get<object>("circuits.config", defaultConfig);
+
+  const configObject = {
+    maxOperations:
+      "maxOperations" in config && typeof config.maxOperations === "number"
+        ? config.maxOperations
+        : defaultConfig.maxOperations,
+    generationMethod:
+      "generationMethod" in config &&
+      typeof config.generationMethod === "string" &&
+      ["simulate", "classicalEval"].includes(config.generationMethod)
+        ? (config.generationMethod as "simulate" | "classicalEval")
+        : defaultConfig.generationMethod,
+    sourceLocations:
+      "sourceLocations" in config && typeof config.sourceLocations === "boolean"
+        ? config.sourceLocations
+        : defaultConfig.sourceLocations,
+  };
+
+  log.debug("Using circuit config: ", configObject);
+  return configObject;
 }
 
 function hasResultComparisonError(errors: IQSharpError[]) {
@@ -316,7 +358,7 @@ function errorsToHtml(errors: IQSharpError[]) {
   for (const error of errors) {
     const { document, diagnostic: diag, stack: rawStack } = error;
 
-    const location = documentHtml(document, diag.range);
+    const location = documentHtml(false, document, diag.range.start);
     const message = escapeHtml(`(${diag.code}) ${diag.message}`).replace(
       /\n/g,
       "<br/><br/>",
@@ -329,10 +371,10 @@ function errorsToHtml(errors: IQSharpError[]) {
         .split("\n")
         .map((l) => {
           // Link-ify the document names in the stack trace
-          const match = l.match(/^(\s*)at (.*) in (.*)/);
+          const match = l.match(/^(\s*)at (.*) in (.*):(\d+):(\d+)/);
           if (match) {
             const [, leadingWs, callable, doc] = match;
-            return `${leadingWs}at ${escapeHtml(callable)} in ${documentHtml(doc)}`;
+            return `${leadingWs}at ${escapeHtml(callable)} in ${documentHtml(false, doc)}`;
           } else {
             return l;
           }
@@ -383,8 +425,11 @@ export function updateCircuitPanel(
  * If the input is a URI, turns it into a document open link.
  * Otherwise returns the HTML-escaped input
  */
-function documentHtml(maybeUri: string, range?: IRange) {
-  let location;
+function documentHtml(
+  customCommand: boolean,
+  maybeUri: string,
+  position?: IPosition,
+) {
   try {
     // If the error location is a document URI, create a link to that document.
     // We use the `vscode.open` command (https://code.visualstudio.com/api/references/commands#commands)
@@ -399,20 +444,32 @@ function documentHtml(maybeUri: string, range?: IRange) {
     // location. Then this would be a link to that command instead. Yet another
     // alternative is to have the webview pass a message back to the extension.
     const uri = Uri.parse(maybeUri, true);
-    const openCommandUri = Uri.parse(
-      `command:vscode.open?${encodeURIComponent(JSON.stringify([uri]))}`,
-      true,
-    );
-    const fsPath = escapeHtml(uri.fsPath);
-    const lineColumn = range
-      ? escapeHtml(`:${range.start.line + 1}:${range.start.character + 1}`)
+    const fsPath = escapeHtml(basename(uri.path) ?? uri.fsPath);
+    const lineColumn = position
+      ? escapeHtml(`:${position.line + 1}:${position.character + 1}`)
       : "";
-    location = `<a href="${openCommandUri}">${fsPath}</a>${lineColumn}`;
+
+    const locations = [
+      {
+        source: uri,
+        span: {
+          start: position,
+          end: position,
+        },
+      },
+    ];
+
+    const args = customCommand && position ? [locations] : [uri];
+    const openCommand =
+      customCommand && position ? "qsharp-vscode.gotoLocations" : "vscode.open";
+
+    const argsStr = encodeURIComponent(JSON.stringify(args));
+    const openCommandUri = Uri.parse(`command:${openCommand}?${argsStr}`, true);
+    const title = `${fsPath}${lineColumn}`;
+    return `<a href="${openCommandUri}">${title}</a>`;
   } catch {
     // Likely could not parse document URI - it must be a project level error
     // or an error from stdlib, use the document name directly
-    location = escapeHtml(maybeUri);
+    return escapeHtml(maybeUri);
   }
-
-  return location;
 }

@@ -1,6 +1,8 @@
-operation Main() : (Result, Result) {
+operation Main() : Result[] {
     use (q1, q2, q3) = (Qubit(), Qubit(), Qubit());
     H(q2);
     Rzz(1.2345, q1, q3);
-    (MResetZ(q1), MResetZ(q2))
+    CNOT(q2, q3);
+    SWAP(q1, q2);
+    MResetEachZ([q3])
 }

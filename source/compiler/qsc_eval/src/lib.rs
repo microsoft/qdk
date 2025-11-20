@@ -26,10 +26,10 @@ pub mod output;
 pub mod state;
 pub mod val;
 
+use crate::backend::{Backend, TracingBackend};
 use crate::val::{
     Value, index_array, make_range, slice_array, update_index_range, update_index_single,
 };
-use backend::Backend;
 use core::panic;
 use debug::{CallStack, Frame};
 pub use error::PackageSpan;
@@ -282,13 +282,13 @@ pub fn exec_graph_section(graph: &ExecGraph, range: ops::Range<usize>) -> ExecGr
 /// Returns the first error encountered during execution.
 /// # Panics
 /// On internal error where no result is returned.
-pub fn eval(
+pub fn eval<B: Backend>(
     package: PackageId,
     seed: Option<u64>,
     exec_graph: ExecGraph,
     globals: &impl PackageStoreLookup,
     env: &mut Env,
-    sim: &mut impl Backend<ResultType = impl Into<val::Result>>,
+    sim: &mut TracingBackend<'_, B>,
     receiver: &mut impl Receiver,
 ) -> Result<Value, (Error, Vec<Frame>)> {
     let mut state = State::new(package, exec_graph, seed, ErrorBehavior::FailOnError);
@@ -305,12 +305,12 @@ pub fn eval(
 /// # Panics
 /// On internal error where no result is returned.
 #[allow(clippy::too_many_arguments)]
-pub fn invoke(
+pub fn invoke<B: Backend>(
     package: PackageId,
     seed: Option<u64>,
     globals: &impl PackageStoreLookup,
     env: &mut Env,
-    sim: &mut impl Backend<ResultType = impl Into<val::Result>>,
+    sim: &mut TracingBackend<'_, B>,
     receiver: &mut impl Receiver,
     callable: Value,
     args: Value,
@@ -333,7 +333,7 @@ pub fn invoke(
             Span::default(),
             receiver,
         )
-        .map_err(|e| (e, state.get_stack_frames()))?;
+        .map_err(|e| (e, state.capture_stack()))?;
 
     // Trigger evaluation of the state until the end of the stack is reached and a return value is obtained, which will be the final
     // result of the invocation.
@@ -680,14 +680,26 @@ impl State {
     }
 
     #[must_use]
-    pub fn get_stack_frames(&self) -> Vec<Frame> {
-        let mut frames = self.call_stack.clone().into_frames();
+    pub fn capture_stack(&self) -> Vec<Frame> {
+        let mut frames = self.call_stack.to_frames();
 
         let mut span = self.current_span;
         for frame in frames.iter_mut().rev() {
             std::mem::swap(&mut frame.span, &mut span);
         }
         frames
+    }
+
+    #[must_use]
+    pub fn capture_stack_if_trace_enabled<B: Backend>(
+        &self,
+        tracing_backend: &TracingBackend<'_, B>,
+    ) -> Vec<Frame> {
+        if tracing_backend.is_stacks_enabled() {
+            self.capture_stack()
+        } else {
+            vec![]
+        }
     }
 
     fn set_last_error(&mut self, error: Error, frames: Vec<Frame>) {
@@ -712,11 +724,11 @@ impl State {
     /// # Panics
     /// When returning a value in the middle of execution.
     #[allow(clippy::too_many_lines)]
-    pub fn eval(
+    pub fn eval<B: Backend>(
         &mut self,
         globals: &impl PackageStoreLookup,
         env: &mut Env,
-        sim: &mut impl Backend<ResultType = impl Into<val::Result>>,
+        sim: &mut TracingBackend<'_, B>,
         out: &mut impl Receiver,
         breakpoints: &[StmtId],
         step: StepAction,
@@ -740,13 +752,13 @@ impl State {
                         Err(e) => {
                             if self.error_behavior == ErrorBehavior::StopOnError {
                                 let error_str = e.to_string();
-                                self.set_last_error(e, self.get_stack_frames());
+                                self.set_last_error(e, self.capture_stack());
                                 // Clear the execution graph stack to indicate that execution has failed.
                                 // This will prevent further execution steps.
                                 self.exec_graph_stack.clear();
                                 return Ok(StepResult::Fail(error_str));
                             }
-                            return Err((e, self.get_stack_frames()));
+                            return Err((e, self.capture_stack()));
                         }
                     }
                 }
@@ -906,10 +918,10 @@ impl State {
     }
 
     #[allow(clippy::similar_names)]
-    fn eval_expr(
+    fn eval_expr<B: Backend>(
         &mut self,
         env: &mut Env,
-        sim: &mut impl Backend<ResultType = impl Into<val::Result>>,
+        sim: &mut TracingBackend<'_, B>,
         globals: &impl PackageStoreLookup,
         out: &mut impl Receiver,
         expr: ExprId,
@@ -1145,10 +1157,10 @@ impl State {
         Ok(())
     }
 
-    fn eval_call(
+    fn eval_call<B: Backend>(
         &mut self,
         env: &mut Env,
-        sim: &mut impl Backend<ResultType = impl Into<val::Result>>,
+        sim: &mut TracingBackend<'_, B>,
         globals: &impl PackageStoreLookup,
         callable_span: Span,
         arg_span: Span,
@@ -1244,25 +1256,27 @@ impl State {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn eval_intrinsic(
+    fn eval_intrinsic<B: Backend>(
         &mut self,
         env: &mut Env,
         callee_id: StoreItemId,
         functor: FunctorApp,
         callee: &fir::CallableDecl,
-        sim: &mut impl Backend<ResultType = impl Into<val::Result>>,
+        sim: &mut TracingBackend<'_, B>,
         callee_span: PackageSpan,
         arg: Value,
         arg_span: PackageSpan,
         out: &mut impl Receiver,
     ) -> Result<(), Error> {
+        let call_stack = self.capture_stack_if_trace_enabled(sim);
         self.push_frame(Vec::new().into(), callee_id, functor);
         self.current_span = callee_span.span;
         self.increment_call_count(callee_id, functor);
         let name = &callee.name.name;
         let val = match name.as_ref() {
             "__quantum__rt__qubit_allocate" => {
-                let q = Rc::new(Qubit(sim.qubit_allocate()));
+                let q = sim.qubit_allocate(&call_stack);
+                let q = Rc::new(Qubit(q));
                 env.track_qubit(Rc::clone(&q));
                 if let Some(counter) = &mut self.qubit_counter {
                     counter.allocated(q.0);
@@ -1275,7 +1289,7 @@ impl State {
                     .try_deref()
                     .ok_or(Error::QubitDoubleRelease(arg_span))?;
                 env.release_qubit(&qubit);
-                if sim.qubit_release(qubit.0) {
+                if sim.qubit_release(qubit.0, &call_stack) {
                     Value::unit()
                 } else {
                     return Err(Error::ReleasedQubitNotZero(qubit.0, arg_span));
@@ -1287,6 +1301,7 @@ impl State {
                     callee_span,
                     arg,
                     arg_span,
+                    &call_stack,
                     sim,
                     &mut self.rng.borrow_mut(),
                     out,

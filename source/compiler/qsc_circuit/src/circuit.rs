@@ -4,15 +4,22 @@
 #[cfg(test)]
 mod tests;
 
+use qsc_fir::fir::PackageId;
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
-use std::{cmp, fmt::Display, fmt::Write, ops::Not, vec};
+use std::{
+    cmp::{self},
+    fmt::{Display, Write},
+    hash::Hash,
+    ops::Not,
+    vec,
+};
 
 /// Current format version.
 pub const CURRENT_VERSION: usize = 1;
 
 /// Representation of a quantum circuit group.
-#[derive(Clone, Serialize, Deserialize, Default, Debug, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, Default, Debug)]
 pub struct CircuitGroup {
     pub circuits: Vec<Circuit>,
     pub version: usize,
@@ -28,18 +35,41 @@ impl Display for CircuitGroup {
 }
 
 /// Representation of a quantum circuit.
-#[derive(Clone, Serialize, Deserialize, Default, Debug, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, Default, Debug)]
 pub struct Circuit {
     pub qubits: Vec<Qubit>,
     #[serde(rename = "componentGrid")]
     pub component_grid: ComponentGrid,
 }
 
+impl Circuit {
+    #[must_use]
+    pub fn display_no_locations(&self) -> impl Display {
+        CircuitDisplay {
+            circuit: self,
+            render_locations: false,
+        }
+    }
+}
+
+impl Display for Circuit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            CircuitDisplay {
+                circuit: self,
+                render_locations: true,
+            }
+        )
+    }
+}
+
 /// Type alias for a grid of components.
 pub type ComponentGrid = Vec<ComponentColumn>;
 
 /// Representation of a column in the component grid.
-#[derive(Clone, Serialize, Deserialize, Default, Debug, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, Default, Debug)]
 pub struct ComponentColumn {
     pub components: Vec<Component>,
 }
@@ -48,7 +78,7 @@ pub struct ComponentColumn {
 pub type Component = Operation;
 
 /// Union type for operations.
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(tag = "kind")]
 pub enum Operation {
     #[serde(rename = "measurement")]
@@ -81,6 +111,24 @@ impl Operation {
         }
     }
 
+    #[must_use]
+    pub fn source(&self) -> &Option<SourceLocation> {
+        match self {
+            Self::Measurement(measurement) => &measurement.source,
+            Self::Unitary(unitary) => &unitary.source,
+            Self::Ket(ket) => &ket.source,
+        }
+    }
+
+    #[must_use]
+    pub fn source_mut(&mut self) -> &mut Option<SourceLocation> {
+        match self {
+            Self::Measurement(measurement) => &mut measurement.source,
+            Self::Unitary(unitary) => &mut unitary.source,
+            Self::Ket(ket) => &mut ket.source,
+        }
+    }
+
     /// Returns the children for the operation.
     #[must_use]
     pub fn children(&self) -> &ComponentGrid {
@@ -88,6 +136,16 @@ impl Operation {
             Operation::Measurement(m) => &m.children,
             Operation::Unitary(u) => &u.children,
             Operation::Ket(k) => &k.children,
+        }
+    }
+
+    /// Returns the children for the operation.
+    #[must_use]
+    pub fn children_mut(&mut self) -> &mut ComponentGrid {
+        match self {
+            Operation::Measurement(m) => &mut m.children,
+            Operation::Unitary(u) => &mut u.children,
+            Operation::Ket(k) => &mut k.children,
         }
     }
 
@@ -120,7 +178,7 @@ impl Operation {
 }
 
 /// Representation of a measurement operation.
-#[derive(Clone, Serialize, Deserialize, Default, Debug, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, Default, Debug)]
 pub struct Measurement {
     pub gate: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -131,10 +189,12 @@ pub struct Measurement {
     pub children: ComponentGrid,
     pub qubits: Vec<Register>,
     pub results: Vec<Register>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<SourceLocation>,
 }
 
 /// Representation of a unitary operation.
-#[derive(Clone, Serialize, Deserialize, Default, Debug, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, Default, Debug)]
 pub struct Unitary {
     pub gate: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -151,10 +211,12 @@ pub struct Unitary {
     #[serde(skip_serializing_if = "Not::not")]
     #[serde(default)]
     pub is_adjoint: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<SourceLocation>,
 }
 
 /// Representation of a gate that will set the target to a specific state.
-#[derive(Clone, Serialize, Deserialize, Default, Debug, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, Default, Debug)]
 pub struct Ket {
     pub gate: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -164,6 +226,8 @@ pub struct Ket {
     #[serde(default)]
     pub children: ComponentGrid,
     pub targets: Vec<Register>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<SourceLocation>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Eq, Hash, PartialEq, Clone)]
@@ -174,6 +238,7 @@ pub struct Register {
 }
 
 impl Register {
+    #[must_use]
     pub fn quantum(qubit_id: usize) -> Self {
         Self {
             qubit: qubit_id,
@@ -181,6 +246,7 @@ impl Register {
         }
     }
 
+    #[must_use]
     pub fn classical(qubit_id: usize, result_id: usize) -> Self {
         Self {
             qubit: qubit_id,
@@ -188,33 +254,48 @@ impl Register {
         }
     }
 
+    #[must_use]
     pub fn is_classical(&self) -> bool {
         self.result.is_some()
     }
 }
 
-#[derive(PartialEq, Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Qubit {
     pub id: usize,
     #[serde(rename = "numResults")]
     #[serde(default)]
     pub num_results: usize,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
+    pub declarations: Vec<SourceLocation>,
 }
 
-#[derive(Clone, Debug, Copy, Default)]
-pub struct Config {
-    /// Maximum number of operations the builder will add to the circuit
-    pub max_operations: usize,
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(untagged)]
+pub enum SourceLocation {
+    Resolved(ResolvedSourceLocation),
+    #[serde(skip)]
+    Unresolved(PackageOffset),
 }
 
-impl Config {
-    /// Set to the current UI limit + 1 so that it still triggers
-    /// the "this circuit has too many gates" warning in the UI.
-    /// (see npm\qsharp\ux\circuit.tsx)
-    ///
-    /// A more refined way to do this might be to communicate the
-    /// "limit exceeded" state up to the UI somehow.
-    pub const DEFAULT_MAX_OPERATIONS: usize = 10001;
+#[derive(Clone, Debug, Copy)]
+pub struct PackageOffset {
+    pub package_id: PackageId,
+    pub offset: u32,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct ResolvedSourceLocation {
+    pub file: String,
+    pub line: u32,
+    pub column: u32,
+}
+
+impl Display for ResolvedSourceLocation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}:{}", self.file, self.line, self.column)
+    }
 }
 
 type ObjectsByColumn = FxHashMap<usize, CircuitObject>;
@@ -223,10 +304,11 @@ struct Row {
     wire: Wire,
     objects: ObjectsByColumn,
     next_column: usize,
+    render_locations: bool,
 }
 
 enum Wire {
-    Qubit { q_id: usize },
+    Qubit { label: String },
     Classical { start_column: Option<usize> },
 }
 
@@ -246,7 +328,24 @@ impl Row {
         self.add(column, CircuitObject::Object(object.to_string()));
     }
 
-    fn add_gate(&mut self, column: usize, gate: &str, args: &[String], is_adjoint: bool) {
+    fn add_measurement(&mut self, column: usize, source: Option<&SourceLocation>) {
+        let mut gate_label = String::from("M");
+        if self.render_locations
+            && let Some(SourceLocation::Resolved(loc)) = source
+        {
+            let _ = write!(&mut gate_label, "@{loc}");
+        }
+        self.add(column, CircuitObject::Object(gate_label.clone()));
+    }
+
+    fn add_gate(
+        &mut self,
+        column: usize,
+        gate: &str,
+        args: &[String],
+        is_adjoint: bool,
+        source: Option<&SourceLocation>,
+    ) {
         let mut gate_label = String::new();
         gate_label.push_str(gate);
         if is_adjoint {
@@ -256,6 +355,12 @@ impl Row {
         if !args.is_empty() {
             let args = args.join(", ");
             let _ = write!(&mut gate_label, "({args})");
+        }
+
+        if self.render_locations
+            && let Some(SourceLocation::Resolved(loc)) = source
+        {
+            let _ = write!(&mut gate_label, "@{}:{}:{}", loc.file, loc.line, loc.column);
         }
 
         self.add_object(column, gate_label.as_str());
@@ -307,8 +412,8 @@ impl Row {
         // Temporary string so we can trim whitespace at the end
         let mut s = String::new();
         match &self.wire {
-            Wire::Qubit { q_id: label } => {
-                s.write_str(&fmt_qubit_label(*label))?;
+            Wire::Qubit { label } => {
+                s.write_str(&fmt_qubit_label(label))?;
                 for (column_index, column) in columns.iter().enumerate().skip(1) {
                     let val = self.objects.get(&column_index);
                     let object = val.unwrap_or(&CircuitObject::Wire);
@@ -344,15 +449,15 @@ const CLASSICAL_WIRE_CROSS: [char; 3] = ['═', '╪', '═']; // "═══╪�
 const CLASSICAL_WIRE_START: [char; 3] = [' ', '╘', '═']; // "   ╘═══"
 const QUBIT_WIRE_DASHED_CROSS: [char; 3] = ['─', '┆', '─']; // "───┆───"
 const CLASSICAL_WIRE_DASHED_CROSS: [char; 3] = ['═', '┆', '═']; // "═══┆═══"
-const VERTICAL_DASHED: [char; 3] = [' ', '┆', ' ']; // "   │   "
-const VERTICAL: [char; 3] = [' ', '│', ' ']; // "   ┆   "
+const VERTICAL_DASHED: [char; 3] = [' ', '┆', ' ']; // "   ┆   "
+const VERTICAL: [char; 3] = [' ', '│', ' ']; // "   │   "
 const BLANK: [char; 3] = [' ', ' ', ' ']; // "       "
 
 /// "q_0  "
 #[allow(clippy::doc_markdown)]
-fn fmt_qubit_label(id: usize) -> String {
-    let rest = MIN_COLUMN_WIDTH - 2;
-    format!("q_{id: <rest$}")
+fn fmt_qubit_label(label: &str) -> String {
+    let rest = MIN_COLUMN_WIDTH - 1;
+    format!("{label: <rest$} ")
 }
 
 struct Column {
@@ -435,7 +540,12 @@ impl Column {
     }
 }
 
-impl Display for Circuit {
+struct CircuitDisplay<'a> {
+    circuit: &'a Circuit,
+    render_locations: bool,
+}
+
+impl Display for CircuitDisplay<'_> {
     /// Formats the circuit into a diagram.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut rows = vec![];
@@ -469,10 +579,10 @@ impl Display for Circuit {
     }
 }
 
-impl Circuit {
+impl CircuitDisplay<'_> {
     /// Identifies qubits that require gap rows for multi-qubit operations.
     fn identify_qubits_with_gap_rows(&self, qubits_with_gap_row_below: &mut FxHashSet<usize>) {
-        for col in &self.component_grid {
+        for col in &self.circuit.component_grid {
             for op in &col.components {
                 let targets = match op {
                     Operation::Measurement(m) => &m.qubits,
@@ -504,11 +614,27 @@ impl Circuit {
         register_to_row: &mut FxHashMap<(usize, Option<usize>), usize>,
         qubits_with_gap_row_below: &FxHashSet<usize>,
     ) {
-        for q in &self.qubits {
+        for q in &self.circuit.qubits {
+            let mut label = format!("q_{}", q.id);
+            if self.render_locations {
+                let mut first = true;
+                for loc in &q.declarations {
+                    if let SourceLocation::Resolved(loc) = loc {
+                        if first {
+                            label.push('@');
+                            first = false;
+                        } else {
+                            label.push_str(", ");
+                        }
+                        let _ = write!(&mut label, "{loc}");
+                    }
+                }
+            }
             rows.push(Row {
-                wire: Wire::Qubit { q_id: q.id },
+                wire: Wire::Qubit { label },
                 objects: FxHashMap::default(),
                 next_column: 1,
+                render_locations: self.render_locations,
             });
 
             register_to_row.insert((q.id, None), rows.len() - 1);
@@ -527,6 +653,7 @@ impl Circuit {
                     wire: Wire::Classical { start_column: None },
                     objects: FxHashMap::default(),
                     next_column: 1,
+                    render_locations: self.render_locations,
                 });
 
                 register_to_row.insert((q.id, Some(i)), rows.len() - 1);
@@ -540,7 +667,7 @@ impl Circuit {
         rows: &mut [Row],
         register_to_row: &FxHashMap<(usize, Option<usize>), usize>,
     ) {
-        for (col_index, col) in self.component_grid.iter().enumerate() {
+        for (col_index, col) in self.circuit.component_grid.iter().enumerate() {
             for op in &col.components {
                 let targets = get_row_indexes(op, register_to_row, true);
                 let controls = get_row_indexes(op, register_to_row, false);
@@ -564,7 +691,6 @@ impl Circuit {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 /// Adds a single operation to the rows.
 fn add_operation_to_rows(
     operation: &Operation,
@@ -587,6 +713,7 @@ fn add_operation_to_rows(
                 &operation.gate(),
                 &operation.args(),
                 operation.is_adjoint(),
+                operation.source().as_ref(),
             );
         }
     }
@@ -595,7 +722,7 @@ fn add_operation_to_rows(
         for i in controls {
             let row = &mut rows[*i];
             if matches!(row.wire, Wire::Qubit { .. }) && operation.is_measurement() {
-                row.add_object(column, "M");
+                row.add_measurement(column, operation.source().as_ref());
             } else {
                 row.add_object(column, "●");
             }
@@ -626,22 +753,34 @@ fn finalize_columns(rows: &[Row]) -> Vec<Column> {
         .max_by_key(|r| r.next_column)
         .map_or(1, |r| r.next_column);
 
+    let longest_qubit_label = rows
+        .iter()
+        .map(|r| {
+            if let Wire::Qubit { label } = &r.wire {
+                label.len()
+            } else {
+                0
+            }
+        })
+        .chain(std::iter::once(MIN_COLUMN_WIDTH))
+        .max()
+        .unwrap_or_default();
+
     // To be able to fit long-named operations, we calculate the required width for each column,
     // based on the maximum length needed for gates, where a gate X is printed as "- X -".
-    (0..end_column)
-        .map(|column| {
-            Column::new(
-                rows.iter()
-                    .filter_map(|row| row.objects.get(&column))
-                    .filter_map(|object| match object {
-                        CircuitObject::Object(string) => Some(string.len() + 4),
-                        _ => None,
-                    })
-                    .chain(std::iter::once(MIN_COLUMN_WIDTH))
-                    .max()
-                    .expect("Column width should be at least 1"),
-            )
-        })
+    std::iter::once(longest_qubit_label)
+        .chain((1..end_column).map(|column| {
+            rows.iter()
+                .filter_map(|row| row.objects.get(&column))
+                .filter_map(|object| match object {
+                    CircuitObject::Object(string) => Some(string.len() + 4),
+                    _ => None,
+                })
+                .chain(std::iter::once(MIN_COLUMN_WIDTH))
+                .max()
+                .expect("Column width should be at least 1")
+        }))
+        .map(Column::new)
         .collect()
 }
 
@@ -696,6 +835,7 @@ fn get_row_indexes(
 /// # Returns
 ///
 /// A component grid representing the operations.
+#[must_use]
 pub fn operation_list_to_grid(mut operations: Vec<Operation>, num_qubits: usize) -> ComponentGrid {
     for op in &mut operations {
         // The children data structure is a grid, so checking if it is
