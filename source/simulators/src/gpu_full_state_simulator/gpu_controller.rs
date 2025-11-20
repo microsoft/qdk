@@ -9,7 +9,7 @@ use super::shader_types::{Op, Result, ops};
 
 use bytemuck::{Pod, Zeroable};
 use futures::FutureExt;
-use std::{cmp::max, cmp::min, num::NonZeroU64};
+use std::{cmp::max, cmp::min, fmt::Write as _, num::NonZeroU64};
 use wgpu::{
     Adapter, BindGroup, BindGroupLayout, Buffer, BufferDescriptor, BufferUsages, ComputePipeline,
     Device, Limits, Queue, RequestAdapterError, RequestAdapterOptions, ShaderModule,
@@ -183,15 +183,15 @@ struct DiagnosticsData {
 // TODO: Implement the Display trait for DiagnosticsData for easier debugging output
 
 impl GpuContext {
-    pub fn list_adapters() -> std::result::Result<Vec<String>, String> {
+    pub fn list_adapters() -> String {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
         let adapters = instance.enumerate_adapters(wgpu::Backends::all());
-        let mut adapter_infos: Vec<String> = Vec::new();
+        let mut info = String::from("List of GPUs:");
         for adapter in adapters {
-            let info = adapter.get_info();
-            adapter_infos.push(format!("{} ({:?})", info.name, info.backend));
+            let details = adapter.get_info();
+            let _ = write!(&mut info, "\n({details:?})");
         }
-        Ok(adapter_infos)
+        info
     }
 
     pub async fn get_adapter() -> std::result::Result<Adapter, String> {
