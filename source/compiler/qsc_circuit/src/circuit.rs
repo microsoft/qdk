@@ -332,15 +332,16 @@ impl Display for ResolvedSourceLocation {
 /// First by column, then by row.
 type ObjectsByColumnAndRow = FxHashMap<usize, FxHashMap<usize, CircuitObject>>;
 
-struct Row {
+struct RowBuilder {
     wire: Wire,
     height: usize,
-    current_height_offset: usize,
+    current_top_offset: usize,
     objects: ObjectsByColumnAndRow,
     next_column: usize,
     render_locations: bool,
 }
 
+#[derive(Clone)]
 enum Wire {
     None, // TODO: abolish
     Qubit { label: String },
@@ -349,19 +350,37 @@ enum Wire {
 
 #[derive(Debug)]
 enum CircuitObject {
-    Blank,
+    Blank, // TODO: blank is silly, get rid of it
     Wire,
     WireCross,
     WireStart,
     DashedCross,
     Vertical,
     VerticalDashed,
+    TopLeftCorner,
+    TopRightCorner,
     Object(String),
 }
 
-impl Row {
-    fn add_object(&mut self, column: usize, object: &str) {
+impl RowBuilder {
+    fn add_object_to_row_bottom(&mut self, column: usize, object: &str) {
         self.add_to_row_bottom(column, CircuitObject::Object(object.to_string()));
+    }
+
+    fn add_object_at_current_height(&mut self, column: usize, object: &str) {
+        let obj = CircuitObject::Object(object.to_string());
+        self.add_to_current_height(column, obj);
+    }
+
+    fn increment_current_top_offset(&mut self) {
+        self.current_top_offset += 1;
+        self.height = max(self.height, self.current_top_offset + 1);
+    }
+
+    fn decrement_current_top_offset(&mut self) {
+        if self.current_top_offset > 0 {
+            self.current_top_offset -= 1;
+        }
     }
 
     fn add_measurement(&mut self, column: usize, source: Option<&SourceLocation>) {
@@ -399,7 +418,7 @@ impl Row {
             let _ = write!(&mut gate_label, "@{}:{}:{}", loc.file, loc.line, loc.column);
         }
 
-        self.add_object(column, gate_label.as_str());
+        self.add_object_to_row_bottom(column, gate_label.as_str());
     }
 
     fn add_vertical(&mut self, column: usize) {
@@ -447,39 +466,86 @@ impl Row {
         self.next_column = column + 1;
     }
 
+    fn add_to_current_height(&mut self, column: usize, obj: CircuitObject) {
+        let row_row = self.objects.entry(column).or_default();
+        row_row.insert(self.current_top_offset, obj);
+        self.next_column = column + 1;
+    }
+
+    fn expand_rows(mut self) -> Vec<Row> {
+        let mut rows = Vec::new();
+
+        // Do the rows above zero
+        for height_offset_from_top in 1..self.height {
+            let mut row_objects = FxHashMap::default();
+            for (column, column_objects) in &mut self.objects {
+                if let Some(object) = column_objects.remove(&height_offset_from_top) {
+                    // if we encountered a box corner, we need to fill in the rest of the column
+                    if matches!(
+                        object,
+                        CircuitObject::TopLeftCorner | CircuitObject::TopRightCorner
+                    ) {
+                        for row_below in height_offset_from_top..self.height {
+                            column_objects.insert(row_below, CircuitObject::Vertical);
+                        }
+                        // Do zero as well
+                        column_objects.insert(0, CircuitObject::Vertical);
+                    }
+                    row_objects.insert(*column, object);
+                }
+            }
+            rows.push(Row {
+                wire: Wire::None,
+                objects: row_objects,
+            });
+        }
+
+        // now do zero
+        let idx = 0;
+        let mut row_objects = FxHashMap::default();
+        for (column, column_objects) in &mut self.objects {
+            if let Some(object) = column_objects.remove(&idx) {
+                row_objects.insert(*column, object);
+            }
+        }
+        rows.push(Row {
+            wire: self.wire,
+            objects: row_objects,
+        });
+
+        rows
+    }
+}
+
+type ObjectsByColumn = FxHashMap<usize, CircuitObject>;
+
+struct Row {
+    wire: Wire,
+    objects: ObjectsByColumn,
+}
+
+impl Row {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>, columns: &[Column]) -> std::fmt::Result {
         // Temporary string so we can trim whitespace at the end
         let mut s = String::new();
         match &self.wire {
             Wire::None => {
                 for (column_index, column) in columns.iter().enumerate() {
-                    // TODO: expand rows instead of just getting the top one
-                    let obj = self
-                        .objects
-                        .get(&column_index)
-                        .and_then(|row_row_| row_row_.get(&0));
+                    let obj = self.objects.get(&column_index);
                     s.write_str(&column.fmt_object(obj))?;
                 }
             }
             Wire::Qubit { label } => {
                 s.write_str(&fmt_qubit_label(label))?;
                 for (column_index, column) in columns.iter().enumerate().skip(1) {
-                    // TODO: expand rows instead of just getting the top one
-                    let obj = self
-                        .objects
-                        .get(&column_index)
-                        .and_then(|row_row_| row_row_.get(&0));
+                    let obj = self.objects.get(&column_index);
 
                     s.write_str(&column.fmt_object_on_qubit_wire(obj))?;
                 }
             }
             Wire::Classical { start_column } => {
                 for (column_index, column) in columns.iter().enumerate() {
-                    // TODO: expand rows instead of just getting the top one
-                    let obj = self
-                        .objects
-                        .get(&column_index)
-                        .and_then(|row_row_| row_row_.get(&0));
+                    let obj = self.objects.get(&column_index);
 
                     if let Some(start) = *start_column
                         && column_index > start
@@ -508,6 +574,8 @@ const CLASSICAL_WIRE_DASHED_CROSS: [char; 3] = ['═', '┆', '═']; // "══
 const VERTICAL_DASHED: [char; 3] = [' ', '┆', ' ']; // "   ┆   "
 const VERTICAL: [char; 3] = [' ', '│', ' ']; // "   │   "
 const BLANK: [char; 3] = [' ', ' ', ' ']; // "       "
+const TOP_LEFT_CORNER: [char; 3] = [' ', '┌', '─']; // "   ┌───"
+const TOP_RIGHT_CORNER: [char; 3] = ['─', '┐', ' ']; // "───┐   "
 
 /// "q_0  "
 #[allow(clippy::doc_markdown)]
@@ -570,6 +638,8 @@ impl Column {
             CircuitObject::Vertical
             | CircuitObject::VerticalDashed
             | CircuitObject::Blank
+            | CircuitObject::TopLeftCorner
+            | CircuitObject::TopRightCorner
             | CircuitObject::Object(_) => unreachable!(),
         };
 
@@ -586,10 +656,12 @@ impl Column {
             CircuitObject::Wire => QUBIT_WIRE,
             CircuitObject::WireCross => QUBIT_WIRE_CROSS,
             CircuitObject::DashedCross => QUBIT_WIRE_DASHED_CROSS,
-            CircuitObject::Vertical
-            | CircuitObject::WireStart
+            CircuitObject::Vertical => QUBIT_WIRE_CROSS,
+            CircuitObject::WireStart
             | CircuitObject::VerticalDashed
             | CircuitObject::Blank
+            | CircuitObject::TopLeftCorner
+            | CircuitObject::TopRightCorner
             | CircuitObject::Object(_) => unreachable!(),
         };
 
@@ -607,7 +679,12 @@ impl Column {
             CircuitObject::Blank => BLANK,
             CircuitObject::Vertical => VERTICAL,
             CircuitObject::VerticalDashed => VERTICAL_DASHED,
-            o => unreachable!("Unexpected object on blank row: {:?}", o),
+            CircuitObject::TopLeftCorner => TOP_LEFT_CORNER,
+            CircuitObject::TopRightCorner => TOP_RIGHT_CORNER,
+            CircuitObject::Wire
+            | CircuitObject::WireCross
+            | CircuitObject::DashedCross
+            | CircuitObject::Object(_) => unreachable!("unexpected object on blank row"),
         };
 
         self.expand_template(&template)
@@ -637,7 +714,10 @@ impl Display for CircuitDisplay<'_> {
 
         // Draw the diagram
         for row in rows {
-            row.fmt(f, &columns)?;
+            let subrows = row.expand_rows();
+            for subrow in subrows {
+                subrow.fmt(f, &columns)?;
+            }
         }
 
         Ok(())
@@ -681,7 +761,7 @@ impl CircuitDisplay<'_> {
     fn initialize_rows(
         &self,
         qubits_with_gap_row_below: &FxHashSet<usize>,
-    ) -> (Vec<Row>, FxHashMap<(usize, Option<usize>), usize>) {
+    ) -> (Vec<RowBuilder>, FxHashMap<(usize, Option<usize>), usize>) {
         // Maintain a mapping from from Registers in the Circuit schema
         // to row in the diagram
         let mut register_to_row = FxHashMap::default();
@@ -704,10 +784,10 @@ impl CircuitDisplay<'_> {
                 }
             }
 
-            rows.push(Row {
+            rows.push(RowBuilder {
                 wire: Wire::Qubit { label },
                 height: 1,
-                current_height_offset: 0,
+                current_top_offset: 0,
                 objects: FxHashMap::default(),
                 next_column: 1,
                 render_locations: self.render_locations,
@@ -717,10 +797,10 @@ impl CircuitDisplay<'_> {
             register_to_row.insert((q.id, None), rows.len() - 1);
 
             for i in 0..q.num_results {
-                rows.push(Row {
+                rows.push(RowBuilder {
                     wire: Wire::Classical { start_column: None },
                     height: 1,
-                    current_height_offset: 0,
+                    current_top_offset: 0,
                     objects: FxHashMap::default(),
                     next_column: 1,
                     render_locations: self.render_locations,
@@ -735,10 +815,10 @@ impl CircuitDisplay<'_> {
             // If this qubit has no result wires, but it is in a multi-qubit operation with
             // the next qubit, we add an empty row to make room for the vertical connector.
             if qubits_with_gap_row_below.contains(&q.id) && qubit_bottom_padding == 0 {
-                rows.push(Row {
+                rows.push(RowBuilder {
                     wire: Wire::None,
                     height: 1,
-                    current_height_offset: 0,
+                    current_top_offset: 0,
                     objects: FxHashMap::default(),
                     next_column: 1,
                     render_locations: self.render_locations,
@@ -754,7 +834,7 @@ impl CircuitDisplay<'_> {
         &self,
         start_column: usize,
         component_grid: &ComponentGrid,
-        rows: &mut [Row],
+        rows: &mut [RowBuilder],
         register_to_row: &FxHashMap<(usize, Option<usize>), usize>,
     ) -> usize {
         let mut column = start_column;
@@ -802,7 +882,7 @@ impl CircuitDisplay<'_> {
                             // begin,
                             // end,
                         );
-                        offset += 2;
+                        offset += 1;
                     }
                     offset += self.add_operations_to_rows(
                         column + offset,
@@ -811,7 +891,13 @@ impl CircuitDisplay<'_> {
                         register_to_row,
                     );
                     if self.render_groups {
-                        add_box_end_to_rows(op, rows, &target_rows, column + offset);
+                        add_box_end_to_rows(
+                            op,
+                            rows,
+                            &all_registers,
+                            register_to_row,
+                            column + offset,
+                        );
                         offset += 1;
                     }
                     next_column = max(next_column, column + offset);
@@ -826,7 +912,7 @@ impl CircuitDisplay<'_> {
 /// Adds a single operation to the rows.
 fn add_operation_to_rows(
     operation: &Operation,
-    rows: &mut [Row],
+    rows: &mut [RowBuilder],
     targets: &[usize],
     controls: &[usize],
     column: usize,
@@ -856,7 +942,7 @@ fn add_operation_to_rows(
             if matches!(row.wire, Wire::Qubit { .. }) && operation.is_measurement() {
                 row.add_measurement(column, operation.source().as_ref());
             } else {
-                row.add_object(column, "●");
+                row.add_object_to_row_bottom(column, "●");
             }
         }
 
@@ -878,7 +964,7 @@ fn add_operation_to_rows(
 
 fn add_box_start_to_rows(
     operation: &Operation,
-    rows: &mut [Row],
+    rows: &mut [RowBuilder],
     registers: &[Register],
     register_to_row: &FxHashMap<(usize, Option<usize>), usize>,
     column: usize,
@@ -976,71 +1062,34 @@ fn add_box_start_to_rows(
         .expect("register must map to a row");
 
     // Add the vertical line for the box start
-    if first == last {
-        rows[first].add_object(column, "[");
-    } else {
-        rows[first].add_object(column, "┌");
-        for row in &mut rows[(first + 1)..(last)] {
-            row.add_vertical(column);
-        }
-        rows[last].add_object(column, "└");
-    }
+    rows[first].increment_current_top_offset();
+
+    add_vertical_box_border(rows, column, first, last, true);
 
     // Add label to the first row
     let gate_label = group_label(operation);
-    rows[first].add_object(column + 1, gate_label.as_str());
-
-    // let mut last_register: Option<((usize, Option<usize>))> = None;
-    // let mut first_row = None;
-
-    // for reg in registers {
-    //     let reg = (reg.qubit, reg.result);
-    //     let row_i = *register_to_row
-    //         .get(&reg)
-    //         .expect("register must map to a row");
-
-    //     first_row.replace(row_i);
-
-    //     if let Some(last_register) = last_register {
-    //         let last_row = *register_to_row
-    //             .get(&last_register)
-    //             .expect("register must map to a row");
-
-    //         // for row in &mut rows[(last_row + 1)..row_i] {
-    //         //     row.add_vertical(column);
-    //         // }
-    //         if last_register.0 + 1 < reg.0 {
-    //             // there was a gap
-    //             // rows[last_row].add_object(column, "└");
-    //             for row in &mut rows[(last_row + 1)..row_i] {
-    //                 row.add_dashed_vertical(column + 1);
-    //             }
-    //         }
-    //     } else {
-    //         // rows[row_i].add_object(column, "┌");
-    //     }
-
-    //     if last_register.is_none_or(|last_reg| reg.0 > (last_reg.0 + 1)) {
-    //         let gate_label = group_label(operation);
-    //         rows[row_i].add_object(column + 1, gate_label.as_str());
-    //     }
-
-    //     last_register.replace(reg);
-    // }
+    rows[first].add_object_at_current_height(column + 1, gate_label.as_str());
 }
 
-// if let Some(last_register) = last_register {
-//     let last_row = *register_to_row
-//         .get(&last_register)
-//         .expect("register must map to a row");
-
-//     if first_row == Some(last_row) {
-//         rows[last_row].add_object(column, "[");
-//     } else {
-//         rows[last_row].add_object(column, "└");
-//     }
-// }
-// }
+fn add_vertical_box_border(
+    rows: &mut [RowBuilder],
+    column: usize,
+    first_row: usize,
+    last_row: usize,
+    is_start: bool,
+) {
+    let top = if is_start {
+        CircuitObject::TopLeftCorner
+    } else {
+        CircuitObject::TopRightCorner
+    };
+    let bottom = if is_start { "└" } else { "┘" };
+    rows[first_row].add_to_current_height(column, top);
+    for row in &mut rows[(first_row)..(last_row)] {
+        row.add_vertical(column);
+    }
+    rows[last_row].add_object_to_row_bottom(column, bottom);
+}
 
 fn group_label(operation: &Operation) -> String {
     let mut gate_label = String::new();
@@ -1064,19 +1113,67 @@ fn group_label(operation: &Operation) -> String {
     gate_label
 }
 
-fn add_box_end_to_rows(operation: &Operation, rows: &mut [Row], targets: &[usize], column: usize) {
+fn add_box_end_to_rows(
+    operation: &Operation,
+    rows: &mut [RowBuilder],
+    registers: &[Register],
+    register_to_row: &FxHashMap<(usize, Option<usize>), usize>,
+    column: usize,
+) {
     assert!(
         !operation.children().is_empty(),
         "must only be called for an operation with children"
     );
-    for i in targets {
-        let row = &mut rows[*i];
-        row.add_object(column, "]]");
+
+    let mut registers = registers.to_vec();
+    registers.sort_unstable_by_key(|r| (r.qubit, r.result));
+
+    // Split into groups of consecutive registers
+    let mut groups: Vec<Vec<Register>> = vec![];
+    let mut current_group: Vec<Register> = vec![];
+    for reg in &registers {
+        if let Some(last_reg) = current_group.last() {
+            if reg.qubit == last_reg.qubit || reg.qubit == last_reg.qubit + 1 {
+                current_group.push(reg.clone());
+            } else {
+                groups.push(current_group);
+                current_group = vec![reg.clone()];
+            }
+        } else {
+            current_group.push(reg.clone());
+        }
     }
+    if !current_group.is_empty() {
+        groups.push(current_group);
+    }
+
+    if groups.len() > 1 {
+        for group in &groups {
+            add_box_end_to_rows(operation, rows, &group, register_to_row, column);
+        }
+        return;
+    }
+
+    let first = *register_to_row
+        .get(&(
+            registers.first().unwrap().qubit,
+            registers.first().unwrap().result,
+        ))
+        .expect("register must map to a row");
+    let last = *register_to_row
+        .get(&(
+            registers.last().unwrap().qubit,
+            registers.last().unwrap().result,
+        ))
+        .expect("register must map to a row");
+
+    // Add the vertical line for the box start
+    add_vertical_box_border(rows, column, first, last, false);
+    rows[first].decrement_current_top_offset();
 }
 
 /// Finalizes the columns by calculating their widths.
-fn finalize_columns(rows: &[Row]) -> Vec<Column> {
+fn finalize_columns(rows: &[RowBuilder]) -> Vec<Column> {
     // Find the end column for the whole circuit so that
     // all qubit wires will extend until the end
     let end_column = rows
