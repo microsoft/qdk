@@ -98,6 +98,13 @@ parser.add_argument(
     help="Run the manylinux auditwheel repair (default is --no-manylinux)",
 )
 
+parser.add_argument(
+    "--gpu-tests",
+    action=argparse.BooleanOptionalAction,
+    default=False,
+    help="Run the GPU simulator tests (default is --no-gpu-tests)",
+)
+
 args = parser.parse_args()
 
 if args.check_prereqs:
@@ -376,8 +383,12 @@ def build_qsharp_wheel(cwd, out_dir, interpreter, pip_env_dir):
 
 
 def run_python_tests(cwd, interpreter):
+    test_env = os.environ.copy()
+    if args.gpu_tests:
+        test_env["QDK_GPU_TESTS"] = "1"
+
     command_args = [interpreter, "-m", "pytest"]
-    subprocess.run(command_args, check=True, text=True, cwd=cwd)
+    subprocess.run(command_args, check=True, text=True, cwd=cwd, env=test_env)
 
 
 def run_python_integration_tests(cwd, interpreter):
