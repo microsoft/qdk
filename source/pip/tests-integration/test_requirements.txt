@@ -1,5 +1,5 @@
 pytest==8.2.2
-qirrunner==0.8.3
+qirrunner==0.9.0
 pyqir<0.12.0
 qiskit-aer==0.17
 qiskit_qasm3_import==0.6.0

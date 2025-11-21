@@ -52,7 +52,7 @@ parser.add_argument(
 parser.add_argument(
     "--check",
     action=argparse.BooleanOptionalAction,
-    default=False,
+    default=True,
     help="Run the linting and formatting checks (default is --check)",
 )
 
@@ -96,6 +96,13 @@ parser.add_argument(
     action=argparse.BooleanOptionalAction,
     default=False,
     help="Run the manylinux auditwheel repair (default is --no-manylinux)",
+)
+
+parser.add_argument(
+    "--gpu-tests",
+    action=argparse.BooleanOptionalAction,
+    default=False,
+    help="Run the GPU simulator tests (default is --no-gpu-tests)",
 )
 
 args = parser.parse_args()
@@ -376,8 +383,12 @@ def build_qsharp_wheel(cwd, out_dir, interpreter, pip_env_dir):
 
 
 def run_python_tests(cwd, interpreter):
+    test_env = os.environ.copy()
+    if args.gpu_tests:
+        test_env["QDK_GPU_TESTS"] = "1"
+
     command_args = [interpreter, "-m", "pytest"]
-    subprocess.run(command_args, check=True, text=True, cwd=cwd)
+    subprocess.run(command_args, check=True, text=True, cwd=cwd, env=test_env)
 
 
 def run_python_integration_tests(cwd, interpreter):
@@ -699,6 +710,10 @@ if build_pip and build_widgets and args.integration_tests:
             or f.startswith("submit_qiskit_circuit_to_azure.")
             or f.startswith("cirq_submission_to_azure.")
             or f.startswith("pennylane_submission_to_azure.")
+            or f.startswith("benzene.")
+            or f.startswith("carbon.")
+            or f.startswith("Ising.")
+            or f.startswith("teleport-notebook.")
         )
     ]
     python_bin = use_python_env(samples_src)
