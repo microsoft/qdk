@@ -4,11 +4,16 @@
 from pathlib import Path
 from typing import Sequence, cast
 import math
+import os
 
 import pytest
 import sys
 
 from qsharp._native import Result
+
+# Skip all tests in this module if QDK_GPU_TESTS is not set
+if not os.environ.get("QDK_GPU_TESTS"):
+    pytest.skip("Skipping GPU tests (QDK_GPU_TESTS not set)", allow_module_level=True)
 
 SKIP_REASON = "GPU is not available"
 
@@ -58,13 +63,6 @@ def result_array_to_string(results: Sequence[Result]) -> str:
     return "".join(chars)
 
 
-def result_array_to_int(results: Sequence[Result]) -> int:
-    value = 0
-    for r in results:
-        value = (value << 1) | (1 if r == Result.One else 0)
-    return value
-
-
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
 def test_gpu_seeding_no_noise():
     qsharp.init(target_profile=TargetProfile.Base)
@@ -110,25 +108,6 @@ def test_gpu_no_noise():
     print(output)
     # Expecting deterministic output, no randomization seed needed.
     assert output == [[Result.Zero] * 25], "Expected result of 0s with pi/2 angles."
-
-
-# @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-# def test_ising_1d():
-#     qsharp.init(target_profile=TargetProfile.Base)
-#     qsharp.eval(read_file_relative("Simple1dIsingOrder1.qs"))
-#     n_instances = 17
-
-#     input = qsharp.compile(f"IsingModel1DEvolution({n_instances}, 1.0, 0.7, 4.0, 7)")
-
-#     output = run_qir_gpu(str(input), shots=5000)
-#     histogram: dict[int, int] = {}
-#     for shot in output:
-#         shot_value = result_array_to_int(cast(Sequence[Result], shot))
-#         histogram[shot_value] = histogram.get(shot_value, 0) + 1
-#     top_values = sorted(histogram.items(), key=lambda item: item[1], reverse=True)[:25]
-#     print("Top histogram entries:")
-#     for value, count in top_values:
-#         print(f"{value:0{n_instances}b}: {count}")
 
 
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
