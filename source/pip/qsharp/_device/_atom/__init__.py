@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 
 from .._device import Device, Zone, ZoneType
-from ..._simulation import clifford_simulation, NoiseConfig, run_qir_gpu
+from ..._simulation import NoiseConfig, run_qir_clifford, run_qir_cpu, run_qir_gpu
 from ..._qsharp import QirInputData
 
 from typing import List, Literal
@@ -203,7 +203,7 @@ class AC1000(Device):
         qir: str | QirInputData,
         shots=1,
         noise: NoiseConfig | None = None,
-        type: Literal["clifford", "gpu"] = "clifford",
+        type: Literal["clifford", "cpu", "gpu"] = "clifford",
     ) -> List:
         """
         Simulate a QIR program on the AC1000 device. This includes approximate layout and scheduling of the program
@@ -232,11 +232,14 @@ class AC1000(Device):
 
         if type == "clifford":
             DecomposeRzAnglesToCliffordGates().run(module)
-            return clifford_simulation(
+            return run_qir_clifford(
                 str(module),
                 shots,
                 noise,
             )
+
+        if type == "cpu":
+            return run_qir_cpu(str(module), shots, noise)
 
         if type == "gpu":
             return run_qir_gpu(str(module), shots, noise)

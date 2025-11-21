@@ -5,7 +5,7 @@ from pathlib import Path
 import pyqir
 
 import qsharp
-from qsharp._simulation import run_qir, NoiseConfig
+from qsharp._simulation import run_qir_clifford, NoiseConfig
 from qsharp._device._atom import AC1000
 from qsharp._device._atom._decomp import DecomposeRzAnglesToCliffordGates
 from qsharp._device._atom._validate import ValidateSingleBlock
@@ -42,7 +42,7 @@ def test_smoke():
         "IsingModel2DEvolution(5, 5, PI() / 2.0, PI() / 2.0, 5.0, 5)"
     )
     input = transform_to_clifford(input)
-    output = run_qir(input, 10, NoiseConfig())
+    output = run_qir_clifford(input, 10, NoiseConfig())
     print(output)
 
 
@@ -55,7 +55,7 @@ def test_1224_clifford_ising():
     )
     qir = transform_to_clifford(input)
 
-    output = run_qir(qir, 1, NoiseConfig())
+    output = run_qir_clifford(qir, 1, NoiseConfig())
 
     print(output)
 
@@ -65,7 +65,7 @@ def test_million():
     qsharp.eval(read_file_relative("CliffordCalls.qs"))
 
     ir = qsharp.compile("Main()")
-    output = run_qir(str(ir), 1, NoiseConfig())
+    output = run_qir_clifford(str(ir), 1, NoiseConfig())
     print(output)
 
 
@@ -75,7 +75,7 @@ def test_s_noise_inherits_from_rz():
     ir = qsharp.compile("Main()")
     noise = NoiseConfig()
     noise.rz.x = 1.0
-    output = run_qir(str(ir), 1, noise)
+    output = run_qir_clifford(str(ir), 1, noise)
     assert output == [Result.One]
 
 
@@ -85,7 +85,7 @@ def test_z_noise_inherits_from_rz():
     ir = qsharp.compile("Main()")
     noise = NoiseConfig()
     noise.rz.x = 1.0
-    output = run_qir(str(ir), 1, noise)
+    output = run_qir_clifford(str(ir), 1, noise)
     assert output == [Result.One]
 
 
@@ -97,5 +97,5 @@ def test_s_adj_noise_inherits_from_rz():
     ir = qsharp.compile("Main()")
     noise = NoiseConfig()
     noise.rz.x = 1.0
-    output = run_qir(str(ir), 1, noise)
+    output = run_qir_clifford(str(ir), 1, noise)
     assert output == [Result.One]

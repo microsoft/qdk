@@ -16,6 +16,7 @@ pub fn run_clifford<'py>(
     num_results: u32,
     shots: u32,
     noise_config: &Bound<'py, NoiseConfig>,
+    _seed: Option<u32>,
 ) -> PyResult<PyObject> {
     use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
     assert!(shots > 0, "must run at least one shot");
