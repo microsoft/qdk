@@ -14,8 +14,7 @@ pub fn try_create_gpu_adapter() -> Result<String, String> {
     let adapter =
         futures::executor::block_on(async { gpu_controller::GpuContext::get_adapter().await })?;
     let info = adapter.get_info();
-    let list = gpu_controller::GpuContext::list_adapters();
-    Ok(format!("{list}\nUsing: {info:?}"))
+    Ok(format!("{info:?}"))
 }
 
 pub fn run_parallel_shots(
