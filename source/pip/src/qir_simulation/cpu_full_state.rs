@@ -121,17 +121,17 @@ fn run_shot(
                 ),
             },
             QirInstruction::OneQubitRotationGate(id, angle, qubit) => match id {
-                QirInstructionId::RX => sim.rx(angle, *qubit as usize),
-                QirInstructionId::RY => sim.ry(angle, *qubit as usize),
-                QirInstructionId::RZ => sim.rz(angle, *qubit as usize),
+                QirInstructionId::RX => sim.rx(*angle, *qubit as usize),
+                QirInstructionId::RY => sim.ry(*angle, *qubit as usize),
+                QirInstructionId::RZ => sim.rz(*angle, *qubit as usize),
                 _ => {
                     panic!("unsupported one-qubit rotation gate: {id:?} on qubit {qubit}");
                 }
             },
             QirInstruction::TwoQubitRotationGate(id, angle, qubit1, qubit2) => match id {
-                QirInstructionId::RXX => sim.rxx(angle, *qubit1, *qubit2),
-                QirInstructionId::RYY => sim.ryy(angle, *qubit1, *qubit2),
-                QirInstructionId::RZZ => sim.rzz(angle, *qubit1, *qubit2),
+                QirInstructionId::RXX => sim.rxx(*angle, *qubit1 as usize, *qubit2 as usize),
+                QirInstructionId::RYY => sim.ryy(*angle, *qubit1 as usize, *qubit2 as usize),
+                QirInstructionId::RZZ => sim.rzz(*angle, *qubit1 as usize, *qubit2 as usize),
                 _ => {
                     panic!(
                         "unsupported two-qubit rotation gate: {id:?} on qubits {qubit1}, {qubit2}"

@@ -233,7 +233,9 @@ impl Simulator {
     pub fn x(&mut self, target: QubitID) {
         if !self.loss[target] {
             self.apply_idle_noise(target);
-            self.state.apply_operation(&*X, &[target]);
+            self.state
+                .apply_operation(&X, &[target])
+                .expect("apply_operation should succeed");
             self.apply_fault(self.noise_config.x.gen_operation_fault(), target);
         }
     }
@@ -242,7 +244,9 @@ impl Simulator {
     pub fn y(&mut self, target: QubitID) {
         if !self.loss[target] {
             self.apply_idle_noise(target);
-            self.state.apply_operation(&*Y, &[target]);
+            self.state
+                .apply_operation(&Y, &[target])
+                .expect("apply_operation should succeed");
             self.apply_fault(self.noise_config.y.gen_operation_fault(), target);
         }
     }
@@ -251,7 +255,9 @@ impl Simulator {
     pub fn z(&mut self, target: QubitID) {
         if !self.loss[target] {
             self.apply_idle_noise(target);
-            self.state.apply_operation(&*Z, &[target]);
+            self.state
+                .apply_operation(&Z, &[target])
+                .expect("apply_operation should succeed");
             self.apply_fault(self.noise_config.z.gen_operation_fault(), target);
         }
     }
@@ -260,7 +266,9 @@ impl Simulator {
     pub fn h(&mut self, target: QubitID) {
         if !self.loss[target] {
             self.apply_idle_noise(target);
-            self.state.apply_operation(&*H, &[target]);
+            self.state
+                .apply_operation(&H, &[target])
+                .expect("apply_operation should succeed");
             self.apply_fault(self.noise_config.h.gen_operation_fault(), target);
         }
     }
@@ -269,7 +277,9 @@ impl Simulator {
     pub fn s(&mut self, target: QubitID) {
         if !self.loss[target] {
             self.apply_idle_noise(target);
-            self.state.apply_operation(&*S, &[target]);
+            self.state
+                .apply_operation(&S, &[target])
+                .expect("apply_operation should succeed");
             self.apply_fault(self.noise_config.s.gen_operation_fault(), target);
         }
     }
@@ -278,7 +288,9 @@ impl Simulator {
     pub fn s_adj(&mut self, target: QubitID) {
         if !self.loss[target] {
             self.apply_idle_noise(target);
-            self.state.apply_operation(&*S_ADJ, &[target]);
+            self.state
+                .apply_operation(&S_ADJ, &[target])
+                .expect("apply_operation should succeed");
             self.apply_fault(self.noise_config.s_adj.gen_operation_fault(), target);
         }
     }
@@ -287,7 +299,9 @@ impl Simulator {
     pub fn sx(&mut self, target: QubitID) {
         if !self.loss[target] {
             self.apply_idle_noise(target);
-            self.state.apply_operation(&*SX, &[target]);
+            self.state
+                .apply_operation(&SX, &[target])
+                .expect("apply_operation should succeed");
             self.apply_fault(self.noise_config.sx.gen_operation_fault(), target);
         }
     }
@@ -296,7 +310,9 @@ impl Simulator {
     pub fn sx_adj(&mut self, target: QubitID) {
         if !self.loss[target] {
             self.apply_idle_noise(target);
-            self.state.apply_operation(&*SX_ADJ, &[target]);
+            self.state
+                .apply_operation(&SX_ADJ, &[target])
+                .expect("apply_operation should succeed");
             self.apply_fault(self.noise_config.sx_adj.gen_operation_fault(), target);
         }
     }
@@ -305,7 +321,9 @@ impl Simulator {
     pub fn t(&mut self, target: QubitID) {
         if !self.loss[target] {
             self.apply_idle_noise(target);
-            self.state.apply_operation(&*T, &[target]);
+            self.state
+                .apply_operation(&T, &[target])
+                .expect("apply_operation should succeed");
             self.apply_fault(self.noise_config.t.gen_operation_fault(), target);
         }
     }
@@ -314,34 +332,42 @@ impl Simulator {
     pub fn t_adj(&mut self, target: QubitID) {
         if !self.loss[target] {
             self.apply_idle_noise(target);
-            self.state.apply_operation(&*T_ADJ, &[target]);
+            self.state
+                .apply_operation(&T_ADJ, &[target])
+                .expect("apply_operation should succeed");
             self.apply_fault(self.noise_config.t_adj.gen_operation_fault(), target);
         }
     }
 
     /// Single qubit RX gate.
-    pub fn rx(&mut self, target: QubitID, angle: f64) {
+    pub fn rx(&mut self, angle: f64, target: QubitID) {
         if !self.loss[target] {
             self.apply_idle_noise(target);
-            self.state.apply_operation(&rx(angle), &[target]);
+            self.state
+                .apply_operation(&rx(angle), &[target])
+                .expect("apply_operation should succeed");
             self.apply_fault(self.noise_config.rx.gen_operation_fault(), target);
         }
     }
 
     /// Single qubit RY gate.
-    pub fn ry(&mut self, target: QubitID, angle: f64) {
+    pub fn ry(&mut self, angle: f64, target: QubitID) {
         if !self.loss[target] {
             self.apply_idle_noise(target);
-            self.state.apply_operation(&ry(angle), &[target]);
+            self.state
+                .apply_operation(&ry(angle), &[target])
+                .expect("apply_operation should succeed");
             self.apply_fault(self.noise_config.ry.gen_operation_fault(), target);
         }
     }
 
     /// Single qubit RZ gate.
-    pub fn rz(&mut self, target: QubitID, angle: f64) {
+    pub fn rz(&mut self, angle: f64, target: QubitID) {
         if !self.loss[target] {
             self.apply_idle_noise(target);
-            self.state.apply_operation(&rz(angle), &[target]);
+            self.state
+                .apply_operation(&rz(angle), &[target])
+                .expect("apply_operation should succeed");
             self.apply_fault(self.noise_config.rz.gen_operation_fault(), target);
         }
     }
@@ -351,7 +377,9 @@ impl Simulator {
         if !self.loss[control] && !self.loss[target] {
             self.apply_idle_noise(control);
             self.apply_idle_noise(target);
-            self.state.apply_operation(&*CX, &[control, target]);
+            self.state
+                .apply_operation(&CX, &[control, target])
+                .expect("apply_operation should succeed");
             self.apply_fault(self.noise_config.cx.gen_operation_fault(), control);
             self.apply_fault(self.noise_config.cx.gen_operation_fault(), target);
         }
@@ -362,40 +390,48 @@ impl Simulator {
         if !self.loss[control] && !self.loss[target] {
             self.apply_idle_noise(control);
             self.apply_idle_noise(target);
-            self.state.apply_operation(&*CZ, &[control, target]);
+            self.state
+                .apply_operation(&CZ, &[control, target])
+                .expect("apply_operation should succeed");
             self.apply_fault(self.noise_config.cz.gen_operation_fault(), control);
             self.apply_fault(self.noise_config.cz.gen_operation_fault(), target);
         }
     }
 
     /// Two qubits RXX gate.
-    pub fn rxx(&mut self, q1: QubitID, q2: QubitID, angle: f64) {
+    pub fn rxx(&mut self, angle: f64, q1: QubitID, q2: QubitID) {
         if !self.loss[q1] && !self.loss[q2] {
             self.apply_idle_noise(q1);
             self.apply_idle_noise(q2);
-            self.state.apply_operation(&rxx(angle), &[q1, q2]);
+            self.state
+                .apply_operation(&rxx(angle), &[q1, q2])
+                .expect("apply_operation should succeed");
             self.apply_fault(self.noise_config.rxx.gen_operation_fault(), q1);
             self.apply_fault(self.noise_config.rxx.gen_operation_fault(), q2);
         }
     }
 
     /// Two qubits RYY gate.
-    pub fn ryy(&mut self, q1: QubitID, q2: QubitID, angle: f64) {
+    pub fn ryy(&mut self, angle: f64, q1: QubitID, q2: QubitID) {
         if !self.loss[q1] && !self.loss[q2] {
             self.apply_idle_noise(q1);
             self.apply_idle_noise(q2);
-            self.state.apply_operation(&ryy(angle), &[q1, q2]);
+            self.state
+                .apply_operation(&ryy(angle), &[q1, q2])
+                .expect("apply_operation should succeed");
             self.apply_fault(self.noise_config.ryy.gen_operation_fault(), q1);
             self.apply_fault(self.noise_config.ryy.gen_operation_fault(), q2);
         }
     }
 
     /// Two qubits RZZ gate.
-    pub fn rzz(&mut self, q1: QubitID, q2: QubitID, angle: f64) {
+    pub fn rzz(&mut self, angle: f64, q1: QubitID, q2: QubitID) {
         if !self.loss[q1] && !self.loss[q2] {
             self.apply_idle_noise(q1);
             self.apply_idle_noise(q2);
-            self.state.apply_operation(&rzz(angle), &[q1, q2]);
+            self.state
+                .apply_operation(&rzz(angle), &[q1, q2])
+                .expect("apply_operation should succeed");
             self.apply_fault(self.noise_config.rzz.gen_operation_fault(), q1);
             self.apply_fault(self.noise_config.rzz.gen_operation_fault(), q2);
         }
@@ -428,16 +464,24 @@ impl Simulator {
         match fault {
             Fault::None => (),
             Fault::X => {
-                self.state.apply_operation(&*X, &[target]);
+                self.state
+                    .apply_operation(&X, &[target])
+                    .expect("apply_operation should succeed");
             }
             Fault::Y => {
-                self.state.apply_operation(&*Y, &[target]);
+                self.state
+                    .apply_operation(&Y, &[target])
+                    .expect("apply_operation should succeed");
             }
             Fault::Z => {
-                self.state.apply_operation(&*Z, &[target]);
+                self.state
+                    .apply_operation(&Z, &[target])
+                    .expect("apply_operation should succeed");
             }
             Fault::S => {
-                self.state.apply_operation(&*S, &[target]);
+                self.state
+                    .apply_operation(&S, &[target])
+                    .expect("apply_operation should succeed");
             }
             Fault::Loss => {
                 self.measure_z(target);
@@ -460,11 +504,16 @@ impl Simulator {
         }
 
         // MZ on `target`.
-        let r = self.state.apply_instrument(&MZ, &[target]).unwrap();
+        let r = self
+            .state
+            .apply_instrument(&MZ, &[target])
+            .expect("apply_instrument should succeed");
 
         if r == 1 {
             // Reset `target` to zero state.
-            self.state.apply_operation(&X, &[target]);
+            self.state
+                .apply_operation(&X, &[target])
+                .expect("apply_operation should succeed");
             MeasurementResult::One
         } else {
             MeasurementResult::Zero
