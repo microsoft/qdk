@@ -6,6 +6,7 @@ use pyo3::{
 };
 
 pub(crate) mod clifford;
+pub(crate) mod cpu_full_state;
 pub(crate) mod gpu_full_state;
 
 #[allow(
