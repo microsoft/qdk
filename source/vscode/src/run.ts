@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { IQSharpError } from "qsharp-lang";
+import { IQSharpError, log } from "qsharp-lang";
 import vscode from "vscode";
 import { loadCompilerWorker } from "./common";
 import { createDebugConsoleEventTarget } from "./debugger/output";
@@ -25,44 +25,36 @@ export function runProgramInTerminal(
   clearCommandDiagnostics();
 
   if (document) {
+    let done = false;
     const cancellationTokenSource = new vscode.CancellationTokenSource();
-
     const output = new vscode.EventEmitter<string>();
     const closeEmitter = new vscode.EventEmitter<void>();
     const pty: vscode.Pseudoterminal = {
       onDidWrite: output.event,
       onDidClose: closeEmitter.event,
       open: async () => {
-        const programUri = document.toString();
-        const uri = vscode.Uri.parse(programUri);
-        const file = await vscode.workspace.openTextDocument(uri);
-
-        const program = await getProgramForDocument(file);
-        if (!program.success) {
-          throw new Error(program.errorMsg);
-        }
-
-        const result = await runProgram(extensionUri, program.programConfig, {
+        await runOnTerminalOpen(
+          document,
+          extensionUri,
           entry,
-          shots: 1,
-          onConsoleOut: (msg) => {
-            // replace \n with \r\n for proper terminal display
-            msg = msg.replace(/\n/g, "\r\n");
-            output.fire(msg + "\r\n");
-          },
-          cancellationToken: cancellationTokenSource.token,
-        });
-        if (result.status !== ProgramRunStatus.AllShotsDone) {
-          output.fire(`\r\nProgram terminated due to ${result.status}.\r\n`);
-        }
-        output.fire("\r\nPress any key to close this terminal.\r\n");
+          output,
+          cancellationTokenSource.token,
+        );
+        done = true;
       },
       close: () => {
+        log.debug("Terminal closed, cancelling program run.");
         cancellationTokenSource.cancel();
       },
-      handleInput: () => {
+      handleInput: (data) => {
         // Any key press closes the terminal after program completion
-        closeEmitter.fire();
+        if (done) {
+          closeEmitter.fire();
+        } else if (data === "\x03") {
+          // ETX / Ctrl+C
+          cancellationTokenSource.cancel();
+        }
+        log.debug("Ignoring terminal input.");
       },
     };
 
@@ -89,10 +81,12 @@ export function runProgramInTerminal(
 }
 
 const enum ProgramRunStatus {
-  AllShotsDone,
-  Timeout,
-  Cancellation,
-  CompilationErrors,
+  AllShotsDone = "all shots done",
+  Timeout = "timeout",
+  Cancellation = "cancellation",
+  CompilationErrors = "compilation error(s)",
+  FatalError = "fatal error",
+  UnknownError = "unknown error",
 }
 
 // More strongly typed than the `qsharp-lang` equivalent
@@ -111,16 +105,26 @@ type ProgramRunResult =
       // Some or all shots were executed.
       status:
         | ProgramRunStatus.AllShotsDone
+        | ProgramRunStatus.Cancellation
         | ProgramRunStatus.Timeout
-        | ProgramRunStatus.Cancellation;
+        | ProgramRunStatus.FatalError
+        | ProgramRunStatus.UnknownError;
       // Results for each shot executed (0 or more).
       shotResults: ShotResult[];
     }
   | {
       // No shots were executed due to compilation errors.
-      status: "compilation error(s)";
+      status: ProgramRunStatus.CompilationErrors;
       errors: IQSharpError[];
     };
+
+/**
+ * Histogram data for displaying results
+ */
+export type HistogramData = {
+  buckets: [string, number][];
+  shotCount?: number;
+};
 
 /**
  * Executes a Q# program using a compiler worker, collects results, and streams output.
@@ -129,7 +133,7 @@ type ProgramRunResult =
  * @param program - The full program configuration to run.
  * @returns A promise that resolves with the final list of results.
  */
-export async function runProgram(
+export function runProgram(
   extensionUri: vscode.Uri,
   program: FullProgramConfig,
   options: {
@@ -158,18 +162,19 @@ export async function runProgram(
     cancellationToken?: vscode.CancellationToken;
   },
 ): Promise<ProgramRunResult> {
-  let histogram: HistogramData | undefined;
-  const evtTarget = createDebugConsoleEventTarget((msg) => {
-    options.onConsoleOut?.(msg);
-  }, true /* captureEvents */);
+  return new Promise<ProgramRunResult>(function executeRunProgram(
+    resolve,
+  ): void {
+    let histogram: HistogramData | undefined;
+    const evtTarget = createDebugConsoleEventTarget((msg) => {
+      options.onConsoleOut?.(msg);
+    }, true /* captureEvents */);
 
-  // create a promise that we'll resolve when the run is done
-  const allShotsDone = new Promise<void>((resolve) => {
     evtTarget.addEventListener("uiResultsRefresh", () => {
       const results = evtTarget.getResults();
       const resultCount = evtTarget.resultCount(); // compiler errors come through here too
       const buckets = new Map();
-      const failures = [];
+      const failures: IQSharpError[] = [];
       for (let i = 0; i < resultCount; ++i) {
         const key = results[i].result;
         const strKey = typeof key !== "string" ? "ERROR" : key;
@@ -186,83 +191,139 @@ export async function runProgram(
         shotCount: resultCount,
       };
       options.onResultsUpdate?.(histogram, failures);
-      if (
-        options.shots === resultCount ||
-        failures.length > 0 ||
-        options.cancellationToken?.isCancellationRequested
-      ) {
-        // TODO: ugh
-        resolve();
+
+      // Somewhat hacky way of determining when we are done and
+      // don't expect to receive any more results.
+      // Ideally the `evtTarget` would contain a definitive "all done" flag.
+      const hasCompilerErrors = failures.filter((f) => !f.stack).length > 0;
+      if (hasCompilerErrors) {
+        // We can't expect all shots to be done,
+        // because of compilation errors.
+        resolve({
+          status: ProgramRunStatus.CompilationErrors,
+          errors: failures,
+        });
+      } else if (options.shots === resultCount) {
+        // All the shots are complete, we're done.
+        resolve({
+          status: ProgramRunStatus.AllShotsDone,
+          shotResults: results.map(
+            (r) =>
+              (r.success
+                ? {
+                    success: true,
+                    result: r.result as string,
+                  }
+                : {
+                    success: false,
+                    errors: (r.result as { errors: IQSharpError[] }).errors,
+                  }) as ShotResult,
+          ),
+        });
       }
     });
+
+    let cancelled = false;
+    const worker = loadCompilerWorker(extensionUri!);
+    const compilerRunTimeoutMs = 1000 * 60 * 5; // 5 minutes
+    const compilerTimeout = setTimeout(() => {
+      worker.terminate();
+    }, compilerRunTimeoutMs);
+    options.cancellationToken?.onCancellationRequested(() => {
+      cancelled = true;
+      worker.terminate();
+    });
+
+    // Invoke the actual compiler worker.
+    worker
+      .run(program, options.entry || "", options.shots || 1, evtTarget)
+      .catch((e) => {
+        log.debug("Error during program run:", e);
+
+        const shotResults = evtTarget.getResults().map(
+          (r) =>
+            (r.success
+              ? {
+                  success: true,
+                  result: r.result as string,
+                }
+              : {
+                  success: false,
+                  errors: (r.result as { errors: IQSharpError[] }).errors,
+                }) as ShotResult,
+        );
+
+        if (e instanceof WebAssembly.RuntimeError) {
+          resolve({
+            status: ProgramRunStatus.FatalError,
+            shotResults,
+          });
+        } else if (e && e.toString() === "terminated") {
+          const doneStatus = cancelled
+            ? ProgramRunStatus.Cancellation
+            : ProgramRunStatus.Timeout;
+          resolve({
+            status: doneStatus,
+            shotResults,
+          });
+        } else if (e instanceof Error) {
+          // Compiler errors can come through here.
+          // But the error object here doesn't contain enough
+          // information to be useful, so we use the one that comes
+          // through the event target, and let that
+          // callback resolve the promise.
+        } else {
+          // Unknown fatal error
+          resolve({
+            status: ProgramRunStatus.UnknownError,
+            shotResults,
+          });
+        }
+      })
+      .finally(() => {
+        clearTimeout(compilerTimeout);
+        worker.terminate();
+      });
+
+    // We can still receive events after  `worker.run` is done,
+    // so `worker.run`s continuation is not relevant.
+    // The promise will be resolved in the event listener,
+    // when all the shots are complete.
   });
-
-  let doneReason = ProgramRunStatus.AllShotsDone;
-  const compilerRunTimeoutMs = 1000 * 60 * 5; // 5 minutes
-  const compilerTimeout = setTimeout(() => {
-    doneReason = ProgramRunStatus.Timeout;
-    worker.terminate();
-  }, compilerRunTimeoutMs);
-  options.cancellationToken?.onCancellationRequested(() => {
-    doneReason = ProgramRunStatus.Cancellation;
-    worker.terminate();
-  });
-  // Final check before long running operation
-  if (options.cancellationToken?.isCancellationRequested) {
-    doneReason = ProgramRunStatus.Cancellation;
-    return { status: doneReason, shotResults: [] };
-  }
-
-  const worker = loadCompilerWorker(extensionUri!);
-
-  try {
-    await worker.run(
-      program,
-      options.entry || "",
-      options.shots || 1,
-      evtTarget,
-    );
-    // We can still receive events after the above call is done.
-    // Await until all shots are complete.
-    await allShotsDone;
-  } catch {
-    // Compiler errors can come through here. But the error object here doesn't contain enough
-    // information to be useful. So wait for the one that comes through the event target.
-    await allShotsDone;
-
-    doneReason = ProgramRunStatus.CompilationErrors;
-    const errors = evtTarget
-      .getResults()
-      .flatMap((r) =>
-        !r.success && r.result && typeof r.result !== "string"
-          ? r.result.errors
-          : [],
-      );
-    return { status: "compilation error(s)", errors };
-  }
-  clearTimeout(compilerTimeout);
-  worker.terminate();
-  return {
-    shotResults: evtTarget.getResults().map(
-      (r) =>
-        (r.success
-          ? {
-              success: true,
-              result: r.result as string,
-            }
-          : {
-              success: false,
-              errors: (r.result as { errors: IQSharpError[] }).errors,
-            }) as ShotResult,
-    ),
-    status: doneReason,
-  };
 }
 
 /**
- * Histogram data for displaying results
+ * Handles the terminal open event by loading and running the Q# program.
+ * Streams console output to the terminal and displays completion status.
  */
-export type HistogramData = {
-  buckets: [string, number][];
-  shotCount?: number;
-};
+async function runOnTerminalOpen(
+  document: vscode.Uri,
+  extensionUri: vscode.Uri,
+  entry: string,
+  output: vscode.EventEmitter<string>,
+  cancellationToken: vscode.CancellationToken,
+): Promise<void> {
+  const programUri = document.toString();
+  const uri = vscode.Uri.parse(programUri);
+  const file = await vscode.workspace.openTextDocument(uri);
+
+  const program = await getProgramForDocument(file);
+  if (!program.success) {
+    throw new Error(program.errorMsg);
+  }
+
+  const result = await runProgram(extensionUri, program.programConfig, {
+    entry,
+    shots: 1,
+    onConsoleOut: (msg) => {
+      // replace \n with \r\n for proper terminal display
+      msg = msg.replace(/\n/g, "\r\n");
+      output.fire(msg + "\r\n");
+    },
+    cancellationToken,
+  });
+  if (result.status !== ProgramRunStatus.AllShotsDone) {
+    output.fire(`\r\nProgram ended with status: ${result.status}.\r\n`);
+  }
+  output.fire("\r\nPress any key to close this terminal.\r\n");
+}
