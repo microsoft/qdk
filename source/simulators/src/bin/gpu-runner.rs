@@ -13,16 +13,16 @@ use std::vec;
 const DEFAULT_SEED: u32 = 0xfeed_face;
 
 fn main() {
-    // simple_bell_pair();
-    // bell_at_scale();
-    // scale_teleport();
-    // test_pauli_noise();
-    // test_simple_rotation_and_entanglement();
-    // test_2q_pauli_noise();
-    // test_move_noise();
-    // test_benzene();
-    // test_cx_various_state();
-    // scaled_ising();
+    simple_bell_pair();
+    bell_at_scale();
+    scale_teleport();
+    test_pauli_noise();
+    test_simple_rotation_and_entanglement();
+    test_2q_pauli_noise();
+    test_move_noise();
+    test_benzene();
+    test_cx_various_state();
+    scaled_ising();
     scaled_grover();
 }
 
