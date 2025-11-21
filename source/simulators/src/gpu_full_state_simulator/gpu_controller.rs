@@ -657,9 +657,6 @@ impl GpuContext {
 
         let mut results: Vec<u32> = Vec::new();
 
-        // TODO: Just make this an i32 in the first place
-        #[allow(clippy::cast_possible_truncation)]
-        #[allow(clippy::cast_possible_wrap)]
         let mut shots_remaining = self.run_params.shot_count;
 
         for batch_idx in 0..self.run_params.batch_count {
@@ -667,7 +664,6 @@ impl GpuContext {
 
             // Update the uniforms for this batch
             let uniforms = Uniforms {
-                #[allow(clippy::cast_possible_truncation)]
                 batch_start_shot_id: batch_idx * self.run_params.shots_per_batch,
                 rng_seed: self.rng_seed,
             };
@@ -776,10 +772,12 @@ impl GpuContext {
 
             let (sender, receiver) = futures::channel::oneshot::channel();
 
-            buffer_slice.map_async(wgpu::MapMode::Read, move |_| {
-                sender
-                    .send(())
-                    .expect("Unable to download the results buffer from the GPU");
+            buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+                if let Err(ref e) = result {
+                    // NOTE: Should we just panic here? Or maybe let the receiver handle it?
+                    eprintln!("Buffer mapping failed: {e:?}");
+                }
+                let _ = sender.send(result);
             });
 
             // On native, drive the GPU and mapping to completion. No-op on the web (where it automatically polls).
@@ -799,7 +797,8 @@ impl GpuContext {
                 }
             }
 
-            receiver.await.expect("Failed to receive map completion");
+            let map_result = receiver.await.expect("Failed to receive map completion");
+            map_result.expect("Buffer mapping failed");
 
             // Read, copy out, and unmap.
             let data = buffer_slice.get_mapped_range();
@@ -818,6 +817,11 @@ impl GpuContext {
 
             drop(data);
             resources.buffers.download.unmap();
+
+            // Ensure the unmap operation completes before starting the next batch
+            // This should not be necessary, but adding to see if it fixes an issue we've been seeing
+            // with this buffer not being ready in time for the next map on some platforms.
+            self.device.poll(wgpu::PollType::Wait).ok();
 
             shots_remaining -= self.run_params.shots_per_batch;
         }
