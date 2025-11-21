@@ -423,7 +423,6 @@ def run_qir_clifford(
     shots: Optional[int] = 1,
     noise: Optional[NoiseConfig] = None,
     seed: Optional[int] = None,
-    clifford: bool = False,
 ) -> List:
     (mod, shots, noise, seed) = preprocess_simulation_input(input, shots, noise, seed)
     (gates, required_num_qubits, required_num_results) = AggregateGatesPass().run(mod)
@@ -445,7 +444,6 @@ def run_qir_cpu(
     shots: Optional[int] = 1,
     noise: Optional[NoiseConfig] = None,
     seed: Optional[int] = None,
-    clifford: bool = False,
 ) -> List:
     (mod, shots, noise, seed) = preprocess_simulation_input(input, shots, noise, seed)
     (gates, required_num_qubits, required_num_results) = AggregateGatesPass().run(mod)
