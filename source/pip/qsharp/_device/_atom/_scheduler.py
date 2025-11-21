@@ -879,6 +879,10 @@ class Schedule(QirModuleVisitor):
             for move in group:
                 row_idx = move.dst_loc[0] - zone_row_offset
                 qubits_by_row[row_idx].append(move.qubit_id)
+        # Organize qubits in each row by qubit_id, so that parallel sections
+        # of single-qubit ops in the generated QIR are easier to read.
+        for row in qubits_by_row:
+            row.sort()
         return qubits_by_row
 
     def schedule_pending_moves(self, zone: Zone):
