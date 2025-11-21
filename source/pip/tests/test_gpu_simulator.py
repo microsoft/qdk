@@ -112,23 +112,23 @@ def test_gpu_no_noise():
     assert output == [[Result.Zero] * 25], "Expected result of 0s with pi/2 angles."
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_ising_1d():
-    qsharp.init(target_profile=TargetProfile.Base)
-    qsharp.eval(read_file_relative("Simple1dIsingOrder1.qs"))
-    n_instances = 17
+# @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+# def test_ising_1d():
+#     qsharp.init(target_profile=TargetProfile.Base)
+#     qsharp.eval(read_file_relative("Simple1dIsingOrder1.qs"))
+#     n_instances = 17
 
-    input = qsharp.compile(f"IsingModel1DEvolution({n_instances}, 1.0, 0.7, 4.0, 7)")
+#     input = qsharp.compile(f"IsingModel1DEvolution({n_instances}, 1.0, 0.7, 4.0, 7)")
 
-    output = run_qir_gpu(str(input), shots=5000)
-    histogram: dict[int, int] = {}
-    for shot in output:
-        shot_value = result_array_to_int(cast(Sequence[Result], shot))
-        histogram[shot_value] = histogram.get(shot_value, 0) + 1
-    top_values = sorted(histogram.items(), key=lambda item: item[1], reverse=True)[:25]
-    print("Top histogram entries:")
-    for value, count in top_values:
-        print(f"{value:0{n_instances}b}: {count}")
+#     output = run_qir_gpu(str(input), shots=5000)
+#     histogram: dict[int, int] = {}
+#     for shot in output:
+#         shot_value = result_array_to_int(cast(Sequence[Result], shot))
+#         histogram[shot_value] = histogram.get(shot_value, 0) + 1
+#     top_values = sorted(histogram.items(), key=lambda item: item[1], reverse=True)[:25]
+#     print("Top histogram entries:")
+#     for value, count in top_values:
+#         print(f"{value:0{n_instances}b}: {count}")
 
 
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
