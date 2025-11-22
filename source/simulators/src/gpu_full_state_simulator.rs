@@ -28,7 +28,7 @@ pub fn run_parallel_shots(
         let mut controller =
             gpu_controller::GpuContext::new(qubits, results, ops, shots, rng_seed, true)
                 .await
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| e.clone())?;
         controller.create_resources();
         Ok(controller.run().await)
     })

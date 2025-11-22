@@ -3,6 +3,11 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+import asyncio
+if hasattr(asyncio, "WindowsSelectorEventLoopPolicy"):
+    print("Setting asyncio policy to SelectorEventLoop on Windows.")
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 import argparse
 from glob import glob
 import os
