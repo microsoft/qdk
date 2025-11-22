@@ -191,10 +191,15 @@ fn i32_to_usize(value: i32) -> std::result::Result<usize, String> {
 impl GpuContext {
     pub async fn get_adapter() -> std::result::Result<Adapter, String> {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
-        instance
+        // Get high-performance adapter
+        let adapter = instance
             .request_adapter(&ADAPTER_OPTIONS)
             .await
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+
+        // Validate adapter fits our needs
+        Self::validate_adapter_capabilities(&adapter)?;
+        Ok(adapter)
     }
 
     fn validate_adapter_capabilities(adapter: &Adapter) -> std::result::Result<(), String> {
@@ -270,12 +275,7 @@ impl GpuContext {
         // Add space in the results for an 'error code' per shot
         let run_params: RunParams = Self::get_params(qubit_count, result_count, op_count, shots)?;
 
-        let adapter = wgpu::Instance::new(&wgpu::InstanceDescriptor::default())
-            .request_adapter(&ADAPTER_OPTIONS)
-            .await
-            .map_err(|e| e.to_string())?;
-
-        Self::validate_adapter_capabilities(&adapter)?;
+        let adapter = Self::get_adapter().await?;
 
         let (device, queue): (Device, Queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
