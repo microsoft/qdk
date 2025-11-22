@@ -61,7 +61,7 @@ parser.add_argument(
 parser.add_argument(
     "--check",
     action=argparse.BooleanOptionalAction,
-    default=False,
+    default=True,
     help="Run the linting and formatting checks (default is --check)",
 )
 
