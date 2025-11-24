@@ -357,6 +357,14 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   fill: var(--vscode-button-hoverBackground, var(--nav-hover-background));
 }
 
+[data-vscode-theme-kind="vscode-high-contrast"] .bar {
+  fill: #007acc;
+}
+
+[data-vscode-theme-kind="vscode-high-contrast"] .bar:hover {
+  fill: #005a9e;
+}
+
 .bar-selected {
   stroke: var(--bar-selected-outline);
   fill: var(--nav-current-background);
