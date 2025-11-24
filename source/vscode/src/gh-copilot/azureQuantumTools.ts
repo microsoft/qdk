@@ -19,7 +19,8 @@ import { QirGenerationError } from "../qirGeneration.js";
 import { UserTaskInvocationType } from "../telemetry.js";
 import { sendMessageToPanel } from "../webviewPanel.js";
 import { ProjectInfo, QSharpTools } from "./qsharpTools.js";
-import { CopilotToolError, HistogramData } from "./types.js";
+import { CopilotToolError } from "./types.js";
+import { HistogramData } from "../run.js";
 
 export type ToolResult<T = any> = { result: T };
 /**
