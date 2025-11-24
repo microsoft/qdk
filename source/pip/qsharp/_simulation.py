@@ -2,13 +2,14 @@
 # Licensed under the MIT License.
 
 import random
-from typing import List, Optional, Tuple, Union
+from typing import Callable, List, Optional, Tuple, TypeAlias, Union
 import pyqir
 from ._native import (
     QirInstructionId,
     QirInstruction,
     run_clifford,
     run_parallel_shots,
+    run_cpu_full_state,
     NoiseConfig,
 )
 from pyqir import (
@@ -383,11 +384,29 @@ class DecomposeCcxPass(pyqir.QirModuleVisitor):
         call.erase()
 
 
-def run_qir(
+Simulator: TypeAlias = Callable[
+    [List[QirInstruction], int, int, int, NoiseConfig, int], str
+]
+
+
+def preprocess_simulation_input(
     input: Union[QirInputData, str, bytes],
     shots: Optional[int] = 1,
     noise: Optional[NoiseConfig] = None,
-) -> List:
+    seed: Optional[int] = None,
+) -> tuple[pyqir.Module, int, NoiseConfig, int]:
+    if noise is None:
+        noise = NoiseConfig()
+    if shots is None:
+        shots = 1
+    # If no seed specified, generate a random u32 to use
+    if seed is None:
+        seed = random.randint(0, 2**32 - 1)
+    if isinstance(noise, tuple):
+        raise ValueError(
+            "Specifying Pauli noise via a tuple is not supported. Use a NoiseConfig instead."
+        )
+
     context = pyqir.Context()
     if isinstance(input, QirInputData):
         mod = pyqir.Module.from_ir(context, str(input))
@@ -396,28 +415,49 @@ def run_qir(
     else:
         mod = pyqir.Module.from_bitcode(context, input)
 
-    passtoRun = AggregateGatesPass()
-    (gates, required_num_qubits, required_num_results) = passtoRun.run(mod)
+    return (mod, shots, noise, seed)
 
+
+def run_qir_clifford(
+    input: Union[QirInputData, str, bytes],
+    shots: Optional[int] = 1,
+    noise: Optional[NoiseConfig] = None,
+    seed: Optional[int] = None,
+) -> List:
+    (mod, shots, noise, seed) = preprocess_simulation_input(input, shots, noise, seed)
+    (gates, required_num_qubits, required_num_results) = AggregateGatesPass().run(mod)
     recorder = OutputRecordingPass()
     recorder.run(mod)
-
-    if noise is None:
-        noise = NoiseConfig()
-    if shots is None:
-        shots = 1
 
     return list(
         map(
             recorder.process_output,
             run_clifford(
-                gates, required_num_qubits, required_num_results, shots, noise
+                gates, required_num_qubits, required_num_results, shots, noise, seed
             ),
         )
     )
 
 
-clifford_simulation = run_qir  # alias
+def run_qir_cpu(
+    input: Union[QirInputData, str, bytes],
+    shots: Optional[int] = 1,
+    noise: Optional[NoiseConfig] = None,
+    seed: Optional[int] = None,
+) -> List:
+    (mod, shots, noise, seed) = preprocess_simulation_input(input, shots, noise, seed)
+    (gates, required_num_qubits, required_num_results) = AggregateGatesPass().run(mod)
+    recorder = OutputRecordingPass()
+    recorder.run(mod)
+
+    return list(
+        map(
+            recorder.process_output,
+            run_cpu_full_state(
+                gates, required_num_qubits, required_num_results, shots, noise, seed
+            ),
+        )
+    )
 
 
 def run_qir_gpu(
@@ -426,32 +466,10 @@ def run_qir_gpu(
     noise: Optional[NoiseConfig] = None,
     seed: Optional[int] = None,
 ) -> List[str]:
-    if shots is None:
-        shots = 1
-
-    # If no seed specified, generate a random u32 to use
-    if seed is None:
-        seed = random.randint(0, 2**32 - 1)
-
-    if isinstance(noise, tuple):
-        raise ValueError(
-            "Specifying Pauli noise via a tuple is not supported for parallel shot simulation. Use a NoiseConfig instead."
-        )
-
-    context = pyqir.Context()
-    if isinstance(input, QirInputData):
-        mod = pyqir.Module.from_ir(context, str(input))
-    elif isinstance(input, str):
-        mod = pyqir.Module.from_ir(context, input)
-    else:
-        mod = pyqir.Module.from_bitcode(context, input)
-
+    (mod, shots, noise, seed) = preprocess_simulation_input(input, shots, noise, seed)
     # Ccx is not support in the GPU simulator, decompose it
     DecomposeCcxPass().run(mod)
-
-    passtoRun = AggregateGatesPass()
-    (gates, required_num_qubits, required_num_results) = passtoRun.run(mod)
-
+    (gates, required_num_qubits, required_num_results) = AggregateGatesPass().run(mod)
     recorder = OutputRecordingPass()
     recorder.run(mod)
 

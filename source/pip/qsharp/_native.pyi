@@ -849,6 +849,18 @@ def run_clifford(
     num_results: int,
     shots: int,
     noise: NoiseConfig,
+    seed: Optional[int],
+) -> str:
+    """ """
+    ...
+
+def run_cpu_full_state(
+    input: List[QirInstruction],
+    num_qubits: int,
+    num_results: int,
+    shots: int,
+    noise: NoiseConfig,
+    seed: Optional[int],
 ) -> str:
     """ """
     ...
