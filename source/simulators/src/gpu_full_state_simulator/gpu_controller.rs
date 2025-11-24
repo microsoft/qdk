@@ -287,6 +287,7 @@ impl GpuContext {
                 required_limits: Self::get_required_limits(&adapter, &run_params)?,
                 memory_hints: wgpu::MemoryHints::Performance,
                 trace: wgpu::Trace::Off,
+                ..Default::default()
             })
             .await
             .map_err(|e| e.to_string())?;
@@ -784,7 +785,7 @@ impl GpuContext {
             // Retry polling up to 5 times in case of transient failures
             let mut poll_attempts = 0;
             loop {
-                match self.device.poll(wgpu::PollType::Wait) {
+                match self.device.poll(wgpu::PollType::wait_indefinitely()) {
                     Ok(_) => break,
                     Err(e) => {
                         poll_attempts += 1;
@@ -821,7 +822,7 @@ impl GpuContext {
             // Ensure the unmap operation completes before starting the next batch
             // This should not be necessary, but adding to see if it fixes an issue we've been seeing
             // with this buffer not being ready in time for the next map on some platforms.
-            self.device.poll(wgpu::PollType::Wait).ok();
+            self.device.poll(wgpu::PollType::wait_indefinitely()).ok();
 
             shots_remaining -= self.run_params.shots_per_batch;
         }
