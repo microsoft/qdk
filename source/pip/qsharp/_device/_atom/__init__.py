@@ -15,33 +15,24 @@ class AC1000(Device):
 
     def __init__(self):
         super().__init__(
-            36,
+            40,
             [
-                Zone("Register 1", 17, ZoneType.REG),
-                Zone("Interaction Zone", 4, ZoneType.INTER),
-                Zone("Register 2", 17, ZoneType.REG),
-                Zone("Measurement Zone", 4, ZoneType.MEAS),
+                Zone("Register 1", 25, ZoneType.REG),
+                Zone("Interaction Zone", 2, ZoneType.INTER),
+                Zone("Measurement Zone", 2, ZoneType.MEAS),
             ],
         )
 
     def _init_home_locs(self):
         # Set up the home locations for qubits in the AC1000 layout.
-        assert len(self.zones) == 4
+        assert len(self.zones) == 3
         assert (
             self.zones[0].type == ZoneType.REG
             and self.zones[1].type == ZoneType.INTER
-            and self.zones[2].type == ZoneType.REG
+            and self.zones[2].type == ZoneType.MEAS
         )
-        assert self.zones[0].row_count == self.zones[2].row_count
         rz1_rows = range(self.zones[0].row_count - 1, -1, -1)
-        rz2_rows = range(
-            self.zones[0].row_count + self.zones[1].row_count,
-            self.zones[0].row_count + self.zones[1].row_count + self.zones[2].row_count,
-        )
         self.home_locs = []
-        for row in range(self.zones[2].row_count):
-            for col in range(self.column_count):
-                self.home_locs.append((rz2_rows[row], col))
         for row in range(self.zones[0].row_count):
             for col in range(self.column_count):
                 self.home_locs.append((rz1_rows[row], col))
