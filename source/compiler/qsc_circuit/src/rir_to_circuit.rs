@@ -293,64 +293,38 @@ impl OperationOrGroupExt for Op {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct ScopeStack<SourceLocation, Scope> {
-    caller: Vec<SourceLocation>,
-    scope: Scope,
+pub(crate) struct ScopeStack {
+    caller: Vec<SourceLocationMetadata>,
+    scope: ScopeId,
 }
 
-impl<SourceLocation, Scope> ScopeStack<SourceLocation, Scope>
-where
-    Scope: std::fmt::Debug + std::fmt::Display + Default + PartialEq,
-    SourceLocation: PartialEq + Sized,
-{
-    pub(crate) fn caller(&self) -> &[SourceLocation] {
+impl ScopeStack {
+    pub(crate) fn caller(&self) -> &[SourceLocationMetadata] {
         &self.caller
     }
 
-    pub(crate) fn current_lexical_scope(&self) -> &Scope {
+    pub(crate) fn current_lexical_scope(&self) -> ScopeId {
         assert!(!self.is_top(), "top scope has no lexical scope");
-        &self.scope
+        self.scope
     }
 
     pub(crate) fn is_top(&self) -> bool {
-        self.caller.is_empty() && self.scope == Scope::default()
+        self.caller.is_empty() && self.scope == ScopeId::default()
     }
 
     pub(crate) fn top() -> Self {
         ScopeStack {
             caller: Vec::new(),
-            scope: Scope::default(),
+            scope: ScopeId::default(),
         }
     }
 
-    pub(crate) fn resolve_scope(
-        &self,
-        scope_resolver: &impl ScopeResolver<ScopeId = Scope>,
-    ) -> LexicalScope {
+    pub(crate) fn resolve_scope(&self, scope_resolver: &impl SourceLookup) -> LexicalScope {
         if self.is_top() {
             LexicalScope::top()
         } else {
-            scope_resolver.resolve_scope(&self.scope)
+            scope_resolver.resolve_scope(self.scope)
         }
-    }
-
-    #[allow(dead_code)]
-    pub fn fmt(
-        &self,
-        dbg_stuff: &impl DbgStuffExt<Scope = Scope, SourceLocation = SourceLocation>,
-    ) -> String {
-        if self.is_top() {
-            return "<top>".to_string();
-        }
-
-        let call_stack = self.caller();
-
-        let mut names: Vec<String> = call_stack
-            .iter()
-            .map(|location| fmt_location(dbg_stuff, location))
-            .collect();
-        names.push(self.current_lexical_scope().to_string());
-        names.join("->")
     }
 }
 
@@ -1137,23 +1111,23 @@ pub(crate) trait DbgStuffExt {
         None
     }
 
-    fn scope_stack(
-        &self,
-        instruction_stack: &[Self::SourceLocation],
-    ) -> ScopeStack<Self::SourceLocation, Self::Scope>
-    where
-        Self::SourceLocation: Clone,
+    if full_call_stack.len() > prefix_scope_stack.caller().len()
+        && let Some(rest) = full_call_stack.strip_prefix(prefix_scope_stack.caller())
+        && rest[0].lexical_scope() == prefix_scope_stack.current_lexical_scope()
     {
-        instruction_stack
-            .split_last()
-            .map_or(ScopeStack::top(), |(youngest, prefix)| ScopeStack::<
-                Self::SourceLocation,
-                Self::Scope,
-            > {
-                caller: prefix.to_vec(),
-                scope: self.lexical_scope(youngest),
-            })
+        assert!(!rest.is_empty());
+        return Some(rest.to_vec());
     }
+    None
+}
+
+pub(crate) fn scope_stack(instruction_stack: &[SourceLocationMetadata]) -> ScopeStack {
+    instruction_stack
+        .split_last()
+        .map_or(ScopeStack::top(), |(youngest, prefix)| ScopeStack {
+            caller: prefix.to_vec(),
+            scope: youngest.lexical_scope(),
+        })
 }
 
 impl DbgStuffExt for DbgStuff<'_> {
