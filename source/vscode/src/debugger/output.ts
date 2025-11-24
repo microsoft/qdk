@@ -108,7 +108,7 @@ function formatMatrix(
 }
 
 /**
- * Formats a Q# error into a human-readable string with file path, line/column, and message.
+ * Formats a QDK error into a human-readable string with file path, line/column, and message.
  * If a stack trace is available, it formats the full trace; otherwise formats a single-line error.
  */
 function formatErrorMessage(error: IQSharpError): string {
