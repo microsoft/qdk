@@ -350,7 +350,7 @@ fn qubit_source_locations_via_stack() {
     let circuit = builder.finish(&c);
 
     expect![[r#"
-        q_0@user_code.qs:0:10 ── X ──
+        q_0@user_code.qs:0:10  ── X ──
     "#]]
     .assert_eq(&circuit.to_string());
 }
@@ -389,8 +389,8 @@ fn qubit_labels_for_preallocated_qubits() {
     let circuit = builder.finish(&c);
 
     expect![[r#"
-        q_0@user_code.qs:0:10 ─ X@user_code.qs:0:20 ─
-        q_1@user_code.qs:0:10 ───────────────────────
+        q_0@user_code.qs:0:10  ─ X@user_code.qs:0:20 ─
+        q_1@user_code.qs:0:10  ───────────────────────
     "#]]
     .assert_eq(&circuit.to_string());
 }

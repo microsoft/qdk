@@ -1532,7 +1532,7 @@ impl<'a> PartialEvaluator<'a> {
         self.eval_context.get_current_scope_mut().current_expr = Some(call_expr_id);
         self.eval_context
             .get_current_scope_mut()
-            .current_distinct_dbg_location = Some(self.current_dbg_location_idx());
+            .current_distinct_dbg_location = self.current_dbg_location_idx();
     }
 
     fn reject_test_callables(
@@ -2010,7 +2010,7 @@ impl<'a> PartialEvaluator<'a> {
         })
     }
 
-    fn current_dbg_location_idx(&mut self) -> DbgLocationId {
+    fn current_dbg_location_idx(&mut self) -> Option<DbgLocationId> {
         let call_expr = self.eval_context.get_current_scope().current_expr;
         let Some(call_expr_id) = call_expr else {
             panic!("expected current expr id because this is a call");
@@ -2018,39 +2018,38 @@ impl<'a> PartialEvaluator<'a> {
 
         let current_package = self.package_store.get(self.get_current_package_id());
 
-        let current_subprogram_scope: DbgScopeId = {
-            let current_callable = self.eval_context.get_current_scope().callable;
-            current_callable.map_or(0.into(), |c| {
-                let s = self.eval_context.dbg_callable_to_scope.get(&c.0).copied();
+        let current_callable = self.eval_context.get_current_scope().callable;
+        let current_subprogram_scope = current_callable.map(|c| {
+            let s = self.eval_context.dbg_callable_to_scope.get(&c.0).copied();
 
-                if let Some(s) = s {
-                    s.into()
-                } else {
-                    let (name, span) = match &current_package
-                        .items
-                        .get(c.0)
-                        .expect("expected callable")
-                        .kind
-                    {
-                        fir::ItemKind::Callable(callable_decl) => {
-                            (callable_decl.name.name.clone(), callable_decl.span)
-                        }
-                        _ => panic!("expected callable"),
-                    };
-                    let scope = DbgMetadataScope::SubProgram {
-                        name,
-                        location: into_metadata_package_span(PackageSpan {
-                            package: map_fir_package_to_hir(self.get_current_package_id()),
-                            span,
-                        }),
-                    };
-                    self.program.dbg_info.dbg_metadata_scopes.push(scope);
-                    let i = self.program.dbg_info.dbg_metadata_scopes.len() - 1;
-                    self.eval_context.dbg_callable_to_scope.insert(c.0, i);
-                    i.into()
-                }
-            }) // magic entry scope
-        };
+            if let Some(s) = s {
+                s.into()
+            } else {
+                let (name, span) = match &current_package
+                    .items
+                    .get(c.0)
+                    .expect("expected callable")
+                    .kind
+                {
+                    fir::ItemKind::Callable(callable_decl) => {
+                        (callable_decl.name.name.clone(), callable_decl.span)
+                    }
+                    _ => panic!("expected callable"),
+                };
+                let scope = DbgMetadataScope::SubProgram {
+                    name,
+                    location: into_metadata_package_span(PackageSpan {
+                        package: map_fir_package_to_hir(self.get_current_package_id()),
+                        span,
+                    }),
+                    item_id: (self.get_current_package_id().into(), c.0.into()),
+                };
+                self.program.dbg_info.dbg_metadata_scopes.push(scope);
+                let i = self.program.dbg_info.dbg_metadata_scopes.len() - 1;
+                self.eval_context.dbg_callable_to_scope.insert(c.0, i);
+                i.into()
+            }
+        });
         let current_expr = current_package
             .exprs
             .get(call_expr_id)
@@ -2061,16 +2060,16 @@ impl<'a> PartialEvaluator<'a> {
             .get_caller_scope()
             .and_then(|s| s.current_distinct_dbg_location);
 
-        let new_location = DbgLocation {
+        let new_location = current_subprogram_scope.map(|current_subprogram_scope| DbgLocation {
             location: into_metadata_package_span(PackageSpan {
                 package: map_fir_package_to_hir(self.get_current_package_id()),
                 span: current_expr.span,
             }),
             scope: current_subprogram_scope,
             inlined_at,
-        };
+        });
 
-        self.program.dbg_info.add_location(new_location)
+        new_location.map(|new_location| self.program.dbg_info.add_location(new_location))
     }
 
     fn eval_expr_if_with_classical_condition(

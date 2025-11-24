@@ -12,7 +12,6 @@ use crate::{
     },
     group_qubits,
     operations::QubitParam,
-    rir_to_circuit::{ScopeStack, scope_stack, strip_scope_stack_prefix},
 };
 use qsc_data_structures::{
     index_map::IndexMap,
@@ -402,6 +401,9 @@ impl SourceLookup for PackageStore {
     }
 
     fn resolve_scope(&self, scope_id: ScopeId) -> LexicalScope {
+        if scope_id.0.package == 0.into() && scope_id.0.item == 0.into() {
+            return LexicalScope::Top;
+        }
         let package = self
             .get(map_fir_package_to_hir(scope_id.0.package))
             .expect("package id must exist in store");
@@ -417,7 +419,10 @@ impl SourceLookup for PackageStore {
                 // TODO: test with simulatable intrinsics and adjoint / controlled specializations
                 (callable_decl.body.span.lo, callable_decl.name.name.clone())
             }
-            _ => panic!("only callables should be in the stack"),
+            _ => panic!(
+                "only callables should be in the stack, itemid= {}",
+                scope_id.0.item
+            ),
         };
 
         LexicalScope::Named {
@@ -663,11 +668,16 @@ fn full_call_stack(stack: &[Frame]) -> Vec<SourceLocationMetadata> {
 }
 
 #[derive(Clone, Debug)]
-enum OperationOrGroupKind {
+pub(crate) enum OperationOrGroupKind {
     Single,
-    Group {
+    ScopeGroup {
         scope_stack: ScopeStack,
         children: Vec<OperationOrGroup>,
+    },
+    ConditionalGroup {
+        label: String,
+        children: Vec<OperationOrGroup>,
+        scope_location: Option<PackageOffset>,
     },
 }
 
@@ -684,6 +694,7 @@ impl OperationOrGroup {
         is_adjoint: bool,
         targets: &[QubitWire],
         controls: &[QubitWire],
+        control_results: &[ResultWire],
         args: Vec<String>,
     ) -> Self {
         Self::new_single(Operation::Unitary(Unitary {
@@ -703,6 +714,10 @@ impl OperationOrGroup {
                     qubit: q.0,
                     result: None,
                 })
+                .chain(control_results.iter().map(|r| Register {
+                    qubit: r.0,
+                    result: Some(r.1),
+                }))
                 .collect(),
             is_adjoint,
             source: None,
@@ -710,7 +725,7 @@ impl OperationOrGroup {
         }))
     }
 
-    fn new_measurement(label: &str, qubit: QubitWire, result: ResultWire) -> Self {
+    pub(crate) fn new_measurement(label: &str, qubit: QubitWire, result: ResultWire) -> Self {
         Self::new_single(Operation::Measurement(Measurement {
             gate: label.to_string(),
             args: vec![],
@@ -727,7 +742,7 @@ impl OperationOrGroup {
         }))
     }
 
-    fn new_ket(qubit: QubitWire) -> Self {
+    pub(crate) fn new_ket(qubit: QubitWire) -> Self {
         Self::new_single(Operation::Ket(Ket {
             gate: "0".to_string(),
             args: vec![],
@@ -758,7 +773,7 @@ impl OperationOrGroup {
         qubits.into_iter().collect()
     }
 
-    fn all_results(&self) -> Vec<ResultWire> {
+    pub(crate) fn all_results(&self) -> Vec<ResultWire> {
         let results: FxHashSet<ResultWire> = match &self.op {
             Operation::Measurement(measurement) => measurement
                 .results
@@ -782,14 +797,14 @@ impl OperationOrGroup {
     where
         Self: std::marker::Sized,
     {
-        if let OperationOrGroupKind::Group { children, .. } = &mut self.kind {
+        if let OperationOrGroupKind::ScopeGroup { children, .. } = &mut self.kind {
             Some(children)
         } else {
             None
         }
     }
 
-    fn new_group(scope_stack: ScopeStack, children: Vec<Self>) -> Self {
+    fn new_scope_group(scope_stack: ScopeStack, children: Vec<Self>) -> Self {
         let all_qubits = children
             .iter()
             .flat_map(OperationOrGroup::all_qubits)
@@ -805,7 +820,7 @@ impl OperationOrGroup {
             .collect::<Vec<ResultWire>>();
 
         Self {
-            kind: OperationOrGroupKind::Group {
+            kind: OperationOrGroupKind::ScopeGroup {
                 scope_stack,
                 children,
             },
@@ -825,6 +840,44 @@ impl OperationOrGroup {
                     }))
                     .collect(),
                 controls: vec![],
+                is_adjoint: false,
+                source: None,
+                scope_location: None,
+            }),
+        }
+    }
+
+    pub(crate) fn new_conditional_group(
+        label: String,
+        scope_location: Option<PackageOffset>,
+        children: Vec<Self>,
+        control_results: Vec<ResultWire>,
+        targets: Vec<QubitWire>,
+    ) -> Self {
+        Self {
+            kind: OperationOrGroupKind::ConditionalGroup {
+                label: label.clone(),
+                children,
+                scope_location,
+            },
+            op: Operation::Unitary(Unitary {
+                gate: label,
+                args: vec![],
+                children: vec![],
+                targets: targets
+                    .into_iter()
+                    .map(|q| Register {
+                        qubit: q.0,
+                        result: None,
+                    })
+                    .collect(),
+                controls: control_results
+                    .into_iter()
+                    .map(|r| Register {
+                        qubit: r.0,
+                        result: Some(r.1),
+                    })
+                    .collect(),
                 is_adjoint: false,
                 source: None,
                 scope_location: None,
@@ -888,8 +941,27 @@ impl OperationOrGroup {
         }
     }
 
+    pub(crate) fn extend_control_results(&mut self, control_results: &[ResultWire]) {
+        match &mut self.op {
+            // TODO: support control results on measurements?
+            Operation::Unitary(unitary) => {
+                unitary
+                    .controls
+                    .extend(control_results.iter().map(|r| Register {
+                        qubit: r.0,
+                        result: Some(r.1),
+                    }));
+                unitary
+                    .controls
+                    .sort_unstable_by_key(|r| (r.qubit, r.result));
+                unitary.controls.dedup();
+            }
+            Operation::Measurement(_) | Operation::Ket(_) => {} // TODO: support control results on kets?
+        }
+    }
+
     pub(crate) fn scope_stack_if_group(&self) -> Option<&ScopeStack> {
-        if let OperationOrGroupKind::Group { scope_stack, .. } = &self.kind {
+        if let OperationOrGroupKind::ScopeGroup { scope_stack, .. } = &self.kind {
             Some(scope_stack)
         } else {
             None
@@ -902,10 +974,10 @@ impl OperationOrGroup {
             .replace(SourceLocation::Unresolved(location));
     }
 
-    fn into_operation(mut self, scope_resolver: &impl SourceLookup) -> Operation {
+    pub(crate) fn into_operation(mut self, scope_resolver: &impl SourceLookup) -> Operation {
         match self.kind {
             OperationOrGroupKind::Single => self.op,
-            OperationOrGroupKind::Group {
+            OperationOrGroupKind::ScopeGroup {
                 scope_stack,
                 children,
             } => {
@@ -924,6 +996,34 @@ impl OperationOrGroup {
                 }];
                 self.op
             }
+            OperationOrGroupKind::ConditionalGroup {
+                label,
+                children,
+                scope_location,
+            } => {
+                let Operation::Unitary(u) = &mut self.op else {
+                    panic!("group operation should be a unitary")
+                };
+                u.gate = label;
+                if let Some(location) = scope_location {
+                    u.scope_location = Some(SourceLocation::Unresolved(location));
+                }
+                u.children = vec![ComponentColumn {
+                    components: children
+                        .into_iter()
+                        .map(|o| o.into_operation(scope_resolver))
+                        .collect(),
+                }];
+                self.op
+            }
+        }
+    }
+
+    pub(crate) fn conditional_group_has_children(&self) -> bool {
+        if let OperationOrGroupKind::ConditionalGroup { children, .. } = &self.kind {
+            !children.is_empty()
+        } else {
+            false
         }
     }
 }
@@ -1008,7 +1108,7 @@ impl OperationListBuilder {
             .map(|q| wire_map.qubit_wire(*q))
             .collect::<Vec<_>>();
         self.push_op(
-            OperationOrGroup::new_unitary(name, is_adjoint, &targets, &controls, args),
+            OperationOrGroup::new_unitary(name, is_adjoint, &targets, &controls, &[], args),
             call_stack.to_vec(),
         );
     }
@@ -1101,7 +1201,7 @@ impl LexicalScope {
     }
 }
 
-fn add_op_with_grouping(
+pub(crate) fn add_op_with_grouping(
     source_locations: bool,
     group_scopes: bool,
     user_package_ids: &[PackageId],
@@ -1160,7 +1260,7 @@ fn add_scoped_op(
 
         let op_scope_stack = scope_stack(op_call_stack);
         if *current_scope_stack != op_scope_stack {
-            let scope_group = OperationOrGroup::new_group(op_scope_stack, vec![op]);
+            let scope_group = OperationOrGroup::new_scope_group(op_scope_stack, vec![op]);
 
             let parent = op_call_stack
                 .split_last()
@@ -1209,4 +1309,72 @@ impl SourceLocationMetadata {
     pub(crate) fn source_location(&self) -> PackageOffset {
         self.location
     }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ScopeStack {
+    caller: Vec<SourceLocationMetadata>,
+    scope: ScopeId,
+}
+
+impl ScopeStack {
+    pub(crate) fn caller(&self) -> &[SourceLocationMetadata] {
+        &self.caller
+    }
+
+    pub(crate) fn current_lexical_scope(&self) -> ScopeId {
+        assert!(!self.is_top(), "top scope has no lexical scope");
+        self.scope
+    }
+
+    pub(crate) fn is_top(&self) -> bool {
+        self.caller.is_empty() && self.scope == ScopeId::default()
+    }
+
+    pub(crate) fn top() -> Self {
+        ScopeStack {
+            caller: Vec::new(),
+            scope: ScopeId::default(),
+        }
+    }
+
+    pub(crate) fn resolve_scope(&self, scope_resolver: &impl SourceLookup) -> LexicalScope {
+        if self.is_top() {
+            LexicalScope::top()
+        } else {
+            scope_resolver.resolve_scope(self.scope)
+        }
+    }
+}
+
+/// full is a call stack
+/// prefix is a scope stack
+/// if prefix isn't a prefix of full, return None
+/// if it is, return the rest of full after removing prefix,
+/// starting from the first location in full that is in the scope of prefix.scope
+pub(crate) fn strip_scope_stack_prefix(
+    full_call_stack: &[SourceLocationMetadata],
+    prefix_scope_stack: &ScopeStack,
+) -> Option<Vec<SourceLocationMetadata>> {
+    if prefix_scope_stack.is_top() {
+        return Some(full_call_stack.to_vec());
+    }
+
+    if full_call_stack.len() > prefix_scope_stack.caller().len()
+        && let Some(rest) = full_call_stack.strip_prefix(prefix_scope_stack.caller())
+        && rest[0].lexical_scope() == prefix_scope_stack.current_lexical_scope()
+    {
+        assert!(!rest.is_empty());
+        return Some(rest.to_vec());
+    }
+    None
+}
+
+pub(crate) fn scope_stack(instruction_stack: &[SourceLocationMetadata]) -> ScopeStack {
+    instruction_stack
+        .split_last()
+        .map_or(ScopeStack::top(), |(youngest, prefix)| ScopeStack {
+            caller: prefix.to_vec(),
+            scope: youngest.lexical_scope(),
+        })
 }

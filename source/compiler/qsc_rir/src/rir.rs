@@ -158,6 +158,7 @@ impl Program {
                     package: 0.into(), // TODO: wrong, obviously
                     span: Span::default(),
                 },
+                item_id: (0, 0), // TODO: also wrong
             });
         s
     }

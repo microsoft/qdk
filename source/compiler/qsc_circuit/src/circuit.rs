@@ -4,6 +4,7 @@
 #[cfg(test)]
 mod tests;
 
+use core::panic;
 use log::warn;
 use qsc_fir::fir::PackageId;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -356,9 +357,7 @@ enum Wire {
 enum CircuitObject {
     Blank, // TODO: blank is silly, get rid of it
     Wire,
-    WireCross,
     WireStart,
-    DashedCross,
     Vertical,
     VerticalDashed,
     Horizontal,
@@ -435,34 +434,6 @@ impl RowBuilder {
         self.add_object_to_row_wire(column, gate_label.as_str());
     }
 
-    fn add_vertical(&mut self, column: usize) {
-        if !self.objects.contains_key(&column) {
-            match self.wire {
-                Wire::None => self.add_to_all_subrows(column, CircuitObject::Vertical),
-                Wire::Qubit { .. } => self.add_to_all_subrows(column, CircuitObject::WireCross),
-                Wire::Classical { .. } => {
-                    self.add_to_all_subrows(column, CircuitObject::Vertical);
-                }
-            }
-        }
-    }
-
-    fn add_dashed_vertical(&mut self, column: usize) {
-        if !self.objects.contains_key(&column) {
-            match self.wire {
-                Wire::None => self.add_to_row_wire(column, CircuitObject::VerticalDashed),
-                Wire::Qubit { .. } => self.add_to_row_wire(column, CircuitObject::DashedCross),
-                Wire::Classical { start_column } => {
-                    if start_column.is_some() {
-                        self.add_to_row_wire(column, CircuitObject::DashedCross);
-                    } else {
-                        self.add_to_row_wire(column, CircuitObject::VerticalDashed);
-                    }
-                }
-            }
-        }
-    }
-
     fn start_classical(&mut self, column: usize) {
         self.add_to_row_wire(column, CircuitObject::WireStart);
         if let Wire::Classical { start_column } = &mut self.wire {
@@ -473,15 +444,6 @@ impl RowBuilder {
     fn add_to_row_wire(&mut self, column: usize, circuit_object: CircuitObject) {
         let row_row = self.objects.entry(column).or_default();
         row_row.insert(0, circuit_object);
-        self.next_column = column + 1;
-    }
-
-    fn add_to_all_subrows(&mut self, column: usize, circuit_object: CircuitObject) {
-        // TODO: I don't know if this is necessary - we could use add_to_row_wire
-        let row_row = self.objects.entry(column).or_default();
-        for i in -i16::from(self.max_depth_below_axis)..=i16::from(self.max_depth_above_axis) {
-            row_row.insert(i, circuit_object.clone());
-        }
         self.next_column = column + 1;
     }
 
@@ -547,9 +509,11 @@ impl RowBuilder {
                 // Do zero as well
                 column_objects.insert(0, CircuitObject::Vertical);
 
-                // Do the rows below zero
-                for r in 1..bottom_corner_height.map_or(self.max_depth_below_axis, |h| h - 1) {
-                    column_objects.insert(-i16::from(r), CircuitObject::Vertical);
+                if bottom_corner_height.is_none() {
+                    // Do the rows below zero
+                    for r in 1..self.max_depth_below_axis {
+                        column_objects.insert(-i16::from(r), CircuitObject::Vertical);
+                    }
                 }
             }
 
@@ -560,9 +524,11 @@ impl RowBuilder {
                 // Do zero as well
                 column_objects.insert(0, CircuitObject::Vertical);
 
-                // Do the rows above zero
-                for r in 1..top_corner_height.map_or(self.max_depth_above_axis, |h| h - 1) {
-                    column_objects.insert(i16::from(r), CircuitObject::Vertical);
+                if top_corner_height.is_none() {
+                    // Do the rows above zero
+                    for r in 1..self.max_depth_above_axis {
+                        column_objects.insert(i16::from(r), CircuitObject::Vertical);
+                    }
                 }
             }
         }
@@ -740,11 +706,10 @@ impl Column {
 
         let template = match circuit_object {
             CircuitObject::Wire => CLASSICAL_WIRE,
-            CircuitObject::WireCross | CircuitObject::Vertical => CLASSICAL_WIRE_CROSS,
+            CircuitObject::Vertical => CLASSICAL_WIRE_CROSS,
             CircuitObject::WireStart => CLASSICAL_WIRE_START,
-            CircuitObject::DashedCross => CLASSICAL_WIRE_DASHED_CROSS,
-            o @ (CircuitObject::VerticalDashed
-            | CircuitObject::Blank
+            CircuitObject::VerticalDashed => CLASSICAL_WIRE_DASHED_CROSS,
+            o @ (CircuitObject::Blank
             | CircuitObject::TopLeftCorner
             | CircuitObject::TopRightCorner
             | CircuitObject::BottomLeftCorner
@@ -767,10 +732,9 @@ impl Column {
 
         let template = match circuit_object {
             CircuitObject::Wire => QUBIT_WIRE,
-            CircuitObject::WireCross | CircuitObject::Vertical => QUBIT_WIRE_CROSS,
-            CircuitObject::DashedCross => QUBIT_WIRE_DASHED_CROSS,
+            CircuitObject::Vertical => QUBIT_WIRE_CROSS,
+            CircuitObject::VerticalDashed => QUBIT_WIRE_DASHED_CROSS,
             CircuitObject::WireStart
-            | CircuitObject::VerticalDashed
             | CircuitObject::Blank
             | CircuitObject::TopLeftCorner
             | CircuitObject::TopRightCorner
@@ -806,7 +770,7 @@ impl Column {
             CircuitObject::Horizontal => QUBIT_WIRE,
             CircuitObject::BottomLeftCorner => BOTTOM_LEFT_CORNER,
             CircuitObject::BottomRightCorner => BOTTOM_RIGHT_CORNER,
-            o @ (CircuitObject::Wire | CircuitObject::WireCross | CircuitObject::DashedCross) => {
+            o @ CircuitObject::Wire => {
                 unreachable!("unexpected object on blank row: {o:?}")
             }
             CircuitObject::Object(_) | CircuitObject::GroupLabel(_) => {
@@ -851,6 +815,8 @@ impl Display for CircuitDisplay<'_> {
     }
 }
 
+type Rows = (Vec<RowBuilder>, FxHashMap<(usize, Option<usize>), usize>);
+
 impl CircuitDisplay<'_> {
     /// Identifies qubits that require gap rows for multi-qubit operations.
     fn identify_qubits_with_gap_rows(&self) -> FxHashSet<usize> {
@@ -888,10 +854,7 @@ impl CircuitDisplay<'_> {
     }
 
     /// Initializes rows for qubits and classical wires.
-    fn initialize_rows(
-        &self,
-        qubits_with_gap_row_below: &FxHashSet<usize>,
-    ) -> (Vec<RowBuilder>, FxHashMap<(usize, Option<usize>), usize>) {
+    fn initialize_rows(&self, qubits_with_gap_row_below: &FxHashSet<usize>) -> Rows {
         // Maintain a mapping from from Registers in the Circuit schema
         // to row in the diagram
         let mut register_to_row = FxHashMap::default();
@@ -1050,10 +1013,11 @@ impl CircuitDisplay<'_> {
             !op.children().is_empty(),
             "must only be called for an operation with children"
         );
-        assert!(
-            !op.is_controlled(),
-            "rendering controlled boxes not supported"
-        );
+        // TODO: draw control lines
+        // assert!(
+        //     !op.is_controlled(),
+        //     "rendering controlled boxes not supported"
+        // );
         assert!(
             !op.is_measurement(),
             "rendering measurement boxes not supported"
@@ -1119,14 +1083,76 @@ fn add_operation_to_rows(
         // control and target wires and crossing any in between
         // (vertical lines may overlap if there are multiple controls/targets,
         // this is ok in practice)
-        for row in &mut rows[begin..end] {
-            row.add_vertical(column);
+        for i in begin..end {
+            let row = &mut rows[i];
+            let existing = row
+                .objects
+                .get(&column)
+                .cloned()
+                .unwrap_or_default()
+                .remove(&0);
+            if let Some(existing) = existing {
+                // TODO: this definitely doesn't work
+                match existing {
+                    CircuitObject::Object(o) => {
+                        eprintln!(
+                            "adding vertical line at column {} row {} crossing object: {:?}",
+                            column, i, o
+                        );
+                        if i == begin {
+                            eprintln!(
+                                "adding vertical to subrows below axis at column {} row {}",
+                                column, i
+                            );
+                            for sr in 1..=row.current_bottom_offset {
+                                eprintln!(
+                                    "adding vertical to subrows below axis at column {} row {}",
+                                    column, i
+                                );
+                                // add vertical to subrows below axis
+                                let row_row = row.objects.entry(column).or_default();
+                                row_row.insert(-i16::from(sr), CircuitObject::Vertical);
+                            }
+                        } else if i == end - 1 {
+                            eprintln!(
+                                "adding vertical to subrows above axis at column {} row {}",
+                                column, i
+                            );
+                            for sr in 1..=row.current_top_offset {
+                                eprintln!(
+                                    "adding vertical to subrows above axis at column {} row {}",
+                                    column, i
+                                );
+                                // add vertical to subrows above axis
+                                let row_row = row.objects.entry(column).or_default();
+                                row_row.insert(i16::from(sr), CircuitObject::Vertical);
+                            }
+                        } else {
+                            // crossing wire, leave as is
+                            eprintln!(
+                                "leaving crossing wire at column {} row {}: {:?}",
+                                column, i, o
+                            );
+                        }
+                    }
+                    _ => {
+                        eprintln!(
+                            "adding vertical line at column {} row {} crossing object: {:?}",
+                            column, i, existing
+                        );
+                    }
+                }
+            } else {
+                row.add_to_row_wire(column, CircuitObject::Vertical);
+            }
         }
     } else {
         // No control wire. Draw dashed vertical lines to connect
         // target wires if there are multiple targets
         for row in &mut rows[begin..end] {
-            row.add_dashed_vertical(column);
+            if !row.objects.contains_key(&column) {
+                row.add_to_row_wire(column, CircuitObject::VerticalDashed);
+            }
         }
     }
 }
@@ -1179,7 +1205,8 @@ fn add_box_start(
                 .get(&(next_reg_of_group.qubit, next_reg_of_group.result))
                 .expect("register must map to a row");
             for row in &mut rows[(last_row + 1)..next_row] {
-                row.add_dashed_vertical(column + 1);
+                // TODO: should this be column + 1?
+                row.add_to_row_wire(column + 1, CircuitObject::VerticalDashed);
             }
         }
         return;
@@ -1230,8 +1257,12 @@ fn add_vertical_box_border(
         CircuitObject::BottomRightCorner
     };
     rows[first_row].add_to_current_top(column, top);
-    for row in &mut rows[(first_row)..(last_row)] {
-        row.add_vertical(column);
+    let second_from_top = first_row.saturating_add(1);
+    let second_from_bottom = last_row.saturating_sub(1);
+    if second_from_bottom >= second_from_top {
+        for row in &mut rows[second_from_top..=second_from_bottom] {
+            row.add_to_row_wire(column, CircuitObject::Vertical);
+        }
     }
     rows[last_row].add_to_current_bottom(column, bottom);
 }

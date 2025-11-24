@@ -22,8 +22,9 @@ use miette::Diagnostic;
 use num_bigint::BigUint;
 use num_complex::Complex;
 use qsc_circuit::{
-    Circuit, CircuitTracer, TracerConfig, operations::entry_expr_for_qubit_operation,
-    operations::qubit_param_info, rir_to_circuit::make_circuit,
+    Circuit, CircuitTracer, TracerConfig,
+    operations::{entry_expr_for_qubit_operation, qubit_param_info},
+    rir_to_circuit::make_circuit,
 };
 use qsc_codegen::qir::{fir_to_qir, fir_to_qir_from_callable, fir_to_rir};
 use qsc_data_structures::{
