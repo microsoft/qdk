@@ -38,7 +38,7 @@ type RenderArgs = {
   el: HTMLElement;
 };
 
-export function render({ model, el }: RenderArgs) {
+function render({ model, el }: RenderArgs) {
   const componentType = model.get("comp");
 
   // There is an existing issue where in VS Code it always shows the widget background as white.
@@ -80,6 +80,10 @@ export function render({ model, el }: RenderArgs) {
       throw new Error(`Unknown component type ${componentType}`);
   }
 }
+
+export default {
+  render,
+};
 
 function renderTable({ model, el }: RenderArgs) {
   const onChange = () => {
@@ -218,6 +222,10 @@ function renderHistogram({ model, el }: RenderArgs) {
     const buckets = model.get("buckets") as { [key: string]: number };
     const bucketMap = new Map(Object.entries(buckets));
     const shot_count = model.get("shot_count") as number;
+    const shot_header = model.get("shot_header") as boolean;
+    const labels = model.get("labels") as "raw" | "kets" | "none";
+    const items = model.get("items") as "all" | "top-10" | "top-25";
+    const sort = model.get("sort") as "a-to-z" | "high-to-low" | "low-to-high";
 
     prender(
       <Histogram
@@ -225,7 +233,10 @@ function renderHistogram({ model, el }: RenderArgs) {
         shotCount={shot_count}
         filter={""}
         onFilter={() => undefined}
-        shotsHeader={true}
+        shotsHeader={shot_header}
+        labels={labels}
+        items={items}
+        sort={sort}
       ></Histogram>,
       el,
     );
@@ -234,6 +245,10 @@ function renderHistogram({ model, el }: RenderArgs) {
   onChange();
   model.on("change:buckets", onChange);
   model.on("change:shot_count", onChange);
+  model.on("change:shot_header", onChange);
+  model.on("change:labels", onChange);
+  model.on("change:items", onChange);
+  model.on("change:sort", onChange);
 }
 
 function renderCircuit({ model, el }: RenderArgs) {
