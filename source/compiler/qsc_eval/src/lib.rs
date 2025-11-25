@@ -38,9 +38,9 @@ use num_bigint::BigInt;
 use output::Receiver;
 use qsc_data_structures::{functors::FunctorApp, index_map::IndexMap, span::Span};
 use qsc_fir::fir::{
-    self, BinOp, BlockId, CallableImpl, ExecGraph, ExecGraphNode, Expr, ExprId, ExprKind, Field,
-    FieldAssign, Global, Lit, LocalItemId, LocalVarId, PackageId, PackageStoreLookup, PatId,
-    PatKind, PrimField, Res, StmtId, StoreItemId, StringComponent, UnOp,
+    self, BinOp, BlockId, CallableImpl, ExecGraph, ExecGraphDebugNode, ExecGraphNode, Expr, ExprId,
+    ExprKind, Field, FieldAssign, Global, Lit, LocalItemId, LocalVarId, PackageId,
+    PackageStoreLookup, PatId, PatKind, PrimField, Res, StmtId, StoreItemId, StringComponent, UnOp,
 };
 use qsc_fir::ty::Ty;
 use qsc_lowerer::map_fir_package_to_hir;
@@ -277,6 +277,7 @@ pub fn exec_graph_section(graph: &ExecGraph, range: ops::Range<usize>) -> ExecGr
         .into()
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Evaluates the given code with the given context.
 /// # Errors
 /// Returns the first error encountered during execution.
@@ -287,11 +288,18 @@ pub fn eval<B: Backend>(
     seed: Option<u64>,
     exec_graph: ExecGraph,
     globals: &impl PackageStoreLookup,
+    track_scopes: bool,
     env: &mut Env,
     sim: &mut TracingBackend<'_, B>,
     receiver: &mut impl Receiver,
 ) -> Result<Value, (Error, Vec<Frame>)> {
-    let mut state = State::new(package, exec_graph, seed, ErrorBehavior::FailOnError);
+    let mut state = State::new(
+        package,
+        exec_graph,
+        seed,
+        ErrorBehavior::FailOnError,
+        track_scopes,
+    );
     let res = state.eval(globals, env, sim, receiver, &[], StepAction::Continue)?;
     let StepResult::Return(value) = res else {
         panic!("eval should always return a value");
@@ -314,8 +322,15 @@ pub fn invoke<B: Backend>(
     receiver: &mut impl Receiver,
     callable: Value,
     args: Value,
+    track_scopes: bool,
 ) -> Result<Value, (Error, Vec<Frame>)> {
-    let mut state = State::new(package, Vec::new().into(), seed, ErrorBehavior::FailOnError);
+    let mut state = State::new(
+        package,
+        Vec::new().into(),
+        seed,
+        ErrorBehavior::FailOnError,
+        track_scopes,
+    );
     // Push the callable value into the state stack and then the args value so they are ready for evaluation.
     state.set_val_register(callable);
     state.push_val();
@@ -584,6 +599,7 @@ pub struct State {
     qubit_counter: Option<QubitCounter>,
     error_behavior: ErrorBehavior,
     last_error: Option<(Error, Vec<Frame>)>,
+    track_scopes: bool,
 }
 
 impl State {
@@ -593,6 +609,7 @@ impl State {
         exec_graph: ExecGraph,
         classical_seed: Option<u64>,
         error_behavior: ErrorBehavior,
+        track_scopes: bool,
     ) -> Self {
         let rng = match classical_seed {
             Some(seed) => RefCell::new(StdRng::seed_from_u64(seed)),
@@ -613,6 +630,7 @@ impl State {
             qubit_counter: None,
             error_behavior,
             last_error: None,
+            track_scopes,
         }
     }
 
@@ -762,15 +780,6 @@ impl State {
                         }
                     }
                 }
-                Some(ExecGraphNode::Stmt(stmt)) => {
-                    self.idx += 1;
-                    self.current_span = globals.get_stmt((self.package, *stmt).into()).span;
-
-                    match self.check_for_break(breakpoints, *stmt, step, current_frame) {
-                        Some(value) => value,
-                        None => continue,
-                    }
-                }
                 Some(ExecGraphNode::Jump(idx)) => {
                     self.idx = *idx;
                     continue;
@@ -803,35 +812,50 @@ impl State {
                     self.set_val_register(Value::unit());
                     continue;
                 }
+                Some(ExecGraphNode::Ret) if self.track_scopes => {
+                    self.leave_frame();
+                    env.leave_current_frame();
+                    continue;
+                }
                 Some(ExecGraphNode::Ret) => {
                     self.leave_frame();
                     env.leave_scope();
                     continue;
                 }
-                Some(ExecGraphNode::RetFrame) => {
-                    self.leave_frame();
-                    env.leave_current_frame();
-                    continue;
-                }
-                Some(ExecGraphNode::PushScope) => {
-                    self.push_scope(env);
-                    self.idx += 1;
-                    continue;
-                }
-                Some(ExecGraphNode::PopScope) => {
-                    env.leave_scope();
-                    self.idx += 1;
-                    continue;
-                }
-                Some(ExecGraphNode::BlockEnd(id)) => {
-                    self.idx += 1;
-                    match self.check_for_block_exit_break(globals, *id, step, current_frame) {
-                        Some((result, span)) => {
-                            self.current_span = span;
-                            return Ok(result);
-                        }
-                        None => continue,
+                Some(ExecGraphNode::Debug(dbg_node)) if self.track_scopes => match dbg_node {
+                    ExecGraphDebugNode::PushScope(_) => {
+                        self.push_scope(env);
+                        self.idx += 1;
+                        continue;
                     }
+                    ExecGraphDebugNode::PopScope => {
+                        env.leave_scope();
+                        self.idx += 1;
+                        continue;
+                    }
+                    ExecGraphDebugNode::BlockEnd(id) => {
+                        self.idx += 1;
+                        match self.check_for_block_exit_break(globals, *id, step, current_frame) {
+                            Some((result, span)) => {
+                                self.current_span = span;
+                                return Ok(result);
+                            }
+                            None => continue,
+                        }
+                    }
+                    ExecGraphDebugNode::Stmt(stmt) => {
+                        self.idx += 1;
+                        self.current_span = globals.get_stmt((self.package, *stmt).into()).span;
+
+                        match self.check_for_break(breakpoints, *stmt, step, current_frame) {
+                            Some(value) => value,
+                            None => continue,
+                        }
+                    }
+                },
+                Some(ExecGraphNode::Debug(_)) => {
+                    self.idx += 1;
+                    continue;
                 }
                 None => {
                     // We have reached the end of the current graph without reaching an explicit return node,

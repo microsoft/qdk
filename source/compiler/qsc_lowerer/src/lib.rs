@@ -3,7 +3,9 @@
 
 use qsc_data_structures::index_map::IndexMap;
 use qsc_fir::assigner::Assigner;
-use qsc_fir::fir::{Block, CallableImpl, ExecGraphNode, Expr, Pat, SpecImpl, Stmt};
+use qsc_fir::fir::{
+    Block, CallableImpl, ExecGraphDebugNode, ExecGraphNode, Expr, Pat, SpecImpl, Stmt,
+};
 use qsc_fir::{
     fir::{self, BlockId, ExprId, LocalItemId, PatId, StmtId},
     ty::{Arrow, InferFunctorId, ParamId, Ty},
@@ -50,7 +52,6 @@ pub struct Lowerer {
     blocks: IndexMap<BlockId, Block>,
     assigner: Assigner,
     exec_graph: Vec<ExecGraphNode>,
-    enable_debug: bool,
     ret_node: ExecGraphNode,
     fir_increment: FirIncrement,
 }
@@ -73,21 +74,9 @@ impl Lowerer {
             blocks: IndexMap::new(),
             assigner: Assigner::new(),
             exec_graph: Vec::new(),
-            enable_debug: false,
             ret_node: ExecGraphNode::Ret,
             fir_increment: FirIncrement::default(),
         }
-    }
-
-    #[must_use]
-    pub fn with_debug(mut self, dbg: bool) -> Self {
-        self.enable_debug = dbg;
-        if dbg {
-            self.ret_node = ExecGraphNode::RetFrame;
-        } else {
-            self.ret_node = ExecGraphNode::Ret;
-        }
-        self
     }
 
     pub fn take_exec_graph(&mut self) -> Vec<ExecGraphNode> {
@@ -362,9 +351,8 @@ impl Lowerer {
         // is performed via their lowered local variable ID, so they cannot be accessed outside of
         // their scope. Associated memory is still cleaned up at callable exit rather than block
         // exit.
-        if self.enable_debug {
-            self.exec_graph.push(ExecGraphNode::PushScope);
-        }
+        self.exec_graph
+            .push(ExecGraphNode::Debug(ExecGraphDebugNode::PushScope(id)));
         let set_unit = block.stmts.is_empty()
             || !matches!(
                 block.stmts.last().expect("block should be non-empty").kind,
@@ -379,10 +367,10 @@ impl Lowerer {
         if set_unit {
             self.exec_graph.push(ExecGraphNode::Unit);
         }
-        if self.enable_debug {
-            self.exec_graph.push(ExecGraphNode::BlockEnd(id));
-            self.exec_graph.push(ExecGraphNode::PopScope);
-        }
+        self.exec_graph
+            .push(ExecGraphNode::Debug(ExecGraphDebugNode::BlockEnd(id)));
+        self.exec_graph
+            .push(ExecGraphNode::Debug(ExecGraphDebugNode::PopScope));
         self.blocks.insert(id, block);
         id
     }
@@ -390,9 +378,8 @@ impl Lowerer {
     fn lower_stmt(&mut self, stmt: &hir::Stmt) -> fir::StmtId {
         let id = self.assigner.next_stmt();
         let graph_start_idx = self.exec_graph.len();
-        if self.enable_debug {
-            self.exec_graph.push(ExecGraphNode::Stmt(id));
-        }
+        self.exec_graph
+            .push(ExecGraphNode::Debug(ExecGraphDebugNode::Stmt(id)));
         let kind = match &stmt.kind {
             hir::StmtKind::Expr(expr) => fir::StmtKind::Expr(self.lower_expr(expr)),
             hir::StmtKind::Item(item) => fir::StmtKind::Item(lower_local_item_id(*item)),

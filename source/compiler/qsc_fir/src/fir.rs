@@ -930,19 +930,27 @@ pub enum ExecGraphNode {
     /// A no-op Unit node that tells execution to insert a unit value into the current accumulated result.
     Unit,
     /// The end of the control flow graph.
+    ///
+    /// When debugging,
+    /// The end of the control flow graph plus a pop of the current debug frame.
     Ret,
-    /// The end of the control flow graph plus a pop of the current debug frame. Used instead of `Ret`
-    /// when debugging.
-    RetFrame,
-    /// A statement to track for debugging.
-    Stmt(StmtId),
-    /// A push of a new scope, used when tracking variables for debugging.
-    PushScope,
+    // RetFrame,
+    /// A node only to be executed in debug mode.
+    Debug(ExecGraphDebugNode),
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+/// A debug-only node within the control flow graph.
+pub enum ExecGraphDebugNode {
     /// A pop of the current scope, used when tracking variables for debugging.
     PopScope,
     /// The end of a block, used in debugging to have a step point after all statements in a block have been executed,
     /// but before the block is exited.
     BlockEnd(BlockId),
+    /// A statement to track for debugging.
+    Stmt(StmtId),
+    /// A push of a new scope, used when tracking variables for debugging.
+    PushScope(BlockId),
 }
 
 /// A sequenced block of statements.

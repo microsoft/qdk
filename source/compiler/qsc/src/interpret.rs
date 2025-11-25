@@ -156,6 +156,8 @@ pub struct Interpreter {
     classical_seed: Option<u64>,
     /// The evaluator environment.
     env: Env,
+    /// Only enabled in debug
+    track_scopes_in_execution: bool,
 }
 
 pub type InterpretResult = std::result::Result<Value, Vec<Error>>;
@@ -309,7 +311,7 @@ impl Interpreter {
     ) -> std::result::Result<Interpreter, Vec<Error>> {
         let mut fir_store = fir::PackageStore::new();
         for (id, unit) in compiler.package_store() {
-            let mut lowerer = qsc_lowerer::Lowerer::new().with_debug(dbg);
+            let mut lowerer = qsc_lowerer::Lowerer::new();
             let pkg = lowerer.lower_package(&unit.package, &fir_store);
             fir_store.insert(map_hir_package_to_fir(id), pkg);
         }
@@ -342,7 +344,7 @@ impl Interpreter {
             lines: 0,
             capabilities,
             fir_store,
-            lowerer: qsc_lowerer::Lowerer::new().with_debug(dbg),
+            lowerer: qsc_lowerer::Lowerer::new(),
             expr_graph: None,
             angle_ty_cache: None.into(),
             complex_ty_cache: None.into(),
@@ -358,6 +360,7 @@ impl Interpreter {
             classical_seed: None,
             package,
             source_package: map_hir_package_to_fir(source_package_id),
+            track_scopes_in_execution: dbg,
         })
     }
 
@@ -669,6 +672,7 @@ impl Interpreter {
             &mut Env::default(),
             &mut TracingBackend::new(&mut self.sim, self.circuit_tracer.as_mut()),
             receiver,
+            self.track_scopes_in_execution,
         )
     }
 
@@ -693,6 +697,7 @@ impl Interpreter {
             &mut Env::default(),
             &mut TracingBackend::no_tracer(sim),
             receiver,
+            self.track_scopes_in_execution,
         )
     }
 
@@ -774,6 +779,7 @@ impl Interpreter {
             &mut self.env,
             &mut TracingBackend::new(&mut self.sim, self.circuit_tracer.as_mut()),
             receiver,
+            self.track_scopes_in_execution,
         )
     }
 
@@ -793,6 +799,7 @@ impl Interpreter {
             receiver,
             callable,
             args,
+            self.track_scopes_in_execution,
         )
         .map_err(|(error, call_stack)| {
             eval_error(
@@ -987,21 +994,28 @@ impl Interpreter {
                         &mut out,
                         callable,
                         args,
+                        true,
                     )?;
                 } else {
                     self.run_with_tracing_backend(
                         &mut tracing_backend,
                         &mut out,
                         entry_expr.as_deref(),
+                        true,
                     )?;
                 }
             }
             CircuitGenerationMethod::ClassicalEval => {
                 let mut tracer = TracingBackend::<SparseSim>::no_backend(&mut tracer);
                 if let Some((callable, args)) = invoke_params {
-                    self.invoke_with_tracing_backend(&mut tracer, &mut out, callable, args)?;
+                    self.invoke_with_tracing_backend(&mut tracer, &mut out, callable, args, true)?;
                 } else {
-                    self.run_with_tracing_backend(&mut tracer, &mut out, entry_expr.as_deref())?;
+                    self.run_with_tracing_backend(
+                        &mut tracer,
+                        &mut out,
+                        entry_expr.as_deref(),
+                        true,
+                    )?;
                 }
             }
         }
@@ -1046,6 +1060,7 @@ impl Interpreter {
             &mut Env::default(),
             &mut tracing_backend,
             receiver,
+            self.track_scopes_in_execution,
         )
     }
 
@@ -1054,6 +1069,7 @@ impl Interpreter {
         tracing_backend: &mut TracingBackend<'_, B>,
         out: &mut GenericReceiver,
         entry_expr: Option<&str>,
+        track_scopes: bool,
     ) -> InterpretResult {
         let (package_id, graph) = if let Some(entry_expr) = entry_expr {
             // entry expression is provided
@@ -1075,6 +1091,7 @@ impl Interpreter {
             &mut Env::default(),
             tracing_backend,
             out,
+            track_scopes,
         )
     }
 
@@ -1092,6 +1109,7 @@ impl Interpreter {
             receiver,
             callable,
             args,
+            self.track_scopes_in_execution,
         )
     }
 
@@ -1101,6 +1119,7 @@ impl Interpreter {
         receiver: &mut impl Receiver,
         callable: Value,
         args: Value,
+        track_scopes: bool,
     ) -> InterpretResult {
         qsc_eval::invoke(
             self.package,
@@ -1111,6 +1130,7 @@ impl Interpreter {
             receiver,
             callable,
             args,
+            track_scopes,
         )
         .map_err(|(error, call_stack)| {
             eval_error(
@@ -1308,6 +1328,7 @@ impl Debugger {
                 entry_exec_graph,
                 None,
                 ErrorBehavior::StopOnError,
+                true, // track scopes
             ),
         })
     }
@@ -1324,6 +1345,7 @@ impl Debugger {
                 entry_exec_graph,
                 None,
                 ErrorBehavior::StopOnError,
+                true, // track scopes
             ),
         }
     }
@@ -1455,12 +1477,14 @@ fn eval<B: Backend>(
     env: &mut Env,
     tracing_backend: &mut TracingBackend<'_, B>,
     receiver: &mut impl Receiver,
+    track_scopes: bool,
 ) -> InterpretResult {
     qsc_eval::eval(
         package,
         classical_seed,
         exec_graph,
         fir_store,
+        track_scopes,
         env,
         tracing_backend,
         receiver,
