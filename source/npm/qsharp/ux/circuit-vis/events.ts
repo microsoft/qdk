@@ -170,11 +170,7 @@ class CircuitEvents {
           this.selectedOperation.controls != null &&
           this.selectedWire != null
         ) {
-          const controlIndex = this.selectedOperation.controls.findIndex(
-            (control) => control.qubit === this.selectedWire,
-          );
-          if (controlIndex !== -1)
-            this.selectedOperation.controls.splice(controlIndex, 1);
+          removeControl(this, this.selectedOperation, this.selectedWire);
         } else {
           // Otherwise, remove the selectedOperation
           removeOperation(this, selectedLocation);
