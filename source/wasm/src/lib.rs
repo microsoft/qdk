@@ -4,7 +4,7 @@
 #![allow(unknown_lints, clippy::empty_docs)]
 #![allow(non_snake_case)]
 
-use diagnostic::{VSDiagnostic, interpret_errors_into_qsharp_errors};
+use diagnostic::interpret_errors_into_qsharp_errors;
 use katas::check_solution;
 use language_service::IOperationInfo;
 use num_bigint::BigUint;
@@ -28,6 +28,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{fmt::Write, sync::Arc};
 use wasm_bindgen::prelude::*;
+
+use crate::diagnostic::interpret_errors_to_run_result;
 
 mod debug_service;
 mod diagnostic;
@@ -425,12 +427,6 @@ fn run_internal_with_features<F>(
 where
     F: FnMut(&str),
 {
-    let source_name = sources
-        .iter()
-        .map(|x| x.name.clone())
-        .next()
-        .expect("There must be a source to process")
-        .to_string();
     let mut out = CallbackReceiver { event_cb };
     let mut interpreter = match interpret::Interpreter::new(
         sources,
@@ -442,14 +438,11 @@ where
     ) {
         Ok(interpreter) => interpreter,
         Err(err) => {
-            // TODO: handle multiple errors
-            // https://github.com/microsoft/qsharp/issues/149
-            let e = err[0].clone();
-            let diag = VSDiagnostic::from_interpret_error(&source_name, &e);
+            let diag = interpret_errors_to_run_result(&err);
             let msg = json!(
                 {"type": "Result", "success": false, "result": diag});
             (out.event_cb)(&msg.to_string());
-            return Err(Box::new(e));
+            return Err(Box::new(err[0].clone()));
         }
     };
 
@@ -463,10 +456,8 @@ where
         let msg: serde_json::Value = match result {
             Ok(value) => serde_json::Value::String(value.to_string()),
             Err(errors) => {
-                // TODO: handle multiple errors
-                // https://github.com/microsoft/qsharp/issues/149
                 success = false;
-                VSDiagnostic::from_interpret_error(&source_name, &errors[0]).json()
+                interpret_errors_to_run_result(&errors)
             }
         };
 
@@ -541,12 +532,6 @@ pub fn runWithNoise(
 
     if is_openqasm_program(&program) {
         let (sources, capabilities) = into_openqasm_arg(program);
-        let source_name = sources
-            .iter()
-            .map(|x| x.0.clone())
-            .next()
-            .expect("There must be a source to process")
-            .to_string();
         let (entry_expr, mut interpreter) = get_interpreter_from_openqasm(&sources, capabilities)?;
         if let Err(err) = interpreter.set_entry_expr(&entry_expr) {
             return Err(interpret_errors_into_qsharp_errors_json(err).into());
@@ -563,10 +548,8 @@ pub fn runWithNoise(
             let msg: serde_json::Value = match result {
                 Ok(value) => serde_json::Value::String(value.to_string()),
                 Err(errors) => {
-                    // TODO: handle multiple errors
-                    // https://github.com/microsoft/qsharp/issues/149
                     success = false;
-                    VSDiagnostic::from_interpret_error(&source_name, &errors[0]).json()
+                    interpret_errors_to_run_result(&errors)
                 }
             };
 
@@ -618,13 +601,8 @@ fn check_exercise_solution_internal(
     let (exercise_success, msg) = match result {
         Ok(value) => (value, serde_json::Value::String(value.to_string())),
         Err(errors) => {
-            // TODO: handle multiple errors
-            // https://github.com/microsoft/qsharp/issues/149
             runtime_success = false;
-            (
-                false,
-                VSDiagnostic::from_interpret_error(source_name, &errors[0]).json(),
-            )
+            (false, interpret_errors_to_run_result(&errors))
         }
     };
     let msg_string =
