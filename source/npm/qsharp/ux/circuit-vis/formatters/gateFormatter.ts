@@ -164,7 +164,7 @@ const _zoomButton = (
   let { dataAttributes } = renderData;
   dataAttributes = dataAttributes || {};
 
-  const expanded = "expanded" in dataAttributes;
+  const expanded = dataAttributes["expanded"] == "true";
 
   const x = gateBoundingBoxX + 2;
   const y = gateBoundingBoxY + 2;

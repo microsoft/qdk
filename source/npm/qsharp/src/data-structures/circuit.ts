@@ -120,7 +120,9 @@ export interface BaseOperation {
   isConditional?: boolean;
   /** Specify conditions on when to render operation. */
   conditionalRender?: ConditionalRender;
-  source?: SourceLocation;
+
+  /** Not written to file */
+  metadata?: Metadata;
 }
 
 /**
@@ -278,4 +280,9 @@ export interface SourceLocation {
   file: string;
   line: number;
   column: number;
+}
+
+export interface Metadata {
+  source?: SourceLocation;
+  scopeLocation?: SourceLocation;
 }

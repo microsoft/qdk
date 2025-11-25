@@ -207,14 +207,14 @@ export class QsTextDocumentContentProvider
   }
 }
 
+const qdkExtensionNameDev = "quantum.qsharp-lang-vscode-dev";
 function checkForOldQdk() {
   const oldQdkExtension = vscode.extensions.getExtension(
     "quantum.quantum-devkit-vscode",
   );
 
-  const prereleaseQdkExtension = vscode.extensions.getExtension(
-    "quantum.qsharp-lang-vscode-dev",
-  );
+  const prereleaseQdkExtension =
+    vscode.extensions.getExtension(qdkExtensionNameDev);
 
   const releaseQdkExtension = vscode.extensions.getExtension(
     "quantum.qsharp-lang-vscode",
