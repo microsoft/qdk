@@ -230,36 +230,79 @@ test("circuit snapshot tests - .qs files", async (t) => {
     const relName = path.basename(file);
     await t.test(`${relName}`, async (tt) => {
       const circuitSource = fs.readFileSync(file, "utf8");
-      const compiler = getCompiler();
-      const container = createContainerElement(`circuit`);
-      try {
-        // Generate the circuit from Q#
-        const circuit = await compiler.getCircuit(
-          {
-            sources: [[relName, circuitSource]],
-            languageFeatures: [],
-            profile: "adaptive_rif",
-          },
-          {
-            generationMethod: "classicalEval",
-            maxOperations: 100,
-            sourceLocations: true,
-          },
-        );
+      await generateAndDrawCircuit(
+        relName,
+        circuitSource,
+        "circuit-eval-collapsed",
+        "classicalEval",
+        0,
+      );
 
-        // Render the circuit
-        draw(circuit, container, {
-          renderLocations,
-        });
-      } catch (e) {
-        const pre = document.createElement("pre");
-        pre.appendChild(
-          document.createTextNode(`Error generating circuit: ${e}`),
-        );
-        container.appendChild(pre);
-      }
+      await generateAndDrawCircuit(
+        relName,
+        circuitSource,
+        "circuit-eval-expanded-1",
+        "classicalEval",
+        1,
+      );
+
+      await generateAndDrawCircuit(
+        relName,
+        circuitSource,
+        "circuit-eval-expanded-full",
+        "classicalEval",
+        999999,
+      );
 
       await checkDocumentSnapshot(tt, tt.name);
     });
   }
 });
+
+/**
+ * @param {string} name
+ * @param {string} circuitSource
+ * @param {string} id
+ * @param { "classicalEval" | "simulate"} generationMethod
+ * @param {number} renderDepth
+ */
+async function generateAndDrawCircuit(
+  name,
+  circuitSource,
+  id,
+  generationMethod,
+  renderDepth,
+) {
+  const compiler = getCompiler();
+  const title = document.createElement("div");
+  title.innerHTML = `<h2>${id}</h2>`;
+  document.body.appendChild(title);
+  const container = createContainerElement(id);
+  try {
+    // Generate the circuit from Q#
+    const circuit = await compiler.getCircuit(
+      {
+        sources: [[name, circuitSource]],
+        languageFeatures: [],
+        profile: "adaptive_rif",
+      },
+      {
+        generationMethod,
+        groupScopes: true,
+        maxOperations: 100,
+        sourceLocations: true,
+      },
+      undefined,
+    );
+
+    // Render the circuit
+    draw(circuit, container, {
+      renderDepth,
+      renderLocations,
+    });
+  } catch (e) {
+    const pre = document.createElement("pre");
+    pre.appendChild(document.createTextNode(`Error generating circuit: ${e}`));
+    container.appendChild(pre);
+  }
+}

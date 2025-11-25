@@ -58,6 +58,7 @@ export type CircuitOrError = {
 
 export async function showCircuitCommand(
   extensionUri: Uri,
+  prerelease: boolean,
   operation: IOperationInfo | undefined,
   telemetryInvocationType: UserTaskInvocationType,
   telemetryDocumentType?: QsharpDocumentType,
@@ -76,7 +77,7 @@ export async function showCircuitCommand(
     {},
   );
 
-  const circuitConfig = getConfig();
+  const circuitConfig = getConfig(prerelease);
   if (!programConfig) {
     const program = await getActiveProgram({ showModalError: true });
     if (!program.success) {
@@ -305,9 +306,10 @@ async function getCircuitOrError(
   }
 }
 
-export function getConfig() {
+export function getConfig(prerelease: boolean) {
   const defaultConfig = {
     maxOperations: 10001,
+    groupScopes: prerelease ? true : false,
     generationMethod: "classicalEval" as const,
     sourceLocations: true,
   };
@@ -321,6 +323,10 @@ export function getConfig() {
       "maxOperations" in config && typeof config.maxOperations === "number"
         ? config.maxOperations
         : defaultConfig.maxOperations,
+    groupScopes:
+      "groupScopes" in config && typeof config.groupScopes === "boolean"
+        ? config.groupScopes
+        : defaultConfig.groupScopes,
     generationMethod:
       "generationMethod" in config &&
       typeof config.generationMethod === "string" &&

@@ -14,16 +14,13 @@
         xmlns="http://www.w3.org/2000/svg"
         class="qviz"
         width="160.3447265625"
-        height="160"
+        height="120"
         style="max-width: fit-content"
-        viewBox="0 0 160 160"
+        viewBox="0 0 160 120"
       >
         <g class="qubit-input-states">
           <a href="#" class="qs-circuit-source-link">
-            <title>
-              qubit-reuse.qs:3:9 use q1 = Qubit(); qubit-reuse.qs:8:9 use q2 =
-              Qubit();
-            </title>
+            <title>intrinsics.qs:2:5 use q = Qubit();</title>
             <text
               font-size="16"
               x="20"
@@ -63,14 +60,14 @@
                   x="80"
                   y="20"
                   width="50.3447265625"
-                  height="120"
-                  data-wire-ys="[40,80,120]"
+                  height="80"
+                  data-wire-ys="[40,80]"
                   data-width="50.3447265625"
                 />
                 <text
                   font-size="14"
                   x="105.17236328125"
-                  y="80"
+                  y="60"
                   class="qs-maintext"
                 >
                   <tspan class="qs-mathtext">Main</tspan>
@@ -90,17 +87,14 @@
       <svg
         xmlns="http://www.w3.org/2000/svg"
         class="qviz"
-        width="480"
-        height="160"
+        width="537.8544921875"
+        height="120"
         style="max-width: fit-content"
-        viewBox="0 0 480 160"
+        viewBox="0 0 537 120"
       >
         <g class="qubit-input-states">
           <a href="#" class="qs-circuit-source-link">
-            <title>
-              qubit-reuse.qs:3:9 use q1 = Qubit(); qubit-reuse.qs:8:9 use q2 =
-              Qubit();
-            </title>
+            <title>intrinsics.qs:2:5 use q = Qubit();</title>
             <text
               font-size="16"
               x="20"
@@ -118,64 +112,40 @@
           </a>
         </g>
         <g class="wires">
-          <line x1="40" x2="480" y1="40" y2="40" class="qubit-wire" />
+          <line
+            x1="40"
+            x2="537.8544921875"
+            y1="40"
+            y2="40"
+            class="qubit-wire"
+          />
           <g>
             <line
-              x1="171"
-              x2="171"
+              x1="408.8544921875"
+              x2="408.8544921875"
               y1="40"
               y2="79"
               class="register-classical"
             />
             <line
-              x1="169"
-              x2="169"
+              x1="406.8544921875"
+              x2="406.8544921875"
               y1="40"
               y2="81"
               class="register-classical"
             />
             <line
-              x1="171"
-              x2="480"
+              x1="408.8544921875"
+              x2="537.8544921875"
               y1="79"
               y2="79"
               class="register-classical"
             />
             <line
-              x1="169"
-              x2="480"
+              x1="406.8544921875"
+              x2="537.8544921875"
               y1="81"
               y2="81"
-              class="register-classical"
-            />
-          </g>
-          <g>
-            <line
-              x1="351"
-              x2="351"
-              y1="40"
-              y2="119"
-              class="register-classical"
-            />
-            <line
-              x1="349"
-              x2="349"
-              y1="40"
-              y2="121"
-              class="register-classical"
-            />
-            <line
-              x1="351"
-              x2="480"
-              y1="119"
-              y2="119"
-              class="register-classical"
-            />
-            <line
-              x1="349"
-              x2="480"
-              y1="121"
-              y2="121"
               class="register-classical"
             />
           </g>
@@ -192,39 +162,87 @@
               class="gate-unitary"
               x="60"
               y="10"
-              width="390"
-              height="140"
+              width="447.8544921875"
+              height="100"
               fill-opacity="0"
               stroke-dasharray="8, 8"
             />
             <g>
               <a href="#" class="qs-circuit-source-link">
-                <title>qubit-reuse.qs:4:9 X(q1);</title>
+                <title>intrinsics.qs:3:5 CustomIntrinsic(q);</title>
                 <g
                   class="gate"
                   data-location="0,0-0,0"
                   data-zoom-out="true"
                   data-zoom-in="false"
                 >
-                  <g class="oplus" data-wire-ys="[40]" data-width="30">
-                    <circle cx="110" cy="40" r="15" />
-                    <line x1="110" x2="110" y1="25" y2="55" />
-                    <line x1="95" x2="125" y1="40" y2="40" />
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="90"
+                        y="20"
+                        width="116.46875"
+                        height="40"
+                        data-wire-ys="[40]"
+                        data-width="116.46875"
+                      />
+                      <text
+                        font-size="14"
+                        x="148.234375"
+                        y="40"
+                        class="qs-maintext"
+                      >
+                        <tspan class="qs-mathtext">CustomIntrinsic</tspan>
+                      </text>
+                    </g>
                   </g>
                 </g>
               </a>
+              <g
+                class="gate"
+                data-location="0,0-1,0"
+                data-zoom-out="true"
+                data-zoom-in="true"
+              >
+                <g>
+                  <g>
+                    <rect
+                      class="gate-unitary"
+                      x="226.46875"
+                      y="20"
+                      width="141.3857421875"
+                      height="40"
+                      data-wire-ys="[40]"
+                      data-width="141.3857421875"
+                    />
+                    <text
+                      font-size="14"
+                      x="297.16162109375"
+                      y="40"
+                      class="qs-maintext"
+                    >
+                      <tspan class="qs-mathtext">SimulatableIntrinsic</tspan>
+                    </text>
+                  </g>
+                </g>
+                <g class="gate-control gate-expand">
+                  <circle cx="228.46875" cy="22" r="10" />
+                  <path d="M228.46875,15 v14 M221.46875,22 h14" />
+                </g>
+              </g>
               <a href="#" class="qs-circuit-source-link">
-                <title>qubit-reuse.qs:5:9 MResetZ(q1);</title>
+                <title>intrinsics.qs:5:6 [MResetZ(q)]</title>
                 <g
                   class="gate"
-                  data-location="0,0-1,0"
+                  data-location="0,0-2,0"
                   data-zoom-out="true"
                   data-zoom-in="false"
                 >
                   <g>
                     <rect
                       class="gate-measure"
-                      x="150"
+                      x="387.8544921875"
                       y="20"
                       width="40"
                       height="40"
@@ -233,12 +251,12 @@
                     />
                     <path
                       class="arc-measure"
-                      d="M 185 42 A 15 12 0 0 0 155 42"
+                      d="M 422.8544921875 42 A 15 12 0 0 0 392.8544921875 42"
                       style="pointer-events: none"
                     />
                     <line
-                      x1="170"
-                      x2="182"
+                      x1="407.8544921875"
+                      x2="419.8544921875"
                       y1="48"
                       y2="28"
                       class="qs-line-measure"
@@ -248,38 +266,7 @@
                 </g>
               </a>
               <a href="#" class="qs-circuit-source-link">
-                <title>qubit-reuse.qs:5:9 MResetZ(q1);</title>
-                <g
-                  class="gate"
-                  data-location="0,0-2,0"
-                  data-zoom-out="true"
-                  data-zoom-in="false"
-                >
-                  <g>
-                    <g>
-                      <rect
-                        class="gate-ket"
-                        x="210"
-                        y="20"
-                        width="40"
-                        height="40"
-                        data-wire-ys="[40]"
-                        data-width="40"
-                      />
-                      <text
-                        font-size="14"
-                        x="230"
-                        y="40"
-                        class="qs-maintext ket-text"
-                      >
-                        |0⟩
-                      </text>
-                    </g>
-                  </g>
-                </g>
-              </a>
-              <a href="#" class="qs-circuit-source-link">
-                <title>qubit-reuse.qs:9:9 Y(q2);</title>
+                <title>intrinsics.qs:5:6 [MResetZ(q)]</title>
                 <g
                   class="gate"
                   data-location="0,0-3,0"
@@ -289,68 +276,8 @@
                   <g>
                     <g>
                       <rect
-                        class="gate-unitary"
-                        x="270"
-                        y="20"
-                        width="40"
-                        height="40"
-                        data-wire-ys="[40]"
-                        data-width="40"
-                      />
-                      <text font-size="14" x="290" y="40" class="qs-maintext">
-                        <tspan class="qs-mathtext">Y</tspan>
-                      </text>
-                    </g>
-                  </g>
-                </g>
-              </a>
-              <a href="#" class="qs-circuit-source-link">
-                <title>qubit-reuse.qs:10:9 MResetZ(q2);</title>
-                <g
-                  class="gate"
-                  data-location="0,0-4,0"
-                  data-zoom-out="true"
-                  data-zoom-in="false"
-                >
-                  <g>
-                    <rect
-                      class="gate-measure"
-                      x="330"
-                      y="20"
-                      width="40"
-                      height="40"
-                      data-wire-ys="[40]"
-                      data-width="40"
-                    />
-                    <path
-                      class="arc-measure"
-                      d="M 365 42 A 15 12 0 0 0 335 42"
-                      style="pointer-events: none"
-                    />
-                    <line
-                      x1="350"
-                      x2="362"
-                      y1="48"
-                      y2="28"
-                      class="qs-line-measure"
-                      style="pointer-events: none"
-                    />
-                  </g>
-                </g>
-              </a>
-              <a href="#" class="qs-circuit-source-link">
-                <title>qubit-reuse.qs:10:9 MResetZ(q2);</title>
-                <g
-                  class="gate"
-                  data-location="0,0-5,0"
-                  data-zoom-out="true"
-                  data-zoom-in="false"
-                >
-                  <g>
-                    <g>
-                      <rect
                         class="gate-ket"
-                        x="390"
+                        x="447.8544921875"
                         y="20"
                         width="40"
                         height="40"
@@ -359,7 +286,7 @@
                       />
                       <text
                         font-size="14"
-                        x="410"
+                        x="467.8544921875"
                         y="40"
                         class="qs-maintext ket-text"
                       >
@@ -383,17 +310,14 @@
       <svg
         xmlns="http://www.w3.org/2000/svg"
         class="qviz"
-        width="480"
-        height="160"
+        width="466.46875"
+        height="120"
         style="max-width: fit-content"
-        viewBox="0 0 480 160"
+        viewBox="0 0 466 120"
       >
         <g class="qubit-input-states">
           <a href="#" class="qs-circuit-source-link">
-            <title>
-              qubit-reuse.qs:3:9 use q1 = Qubit(); qubit-reuse.qs:8:9 use q2 =
-              Qubit();
-            </title>
+            <title>intrinsics.qs:2:5 use q = Qubit();</title>
             <text
               font-size="16"
               x="20"
@@ -411,64 +335,34 @@
           </a>
         </g>
         <g class="wires">
-          <line x1="40" x2="480" y1="40" y2="40" class="qubit-wire" />
+          <line x1="40" x2="466.46875" y1="40" y2="40" class="qubit-wire" />
           <g>
             <line
-              x1="171"
-              x2="171"
+              x1="337.46875"
+              x2="337.46875"
               y1="40"
               y2="79"
               class="register-classical"
             />
             <line
-              x1="169"
-              x2="169"
+              x1="335.46875"
+              x2="335.46875"
               y1="40"
               y2="81"
               class="register-classical"
             />
             <line
-              x1="171"
-              x2="480"
+              x1="337.46875"
+              x2="466.46875"
               y1="79"
               y2="79"
               class="register-classical"
             />
             <line
-              x1="169"
-              x2="480"
+              x1="335.46875"
+              x2="466.46875"
               y1="81"
               y2="81"
-              class="register-classical"
-            />
-          </g>
-          <g>
-            <line
-              x1="351"
-              x2="351"
-              y1="40"
-              y2="119"
-              class="register-classical"
-            />
-            <line
-              x1="349"
-              x2="349"
-              y1="40"
-              y2="121"
-              class="register-classical"
-            />
-            <line
-              x1="351"
-              x2="480"
-              y1="119"
-              y2="119"
-              class="register-classical"
-            />
-            <line
-              x1="349"
-              x2="480"
-              y1="121"
-              y2="121"
               class="register-classical"
             />
           </g>
@@ -485,39 +379,109 @@
               class="gate-unitary"
               x="60"
               y="10"
-              width="390"
-              height="140"
+              width="376.46875"
+              height="100"
               fill-opacity="0"
               stroke-dasharray="8, 8"
             />
             <g>
               <a href="#" class="qs-circuit-source-link">
-                <title>qubit-reuse.qs:4:9 X(q1);</title>
+                <title>intrinsics.qs:3:5 CustomIntrinsic(q);</title>
                 <g
                   class="gate"
                   data-location="0,0-0,0"
                   data-zoom-out="true"
                   data-zoom-in="false"
                 >
-                  <g class="oplus" data-wire-ys="[40]" data-width="30">
-                    <circle cx="110" cy="40" r="15" />
-                    <line x1="110" x2="110" y1="25" y2="55" />
-                    <line x1="95" x2="125" y1="40" y2="40" />
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="90"
+                        y="20"
+                        width="116.46875"
+                        height="40"
+                        data-wire-ys="[40]"
+                        data-width="116.46875"
+                      />
+                      <text
+                        font-size="14"
+                        x="148.234375"
+                        y="40"
+                        class="qs-maintext"
+                      >
+                        <tspan class="qs-mathtext">CustomIntrinsic</tspan>
+                      </text>
+                    </g>
                   </g>
                 </g>
               </a>
+              <g
+                class="gate"
+                data-expanded="true"
+                data-location="0,0-1,0"
+                data-zoom-out="true"
+                data-zoom-in="true"
+              >
+                <rect
+                  class="gate-unitary"
+                  x="210.46875"
+                  y="12"
+                  width="86"
+                  height="56"
+                  fill-opacity="0"
+                  stroke-dasharray="8, 8"
+                />
+                <g>
+                  <a href="#" class="qs-circuit-source-link">
+                    <title>intrinsics.qs:15:5 H(q);</title>
+                    <g
+                      class="gate"
+                      data-location="0,0-1,0-0,0"
+                      data-zoom-out="true"
+                      data-zoom-in="false"
+                    >
+                      <g>
+                        <g>
+                          <rect
+                            class="gate-unitary"
+                            x="236.46875"
+                            y="20"
+                            width="40"
+                            height="40"
+                            data-wire-ys="[40]"
+                            data-width="40"
+                          />
+                          <text
+                            font-size="14"
+                            x="256.46875"
+                            y="40"
+                            class="qs-maintext"
+                          >
+                            <tspan class="qs-mathtext">H</tspan>
+                          </text>
+                        </g>
+                      </g>
+                    </g>
+                  </a>
+                </g>
+                <g class="gate-control gate-collapse">
+                  <circle cx="212.46875" cy="14" r="10" />
+                  <path d="M205.46875,14 h14" />
+                </g>
+              </g>
               <a href="#" class="qs-circuit-source-link">
-                <title>qubit-reuse.qs:5:9 MResetZ(q1);</title>
+                <title>intrinsics.qs:5:6 [MResetZ(q)]</title>
                 <g
                   class="gate"
-                  data-location="0,0-1,0"
+                  data-location="0,0-2,0"
                   data-zoom-out="true"
                   data-zoom-in="false"
                 >
                   <g>
                     <rect
                       class="gate-measure"
-                      x="150"
+                      x="316.46875"
                       y="20"
                       width="40"
                       height="40"
@@ -526,12 +490,12 @@
                     />
                     <path
                       class="arc-measure"
-                      d="M 185 42 A 15 12 0 0 0 155 42"
+                      d="M 351.46875 42 A 15 12 0 0 0 321.46875 42"
                       style="pointer-events: none"
                     />
                     <line
-                      x1="170"
-                      x2="182"
+                      x1="336.46875"
+                      x2="348.46875"
                       y1="48"
                       y2="28"
                       class="qs-line-measure"
@@ -541,38 +505,7 @@
                 </g>
               </a>
               <a href="#" class="qs-circuit-source-link">
-                <title>qubit-reuse.qs:5:9 MResetZ(q1);</title>
-                <g
-                  class="gate"
-                  data-location="0,0-2,0"
-                  data-zoom-out="true"
-                  data-zoom-in="false"
-                >
-                  <g>
-                    <g>
-                      <rect
-                        class="gate-ket"
-                        x="210"
-                        y="20"
-                        width="40"
-                        height="40"
-                        data-wire-ys="[40]"
-                        data-width="40"
-                      />
-                      <text
-                        font-size="14"
-                        x="230"
-                        y="40"
-                        class="qs-maintext ket-text"
-                      >
-                        |0⟩
-                      </text>
-                    </g>
-                  </g>
-                </g>
-              </a>
-              <a href="#" class="qs-circuit-source-link">
-                <title>qubit-reuse.qs:9:9 Y(q2);</title>
+                <title>intrinsics.qs:5:6 [MResetZ(q)]</title>
                 <g
                   class="gate"
                   data-location="0,0-3,0"
@@ -582,68 +515,8 @@
                   <g>
                     <g>
                       <rect
-                        class="gate-unitary"
-                        x="270"
-                        y="20"
-                        width="40"
-                        height="40"
-                        data-wire-ys="[40]"
-                        data-width="40"
-                      />
-                      <text font-size="14" x="290" y="40" class="qs-maintext">
-                        <tspan class="qs-mathtext">Y</tspan>
-                      </text>
-                    </g>
-                  </g>
-                </g>
-              </a>
-              <a href="#" class="qs-circuit-source-link">
-                <title>qubit-reuse.qs:10:9 MResetZ(q2);</title>
-                <g
-                  class="gate"
-                  data-location="0,0-4,0"
-                  data-zoom-out="true"
-                  data-zoom-in="false"
-                >
-                  <g>
-                    <rect
-                      class="gate-measure"
-                      x="330"
-                      y="20"
-                      width="40"
-                      height="40"
-                      data-wire-ys="[40]"
-                      data-width="40"
-                    />
-                    <path
-                      class="arc-measure"
-                      d="M 365 42 A 15 12 0 0 0 335 42"
-                      style="pointer-events: none"
-                    />
-                    <line
-                      x1="350"
-                      x2="362"
-                      y1="48"
-                      y2="28"
-                      class="qs-line-measure"
-                      style="pointer-events: none"
-                    />
-                  </g>
-                </g>
-              </a>
-              <a href="#" class="qs-circuit-source-link">
-                <title>qubit-reuse.qs:10:9 MResetZ(q2);</title>
-                <g
-                  class="gate"
-                  data-location="0,0-5,0"
-                  data-zoom-out="true"
-                  data-zoom-in="false"
-                >
-                  <g>
-                    <g>
-                      <rect
                         class="gate-ket"
-                        x="390"
+                        x="376.46875"
                         y="20"
                         width="40"
                         height="40"
@@ -652,7 +525,7 @@
                       />
                       <text
                         font-size="14"
-                        x="410"
+                        x="396.46875"
                         y="40"
                         class="qs-maintext ket-text"
                       >
