@@ -87,7 +87,9 @@ export function startTestDiscovery(
     }
     const run = ctrl.createTestRun(request);
     const evtTarget = createDebugConsoleEventTarget((msg) => {
-      run.appendOutput(`${msg}\n`);
+      // replace \n with \r\n for proper terminal display
+      msg = msg.replace(/\n/g, "\r\n");
+      run.appendOutput(msg + "\r\n");
     });
     evtTarget.addEventListener("Result", (msg) => {
       if (msg.detail.success) {

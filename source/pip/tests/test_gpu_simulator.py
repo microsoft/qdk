@@ -7,6 +7,7 @@ import math
 import os
 
 import pytest
+import sys
 
 from qsharp._native import Result
 
@@ -16,12 +17,14 @@ if not os.environ.get("QDK_GPU_TESTS"):
 
 SKIP_REASON = "GPU is not available"
 
-gpu_name = "Unknown"
+gpu_info = "Unknown"
 
 try:
     from qsharp._native import try_create_gpu_adapter
 
-    gpu_name = try_create_gpu_adapter()
+    gpu_info = try_create_gpu_adapter()
+    # Printing to stderr so that it is visible if CI run fails
+    print(f"*** USING GPU: {gpu_info}", file=sys.stderr)
 
     GPU_AVAILABLE = True
 except OSError as e:
@@ -102,7 +105,6 @@ def test_gpu_no_noise():
     )
 
     output = run_qir_gpu(str(input))
-    print(gpu_name)
     print(output)
     # Expecting deterministic output, no randomization seed needed.
     assert output == [[Result.Zero] * 25], "Expected result of 0s with pi/2 angles."
