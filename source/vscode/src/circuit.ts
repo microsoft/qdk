@@ -407,7 +407,9 @@ export function updateCircuitPanel(
 ) {
   const panelId = params?.operation?.operation || projectName;
   const title = params?.operation
-    ? `${params.operation.operation} with ${params.operation.totalNumQubits} input qubits`
+    ? params.operation.totalNumQubits > 0
+      ? `${params.operation.operation} with ${params.operation.totalNumQubits} input qubits`
+      : params.operation.operation
     : projectName;
 
   const target = `Target profile: ${getTargetFriendlyName(targetProfile)} `;
