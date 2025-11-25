@@ -350,7 +350,7 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
 }
 
 .bar {
-  fill: var(--vscode-charts-blue, var(--nav-background));
+  fill: var(--vscode-editorInfo-foreground, var(--nav-background));
 }
 
 .bar:hover {
@@ -365,7 +365,7 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
 
 .bar-label {
   font-size: 3pt;
-  fill: var(--vscode-foreground, var(--main-color));
+  fill: var(--vscode-icon-foreground, var(--main-color));
   text-anchor: end;
   pointer-events: none;
 }
