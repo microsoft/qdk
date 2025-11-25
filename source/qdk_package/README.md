@@ -90,3 +90,8 @@ For convenience, the following helpers and types are also importable directly fr
 | `DepolarizingNoise`  | class    | `qsharp.DepolarizingNoise`  | Depolarizing noise model spec.                                      |
 | `BitFlipNoise`       | class    | `qsharp.BitFlipNoise`       | Bit-flip noise model spec.                                          |
 | `PhaseFlipNoise`     | class    | `qsharp.PhaseFlipNoise`     | Phase-flip noise model spec.                                        |
+
+## Telemetry
+
+This library sends telemetry. Minimal anonymous data is collected to help measure feature usage and performance.
+All telemetry events can be seen in the source file [telemetry_events.py](https://github.com/microsoft/qsharp/tree/main/source/pip/qsharp/telemetry_events.py).
