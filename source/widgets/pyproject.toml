@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "qsharp-widgets"
 version = "0.0.0"
 readme = "README.md"
-dependencies = ["anywidget"]
+dependencies = ["anywidget>=0.9.21"]
 
 [project.optional-dependencies]
 dev = ["watchfiles", "jupyterlab"]
