@@ -241,15 +241,7 @@ test("circuit snapshot tests - .qs files", async (t) => {
       await generateAndDrawCircuit(
         relName,
         circuitSource,
-        "circuit-eval-expanded-1",
-        "classicalEval",
-        1,
-      );
-
-      await generateAndDrawCircuit(
-        relName,
-        circuitSource,
-        "circuit-eval-expanded-full",
+        "circuit-eval-expanded",
         "classicalEval",
         999999,
       );
