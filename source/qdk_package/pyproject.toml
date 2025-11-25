@@ -14,11 +14,11 @@ dependencies = ["qsharp==0.0.0"]
 
 [project.optional-dependencies]
 jupyter = ["qsharp-widgets==0.0.0", "qsharp-jupyterlab==0.0.0"]
-azure = ["azure-quantum>=3.2.0"]
+azure = ["azure-quantum>=3.5.0.dev0"]
 qiskit = ["qiskit>=1.2.2,<3.0.0"]
 all = [
   "qsharp-widgets==0.0.0",
-  "azure-quantum>=3.2.0",
+  "azure-quantum>=3.5.0.dev0",
   "qiskit>=1.2.2,<3.0.0",
   "qsharp-jupyterlab==0.0.0",
 ]
