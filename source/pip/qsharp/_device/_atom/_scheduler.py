@@ -847,17 +847,17 @@ class Schedule(QirModuleVisitor):
         move_scheduler = MoveScheduler(self.device, zone, self.pending_qubits_to_move)
         for move_group in move_scheduler:
             self.pending_moves.append(move_group)
-
-        # Verify that all moves were scheduled.
-        # moves_to_schedule = sum(
-        #     len(x) if isinstance(x, tuple) else 1 for x in self.pending_qubits_to_move
-        # )
-        # scheduled_moves = sum(len(group) for group in self.pending_moves)
-        # assert (
-        #     moves_to_schedule == scheduled_moves
-        # ), f"{moves_to_schedule} != {scheduled_moves}"
-
+        # self.verify_that_all_moves_were_scheduled()
         self.pending_qubits_to_move = []
+
+    def verify_that_all_moves_were_scheduled(self):
+        moves_to_schedule = sum(
+            len(x) if isinstance(x, tuple) else 1 for x in self.pending_qubits_to_move
+        )
+        scheduled_moves = sum(len(group) for group in self.pending_moves)
+        assert (
+            moves_to_schedule == scheduled_moves
+        ), f"{moves_to_schedule} != {scheduled_moves}"
 
     def insert_moves(self):
         """
