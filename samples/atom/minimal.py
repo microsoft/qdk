@@ -18,15 +18,14 @@ init(target_profile=TargetProfile.Base)
 qir = compile(qasm_src)
 
 # %% Create machine model and visualize execution
-NeutralAtomDevice = NeutralAtomDevice()
-NeutralAtomDevice.trace(qir)
-
+device = NeutralAtomDevice()
+device
 # %% Configure a noise model and run a full-state simulation
 noise = NoiseConfig()
 noise.cz.set_depolarizing(0.05)
 noise.sx.set_bitflip(0.01)
 noise.mov.loss = 0.001
-results = NeutralAtomDevice.simulate(qir, shots=1000, noise=noise, type="gpu")
+results = device.simulate(qir, shots=1000, noise=noise, type="gpu")
 Histogram(results, labels="kets")
 
 # %%
