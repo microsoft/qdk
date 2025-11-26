@@ -188,6 +188,29 @@ fn i32_to_usize(value: i32) -> std::result::Result<usize, String> {
     usize::try_from(value).map_err(|_| format!("Value {value} can't convert to usize"))
 }
 
+/// Strips out sections of code delimited by DX12-start-strip and DX12-end-strip comments
+fn strip_dx12_sections(source: &str) -> String {
+    let mut result = String::new();
+    let mut in_strip_section = false;
+
+    for line in source.lines() {
+        if line.trim() == "// DX12-start-strip" {
+            in_strip_section = true;
+            continue;
+        }
+        if line.trim() == "// DX12-end-strip" {
+            in_strip_section = false;
+            continue;
+        }
+        if !in_strip_section {
+            result.push_str(line);
+            result.push('\n');
+        }
+    }
+
+    result
+}
+
 impl GpuContext {
     pub async fn get_adapter() -> std::result::Result<Adapter, String> {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
@@ -300,7 +323,7 @@ impl GpuContext {
 
         // Create the shader module and bind group layout
         let raw_shader_src = include_str!("simulator.wgsl");
-        let shader_src = raw_shader_src
+        let mut shader_src = raw_shader_src
             .replace("{{QUBIT_COUNT}}", &qubit_count.to_string())
             .replace("{{RESULT_COUNT}}", &run_params.result_count.to_string())
             .replace(
@@ -320,6 +343,12 @@ impl GpuContext {
                 "{{MAX_QUBITS_PER_WORKGROUP}}",
                 &MAX_QUBITS_PER_WORKGROUP.to_string(),
             );
+
+        // Strip out DX12-specific code sections if needed
+        let dx12 = false; // Set this based on your configuration
+        if dx12 {
+            shader_src = strip_dx12_sections(&shader_src);
+        }
 
         let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("GPU Simulator Shader Module"),

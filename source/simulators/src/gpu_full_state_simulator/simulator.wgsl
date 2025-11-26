@@ -212,6 +212,9 @@ fn reset_all(shot_idx: i32) {
     let shot_id = u32(uniforms.batch_start_shot_id + shot_idx);
 
     // Due to DX12 backend issues, we can't just assign a zeroed struct, so manually reset all fields
+    // DX12-start-strip
+    *shot = ShotData();
+    // DX12-end-strip
     shot.shot_id = shot_id;
 
     // After init, start execution from the first op
@@ -301,9 +304,11 @@ fn update_qubit_state(shot_idx: u32) {
                     diagnostics.extra1 = q;
                     diagnostics.extra2 = total_zero;
                     diagnostics.extra3 = total_one;
-                    // TODO: DX12 backend has issues assigning structs. So commenting out for now.
-                    // diagnostics.shot = *shot;
-                    // diagnostics.op = ops[shot.op_idx];
+                    // DX12 backend has issues assigning structs. See https://github.com/gfx-rs/wgpu/issues/8552
+                    // DX12-start-strip
+                    diagnostics.shot = *shot;
+                    diagnostics.op = ops[shot.op_idx];
+                    // DX12-end-strip
                 }
                 // Store the error value (if none set already)
                 let err_index = (shot_idx + 1) * RESULT_COUNT - 1;
@@ -1150,9 +1155,11 @@ fn sum_thread_totals_to_shot(q: u32, shot_idx: i32, wkg_collation_idx: i32) {
                 diagnostics.extra1 = q;
                 diagnostics.extra2 = total_zero;
                 diagnostics.extra3 = total_one;
-                // DX12 backend has issues copying structs. Add back once we have a solution.
-                // diagnostics.shot = *shot;
-                // diagnostics.op = ops[shot.op_idx];
+                // DX12 backend has issues copying structs. See https://github.com/gfx-rs/wgpu/issues/8552
+                // DX12-start-strip
+                diagnostics.shot = *shot;
+                diagnostics.op = ops[shot.op_idx];
+                // DX12-end-strip
             }
             let err_index = (shot_idx + 1) * i32(RESULT_COUNT) - 1;
             atomicCompareExchangeWeak(
