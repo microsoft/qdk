@@ -106,9 +106,7 @@ fn run_shot(
                 QirInstructionId::T => sim.t(*qubit as usize),
                 QirInstructionId::TAdj => sim.t_adj(*qubit as usize),
                 QirInstructionId::Move => sim.mov(*qubit as usize),
-                _ => panic!(
-                    "only one qubit gates H, X, Y, Z, S, SAdj, SX, and Move are supported in Clifford simulator"
-                ),
+                _ => panic!("unsupported one-qubit gate: {id:?}"),
             },
             QirInstruction::TwoQubitGate(id, control, target) => match id {
                 QirInstructionId::CX => sim.cx(*control as usize, *target as usize),
@@ -116,33 +114,27 @@ fn run_shot(
                 QirInstructionId::MResetZ | QirInstructionId::M | QirInstructionId::MZ => {
                     sim.mresetz(*control as usize, *target as usize);
                 }
-                _ => panic!(
-                    "only CZ, M, MZ, and MResetZ are supported in Clifford simulator, got {id:?}"
-                ),
+                _ => panic!("unsupported two-qubits gate: {id:?}"),
             },
             QirInstruction::OneQubitRotationGate(id, angle, qubit) => match id {
                 QirInstructionId::RX => sim.rx(*angle, *qubit as usize),
                 QirInstructionId::RY => sim.ry(*angle, *qubit as usize),
                 QirInstructionId::RZ => sim.rz(*angle, *qubit as usize),
                 _ => {
-                    panic!("unsupported one-qubit rotation gate: {id:?} on qubit {qubit}");
+                    panic!("unsupported one-qubit rotation gate: {id:?}");
                 }
             },
             QirInstruction::TwoQubitRotationGate(id, angle, qubit1, qubit2) => match id {
                 QirInstructionId::RXX => sim.rxx(*angle, *qubit1 as usize, *qubit2 as usize),
                 QirInstructionId::RYY => sim.ryy(*angle, *qubit1 as usize, *qubit2 as usize),
                 QirInstructionId::RZZ => sim.rzz(*angle, *qubit1 as usize, *qubit2 as usize),
-                _ => {
-                    panic!(
-                        "unsupported two-qubit rotation gate: {id:?} on qubits {qubit1}, {qubit2}"
-                    );
-                }
+                _ => panic!("unsupported two-qubit rotation gate: {id:?}"),
             },
             QirInstruction::ThreeQubitGate(id, _, _, _) => {
-                panic!("unsupported gate in Clifford simulator, got {id:?}")
+                panic!("unsupported instruction: {id:?}")
             }
             QirInstruction::OutputRecording(_id, _s, _tag) => {
-                unimplemented!()
+                // Ignore for now
             }
         }
     }
