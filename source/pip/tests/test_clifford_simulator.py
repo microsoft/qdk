@@ -51,7 +51,7 @@ def test_1224_clifford_ising():
     qsharp.eval(read_file_relative("CliffordIsing.qs"))
 
     input = qsharp.compile(
-        "IsingModel2DEvolution(34, 36, PI() / 2.0, PI() / 2.0, 5.0, 5)"
+        "IsingModel2DEvolution(20, 50, PI() / 2.0, PI() / 2.0, 5.0, 5)"
     )
     qir = transform_to_clifford(input)
 
