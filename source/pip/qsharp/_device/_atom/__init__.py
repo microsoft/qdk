@@ -13,13 +13,19 @@ class NeutralAtomDevice(Device):
     Representation of a neutral atom device quantum computer.
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        column_count: int = 40,
+        register_zone_row_count: int = 25,
+        interaction_zone_row_count: int = 2,
+        measurement_zone_row_count: int = 2,
+    ):
         super().__init__(
-            40,
+            column_count,
             [
-                Zone("Register 1", 25, ZoneType.REG),
-                Zone("Interaction Zone", 2, ZoneType.INTER),
-                Zone("Measurement Zone", 2, ZoneType.MEAS),
+                Zone("Register 1", register_zone_row_count, ZoneType.REG),
+                Zone("Interaction Zone", interaction_zone_row_count, ZoneType.INTER),
+                Zone("Measurement Zone", measurement_zone_row_count, ZoneType.MEAS),
             ],
         )
 
