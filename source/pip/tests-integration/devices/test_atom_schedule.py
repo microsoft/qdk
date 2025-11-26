@@ -5,7 +5,7 @@ import pytest
 from expecttest import assert_expected_inline
 
 import qsharp
-from qsharp._device._atom import AC1000
+from qsharp._device._atom import NeutralAtomDevice
 from qsharp._device._atom._scheduler import Schedule
 from .validation import (
     ValidateBeginEndParallel,
@@ -39,7 +39,7 @@ def test_scheduler_inserts_move_to_iz_for_single_qubit_gates():
     module = pyqir.Module.from_ir(pyqir.Context(), str(qir))
     before = PerQubitOrdering()
     before.run(module)
-    Schedule(AC1000()).run(module)
+    Schedule(NeutralAtomDevice()).run(module)
     ValidateBeginEndParallel().run(module)
     after = PerQubitOrdering()
     after.run(module)
@@ -111,7 +111,7 @@ def test_scheduler_inserts_move_to_iz_for_two_qubit_gates():
     module = pyqir.Module.from_ir(pyqir.Context(), str(qir))
     before = PerQubitOrdering()
     before.run(module)
-    Schedule(AC1000()).run(module)
+    Schedule(NeutralAtomDevice()).run(module)
     ValidateBeginEndParallel().run(module)
     after = PerQubitOrdering()
     after.run(module)
@@ -186,7 +186,7 @@ def test_scheduler_inserts_move_to_iz_for_mixed_gates_with_1q_gates_first():
     module = pyqir.Module.from_ir(pyqir.Context(), str(qir))
     before = PerQubitOrdering()
     before.run(module)
-    Schedule(AC1000()).run(module)
+    Schedule(NeutralAtomDevice()).run(module)
     ValidateBeginEndParallel().run(module)
     after = PerQubitOrdering()
     after.run(module)
@@ -268,7 +268,7 @@ def test_scheduler_parallelizes_operations_when_possible():
     module = pyqir.Module.from_ir(pyqir.Context(), str(qir))
     before = PerQubitOrdering()
     before.run(module)
-    Schedule(AC1000()).run(module)
+    Schedule(NeutralAtomDevice()).run(module)
     after = PerQubitOrdering()
     ValidateBeginEndParallel().run(module)
     after.run(module)
@@ -354,7 +354,7 @@ def test_scheduler_inserts_moves_to_mz_for_measurement():
     module = pyqir.Module.from_ir(pyqir.Context(), str(qir))
     before = PerQubitOrdering()
     before.run(module)
-    Schedule(AC1000()).run(module)
+    Schedule(NeutralAtomDevice()).run(module)
     after = PerQubitOrdering()
     ValidateBeginEndParallel().run(module)
     after.run(module)
@@ -419,7 +419,7 @@ attributes #1 = { "irreversible" }
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
 def test_scheduler_parallelizes_1q_gates_by_iz_row():
-    device = AC1000()
+    device = NeutralAtomDevice()
     num_qubits = device.column_count * 2
     qir = qsharp.compile(
         f"""
@@ -731,7 +731,7 @@ attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptiv
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
 def test_scheduler_parallelizes_all_2q_in_iz():
-    device = AC1000()
+    device = NeutralAtomDevice()
     num_qubits = device.column_count * 2
     qir = qsharp.compile(
         f"""
@@ -1003,7 +1003,7 @@ attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptiv
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
 def test_scheduler_splits_large_parallel_2q_in_iz_by_iz_size():
-    device = AC1000()
+    device = NeutralAtomDevice()
     num_qubits = int(
         device.column_count * device.get_interaction_zones()[0].row_count * 1.5
     )
@@ -1399,7 +1399,7 @@ def test_scheduler_moves_qubits_to_iz_for_1q_gate_after_2q_gate_before_measureme
     module = pyqir.Module.from_ir(pyqir.Context(), str(qir))
     before = PerQubitOrdering()
     before.run(module)
-    Schedule(AC1000()).run(module)
+    Schedule(NeutralAtomDevice()).run(module)
     after = PerQubitOrdering()
     ValidateBeginEndParallel().run(module)
     after.run(module)

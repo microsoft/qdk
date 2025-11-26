@@ -6,7 +6,7 @@ from expecttest import assert_expected_inline
 
 import qsharp
 from qsharp._device._atom._reorder import Reorder
-from qsharp._device._atom import AC1000
+from qsharp._device._atom import NeutralAtomDevice
 from .validation import PerQubitOrdering, check_qubit_ordering_unchanged
 
 try:
@@ -35,7 +35,7 @@ def test_reorder_no_changes_to_simple_ordered_program() -> None:
     module = pyqir.Module.from_ir(pyqir.Context(), str(qir))
     before = PerQubitOrdering()
     before.run(module)
-    Reorder(AC1000()).run(module)
+    Reorder(NeutralAtomDevice()).run(module)
     after = PerQubitOrdering()
     after.run(module)
     check_qubit_ordering_unchanged(after, before)
@@ -113,7 +113,7 @@ def test_reorder_groups_matching_sequential_gates_into_same_step() -> None:
     module = pyqir.Module.from_ir(pyqir.Context(), str(qir))
     before = PerQubitOrdering()
     before.run(module)
-    Reorder(AC1000()).run(module)
+    Reorder(NeutralAtomDevice()).run(module)
     after = PerQubitOrdering()
     after.run(module)
     check_qubit_ordering_unchanged(after, before)
@@ -199,7 +199,7 @@ def test_reorder_moves_gates_past_measurements_that_overlap_qubit_and_result_ids
     module = pyqir.Module.from_ir(pyqir.Context(), str(qir))
     before = PerQubitOrdering()
     before.run(module)
-    Reorder(AC1000()).run(module)
+    Reorder(NeutralAtomDevice()).run(module)
     after = PerQubitOrdering()
     after.run(module)
     check_qubit_ordering_unchanged(after, before)
@@ -273,7 +273,7 @@ def test_reorder_keeps_dependent_gates_in_order() -> None:
     module = pyqir.Module.from_ir(pyqir.Context(), str(qir))
     before = PerQubitOrdering()
     before.run(module)
-    Reorder(AC1000()).run(module)
+    Reorder(NeutralAtomDevice()).run(module)
     after = PerQubitOrdering()
     after.run(module)
     check_qubit_ordering_unchanged(after, before)
@@ -357,7 +357,7 @@ def test_reorder_sorts_gates_by_qubit_id() -> None:
     module = pyqir.Module.from_ir(pyqir.Context(), str(qir))
     before = PerQubitOrdering()
     before.run(module)
-    Reorder(AC1000()).run(module)
+    Reorder(NeutralAtomDevice()).run(module)
     after = PerQubitOrdering()
     after.run(module)
     check_qubit_ordering_unchanged(after, before)
@@ -441,7 +441,7 @@ def test_reorder_sorts_cz_to_end_of_step() -> None:
     module = pyqir.Module.from_ir(pyqir.Context(), str(qir))
     before = PerQubitOrdering()
     before.run(module)
-    Reorder(AC1000()).run(module)
+    Reorder(NeutralAtomDevice()).run(module)
     after = PerQubitOrdering()
     after.run(module)
     check_qubit_ordering_unchanged(after, before)
@@ -520,7 +520,7 @@ def test_reorder_respects_read_result_and_classical_compute() -> None:
     )
 
     module = pyqir.Module.from_ir(pyqir.Context(), str(qir))
-    Reorder(AC1000()).run(module)
+    Reorder(NeutralAtomDevice()).run(module)
 
     assert_expected_inline(
         str(module),
@@ -666,7 +666,7 @@ def test_reorder_preserves_per_qubit_order_on_large_program() -> None:
     module = pyqir.Module.from_ir(pyqir.Context(), str(qir))
     before = PerQubitOrdering()
     before.run(module)
-    Reorder(AC1000()).run(module)
+    Reorder(NeutralAtomDevice()).run(module)
     after = PerQubitOrdering()
     after.run(module)
     check_qubit_ordering_unchanged(after, before)
