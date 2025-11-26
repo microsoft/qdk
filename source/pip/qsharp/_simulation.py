@@ -193,12 +193,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
             )
         elif callee_name == "__quantum__qis__reset__body":
             self.gates.append((QirInstructionId.RESET, pyqir.qubit_id(call.args[0])))
-        elif (
-            callee_name == "__quantum__qis__move1__body"
-            or callee_name == "__quantum__qis__move2__body"
-            or callee_name == "__quantum__qis__move3__body"
-            or callee_name == "__quantum__qis__move4__body"
-        ):
+        elif callee_name == "__quantum__qis__move__body":
             self.gates.append(
                 (
                     QirInstructionId.Move,

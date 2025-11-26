@@ -26,6 +26,7 @@ from functools import lru_cache
 QubitId: TypeAlias = Value
 Location: TypeAlias = tuple[int, int]
 MoveGroupScaleFactor: TypeAlias = tuple[bool | Fraction, bool | Fraction]
+MOVE_GROUPS_PER_PARALLEL_SECTION = 1
 
 
 @dataclass
@@ -626,44 +627,16 @@ class Schedule(QirModuleVisitor):
                 "__quantum__rt__end_parallel",
                 module,
             )
-        self.move_funcs = [
-            Function(
-                FunctionType(
-                    Type.void(module.context),
-                    [qubit_type(module.context), i64_ty, i64_ty],
-                ),
-                Linkage.EXTERNAL,
-                "__quantum__qis__move1__body",
-                module,
+        self.move_func = Function(
+            FunctionType(
+                Type.void(module.context),
+                [qubit_type(module.context), i64_ty, i64_ty],
             ),
-            Function(
-                FunctionType(
-                    Type.void(module.context),
-                    [qubit_type(module.context), i64_ty, i64_ty],
-                ),
-                Linkage.EXTERNAL,
-                "__quantum__qis__move2__body",
-                module,
-            ),
-            Function(
-                FunctionType(
-                    Type.void(module.context),
-                    [qubit_type(module.context), i64_ty, i64_ty],
-                ),
-                Linkage.EXTERNAL,
-                "__quantum__qis__move3__body",
-                module,
-            ),
-            Function(
-                FunctionType(
-                    Type.void(module.context),
-                    [qubit_type(module.context), i64_ty, i64_ty],
-                ),
-                Linkage.EXTERNAL,
-                "__quantum__qis__move4__body",
-                module,
-            ),
-        ]
+            Linkage.EXTERNAL,
+            "__quantum__qis__move__body",
+            module,
+        )
+
         super()._on_module(module)
 
     def _on_block(self, block):
@@ -893,23 +866,21 @@ class Schedule(QirModuleVisitor):
         """
         move_group_id = 0
         for move_group in self.pending_moves:
-            # We can execute 4 move groups in parallel, if
+            # We can execute `MOVE_GROUPS_PER_PARALLEL_SECTION`, if
             # this is the first one, start a parallel section.
             if move_group_id == 0:
                 self.builder.call(self.begin_func, [])
 
             # Insert all the moves in a group using the same move function.
             for move in move_group:
+                self.builder.call(self.move_func, (move.qubit_id_ptr, *move.dst_loc))
 
-                self.builder.call(
-                    self.move_funcs[move_group_id], (move.qubit_id_ptr, *move.dst_loc)
-                )
+            # There `MOVE_GROUPS_PER_PARALLEL_SECTION` move groups,
+            # so we increment the id modulo `MOVE_GROUPS_PER_PARALLEL_SECTION`.
+            move_group_id = (move_group_id + 1) % MOVE_GROUPS_PER_PARALLEL_SECTION
 
-            # There 4 move groups, so we increment the id modulo 4.
-            move_group_id = (move_group_id + 1) % 1
-
-            # We can execute 4 move groups in parallel, if
-            # this is the fourth one, end the parallel section.
+            # We can execute `MOVE_GROUPS_PER_PARALLEL_SECTION`, if
+            # this is the last one, end the parallel section.
             if move_group_id == 0:
                 self.builder.call(self.end_func, [])
 
@@ -920,22 +891,21 @@ class Schedule(QirModuleVisitor):
     def insert_moves_back(self):
         move_group_id = 0
         for move_group in self.pending_moves:
-            # We can execute 4 move groups in parallel, if
+            # We can execute `MOVE_GROUPS_PER_PARALLEL_SECTION`, if
             # this is the first one, start a parallel section.
             if move_group_id == 0:
                 self.builder.call(self.begin_func, [])
 
             # Insert all the moves in a group using the same move function.
             for move in move_group:
-                self.builder.call(
-                    self.move_funcs[move_group_id], (move.qubit_id_ptr, *move.src_loc)
-                )
+                self.builder.call(self.move_func, (move.qubit_id_ptr, *move.src_loc))
 
-            # There 4 move groups, so we increment the id modulo 4.
-            move_group_id = (move_group_id + 1) % 1
+            # There `MOVE_GROUPS_PER_PARALLEL_SECTION` move groups,
+            # so we increment the id modulo `MOVE_GROUPS_PER_PARALLEL_SECTION`.
+            move_group_id = (move_group_id + 1) % MOVE_GROUPS_PER_PARALLEL_SECTION
 
-            # We can execute 4 move groups in parallel, if
-            # this is the fourth one, end the parallel section.
+            # We can execute `MOVE_GROUPS_PER_PARALLEL_SECTION`, if
+            # this is the last one, end the parallel section.
             if move_group_id == 0:
                 self.builder.call(self.end_func, [])
 
