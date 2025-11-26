@@ -57,13 +57,6 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--universal",
-    action=argparse.BooleanOptionalAction,
-    default=True,
-    help="Build both x86_64 and arm64 wheels on macOS (default is --universal)",
-)
-
-parser.add_argument(
     "--check-prereqs",
     action=argparse.BooleanOptionalAction,
     default=True,
@@ -96,6 +89,13 @@ parser.add_argument(
     action=argparse.BooleanOptionalAction,
     default=False,
     help="Run the manylinux auditwheel repair (default is --no-manylinux)",
+)
+
+parser.add_argument(
+    "--gpu-tests",
+    action=argparse.BooleanOptionalAction,
+    default=False,
+    help="Run the GPU simulator tests (default is --no-gpu-tests)",
 )
 
 args = parser.parse_args()
@@ -376,8 +376,12 @@ def build_qsharp_wheel(cwd, out_dir, interpreter, pip_env_dir):
 
 
 def run_python_tests(cwd, interpreter):
+    test_env = os.environ.copy()
+    if args.gpu_tests:
+        test_env["QDK_GPU_TESTS"] = "1"
+
     command_args = [interpreter, "-m", "pytest"]
-    subprocess.run(command_args, check=True, text=True, cwd=cwd)
+    subprocess.run(command_args, check=True, text=True, cwd=cwd, env=test_env)
 
 
 def run_python_integration_tests(cwd, interpreter):
@@ -437,9 +441,6 @@ if build_pip:
 
     # copy the process env vars
     pip_env: dict[str, str] = os.environ.copy()
-    if platform.system() == "Darwin" and args.universal:
-        # if on mac, add the arch flags for universal binary
-        pip_env["ARCHFLAGS"] = "-arch x86_64 -arch arm64"
 
     build_qsharp_wheel(pip_src, wheels_dir, python_bin, pip_env)
     step_end()
