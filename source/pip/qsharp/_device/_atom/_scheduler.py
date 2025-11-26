@@ -16,8 +16,9 @@ from pyqir import (
     Value,
 )
 from .._device import Device, Zone, ZoneType
+from collections import defaultdict
 from dataclasses import dataclass
-from itertools import islice, chain
+from itertools import chain
 from typing import Iterable, TypeAlias, Optional
 from fractions import Fraction
 from functools import lru_cache
@@ -29,12 +30,20 @@ MoveGroupScaleFactor: TypeAlias = tuple[bool | Fraction, bool | Fraction]
 
 @dataclass
 class Move:
+    __slots__ = ("qubit_id_ptr", "src_loc", "dst_loc")
+
     qubit_id_ptr: Value
     src_loc: Location
     dst_loc: Location
 
     def __hash__(self):
         return hash(self.qubit_id_ptr)
+
+    def __str__(self):
+        return f"Move Qubit({self.qubit_id}): {self.src_loc} -> {self.dst_loc}"
+
+    def __repr__(self):
+        return self.__str__()
 
     @property
     def qubit_id(self) -> int:
@@ -53,8 +62,16 @@ class Move:
 class PartialMove:
     """A move missing its destination location."""
 
+    __slots__ = ("qubit_id_ptr", "src_loc")
+
     qubit_id_ptr: Value
     src_loc: Location
+
+    @property
+    def qubit_id(self) -> int:
+        q_id = qubit_id(self.qubit_id_ptr)
+        assert q_id is not None, "Qubit id should be known"
+        return q_id
 
     def into_move(self, dst_loc: Location) -> Move:
         return Move(self.qubit_id_ptr, self.src_loc, dst_loc)
@@ -73,12 +90,8 @@ def move_direction(source: Location, destination: Location) -> tuple[int, int]:
     return (int(source[0] < destination[0]), int(source[1] < destination[1]))
 
 
-def index_from_parity_and_direction(
-    src_col_parity: int, dst_col_parity, ud: int, lr: int
-) -> int:
-    major_index = 2 * src_col_parity + dst_col_parity
-    minor_index = 2 * ud + lr
-    return 4 * major_index + minor_index
+def index_from_parity_and_direction(ud: int, lr: int) -> int:
+    return 2 * ud + lr
 
 
 def is_invalid_move_pair(move1: Move, move2: Move) -> bool:
@@ -103,23 +116,30 @@ def is_invalid_move_pair(move1: Move, move2: Move) -> bool:
 
 @lru_cache(maxsize=1 << 14)
 def scale_factor_helper(source_diff, destination_diff):
-    return True if destination_diff == 0 else Fraction(source_diff, destination_diff)
+    if destination_diff == 0:
+        return True
+    if (s := Fraction(source_diff, destination_diff)) >= 0:
+        return s
 
 
-def scale_factor(move1: Move, move2: Move) -> MoveGroupScaleFactor:
+def scale_factor(move1: Move, move2: Move) -> Optional[MoveGroupScaleFactor]:
     """
     Returns a tuple of two elements, representing the row displacement ratio and column
     displacement ratio between the moves.
     """
 
+    if is_invalid_move_pair(move1, move2):
+        return None
+
     source_row_diff = move1.src_loc[0] - move2.src_loc[0]
     destination_row_diff = move1.dst_loc[0] - move2.dst_loc[0]
     source_col_diff = move1.src_loc[1] - move2.src_loc[1]
     destination_col_diff = move1.dst_loc[1] - move2.dst_loc[1]
+    row_scale_factor = scale_factor_helper(source_row_diff, destination_row_diff)
+    col_scale_factor = scale_factor_helper(source_col_diff, destination_col_diff)
 
-    return scale_factor_helper(
-        source_row_diff, destination_row_diff
-    ), scale_factor_helper(source_col_diff, destination_col_diff)
+    if row_scale_factor is not None and col_scale_factor is not None:
+        return row_scale_factor, col_scale_factor
 
 
 class MoveGroup:
@@ -134,6 +154,8 @@ class MoveGroup:
         ref_move (Move): A move used as a representative of the group, used
             to test compatibility of other moves with the group.
     """
+
+    __slots__ = ("moves", "scale_factor", "ref_move")
 
     def __init__(self, moves: Iterable[Move]):
         self.moves = set(moves)
@@ -180,7 +202,7 @@ class MoveGroupPool:
             in this pool.
     """
 
-    def __init__(self, parity: tuple[int, int], direction: tuple[int, int]):
+    def __init__(self):
         """Initializes a move-group pool for moves of the given `parity` and `direction`.
         Args:
             parity: The parity of source and destination columns of all the moves
@@ -189,18 +211,20 @@ class MoveGroupPool:
                 in this pool.
         """
         self.moves: Optional[list[Move]] = []
-        self.move_group_candidates: dict[
-            Optional[MoveGroupScaleFactor], list[MoveGroup]
-        ] = {None: []}
-        self.parity = parity
-        self.direction = direction
+        self.move_group_candidates: dict[MoveGroupScaleFactor, list[MoveGroup]] = (
+            defaultdict(list)
+        )
+        self.single_moves: set[Move] | list[Move] = set()
 
     def move_group_candidates_iter(self) -> Iterable[MoveGroup]:
         return chain(*self.move_group_candidates.values())
 
     def is_empty(self) -> bool:
         """Returns `True` if there are no moves left, `False` otherwise."""
-        return not any(s.moves for s in self.move_group_candidates_iter())
+        return (
+            not any(s.moves for s in self.move_group_candidates_iter())
+            and not self.single_moves
+        )
 
     def largest_move_group_candidate(self) -> Optional[MoveGroup]:
         try:
@@ -208,53 +232,54 @@ class MoveGroupPool:
         except ValueError:
             return None
 
-    def largest_move_group_candidate_len(self) -> int:
-        try:
-            return len(max(self.move_group_candidates_iter(), key=len).moves)
-        except ValueError:
-            return 0
-
     def add(self, move: Move):
         """Adds a move to the move-group pool.
         Args:
             move: The move to add. It must be of the same parity and direction as
                 the rest of the moves in this pool.
         """
-        assert move.parity() == self.parity, f"{move.parity()} != {self.parity}"
-        assert (
-            move.direction() == self.direction
-        ), f"{move.direction()} != {self.direction}"
         assert self.moves is not None
 
         move_added = False
+
+        # Add the move to all the groups it is compatible with
+        for group_scale_factor, groups in self.move_group_candidates.items():
+            for group in groups:
+                if scale_factor(move, group.ref_move) == group_scale_factor:
+                    group.add(move)
+                    move_added = True
+
+        # Build a table organizing the moves by scale factor with respect to `move`.
+        moves_by_scale: dict[MoveGroupScaleFactor, list[Move]] = defaultdict(list)
         for move2 in self.moves:
-            pair = (move, move2)
-            if is_invalid_move_pair(pair[0], pair[1]):
+            s = scale_factor(move, move2)
+            if s is None:
                 continue
-            s = scale_factor(pair[0], pair[1])
-            candidates_with_same_scale_factor = self.move_group_candidates.get(s, [])
-            for group in candidates_with_same_scale_factor:
-                if pair[0] in group.moves:
-                    group.add(pair[1])
+            moves_by_scale[s].append(move2)
+
+        # Try to create new candidates having the new move as the ref_move.
+        for s, moves in moves_by_scale.items():
+            candidates_with_same_scale_factor = self.move_group_candidates[s]
+            for move2 in moves:
+                for group in candidates_with_same_scale_factor:
+                    if move2 in group.moves:
+                        # This pair already belongs to an existing move group candidate,
+                        # so we don't need to create a new one.
+                        break
+                else:
+                    # Create a new move group candidate.
+                    new_candidate = MoveGroup((move, move2))
+
+                    # Add previous moves to the new candidate.
+                    new_candidate.moves.update(moves_by_scale[s])
+
+                    candidates_with_same_scale_factor.append(new_candidate)
                     move_added = True
-                    break
-                elif pair[1] in group.moves:
-                    group.add(pair[0])
-                    move_added = True
-                    break
-                elif s == scale_factor(pair[0], group.ref_move):
-                    group.add(pair[0])
-                    group.add(pair[1])
-                    move_added = True
-                    break
-            else:
-                candidates_with_same_scale_factor.append(MoveGroup(pair))
-                self.move_group_candidates[s] = candidates_with_same_scale_factor
-                move_added = True
 
         # This case triggers if `move` is not compatible with any move in `self.moves`.
         if not move_added:
-            self.move_group_candidates[None].append(MoveGroup([move]))
+            assert isinstance(self.single_moves, set)
+            self.single_moves.add(move)
 
         self.moves.append(move)
 
@@ -263,22 +288,61 @@ class MoveGroupPool:
         Args:
             number_of_moves: The number of moves to take from this pool.
         """
-        # Once we start taking moves from the MoveGroup, we don't need to add
+        # Once we start taking moves from the MoveGroupPool, we don't need to add
         # new moves. So we set `self.moves` to `None` as a safety measure.
-        self.moves = None
+        if self.moves is not None:
+            self.moves = None
 
         if largest_move_group_candidate := self.largest_move_group_candidate():
             # Ensure moves are sorted by qubit ID to have a deterministic order.
             moves = sorted(
-                list(largest_move_group_candidate.moves), key=lambda m: m.qubit_id
+                largest_move_group_candidate.moves, key=lambda m: m.qubit_id
             )[:number_of_moves]
             moves_set = set(moves)
             # Remove the taken moves from all candidates.
             for group in self.move_group_candidates_iter():
                 group.moves -= moves_set
+            assert isinstance(self.single_moves, set)
+            self.single_moves -= moves_set
             return moves
         else:
-            return []
+            if isinstance(self.single_moves, set):
+                self.single_moves = sorted(
+                    self.single_moves, key=lambda m: m.qubit_id, reverse=True
+                )
+            if m := self.single_moves.pop():
+                return [m]
+            else:
+                return []
+
+    def take_largest_candidate(self) -> list[Move]:
+        """Take all the moves from the largest move group candidate."""
+        # Once we start taking moves from the MoveGroupPool, we don't need to add
+        # new moves. So we set `self.moves` to `None` as a safety measure.
+        if self.moves is not None:
+            self.moves = None
+
+        if largest_move_group_candidate := self.largest_move_group_candidate():
+            # Ensure moves are sorted by qubit ID to have a deterministic order.
+            moves = sorted(largest_move_group_candidate.moves, key=lambda m: m.qubit_id)
+            moves_set = largest_move_group_candidate.moves
+            # Remove the taken moves from all candidates.
+            for group in self.move_group_candidates_iter():
+                if group is not largest_move_group_candidate:
+                    group.moves -= moves_set
+            assert isinstance(self.single_moves, set)
+            self.single_moves -= moves_set
+            moves_set.clear()
+            return moves
+        else:
+            if isinstance(self.single_moves, set):
+                self.single_moves = sorted(
+                    self.single_moves, key=lambda m: m.qubit_id, reverse=True
+                )
+            if m := self.single_moves.pop():
+                return [m]
+            else:
+                return []
 
 
 class MoveScheduler:
@@ -311,14 +375,16 @@ class MoveScheduler:
         self.device = device
         self.zone = zone
         self.available_dst_locations = self.build_zone_locations(zone)
-        self.partial_moves = self.qubits_to_partial_moves(qubits_to_move)
-        self.disjoint_pools: list[MoveGroupPool] = [
-            MoveGroupPool((src_col_parity, dst_col_parity), (ud, lr))
-            for src_col_parity in (0, 1)
-            for dst_col_parity in (0, 1)
-            for ud in (0, 1)
-            for lr in (0, 1)
-        ]
+        self.move_group_pool = MoveGroupPool()
+
+        # Step through the partial moves and push them to the largest
+        # candidate they are compatible with.
+        partial_moves = self.qubits_to_partial_moves(qubits_to_move)
+        for partial_move in partial_moves:
+            if isinstance(partial_move, PartialMove):
+                self.add_to_largest_compatible_move_group(partial_move)
+            else:
+                self.add_pair_to_largest_compatible_move_group(partial_move)
 
     def build_zone_locations(self, zone: Zone) -> dict[Location, None]:
         zone_row_offset = zone.offset // self.device.column_count
@@ -353,79 +419,41 @@ class MoveScheduler:
 
         def sort_key(partial_move: PartialMove | PartialMovePair):
             if isinstance(partial_move, PartialMove):
-                q_id = qubit_id(partial_move.qubit_id_ptr)
-                assert q_id is not None
-                return self.device.get_ordering(q_id)
+                return self.device.get_ordering(partial_move.qubit_id)
             else:
-                q_id = qubit_id(partial_move[0].qubit_id_ptr)
-                assert q_id is not None
-                return self.device.get_ordering(q_id)
+                return self.device.get_ordering(partial_move[0].qubit_id)
 
         return sorted(partial_moves, key=sort_key)
-
-    def partial_moves_is_empty(self):
-        return not bool(self.partial_moves)
-
-    def next_partial_move(
-        self,
-    ) -> Optional[PartialMove | PartialMovePair]:
-        try:
-            return self.partial_moves.pop(0)
-        except IndexError:
-            return None
 
     def is_empty(self):
         """
         Returns `True` if all moves were scheduled.
         That is, there are no partial moves and all disjoint pools are empty.
         """
-        return self.partial_moves_is_empty() and all(
-            s.is_empty() for s in self.disjoint_pools
-        )
+        return self.move_group_pool.is_empty()
 
     def largest_move_group_pool(self) -> MoveGroupPool:
-        return max(
-            self.disjoint_pools, key=lambda x: x.largest_move_group_candidate_len()
-        )
+        return self.move_group_pool
 
     def add_to_largest_compatible_move_group(
         self, partial_move: PartialMove
     ) -> MoveGroupPool:
         zone_row_offset = self.zone.offset // self.device.column_count
-        src_col_parity = partial_move.src_loc[1] % 2
-        ud_direction = int(partial_move.src_loc[0] < zone_row_offset)
-        compatible_move_group_pools = [
-            self.disjoint_pools[
-                index_from_parity_and_direction(
-                    src_col_parity, dst_col_parity, ud_direction, lr_direction
-                )
-            ]
-            for dst_col_parity in (0, 1)
-            for lr_direction in (0, 1)
-        ]
-        compatible_move_group_pools.sort(
-            key=lambda pool: pool.largest_move_group_candidate_len(), reverse=True
-        )
 
         # Heuristic: Prefer moves that are straight up or down.
         for row in range(zone_row_offset, zone_row_offset + self.zone.row_count):
             dst_loc = (row, partial_move.src_loc[1])
             if dst_loc in self.available_dst_locations:
                 move = partial_move.into_move(dst_loc)
-                pool = self.disjoint_pools[
-                    index_from_parity_and_direction(
-                        src_col_parity, src_col_parity, ud_direction, 0
-                    )
-                ]
+                pool = self.move_group_pool
                 pool.add(move)
                 del self.available_dst_locations[move.dst_loc]
                 return pool
 
-        for pool in compatible_move_group_pools:
-            if move := self.get_compatible_move(pool, partial_move):
-                pool.add(move)
-                del self.available_dst_locations[move.dst_loc]
-                return pool
+        if move := self.get_compatible_move(self.move_group_pool, partial_move):
+            self.move_group_pool.add(move)
+            del self.available_dst_locations[move.dst_loc]
+            return self.move_group_pool
 
         raise Exception("not enough IZ space to schedule all moves")
 
@@ -434,20 +462,6 @@ class MoveScheduler:
     ) -> MoveGroupPool:
         zone_row_offset = self.zone.offset // self.device.column_count
         partial_move = partial_move_pair[0]
-        src_col_parity = partial_move.src_loc[1] % 2
-        ud_direction = int(partial_move.src_loc[0] < zone_row_offset)
-        compatible_move_group_pools = [
-            self.disjoint_pools[
-                index_from_parity_and_direction(
-                    src_col_parity, dst_col_parity, ud_direction, lr_direction
-                )
-            ]
-            for dst_col_parity in (0, 1)
-            for lr_direction in (0, 1)
-        ]
-        compatible_move_group_pools.sort(
-            key=lambda pool: pool.largest_move_group_candidate_len(), reverse=True
-        )
 
         # Heuristic: Prefer moves that are straight up or down.
         if partial_move.src_loc[1] % 2 == 0:
@@ -460,36 +474,27 @@ class MoveScheduler:
                 ):
                     move1 = partial_move.into_move(dst_loc1)
                     move2 = partial_move_pair[1].into_move(dst_loc2)
-                    pool1 = self.disjoint_pools[
-                        index_from_parity_and_direction(
-                            *move1.parity(), *move1.direction()
-                        )
-                    ]
-                    pool2 = self.disjoint_pools[
-                        index_from_parity_and_direction(
-                            *move2.parity(), *move2.direction()
-                        )
-                    ]
+                    pool1 = self.move_group_pool
+                    pool2 = self.move_group_pool
                     pool1.add(move1)
                     pool2.add(move2)
                     del self.available_dst_locations[dst_loc1]
                     del self.available_dst_locations[dst_loc2]
                     return pool1
 
-        for pool in compatible_move_group_pools:
-            if move1 := self.get_compatible_move(pool, partial_move, is_pair=True):
-                # Push the move corresponding to the first qubit of the CZ pair.
-                pool.add(move1)
+        if move1 := self.get_compatible_move(
+            self.move_group_pool, partial_move, is_pair=True
+        ):
+            # Push the move corresponding to the first qubit of the CZ pair.
+            self.move_group_pool.add(move1)
 
-                # Build the move corresponding to the second qubit of the CZ pair.
-                dest2 = (move1.dst_loc[0], move1.dst_loc[1] + 1)
-                move2 = partial_move_pair[1].into_move(dest2)
-                self.disjoint_pools[
-                    index_from_parity_and_direction(*move2.parity(), *move2.direction())
-                ].add(move2)
-                del self.available_dst_locations[move1.dst_loc]
-                del self.available_dst_locations[move2.dst_loc]
-                return pool
+            # Build the move corresponding to the second qubit of the CZ pair.
+            dest2 = (move1.dst_loc[0], move1.dst_loc[1] + 1)
+            move2 = partial_move_pair[1].into_move(dest2)
+            self.move_group_pool.add(move2)
+            del self.available_dst_locations[move1.dst_loc]
+            del self.available_dst_locations[move2.dst_loc]
+            return self.move_group_pool
         raise Exception("not enough IZ space to schedule all moves")
 
     def get_destination(
@@ -540,16 +545,12 @@ class MoveScheduler:
         partial_move: PartialMove,
         is_pair=False,
     ) -> Optional[Move]:
-        source = partial_move.src_loc
-
         # First, try finding a large enough group to place the partial move in.
         if self.zone.type != ZoneType.MEAS:
             GROUP_SIZE_THRESHOLD = self.device.column_count // 4
             best_destination: Optional[Location] = None
             best_destination_group_len = 0
             for scale, groups in pool.move_group_candidates.items():
-                if not scale:
-                    continue
                 for group in sorted(groups, key=len, reverse=True):
                     if (
                         len(group) < GROUP_SIZE_THRESHOLD
@@ -557,11 +558,7 @@ class MoveScheduler:
                     ):
                         break
                     if destination := self.get_destination(partial_move, scale, group):
-                        if (
-                            ((not is_pair) or destination[1] % 2 == 0)
-                            and pool.parity == move_parity(source, destination)
-                            and pool.direction == move_direction(source, destination)
-                        ):
+                        if (not is_pair) or destination[1] % 2 == 0:
                             best_destination = destination
                             best_destination_group_len = len(group)
                             break
@@ -571,11 +568,7 @@ class MoveScheduler:
         # If we didn't find a group to place the partial_move in,
         # just pick the next available IZ location.
         for destination in self.available_dst_locations:
-            if (
-                ((not is_pair) or destination[1] % 2 == 0)
-                and pool.parity == move_parity(source, destination)
-                and pool.direction == move_direction(source, destination)
-            ):
+            if (not is_pair) or destination[1] % 2 == 0:
                 return partial_move.into_move(destination)
 
     def __iter__(self):
@@ -586,16 +579,8 @@ class MoveScheduler:
         if self.is_empty():
             raise StopIteration
 
-        # Step through the partial moves and push them to the largest
-        # candidate they are compatible with.
-        while partial_move := self.next_partial_move():
-            if isinstance(partial_move, PartialMove):
-                self.add_to_largest_compatible_move_group(partial_move)
-            else:
-                self.add_pair_to_largest_compatible_move_group(partial_move)
-
-        # Once partial moves are exhausted, we try_get from the largest candidate.
-        return self.largest_move_group_pool().try_take(self.device.column_count)
+        # Try_get from the largest candidate.
+        return self.largest_move_group_pool().take_largest_candidate()
 
 
 class Schedule(QirModuleVisitor):
@@ -889,6 +874,16 @@ class Schedule(QirModuleVisitor):
         move_scheduler = MoveScheduler(self.device, zone, self.pending_qubits_to_move)
         for move_group in move_scheduler:
             self.pending_moves.append(move_group)
+
+        # Verify that all moves were scheduled.
+        # moves_to_schedule = sum(
+        #     len(x) if isinstance(x, tuple) else 1 for x in self.pending_qubits_to_move
+        # )
+        # scheduled_moves = sum(len(group) for group in self.pending_moves)
+        # assert (
+        #     moves_to_schedule == scheduled_moves
+        # ), f"{moves_to_schedule} != {scheduled_moves}"
+
         self.pending_qubits_to_move = []
 
     def insert_moves(self):
@@ -905,12 +900,13 @@ class Schedule(QirModuleVisitor):
 
             # Insert all the moves in a group using the same move function.
             for move in move_group:
+
                 self.builder.call(
                     self.move_funcs[move_group_id], (move.qubit_id_ptr, *move.dst_loc)
                 )
 
             # There 4 move groups, so we increment the id modulo 4.
-            move_group_id = (move_group_id + 1) % 4
+            move_group_id = (move_group_id + 1) % 1
 
             # We can execute 4 move groups in parallel, if
             # this is the fourth one, end the parallel section.
@@ -936,7 +932,7 @@ class Schedule(QirModuleVisitor):
                 )
 
             # There 4 move groups, so we increment the id modulo 4.
-            move_group_id = (move_group_id + 1) % 4
+            move_group_id = (move_group_id + 1) % 1
 
             # We can execute 4 move groups in parallel, if
             # this is the fourth one, end the parallel section.
