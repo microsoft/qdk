@@ -34,6 +34,7 @@ import {
 } from "./treeView";
 import {
   cancelPendingJob,
+  deleteJobRequest,
   getAzurePortalWorkspaceLink,
   getJobFiles,
   getPythonCodeForWorkspace,
@@ -73,11 +74,12 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     treeView.onDidChangeSelection(async (e) => {
-      // Capture the selected item and set context if the supports job submission or results download.
+      // Capture the selected item and set context based on supported item actions.
       let supportsQir = false;
       let supportsDownload = false;
       let isWorkspace = false;
       let isCancelable = false;
+      let isDeletable = false;
 
       if (e.selection.length === 1) {
         currentTreeItem = e.selection[0] as WorkspaceTreeItem;
@@ -89,6 +91,7 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
         }
         if (currentTreeItem.type === "job") {
           const job = currentTreeItem.itemData as Job;
+          isDeletable = true;
           if (
             (job.status === "Succeeded" || job.status === "Completed") &&
             job.outputDataUri
@@ -127,11 +130,40 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
       );
       await vscode.commands.executeCommand(
         "setContext",
+        `${qsharpExtensionId}.treeItemIsDeletable`,
+        isDeletable,
+      );
+      await vscode.commands.executeCommand(
+        "setContext",
         `${qsharpExtensionId}.treeItemIsCancelable`,
         isCancelable,
       );
     }),
   );
+
+  // Initialize the delete job feature flag context key.
+  await setDeleteJobsFeatureFlagContext();
+  // Listen for configuration changes to update the feature flag context.
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration(async (e) => {
+      if (
+        e.affectsConfiguration("Q#.azure.experimental.enableDeleteJobCommand")
+      ) {
+        await setDeleteJobsFeatureFlagContext();
+      }
+    }),
+  );
+
+  async function setDeleteJobsFeatureFlagContext() {
+    const enabled = vscode.workspace
+      .getConfiguration("Q#")
+      .get<boolean>("azure.experimental.enableDeleteJobCommand", false);
+    await vscode.commands.executeCommand(
+      "setContext",
+      `${qsharpExtensionId}.deleteJobsEnabled`,
+      enabled,
+    );
+  }
 
   context.subscriptions.push(
     vscode.commands.registerCommand(
@@ -253,6 +285,43 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
     ),
   );
 
+  async function deleteJob(arg?: WorkspaceTreeItem) {
+    // Could be run via the treeItem icon or the menu command.
+    const treeItem = arg || currentTreeItem;
+    if (treeItem?.type !== "job") return;
+
+    const job = treeItem.itemData as Job;
+
+    // Confirm deletion with the user
+    const confirm = await vscode.window.showWarningMessage(
+      `Are you sure you want to delete the job "${job.name}"?`,
+      { modal: true },
+      { title: "Yes", isCloseAffordance: false },
+      { title: "No", isCloseAffordance: true },
+    );
+    if (confirm?.title !== "Yes") return;
+
+    try {
+      // Get the token
+      const token = await getTokenForWorkspace(treeItem.workspace);
+      if (!token) throw "Unable to get an authentication token";
+
+      // Call the network request
+      await deleteJobRequest(treeItem.workspace, token, job.id);
+
+      // Report success/failure to the user
+      vscode.window.showInformationMessage(
+        "The delete request has been submitted.",
+      );
+    } catch (e: any) {
+      log.error("Failed to delete the job: ", e);
+      vscode.window.showErrorMessage("Failed to delete the job.", {
+        modal: true,
+        detail: e instanceof Error ? e.message : undefined,
+      });
+    }
+  }
+
   async function cancelJob(arg?: WorkspaceTreeItem) {
     // Could be run via the treeItem icon or the menu command.
     const treeItem = arg || currentTreeItem;
@@ -340,6 +409,13 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
       });
     }
   }
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      `${qsharpExtensionId}.deleteJob`,
+      async (arg: WorkspaceTreeItem) => await deleteJob(arg),
+    ),
+  );
 
   context.subscriptions.push(
     vscode.commands.registerCommand(
