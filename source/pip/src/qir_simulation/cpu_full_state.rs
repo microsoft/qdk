@@ -7,6 +7,7 @@ use pyo3::{IntoPyObjectExt, exceptions::PyValueError, prelude::*, types::PyList}
 use qdk_simulators::{
     cpu_full_state_simulator::Simulator, stabilizer_simulator::MeasurementResult,
 };
+use rand::{Rng, SeedableRng, rngs::StdRng};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 use std::fmt::Write;
@@ -29,7 +30,6 @@ pub fn run_cpu_full_state<'py>(
         })?;
         instructions.push(item);
     }
-    let rng_seed = seed.unwrap_or(0xfeed_face);
     let mut noise = unbind_noise_config(py, noise_config);
 
     if !noise.rz.is_noiseless() {
@@ -44,11 +44,18 @@ pub fn run_cpu_full_state<'py>(
         }
     }
 
+    let mut rng = if let Some(seed) = seed {
+        StdRng::seed_from_u64(seed.into())
+    } else {
+        StdRng::from_entropy()
+    };
+
     // run the shots
     let output = (0..shots)
+        .map(|_| rng.r#gen())
         .collect::<Vec<_>>()
         .par_iter()
-        .map(|_| run_shot(&instructions, num_qubits, num_results, &noise, rng_seed))
+        .map(|seed| run_shot(&instructions, num_qubits, num_results, &noise, *seed))
         .collect::<Vec<_>>();
 
     // convert results to a string with one line per shot
@@ -86,12 +93,7 @@ fn run_shot(
     noise: &qdk_simulators::noise_config::NoiseConfig,
     seed: u32,
 ) -> Vec<MeasurementResult> {
-    let mut sim = Simulator::new(
-        num_qubits as usize,
-        num_results as usize,
-        *noise,
-        seed.into(),
-    );
+    let mut sim = Simulator::new(num_qubits as usize, num_results as usize, *noise, seed);
     for op in instructions {
         match op {
             QirInstruction::OneQubitGate(id, qubit) => match id {
