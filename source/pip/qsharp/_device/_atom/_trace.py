@@ -34,12 +34,7 @@ class Trace(QirModuleVisitor):
             self.in_parallel = True
         elif call.callee.name == "__quantum__rt__end_parallel":
             self.in_parallel = False
-        elif (
-            call.callee.name == "__quantum__qis__move1__body"
-            or call.callee.name == "__quantum__qis__move2__body"
-            or call.callee.name == "__quantum__qis__move3__body"
-            or call.callee.name == "__quantum__qis__move4__body"
-        ):
+        elif call.callee.name == "__quantum__qis__move__body":
             self._on_qis_move(call, call.args[0], call.args[1], call.args[2])
         elif call.callee.name == "__quantum__qis__sx__body":
             self._on_qis_sx(call, call.args[0])

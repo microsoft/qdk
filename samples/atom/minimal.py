@@ -1,7 +1,7 @@
 # %% Import the necessary QDK modules and define the OpenQASM source code
 from qdk import init, TargetProfile
 from qdk.openqasm import compile, run
-from qdk.simulation import AC1000, NoiseConfig
+from qdk.simulation import NeutralAtomDevice, NoiseConfig
 from qdk.widgets import Histogram
 
 qasm_src = """include "stdgates.inc";
@@ -18,15 +18,14 @@ init(target_profile=TargetProfile.Base)
 qir = compile(qasm_src)
 
 # %% Create machine model and visualize execution
-ac1000 = AC1000()
-ac1000.trace(qir)
-
+device = NeutralAtomDevice()
+device
 # %% Configure a noise model and run a full-state simulation
 noise = NoiseConfig()
 noise.cz.set_depolarizing(0.05)
 noise.sx.set_bitflip(0.01)
 noise.mov.loss = 0.001
-results = ac1000.simulate(qir, shots=1000, noise=noise, type="gpu")
+results = device.simulate(qir, shots=1000, noise=noise, type="gpu")
 Histogram(results, labels="kets")
 
 # %%
