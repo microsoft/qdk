@@ -7,7 +7,7 @@ use bytemuck::{Pod, Zeroable};
 use std::cmp::min;
 use wgpu::{
     Adapter, BindGroup, BindGroupLayout, Buffer, BufferDescriptor, BufferUsages, ComputePipeline,
-    Device, Queue, RequestAdapterOptions, ShaderModule,
+    Device, Queue, ShaderModule,
 };
 
 // Some of these values are to align with WebGPU default limits
@@ -38,12 +38,6 @@ const MAX_SHOT_ENTRIES: i32 = (MAX_BUFFER_SIZE / SIZEOF_SHOTDATA) as i32;
 // There is no hard limit here, but for very large circuits we may need to split into multiple dispatches.
 // TODO: See if there is a way to query the GPU for max dispatches per submit, or derive it from other limits
 const MAX_DISPATCHES_PER_SUBMIT: i32 = 100_000;
-
-const ADAPTER_OPTIONS: RequestAdapterOptions = wgpu::RequestAdapterOptions {
-    power_preference: wgpu::PowerPreference::HighPerformance,
-    compatible_surface: None,
-    force_fallback_adapter: false,
-};
 
 pub struct GpuContext {
     device: Device,
@@ -188,14 +182,87 @@ fn i32_to_usize(value: i32) -> std::result::Result<usize, String> {
     usize::try_from(value).map_err(|_| format!("Value {value} can't convert to usize"))
 }
 
+/// Strips out sections of code delimited by DX12-start-strip and DX12-end-strip comments
+fn strip_dx12_sections(source: &str) -> String {
+    let mut result = String::new();
+    let mut in_strip_section = false;
+
+    for line in source.lines() {
+        if line.trim() == "// DX12-start-strip" {
+            in_strip_section = true;
+            continue;
+        }
+        if line.trim() == "// DX12-end-strip" {
+            in_strip_section = false;
+            continue;
+        }
+        if !in_strip_section {
+            result.push_str(line);
+            result.push('\n');
+        }
+    }
+
+    result
+}
+
 impl GpuContext {
-    pub async fn get_adapter() -> std::result::Result<Adapter, String> {
+    // Currently wasm32 doesn't support enumerate_adapters, so we just request an adapter directly
+    // NOTE: The upcoming release of wgpu does add it for wasm32, so this difference can be removed then.
+    #[cfg(target_arch = "wasm32")]
+    pub fn get_adapter() -> std::result::Result<Adapter, String> {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
-        // Get high-performance adapter
-        let adapter = instance
-            .request_adapter(&ADAPTER_OPTIONS)
-            .await
+
+        let adapter =
+            futures::executor::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: None,
+                force_fallback_adapter: false,
+            }))
             .map_err(|e| e.to_string())?;
+
+        // Validate adapter fits our needs
+        Self::validate_adapter_capabilities(&adapter)?;
+        Ok(adapter)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn get_adapter() -> std::result::Result<Adapter, String> {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+
+        let adapters = instance.enumerate_adapters(wgpu::Backends::PRIMARY);
+
+        let score_adapter = |adapter: &Adapter| -> (u32, u32, u32) {
+            let info = adapter.get_info();
+            let device_score = match info.device_type {
+                wgpu::DeviceType::DiscreteGpu => 8,
+                wgpu::DeviceType::IntegratedGpu => 4,
+                _ => 0,
+            };
+            let backend_score = match info.backend {
+                wgpu::Backend::Vulkan | wgpu::Backend::Metal => 2,
+                wgpu::Backend::Dx12 => 1,
+                _ => 0,
+            };
+            let limits = adapter.limits();
+            (
+                device_score,
+                backend_score,
+                limits.max_compute_workgroup_storage_size,
+            )
+        };
+
+        // Filter to discrete or integrated GPUs that support Vulkan, Metal, or DX12
+        // Then sort prefering discrete over integrated, Vulkan/Metal over DX12, and most workgroup memory
+        // On Windows we want to prefer Vulkan if possible. It seems to have less issues than DX12.
+        // Note that requesting a high-performance adapter via the wgpu API just prefers discrete GPUs also.
+        let adapter = adapters
+            .into_iter()
+            .filter(|a| {
+                let score = score_adapter(a);
+                score.0 > 0 /* discrete or integrated */ && score.1 > 0 /* supported backend */
+            })
+            .max_by_key(score_adapter)
+            .ok_or_else(|| "No suitable GPU adapter found".to_string())?;
 
         // Validate adapter fits our needs
         Self::validate_adapter_capabilities(&adapter)?;
@@ -275,7 +342,7 @@ impl GpuContext {
         // Add space in the results for an 'error code' per shot
         let run_params: RunParams = Self::get_params(qubit_count, result_count, op_count, shots)?;
 
-        let adapter = Self::get_adapter().await?;
+        let adapter = Self::get_adapter()?;
 
         let (device, queue): (Device, Queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
@@ -287,6 +354,7 @@ impl GpuContext {
                 required_limits: Self::get_required_limits(&adapter, &run_params)?,
                 memory_hints: wgpu::MemoryHints::Performance,
                 trace: wgpu::Trace::Off,
+                ..Default::default()
             })
             .await
             .map_err(|e| e.to_string())?;
@@ -299,7 +367,7 @@ impl GpuContext {
 
         // Create the shader module and bind group layout
         let raw_shader_src = include_str!("simulator.wgsl");
-        let shader_src = raw_shader_src
+        let mut shader_src = raw_shader_src
             .replace("{{QUBIT_COUNT}}", &qubit_count.to_string())
             .replace("{{RESULT_COUNT}}", &run_params.result_count.to_string())
             .replace(
@@ -319,6 +387,11 @@ impl GpuContext {
                 "{{MAX_QUBITS_PER_WORKGROUP}}",
                 &MAX_QUBITS_PER_WORKGROUP.to_string(),
             );
+
+        // Strip out DX12-incompatible code sections if needed
+        if adapter.get_info().backend == wgpu::Backend::Dx12 {
+            shader_src = strip_dx12_sections(&shader_src);
+        }
 
         let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("GPU Simulator Shader Module"),
@@ -780,22 +853,9 @@ impl GpuContext {
                 let _ = sender.send(result);
             });
 
-            // On native, drive the GPU and mapping to completion. No-op on the web (where it automatically polls).
-            // Retry polling up to 5 times in case of transient failures
-            let mut poll_attempts = 0;
-            loop {
-                match self.device.poll(wgpu::PollType::Wait) {
-                    Ok(_) => break,
-                    Err(e) => {
-                        poll_attempts += 1;
-                        assert!(
-                            (poll_attempts < 5),
-                            "GPU polling failed after 5 attempts: {e}"
-                        );
-                        eprintln!("GPU poll attempt {poll_attempts} failed: {e}, retrying...");
-                    }
-                }
-            }
+            self.device
+                .poll(wgpu::PollType::wait_indefinitely())
+                .expect("GPU poll failed");
 
             let map_result = receiver.await.expect("Failed to receive map completion");
             map_result.expect("Buffer mapping failed");
@@ -821,7 +881,7 @@ impl GpuContext {
             // Ensure the unmap operation completes before starting the next batch
             // This should not be necessary, but adding to see if it fixes an issue we've been seeing
             // with this buffer not being ready in time for the next map on some platforms.
-            self.device.poll(wgpu::PollType::Wait).ok();
+            self.device.poll(wgpu::PollType::wait_indefinitely()).ok();
 
             shots_remaining -= self.run_params.shots_per_batch;
         }
