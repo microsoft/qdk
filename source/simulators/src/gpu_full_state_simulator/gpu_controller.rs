@@ -6,8 +6,8 @@ use super::shader_types::{Op, ops};
 use bytemuck::{Pod, Zeroable};
 use std::cmp::min;
 use wgpu::{
-    Adapter, Backends, BindGroup, BindGroupLayout, Buffer, BufferDescriptor, BufferUsages,
-    ComputePipeline, Device, Queue, ShaderModule,
+    Adapter, BindGroup, BindGroupLayout, Buffer, BufferDescriptor, BufferUsages, ComputePipeline,
+    Device, Queue, ShaderModule,
 };
 
 // Some of these values are to align with WebGPU default limits
@@ -206,10 +206,30 @@ fn strip_dx12_sections(source: &str) -> String {
 }
 
 impl GpuContext {
+    // Currently wasm32 doesn't support enumerate_adapters, so we just request an adapter directly
+    // NOTE: The upcoming release of wgpu does add it for wasm32, so this difference can be removed then.
+    #[cfg(target_arch = "wasm32")]
     pub fn get_adapter() -> std::result::Result<Adapter, String> {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
 
-        let adapters = instance.enumerate_adapters(Backends::PRIMARY);
+        let adapter =
+            futures::executor::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: None,
+                force_fallback_adapter: false,
+            }))
+            .map_err(|e| e.to_string())?;
+
+        // Validate adapter fits our needs
+        Self::validate_adapter_capabilities(&adapter)?;
+        Ok(adapter)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn get_adapter() -> std::result::Result<Adapter, String> {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+
+        let adapters = instance.enumerate_adapters(wgpu::Backends::PRIMARY);
 
         let score_adapter = |adapter: &Adapter| -> (u32, u32, u32) {
             let info = adapter.get_info();
