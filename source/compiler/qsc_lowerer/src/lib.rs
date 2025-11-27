@@ -4,7 +4,7 @@
 use qsc_data_structures::index_map::IndexMap;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
-    Block, CallableImpl, ExecGraphDebugNode, ExecGraphNode, Expr, Pat, SpecImpl, Stmt,
+    Block, CallableImpl, ExecGraphDebugNode, ExecGraphNode, Expr, LoopScopeId, Pat, SpecImpl, Stmt,
 };
 use qsc_fir::{
     fir::{self, BlockId, ExprId, LocalItemId, PatId, StmtId},
@@ -307,7 +307,7 @@ impl Lowerer {
             panic!("if a SpecDecl is some, then it must be an implementation");
         };
         let input = pat.as_ref().map(|p| self.lower_spec_decl_pat(p));
-        let block = self.lower_block(block);
+        let block = self.lower_block(block, false);
         fir::SpecDecl {
             id: self.lower_id(decl.id),
             span: decl.span,
@@ -340,7 +340,7 @@ impl Lowerer {
         id
     }
 
-    fn lower_block(&mut self, block: &hir::Block) -> BlockId {
+    fn lower_block(&mut self, block: &hir::Block, is_loop: bool) -> BlockId {
         let id = self.assigner.next_block();
         // When lowering for debugging, we need to be more strict about scoping for variables
         // otherwise variables that are not in scope will be visible in the locals view.
@@ -351,8 +351,11 @@ impl Lowerer {
         // is performed via their lowered local variable ID, so they cannot be accessed outside of
         // their scope. Associated memory is still cleaned up at callable exit rather than block
         // exit.
-        self.exec_graph
-            .push(ExecGraphNode::Debug(ExecGraphDebugNode::PushScope(id)));
+        self.exec_graph.push(if is_loop {
+            ExecGraphNode::Debug(ExecGraphDebugNode::PushLoopScope(LoopScopeId::Body(id)))
+        } else {
+            ExecGraphNode::Debug(ExecGraphDebugNode::PushScope(id))
+        });
         let set_unit = block.stmts.is_empty()
             || !matches!(
                 block.stmts.last().expect("block should be non-empty").kind,
@@ -547,7 +550,7 @@ impl Lowerer {
                 }
                 fir::ExprKind::BinOp(lower_binop(*op), lhs, rhs)
             }
-            hir::ExprKind::Block(block) => fir::ExprKind::Block(self.lower_block(block)),
+            hir::ExprKind::Block(block) => fir::ExprKind::Block(self.lower_block(block, false)),
             hir::ExprKind::Call(callee, arg) => {
                 let call = self.lower_expr(callee);
                 self.exec_graph.push(ExecGraphNode::Store);
@@ -651,25 +654,39 @@ impl Lowerer {
                 fir::ExprKind::UnOp(lower_unop(*op), self.lower_expr(operand))
             }
             hir::ExprKind::While(cond, body) => {
+                let loop_start_idx = self.exec_graph.len();
+                self.exec_graph
+                    .push(ExecGraphNode::Debug(ExecGraphDebugNode::PushLoopScope(
+                        LoopScopeId::None,
+                    )));
+
                 let cond_idx = self.exec_graph.len();
                 let cond = self.lower_expr(cond);
-                let idx = self.exec_graph.len();
+
+                self.exec_graph[loop_start_idx] = ExecGraphNode::Debug(
+                    ExecGraphDebugNode::PushLoopScope(LoopScopeId::Outer(cond, 0)),
+                );
+
+                let jump_idx = self.exec_graph.len();
                 // Put a placeholder in the execution graph for the jump past the loop
                 self.exec_graph.push(ExecGraphNode::Jump(0));
-                let body = self.lower_block(body);
+                let body = self.lower_block(body, true);
                 self.exec_graph.push(ExecGraphNode::Jump(
                     cond_idx.try_into().expect("nodes should fit into u32"),
                 ));
                 // Update the placeholder to skip the loop if the condition is false
-                self.exec_graph[idx] = ExecGraphNode::JumpIfNot(
-                    self.exec_graph
-                        .len()
-                        .try_into()
-                        .expect("nodes should fit into u32"),
+                let end_idx = self.exec_graph.len();
+                self.exec_graph[jump_idx] = ExecGraphNode::JumpIfNot(
+                    end_idx.try_into().expect("nodes should fit into u32"),
                 );
+
+                self.exec_graph
+                    .push(ExecGraphNode::Debug(ExecGraphDebugNode::PopScope));
+
                 // While-exprs never have a return value, so we need to insert a no-op to ensure
                 // a Unit value is returned for the expr.
                 self.exec_graph.push(ExecGraphNode::Unit);
+
                 fir::ExprKind::While(cond, body)
             }
             hir::ExprKind::Closure(ids, id) => {

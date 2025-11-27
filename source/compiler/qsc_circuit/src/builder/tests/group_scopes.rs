@@ -4,14 +4,14 @@
 use super::FakeCompilation;
 use crate::{CircuitTracer, TracerConfig};
 use expect_test::{Expect, expect};
-use qsc_eval::{backend::Tracer, debug::Frame};
+use qsc_eval::{GigaStack, backend::Tracer, debug::Frame};
 
 fn check_groups(c: &FakeCompilation, instructions: &[(Vec<Frame>, &str)], expect: &Expect) {
     let mut tracer = CircuitTracer::new(
         TracerConfig {
             max_operations: usize::MAX,
             source_locations: false,
-            group_scopes: true,
+            group_scopes: crate::builder::GroupScopesOptions::GroupScopes,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -19,14 +19,14 @@ fn check_groups(c: &FakeCompilation, instructions: &[(Vec<Frame>, &str)], expect
     let qubit_id = 0;
 
     // Allocate qubit 0
-    tracer.qubit_allocate(&[], qubit_id);
+    tracer.qubit_allocate(&GigaStack::default(), qubit_id);
 
     // Trace each instruction, applying it to qubit 0
     for i in instructions {
-        let stack = &i.0;
+        let stack = GigaStack::from(i.0.clone());
         let name = i.1;
 
-        tracer.gate(stack, name, false, &[qubit_id], &[], None);
+        tracer.gate(&stack, name, false, &[qubit_id], &[], None);
     }
 
     let circuit = tracer.finish(c);

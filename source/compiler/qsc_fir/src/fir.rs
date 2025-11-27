@@ -942,6 +942,8 @@ pub enum ExecGraphNode {
 #[derive(Copy, Clone, Debug, PartialEq)]
 /// A debug-only node within the control flow graph.
 pub enum ExecGraphDebugNode {
+    /// A push of a new block scope, used when tracking variables for debugging.
+    PushScope(BlockId),
     /// A pop of the current scope, used when tracking variables for debugging.
     PopScope,
     /// The end of a block, used in debugging to have a step point after all statements in a block have been executed,
@@ -949,8 +951,19 @@ pub enum ExecGraphDebugNode {
     BlockEnd(BlockId),
     /// A statement to track for debugging.
     Stmt(StmtId),
-    /// A push of a new scope, used when tracking variables for debugging.
-    PushScope(BlockId),
+    /// A push of a new loop scope, used when tracking variables for debugging.
+    PushLoopScope(LoopScopeId),
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+/// A loop scope identifier for debugging.
+pub enum LoopScopeId {
+    /// Used for the loop body
+    Body(BlockId),
+    /// Condition expression + iteration count
+    Outer(ExprId, usize),
+    /// Temporary
+    None,
 }
 
 /// A sequenced block of statements.

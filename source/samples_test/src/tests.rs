@@ -22,7 +22,7 @@ mod OpenQASM_generated;
 
 use qsc::{
     LanguageFeatures, PackageType, SourceMap, TargetCapabilityFlags,
-    circuit::TracerConfig,
+    circuit::{GroupScopesOptions, TracerConfig},
     compile,
     hir::PackageId,
     interpret::{GenericReceiver, Interpreter},
@@ -59,7 +59,7 @@ fn compile_and_run_internal(sources: SourceMap, debug: bool) -> String {
             store,
             &[(std_id, None)],
             TracerConfig {
-                group_scopes: false,
+                group_scopes: GroupScopesOptions::NoGrouping,
                 source_locations: false,
                 max_operations: 0,
             },
