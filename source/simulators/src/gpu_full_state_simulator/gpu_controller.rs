@@ -6,8 +6,8 @@ use super::shader_types::{Op, ops};
 use bytemuck::{Pod, Zeroable};
 use std::cmp::min;
 use wgpu::{
-    Adapter, BindGroup, BindGroupLayout, Buffer, BufferDescriptor, BufferUsages, ComputePipeline,
-    Device, Queue, RequestAdapterOptions, ShaderModule,
+    Adapter, Backends, BindGroup, BindGroupLayout, Buffer, BufferDescriptor, BufferUsages,
+    ComputePipeline, Device, Queue, RequestAdapterOptions, ShaderModule,
 };
 
 // Some of these values are to align with WebGPU default limits
@@ -38,12 +38,6 @@ const MAX_SHOT_ENTRIES: i32 = (MAX_BUFFER_SIZE / SIZEOF_SHOTDATA) as i32;
 // There is no hard limit here, but for very large circuits we may need to split into multiple dispatches.
 // TODO: See if there is a way to query the GPU for max dispatches per submit, or derive it from other limits
 const MAX_DISPATCHES_PER_SUBMIT: i32 = 100_000;
-
-const ADAPTER_OPTIONS: RequestAdapterOptions = wgpu::RequestAdapterOptions {
-    power_preference: wgpu::PowerPreference::HighPerformance,
-    compatible_surface: None,
-    force_fallback_adapter: false,
-};
 
 pub struct GpuContext {
     device: Device,
@@ -212,13 +206,43 @@ fn strip_dx12_sections(source: &str) -> String {
 }
 
 impl GpuContext {
-    pub async fn get_adapter() -> std::result::Result<Adapter, String> {
+    pub fn get_adapter() -> std::result::Result<Adapter, String> {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
-        // Get high-performance adapter
-        let adapter = instance
-            .request_adapter(&ADAPTER_OPTIONS)
-            .await
-            .map_err(|e| e.to_string())?;
+
+        let adapters = instance.enumerate_adapters(Backends::PRIMARY);
+
+        let score_adapter = |adapter: &Adapter| -> (u32, u32, u32) {
+            let info = adapter.get_info();
+            let device_score = match info.device_type {
+                wgpu::DeviceType::DiscreteGpu => 8,
+                wgpu::DeviceType::IntegratedGpu => 4,
+                _ => 0,
+            };
+            let backend_score = match info.backend {
+                wgpu::Backend::Vulkan | wgpu::Backend::Metal => 2,
+                wgpu::Backend::Dx12 => 1,
+                _ => 0,
+            };
+            let limits = adapter.limits();
+            (
+                device_score,
+                backend_score,
+                limits.max_compute_workgroup_storage_size,
+            )
+        };
+
+        // Filter to discrete or integrated GPUs that support Vulkan, Metal, or DX12
+        // Then sort prefering discrete over integrated, Vulkan/Metal over DX12, and most workgroup memory
+        // On Windows we want to prefer Vulkan if possible. It seems to have less issues than DX12.
+        // Note that requesting a high-performance adapter via the wgpu API just prefers discrete GPUs also.
+        let adapter = adapters
+            .into_iter()
+            .filter(|a| {
+                let score = score_adapter(a);
+                score.0 > 0 /* discrete or integrated */ && score.1 > 0 /* supported backend */
+            })
+            .max_by_key(score_adapter)
+            .ok_or_else(|| "No suitable GPU adapter found".to_string())?;
 
         // Validate adapter fits our needs
         Self::validate_adapter_capabilities(&adapter)?;
@@ -298,7 +322,7 @@ impl GpuContext {
         // Add space in the results for an 'error code' per shot
         let run_params: RunParams = Self::get_params(qubit_count, result_count, op_count, shots)?;
 
-        let adapter = Self::get_adapter().await?;
+        let adapter = Self::get_adapter()?;
 
         let (device, queue): (Device, Queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
@@ -344,9 +368,8 @@ impl GpuContext {
                 &MAX_QUBITS_PER_WORKGROUP.to_string(),
             );
 
-        // Strip out DX12-specific code sections if needed
-        let dx12 = false; // Set this based on your configuration
-        if dx12 {
+        // Strip out DX12-incompatible code sections if needed
+        if adapter.get_info().backend == wgpu::Backend::Dx12 {
             shader_src = strip_dx12_sections(&shader_src);
         }
 

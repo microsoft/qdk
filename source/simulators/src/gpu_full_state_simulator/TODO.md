@@ -1,9 +1,9 @@
 # Add amplitude damping and dephasing
 
 - Merge Mz back into single qubit op
-  - Move renormalization into the noise unitary
+  - Use renormalization != 1.0 to handle any non-unitary ops
   - Add support for M/Mz, not just MResetZ
-  - All single-qubit ops should update all (non-definite) probs, as matrix may be non-unitary
+  - All single-qubit ops with renormalization != 1.0 should update all (non-definite) probs, as matrix may be non-unitary
 - Eventually, will need to track duration to handle branching. Maybe just to that now?
   - No, just add a dedicated `damping_noise(p_amp, p_phase, qubit)` op for now.
 - Ops building will need to track duration and qubit usage and insert the damping_noise ops as needed.
@@ -11,6 +11,16 @@
 - NoiseConfig will need a duration on each op.
 - NoiseConfig will need T1/T2 values for amplitude damping and dephasing.
 - Will need to honor 'parallel' blocks to avoid adding duration multiple times.
+
+## TODO
+
+- [ ] Implement non_pauli_noise (including loss) op in GPU simulator and write some Rust tests
+- [ ] Add duration to ops in NoiseConfig and expose in Python
+- [ ] Add pass to add 'add_duration' op to the QIR stream based on op durations in NoiseConfig and begin/end parallel blocks
+  - [ ] Ensure the above doesn't break existing simulations
+- [ ] Add T1/T2 to NoiseConfig and expose in Python
+- [ ] Add damping_noise op to QIR stream based on accumulated durations and T1/T2 values
+- [ ] Add damping noise to CPU based noisy simulator and compare
 
 ## Use cases
 
