@@ -6,7 +6,7 @@ import pyqir
 
 import qsharp
 from qsharp._simulation import run_qir_clifford, NoiseConfig
-from qsharp._device._atom import AC1000
+from qsharp._device._atom import NeutralAtomDevice
 from qsharp._device._atom._decomp import DecomposeRzAnglesToCliffordGates
 from qsharp._device._atom._validate import ValidateSingleBlock
 from qsharp import TargetProfile, Result
@@ -19,7 +19,7 @@ current_dir = current_file_path.parent
 
 
 def transform_to_clifford(input) -> str:
-    native_qir = AC1000().compile(input)
+    native_qir = NeutralAtomDevice().compile(input)
     module = pyqir.Module.from_ir(pyqir.Context(), str(native_qir))
     ValidateSingleBlock().run(module)
     DecomposeRzAnglesToCliffordGates().run(module)
@@ -51,7 +51,7 @@ def test_1224_clifford_ising():
     qsharp.eval(read_file_relative("CliffordIsing.qs"))
 
     input = qsharp.compile(
-        "IsingModel2DEvolution(34, 36, PI() / 2.0, PI() / 2.0, 5.0, 5)"
+        "IsingModel2DEvolution(20, 50, PI() / 2.0, PI() / 2.0, 5.0, 5)"
     )
     qir = transform_to_clifford(input)
 

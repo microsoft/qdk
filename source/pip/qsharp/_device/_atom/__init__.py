@@ -8,40 +8,37 @@ from ..._qsharp import QirInputData
 from typing import List, Literal
 
 
-class AC1000(Device):
+class NeutralAtomDevice(Device):
     """
-    Representation of the Atom Computing AC1000 quantum computer.
+    Representation of a neutral atom device quantum computer.
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        column_count: int = 40,
+        register_zone_row_count: int = 25,
+        interaction_zone_row_count: int = 2,
+        measurement_zone_row_count: int = 2,
+    ):
         super().__init__(
-            36,
+            column_count,
             [
-                Zone("Register 1", 17, ZoneType.REG),
-                Zone("Interaction Zone", 4, ZoneType.INTER),
-                Zone("Register 2", 17, ZoneType.REG),
-                Zone("Measurement Zone", 4, ZoneType.MEAS),
+                Zone("Register 1", register_zone_row_count, ZoneType.REG),
+                Zone("Interaction Zone", interaction_zone_row_count, ZoneType.INTER),
+                Zone("Measurement Zone", measurement_zone_row_count, ZoneType.MEAS),
             ],
         )
 
     def _init_home_locs(self):
-        # Set up the home locations for qubits in the AC1000 layout.
-        assert len(self.zones) == 4
+        # Set up the home locations for qubits in the NeutralAtomDevice layout.
+        assert len(self.zones) == 3
         assert (
             self.zones[0].type == ZoneType.REG
             and self.zones[1].type == ZoneType.INTER
-            and self.zones[2].type == ZoneType.REG
+            and self.zones[2].type == ZoneType.MEAS
         )
-        assert self.zones[0].row_count == self.zones[2].row_count
         rz1_rows = range(self.zones[0].row_count - 1, -1, -1)
-        rz2_rows = range(
-            self.zones[0].row_count + self.zones[1].row_count,
-            self.zones[0].row_count + self.zones[1].row_count + self.zones[2].row_count,
-        )
         self.home_locs = []
-        for row in range(self.zones[2].row_count):
-            for col in range(self.column_count):
-                self.home_locs.append((rz2_rows[row], col))
         for row in range(self.zones[0].row_count):
             for col in range(self.column_count):
                 self.home_locs.append((rz1_rows[row], col))
@@ -53,7 +50,7 @@ class AC1000(Device):
         schedule: bool = False,
     ) -> QirInputData:
         """
-        Compile a QIR program for the AC1000 device. This includes decomposing gates to the native gate set,
+        Compile a QIR program for the NeutralAtomDevice device. This includes decomposing gates to the native gate set,
         optimizing sequences of single qubit gates, pruning unused functions, and reordering instructions to
         enable better scheduling during execution.
 
@@ -83,7 +80,7 @@ class AC1000(Device):
 
             start_time = time.time()
             all_start_time = start_time
-            print(f"Compiling program {name} for AC1000 device...")
+            print(f"Compiling program {name} for NeutralAtomDevice device...")
 
         module = Module.from_ir(Context(), str(program))
         if verbose:
@@ -175,7 +172,7 @@ class AC1000(Device):
 
     def trace(self, qir: str | QirInputData):
         """
-        Visualize the execution trace of a QIR program on the AC1000 device using the Atoms widget.
+        Visualize the execution trace of a QIR program on the NeutralAtomDevice device using the Atoms widget.
         This includes approximate layout and scheduling of the program to show the parallelism of gates and
         movement of qubits during execution.
 
@@ -206,7 +203,7 @@ class AC1000(Device):
         type: Literal["clifford", "cpu", "gpu"] = "clifford",
     ) -> List:
         """
-        Simulate a QIR program on the AC1000 device. This includes approximate layout and scheduling of the program
+        Simulate a QIR program on the NeutralAtomDevice device. This includes approximate layout and scheduling of the program
         to model the parallelism of gates and movement of qubits during execution. The simulation can optionally
         include noise based on a provided noise configuration.
 
@@ -247,4 +244,4 @@ class AC1000(Device):
         raise ValueError(f"Simulation type {type} is not supported")
 
 
-__all__ = ["AC1000"]
+__all__ = ["NeutralAtomDevice"]
