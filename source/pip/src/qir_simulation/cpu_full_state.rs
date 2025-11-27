@@ -7,6 +7,7 @@ use pyo3::{IntoPyObjectExt, exceptions::PyValueError, prelude::*, types::PyList}
 use qdk_simulators::{
     cpu_full_state_simulator::Simulator, stabilizer_simulator::MeasurementResult,
 };
+use rand::{Rng, SeedableRng, rngs::StdRng};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 use std::fmt::Write;
@@ -21,7 +22,7 @@ pub fn run_cpu_full_state<'py>(
     noise_config: &Bound<'py, NoiseConfig>,
     seed: Option<u32>,
 ) -> PyResult<PyObject> {
-    // convert Python list input to Vec<QirInstruction>
+    // Convert Python list input to Vec<QirInstruction>.
     let mut instructions: Vec<QirInstruction> = Vec::with_capacity(input.len());
     for item in input.iter() {
         let item = <QirInstruction as FromPyObject>::extract_bound(&item).map_err(|e| {
@@ -29,7 +30,6 @@ pub fn run_cpu_full_state<'py>(
         })?;
         instructions.push(item);
     }
-    let rng_seed = seed.unwrap_or(0xfeed_face);
     let mut noise = unbind_noise_config(py, noise_config);
 
     if !noise.rz.is_noiseless() {
@@ -44,14 +44,25 @@ pub fn run_cpu_full_state<'py>(
         }
     }
 
-    // run the shots
+    // Create a random number generator to generate the seed for each individual shot.
+    let mut rng = if let Some(seed) = seed {
+        StdRng::seed_from_u64(seed.into())
+    } else {
+        StdRng::from_entropy()
+    };
+
+    // Run the shots.
     let output = (0..shots)
+        // Create a random seed for each shot.
+        // We need to do this instead of just calling rng.gen() a couple of lines
+        // below, since rust disallows calling a mutable in a parallel iterator.
+        .map(|_| rng.r#gen())
         .collect::<Vec<_>>()
         .par_iter()
-        .map(|_| run_shot(&instructions, num_qubits, num_results, &noise, rng_seed))
+        .map(|seed| run_shot(&instructions, num_qubits, num_results, &noise, *seed))
         .collect::<Vec<_>>();
 
-    // convert results to a string with one line per shot
+    // Convert results to a string with one line per shot.
     let mut values = Vec::with_capacity(shots as usize);
     for shot_result in output {
         let mut buffer = String::with_capacity(shot_result.len());
@@ -86,12 +97,7 @@ fn run_shot(
     noise: &qdk_simulators::noise_config::NoiseConfig,
     seed: u32,
 ) -> Vec<MeasurementResult> {
-    let mut sim = Simulator::new(
-        num_qubits as usize,
-        num_results as usize,
-        *noise,
-        seed.into(),
-    );
+    let mut sim = Simulator::new(num_qubits as usize, num_results as usize, *noise, seed);
     for op in instructions {
         match op {
             QirInstruction::OneQubitGate(id, qubit) => match id {
@@ -106,9 +112,7 @@ fn run_shot(
                 QirInstructionId::T => sim.t(*qubit as usize),
                 QirInstructionId::TAdj => sim.t_adj(*qubit as usize),
                 QirInstructionId::Move => sim.mov(*qubit as usize),
-                _ => panic!(
-                    "only one qubit gates H, X, Y, Z, S, SAdj, SX, and Move are supported in Clifford simulator"
-                ),
+                _ => panic!("unsupported one-qubit gate: {id:?}"),
             },
             QirInstruction::TwoQubitGate(id, control, target) => match id {
                 QirInstructionId::CX => sim.cx(*control as usize, *target as usize),
@@ -116,33 +120,27 @@ fn run_shot(
                 QirInstructionId::MResetZ | QirInstructionId::M | QirInstructionId::MZ => {
                     sim.mresetz(*control as usize, *target as usize);
                 }
-                _ => panic!(
-                    "only CZ, M, MZ, and MResetZ are supported in Clifford simulator, got {id:?}"
-                ),
+                _ => panic!("unsupported two-qubits gate: {id:?}"),
             },
             QirInstruction::OneQubitRotationGate(id, angle, qubit) => match id {
                 QirInstructionId::RX => sim.rx(*angle, *qubit as usize),
                 QirInstructionId::RY => sim.ry(*angle, *qubit as usize),
                 QirInstructionId::RZ => sim.rz(*angle, *qubit as usize),
                 _ => {
-                    panic!("unsupported one-qubit rotation gate: {id:?} on qubit {qubit}");
+                    panic!("unsupported one-qubit rotation gate: {id:?}");
                 }
             },
             QirInstruction::TwoQubitRotationGate(id, angle, qubit1, qubit2) => match id {
                 QirInstructionId::RXX => sim.rxx(*angle, *qubit1 as usize, *qubit2 as usize),
                 QirInstructionId::RYY => sim.ryy(*angle, *qubit1 as usize, *qubit2 as usize),
                 QirInstructionId::RZZ => sim.rzz(*angle, *qubit1 as usize, *qubit2 as usize),
-                _ => {
-                    panic!(
-                        "unsupported two-qubit rotation gate: {id:?} on qubits {qubit1}, {qubit2}"
-                    );
-                }
+                _ => panic!("unsupported two-qubit rotation gate: {id:?}"),
             },
             QirInstruction::ThreeQubitGate(id, _, _, _) => {
-                panic!("unsupported gate in Clifford simulator, got {id:?}")
+                panic!("unsupported instruction: {id:?}")
             }
             QirInstruction::OutputRecording(_id, _s, _tag) => {
-                unimplemented!()
+                // Ignore for now.
             }
         }
     }

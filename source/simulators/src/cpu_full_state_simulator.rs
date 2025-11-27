@@ -193,11 +193,11 @@ impl Simulator {
         num_qubits: usize,
         num_results: usize,
         noise_config: NoiseConfig,
-        seed: u64,
+        seed: u32,
     ) -> Self {
         Self {
             noise_config: noise_config.into(),
-            state: StateVectorSimulator::new_with_seed(num_qubits, seed),
+            state: StateVectorSimulator::new_with_seed(num_qubits, seed.into()),
             loss: vec![false; num_qubits],
             measurements: vec![MeasurementResult::Zero; num_results],
             last_operation_time: vec![0; num_qubits],
