@@ -22,7 +22,7 @@ pub fn run_cpu_full_state<'py>(
     noise_config: &Bound<'py, NoiseConfig>,
     seed: Option<u32>,
 ) -> PyResult<PyObject> {
-    // convert Python list input to Vec<QirInstruction>
+    // Convert Python list input to Vec<QirInstruction>.
     let mut instructions: Vec<QirInstruction> = Vec::with_capacity(input.len());
     for item in input.iter() {
         let item = <QirInstruction as FromPyObject>::extract_bound(&item).map_err(|e| {
@@ -44,21 +44,25 @@ pub fn run_cpu_full_state<'py>(
         }
     }
 
+    // Create a random number generator to generate the seed for each individual shot.
     let mut rng = if let Some(seed) = seed {
         StdRng::seed_from_u64(seed.into())
     } else {
         StdRng::from_entropy()
     };
 
-    // run the shots
+    // Run the shots.
     let output = (0..shots)
+        // Create a random seed for each shot.
+        // We need to do this instead of just calling rng.gen() a couple of lines
+        // below, since rust disallows calling a mutable in a parallel iterator.
         .map(|_| rng.r#gen())
         .collect::<Vec<_>>()
         .par_iter()
         .map(|seed| run_shot(&instructions, num_qubits, num_results, &noise, *seed))
         .collect::<Vec<_>>();
 
-    // convert results to a string with one line per shot
+    // Convert results to a string with one line per shot.
     let mut values = Vec::with_capacity(shots as usize);
     for shot_result in output {
         let mut buffer = String::with_capacity(shot_result.len());
@@ -136,7 +140,7 @@ fn run_shot(
                 panic!("unsupported instruction: {id:?}")
             }
             QirInstruction::OutputRecording(_id, _s, _tag) => {
-                // Ignore for now
+                // Ignore for now.
             }
         }
     }
