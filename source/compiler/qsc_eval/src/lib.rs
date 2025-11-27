@@ -39,7 +39,7 @@ use output::Receiver;
 use qsc_data_structures::{functors::FunctorApp, index_map::IndexMap, span::Span};
 use qsc_fir::fir::{
     self, BinOp, BlockId, CallableImpl, ExecGraph, ExecGraphDebugNode, ExecGraphNode, Expr, ExprId,
-    ExprKind, Field, FieldAssign, Global, Lit, LocalItemId, LocalVarId, PackageId,
+    ExprKind, Field, FieldAssign, Global, Lit, LocalItemId, LocalVarId, LoopScopeId, PackageId,
     PackageStoreLookup, PatId, PatKind, PrimField, Res, StmtId, StoreItemId, StringComponent, UnOp,
 };
 use qsc_fir::ty::Ty;
@@ -475,6 +475,17 @@ impl Env {
     pub fn push_scope(&mut self, frame_id: usize) {
         let scope = Scope {
             frame_id,
+            loop_scope: None,
+            ..Default::default()
+        };
+        self.scopes.push(scope);
+    }
+
+    pub fn push_loop_scope(&mut self, frame_id: usize, loop_scope: LoopScopeId) {
+        let scope = Scope {
+            frame_id,
+            loop_scope: Some(loop_scope),
+            is_loop: true,
             ..Default::default()
         };
         self.scopes.push(scope);
@@ -568,10 +579,12 @@ impl Env {
     }
 }
 
-#[derive(Default)]
-struct Scope {
+#[derive(Default, Clone, Debug)]
+pub struct Scope {
     bindings: IndexMap<LocalVarId, Variable>,
-    frame_id: usize,
+    pub frame_id: usize,
+    pub loop_scope: Option<LoopScopeId>,
+    pub is_loop: bool,
 }
 
 type CallableCountKey = (StoreItemId, bool, bool);
@@ -600,6 +613,16 @@ pub struct State {
     error_behavior: ErrorBehavior,
     last_error: Option<(Error, Vec<Frame>)>,
     track_scopes: bool,
+}
+
+#[derive(Default)]
+pub struct GigaStack(pub Vec<Frame>, pub Vec<Scope>);
+
+impl GigaStack {
+    #[must_use]
+    pub fn from(frames: Vec<Frame>) -> Self {
+        Self(frames, vec![])
+    }
 }
 
 impl State {
@@ -665,6 +688,10 @@ impl State {
         env.push_scope(self.current_frame_id());
     }
 
+    fn push_loop_scope(&mut self, env: &mut Env, block_id: LoopScopeId) {
+        env.push_loop_scope(self.current_frame_id(), block_id);
+    }
+
     fn take_val_register(&mut self) -> Value {
         self.val_register.take().expect("value should be present")
     }
@@ -712,12 +739,14 @@ impl State {
     pub fn capture_stack_if_trace_enabled<B: Backend>(
         &self,
         tracing_backend: &TracingBackend<'_, B>,
-    ) -> Vec<Frame> {
-        if tracing_backend.is_stacks_enabled() {
+        env: &Env,
+    ) -> GigaStack {
+        let call_stack = if tracing_backend.is_stacks_enabled() {
             self.capture_stack()
         } else {
             vec![]
-        }
+        };
+        GigaStack(call_stack, env.scopes.clone())
     }
 
     fn set_last_error(&mut self, error: Error, frames: Vec<Frame>) {
@@ -825,6 +854,24 @@ impl State {
                 Some(ExecGraphNode::Debug(dbg_node)) if self.track_scopes => match dbg_node {
                     ExecGraphDebugNode::PushScope(_) => {
                         self.push_scope(env);
+                        self.idx += 1;
+                        continue;
+                    }
+                    ExecGraphDebugNode::PushLoopScope(block_id) => {
+                        match block_id {
+                            LoopScopeId::Body(_) => {
+                                // we're in an iteration, increment counter
+                                let last = env.scopes.last_mut().expect("last scope should exist");
+                                assert!(last.is_loop);
+                                let Some(LoopScopeId::Outer(_, i)) = &mut last.loop_scope else {
+                                    panic!("expected outer loop scope id");
+                                };
+                                *i += 1;
+                            }
+                            LoopScopeId::Outer(..) => {} // we're in the outer scope of a for loop
+                            LoopScopeId::None => panic!("expected loop scope id"),
+                        }
+                        self.push_loop_scope(env, *block_id);
                         self.idx += 1;
                         continue;
                     }
@@ -1292,7 +1339,7 @@ impl State {
         arg_span: PackageSpan,
         out: &mut impl Receiver,
     ) -> Result<(), Error> {
-        let call_stack = self.capture_stack_if_trace_enabled(sim);
+        let call_stack = self.capture_stack_if_trace_enabled(sim, env);
         self.push_frame(Vec::new().into(), callee_id, functor);
         self.current_span = callee_span.span;
         self.increment_call_count(callee_id, functor);

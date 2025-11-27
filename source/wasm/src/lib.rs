@@ -13,6 +13,7 @@ use project_system::{ProgramConfig, into_openqasm_arg, into_qsc_args, is_openqas
 use qsc::{
     LanguageFeatures, PackageStore, PackageType, PauliNoise, SourceContents, SourceMap, SourceName,
     SparseSim, TargetCapabilityFlags,
+    circuit::GroupScopesOptions,
     compile::{self, Dependencies, package_store_with_stdlib},
     format_state_id, get_matrix_latex, get_state_latex,
     hir::PackageId,
@@ -179,7 +180,11 @@ pub fn get_circuit(
     let tracer_config = qsc::circuit::TracerConfig {
         source_locations: config.source_locations,
         max_operations: config.max_operations,
-        group_scopes: config.group_scopes,
+        group_scopes: if config.group_scopes {
+            GroupScopesOptions::GroupScopes
+        } else {
+            GroupScopesOptions::NoGrouping
+        },
     };
 
     if is_openqasm_program(&program) {

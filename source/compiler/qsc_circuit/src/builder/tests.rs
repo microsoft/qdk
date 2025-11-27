@@ -8,6 +8,7 @@ use std::vec;
 use super::*;
 use expect_test::expect;
 use qsc_data_structures::{functors::FunctorApp, span::Span};
+use qsc_eval::debug::Frame;
 use rustc_hash::FxHashMap;
 
 #[derive(Default)]
@@ -28,21 +29,30 @@ impl SourceLookup for FakeCompilation {
         }
     }
 
-    fn resolve_scope(&self, scope_id: ScopeId) -> LexicalScope {
-        let name = self
-            .scopes
-            .id_to_name
-            .get(&scope_id.0)
-            .expect("unknown scope id")
-            .clone();
-        LexicalScope::Callable {
-            name,
-            location: PackageOffset {
-                package_id: scope_id.0.package,
-                offset: 0,
-            },
-            functor_app: scope_id.1,
+    fn resolve_scope(&self, scope_id: Scope) -> LexicalScope {
+        match scope_id {
+            Scope::Callable(store_item_id, functor_app) => {
+                let name = self
+                    .scopes
+                    .id_to_name
+                    .get(&store_item_id)
+                    .expect("unknown scope id")
+                    .clone();
+                LexicalScope::Callable {
+                    name,
+                    location: PackageOffset {
+                        package_id: store_item_id.package,
+                        offset: 0,
+                    },
+                    functor_app,
+                }
+            }
+            s => panic!("unexpected scope id {s:?}"),
         }
+    }
+
+    fn resolve_block(&self, block: BlockId) -> String {
+        format!("unknown block {block:?}")
     }
 }
 
@@ -75,18 +85,21 @@ impl FakeCompilation {
         Self::frame(scope_id, offset, true)
     }
 
-    fn frame(scope_item_id: ScopeId, offset: u32, is_adjoint: bool) -> Frame {
-        Frame {
-            span: Span {
-                lo: offset,
-                hi: offset + 1,
+    fn frame(scope_item_id: Scope, offset: u32, is_adjoint: bool) -> Frame {
+        match scope_item_id {
+            Scope::Callable(store_item_id, _) => Frame {
+                span: Span {
+                    lo: offset,
+                    hi: offset + 1,
+                },
+                id: store_item_id,
+                caller: PackageId::CORE, // unused in tests
+                functor: FunctorApp {
+                    adjoint: is_adjoint,
+                    controlled: 0,
+                },
             },
-            id: scope_item_id.0,
-            caller: PackageId::CORE, // unused in tests
-            functor: FunctorApp {
-                adjoint: is_adjoint,
-                controlled: 0,
-            },
+            _ => panic!("unexpected scope id {scope_item_id:?}"),
         }
     }
 }
@@ -98,7 +111,7 @@ struct Scopes {
 }
 
 impl Scopes {
-    fn get_or_create_scope(&mut self, package_id: usize, name: &str, is_adjoint: bool) -> ScopeId {
+    fn get_or_create_scope(&mut self, package_id: usize, name: &str, is_adjoint: bool) -> Scope {
         let name: Rc<str> = name.into();
         let item_id = if let Some(item_id) = self.name_to_id.get(&name) {
             *item_id
@@ -111,7 +124,7 @@ impl Scopes {
             self.name_to_id.insert(name, item_id);
             item_id
         };
-        ScopeId(
+        Scope::Callable(
             item_id,
             FunctorApp {
                 adjoint: is_adjoint,
@@ -127,16 +140,16 @@ fn exceed_max_operations() {
         TracerConfig {
             max_operations: 2,
             source_locations: false,
-            group_scopes: false,
+            group_scopes: GroupScopesOptions::NoGrouping,
         },
         &FakeCompilation::user_package_ids(),
     );
 
-    builder.qubit_allocate(&[], 0);
+    builder.qubit_allocate(&GigaStack::default(), 0);
 
-    builder.gate(&[], "X", false, &[0], &[], None);
-    builder.gate(&[], "X", false, &[0], &[], None);
-    builder.gate(&[], "X", false, &[0], &[], None);
+    builder.gate(&GigaStack::default(), "X", false, &[0], &[], None);
+    builder.gate(&GigaStack::default(), "X", false, &[0], &[], None);
+    builder.gate(&GigaStack::default(), "X", false, &[0], &[], None);
 
     let circuit = builder.finish(&FakeCompilation::default());
 
@@ -155,15 +168,15 @@ fn source_locations_enabled() {
         TracerConfig {
             max_operations: 10,
             source_locations: true,
-            group_scopes: false,
+            group_scopes: GroupScopesOptions::NoGrouping,
         },
         &FakeCompilation::user_package_ids(),
     );
 
-    builder.qubit_allocate(&[], 0);
+    builder.qubit_allocate(&GigaStack::default(), 0);
 
     builder.gate(
-        &[c.user_code_frame("Main", 10)],
+        &GigaStack::from(vec![c.user_code_frame("Main", 10)]),
         "X",
         false,
         &[0],
@@ -192,15 +205,15 @@ fn source_locations_disabled() {
         TracerConfig {
             max_operations: 10,
             source_locations: false,
-            group_scopes: false,
+            group_scopes: GroupScopesOptions::NoGrouping,
         },
         &FakeCompilation::user_package_ids(),
     );
 
-    builder.qubit_allocate(&[], 0);
+    builder.qubit_allocate(&GigaStack::default(), 0);
 
     builder.gate(
-        &[c.user_code_frame("Main", 10)],
+        &GigaStack::from(vec![c.user_code_frame("Main", 10)]),
         "X",
         false,
         &[0],
@@ -223,15 +236,18 @@ fn source_locations_multiple_user_frames() {
         TracerConfig {
             max_operations: 10,
             source_locations: true,
-            group_scopes: false,
+            group_scopes: GroupScopesOptions::NoGrouping,
         },
         &FakeCompilation::user_package_ids(),
     );
 
-    builder.qubit_allocate(&[], 0);
+    builder.qubit_allocate(&GigaStack::default(), 0);
 
     builder.gate(
-        &[c.user_code_frame("Main", 10), c.user_code_frame("Main", 20)],
+        &GigaStack::from(vec![
+            c.user_code_frame("Main", 10),
+            c.user_code_frame("Main", 20),
+        ]),
         "X",
         false,
         &[0],
@@ -261,14 +277,14 @@ fn source_locations_library_frames_excluded() {
         TracerConfig {
             max_operations: 10,
             source_locations: true,
-            group_scopes: false,
+            group_scopes: GroupScopesOptions::NoGrouping,
         },
         &FakeCompilation::user_package_ids(),
     );
 
-    builder.qubit_allocate(&[], 0);
+    builder.qubit_allocate(&GigaStack::default(), 0);
     builder.gate(
-        &[c.user_code_frame("Main", 10), c.library_frame(20)],
+        &GigaStack::from(vec![c.user_code_frame("Main", 10), c.library_frame(20)]),
         "X",
         false,
         &[0],
@@ -293,15 +309,15 @@ fn source_locations_only_library_frames() {
         TracerConfig {
             max_operations: 10,
             source_locations: true,
-            group_scopes: false,
+            group_scopes: GroupScopesOptions::NoGrouping,
         },
         &FakeCompilation::user_package_ids(),
     );
 
-    builder.qubit_allocate(&[], 0);
+    builder.qubit_allocate(&GigaStack::default(), 0);
 
     builder.gate(
-        &[c.library_frame(20), c.library_frame(30)],
+        &GigaStack::from(vec![c.library_frame(20), c.library_frame(30)]),
         "X",
         false,
         &[0],
@@ -325,14 +341,14 @@ fn source_locations_enabled_no_stack() {
         TracerConfig {
             max_operations: 10,
             source_locations: true,
-            group_scopes: false,
+            group_scopes: GroupScopesOptions::NoGrouping,
         },
         &FakeCompilation::user_package_ids(),
     );
 
-    builder.qubit_allocate(&[], 0);
+    builder.qubit_allocate(&GigaStack::default(), 0);
 
-    builder.gate(&[], "X", false, &[0], &[], None);
+    builder.gate(&GigaStack::default(), "X", false, &[0], &[], None);
 
     let circuit = builder.finish(&c);
 
@@ -350,14 +366,14 @@ fn qubit_source_locations_via_stack() {
         TracerConfig {
             max_operations: 10,
             source_locations: true,
-            group_scopes: false,
+            group_scopes: GroupScopesOptions::NoGrouping,
         },
         &FakeCompilation::user_package_ids(),
     );
 
-    builder.qubit_allocate(&[c.user_code_frame("Main", 10)], 0);
+    builder.qubit_allocate(&GigaStack::from(vec![c.user_code_frame("Main", 10)]), 0);
 
-    builder.gate(&[], "X", false, &[0], &[], None);
+    builder.gate(&GigaStack::default(), "X", false, &[0], &[], None);
 
     let circuit = builder.finish(&c);
 
@@ -374,7 +390,7 @@ fn qubit_labels_for_preallocated_qubits() {
         TracerConfig {
             max_operations: 10,
             source_locations: true,
-            group_scopes: false,
+            group_scopes: GroupScopesOptions::NoGrouping,
         },
         &FakeCompilation::user_package_ids(),
         Some((
@@ -386,10 +402,10 @@ fn qubit_labels_for_preallocated_qubits() {
         )),
     );
 
-    builder.qubit_allocate(&[], 0);
+    builder.qubit_allocate(&GigaStack::default(), 0);
 
     builder.gate(
-        &[c.user_code_frame("Main", 20)],
+        &GigaStack::from(vec![c.user_code_frame("Main", 20)]),
         "X",
         false,
         &[0],
