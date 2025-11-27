@@ -7,7 +7,7 @@ use bytemuck::{Pod, Zeroable};
 use std::cmp::min;
 use wgpu::{
     Adapter, Backends, BindGroup, BindGroupLayout, Buffer, BufferDescriptor, BufferUsages,
-    ComputePipeline, Device, Queue, RequestAdapterOptions, ShaderModule,
+    ComputePipeline, Device, Queue, ShaderModule,
 };
 
 // Some of these values are to align with WebGPU default limits
@@ -833,22 +833,9 @@ impl GpuContext {
                 let _ = sender.send(result);
             });
 
-            // On native, drive the GPU and mapping to completion. No-op on the web (where it automatically polls).
-            // Retry polling up to 5 times in case of transient failures
-            let mut poll_attempts = 0;
-            loop {
-                match self.device.poll(wgpu::PollType::wait_indefinitely()) {
-                    Ok(_) => break,
-                    Err(e) => {
-                        poll_attempts += 1;
-                        assert!(
-                            (poll_attempts < 5),
-                            "GPU polling failed after 5 attempts: {e}"
-                        );
-                        eprintln!("GPU poll attempt {poll_attempts} failed: {e}, retrying...");
-                    }
-                }
-            }
+            self.device
+                .poll(wgpu::PollType::wait_indefinitely())
+                .expect("GPU poll failed");
 
             let map_result = receiver.await.expect("Failed to receive map completion");
             map_result.expect("Buffer mapping failed");
