@@ -4,6 +4,7 @@
 import importlib.metadata
 import pathlib
 import time
+from typing import Literal
 
 import anywidget
 import traitlets
@@ -30,9 +31,7 @@ class SpaceChart(anywidget.AnyWidget):
         - estimates: data for the chart.
         - index (optional): the index of the estimate to be displayed. In case of a single point estimate, the parameter is ignored. In case of the frontier estimate, indexes correspond to points on frontier from the shortest runtime to the longest one. If not provided, the shortest runtime estimate is displayed.
         """
-        super().__init__()
-        self.estimates = estimates
-        self.index = 0 if index is None else index
+        super().__init__(estimates=estimates, index=0 if index is None else index)
 
 
 class EstimatesOverview(anywidget.AnyWidget):
@@ -56,10 +55,11 @@ class EstimatesOverview(anywidget.AnyWidget):
         Returns:
         None
         """
-        super().__init__()
-        self.estimates = estimates
-        self.colors = [] if colors is None else colors
-        self.runNames = [] if runNames is None else runNames
+        super().__init__(
+            estimates=estimates,
+            colors=[] if colors is None else colors,
+            runNames=[] if runNames is None else runNames,
+        )
 
 
 class EstimatesPanel(anywidget.AnyWidget):
@@ -83,10 +83,11 @@ class EstimatesPanel(anywidget.AnyWidget):
         Returns:
         None
         """
-        super().__init__()
-        self.estimates = estimates
-        self.colors = [] if colors is None else colors
-        self.runNames = [] if runNames is None else runNames
+        super().__init__(
+            estimates=estimates,
+            colors=[] if colors is None else colors,
+            runNames=[] if runNames is None else runNames,
+        )
 
 
 class EstimateDetails(anywidget.AnyWidget):
@@ -105,9 +106,7 @@ class EstimateDetails(anywidget.AnyWidget):
         - estimates: data for the report.
         - index (optional): the index of the estimate to be displayed. In case of a single point estimate, the parameter is ignored. In case of the frontier estimate, indexes correspond to points on frontier from the shortest runtime to the longest one. If not provided, the shortest runtime estimate is displayed.
         """
-        super().__init__()
-        self.estimates = estimates
-        self.index = 0 if index is None else index
+        super().__init__(estimates=estimates, index=0 if index is None else index)
 
 
 class Histogram(anywidget.AnyWidget):
@@ -117,6 +116,10 @@ class Histogram(anywidget.AnyWidget):
     comp = traitlets.Unicode("Histogram").tag(sync=True)
     buckets = traitlets.Dict().tag(sync=True)
     shot_count = traitlets.Integer().tag(sync=True)
+    shot_header = traitlets.Bool(True).tag(sync=True)
+    labels = traitlets.Unicode("raw").tag(sync=True)
+    items = traitlets.Unicode("all").tag(sync=True)
+    sort = traitlets.Unicode("a-to-z").tag(sync=True)
 
     def _update_ui(self):
         self.buckets = self._new_buckets.copy()
@@ -133,12 +136,25 @@ class Histogram(anywidget.AnyWidget):
         if time.time() - self._last_message >= 0.1:
             self._update_ui()
 
-    def __init__(self, results=None):
-        super().__init__()
-
+    def __init__(
+        self,
+        results=None,
+        *,
+        shot_header=True,
+        bar_values=None,
+        labels: Literal["raw", "kets", "none"] = "raw",
+        items: Literal["all", "top-10", "top-25"] = "all",
+        sort: Literal["a-to-z", "high-to-low", "low-to-high"] = "a-to-z",
+    ):
+        # Set up initial values before calling super().__init__()
         self._new_buckets = {}
         self._new_count = 0
         self._last_message = time.time()
+
+        # Calculate initial traitlet values
+        initial_shot_header = shot_header
+        initial_buckets = {}
+        initial_shot_count = 0
 
         # If provided a list of results, count the buckets and update.
         # Need to distinguish between the case where we're provided a list of results
@@ -151,7 +167,22 @@ class Histogram(anywidget.AnyWidget):
                     # Convert the raw result to a ShotResult for the call
                     self._add_result({"result": result, "events": []})
 
-            self._update_ui()
+            initial_buckets = self._new_buckets.copy()
+            initial_shot_count = self._new_count
+        elif bar_values is not None:
+            initial_buckets = bar_values
+            initial_shot_count = 0
+            initial_shot_header = False
+
+        # Pass all initial values to super().__init__()
+        super().__init__(
+            shot_header=initial_shot_header,
+            buckets=initial_buckets,
+            shot_count=initial_shot_count,
+            labels=labels,
+            items=items,
+            sort=sort,
+        )
 
     def run(self, entry_expr, shots):
         import qsharp
@@ -177,6 +208,5 @@ class Circuit(anywidget.AnyWidget):
     circuit_json = traitlets.Unicode().tag(sync=True)
 
     def __init__(self, circuit):
-        super().__init__()
-        self.circuit_json = circuit.json()
+        super().__init__(circuit_json=circuit.json())
         self.layout.overflow = "visible scroll"
