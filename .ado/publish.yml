@@ -34,7 +34,7 @@ parameters:
     default:
       - name: linux_x86_64
         poolName: "Azure-Pipelines-DevTools-GPU"
-        imageName: "dsvm-ubuntu-2204"
+        imageName: "1es-pt-dsvm-ubuntu-2204"
         os: linux
         arch: x86_64
         additionalTargets: wasm32-unknown-unknown
@@ -61,7 +61,7 @@ parameters:
           QDK_GPU_TESTS: "1"
       - name: windows_x86_64
         poolName: "Azure-Pipelines-DevTools-GPU"
-        imageName: "dsvm-windows-2022" # Win-specific Py + Platform-independent Py.
+        imageName: "1es-pt-dsvm-windows-2022" # Win-specific Py + Platform-independent Py.
         os: windows
         arch: x86_64
         additionalTargets: wasm32-unknown-unknown
@@ -311,8 +311,10 @@ extends:
 
                   - task: UsePythonVersion@0
                     inputs:
-                      versionSpec: "3.11"
-                    condition: and(ne(variables['Agent.OS'], 'Linux'), ne(variables['arch'], 'aarch64'))
+                      versionSpec: $(PYTHON_VERSION)
+                      ${{ if eq(target.arch, 'aarch64') }}:
+                        architecture: "arm64"
+                    condition: not(and(eq(variables['Agent.OS'], 'Linux'), eq(variables['arch'], 'aarch64')))
 
                   # UsePythonVersion@0 does not support aarch64, so we install Python manually
                   # using tdnf on Azure Linux 3.0 aarch64
