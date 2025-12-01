@@ -295,7 +295,7 @@ extends:
 
                   - task: UsePythonVersion@0
                     inputs:
-                      versionSpec: $(PYTHON_VERSION)
+                      versionSpec: "3.11"
                       ${{ if eq(target.arch, 'aarch64') }}:
                         architecture: "arm64"
                     condition: not(and(eq(variables['Agent.OS'], 'Linux'), eq(variables['arch'], 'aarch64')))
