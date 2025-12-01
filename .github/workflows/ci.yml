@@ -150,6 +150,11 @@ jobs:
         run: python ./prereqs.py --install
       - name: Build and Test
         run: python ./build.py --no-check --cli
+      - name: Upload build timings artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-build-timings-${{ matrix.os }}
+          path: target/cargo-timings/cargo-timing.html
 
   integration-tests:
     name: Integration tests
