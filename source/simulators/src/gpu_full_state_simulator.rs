@@ -11,8 +11,7 @@ pub mod shader_types;
 use crate::gpu_full_state_simulator::shader_types::Op;
 
 pub fn try_create_gpu_adapter() -> Result<String, String> {
-    let adapter =
-        futures::executor::block_on(async { gpu_controller::GpuContext::get_adapter().await })?;
+    let adapter = gpu_controller::GpuContext::get_adapter()?;
     let info = adapter.get_info();
     Ok(format!("{info:?}"))
 }
