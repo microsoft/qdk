@@ -37,7 +37,6 @@ parameters:
         imageName: "1es-pt-dsvm-ubuntu-2204"
         os: linux
         arch: x86_64
-        additionalTargets: wasm32-unknown-unknown
         envVars:
           QDK_GPU_TESTS: "1"
       - name: linux_aarch64
@@ -45,18 +44,15 @@ parameters:
         imageName: "azurelinux-3.0-arm64"
         os: linux
         arch: aarch64
-        additionalRustTargets: wasm32-unknown-unknown
       - name: mac_x86_64
         poolName: "Azure Pipelines"
         imageName: "macOS-latest" # MacOS-specific Py (Mac is usually quite limited).
         os: macOS
         arch: x86_64
-        additionalRustTargets: wasm32-unknown-unknown
       - name: mac_aarch64
         poolName: "AcesShared"
         os: macOS
         arch: aarch64
-        additionalRustTargets: wasm32-unknown-unknown
         envVars:
           QDK_GPU_TESTS: "1"
       - name: windows_x86_64
@@ -64,7 +60,6 @@ parameters:
         imageName: "1es-pt-dsvm-windows-2022" # Win-specific Py + Platform-independent Py.
         os: windows
         arch: x86_64
-        additionalTargets: wasm32-unknown-unknown
         envVars:
           QDK_GPU_TESTS: "1"
       - name: windows_aarch64
@@ -72,7 +67,6 @@ parameters:
         imageName: "Windows-2022-ARM64"
         os: windows
         arch: aarch64
-        additionalRustTargets: wasm32-unknown-unknown
 
 # variables set by pipeline
 # - BASE_IMAGE
@@ -289,20 +283,10 @@ extends:
                   - task: RustInstaller@1
                     inputs:
                       rustVersion: ms-prod-$(RUST_TOOLCHAIN_VERSION)
-                      additionalTargets: $(additionalRustTargets)
+                      additionalTargets: wasm32-unknown-unknown
                       cratesIoFeedOverride: $(cratesIoFeedOverride)
                       toolchainFeed: $(toolchainFeed)
                     displayName: Install Rust toolchain
-                    condition: ne(variables['additionalRustTargets'], '')
-
-                  # otherwise just install the default toolchain
-                  - task: RustInstaller@1
-                    inputs:
-                      rustVersion: ms-prod-$(RUST_TOOLCHAIN_VERSION)
-                      cratesIoFeedOverride: $(cratesIoFeedOverride)
-                      toolchainFeed: $(toolchainFeed)
-                    displayName: Install Rust toolchain
-                    condition: eq(variables['additionalRustTargets'], '')
 
                   - script: |
                       rustc --version
