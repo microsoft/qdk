@@ -86,7 +86,7 @@ async-trait = "0.1"
 tokio = { version = "1.44", features = ["macros", "rt"] }
 rayon = "1.11.0"
 bytemuck = "1.23.2"
-wgpu = { version = "27.0.4", path = "../wgpu/wgpu" }
+wgpu = { version = "27.0.1" }
 
 [workspace.lints.clippy]
 mod_module_files = "warn"
