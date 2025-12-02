@@ -35,9 +35,7 @@ const MAX_CIRCUIT_OPS: i32 = (MAX_BUFFER_SIZE / std::mem::size_of::<Op>()) as i3
 #[allow(clippy::cast_possible_wrap)]
 const MAX_SHOT_ENTRIES: i32 = (MAX_BUFFER_SIZE / SIZEOF_SHOTDATA) as i32;
 
-// There is no hard limit here, but for very large circuits we may need to split into multiple dispatches.
-// TODO: See if there is a way to query the GPU for max dispatches per submit, or derive it from other limits
-const MAX_DISPATCHES_PER_SUBMIT: i32 = 100_000;
+const DEFAULT_MAX_OPS_PER_DISPATCH: i32 = 1000;
 
 pub struct GpuContext {
     device: Device,
@@ -85,7 +83,6 @@ struct RunParams {
     shots_per_batch: i32,
     shot_count: i32,
     workgroups_per_shot: i32,
-    op_count: i32,
     result_count: i32,
 }
 
@@ -472,7 +469,6 @@ impl GpuContext {
             workgroups_per_shot,
             shots_per_batch,
             shot_count,
-            op_count,
             result_count: (result_count + 1),
         })
     }
@@ -677,6 +673,12 @@ impl GpuContext {
     pub async fn run(&self) -> Vec<u32> {
         let resources: &GpuResources = self.resources.as_ref().expect("Resources not initialized");
 
+        // Use environment variable "QDK_GPU_MAX_OPS_PER_DISPATCH" to override the default if set
+        let max_ops_per_dispatch: i32 = std::env::var("QDK_GPU_MAX_OPS_PER_DISPATCH")
+            .ok()
+            .and_then(|val| val.parse().ok())
+            .unwrap_or(DEFAULT_MAX_OPS_PER_DISPATCH);
+
         // Star the upload the ops to the GPU ASAP
         let mut ops_copy_encoder =
             self.device
@@ -754,21 +756,6 @@ impl GpuContext {
                     label: Some("StateVector Command Encoder"),
                 });
 
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("StateVector Compute Pass"),
-                timestamp_writes: None,
-            });
-
-            // TODO: Break into multiple dispatches if too many ops
-            if self.run_params.op_count > MAX_DISPATCHES_PER_SUBMIT {
-                unimplemented!(
-                    "This circuit exceeds the current upper limit of {} operations",
-                    MAX_DISPATCHES_PER_SUBMIT
-                );
-            }
-
-            compute_pass.set_bind_group(0, &resources.bind_group, &[]);
-
             let prepare_workgroup_count =
                 u32::try_from(shots_this_batch).expect("shots_per_batch should fit in u32");
             // Workgroups for execute_op depends on qubit count
@@ -776,46 +763,96 @@ impl GpuContext {
                 u32::try_from(self.run_params.workgroups_per_shot * shots_this_batch)
                     .expect("workgroups_per_shot * shots_per_batch should fit in u32");
 
-            // Start by dispatching an 'init' kernel for the batch of shots
-            compute_pass.set_pipeline(&resources.pipeline_init_op);
-            compute_pass.dispatch_workgroups(execute_workgroup_count, 1, 1);
+            // Split ops into chunks to avoid exceeding max_ops_per_dispatch limit
+            // (noise ops don't count toward the limit)
+            let mut op_chunks = Vec::new();
+            let mut current_chunk = Vec::new();
+            let mut non_noise_count = 0;
 
-            // Dispatch the compute shaders for each op for this batch of shots
             for op in &self.ops {
-                match op.id {
-                    // One qubit gates
-                    ops::ID..=ops::RZ | ops::MOVE => {
-                        compute_pass.set_pipeline(&resources.pipeline_prepare_op);
-                        compute_pass.dispatch_workgroups(prepare_workgroup_count, 1, 1);
+                // Check if this is a noise op
+                let is_noise = matches!(op.id, ops::PAULI_NOISE_1Q..=ops::LOSS_NOISE);
 
-                        compute_pass.set_pipeline(&resources.pipeline_execute_op);
-                        compute_pass.dispatch_workgroups(execute_workgroup_count, 1, 1);
-                    }
-                    // Two qubit gates
-                    ops::CX..=ops::RZZ => {
-                        compute_pass.set_pipeline(&resources.pipeline_prepare_op);
-                        compute_pass.dispatch_workgroups(prepare_workgroup_count, 1, 1);
-
-                        compute_pass.set_pipeline(&resources.pipeline_execute_2q_op);
-                        compute_pass.dispatch_workgroups(execute_workgroup_count, 1, 1);
-                    }
-                    ops::MRESETZ | ops::MZ => {
-                        // Measurement has its own execute pipeline
-                        compute_pass.set_pipeline(&resources.pipeline_prepare_op);
-                        compute_pass.dispatch_workgroups(prepare_workgroup_count, 1, 1);
-
-                        compute_pass.set_pipeline(&resources.pipeline_execute_mz);
-                        compute_pass.dispatch_workgroups(execute_workgroup_count, 1, 1);
-                    }
-                    // Skip over noise ops
-                    ops::PAULI_NOISE_1Q..=ops::LOSS_NOISE => {}
-                    _ => {
-                        panic!("Unsupported op ID {}", op.id);
+                if !is_noise {
+                    non_noise_count += 1;
+                    if non_noise_count > max_ops_per_dispatch {
+                        // Start a new chunk
+                        op_chunks.push(std::mem::take(&mut current_chunk));
+                        non_noise_count = 1;
                     }
                 }
+
+                current_chunk.push(op);
             }
 
-            drop(compute_pass);
+            // Add the last chunk if it has any ops
+            if !current_chunk.is_empty() {
+                op_chunks.push(current_chunk);
+            }
+
+            // Process each chunk in a separate command buffer to avoid TDR
+            for (chunk_idx, chunk) in op_chunks.iter().enumerate() {
+                let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("StateVector Compute Pass"),
+                    timestamp_writes: None,
+                });
+
+                compute_pass.set_bind_group(0, &resources.bind_group, &[]);
+
+                // Start by dispatching an 'init' kernel for the batch of shots (only for first chunk)
+                if chunk_idx == 0 {
+                    compute_pass.set_pipeline(&resources.pipeline_init_op);
+                    compute_pass.dispatch_workgroups(execute_workgroup_count, 1, 1);
+                }
+
+                // Dispatch the compute shaders for each op in this chunk
+                for op in chunk {
+                    match op.id {
+                        // One qubit gates
+                        ops::ID..=ops::RZ | ops::MOVE => {
+                            compute_pass.set_pipeline(&resources.pipeline_prepare_op);
+                            compute_pass.dispatch_workgroups(prepare_workgroup_count, 1, 1);
+
+                            compute_pass.set_pipeline(&resources.pipeline_execute_op);
+                            compute_pass.dispatch_workgroups(execute_workgroup_count, 1, 1);
+                        }
+                        // Two qubit gates
+                        ops::CX..=ops::RZZ => {
+                            compute_pass.set_pipeline(&resources.pipeline_prepare_op);
+                            compute_pass.dispatch_workgroups(prepare_workgroup_count, 1, 1);
+
+                            compute_pass.set_pipeline(&resources.pipeline_execute_2q_op);
+                            compute_pass.dispatch_workgroups(execute_workgroup_count, 1, 1);
+                        }
+                        ops::MRESETZ | ops::MZ => {
+                            // Measurement has its own execute pipeline
+                            compute_pass.set_pipeline(&resources.pipeline_prepare_op);
+                            compute_pass.dispatch_workgroups(prepare_workgroup_count, 1, 1);
+
+                            compute_pass.set_pipeline(&resources.pipeline_execute_mz);
+                            compute_pass.dispatch_workgroups(execute_workgroup_count, 1, 1);
+                        }
+                        // Skip over noise ops
+                        ops::PAULI_NOISE_1Q..=ops::LOSS_NOISE => {}
+                        _ => {
+                            panic!("Unsupported op ID {}", op.id);
+                        }
+                    }
+                }
+
+                drop(compute_pass);
+
+                // Submit this chunk's command buffer
+                let chunk_command_buffer = encoder.finish();
+                self.queue.submit([chunk_command_buffer]);
+
+                // Create a new encoder for the next chunk
+                encoder = self
+                    .device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("StateVector Command Encoder"),
+                    });
+            }
 
             // Copy the results and diagnostics to the download buffer
             encoder.copy_buffer_to_buffer(
