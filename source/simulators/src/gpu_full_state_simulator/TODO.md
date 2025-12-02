@@ -1,5 +1,13 @@
 # Add amplitude damping and dephasing
 
+## Open questions
+
+- 2Q gates that use the Rydberg interaction (CZ) have much higher damping and dephasing rates than single qubit gates.
+- Also application is not symmetrical on the qubits if using "blockade" (only the excited qubit experiences Rydberg decay).
+- So maybe apply CZ specific p_amp and p_phase on the control qubit only for CZ gates?
+
+## Work plan
+
 - Merge Mz back into single qubit op
   - Use renormalization != 1.0 to handle any non-unitary ops
   - Add support for M/Mz, not just MResetZ
