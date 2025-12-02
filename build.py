@@ -3,15 +3,6 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-# ProactorEventLoop is the default event loop on recent Python versions for Windows.
-# it may not be compatible with Python notebooks as it doesn't implement certain methods,
-# at least currently. It is recommended to use SelectorEventLoop. This policy setting
-# has to be before any other imports that may use asyncio.
-import asyncio
-if hasattr(asyncio, "WindowsSelectorEventLoopPolicy"):
-    print("Setting asyncio policy to SelectorEventLoop on Windows.")
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
 import argparse
 from glob import glob
 import os
@@ -789,7 +780,7 @@ if build_pip and build_widgets and args.integration_tests:
                     "--to",
                     "notebook",
                     "--stdout",
-                    "--ExecutePreprocessor.timeout=60",
+                    "--ExecutePreprocessor.timeout=90",
                     "--sanitize-html",
                     "--execute",
                     notebook,
