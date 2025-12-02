@@ -23,8 +23,8 @@ const formatRegisters = (
 ): SVGElement => {
   const qubitRegs: SVGElement[] = [];
   const classicalRegs: SVGElement[] = [];
-  // Render qubit wires
   for (const qId in registers) {
+    // Render qubit wire
     qubitRegs.push(
       line(
         regLineStart,
@@ -35,17 +35,19 @@ const formatRegisters = (
       ),
     );
 
+    // Render classical wires
     for (const classical of registers[qId].children || []) {
       for (const gate of allGates.flat()) {
         if (gate.dataAttributes?.["expanded"] === "true") {
           continue;
         }
 
-        const gateY =
+        const verticalY =
           gate.type === GateType.Measure ? gate.controlsY[0] : undefined;
 
         for (const y of gate.targetsY.flat().filter((y) => y === classical.y)) {
-          classicalRegs.push(_classicalRegister(gate.x, endX, y, gateY));
+          // Found the gate that writes to this classical register
+          classicalRegs.push(_classicalRegister(gate.x, endX, y, verticalY));
         }
       }
     }
