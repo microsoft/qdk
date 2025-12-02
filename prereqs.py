@@ -10,6 +10,7 @@ import sys
 import subprocess
 import tempfile
 import functools
+import shutil
 from pathlib import Path
 
 python_ver = (3, 11)  # Python support for Windows on ARM64 requires v3.11 or later
@@ -27,13 +28,34 @@ platform_arch = "arm64" if platform.machine().lower() in ["aarch64", "arm64"] el
 print = functools.partial(print, flush=True)
 
 
+def get_installed_msrust_targets() -> str:
+    if shutil.which("msrustup"):
+        try:
+            # for some reason msrustup target list --installed doesn't work, so we omit --installed
+            args = ["msrustup", "target", "list"]
+            return subprocess.check_output(args, universal_newlines=True)
+        except subprocess.CalledProcessError as e:
+            message = (
+                f"Unable to determine installed rust targets using msrustup: {str(e)}"
+            )
+            raise Exception(message) from e
+
+
 def get_installed_rust_targets() -> str:
-    try:
-        args = ["rustup", "target", "list", "--installed"]
-        return subprocess.check_output(args, universal_newlines=True)
-    except subprocess.CalledProcessError as e:
-        message = f"Unable to determine installed rust targets: {str(e)}"
-        raise Exception(message)
+    msrust_targets = get_installed_msrust_targets()
+    if msrust_targets:
+        return msrust_targets
+
+    if shutil.which("rustup"):
+        try:
+            args = ["rustup", "target", "list", "--installed"]
+            return subprocess.check_output(args, universal_newlines=True)
+        except subprocess.CalledProcessError as e:
+            message = (
+                f"Unable to determine installed rust targets using rustup: {str(e)}"
+            )
+            raise Exception(message) from e
+    raise Exception("Unable to locate rustup or msrustup in PATH")
 
 
 def add_wasm_tools_to_path():
