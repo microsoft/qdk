@@ -145,12 +145,11 @@ pub(crate) fn get_estimates_from_openqasm(
 
 serializable_type! {
     CircuitConfig,
-    {generation_method: String,
-
+    {
+        generation_method: String,
         max_operations: usize,
         source_locations: bool,
         group_scopes: bool,
-
     },
     r#"export interface ICircuitConfig {
         generationMethod: "simulate" | "classicalEval";
