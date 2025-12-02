@@ -11,20 +11,21 @@ import { group, line } from "./formatUtils.js";
  * stemming from each measurement gate.
  *
  * @param registers    Map from register IDs to register render data.
- * @param measureGates Array of measurement gate render data.
+ * @param allGates     All the gates in the circuit.
  * @param endX         End x coord.
  *
  * @returns SVG representation of register wires.
  */
 const formatRegisters = (
   registers: RegisterMap,
-  measureGates: GateRenderData[],
+  allGates: GateRenderData[],
   endX: number,
 ): SVGElement => {
-  const formattedRegs: SVGElement[] = [];
+  const qubitRegs: SVGElement[] = [];
+  const classicalRegs: SVGElement[] = [];
   // Render qubit wires
   for (const qId in registers) {
-    formattedRegs.push(
+    qubitRegs.push(
       line(
         regLineStart,
         registers[qId].y,
@@ -33,16 +34,24 @@ const formatRegisters = (
         "qubit-wire",
       ),
     );
+
+    for (const classical of registers[qId].children || []) {
+      for (const gate of allGates.flat()) {
+        if (gate.dataAttributes?.["expanded"] === "true") {
+          continue;
+        }
+
+        const gateY =
+          gate.type === GateType.Measure ? gate.controlsY[0] : undefined;
+
+        for (const y of gate.targetsY.flat().filter((y) => y === classical.y)) {
+          classicalRegs.push(_classicalRegister(gate.x, endX, y, gateY));
+        }
+      }
+    }
   }
-  // Render classical wires
-  measureGates.forEach(({ type, x, targetsY, controlsY }) => {
-    if (type !== GateType.Measure) return;
-    const gateY: number = controlsY[0];
-    (targetsY as number[]).forEach((y) => {
-      formattedRegs.push(_classicalRegister(x, gateY, endX, y));
-    });
-  });
-  return group(formattedRegs, { class: "wires" });
+
+  return group(qubitRegs.concat(classicalRegs), { class: "wires" });
 };
 
 /**
@@ -57,26 +66,30 @@ const formatRegisters = (
  */
 const _classicalRegister = (
   startX: number,
-  gateY: number,
   endX: number,
   wireY: number,
+  gateY?: number,
 ): SVGElement => {
   const wirePadding = 1;
-  // Draw vertical lines
-  const vLine1: SVGElement = line(
-    startX + wirePadding,
-    gateY,
-    startX + wirePadding,
-    wireY - wirePadding,
-    "register-classical",
-  );
-  const vLine2: SVGElement = line(
-    startX - wirePadding,
-    gateY,
-    startX - wirePadding,
-    wireY + wirePadding,
-    "register-classical",
-  );
+  const g = [];
+  if (gateY != null) {
+    // Draw vertical lines
+    const vLine1: SVGElement = line(
+      startX + wirePadding,
+      gateY,
+      startX + wirePadding,
+      wireY - wirePadding,
+      "register-classical",
+    );
+    const vLine2: SVGElement = line(
+      startX - wirePadding,
+      gateY,
+      startX - wirePadding,
+      wireY + wirePadding,
+      "register-classical",
+    );
+    g.push(vLine1, vLine2);
+  }
 
   // Draw horizontal lines
   const hLine1: SVGElement = line(
@@ -94,7 +107,9 @@ const _classicalRegister = (
     "register-classical",
   );
 
-  return group([vLine1, vLine2, hLine1, hLine2]);
+  g.push(hLine1, hLine2);
+
+  return group(g);
 };
 
 export { formatRegisters };
