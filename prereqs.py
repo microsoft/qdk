@@ -164,15 +164,6 @@ def check_prereqs(install=False, skip_wasm=False):
 
     installed_rust_targets = get_installed_rust_targets()
 
-    # On MacOS, ensure the required targets are installed
-    if platform_sys == "darwin":
-        targets = ["aarch64-apple-darwin", "x86_64-apple-darwin"]
-        if not all(target in installed_rust_targets for target in targets):
-            print("One or both rust targets are not installed.")
-            print("Please install the missing targets by running:")
-            print("rustup target add aarch64-apple-darwin")
-            print("rustup target add x86_64-apple-darwin")
-
     if not skip_wasm:
         wasm_checks(install, installed_rust_targets)
 
