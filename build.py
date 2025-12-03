@@ -714,6 +714,7 @@ if build_pip and build_widgets and args.integration_tests:
             or f.startswith("carbon.")
             or f.startswith("Ising.")
             or f.startswith("teleport-notebook.")
+            or f.startswith("qdk_simulators.")
         )
     ]
     python_bin = use_python_env(samples_src)
