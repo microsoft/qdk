@@ -44,6 +44,24 @@ function getTimeStr() {
   return `${hh}:${mm}:${ss}.${mil}`;
 }
 
+function copyD3() {
+  // copy from node_modules\d3\dist\d3.js and node_modules\d3-flame-graph\dist\d3-flamegraph.js
+  // to out/d3
+  let modules_root = join(thisDir, "..", "..", "node_modules");
+  let d3Base = join(modules_root, `d3/dist`);
+  let d3Dest = join(thisDir, `out/d3`);
+
+  console.log("Copying the D3 files over from: " + d3Base);
+  mkdirSync(d3Dest, { recursive: true });
+  copyFileSync(join(d3Base, "d3.min.js"), join(d3Dest, "d3.min.js"));
+
+  let d3FlameGraphBase = join(modules_root, `d3-flame-graph/dist`);
+  copyFileSync(
+    join(d3FlameGraphBase, "d3-flamegraph.min.js"),
+    join(d3Dest, "d3-flamegraph.min.js"),
+  );
+}
+
 export function copyWasmToVsCode() {
   // Copy the wasm module into the extension directory
   let qsharpWasm = join(
@@ -161,6 +179,7 @@ if (thisFilePath === resolve(process.argv[1])) {
   } else {
     copyWasmToVsCode();
     copyKatex();
+    copyD3();
     buildBundle();
   }
 }

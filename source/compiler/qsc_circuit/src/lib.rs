@@ -3,6 +3,7 @@
 
 mod builder;
 mod circuit;
+pub mod flamegraph;
 pub mod operations;
 
 pub use builder::{CircuitTracer, GroupScopesOptions, TracerConfig};

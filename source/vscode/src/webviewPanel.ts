@@ -33,6 +33,7 @@ import { getRandomGuid } from "./utils";
 import { getPauliNoiseModel, getQubitLossSetting } from "./config";
 import { qsharpExtensionId } from "./common";
 import { resourceEstimateCommand } from "./estimate";
+import { showFlamegraphCommand } from "./flamegraph";
 
 const QSharpWebViewType = "qsharp-webview";
 const compilerRunTimeoutMs = 1000 * 60 * 5; // 5 minutes
@@ -197,6 +198,20 @@ export function registerWebViewCommands(context: ExtensionContext) {
 
   context.subscriptions.push(
     commands.registerCommand(
+      `${qsharpExtensionId}.showFlamegraph`,
+      async (resource?: vscode.Uri, operation?: IOperationInfo) => {
+        await showFlamegraphCommand(
+          context.extensionUri,
+          context.extension.id.includes("-dev"),
+          operation,
+          UserTaskInvocationType.Command,
+        );
+      },
+    ),
+  );
+
+  context.subscriptions.push(
+    commands.registerCommand(
       `${qsharpExtensionId}.showDocumentation`,
       async () => {
         await showDocumentationCommand(context.extensionUri);
@@ -216,12 +231,14 @@ type PanelType =
   | "estimates"
   | "help"
   | "circuit"
-  | "documentation";
+  | "documentation"
+  | "flamegraph";
 
 const panels: Record<PanelType, { [id: string]: PanelDesc }> = {
   histogram: {},
   estimates: {},
   circuit: {},
+  flamegraph: {},
   help: {},
   documentation: {},
 };
@@ -230,6 +247,7 @@ const panelTypeToTitle: Record<PanelType, string> = {
   histogram: "QDK Histogram",
   estimates: "QDK Estimates",
   circuit: "QDK Circuit",
+  flamegraph: "QDK Flamegraph",
   help: "Q# Help",
   documentation: "Q# Documentation",
 };
@@ -261,7 +279,7 @@ function createPanel(
     return panels[type][id];
   } else {
     let title = `${panelTypeToTitle[type]}`;
-    if (type == "circuit" || type == "histogram") {
+    if (type == "circuit" || type == "histogram" || type == "flamegraph") {
       title = title + ` ${id}`;
     }
     const newPanel = window.createWebviewPanel(
@@ -348,6 +366,8 @@ export class QSharpWebViewPanel {
     const webviewCss = getUri(["out", "webview", "webview.css"]);
     const webviewJs = getUri(["out", "webview", "webview.js"]);
     const resourcesUri = getUri(["resources"]);
+    const d3Js = getUri(["out", "d3", "d3.min.js"]);
+    const d3FlamegraphJs = getUri(["out", "d3", "d3-flamegraph.min.js"]);
 
     return /*html*/ `
   <!DOCTYPE html>
@@ -360,6 +380,8 @@ export class QSharpWebViewPanel {
       <link rel="stylesheet" href="${katexCss}" />
       <link rel="stylesheet" href="${webviewCss}" />
       <script src="${webviewJs}"></script>
+      <script src="${d3Js}"></script>
+      <script src="${d3FlamegraphJs}"></script>
       <script>
         window.resourcesUri = "${resourcesUri.toString()}";
       </script>
@@ -420,6 +442,7 @@ export class QSharpViewViewPanelSerializer implements WebviewPanelSerializer {
       panelType !== "estimates" &&
       panelType !== "histogram" &&
       panelType !== "circuit" &&
+      panelType !== "flamegraph" &&
       panelType !== "help" &&
       panelType != "documentation"
     ) {

@@ -24,6 +24,7 @@ use num_bigint::BigUint;
 use num_complex::Complex;
 use qsc_circuit::{
     Circuit, CircuitTracer, TracerConfig,
+    flamegraph::{Profiler, Stacks},
     operations::{entry_expr_for_qubit_operation, qubit_param_info},
 };
 use qsc_codegen::qir::{fir_to_qir, fir_to_qir_from_callable};
@@ -980,6 +981,76 @@ impl Interpreter {
         let mut sink = std::io::sink();
         let mut out = GenericReceiver::new(&mut sink);
         let mut tracer = CircuitTracer::with_qubit_input_params(
+            tracer_config,
+            &[self.package, self.source_package],
+            qubit_params,
+        );
+        match method {
+            CircuitGenerationMethod::Simulate => {
+                let mut sim = SparseSim::new();
+                let mut tracing_backend = TracingBackend::new(&mut sim, Some(&mut tracer));
+                if let Some((callable, args)) = invoke_params {
+                    self.invoke_with_tracing_backend(
+                        &mut tracing_backend,
+                        &mut out,
+                        callable,
+                        args,
+                        true,
+                    )?;
+                } else {
+                    self.run_with_tracing_backend(
+                        &mut tracing_backend,
+                        &mut out,
+                        entry_expr.as_deref(),
+                        true,
+                    )?;
+                }
+            }
+            CircuitGenerationMethod::ClassicalEval => {
+                let mut tracer = TracingBackend::<SparseSim>::no_backend(&mut tracer);
+                if let Some((callable, args)) = invoke_params {
+                    self.invoke_with_tracing_backend(&mut tracer, &mut out, callable, args, true)?;
+                } else {
+                    self.run_with_tracing_backend(
+                        &mut tracer,
+                        &mut out,
+                        entry_expr.as_deref(),
+                        true,
+                    )?;
+                }
+            }
+        }
+        let circuit = tracer.finish(&(self.compiler.package_store(), &self.fir_store));
+        Ok(circuit)
+    }
+
+    /// Generates a flamegraph for the program.
+    ///
+    /// For `entry` options, see [`CircuitEntryPoint`]. For `tracer_config` options, see [`TracerConfig`].
+    pub fn flamegraph(
+        &mut self,
+        entry: CircuitEntryPoint,
+        method: CircuitGenerationMethod,
+        tracer_config: TracerConfig,
+    ) -> std::result::Result<Stacks, Vec<Error>> {
+        let (entry_expr, qubit_params, invoke_params) = match entry {
+            CircuitEntryPoint::Operation(operation_expr) => {
+                let (package_id, item, functor_app) = self.eval_to_operation(&operation_expr)?;
+                let qubit_param_info = qubit_param_info(item);
+                let expr = entry_expr_for_qubit_operation(item, functor_app, &operation_expr)
+                    .map_err(|e| vec![e.into()])?;
+                (Some(expr), qubit_param_info.map(|i| (package_id, i)), None)
+            }
+            CircuitEntryPoint::EntryExpr(expr) => (Some(expr), None, None),
+            CircuitEntryPoint::Callable(call_val, args_val) => {
+                (None, None, Some((call_val, args_val)))
+            }
+            CircuitEntryPoint::EntryPoint => (None, None, None),
+        };
+
+        let mut sink = std::io::sink();
+        let mut out = GenericReceiver::new(&mut sink);
+        let mut tracer = Profiler::with_qubit_input_params(
             tracer_config,
             &[self.package, self.source_package],
             qubit_params,

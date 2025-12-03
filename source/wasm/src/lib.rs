@@ -15,6 +15,7 @@ use qsc::{
     SparseSim, TargetCapabilityFlags,
     circuit::GroupScopesOptions,
     compile::{self, Dependencies, package_store_with_stdlib},
+    flamegraph::Stacks,
     format_state_id, get_matrix_latex, get_state_latex,
     hir::PackageId,
     interpret::{
@@ -226,6 +227,108 @@ pub fn get_circuit(
             .map_err(interpret_errors_into_qsharp_errors_json)?;
 
         serde_wasm_bindgen::to_value(&circuit).map_err(|e| e.to_string())
+    }
+}
+
+#[wasm_bindgen(typescript_custom_section)]
+const TYPESCRIPT_CUSTOM_SECTION: &'static str = r#"export interface IStacks {
+    name: string;
+    value: number;
+    children: IStacks[];
+}"#;
+
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(typescript_type = IStacks)]
+    #[doc = r#"export interface IStacks {
+    name: string;
+    value: number;
+    children: IStacks[];
+}"#]
+    #[allow(clippy::doc_markdown)]
+    pub type IStacks;
+}
+
+impl From<IStacks> for Stacks {
+    fn from(js_val: IStacks) -> Self {
+        serde_wasm_bindgen::from_value(js_val.into()).expect("deserialization should succeed")
+    }
+}
+
+impl From<Stacks> for IStacks {
+    fn from(val: Stacks) -> Self {
+        serde_wasm_bindgen::to_value(&val)
+            .expect("serialization should succeed")
+            .into()
+    }
+}
+
+#[wasm_bindgen]
+pub fn get_flamegraph(
+    program: ProgramConfig,
+    operation: Option<IOperationInfo>,
+    config: ICircuitConfig,
+) -> Result<JsValue, String> {
+    let config: CircuitConfig = config.into();
+    let method = match config.generation_method.as_str() {
+        "simulate" => qsc::interpret::CircuitGenerationMethod::Simulate,
+        "classicalEval" => qsc::interpret::CircuitGenerationMethod::ClassicalEval,
+        _ => {
+            panic!(
+                "Invalid generation method option: {}",
+                config.generation_method
+            )
+        }
+    };
+    let tracer_config = qsc::circuit::TracerConfig {
+        source_locations: config.source_locations,
+        max_operations: config.max_operations,
+        group_scopes: if config.group_scopes {
+            GroupScopesOptions::GroupScopes
+        } else {
+            GroupScopesOptions::NoGrouping
+        },
+    };
+
+    if is_openqasm_program(&program) {
+        let (sources, capabilities) = into_openqasm_arg(program);
+        let (_, mut interpreter) = get_interpreter_from_openqasm(&sources, capabilities)?;
+
+        let circuit = interpreter
+            .circuit(CircuitEntryPoint::EntryPoint, method, tracer_config)
+            .map_err(interpret_errors_into_qsharp_errors_json)?;
+        serde_wasm_bindgen::to_value(&circuit).map_err(|e| e.to_string())
+    } else {
+        let (source_map, capabilities, language_features, store, deps) =
+            into_qsc_args(program, None, false).map_err(compile_errors_into_qsharp_errors_json)?;
+
+        let (package_type, entry_point) = match operation {
+            Some(p) => {
+                let o: language_service::OperationInfo = p.into();
+                // lib package - no need to enforce an entry point since the operation is provided.
+                (PackageType::Lib, CircuitEntryPoint::Operation(o.operation))
+            }
+            None => {
+                // exe package - the @EntryPoint attribute will be used.
+                (PackageType::Exe, CircuitEntryPoint::EntryPoint)
+            }
+        };
+
+        let mut interpreter = interpret::Interpreter::new(
+            source_map,
+            package_type,
+            capabilities,
+            LanguageFeatures::from_iter(language_features),
+            store,
+            &deps[..],
+        )
+        .map_err(interpret_errors_into_qsharp_errors_json)?;
+
+        let flamegraph = interpreter
+            .flamegraph(entry_point, method, tracer_config)
+            .map_err(interpret_errors_into_qsharp_errors_json)?;
+
+        serde_wasm_bindgen::to_value(&flamegraph).map_err(|e| e.to_string())
     }
 }
 

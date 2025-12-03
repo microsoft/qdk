@@ -74,6 +74,10 @@ pub mod circuit {
     };
 }
 
+pub mod flamegraph {
+    pub use qsc_circuit::flamegraph::Stacks;
+}
+
 pub mod parse {
     pub use qsc_parse::{completion, top_level_nodes};
 }

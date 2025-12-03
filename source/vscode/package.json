@@ -274,6 +274,10 @@
           "when": "resourceLangId == qsharp || resourceLangId == openqasm"
         },
         {
+          "command": "qsharp-vscode.showFlamegraph",
+          "when": "resourceLangId == qsharp || resourceLangId == openqasm"
+        },
+        {
           "command": "qsharp-vscode.showDocumentation",
           "when": "resourceLangId == qsharp"
         },
@@ -428,6 +432,11 @@
       {
         "command": "qsharp-vscode.showCircuit",
         "title": "Show circuit",
+        "category": "QDK"
+      },
+      {
+        "command": "qsharp-vscode.showFlamegraph",
+        "title": "Produce flamegraph",
         "category": "QDK"
       },
       {

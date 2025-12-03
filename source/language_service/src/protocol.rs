@@ -220,6 +220,7 @@ pub enum CodeLensCommand {
     Run(String),
     Estimate(String),
     Circuit(OperationInfo),
+    Flamegraph(OperationInfo),
 }
 
 #[derive(Debug)]

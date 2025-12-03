@@ -362,6 +362,16 @@ impl LanguageService {
                             },
                         ))),
                     ),
+                    qsls::protocol::CodeLensCommand::Flamegraph(op_info) => (
+                        "flamegraph",
+                        Some(CodeLensArg::Operation((
+                            None,
+                            OperationInfo {
+                                operation: op_info.operation,
+                                total_num_qubits: op_info.total_num_qubits,
+                            },
+                        ))),
+                    ),
                 };
                 CodeLens {
                     range,
@@ -561,7 +571,7 @@ serializable_type! {
     },
     r#"export type ICodeLens = {
         range: IRange;
-        command: "histogram" | "estimate" | "debug" | "run" | "circuit";
+        command: "histogram" | "estimate" | "debug" | "run" | "circuit" | "flamegraph";
         args?: any[];
     }"#,
     ICodeLens

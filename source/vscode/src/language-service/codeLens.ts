@@ -68,6 +68,11 @@ function mapCodeLens(cl: ICodeLens): vscode.CodeLens {
       command = "qsharp-vscode.showCircuit";
       tooltip = "Show circuit";
       break;
+    case "flamegraph":
+      title = "Flamegraph";
+      command = "qsharp-vscode.showFlamegraph";
+      tooltip = "Show flamegraph";
+      break;
   }
 
   return new vscode.CodeLens(toVsCodeRange(cl.range), {

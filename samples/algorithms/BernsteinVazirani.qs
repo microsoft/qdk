@@ -31,6 +31,13 @@ operation Main() : Int[] {
     // that various integers represent.
     let integers = [127, 238, 512];
     mutable decodedIntegers = [];
+    mutable A = 4;
+    while A > 0 {
+        use q = Qubit();
+        H(q);
+        Reset(q);
+        A = A - 1;
+    }
     for integer in integers {
         // Create an operation that encodes a bit string represented by an
         // integer as a parity operation.

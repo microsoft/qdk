@@ -90,10 +90,27 @@ pub(crate) fn get_code_lenses(
                                 total_num_qubits: 0,
                             }),
                         });
+                        accum.push(CodeLens {
+                            range,
+                            command: CodeLensCommand::Flamegraph(OperationInfo {
+                                operation: format!("{namespace}.{name}"),
+                                total_num_qubits: 0,
+                            }),
+                        });
                     } else if let Some(params) = qubit_param_info(item) {
                         accum.push(CodeLens {
                             range,
                             command: CodeLensCommand::Circuit(OperationInfo {
+                                operation: format!("{namespace}.{name}"),
+                                total_num_qubits: params
+                                    .iter()
+                                    .map(QubitParam::num_qubits)
+                                    .sum::<u32>(),
+                            }),
+                        });
+                        accum.push(CodeLens {
+                            range,
+                            command: CodeLensCommand::Flamegraph(OperationInfo {
                                 operation: format!("{namespace}.{name}"),
                                 total_num_qubits: params
                                     .iter()
