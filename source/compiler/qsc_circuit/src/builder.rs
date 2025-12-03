@@ -379,36 +379,41 @@ impl SourceLookup for PackageStore {
     }
 
     fn resolve_scope(&self, scope_id: ScopeId) -> LexicalScope {
+        let ScopeId(item_id, functor_app) = scope_id;
         let package = self
-            .get(map_fir_package_to_hir(scope_id.0.package))
+            .get(map_fir_package_to_hir(item_id.package))
             .expect("package id must exist in store");
 
         let item = package
             .package
             .items
-            .get(map_fir_local_item_to_hir(scope_id.0.item))
+            .get(map_fir_local_item_to_hir(item_id.item))
             .expect("item id must exist in package");
 
-        let (scope_offset, scope_name) = match &item.kind {
-            hir::ItemKind::Callable(callable_decl) => {
-                let spec_decl = if scope_id.1.adjoint {
-                    callable_decl.adj.as_ref().unwrap_or(&callable_decl.body)
-                } else {
-                    &callable_decl.body
-                };
-
-                (spec_decl.span.lo, callable_decl.name.name.clone())
-            }
-            _ => panic!("only callables should be in the stack"),
+        let hir::ItemKind::Callable(callable_decl) = &item.kind else {
+            panic!("only callables should be in the stack");
         };
+
+        // Use the proper spec declaration from the source code
+        // depending on which functor application was used.
+        let spec_decl = match (functor_app.adjoint, functor_app.controlled) {
+            (false, 0) => Some(&callable_decl.body),
+            (false, _) => callable_decl.ctl.as_ref(),
+            (true, 0) => callable_decl.adj.as_ref(),
+            (true, _) => callable_decl.ctl_adj.as_ref(),
+        };
+
+        let spec_decl = spec_decl.unwrap_or(&callable_decl.body);
+        let scope_start_offset = spec_decl.span.lo;
+        let scope_name = callable_decl.name.name.clone();
 
         LexicalScope::Callable {
             location: PackageOffset {
-                package_id: scope_id.0.package,
-                offset: scope_offset,
+                package_id: item_id.package,
+                offset: scope_start_offset,
             },
             name: scope_name,
-            functor_app: scope_id.1,
+            functor_app,
         }
     }
 }
