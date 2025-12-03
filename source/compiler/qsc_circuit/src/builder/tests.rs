@@ -127,7 +127,7 @@ fn exceed_max_operations() {
         TracerConfig {
             max_operations: 2,
             source_locations: false,
-            group_scopes: false,
+            group_by_scope: false,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -155,7 +155,7 @@ fn source_locations_enabled() {
         TracerConfig {
             max_operations: 10,
             source_locations: true,
-            group_scopes: false,
+            group_by_scope: false,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -192,7 +192,7 @@ fn source_locations_disabled() {
         TracerConfig {
             max_operations: 10,
             source_locations: false,
-            group_scopes: false,
+            group_by_scope: false,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -223,7 +223,7 @@ fn source_locations_multiple_user_frames() {
         TracerConfig {
             max_operations: 10,
             source_locations: true,
-            group_scopes: false,
+            group_by_scope: false,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -261,7 +261,7 @@ fn source_locations_library_frames_excluded() {
         TracerConfig {
             max_operations: 10,
             source_locations: true,
-            group_scopes: false,
+            group_by_scope: false,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -293,7 +293,7 @@ fn source_locations_only_library_frames() {
         TracerConfig {
             max_operations: 10,
             source_locations: true,
-            group_scopes: false,
+            group_by_scope: false,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -325,7 +325,7 @@ fn source_locations_enabled_no_stack() {
         TracerConfig {
             max_operations: 10,
             source_locations: true,
-            group_scopes: false,
+            group_by_scope: false,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -350,7 +350,7 @@ fn qubit_source_locations_via_stack() {
         TracerConfig {
             max_operations: 10,
             source_locations: true,
-            group_scopes: false,
+            group_by_scope: false,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -374,7 +374,7 @@ fn qubit_labels_for_preallocated_qubits() {
         TracerConfig {
             max_operations: 10,
             source_locations: true,
-            group_scopes: false,
+            group_by_scope: false,
         },
         &FakeCompilation::user_package_ids(),
         Some((

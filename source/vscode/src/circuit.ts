@@ -309,7 +309,7 @@ async function getCircuitOrError(
 export function getConfig(prerelease: boolean) {
   const defaultConfig = {
     maxOperations: 10001,
-    groupScopes: prerelease ? true : false,
+    groupByScope: prerelease ? true : false,
     generationMethod: "classicalEval" as const,
     sourceLocations: true,
   };
@@ -323,10 +323,10 @@ export function getConfig(prerelease: boolean) {
       "maxOperations" in config && typeof config.maxOperations === "number"
         ? config.maxOperations
         : defaultConfig.maxOperations,
-    groupScopes:
-      "groupScopes" in config && typeof config.groupScopes === "boolean"
-        ? config.groupScopes
-        : defaultConfig.groupScopes,
+    groupByScope:
+      "groupByScope" in config && typeof config.groupByScope === "boolean"
+        ? config.groupByScope
+        : defaultConfig.groupByScope,
     generationMethod:
       "generationMethod" in config &&
       typeof config.generationMethod === "string" &&

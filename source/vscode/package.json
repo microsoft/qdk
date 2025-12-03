@@ -112,7 +112,7 @@
               "minimum": 1,
               "description": "The maximum number of operations to include in the circuit diagram."
             },
-            "groupScopes": {
+            "groupByScope": {
               "type": "boolean",
               "default": false,
               "tags": [

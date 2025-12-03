@@ -11,7 +11,7 @@ fn check_groups(c: &FakeCompilation, instructions: &[(Vec<Frame>, &str)], expect
         TracerConfig {
             max_operations: usize::MAX,
             source_locations: false,
-            group_scopes: true,
+            group_by_scope: true,
         },
         &FakeCompilation::user_package_ids(),
     );

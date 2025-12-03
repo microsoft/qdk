@@ -59,7 +59,7 @@ fn compile_and_run_internal(sources: SourceMap, debug: bool) -> String {
             store,
             &[(std_id, None)],
             TracerConfig {
-                group_scopes: false,
+                group_by_scope: false,
                 source_locations: false,
                 max_operations: 0,
             },

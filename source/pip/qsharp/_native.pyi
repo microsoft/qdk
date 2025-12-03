@@ -420,6 +420,7 @@ class CircuitConfig:
         max_operations: Optional[int] = None,
         generation_method: Optional["CircuitGenerationMethod"] = None,
         source_locations: Optional[bool] = None,
+        group_by_scope: Optional[bool] = None,
     ) -> None: ...
 
     """

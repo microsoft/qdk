@@ -149,13 +149,13 @@ serializable_type! {
         generation_method: String,
         max_operations: usize,
         source_locations: bool,
-        group_scopes: bool,
+        group_by_scope: bool,
     },
     r#"export interface ICircuitConfig {
         generationMethod: "simulate" | "classicalEval";
         maxOperations: number;
         sourceLocations: boolean;
-        groupScopes: boolean;
+        groupByScope: boolean;
     }"#,
     ICircuitConfig
 }
@@ -180,7 +180,7 @@ pub fn get_circuit(
     let tracer_config = qsc::circuit::TracerConfig {
         source_locations: config.source_locations,
         max_operations: config.max_operations,
-        group_scopes: config.group_scopes,
+        group_by_scope: config.group_by_scope,
     };
 
     if is_openqasm_program(&program) {

@@ -280,7 +280,7 @@ async function generateAndDrawCircuit(
       },
       {
         generationMethod,
-        groupScopes: true,
+        groupByScope: true,
         maxOperations: 100,
         sourceLocations: true,
       },

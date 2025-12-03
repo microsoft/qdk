@@ -147,7 +147,7 @@ impl CircuitTracer {
             circuit_builder: OperationListBuilder::new(
                 config.max_operations,
                 user_package_ids.to_vec(),
-                config.group_scopes,
+                config.group_by_scope,
                 config.source_locations,
             ),
             next_result_id: 0,
@@ -186,7 +186,7 @@ impl CircuitTracer {
             circuit_builder: OperationListBuilder::new(
                 config.max_operations,
                 user_package_ids.to_vec(),
-                config.group_scopes,
+                config.group_by_scope,
                 config.source_locations,
             ),
             next_result_id: 0,
@@ -206,7 +206,7 @@ impl CircuitTracer {
             OperationListBuilder::new(
                 self.config.max_operations,
                 self.user_package_ids.clone(),
-                self.config.group_scopes,
+                self.config.group_by_scope,
                 self.config.source_locations,
             ),
         )
@@ -452,7 +452,7 @@ pub struct TracerConfig {
     /// in the circuit diagram
     pub source_locations: bool,
     /// Group operations according to call graph in the circuit diagram
-    pub group_scopes: bool,
+    pub group_by_scope: bool,
 }
 
 impl TracerConfig {
@@ -470,7 +470,7 @@ impl Default for TracerConfig {
         Self {
             max_operations: Self::DEFAULT_MAX_OPERATIONS,
             source_locations: true,
-            group_scopes: true,
+            group_by_scope: true,
         }
     }
 }
@@ -830,34 +830,32 @@ impl OperationOrGroup {
     }
 
     fn extend_target_results(&mut self, target_results: &[ResultWire]) {
-        {
-            match &mut self.op {
-                Operation::Measurement(measurement) => {
-                    measurement
-                        .results
-                        .extend(target_results.iter().map(|r| Register {
-                            qubit: r.0,
-                            result: Some(r.1),
-                        }));
-                    measurement
-                        .results
-                        .sort_unstable_by_key(|reg| (reg.qubit, reg.result));
-                    measurement.results.dedup();
-                }
-                Operation::Unitary(unitary) => {
-                    unitary
-                        .targets
-                        .extend(target_results.iter().map(|r| Register {
-                            qubit: r.0,
-                            result: Some(r.1),
-                        }));
-                    unitary
-                        .targets
-                        .sort_unstable_by_key(|r| (r.qubit, r.result));
-                    unitary.targets.dedup();
-                }
-                Operation::Ket(_) => {}
+        match &mut self.op {
+            Operation::Measurement(measurement) => {
+                measurement
+                    .results
+                    .extend(target_results.iter().map(|r| Register {
+                        qubit: r.0,
+                        result: Some(r.1),
+                    }));
+                measurement
+                    .results
+                    .sort_unstable_by_key(|reg| (reg.qubit, reg.result));
+                measurement.results.dedup();
             }
+            Operation::Unitary(unitary) => {
+                unitary
+                    .targets
+                    .extend(target_results.iter().map(|r| Register {
+                        qubit: r.0,
+                        result: Some(r.1),
+                    }));
+                unitary
+                    .targets
+                    .sort_unstable_by_key(|r| (r.qubit, r.result));
+                unitary.targets.dedup();
+            }
+            Operation::Ket(_) => {}
         }
     }
 
@@ -921,14 +919,14 @@ struct OperationListBuilder {
     operations: Vec<OperationOrGroup>,
     source_locations: bool,
     user_package_ids: Vec<PackageId>,
-    group_scopes: bool,
+    group_by_scope: bool,
 }
 
 impl OperationListBuilder {
     fn new(
         max_operations: usize,
         user_package_ids: Vec<PackageId>,
-        group_scopes: bool,
+        group_by_scope: bool,
         source_locations: bool,
     ) -> Self {
         Self {
@@ -937,7 +935,7 @@ impl OperationListBuilder {
             operations: vec![],
             source_locations,
             user_package_ids,
-            group_scopes,
+            group_by_scope,
         }
     }
 
@@ -948,7 +946,7 @@ impl OperationListBuilder {
             return;
         }
 
-        let op_call_stack = if self.group_scopes || self.source_locations {
+        let op_call_stack = if self.group_by_scope || self.source_locations {
             retain_user_frames(&self.user_package_ids, unfiltered_call_stack)
         } else {
             vec![]
@@ -964,7 +962,7 @@ impl OperationListBuilder {
             &mut self.operations,
             &ScopeStack::top(),
             op,
-            if self.group_scopes {
+            if self.group_by_scope {
                 &op_call_stack
             } else {
                 &[]
@@ -1115,6 +1113,15 @@ impl LexicalScope {
     }
 }
 
+/// Inserts an operation into a hierarchical structure that mirrors the call stack.
+///
+/// This function collapses flat call stack traces into nested groups, creating a tree structure
+/// where operations are organized by the lexical scopes (functions/operations) they were called from.
+///
+/// In principle, this is similar to how a profiling tool, such as flamegraph's stackCollapse,
+/// would collapse a series of call stacks into a call hierarchy.
+///
+/// This allows circuit visualizations to show operations grouped by their calling context.
 fn add_scoped_op(
     current_container: &mut Vec<OperationOrGroup>,
     current_scope_stack: &ScopeStack,
