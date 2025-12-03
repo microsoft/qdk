@@ -67,6 +67,8 @@ parameters:
         imageName: "Windows-2022-ARM64"
         os: windows
         arch: aarch64
+        envVars:
+          ADDITIONAL_BUILD_PARAMS: "--no-optional-dependencies"
 
 # variables set by pipeline
 # - BASE_IMAGE
@@ -340,7 +342,7 @@ extends:
 
                   # On anything except Windows aarch64, we can build and run tests normally
                   - script: |
-                      python build.py --pip --no-check-prereqs --integration-tests --manylinux
+                      python build.py --pip --no-check-prereqs --integration-tests --manylinux $(ADDITIONAL_BUILD_PARAMS)
                     displayName: Build Platform-Dependent Py Packages
 
                   - script: |

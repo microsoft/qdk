@@ -98,6 +98,13 @@ parser.add_argument(
     help="Run the GPU simulator tests (default is --no-gpu-tests)",
 )
 
+parser.add_argument(
+    "--optional-dependencies",
+    action=argparse.BooleanOptionalAction,
+    default=True,
+    help="Include optional dependencies (default is --optional-dependencies)",
+)
+
 args = parser.parse_args()
 
 if args.check_prereqs:
@@ -207,8 +214,13 @@ def use_python_env(folder):
 
 
 if npm_install_needed:
+    command = [npm_cmd, "install"]
+    if not args.optional_dependencies:
+        command.append("--omit")
+        command.append("optional")
+
     step_start("Running npm install")
-    subprocess.run([npm_cmd, "install"], check=True, text=True, cwd=root_dir)
+    subprocess.run(command, check=True, text=True, cwd=root_dir)
     step_end()
 
 if args.check:
@@ -552,7 +564,7 @@ if build_widgets:
 if build_wasm:
     step_start("Building the wasm files")
 
-    add_wasm_tools_to_path()  # Run again here in case --skip-prereqs was passed
+    add_wasm_tools_to_path()  # Run again here in case --no-check-prereqs was passed
 
     platform_sys = platform.system().lower()  # 'windows', 'darwin', or 'linux'
 
