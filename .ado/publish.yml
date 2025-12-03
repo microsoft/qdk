@@ -342,7 +342,7 @@ extends:
 
                   # On anything except Windows aarch64, we can build and run tests normally
                   - script: |
-                      python build.py --pip --no-check-prereqs --integration-tests --manylinux $(ADDITIONAL_BUILD_PARAMS)
+                      python build.py --pip --no-check-prereqs --integration-tests --manylinux ${{ variables.ADDITIONAL_BUILD_PARAMS }}
                     displayName: Build Platform-Dependent Py Packages
 
                   - script: |
