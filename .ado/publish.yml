@@ -67,8 +67,6 @@ parameters:
         imageName: "Windows-2022-ARM64"
         os: windows
         arch: aarch64
-        envVars:
-          ADDITIONAL_BUILD_PARAMS: "--no-optional-dependencies"
 
 # variables set by pipeline
 # - BASE_IMAGE
@@ -340,10 +338,17 @@ extends:
                       python ./version.py
                     displayName: Set version
 
-                  # On anything except Windows aarch64, we can build and run tests normally
+                  # Windows arm64
                   - script: |
-                      python build.py --pip --no-check-prereqs --integration-tests --manylinux ${{ variables.ADDITIONAL_BUILD_PARAMS }}
+                      python build.py --pip --no-check-prereqs --no-integration-tests --no-optional-dependencies
                     displayName: Build Platform-Dependent Py Packages
+                    condition: and(eq(variables['Agent.OS'], 'Windows_NT'), eq(variables['arch'], 'aarch64'))
+
+                  # every other platform
+                  - script: |
+                      python build.py --pip --no-check-prereqs --integration-tests --manylinux
+                    displayName: Build Platform-Dependent Py Packages
+                    condition: not(and(eq(variables['Agent.OS'], 'Windows_NT'), eq(variables['arch'], 'aarch64')))
 
                   - script: |
                       dir target\wheels\*
