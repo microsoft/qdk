@@ -35,7 +35,8 @@ const MAX_CIRCUIT_OPS: i32 = (MAX_BUFFER_SIZE / std::mem::size_of::<Op>()) as i3
 #[allow(clippy::cast_possible_wrap)]
 const MAX_SHOT_ENTRIES: i32 = (MAX_BUFFER_SIZE / SIZEOF_SHOTDATA) as i32;
 
-const DEFAULT_MAX_OPS_PER_DISPATCH: i32 = 64;
+// On Windows, running larger circuits/shots can hit TDR issues if too many ops are dispatched in one go.
+const DEFAULT_MAX_OPS_PER_DISPATCH: i32 = 16;
 
 pub struct GpuContext {
     device: Device,
