@@ -112,6 +112,14 @@
               "minimum": 1,
               "description": "The maximum number of operations to include in the circuit diagram."
             },
+            "groupByScope": {
+              "type": "boolean",
+              "default": false,
+              "tags": [
+                "experimental"
+              ],
+              "description": "(Experimental) Whether to group operations into scopes based on the original source code."
+            },
             "generationMethod": {
               "type": "string",
               "default": "classicalEval",
