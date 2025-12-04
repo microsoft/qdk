@@ -830,7 +830,7 @@ class NoiseTable:
 
         for arbitrary pauli fields.
         """
-        self.set_pauli_noise(name.upper(), value)
+        self.set_pauli_noise(name, value)
 
 class NoiseConfig:
     x: NoiseTable
