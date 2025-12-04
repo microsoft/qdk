@@ -612,7 +612,8 @@ fn bell_circuit_trims_classical_qubit_when_second_qubit_in_rzz_is_classical() {
                          │      ╘════════════
         q_2    ───────── X ──── M ──── |0〉 ──
                                 ╘════════════
-    "#]].assert_eq(&circuit.to_string());
+    "#]]
+    .assert_eq(&circuit.to_string());
 }
 
 #[test]
@@ -647,5 +648,6 @@ fn bell_circuit_keeps_classical_qubit_when_second_qubit_in_rzz_is_not_classical(
                                         │      ╘════════════
         q_2    ──────────────────────── X ──── M ──── |0〉 ──
                                                ╘════════════
-    "#]].assert_eq(&circuit.to_string());
+    "#]]
+    .assert_eq(&circuit.to_string());
 }
