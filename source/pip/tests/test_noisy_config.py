@@ -33,26 +33,28 @@ def test_setting_2q_noise_through_attr():
 def test_setting_1q_depolarizing_noise():
     noise = NoiseConfig()
     noise.h.set_depolarizing(0.3)
-    assert noise.h.x == 0.1
-    assert noise.h.y == 0.1
-    assert noise.h.z == 0.1
+    p = 0.3 / 3
+    assert noise.h.x == p
+    assert noise.h.y == p
+    assert noise.h.z == p
 
 
 def test_setting_2q_depolarizing_noise():
     noise = NoiseConfig()
     noise.cz.set_depolarizing(0.15)
-    assert noise.cz.ix == 0.01
-    assert noise.cz.iy == 0.01
-    assert noise.cz.iz == 0.01
-    assert noise.cz.xx == 0.01
-    assert noise.cz.xy == 0.01
-    assert noise.cz.xz == 0.01
-    assert noise.cz.yx == 0.01
-    assert noise.cz.yy == 0.01
-    assert noise.cz.yz == 0.01
-    assert noise.cz.zx == 0.01
-    assert noise.cz.zy == 0.01
-    assert noise.cz.zz == 0.01
+    p = 0.15 / 15
+    assert noise.cz.ix == p
+    assert noise.cz.iy == p
+    assert noise.cz.iz == p
+    assert noise.cz.xx == p
+    assert noise.cz.xy == p
+    assert noise.cz.xz == p
+    assert noise.cz.yx == p
+    assert noise.cz.yy == p
+    assert noise.cz.yz == p
+    assert noise.cz.zx == p
+    assert noise.cz.zy == p
+    assert noise.cz.zz == p
 
 
 def test_setting_2q_noise_on_1q_op_errors():

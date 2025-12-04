@@ -403,8 +403,7 @@ impl NoiseTable {
         // Remove identity.
         pauli_strings.pop();
 
-        let val = (value / Probability::from(self.qubits))
-            / Probability::from(4_u32.pow(self.qubits) - 1);
+        let val = value / Probability::from(4_u32.pow(self.qubits) - 1);
         let mut probabilities = Vec::with_capacity(pauli_strings.len());
         for _ in 0..pauli_strings.len() {
             probabilities.push(val);
