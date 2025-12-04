@@ -2,7 +2,9 @@
 // Licensed under the MIT License.
 
 use pyo3::{
-    Bound, FromPyObject, Py, PyRef, PyResult, Python, exceptions::PyValueError, pyclass, pymethods,
+    Bound, FromPyObject, Py, PyRef, PyResult, Python,
+    exceptions::{PyAttributeError, PyValueError},
+    pyclass, pymethods,
 };
 
 pub(crate) mod clifford;
@@ -259,13 +261,13 @@ impl NoiseTable {
             .chars()
             .all(|c| c == 'I' || c == 'X' || c == 'Y' || c == 'Z')
         {
-            return Err(PyValueError::new_err(format!(
+            return Err(PyAttributeError::new_err(format!(
                 "Pauli string can only contain 'I', 'X', 'Y', 'Z' characters, found {pauli_string}"
             )));
         }
         // Validate number of qubits.
         if pauli_string.len() != self.qubits as usize {
-            return Err(PyValueError::new_err(format!(
+            return Err(PyAttributeError::new_err(format!(
                 "Expected a pauli string with {} characters for this operation, found {}",
                 self.qubits, pauli_string
             )));
@@ -289,6 +291,18 @@ impl NoiseTable {
         }
         Self::generate_pauli_strings(n - 1, extended_strings)
     }
+
+    fn get_pauli_noise(&self, name: &str) -> PyResult<f32> {
+        let name = name.to_uppercase();
+        for (s, val) in self.pauli_strings.iter().zip(&self.probabilities) {
+            if s == &name {
+                return Ok(*val);
+            }
+        }
+        Err(PyAttributeError::new_err(format!(
+            "'NoiseTable' object has no attribute '{name}'",
+        )))
+    }
 }
 
 #[pymethods]
@@ -303,20 +317,41 @@ impl NoiseTable {
         }
     }
 
+    #[allow(
+        clippy::doc_markdown,
+        reason = "this docstring conforms to the python docstring format"
+    )]
+    fn __getattr__(&mut self, name: &str) -> PyResult<f32> {
+        if name == "loss" {
+            Ok(self.loss)
+        } else {
+            self.get_pauli_noise(name)
+        }
+    }
+
+    #[allow(
+        clippy::doc_markdown,
+        reason = "this docstring conforms to the python docstring format"
+    )]
     /// Defining __setattr__ allows setting noise like this
     ///
     /// noise_table = NoiseTable()
     /// noise_table.ziz = 0.005
     ///
     /// for arbitrary pauli fields.
-    fn __setattr__(&mut self, name: String, value: f32) -> PyResult<()> {
-        self.set_pauli_noise(name, value)
+    fn __setattr__(&mut self, name: &str, value: f32) -> PyResult<()> {
+        if name == "loss" {
+            self.loss = value;
+            Ok(())
+        } else {
+            self.set_pauli_noise(name, value)
+        }
     }
 
     ///
     /// The correlated pauli noise to use in simulation.
     ///
-    pub fn set_pauli_noise(&mut self, pauli_string: String, value: f32) -> PyResult<()> {
+    pub fn set_pauli_noise(&mut self, pauli_string: &str, value: f32) -> PyResult<()> {
         let pauli_string = pauli_string.to_uppercase();
         self.validate_pauli_string(&pauli_string)?;
         self.pauli_strings.push(pauli_string);
@@ -335,6 +370,7 @@ impl NoiseTable {
         // Remove identity.
         pauli_strings.pop();
 
+        #[allow(clippy::cast_precision_loss)]
         let val = (value / self.qubits as f32) / (2_u32.pow(self.qubits) - 1) as f32;
         let mut probabilities = Vec::with_capacity(pauli_strings.len());
         for _ in 0..pauli_strings.len() {
