@@ -358,10 +358,11 @@ impl CircuitTracer {
                     .insert(self.wire_map_builder.wire_map.qubit_wire(targets[0]).into());
             }
             "X" | "Y" | "Z"
-                if controls.iter().any(|q| {
-                    self.nontrimmable_qubits
-                        .contains(&self.wire_map_builder.wire_map.qubit_wire(*q).into())
-                }) =>
+                if !controls.is_empty()
+                    && controls.iter().all(|q| {
+                        self.nontrimmable_qubits
+                            .contains(&self.wire_map_builder.wire_map.qubit_wire(*q).into())
+                    }) =>
             {
                 // Controlled Pauli gates with controls that are non-trimmable make the targets non-trimmable
                 for &q in targets {

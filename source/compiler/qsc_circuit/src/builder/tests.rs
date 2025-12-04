@@ -733,3 +733,40 @@ fn bell_circuit_keeps_classical_qubit_when_second_qubit_in_rzz_is_not_classical(
     "#]]
     .assert_eq(&circuit.to_string());
 }
+
+#[test]
+fn target_qubit_trimmed_when_only_one_control_non_classical() {
+    let mut builder = CircuitTracer::new(
+        TracerConfig {
+            max_operations: 100,
+            source_locations: false,
+            group_by_scope: false,
+            trim: true,
+        },
+        &FakeCompilation::user_package_ids(),
+    );
+
+    builder.qubit_allocate(&[], 0);
+    builder.qubit_allocate(&[], 1);
+    builder.qubit_allocate(&[], 2);
+    builder.qubit_allocate(&[], 3);
+
+    builder.gate(&[], "H", false, &[2], &[], None);
+    builder.gate(&[], "X", false, &[0], &[1, 2], None);
+    builder.gate(&[], "H", false, &[3], &[], None);
+    builder.gate(&[], "X", false, &[1], &[3, 2], None);
+    builder.measure(&[], "MResetZ", 0, &val::Result::Id(0));
+    builder.measure(&[], "MResetZ", 1, &val::Result::Id(1));
+    builder.measure(&[], "MResetZ", 2, &val::Result::Id(2));
+
+    let circuit = builder.finish(&FakeCompilation::default());
+
+    expect![[r#"
+        q_1    ───────── X ──── M ──── |0〉 ──
+                         │      ╘════════════
+        q_2    ── H ──── ● ──── M ──── |0〉 ──
+                         │      ╘════════════
+        q_3    ── H ──── ● ──────────────────
+    "#]]
+    .assert_eq(&circuit.to_string());
+}
