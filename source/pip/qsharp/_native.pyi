@@ -822,7 +822,15 @@ class NoiseTable:
         """
 
     def __setattr__(self, name: str, value: float):
-        self.set_pauli_noise(name, value)
+        """
+        Defining __setattr__ allows setting noise like this
+
+        noise_table = NoiseTable()
+        noise_table.ziz = 0.005
+
+        for arbitrary pauli fields.
+        """
+        self.set_pauli_noise(name.upper(), value)
 
 class NoiseConfig:
     x: NoiseTable
