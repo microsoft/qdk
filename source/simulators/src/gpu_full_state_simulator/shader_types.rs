@@ -554,6 +554,8 @@ impl Op {
     }
 
     #[must_use]
+    #[allow(clippy::similar_names)]
+    #[allow(clippy::too_many_arguments)]
     pub fn new_pauli_noise_2q(
         q1: u32,
         q2: u32,

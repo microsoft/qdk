@@ -40,41 +40,38 @@ fn set_noise_op_probabilities(noise_table: &NoiseTable, op: &mut Op) {
     noise_table
         .pauli_strings
         .iter()
-        .enumerate()
-        .for_each(|(i, paulis)| {
-            let prob = noise_table.probabilities[i];
-            match noise_table.qubits {
-                1 => match paulis.as_str() {
-                    "I" => op.r00 = prob,
-                    "X" => op.r01 = prob,
-                    "Y" => op.r02 = prob,
-                    "Z" => op.r03 = prob,
-                    _ => panic!("Invalid pauli string for 1 qubit: {paulis}"),
-                },
-                2 => match paulis.as_str() {
-                    "II" => op.r00 = prob,
-                    "IX" => op.r01 = prob,
-                    "IY" => op.r02 = prob,
-                    "IZ" => op.r03 = prob,
-                    "XI" => op.r10 = prob,
-                    "XX" => op.r11 = prob,
-                    "XY" => op.r12 = prob,
-                    "XZ" => op.r13 = prob,
-                    "YI" => op.r20 = prob,
-                    "YX" => op.r21 = prob,
-                    "YY" => op.r22 = prob,
-                    "YZ" => op.r23 = prob,
-                    "ZI" => op.r30 = prob,
-                    "ZX" => op.r31 = prob,
-                    "ZY" => op.r32 = prob,
-                    "ZZ" => op.r33 = prob,
-                    _ => panic!("Invalid pauli string for 2 qubits: {paulis}"),
-                },
-                _ => panic!(
-                    "Unsupported qubit count in noise table: {}",
-                    noise_table.qubits
-                ),
-            }
+        .zip(&noise_table.probabilities)
+        .for_each(|(pauli_str, prob)| match noise_table.qubits {
+            1 => match pauli_str.as_str() {
+                "I" => op.r00 = *prob,
+                "X" => op.r01 = *prob,
+                "Y" => op.r02 = *prob,
+                "Z" => op.r03 = *prob,
+                _ => panic!("Invalid pauli string for 1 qubit: {pauli_str}"),
+            },
+            2 => match pauli_str.as_str() {
+                "II" => op.r00 = *prob,
+                "IX" => op.r01 = *prob,
+                "IY" => op.r02 = *prob,
+                "IZ" => op.r03 = *prob,
+                "XI" => op.r10 = *prob,
+                "XX" => op.r11 = *prob,
+                "XY" => op.r12 = *prob,
+                "XZ" => op.r13 = *prob,
+                "YI" => op.r20 = *prob,
+                "YX" => op.r21 = *prob,
+                "YY" => op.r22 = *prob,
+                "YZ" => op.r23 = *prob,
+                "ZI" => op.r30 = *prob,
+                "ZX" => op.r31 = *prob,
+                "ZY" => op.r32 = *prob,
+                "ZZ" => op.r33 = *prob,
+                _ => panic!("Invalid pauli string for 2 qubits: {pauli_str}"),
+            },
+            _ => panic!(
+                "Unsupported qubit count in noise table: {}",
+                noise_table.qubits
+            ),
         });
 }
 
