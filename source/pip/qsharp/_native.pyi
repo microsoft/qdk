@@ -801,6 +801,16 @@ class IdleNoiseParams:
 class NoiseTable:
     loss: float
 
+    def __setattr__(self, name: str, value: float):
+        """
+        Defining __setattr__ allows setting noise like this
+
+        noise_table = NoiseTable()
+        noise_table.ziz = 0.005
+
+        for arbitrary pauli fields.
+        """
+
     def set_pauli_noise(self, pauli_string: str, value: float):
         """
         The correlated pauli noise to use in simulation.
@@ -820,17 +830,6 @@ class NoiseTable:
         """
         The phase flip noise to use in simulation.
         """
-
-    def __setattr__(self, name: str, value: float):
-        """
-        Defining __setattr__ allows setting noise like this
-
-        noise_table = NoiseTable()
-        noise_table.ziz = 0.005
-
-        for arbitrary pauli fields.
-        """
-        self.set_pauli_noise(name, value)
 
 class NoiseConfig:
     x: NoiseTable

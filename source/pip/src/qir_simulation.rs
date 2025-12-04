@@ -303,6 +303,16 @@ impl NoiseTable {
         }
     }
 
+    /// Defining __setattr__ allows setting noise like this
+    ///
+    /// noise_table = NoiseTable()
+    /// noise_table.ziz = 0.005
+    ///
+    /// for arbitrary pauli fields.
+    fn __setattr__(&mut self, name: String, value: f32) -> PyResult<()> {
+        self.set_pauli_noise(name, value)
+    }
+
     ///
     /// The correlated pauli noise to use in simulation.
     ///
