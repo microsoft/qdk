@@ -111,7 +111,7 @@ impl NoiseTable {
 
     #[must_use]
     pub fn is_noiseless(&self) -> bool {
-        self.probabilities.iter().all(|p| *p == 0.0) && self.loss == 0.0
+        self.probabilities.is_empty() && self.loss == 0.0
     }
 
     #[must_use]

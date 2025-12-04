@@ -241,16 +241,12 @@ pub struct NoiseTable {
 }
 
 impl NoiseTable {
-    fn validate_propability(value: f32) -> PyResult<()> {
+    fn validate_probability(value: f32) -> PyResult<()> {
         if value < 0.0 {
-            return Err(PyValueError::new_err(
-                "Pauli noise probabilities must be non-negative.",
-            ));
+            return Err(PyValueError::new_err("Probabilities must be non-negative."));
         }
         if value > 1.0 {
-            return Err(PyValueError::new_err(
-                "The sum of Pauli noise probabilities must be at most 1.",
-            ));
+            return Err(PyValueError::new_err("Probabilities must be at most 1."));
         }
         Ok(())
     }
@@ -354,9 +350,15 @@ impl NoiseTable {
     pub fn set_pauli_noise(&mut self, pauli: &str, value: f32) -> PyResult<()> {
         let pauli = pauli.to_uppercase();
         self.validate_pauli_string(&pauli)?;
+        Self::validate_probability(value)?;
         if let Some(idx) = self.pauli_strings.iter().position(|elt| elt == &pauli) {
-            self.probabilities[idx] = value;
-        } else {
+            if value == 0.0 {
+                self.pauli_strings.remove(idx);
+                self.probabilities.remove(idx);
+            } else {
+                self.probabilities[idx] = value;
+            }
+        } else if value > 0.0 {
             self.pauli_strings.push(pauli);
             self.probabilities.push(value);
         }
@@ -367,7 +369,7 @@ impl NoiseTable {
     /// The depolarizing noise to use in simulation.
     ///
     pub fn set_depolarizing(&mut self, value: f32) -> PyResult<()> {
-        Self::validate_propability(value)?;
+        Self::validate_probability(value)?;
 
         // Generate all pauli strings.
         let mut pauli_strings = Self::generate_pauli_strings(self.qubits, vec![String::new()]);
@@ -391,7 +393,7 @@ impl NoiseTable {
     /// The bit flip noise to use in simulation.
     ///
     pub fn set_bitflip(&mut self, value: f32) -> PyResult<()> {
-        Self::validate_propability(value)?;
+        Self::validate_probability(value)?;
         assert_eq!(self.qubits, 1);
         self.pauli_strings = vec![String::from("X")];
         self.probabilities = vec![value];
@@ -402,7 +404,7 @@ impl NoiseTable {
     /// The phase flip noise to use in simulation.
     ///
     pub fn set_phaseflip(&mut self, value: f32) -> PyResult<()> {
-        Self::validate_propability(value)?;
+        Self::validate_probability(value)?;
         assert_eq!(self.qubits, 1);
         self.pauli_strings = vec![String::from("Z")];
         self.probabilities = vec![value];
