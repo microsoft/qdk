@@ -421,6 +421,7 @@ class CircuitConfig:
         generation_method: Optional["CircuitGenerationMethod"] = None,
         source_locations: Optional[bool] = None,
         group_by_scope: Optional[bool] = None,
+        trim: bool = False,
     ) -> None: ...
 
     """
