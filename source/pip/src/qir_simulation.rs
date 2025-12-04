@@ -351,11 +351,15 @@ impl NoiseTable {
     ///
     /// The correlated pauli noise to use in simulation.
     ///
-    pub fn set_pauli_noise(&mut self, pauli_string: &str, value: f32) -> PyResult<()> {
-        let pauli_string = pauli_string.to_uppercase();
-        self.validate_pauli_string(&pauli_string)?;
-        self.pauli_strings.push(pauli_string);
-        self.probabilities.push(value);
+    pub fn set_pauli_noise(&mut self, pauli: &str, value: f32) -> PyResult<()> {
+        let pauli = pauli.to_uppercase();
+        self.validate_pauli_string(&pauli)?;
+        if let Some(idx) = self.pauli_strings.iter().position(|elt| elt == &pauli) {
+            self.probabilities[idx] = value;
+        } else {
+            self.pauli_strings.push(pauli);
+            self.probabilities.push(value);
+        }
         Ok(())
     }
 
