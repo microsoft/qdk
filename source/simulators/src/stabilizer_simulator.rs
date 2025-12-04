@@ -3,8 +3,10 @@
 
 //! This crate implements a stabilizer simulator for the QDK.
 
+mod noise;
 pub mod operation;
 
+use noise::{CumulativeNoiseConfig, Fault};
 use operation::Operation;
 use paulimer::{
     Simulation, UnitaryOp,
@@ -13,7 +15,7 @@ use paulimer::{
 };
 use std::fmt::Write;
 
-use crate::noise_config::{CumulativeNoiseConfig, Fault, NoiseConfig};
+use crate::noise_config::NoiseConfig;
 
 /// A qubit ID.
 pub type QubitID = usize;
@@ -85,7 +87,7 @@ impl Simulator {
         if !self.loss[target] {
             self.apply_idle_noise(target);
             self.state.apply_unitary(UnitaryOp::X, &[target]);
-            self.apply_fault(self.noise_config.x.gen_operation_fault(), target);
+            self.apply_fault(self.noise_config.x.gen_operation_fault(), &[target]);
         }
     }
 
@@ -94,7 +96,7 @@ impl Simulator {
         if !self.loss[target] {
             self.apply_idle_noise(target);
             self.state.apply_unitary(UnitaryOp::Y, &[target]);
-            self.apply_fault(self.noise_config.y.gen_operation_fault(), target);
+            self.apply_fault(self.noise_config.y.gen_operation_fault(), &[target]);
         }
     }
 
@@ -103,7 +105,7 @@ impl Simulator {
         if !self.loss[target] {
             self.apply_idle_noise(target);
             self.state.apply_unitary(UnitaryOp::Z, &[target]);
-            self.apply_fault(self.noise_config.z.gen_operation_fault(), target);
+            self.apply_fault(self.noise_config.z.gen_operation_fault(), &[target]);
         }
     }
 
@@ -112,7 +114,7 @@ impl Simulator {
         if !self.loss[target] {
             self.apply_idle_noise(target);
             apply_hadamard(&mut self.state, target);
-            self.apply_fault(self.noise_config.h.gen_operation_fault(), target);
+            self.apply_fault(self.noise_config.h.gen_operation_fault(), &[target]);
         }
     }
 
@@ -121,7 +123,7 @@ impl Simulator {
         if !self.loss[target] {
             self.apply_idle_noise(target);
             self.state.apply_unitary(UnitaryOp::SqrtZ, &[target]);
-            self.apply_fault(self.noise_config.s.gen_operation_fault(), target);
+            self.apply_fault(self.noise_config.s.gen_operation_fault(), &[target]);
         }
     }
 
@@ -130,7 +132,7 @@ impl Simulator {
         if !self.loss[target] {
             self.apply_idle_noise(target);
             self.state.apply_unitary(UnitaryOp::SqrtZInv, &[target]);
-            self.apply_fault(self.noise_config.s_adj.gen_operation_fault(), target);
+            self.apply_fault(self.noise_config.s_adj.gen_operation_fault(), &[target]);
         }
     }
 
@@ -139,7 +141,7 @@ impl Simulator {
         if !self.loss[target] {
             self.apply_idle_noise(target);
             self.state.apply_unitary(UnitaryOp::SqrtX, &[target]);
-            self.apply_fault(self.noise_config.sx.gen_operation_fault(), target);
+            self.apply_fault(self.noise_config.sx.gen_operation_fault(), &[target]);
         }
     }
 
@@ -148,7 +150,7 @@ impl Simulator {
         if !self.loss[target] {
             self.apply_idle_noise(target);
             self.state.apply_unitary(UnitaryOp::SqrtXInv, &[target]);
-            self.apply_fault(self.noise_config.sx_adj.gen_operation_fault(), target);
+            self.apply_fault(self.noise_config.sx_adj.gen_operation_fault(), &[target]);
         }
     }
 
@@ -159,8 +161,10 @@ impl Simulator {
             self.apply_idle_noise(target);
             self.state
                 .apply_unitary(UnitaryOp::ControlledX, &[control, target]);
-            self.apply_fault(self.noise_config.cx.gen_operation_fault(), control);
-            self.apply_fault(self.noise_config.cx.gen_operation_fault(), target);
+            self.apply_fault(
+                self.noise_config.cx.gen_operation_fault(),
+                &[control, target],
+            );
         }
     }
 
@@ -171,8 +175,10 @@ impl Simulator {
             self.apply_idle_noise(target);
             self.state
                 .apply_unitary(UnitaryOp::ControlledZ, &[control, target]);
-            self.apply_fault(self.noise_config.cz.gen_operation_fault(), control);
-            self.apply_fault(self.noise_config.cz.gen_operation_fault(), target);
+            self.apply_fault(
+                self.noise_config.cz.gen_operation_fault(),
+                &[control, target],
+            );
         }
     }
 
@@ -180,7 +186,7 @@ impl Simulator {
     pub fn mresetz(&mut self, target: QubitID, result_id: QubitID) {
         self.apply_idle_noise(target);
         self.record_z_measurement(target, result_id);
-        self.apply_fault(self.noise_config.mresetz.gen_operation_fault(), target);
+        self.apply_fault(self.noise_config.mresetz.gen_operation_fault(), &[target]);
     }
 
     /// Move operation. The purpose of this operation is modeling
@@ -188,7 +194,7 @@ impl Simulator {
     pub fn mov(&mut self, target: QubitID) {
         if !self.loss[target] {
             self.apply_idle_noise(target);
-            self.apply_fault(self.noise_config.mov.gen_operation_fault(), target);
+            self.apply_fault(self.noise_config.mov.gen_operation_fault(), &[target]);
         }
     }
 
@@ -219,19 +225,26 @@ impl Simulator {
         let idle_time = self.time - self.last_operation_time[target];
         self.last_operation_time[target] = self.time;
         let fault = self.noise_config.gen_idle_fault(idle_time);
-        self.apply_fault(fault, target);
+        self.apply_fault(fault, &[target]);
     }
 
-    fn apply_fault(&mut self, fault: Fault, target: QubitID) {
+    fn apply_fault(&mut self, fault: Fault, targets: &[QubitID]) {
         match fault {
             Fault::None => (),
-            Fault::X => self.state.apply_unitary(UnitaryOp::X, &[target]),
-            Fault::Y => self.state.apply_unitary(UnitaryOp::Y, &[target]),
-            Fault::Z => self.state.apply_unitary(UnitaryOp::Z, &[target]),
-            Fault::S => self.state.apply_unitary(UnitaryOp::SqrtZ, &[target]),
+            Fault::Pauli(pauli_observables) => {
+                let observable: Vec<_> = pauli_observables
+                    .into_iter()
+                    .zip(targets)
+                    .map(|(pauli, id)| (pauli, *id).into())
+                    .collect();
+                self.state.pauli(&observable);
+            }
+            Fault::S => self.state.apply_unitary(UnitaryOp::SqrtZ, targets),
             Fault::Loss => {
-                self.measure_z(target);
-                self.loss[target] = true;
+                for target in targets {
+                    self.measure_z(*target);
+                    self.loss[*target] = true;
+                }
             }
         }
     }

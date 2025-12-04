@@ -5,7 +5,7 @@
 
 use core::panic;
 use qdk_simulators::run_parallel_shots;
-use qdk_simulators::shader_types::Op;
+use qdk_simulators::shader_types::{Op, ops};
 use regex_lite::Regex;
 use std::time::Instant;
 use std::vec;
@@ -214,23 +214,84 @@ fn test_simple_rotation_and_entanglement() {
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
 }
 
+// Given 2 qubits and a vector of (pauli_string, probability) tuples, make a noise op
+fn make_2q_pauli_noise(q1: u32, q2: u32, p: Vec<(&str, f32)>) -> Op {
+    let mut op = Op::new_2q_gate(ops::PAULI_NOISE_2Q, q1, q2);
+    let mut total_prob = 0.0;
+
+    for (pauli_str, prob) in p {
+        match pauli_str {
+            "IX" => {
+                op.r01 = prob;
+            }
+            "IY" => {
+                op.r02 = prob;
+            }
+            "IZ" => {
+                op.r03 = prob;
+            }
+            "XI" => {
+                op.r10 = prob;
+            }
+            "XX" => {
+                op.r11 = prob;
+            }
+            "XY" => {
+                op.r12 = prob;
+            }
+            "XZ" => {
+                op.r13 = prob;
+            }
+            "YI" => {
+                op.r20 = prob;
+            }
+            "YX" => {
+                op.r21 = prob;
+            }
+            "YY" => {
+                op.r22 = prob;
+            }
+            "YZ" => {
+                op.r23 = prob;
+            }
+            "ZI" => {
+                op.r30 = prob;
+            }
+            "ZX" => {
+                op.r31 = prob;
+            }
+            "ZY" => {
+                op.r32 = prob;
+            }
+            "ZZ" => {
+                op.r33 = prob;
+            }
+            _ => panic!("Invalid pauli string: {}", pauli_str),
+        }
+        total_prob += prob;
+    }
+    assert!(total_prob <= 1.0, "Total probability exceeds 1.0");
+    op.r00 = 1.0 - total_prob;
+    op
+}
+
 fn test_2q_pauli_noise() {
     let ops: Vec<Op> = vec![
         Op::new_h_gate(0),
         Op::new_cx_gate(0, 1),
-        Op::new_pauli_noise_2q(0, 1, 0.1, 0.1, 0.1),
+        make_2q_pauli_noise(0, 1, vec![("XX", 0.1), ("YY", 0.1), ("ZZ", 0.1)]),
         Op::new_cx_gate(1, 2),
-        Op::new_pauli_noise_2q(1, 2, 0.1, 0.1, 0.1),
+        make_2q_pauli_noise(1, 2, vec![("XX", 0.1), ("YY", 0.1), ("ZZ", 0.1)]),
         Op::new_cx_gate(2, 3),
-        Op::new_pauli_noise_2q(2, 3, 0.1, 0.1, 0.1),
+        make_2q_pauli_noise(2, 3, vec![("XX", 0.1), ("YY", 0.1), ("ZZ", 0.1)]),
         Op::new_cx_gate(3, 4),
-        Op::new_pauli_noise_2q(3, 4, 0.1, 0.1, 0.1),
+        make_2q_pauli_noise(3, 4, vec![("XX", 0.1), ("YY", 0.1), ("ZZ", 0.1)]),
         Op::new_cx_gate(4, 5),
-        Op::new_pauli_noise_2q(4, 5, 0.3, 0.1, 0.1),
+        make_2q_pauli_noise(4, 5, vec![("XX", 0.1), ("YY", 0.1), ("ZZ", 0.1)]),
         Op::new_cx_gate(5, 6),
-        Op::new_pauli_noise_2q(5, 6, 0.3, 0.1, 0.1),
+        make_2q_pauli_noise(5, 6, vec![("XX", 0.1), ("YY", 0.1), ("ZZ", 0.1)]),
         Op::new_cx_gate(6, 7),
-        Op::new_pauli_noise_2q(6, 7, 0.3, 0.1, 0.1),
+        make_2q_pauli_noise(6, 7, vec![("XX", 0.1), ("YY", 0.1), ("ZZ", 0.1)]),
         Op::new_mresetz_gate(0, 0),
         Op::new_mresetz_gate(1, 1),
         Op::new_mresetz_gate(2, 2),
@@ -296,18 +357,42 @@ fn test_benzene() {
         Op::new_pauli_noise_1q(2, 0.000166, 0.000166, 0.000166),
         Op::new_x_gate(0),
         Op::new_cx_gate(0, 7),
-        Op::new_pauli_noise_2q(0, 7, 0.000166, 0.000166, 0.000166),
+        make_2q_pauli_noise(
+            0,
+            7,
+            vec![("XX", 0.000166), ("YY", 0.000166), ("ZZ", 0.000166)],
+        ),
         Op::new_cx_gate(0, 6),
-        Op::new_pauli_noise_2q(0, 6, 0.000166, 0.000166, 0.000166),
+        make_2q_pauli_noise(
+            0,
+            6,
+            vec![("XX", 0.000166), ("YY", 0.000166), ("ZZ", 0.000166)],
+        ),
         Op::new_cx_gate(0, 1),
-        Op::new_pauli_noise_2q(0, 1, 0.000166, 0.000166, 0.000166),
+        make_2q_pauli_noise(
+            0,
+            1,
+            vec![("XX", 0.000166), ("YY", 0.000166), ("ZZ", 0.000166)],
+        ),
         Op::new_x_gate(3),
         Op::new_cx_gate(2, 3),
-        Op::new_pauli_noise_2q(2, 3, 0.000166, 0.000166, 0.000166),
+        make_2q_pauli_noise(
+            2,
+            3,
+            vec![("XX", 0.000166), ("YY", 0.000166), ("ZZ", 0.000166)],
+        ),
         Op::new_cx_gate(2, 8),
-        Op::new_pauli_noise_2q(2, 8, 0.000166, 0.000166, 0.000166),
+        make_2q_pauli_noise(
+            2,
+            8,
+            vec![("XX", 0.000166), ("YY", 0.000166), ("ZZ", 0.000166)],
+        ),
         Op::new_cx_gate(3, 9),
-        Op::new_pauli_noise_2q(3, 9, 0.000166, 0.000166, 0.000166),
+        make_2q_pauli_noise(
+            3,
+            9,
+            vec![("XX", 0.000166), ("YY", 0.000166), ("ZZ", 0.000166)],
+        ),
         Op::new_h_gate(2),
         Op::new_pauli_noise_1q(2, 0.000166, 0.000166, 0.000166),
         Op::new_h_gate(3),

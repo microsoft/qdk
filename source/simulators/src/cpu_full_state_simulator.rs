@@ -1,11 +1,14 @@
+mod noise;
+
 use core::f64;
 use std::sync::LazyLock;
 
 use crate::{
-    noise_config::{CumulativeNoiseConfig, Fault, NoiseConfig},
+    noise_config::NoiseConfig,
     stabilizer_simulator::{MeasurementResult, QubitID},
 };
 use nalgebra::Complex;
+use noise::{CumulativeNoiseConfig, Fault};
 use noisy_simulator::{Instrument, NoisySimulator, Operation, StateVectorSimulator, operation};
 
 static X: LazyLock<Operation> = LazyLock::new(|| {
@@ -236,7 +239,7 @@ impl Simulator {
             self.state
                 .apply_operation(&X, &[target])
                 .expect("apply_operation should succeed");
-            self.apply_fault(self.noise_config.x.gen_operation_fault(), target);
+            self.apply_fault(self.noise_config.x.gen_operation_fault(), &[target]);
         }
     }
 
@@ -247,7 +250,7 @@ impl Simulator {
             self.state
                 .apply_operation(&Y, &[target])
                 .expect("apply_operation should succeed");
-            self.apply_fault(self.noise_config.y.gen_operation_fault(), target);
+            self.apply_fault(self.noise_config.y.gen_operation_fault(), &[target]);
         }
     }
 
@@ -258,7 +261,7 @@ impl Simulator {
             self.state
                 .apply_operation(&Z, &[target])
                 .expect("apply_operation should succeed");
-            self.apply_fault(self.noise_config.z.gen_operation_fault(), target);
+            self.apply_fault(self.noise_config.z.gen_operation_fault(), &[target]);
         }
     }
 
@@ -269,7 +272,7 @@ impl Simulator {
             self.state
                 .apply_operation(&H, &[target])
                 .expect("apply_operation should succeed");
-            self.apply_fault(self.noise_config.h.gen_operation_fault(), target);
+            self.apply_fault(self.noise_config.h.gen_operation_fault(), &[target]);
         }
     }
 
@@ -280,7 +283,7 @@ impl Simulator {
             self.state
                 .apply_operation(&S, &[target])
                 .expect("apply_operation should succeed");
-            self.apply_fault(self.noise_config.s.gen_operation_fault(), target);
+            self.apply_fault(self.noise_config.s.gen_operation_fault(), &[target]);
         }
     }
 
@@ -291,7 +294,7 @@ impl Simulator {
             self.state
                 .apply_operation(&S_ADJ, &[target])
                 .expect("apply_operation should succeed");
-            self.apply_fault(self.noise_config.s_adj.gen_operation_fault(), target);
+            self.apply_fault(self.noise_config.s_adj.gen_operation_fault(), &[target]);
         }
     }
 
@@ -302,7 +305,7 @@ impl Simulator {
             self.state
                 .apply_operation(&SX, &[target])
                 .expect("apply_operation should succeed");
-            self.apply_fault(self.noise_config.sx.gen_operation_fault(), target);
+            self.apply_fault(self.noise_config.sx.gen_operation_fault(), &[target]);
         }
     }
 
@@ -313,7 +316,7 @@ impl Simulator {
             self.state
                 .apply_operation(&SX_ADJ, &[target])
                 .expect("apply_operation should succeed");
-            self.apply_fault(self.noise_config.sx_adj.gen_operation_fault(), target);
+            self.apply_fault(self.noise_config.sx_adj.gen_operation_fault(), &[target]);
         }
     }
 
@@ -324,7 +327,7 @@ impl Simulator {
             self.state
                 .apply_operation(&T, &[target])
                 .expect("apply_operation should succeed");
-            self.apply_fault(self.noise_config.t.gen_operation_fault(), target);
+            self.apply_fault(self.noise_config.t.gen_operation_fault(), &[target]);
         }
     }
 
@@ -335,7 +338,7 @@ impl Simulator {
             self.state
                 .apply_operation(&T_ADJ, &[target])
                 .expect("apply_operation should succeed");
-            self.apply_fault(self.noise_config.t_adj.gen_operation_fault(), target);
+            self.apply_fault(self.noise_config.t_adj.gen_operation_fault(), &[target]);
         }
     }
 
@@ -346,7 +349,7 @@ impl Simulator {
             self.state
                 .apply_operation(&rx(angle), &[target])
                 .expect("apply_operation should succeed");
-            self.apply_fault(self.noise_config.rx.gen_operation_fault(), target);
+            self.apply_fault(self.noise_config.rx.gen_operation_fault(), &[target]);
         }
     }
 
@@ -357,7 +360,7 @@ impl Simulator {
             self.state
                 .apply_operation(&ry(angle), &[target])
                 .expect("apply_operation should succeed");
-            self.apply_fault(self.noise_config.ry.gen_operation_fault(), target);
+            self.apply_fault(self.noise_config.ry.gen_operation_fault(), &[target]);
         }
     }
 
@@ -368,7 +371,7 @@ impl Simulator {
             self.state
                 .apply_operation(&rz(angle), &[target])
                 .expect("apply_operation should succeed");
-            self.apply_fault(self.noise_config.rz.gen_operation_fault(), target);
+            self.apply_fault(self.noise_config.rz.gen_operation_fault(), &[target]);
         }
     }
 
@@ -380,8 +383,10 @@ impl Simulator {
             self.state
                 .apply_operation(&CX, &[control, target])
                 .expect("apply_operation should succeed");
-            self.apply_fault(self.noise_config.cx.gen_operation_fault(), control);
-            self.apply_fault(self.noise_config.cx.gen_operation_fault(), target);
+            self.apply_fault(
+                self.noise_config.cx.gen_operation_fault(),
+                &[control, target],
+            );
         }
     }
 
@@ -393,8 +398,10 @@ impl Simulator {
             self.state
                 .apply_operation(&CZ, &[control, target])
                 .expect("apply_operation should succeed");
-            self.apply_fault(self.noise_config.cz.gen_operation_fault(), control);
-            self.apply_fault(self.noise_config.cz.gen_operation_fault(), target);
+            self.apply_fault(
+                self.noise_config.cz.gen_operation_fault(),
+                &[control, target],
+            );
         }
     }
 
@@ -406,8 +413,7 @@ impl Simulator {
             self.state
                 .apply_operation(&rxx(angle), &[q1, q2])
                 .expect("apply_operation should succeed");
-            self.apply_fault(self.noise_config.rxx.gen_operation_fault(), q1);
-            self.apply_fault(self.noise_config.rxx.gen_operation_fault(), q2);
+            self.apply_fault(self.noise_config.rxx.gen_operation_fault(), &[q1, q2]);
         }
     }
 
@@ -419,8 +425,7 @@ impl Simulator {
             self.state
                 .apply_operation(&ryy(angle), &[q1, q2])
                 .expect("apply_operation should succeed");
-            self.apply_fault(self.noise_config.ryy.gen_operation_fault(), q1);
-            self.apply_fault(self.noise_config.ryy.gen_operation_fault(), q2);
+            self.apply_fault(self.noise_config.ryy.gen_operation_fault(), &[q1, q2]);
         }
     }
 
@@ -432,8 +437,7 @@ impl Simulator {
             self.state
                 .apply_operation(&rzz(angle), &[q1, q2])
                 .expect("apply_operation should succeed");
-            self.apply_fault(self.noise_config.rzz.gen_operation_fault(), q1);
-            self.apply_fault(self.noise_config.rzz.gen_operation_fault(), q2);
+            self.apply_fault(self.noise_config.rzz.gen_operation_fault(), &[q1, q2]);
         }
     }
 
@@ -441,7 +445,7 @@ impl Simulator {
     pub fn mresetz(&mut self, target: QubitID, result_id: QubitID) {
         self.apply_idle_noise(target);
         self.record_z_measurement(target, result_id);
-        self.apply_fault(self.noise_config.mresetz.gen_operation_fault(), target);
+        self.apply_fault(self.noise_config.mresetz.gen_operation_fault(), &[target]);
     }
 
     /// Move operation. The purpose of this operation is modeling
@@ -449,7 +453,7 @@ impl Simulator {
     pub fn mov(&mut self, target: QubitID) {
         if !self.loss[target] {
             self.apply_idle_noise(target);
-            self.apply_fault(self.noise_config.mov.gen_operation_fault(), target);
+            self.apply_fault(self.noise_config.mov.gen_operation_fault(), &[target]);
         }
     }
 
@@ -457,35 +461,41 @@ impl Simulator {
         let idle_time = self.time - self.last_operation_time[target];
         self.last_operation_time[target] = self.time;
         let fault = self.noise_config.gen_idle_fault(idle_time);
-        self.apply_fault(fault, target);
+        self.apply_fault(fault, &[target]);
     }
 
-    fn apply_fault(&mut self, fault: Fault, target: QubitID) {
+    fn apply_fault(&mut self, fault: Fault, targets: &[QubitID]) {
         match fault {
             Fault::None => (),
-            Fault::X => {
-                self.state
-                    .apply_operation(&X, &[target])
-                    .expect("apply_operation should succeed");
-            }
-            Fault::Y => {
-                self.state
-                    .apply_operation(&Y, &[target])
-                    .expect("apply_operation should succeed");
-            }
-            Fault::Z => {
-                self.state
-                    .apply_operation(&Z, &[target])
-                    .expect("apply_operation should succeed");
+            Fault::Pauli(pauli_string) => {
+                for (pauli, target) in pauli_string.iter().zip(targets) {
+                    match pauli {
+                        noise::PauliFault::I => (),
+                        noise::PauliFault::X => self
+                            .state
+                            .apply_operation(&X, &[*target])
+                            .expect("apply_operation should succeed"),
+                        noise::PauliFault::Y => self
+                            .state
+                            .apply_operation(&Y, &[*target])
+                            .expect("apply_operation should succeed"),
+                        noise::PauliFault::Z => self
+                            .state
+                            .apply_operation(&Z, &[*target])
+                            .expect("apply_operation should succeed"),
+                    }
+                }
             }
             Fault::S => {
                 self.state
-                    .apply_operation(&S, &[target])
+                    .apply_operation(&S, targets)
                     .expect("apply_operation should succeed");
             }
             Fault::Loss => {
-                self.measure_z(target);
-                self.loss[target] = true;
+                for target in targets {
+                    self.measure_z(*target);
+                    self.loss[*target] = true;
+                }
             }
         }
     }
