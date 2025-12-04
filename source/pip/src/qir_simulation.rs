@@ -3,8 +3,9 @@
 
 use pyo3::{
     Bound, FromPyObject, Py, PyRef, PyResult, Python,
-    exceptions::{PyAttributeError, PyValueError},
+    exceptions::{PyAttributeError, PyTypeError, PyValueError},
     pyclass, pymethods,
+    types::{PyAnyMethods, PyTuple},
 };
 use rustc_hash::FxHashMap;
 
@@ -295,6 +296,36 @@ impl NoiseTable {
             "'NoiseTable' object has no attribute '{name}'",
         )))
     }
+
+    fn set_pauli_noise_elt(&mut self, pauli: &str, value: f32) -> PyResult<()> {
+        let pauli = pauli.to_uppercase();
+        self.validate_pauli_string(&pauli)?;
+        Self::validate_probability(value)?;
+
+        if self.pauli_noise.contains_key(&pauli) && value == 0.0 {
+            self.pauli_noise.remove(&pauli);
+        } else {
+            self.pauli_noise.insert(pauli, value);
+        }
+        Ok(())
+    }
+
+    fn set_pauli_noise_list(&mut self, list: Vec<(String, f32)>) -> PyResult<()> {
+        // Do all validation first.
+        for (pauli, value) in &list {
+            self.validate_pauli_string(&pauli.to_uppercase())?;
+            Self::validate_probability(*value)?;
+        }
+        for (pauli, value) in list {
+            let pauli = pauli.to_ascii_uppercase();
+            if self.pauli_noise.contains_key(&pauli) && value == 0.0 {
+                self.pauli_noise.remove(&pauli);
+            } else {
+                self.pauli_noise.insert(pauli, value);
+            }
+        }
+        Ok(())
+    }
 }
 
 #[pymethods]
@@ -335,24 +366,26 @@ impl NoiseTable {
             self.loss = value;
             Ok(())
         } else {
-            self.set_pauli_noise(name, value)
+            self.set_pauli_noise_elt(name, value)
         }
     }
 
     ///
     /// The correlated pauli noise to use in simulation.
     ///
-    pub fn set_pauli_noise(&mut self, pauli: &str, value: f32) -> PyResult<()> {
-        let pauli = pauli.to_uppercase();
-        self.validate_pauli_string(&pauli)?;
-        Self::validate_probability(value)?;
+    #[pyo3(signature = (*py_args))]
+    pub fn set_pauli_noise(&mut self, py_args: &Bound<'_, PyTuple>) -> PyResult<()> {
+        type Pair = (String, f32);
 
-        if self.pauli_noise.contains_key(&pauli) && value == 0.0 {
-            self.pauli_noise.remove(&pauli);
-            return Ok(());
+        if let Ok((pauli, value)) = py_args.extract::<Pair>() {
+            return self.set_pauli_noise_elt(&pauli, value);
         }
-        self.pauli_noise.insert(pauli, value);
-        Ok(())
+        if let Ok((list,)) = py_args.extract::<(Vec<Pair>,)>() {
+            return self.set_pauli_noise_list(list);
+        }
+        Err(PyTypeError::new_err(format!(
+            "Expected two arguments of types 'str, float' or one argument of type 'list[tuple[str, float]]', but found {py_args:?}"
+        )))
     }
 
     ///
@@ -385,14 +418,14 @@ impl NoiseTable {
     /// The bit flip noise to use in simulation.
     ///
     pub fn set_bitflip(&mut self, value: f32) -> PyResult<()> {
-        self.set_pauli_noise("X", value)
+        self.set_pauli_noise_elt("X", value)
     }
 
     ///
     /// The phase flip noise to use in simulation.
     ///
     pub fn set_phaseflip(&mut self, value: f32) -> PyResult<()> {
-        self.set_pauli_noise("Z", value)
+        self.set_pauli_noise_elt("Z", value)
     }
 }
 

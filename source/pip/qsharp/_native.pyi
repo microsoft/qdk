@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 
 from enum import Enum
-from typing import Any, Callable, Optional, Dict, List, Tuple
+from typing import Any, Callable, Optional, Dict, List, Tuple, overload
 
 # pylint: disable=unused-argument
 # E302 is fighting with the formatter for number of blank lines
@@ -811,6 +811,11 @@ class NoiseTable:
         for arbitrary pauli fields.
         """
 
+    @overload
+    def set_pauli_noise(self, lst: list[tuple[str, float]]):
+        pass
+
+    @overload
     def set_pauli_noise(self, pauli_string: str, value: float):
         """
         The correlated pauli noise to use in simulation.
