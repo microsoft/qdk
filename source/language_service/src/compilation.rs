@@ -10,13 +10,12 @@ use qsc::{
     hir::{self, PackageId, Res},
     incremental::Compiler,
     line_column::{Encoding, Position, Range},
-    packages::{BuildableProgram, prepare_package_store},
-    project,
-    qasm::{
+    openqasm::{
         CompileRawQasmResult, CompilerConfig, OutputSemantics, ProgramType, QubitSemantics,
         compiler::compile_to_qsharp_ast_with_config,
     },
-    resolve,
+    packages::{BuildableProgram, prepare_package_store},
+    project, resolve,
     target::Profile,
 };
 use qsc_linter::{LintLevel, LintOrGroupConfig};
@@ -251,11 +250,11 @@ impl Compilation {
             Some("program".into()),
             None,
         );
-        let res = qsc::qasm::semantic::parse_sources(&sources);
+        let res = qsc::openqasm::semantic::parse_sources(&sources);
         let unit = compile_to_qsharp_ast_with_config(res, config);
         let target_profile = unit.profile();
         let CompileRawQasmResult(store, source_package_id, _, _sig, mut compile_errors) =
-            qsc::qasm::compile_openqasm(unit, package_type);
+            qsc::openqasm::compile_openqasm(unit, package_type);
 
         let compile_unit = store
             .get(source_package_id)

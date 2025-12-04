@@ -20,7 +20,7 @@ use qsc::{
         self, CircuitEntryPoint,
         output::{self, Receiver},
     },
-    qasm::{CompileRawQasmResult, io::InMemorySourceResolver},
+    openqasm::{CompileRawQasmResult, io::InMemorySourceResolver},
     target::Profile,
 };
 use resource_estimator::{self as re, estimate_entry};
@@ -715,7 +715,7 @@ fn get_configured_interpreter_from_openqasm(
     let mut resolver = sources.iter().cloned().collect::<InMemorySourceResolver>();
 
     let CompileRawQasmResult(store, source_package_id, dependencies, sig, errors) =
-        qsc::qasm::parse_and_compile_raw_qasm(
+        qsc::openqasm::parse_and_compile_raw_qasm(
             source.clone(),
             file.clone(),
             Some(&mut resolver),

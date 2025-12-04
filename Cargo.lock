@@ -1013,11 +1013,12 @@ dependencies = [
  "qsc_hir",
  "qsc_linter",
  "qsc_lowerer",
+ "qsc_openqasm_compiler",
+ "qsc_openqasm_parser",
  "qsc_parse",
  "qsc_partial_eval",
  "qsc_passes",
  "qsc_project",
- "qsc_qasm",
  "qsc_rca",
  "rustc-hash",
  "thiserror",
@@ -1091,6 +1092,7 @@ dependencies = [
  "miette",
  "rustc-hash",
  "serde",
+ "thiserror",
 ]
 
 [[package]]
@@ -1207,6 +1209,53 @@ dependencies = [
 ]
 
 [[package]]
+name = "qsc_openqasm_compiler"
+version = "0.0.0"
+dependencies = [
+ "bitflags",
+ "criterion",
+ "difference",
+ "enum-iterator",
+ "expect-test",
+ "indenter",
+ "indoc",
+ "miette",
+ "num-bigint",
+ "num-traits",
+ "qsc",
+ "qsc_ast",
+ "qsc_codegen",
+ "qsc_data_structures",
+ "qsc_frontend",
+ "qsc_hir",
+ "qsc_openqasm_parser",
+ "qsc_passes",
+ "rustc-hash",
+ "thiserror",
+]
+
+[[package]]
+name = "qsc_openqasm_parser"
+version = "0.0.0"
+dependencies = [
+ "bitflags",
+ "criterion",
+ "difference",
+ "enum-iterator",
+ "expect-test",
+ "indenter",
+ "indoc",
+ "miette",
+ "num-bigint",
+ "num-traits",
+ "qsc",
+ "qsc_codegen",
+ "qsc_data_structures",
+ "rustc-hash",
+ "thiserror",
+]
+
+[[package]]
 name = "qsc_parse"
 version = "0.0.0"
 dependencies = [
@@ -1275,38 +1324,12 @@ dependencies = [
  "qsc_data_structures",
  "qsc_frontend",
  "qsc_linter",
+ "qsc_openqasm_parser",
  "qsc_project",
- "qsc_qasm",
  "regex-lite",
  "rustc-hash",
  "serde",
  "serde_json",
- "thiserror",
-]
-
-[[package]]
-name = "qsc_qasm"
-version = "0.0.0"
-dependencies = [
- "bitflags",
- "criterion",
- "difference",
- "enum-iterator",
- "expect-test",
- "indenter",
- "indoc",
- "miette",
- "num-bigint",
- "num-traits",
- "qsc",
- "qsc_ast",
- "qsc_codegen",
- "qsc_data_structures",
- "qsc_frontend",
- "qsc_hir",
- "qsc_parse",
- "qsc_passes",
- "rustc-hash",
  "thiserror",
 ]
 

@@ -41,9 +41,9 @@ use qsc::{
         self, CircuitEntryPoint, PauliNoise, TaggedItem, Value,
         output::{Error, Receiver},
     },
+    openqasm::{CompilerConfig, QubitSemantics, compiler::compile_to_qsharp_ast_with_config},
     packages::BuildableProgram,
     project::{FileSystem, PackageCache, PackageGraphSources, ProjectType},
-    qasm::{CompilerConfig, QubitSemantics, compiler::compile_to_qsharp_ast_with_config},
     target::Profile,
 };
 
@@ -272,12 +272,14 @@ impl OutputSemantics {
     }
 }
 
-impl From<OutputSemantics> for qsc::qasm::OutputSemantics {
+impl From<OutputSemantics> for qsc::openqasm::OutputSemantics {
     fn from(output_semantics: OutputSemantics) -> Self {
         match output_semantics {
-            OutputSemantics::Qiskit => qsc::qasm::OutputSemantics::Qiskit,
-            OutputSemantics::OpenQasm => qsc::qasm::OutputSemantics::OpenQasm,
-            OutputSemantics::ResourceEstimation => qsc::qasm::OutputSemantics::ResourceEstimation,
+            OutputSemantics::Qiskit => qsc::openqasm::OutputSemantics::Qiskit,
+            OutputSemantics::OpenQasm => qsc::openqasm::OutputSemantics::OpenQasm,
+            OutputSemantics::ResourceEstimation => {
+                qsc::openqasm::OutputSemantics::ResourceEstimation
+            }
         }
     }
 }
@@ -332,12 +334,12 @@ impl ProgramType {
     }
 }
 
-impl From<ProgramType> for qsc::qasm::ProgramType {
+impl From<ProgramType> for qsc::openqasm::ProgramType {
     fn from(output_semantics: ProgramType) -> Self {
         match output_semantics {
-            ProgramType::File => qsc::qasm::ProgramType::File,
-            ProgramType::Operation => qsc::qasm::ProgramType::Operation,
-            ProgramType::Fragments => qsc::qasm::ProgramType::Fragments,
+            ProgramType::File => qsc::openqasm::ProgramType::File,
+            ProgramType::Operation => qsc::openqasm::ProgramType::Operation,
+            ProgramType::Fragments => qsc::openqasm::ProgramType::Fragments,
         }
     }
 }
@@ -574,7 +576,7 @@ impl Interpreter {
             Some(operation_name.into()),
             None,
         );
-        let res = qsc::qasm::semantic::parse_sources(&sources);
+        let res = qsc::openqasm::semantic::parse_sources(&sources);
         let unit = compile_to_qsharp_ast_with_config(res, config);
         let (sources, errors, package, _, _) = unit.into_tuple();
 

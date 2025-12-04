@@ -5,11 +5,13 @@ use crate::compile::{self, compile};
 use miette::Diagnostic;
 
 use qsc_ast::ast;
-use qsc_data_structures::{language_features::LanguageFeatures, target::TargetCapabilityFlags};
+use qsc_data_structures::{
+    error::WithSource, language_features::LanguageFeatures, source::SourceMap,
+    target::TargetCapabilityFlags,
+};
 
 use qsc_frontend::{
-    compile::{Dependencies, OpenPackageStore, PackageStore, SourceMap},
-    error::WithSource,
+    compile::{Dependencies, OpenPackageStore, PackageStore},
     incremental::Increment,
 };
 use qsc_hir::hir::PackageId;
@@ -317,7 +319,7 @@ where
 {
     errors
         .into_iter()
-        .map(qsc_frontend::error::WithSource::into_with_source)
+        .map(qsc_data_structures::error::WithSource::into_with_source)
         .collect()
 }
 

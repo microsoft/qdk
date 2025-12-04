@@ -1,0 +1,33 @@
+[package]
+name = "qsc_openqasm_parser"
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+bitflags = { workspace = true }
+enum-iterator = { workspace = true }
+indenter = { workspace = true }
+num-bigint = { workspace = true }
+num-traits = { workspace = true }
+miette = { workspace = true }
+qsc_data_structures = { path = "../qsc_data_structures" }
+rustc-hash = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true, features = ["cargo_bench_support"] }
+difference = { workspace = true }
+expect-test = { workspace = true }
+indoc = { workspace = true }
+miette = { workspace = true, features = ["fancy-no-syscall"] }
+# Self import adding fs feature so that we can test
+# loading qasm from file.
+qsc = { path = "../qsc" }
+qsc_codegen = { path = "../qsc_codegen" }
+
+[lints]
+workspace = true
