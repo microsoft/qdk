@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 
 from enum import Enum
-from typing import Any, Callable, Optional, Dict, List, Tuple
+from typing import Any, Callable, Optional, Dict, List, Tuple, overload
 
 # pylint: disable=unused-argument
 # E302 is fighting with the formatter for number of blank lines
@@ -799,10 +799,27 @@ class IdleNoiseParams:
     s_probability: float
 
 class NoiseTable:
-    x: float
-    y: float
-    z: float
     loss: float
+
+    def __setattr__(self, name: str, value: float):
+        """
+        Defining __setattr__ allows setting noise like this
+
+        noise_table = NoiseTable()
+        noise_table.ziz = 0.005
+
+        for arbitrary pauli fields.
+        """
+
+    @overload
+    def set_pauli_noise(self, lst: list[tuple[str, float]]):
+        pass
+
+    @overload
+    def set_pauli_noise(self, pauli_string: str, value: float):
+        """
+        The correlated pauli noise to use in simulation.
+        """
 
     def set_depolarizing(self, value: float):
         """
