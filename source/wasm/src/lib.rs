@@ -146,14 +146,16 @@ pub(crate) fn get_estimates_from_openqasm(
 serializable_type! {
     CircuitConfig,
     {
-        max_operations: usize,
         generation_method: String,
+        max_operations: usize,
         source_locations: bool,
+        group_by_scope: bool,
     },
     r#"export interface ICircuitConfig {
+        generationMethod: "simulate" | "classicalEval";
         maxOperations: number;
-        generationMethod: "simulate" | "classicalEval" ;
         sourceLocations: boolean;
+        groupByScope: boolean;
     }"#,
     ICircuitConfig
 }
@@ -178,6 +180,7 @@ pub fn get_circuit(
     let tracer_config = qsc::circuit::TracerConfig {
         source_locations: config.source_locations,
         max_operations: config.max_operations,
+        group_by_scope: config.group_by_scope,
     };
 
     if is_openqasm_program(&program) {
