@@ -8,7 +8,6 @@
 
 // @ts-check
 
-import { createCanvas } from "canvas";
 import { JSDOM } from "jsdom";
 import fs from "node:fs";
 import path from "node:path";
@@ -17,6 +16,28 @@ import { fileURLToPath } from "node:url";
 import prettier from "prettier";
 import { getCompiler } from "../dist/main.js";
 import { draw } from "../dist/ux/circuit-vis/index.js";
+
+// Attempt to load the optional native canvas dependency; skip tests if it is missing.
+/**
+ * @type {((width: number, height: number) => { getContext(type: string, ...args: any[]): any }) | undefined}
+ */
+let createCanvas;
+let canvasAvailable = true;
+const canvasSkipReason =
+  "Skipping circuit snapshot tests because optional dependency 'canvas' is not installed.";
+
+try {
+  ({ createCanvas } = await import("canvas"));
+} catch (error) {
+  canvasAvailable = false;
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  console.warn(`[circuits] ${canvasSkipReason} (${errorMessage})`);
+}
+
+let testOptions = {};
+if (!canvasAvailable) {
+  testOptions = { skip: canvasSkipReason };
+}
 
 const documentTemplate = `<!doctype html><html>
   <head>
@@ -30,40 +51,45 @@ const documentTemplate = `<!doctype html><html>
 /** @type {JSDOM | null} */
 let jsdom = null;
 
-beforeEach(() => {
-  // Create a new test DOM
-  jsdom = new JSDOM(documentTemplate);
+if (canvasAvailable) {
+  beforeEach(() => {
+    // Create a new test DOM
+    jsdom = new JSDOM(documentTemplate);
 
-  // Set up canvas
-  // @ts-expect-error - the `canvas` typings and DOM typings don't match
-  jsdom.window.HTMLCanvasElement.prototype.getContext = function getContext(
-    /** @type {string} */
-    type,
-    /** @type {any[]} */
-    ...args
-  ) {
-    if (type === "2d") {
-      // create a new canvas instance with the same dimensions
-      const nodeCanvas = createCanvas(this.width, this.height);
-      return nodeCanvas.getContext("2d", ...args);
-    }
-    return null;
-  };
+    // Set up canvas
+    // @ts-expect-error - the `canvas` typings and DOM typings don't match
+    jsdom.window.HTMLCanvasElement.prototype.getContext = function getContext(
+      /** @type {string} */
+      type,
+      /** @type {any[]} */
+      ...args
+    ) {
+      if (type === "2d") {
+        if (!createCanvas) {
+          throw new Error(canvasSkipReason);
+        }
+        // create a new canvas instance with the same dimensions
+        const nodeCanvas = createCanvas(this.width, this.height);
+        return nodeCanvas.getContext("2d", ...args);
+      }
+      return null;
+    };
 
-  // Override the globals used by product code
-  // @ts-expect-error - the `jsdom` typings and DOM typings don't match
-  globalThis.window = jsdom.window;
-  globalThis.document = jsdom.window.document;
-  globalThis.Node = jsdom.window.Node;
-  globalThis.HTMLElement = jsdom.window.HTMLElement;
-  globalThis.SVGElement = jsdom.window.SVGElement;
-  globalThis.XMLSerializer = jsdom.window.XMLSerializer;
-});
+    // Override the globals used by product code
+    // @ts-expect-error - the `jsdom` typings and DOM typings don't match
+    globalThis.window = jsdom.window;
+    globalThis.document = jsdom.window.document;
+    globalThis.Node = jsdom.window.Node;
+    globalThis.HTMLElement = jsdom.window.HTMLElement;
+    globalThis.SVGElement = jsdom.window.SVGElement;
+    globalThis.XMLSerializer = jsdom.window.XMLSerializer;
+  });
 
-afterEach(() => {
-  jsdom?.window.close();
-  jsdom = null;
-});
+  afterEach(() => {
+    jsdom?.window.close();
+    jsdom = null;
+  });
+}
 
 /**
  * Create and add a container div to the document body.
@@ -198,7 +224,7 @@ function renderLocation(location) {
   }
 }
 
-test("circuit snapshot tests - .qsc files", async (t) => {
+test("circuit snapshot tests - .qsc files", testOptions, async (t) => {
   const files = findFilesWithExtension(getCasesDirectory(), ".qsc");
   if (files.length === 0) {
     t.diagnostic("No .qsc files found under cases");
@@ -219,7 +245,7 @@ test("circuit snapshot tests - .qsc files", async (t) => {
   }
 });
 
-test("circuit snapshot tests - .qs files", async (t) => {
+test("circuit snapshot tests - .qs files", testOptions, async (t) => {
   const files = findFilesWithExtension(getCasesDirectory(), ".qs");
   if (files.length === 0) {
     t.diagnostic("No .qs files found under cases");
@@ -230,36 +256,71 @@ test("circuit snapshot tests - .qs files", async (t) => {
     const relName = path.basename(file);
     await t.test(`${relName}`, async (tt) => {
       const circuitSource = fs.readFileSync(file, "utf8");
-      const compiler = getCompiler();
-      const container = createContainerElement(`circuit`);
-      try {
-        // Generate the circuit from Q#
-        const circuit = await compiler.getCircuit(
-          {
-            sources: [[relName, circuitSource]],
-            languageFeatures: [],
-            profile: "adaptive_rif",
-          },
-          {
-            generationMethod: "classicalEval",
-            maxOperations: 100,
-            sourceLocations: true,
-          },
-        );
+      await generateAndDrawCircuit(
+        relName,
+        circuitSource,
+        "circuit-eval-collapsed",
+        "classicalEval",
+        0,
+      );
 
-        // Render the circuit
-        draw(circuit, container, {
-          renderLocations,
-        });
-      } catch (e) {
-        const pre = document.createElement("pre");
-        pre.appendChild(
-          document.createTextNode(`Error generating circuit: ${e}`),
-        );
-        container.appendChild(pre);
-      }
+      await generateAndDrawCircuit(
+        relName,
+        circuitSource,
+        "circuit-eval-expanded",
+        "classicalEval",
+        999999,
+      );
 
       await checkDocumentSnapshot(tt, tt.name);
     });
   }
 });
+
+/**
+ * @param {string} name
+ * @param {string} circuitSource
+ * @param {string} id
+ * @param { "classicalEval" | "simulate"} generationMethod
+ * @param {number} renderDepth
+ */
+async function generateAndDrawCircuit(
+  name,
+  circuitSource,
+  id,
+  generationMethod,
+  renderDepth,
+) {
+  const compiler = getCompiler();
+  const title = document.createElement("div");
+  title.innerHTML = `<h2>${id}</h2>`;
+  document.body.appendChild(title);
+  const container = createContainerElement(id);
+  try {
+    // Generate the circuit from Q#
+    const circuit = await compiler.getCircuit(
+      {
+        sources: [[name, circuitSource]],
+        languageFeatures: [],
+        profile: "adaptive_rif",
+      },
+      {
+        generationMethod,
+        groupByScope: true,
+        maxOperations: 100,
+        sourceLocations: true,
+      },
+      undefined,
+    );
+
+    // Render the circuit
+    draw(circuit, container, {
+      renderDepth,
+      renderLocations,
+    });
+  } catch (e) {
+    const pre = document.createElement("pre");
+    pre.appendChild(document.createTextNode(`Error generating circuit: ${e}`));
+    container.appendChild(pre);
+  }
+}
