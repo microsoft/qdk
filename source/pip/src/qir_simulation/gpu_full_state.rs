@@ -8,7 +8,10 @@ use pyo3::{
     prelude::*,
     types::PyList,
 };
-use qdk_simulators::shader_types::{self, Op};
+use qdk_simulators::{
+    noise_config::NoiseTable,
+    shader_types::{self, Op},
+};
 
 /// Checks if a compatible GPU adapter is available on the system.
 ///
@@ -25,6 +28,78 @@ use qdk_simulators::shader_types::{self, Op};
 pub fn try_create_gpu_adapter() -> PyResult<String> {
     let name = qdk_simulators::try_create_gpu_adapter().map_err(PyOSError::new_err)?;
     Ok(name)
+}
+
+// Use the 'real' parts of the Op to store the pauli probabilities.
+// For 1q ops, r00 = pI, r01 = pX, r02 = pY, r03 = pZ
+// For 2q ops, r00 = pII, r01 = pIX, r02 = pIY, r03 = pIZ
+//             r10 = pXI, r11 = pXX, r12 = pXY, r13 = pXZ
+//             r20 = pYI, r21 = pYX, r22 = pYY, r23 = pYZ
+//             r30 = pZI, r31 = pZX, r32 = pZY, r33 = pZZ
+fn set_noise_op_probabilities(noise_table: &NoiseTable, op: &mut Op) {
+    noise_table
+        .pauli_strings
+        .iter()
+        .enumerate()
+        .for_each(|(i, paulis)| {
+            let prob = noise_table.probabilities[i];
+            match noise_table.qubits {
+                1 => match paulis.as_str() {
+                    "I" => op.r00 = prob,
+                    "X" => op.r01 = prob,
+                    "Y" => op.r02 = prob,
+                    "Z" => op.r03 = prob,
+                    _ => panic!("Invalid pauli string for 1 qubit: {paulis}"),
+                },
+                2 => match paulis.as_str() {
+                    "II" => op.r00 = prob,
+                    "IX" => op.r01 = prob,
+                    "IY" => op.r02 = prob,
+                    "IZ" => op.r03 = prob,
+                    "XI" => op.r10 = prob,
+                    "XX" => op.r11 = prob,
+                    "XY" => op.r12 = prob,
+                    "XZ" => op.r13 = prob,
+                    "YI" => op.r20 = prob,
+                    "YX" => op.r21 = prob,
+                    "YY" => op.r22 = prob,
+                    "YZ" => op.r23 = prob,
+                    "ZI" => op.r30 = prob,
+                    "ZX" => op.r31 = prob,
+                    "ZY" => op.r32 = prob,
+                    "ZZ" => op.r33 = prob,
+                    _ => panic!("Invalid pauli string for 2 qubits: {paulis}"),
+                },
+                _ => panic!(
+                    "Unsupported qubit count in noise table: {}",
+                    noise_table.qubits
+                ),
+            }
+        });
+}
+
+// TODO: Should cache the generated noise ops, as they will be the same for every op of that type
+fn get_noise_op(op: &Op, noise_table: &NoiseTable) -> Op {
+    match noise_table.qubits {
+        1 => {
+            let mut op = Op::new_1q_gate(qdk_simulators::shader_types::ops::PAULI_NOISE_1Q, op.q1);
+            set_noise_op_probabilities(noise_table, &mut op);
+            op
+        }
+        2 => {
+            let mut op = Op::new_2q_gate(
+                qdk_simulators::shader_types::ops::PAULI_NOISE_2Q,
+                op.q1,
+                op.q2,
+            );
+            set_noise_op_probabilities(noise_table, &mut op);
+            op
+        }
+        _ => panic!(
+            "Unsupported qubit count in noise table: {}",
+            noise_table.qubits
+        ),
+    }
 }
 
 #[pyfunction]
@@ -156,25 +231,9 @@ fn get_noise_ops(
     }
     let mut results = vec![];
     if noise_table.has_pauli_noise() {
-        if shader_types::ops::is_1q_op(op.id) {
-            results.push(Op::new_pauli_noise_1q(
-                op.q1,
-                noise_table.x,
-                noise_table.y,
-                noise_table.z,
-            ));
-        } else if shader_types::ops::is_2q_op(op.id) {
-            results.push(Op::new_pauli_noise_2q(
-                op.q1,
-                op.q2,
-                noise_table.x,
-                noise_table.y,
-                noise_table.z,
-            ));
-        } else {
-            panic!("unsupported op for pauli noise: {op:?}");
-        }
+        results.push(get_noise_op(op, noise_table));
     }
+
     if noise_table.loss > 0.0 {
         if shader_types::ops::is_2q_op(op.id) {
             // For two-qubit gates, doing loss inline is hard, so just append an Id gate with loss for each qubit

@@ -263,7 +263,8 @@ impl Default for Op {
 #[allow(clippy::pub_underscore_fields, clippy::used_underscore_binding)]
 impl Op {
     /// Create a new Op with default values
-    fn new_1q_gate(op_id: u32, qubit: u32) -> Self {
+    #[must_use]
+    pub fn new_1q_gate(op_id: u32, qubit: u32) -> Self {
         Self {
             id: op_id,
             q1: qubit,
@@ -545,18 +546,65 @@ impl Op {
     #[must_use]
     pub fn new_pauli_noise_1q(qubit: u32, p_x: f32, p_y: f32, p_z: f32) -> Self {
         let mut op = Self::new_1q_gate(ops::PAULI_NOISE_1Q, qubit);
-        op.r00 = p_x;
-        op.r01 = p_y;
-        op.r02 = p_z;
+        op.r00 = 1.0 - (p_x + p_y + p_z);
+        op.r01 = p_x;
+        op.r02 = p_y;
+        op.r03 = p_z;
         op
     }
 
     #[must_use]
-    pub fn new_pauli_noise_2q(q1: u32, q2: u32, p_x: f32, p_y: f32, p_z: f32) -> Self {
+    pub fn new_pauli_noise_2q(
+        q1: u32,
+        q2: u32,
+        p_ix: f32,
+        p_iy: f32,
+        p_iz: f32,
+        p_xi: f32,
+        p_xx: f32,
+        p_xy: f32,
+        p_xz: f32,
+        p_yi: f32,
+        p_yx: f32,
+        p_yy: f32,
+        p_yz: f32,
+        p_zi: f32,
+        p_zx: f32,
+        p_zy: f32,
+        p_zz: f32,
+    ) -> Self {
         let mut op = Self::new_2q_gate(ops::PAULI_NOISE_2Q, q1, q2);
-        op.r00 = p_x;
-        op.r01 = p_y;
-        op.r02 = p_z;
+        op.r00 = 1.0
+            - (p_ix
+                + p_iy
+                + p_iz
+                + p_xi
+                + p_xx
+                + p_xy
+                + p_xz
+                + p_yi
+                + p_yx
+                + p_yy
+                + p_yz
+                + p_zi
+                + p_zx
+                + p_zy
+                + p_zz);
+        op.r01 = p_ix;
+        op.r02 = p_iy;
+        op.r03 = p_iz;
+        op.r10 = p_xi;
+        op.r11 = p_xx;
+        op.r12 = p_xy;
+        op.r13 = p_xz;
+        op.r20 = p_yi;
+        op.r21 = p_yx;
+        op.r22 = p_yy;
+        op.r23 = p_yz;
+        op.r30 = p_zi;
+        op.r31 = p_zx;
+        op.r32 = p_zy;
+        op.r33 = p_zz;
         op
     }
 
@@ -568,7 +616,8 @@ impl Op {
     }
 
     /// Create a new 2-qubit gate Op with default values
-    fn new_2q_gate(op_id: u32, control: u32, target: u32) -> Self {
+    #[must_use]
+    pub fn new_2q_gate(op_id: u32, control: u32, target: u32) -> Self {
         Self {
             id: op_id,
             q1: control,
