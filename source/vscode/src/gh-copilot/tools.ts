@@ -104,7 +104,10 @@ const toolDefinitions: {
 ];
 
 export function registerLanguageModelTools(context: vscode.ExtensionContext) {
-  qsharpTools = new QSharpTools(context.extensionUri);
+  qsharpTools = new QSharpTools(
+    context.extensionUri,
+    context.extension.id.includes("-dev"),
+  );
   for (const { name, tool: fn, confirm: confirmFn } of toolDefinitions) {
     context.subscriptions.push(
       vscode.lm.registerTool(name, tool(context, name, fn, confirmFn)),
