@@ -32,7 +32,6 @@
     "@vscode/extension-telemetry": "^0.9.8",
     "@vscode/markdown-it-katex": "^1.0.0",
     "@vscode/test-web": "^0.0.71",
-    "canvas": "^3.2.0",
     "chai": "^4.3.10",
     "dompurify": "^3.2.5",
     "esbuild": "^0.25.0",
@@ -56,5 +55,8 @@
     "url": "^0.11.3",
     "user-agent-data-types": "^0.4.2",
     "vscode-uri": "^3.0.8"
+  },
+  "optionalDependencies": {
+    "canvas": "^3.2.0"
   }
 }
