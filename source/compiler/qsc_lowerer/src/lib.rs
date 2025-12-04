@@ -352,7 +352,7 @@ impl Lowerer {
         // their scope. Associated memory is still cleaned up at callable exit rather than block
         // exit.
         self.exec_graph
-            .push(ExecGraphNode::Debug(ExecGraphDebugNode::PushScope(id)));
+            .push(ExecGraphNode::Debug(ExecGraphDebugNode::PushScope));
         let set_unit = block.stmts.is_empty()
             || !matches!(
                 block.stmts.last().expect("block should be non-empty").kind,

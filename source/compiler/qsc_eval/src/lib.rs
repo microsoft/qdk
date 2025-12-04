@@ -824,7 +824,7 @@ impl State {
                 }
                 Some(ExecGraphNode::Debug(dbg_node)) if self.execute_debug_nodes => {
                     match dbg_node {
-                        ExecGraphDebugNode::PushScope(_) => {
+                        ExecGraphDebugNode::PushScope => {
                             self.push_scope(env);
                             self.idx += 1;
                             continue;

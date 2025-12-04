@@ -934,7 +934,6 @@ pub enum ExecGraphNode {
     /// When debugging,
     /// The end of the control flow graph plus a pop of the current debug frame.
     Ret,
-    // RetFrame,
     /// A node only to be executed in debug mode.
     Debug(ExecGraphDebugNode),
 }
@@ -950,7 +949,7 @@ pub enum ExecGraphDebugNode {
     /// A statement to track for debugging.
     Stmt(StmtId),
     /// A push of a new scope, used when tracking variables for debugging.
-    PushScope(BlockId),
+    PushScope,
 }
 
 /// A sequenced block of statements.
