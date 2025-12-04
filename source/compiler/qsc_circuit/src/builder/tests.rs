@@ -3,7 +3,7 @@
 
 mod group_scopes;
 
-use std::{result, vec};
+use std::vec;
 
 use super::*;
 use expect_test::expect;
