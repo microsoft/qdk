@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 
 import random
-from typing import Callable, List, Optional, Tuple, TypeAlias, Union
+from typing import Callable, Literal, List, Optional, Tuple, TypeAlias, Union
 import pyqir
 from ._native import (
     QirInstructionId,
@@ -476,3 +476,21 @@ def run_qir_gpu(
             ),
         )
     )
+
+
+def run_qir(
+    input: Union[QirInputData, str, bytes],
+    shots: Optional[int] = 1,
+    noise: Optional[NoiseConfig] = None,
+    seed: Optional[int] = None,
+    type: Literal["clifford", "cpu", "gpu"] = "clifford",
+) -> List[str]:
+    match type:
+        case "clifford":
+            return run_qir_clifford(input, shots, noise, seed)
+        case "cpu":
+            return run_qir_cpu(input, shots, noise, seed)
+        case "gpu":
+            return run_qir_gpu(input, shots, noise, seed)
+        case _:
+            raise ValueError(f"Invalid simulator type: {type}")
