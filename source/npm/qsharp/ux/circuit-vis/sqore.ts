@@ -14,7 +14,7 @@ import {
   Column,
   SourceLocation,
 } from "./circuit.js";
-import { GateRenderData, GateType } from "./gateRenderData.js";
+import { GateRenderData } from "./gateRenderData.js";
 import {
   gateHeight,
   minGateWidth,
@@ -218,12 +218,11 @@ export class Sqore {
       this.options.isEditable ? undefined : this.options.renderLocations,
     );
     const formattedGates: SVGElement = formatGates(renderDataArray);
-    const measureGates: GateRenderData[] = flatten(renderDataArray).filter(
-      ({ type }) => type === GateType.Measure,
-    );
+
+    // Draw the lines that represent qubit and classical wires.
     const formattedRegs: SVGElement = formatRegisters(
       registers,
-      measureGates,
+      flatten(renderDataArray),
       svgWidth,
     );
 

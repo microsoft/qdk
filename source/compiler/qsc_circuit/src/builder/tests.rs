@@ -3,7 +3,7 @@
 
 mod group_scopes;
 
-use std::vec;
+use std::{result, vec};
 
 use super::*;
 use expect_test::expect;
@@ -404,4 +404,85 @@ fn qubit_labels_for_preallocated_qubits() {
         q_1@user_code.qs:0:10  ───────────────────────
     "#]]
     .assert_eq(&circuit.to_string());
+}
+
+#[test]
+fn measurement_target_propagated_to_group() {
+    let mut c = FakeCompilation::default();
+    let mut builder = CircuitTracer::new(
+        TracerConfig {
+            max_operations: usize::MAX,
+            source_locations: false,
+            group_by_scope: true,
+        },
+        &FakeCompilation::user_package_ids(),
+    );
+
+    builder.qubit_allocate(&[], 0);
+
+    builder.gate(&[c.user_code_frame("Main", 1)], "H", false, &[0], &[], None);
+
+    builder.measure(&[c.user_code_frame("Main", 2)], "M", 0, &0.into());
+
+    let circuit = builder.finish(&c);
+
+    // Verify that there's a grouped operation, with a measurement operation
+    // inside it, and that the measurement target register is also propagated
+    // to the group operation.
+
+    // Get the group
+
+    let mut group_ops = circuit.component_grid.iter().flat_map(|col| {
+        col.components.iter().filter_map(|c| {
+            if let Operation::Unitary(u) = c
+                && !u.children.is_empty()
+            {
+                Some(u)
+            } else {
+                None
+            }
+        })
+    });
+
+    let group_op = group_ops
+        .next()
+        .expect("expected to find grouped operation");
+    assert!(
+        group_ops.next().is_none(),
+        "expected only one grouped operation"
+    );
+
+    // Get the measurement operation
+
+    let mut measurement_ops = group_op.children.iter().filter_map(|col| {
+        col.components.iter().find_map(|c| {
+            if let Operation::Measurement(m) = c {
+                Some(m)
+            } else {
+                None
+            }
+        })
+    });
+
+    let measurement_op = measurement_ops
+        .next()
+        .expect("expected to find measurement operation");
+    assert!(
+        measurement_ops.next().is_none(),
+        "expected only one measurement operation"
+    );
+
+    // Now verify that the measurement qubit and result registers exist in the parent
+    // group operation's targets as well.
+    group_op
+        .targets
+        .iter()
+        .find(|reg| *reg == &measurement_op.qubits[0])
+        .expect("expected measurement qubit in group operation's targets");
+
+    group_op
+        .targets
+        .iter()
+        .find(|reg| *reg == &measurement_op.results[0])
+        .expect("expected measurement result in group operation's targets");
 }
