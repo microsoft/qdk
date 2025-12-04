@@ -13,6 +13,8 @@ pub(crate) mod clifford;
 pub(crate) mod cpu_full_state;
 pub(crate) mod gpu_full_state;
 
+type Probability = f64;
+
 #[allow(
     clippy::upper_case_acronyms,
     reason = "these gates are named as in the rest of our stack"
@@ -195,7 +197,7 @@ fn unbind_noise_config(
 #[pyclass(module = "qsharp._native")]
 pub struct IdleNoiseParams {
     #[pyo3(get, set)]
-    pub s_probability: f32,
+    pub s_probability: Probability,
 }
 
 #[pymethods]
@@ -209,7 +211,8 @@ impl IdleNoiseParams {
 impl From<IdleNoiseParams> for qdk_simulators::noise_config::IdleNoiseParams {
     fn from(value: IdleNoiseParams) -> Self {
         qdk_simulators::noise_config::IdleNoiseParams {
-            s_probability: value.s_probability,
+            #[allow(clippy::cast_possible_truncation)]
+            s_probability: value.s_probability as f32,
         }
     }
 }
@@ -218,14 +221,15 @@ fn from_idle_noise_params_ref(
     value: &PyRef<'_, IdleNoiseParams>,
 ) -> qdk_simulators::noise_config::IdleNoiseParams {
     qdk_simulators::noise_config::IdleNoiseParams {
-        s_probability: value.s_probability,
+        #[allow(clippy::cast_possible_truncation)]
+        s_probability: value.s_probability as f32,
     }
 }
 
 impl From<qdk_simulators::noise_config::IdleNoiseParams> for IdleNoiseParams {
     fn from(value: qdk_simulators::noise_config::IdleNoiseParams) -> Self {
         IdleNoiseParams {
-            s_probability: value.s_probability,
+            s_probability: f64::from(value.s_probability),
         }
     }
 }
@@ -234,13 +238,13 @@ impl From<qdk_simulators::noise_config::IdleNoiseParams> for IdleNoiseParams {
 #[pyclass(module = "qsharp._native")]
 pub struct NoiseTable {
     qubits: u32,
-    pauli_noise: FxHashMap<String, f32>,
+    pauli_noise: FxHashMap<String, Probability>,
     #[pyo3(get, set)]
-    pub loss: f32,
+    pub loss: Probability,
 }
 
 impl NoiseTable {
-    fn validate_probability(value: f32) -> PyResult<()> {
+    fn validate_probability(value: Probability) -> PyResult<()> {
         if value < 0.0 {
             return Err(PyValueError::new_err("Probabilities must be non-negative."));
         }
@@ -287,7 +291,7 @@ impl NoiseTable {
         Self::generate_pauli_strings(n - 1, extended_strings)
     }
 
-    fn get_pauli_noise(&self, name: &str) -> PyResult<f32> {
+    fn get_pauli_noise(&self, name: &str) -> PyResult<Probability> {
         let name = name.to_uppercase();
         if let Some(p) = self.pauli_noise.get(&name) {
             return Ok(*p);
@@ -297,7 +301,7 @@ impl NoiseTable {
         )))
     }
 
-    fn set_pauli_noise_elt(&mut self, pauli: &str, value: f32) -> PyResult<()> {
+    fn set_pauli_noise_elt(&mut self, pauli: &str, value: Probability) -> PyResult<()> {
         let pauli = pauli.to_uppercase();
         self.validate_pauli_string(&pauli)?;
         Self::validate_probability(value)?;
@@ -310,7 +314,7 @@ impl NoiseTable {
         Ok(())
     }
 
-    fn set_pauli_noise_list(&mut self, list: Vec<(String, f32)>) -> PyResult<()> {
+    fn set_pauli_noise_list(&mut self, list: Vec<(String, Probability)>) -> PyResult<()> {
         // Do all validation first.
         for (pauli, value) in &list {
             self.validate_pauli_string(&pauli.to_uppercase())?;
@@ -343,7 +347,7 @@ impl NoiseTable {
         clippy::doc_markdown,
         reason = "this docstring conforms to the python docstring format"
     )]
-    fn __getattr__(&mut self, name: &str) -> PyResult<f32> {
+    fn __getattr__(&mut self, name: &str) -> PyResult<Probability> {
         if name == "loss" {
             Ok(self.loss)
         } else {
@@ -361,7 +365,7 @@ impl NoiseTable {
     /// noise_table.ziz = 0.005
     ///
     /// for arbitrary pauli fields.
-    fn __setattr__(&mut self, name: &str, value: f32) -> PyResult<()> {
+    fn __setattr__(&mut self, name: &str, value: Probability) -> PyResult<()> {
         if name == "loss" {
             self.loss = value;
             Ok(())
@@ -375,7 +379,7 @@ impl NoiseTable {
     ///
     #[pyo3(signature = (*py_args))]
     pub fn set_pauli_noise(&mut self, py_args: &Bound<'_, PyTuple>) -> PyResult<()> {
-        type Pair = (String, f32);
+        type Pair = (String, Probability);
 
         if let Ok((pauli, value)) = py_args.extract::<Pair>() {
             return self.set_pauli_noise_elt(&pauli, value);
@@ -391,7 +395,7 @@ impl NoiseTable {
     ///
     /// The depolarizing noise to use in simulation.
     ///
-    pub fn set_depolarizing(&mut self, value: f32) -> PyResult<()> {
+    pub fn set_depolarizing(&mut self, value: Probability) -> PyResult<()> {
         Self::validate_probability(value)?;
 
         // Generate all pauli strings.
@@ -399,8 +403,8 @@ impl NoiseTable {
         // Remove identity.
         pauli_strings.pop();
 
-        #[allow(clippy::cast_precision_loss)]
-        let val = (value / self.qubits as f32) / (2_u32.pow(self.qubits) - 1) as f32;
+        let val = (value / Probability::from(self.qubits))
+            / Probability::from(4_u32.pow(self.qubits) - 1);
         let mut probabilities = Vec::with_capacity(pauli_strings.len());
         for _ in 0..pauli_strings.len() {
             probabilities.push(val);
@@ -417,14 +421,14 @@ impl NoiseTable {
     ///
     /// The bit flip noise to use in simulation.
     ///
-    pub fn set_bitflip(&mut self, value: f32) -> PyResult<()> {
+    pub fn set_bitflip(&mut self, value: Probability) -> PyResult<()> {
         self.set_pauli_noise_elt("X", value)
     }
 
     ///
     /// The phase flip noise to use in simulation.
     ///
-    pub fn set_phaseflip(&mut self, value: f32) -> PyResult<()> {
+    pub fn set_phaseflip(&mut self, value: Probability) -> PyResult<()> {
         self.set_pauli_noise_elt("Z", value)
     }
 }
@@ -435,13 +439,15 @@ impl From<NoiseTable> for qdk_simulators::noise_config::NoiseTable {
         let mut probabilities = Vec::with_capacity(value.pauli_noise.len());
         for (pauli, probability) in value.pauli_noise {
             pauli_strings.push(pauli);
-            probabilities.push(probability);
+            #[allow(clippy::cast_possible_truncation)]
+            probabilities.push(probability as f32);
         }
         qdk_simulators::noise_config::NoiseTable {
             qubits: value.qubits,
             pauli_strings,
             probabilities,
-            loss: value.loss,
+            #[allow(clippy::cast_possible_truncation)]
+            loss: value.loss as f32,
         }
     }
 }
@@ -451,13 +457,15 @@ fn from_noise_table_ref(value: &PyRef<'_, NoiseTable>) -> qdk_simulators::noise_
     let mut probabilities = Vec::with_capacity(value.pauli_noise.len());
     for (pauli, probability) in &value.pauli_noise {
         pauli_strings.push(pauli.clone());
-        probabilities.push(*probability);
+        #[allow(clippy::cast_possible_truncation)]
+        probabilities.push(*probability as f32);
     }
     qdk_simulators::noise_config::NoiseTable {
         qubits: value.qubits,
         pauli_strings,
         probabilities,
-        loss: value.loss,
+        #[allow(clippy::cast_possible_truncation)]
+        loss: value.loss as f32,
     }
 }
 
@@ -466,12 +474,12 @@ impl From<qdk_simulators::noise_config::NoiseTable> for NoiseTable {
         let pauli_noise = value
             .pauli_strings
             .into_iter()
-            .zip(value.probabilities)
+            .zip(value.probabilities.into_iter().map(f64::from))
             .collect::<FxHashMap<_, _>>();
         NoiseTable {
             qubits: value.qubits,
             pauli_noise,
-            loss: value.loss,
+            loss: f64::from(value.loss),
         }
     }
 }
