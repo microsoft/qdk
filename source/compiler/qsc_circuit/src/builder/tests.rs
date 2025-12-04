@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#![allow(clippy::unicode_not_nfc)]
+
 mod group_scopes;
 
 use std::vec;
@@ -128,6 +130,7 @@ fn exceed_max_operations() {
             max_operations: 2,
             source_locations: false,
             group_by_scope: false,
+            trim: false,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -156,6 +159,7 @@ fn source_locations_enabled() {
             max_operations: 10,
             source_locations: true,
             group_by_scope: false,
+            trim: false,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -193,6 +197,7 @@ fn source_locations_disabled() {
             max_operations: 10,
             source_locations: false,
             group_by_scope: false,
+            trim: false,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -224,6 +229,7 @@ fn source_locations_multiple_user_frames() {
             max_operations: 10,
             source_locations: true,
             group_by_scope: false,
+            trim: false,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -262,6 +268,7 @@ fn source_locations_library_frames_excluded() {
             max_operations: 10,
             source_locations: true,
             group_by_scope: false,
+            trim: false,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -294,6 +301,7 @@ fn source_locations_only_library_frames() {
             max_operations: 10,
             source_locations: true,
             group_by_scope: false,
+            trim: false,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -326,6 +334,7 @@ fn source_locations_enabled_no_stack() {
             max_operations: 10,
             source_locations: true,
             group_by_scope: false,
+            trim: false,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -351,6 +360,7 @@ fn qubit_source_locations_via_stack() {
             max_operations: 10,
             source_locations: true,
             group_by_scope: false,
+            trim: false,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -375,6 +385,7 @@ fn qubit_labels_for_preallocated_qubits() {
             max_operations: 10,
             source_locations: true,
             group_by_scope: false,
+            trim: false,
         },
         &FakeCompilation::user_package_ids(),
         Some((
@@ -414,6 +425,7 @@ fn measurement_target_propagated_to_group() {
             max_operations: usize::MAX,
             source_locations: false,
             group_by_scope: true,
+            trim: false,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -485,4 +497,239 @@ fn measurement_target_propagated_to_group() {
         .iter()
         .find(|reg| *reg == &measurement_op.results[0])
         .expect("expected measurement result in group operation's targets");
+}
+
+#[test]
+fn bell_circuit_trimmed_stays_the_same() {
+    let mut builder = CircuitTracer::new(
+        TracerConfig {
+            max_operations: 100,
+            source_locations: false,
+            group_by_scope: false,
+            trim: true,
+        },
+        &FakeCompilation::user_package_ids(),
+    );
+
+    builder.qubit_allocate(&[], 0);
+    builder.qubit_allocate(&[], 1);
+
+    builder.gate(&[], "H", false, &[0], &[], None);
+    builder.gate(&[], "X", false, &[1], &[0], None);
+    builder.measure(&[], "MResetZ", 0, &val::Result::Id(0));
+    builder.measure(&[], "MResetZ", 1, &val::Result::Id(1));
+
+    let circuit = builder.finish(&FakeCompilation::default());
+
+    expect![[r#"
+        q_0    ── H ──── ● ──── M ──── |0〉 ──
+                         │      ╘════════════
+        q_1    ───────── X ──── M ──── |0〉 ──
+                                ╘════════════
+    "#]]
+    .assert_eq(&circuit.to_string());
+}
+
+#[test]
+fn bell_circuit_trims_unused_qubit() {
+    let mut builder = CircuitTracer::new(
+        TracerConfig {
+            max_operations: 100,
+            source_locations: false,
+            group_by_scope: false,
+            trim: true,
+        },
+        &FakeCompilation::user_package_ids(),
+    );
+
+    builder.qubit_allocate(&[], 0);
+    builder.qubit_allocate(&[], 1);
+    builder.qubit_allocate(&[], 2);
+
+    builder.gate(&[], "H", false, &[0], &[], None);
+    builder.gate(&[], "X", false, &[2], &[0], None);
+    builder.measure(&[], "MResetZ", 0, &val::Result::Id(0));
+    builder.measure(&[], "MResetZ", 2, &val::Result::Id(1));
+
+    let circuit = builder.finish(&FakeCompilation::default());
+
+    expect![[r#"
+        q_0    ── H ──── ● ──── M ──── |0〉 ──
+                         │      ╘════════════
+        q_2    ───────── X ──── M ──── |0〉 ──
+                                ╘════════════
+    "#]]
+    .assert_eq(&circuit.to_string());
+}
+
+#[test]
+fn bell_circuit_trims_classical_qubit() {
+    let mut builder = CircuitTracer::new(
+        TracerConfig {
+            max_operations: 100,
+            source_locations: false,
+            group_by_scope: false,
+            trim: true,
+        },
+        &FakeCompilation::user_package_ids(),
+    );
+
+    builder.qubit_allocate(&[], 0);
+    builder.qubit_allocate(&[], 1);
+    builder.qubit_allocate(&[], 2);
+
+    builder.gate(&[], "H", false, &[0], &[], None);
+    builder.gate(&[], "X", false, &[1], &[], None);
+    builder.gate(&[], "X", false, &[2], &[0], None);
+    builder.measure(&[], "MResetZ", 0, &val::Result::Id(0));
+    builder.measure(&[], "MResetZ", 1, &val::Result::Id(1));
+    builder.measure(&[], "MResetZ", 2, &val::Result::Id(2));
+
+    let circuit = builder.finish(&FakeCompilation::default());
+
+    expect![[r#"
+        q_0    ── H ──── ● ──── M ──── |0〉 ──
+                         │      ╘════════════
+        q_2    ───────── X ──── M ──── |0〉 ──
+                                ╘════════════
+    "#]]
+    .assert_eq(&circuit.to_string());
+}
+
+#[test]
+fn bell_circuit_trims_classical_control_qubit() {
+    let mut builder = CircuitTracer::new(
+        TracerConfig {
+            max_operations: 100,
+            source_locations: false,
+            group_by_scope: false,
+            trim: true,
+        },
+        &FakeCompilation::user_package_ids(),
+    );
+
+    builder.qubit_allocate(&[], 0);
+    builder.qubit_allocate(&[], 1);
+    builder.qubit_allocate(&[], 2);
+
+    builder.gate(&[], "H", false, &[0], &[], None);
+    builder.gate(&[], "X", false, &[0], &[1], None);
+    builder.gate(&[], "X", false, &[2], &[0], None);
+    builder.measure(&[], "MResetZ", 0, &val::Result::Id(0));
+    builder.measure(&[], "MResetZ", 1, &val::Result::Id(1));
+    builder.measure(&[], "MResetZ", 2, &val::Result::Id(2));
+
+    let circuit = builder.finish(&FakeCompilation::default());
+
+    expect![[r#"
+        q_0    ── H ──── ● ──── M ──── |0〉 ──
+                         │      ╘════════════
+        q_2    ───────── X ──── M ──── |0〉 ──
+                                ╘════════════
+    "#]]
+    .assert_eq(&circuit.to_string());
+}
+
+#[test]
+fn bell_circuit_trims_classical_qubit_when_2q_precedes_superposition() {
+    let mut builder = CircuitTracer::new(
+        TracerConfig {
+            max_operations: 100,
+            source_locations: false,
+            group_by_scope: false,
+            trim: true,
+        },
+        &FakeCompilation::user_package_ids(),
+    );
+
+    builder.qubit_allocate(&[], 0);
+    builder.qubit_allocate(&[], 1);
+    builder.qubit_allocate(&[], 2);
+
+    builder.gate(&[], "X", false, &[1], &[0], None);
+    builder.gate(&[], "H", false, &[0], &[], None);
+    builder.gate(&[], "X", false, &[2], &[0], None);
+    builder.measure(&[], "MResetZ", 0, &val::Result::Id(0));
+    builder.measure(&[], "MResetZ", 1, &val::Result::Id(1));
+    builder.measure(&[], "MResetZ", 2, &val::Result::Id(2));
+
+    let circuit = builder.finish(&FakeCompilation::default());
+
+    expect![[r#"
+        q_0    ── H ──── ● ──── M ──── |0〉 ──
+                         │      ╘════════════
+        q_2    ───────── X ──── M ──── |0〉 ──
+                                ╘════════════
+    "#]]
+    .assert_eq(&circuit.to_string());
+}
+
+#[test]
+fn bell_circuit_trims_classical_qubit_when_second_qubit_in_rzz_is_classical() {
+    let mut builder = CircuitTracer::new(
+        TracerConfig {
+            max_operations: 100,
+            source_locations: false,
+            group_by_scope: false,
+            trim: true,
+        },
+        &FakeCompilation::user_package_ids(),
+    );
+
+    builder.qubit_allocate(&[], 0);
+    builder.qubit_allocate(&[], 1);
+    builder.qubit_allocate(&[], 2);
+
+    builder.gate(&[], "Rzz", false, &[0, 1], &[], Some(1.0));
+    builder.gate(&[], "H", false, &[0], &[], None);
+    builder.gate(&[], "X", false, &[2], &[0], None);
+    builder.measure(&[], "MResetZ", 0, &val::Result::Id(0));
+    builder.measure(&[], "MResetZ", 1, &val::Result::Id(1));
+    builder.measure(&[], "MResetZ", 2, &val::Result::Id(2));
+
+    let circuit = builder.finish(&FakeCompilation::default());
+
+    expect![[r#"
+        q_0    ── H ──── ● ──── M ──── |0〉 ──
+                         │      ╘════════════
+        q_2    ───────── X ──── M ──── |0〉 ──
+                                ╘════════════
+    "#]]
+    .assert_eq(&circuit.to_string());
+}
+
+#[test]
+fn bell_circuit_keeps_classical_qubit_when_second_qubit_in_rzz_is_not_classical() {
+    let mut builder = CircuitTracer::new(
+        TracerConfig {
+            max_operations: 100,
+            source_locations: false,
+            group_by_scope: false,
+            trim: true,
+        },
+        &FakeCompilation::user_package_ids(),
+    );
+
+    builder.qubit_allocate(&[], 0);
+    builder.qubit_allocate(&[], 1);
+    builder.qubit_allocate(&[], 2);
+
+    builder.gate(&[], "H", false, &[0], &[], None);
+    builder.gate(&[], "Rzz", false, &[1, 0], &[], Some(1.0));
+    builder.gate(&[], "X", false, &[2], &[0], None);
+    builder.measure(&[], "MResetZ", 0, &val::Result::Id(0));
+    builder.measure(&[], "MResetZ", 1, &val::Result::Id(1));
+    builder.measure(&[], "MResetZ", 2, &val::Result::Id(2));
+
+    let circuit = builder.finish(&FakeCompilation::default());
+
+    expect![[r#"
+        q_0    ── H ─── Rzz(1.0000) ─── ● ──── M ──── |0〉 ──
+                             ┆          │      ╘════════════
+        q_1    ──────── Rzz(1.0000) ────┼───── M ──── |0〉 ──
+                                        │      ╘════════════
+        q_2    ──────────────────────── X ──── M ──── |0〉 ──
+                                               ╘════════════
+    "#]]
+    .assert_eq(&circuit.to_string());
 }

@@ -42,6 +42,7 @@ pub struct CircuitTracer {
     circuit_builder: OperationListBuilder,
     next_result_id: usize,
     user_package_ids: Vec<PackageId>,
+    nontrimmable_qubits: FxHashSet<usize>,
 }
 
 impl Tracer for CircuitTracer {
@@ -77,6 +78,10 @@ impl Tracer for CircuitTracer {
             display_args,
             called_at,
         );
+
+        if self.config.trim {
+            self.update_qubit_status(name, targets, controls);
+        }
     }
 
     fn measure(&mut self, stack: &[Frame], name: &str, q: usize, val: &val::Result) {
@@ -152,6 +157,7 @@ impl CircuitTracer {
             ),
             next_result_id: 0,
             user_package_ids: user_package_ids.to_vec(),
+            nontrimmable_qubits: FxHashSet::default(),
         }
     }
 
@@ -191,6 +197,7 @@ impl CircuitTracer {
             ),
             next_result_id: 0,
             user_package_ids: user_package_ids.to_vec(),
+            nontrimmable_qubits: FxHashSet::default(),
         }
     }
 
@@ -220,16 +227,36 @@ impl CircuitTracer {
         operations: &[OperationOrGroup],
         source_lookup: &impl SourceLookup,
     ) -> Circuit {
-        let operations = operations
+        let mut operations: Vec<Operation> = operations
             .iter()
             .map(|o| o.clone().into_operation(source_lookup))
             .collect();
+        let mut qubits = self.wire_map_builder.wire_map.to_qubits();
+        // We need to pass the original number of qubits, before any trimming, to finish the circuit below.
+        let num_qubits = qubits.len();
 
-        finish_circuit(
-            self.wire_map_builder.wire_map.to_qubits(),
-            operations,
-            source_lookup,
-        )
+        if self.config.trim {
+            qubits.retain(|q| self.nontrimmable_qubits.contains(&q.id));
+
+            operations.retain(|op| {
+                let involved_qubits: Vec<usize> = match op {
+                    Operation::Unitary(u) => u
+                        .targets
+                        .iter()
+                        .chain(u.controls.iter())
+                        .map(|r| r.qubit)
+                        .collect(),
+                    Operation::Measurement(m) => m.qubits.iter().map(|r| r.qubit).collect(),
+                    Operation::Ket(k) => k.targets.iter().map(|r| r.qubit).collect(),
+                };
+
+                involved_qubits
+                    .iter()
+                    .all(|q_id| self.nontrimmable_qubits.contains(q_id))
+            });
+        }
+
+        finish_circuit(qubits, operations, num_qubits, source_lookup)
     }
 
     /// Splits the qubit arguments from classical arguments so that the qubits
@@ -311,6 +338,60 @@ impl CircuitTracer {
         }
         first_user_code_location(&self.user_package_ids, stack)
     }
+
+    fn update_qubit_status(&mut self, name: &str, targets: &[usize], controls: &[usize]) {
+        match name {
+            "H" | "Rx" | "Ry" | "SX" | "Rxx" | "Ryy" => {
+                // These gates create superpositions, so mark the qubits as non-trimmable
+                for &q in targets {
+                    let mapped_q = self.wire_map_builder.wire_map.qubit_wire(q);
+                    self.nontrimmable_qubits.insert(mapped_q.into());
+                }
+            }
+            "Rzz"
+                if self
+                    .nontrimmable_qubits
+                    .contains(&self.wire_map_builder.wire_map.qubit_wire(targets[1]).into()) =>
+            {
+                // If the second qubit is non-trimmable, the first becomes non-trimmable
+                self.nontrimmable_qubits
+                    .insert(self.wire_map_builder.wire_map.qubit_wire(targets[0]).into());
+            }
+            "X" | "Y" | "Z"
+                if controls.iter().any(|q| {
+                    self.nontrimmable_qubits
+                        .contains(&self.wire_map_builder.wire_map.qubit_wire(*q).into())
+                }) =>
+            {
+                // Controlled Pauli gates with controls that are non-trimmable make the targets non-trimmable
+                for &q in targets {
+                    let mapped_q = self.wire_map_builder.wire_map.qubit_wire(q);
+                    self.nontrimmable_qubits.insert(mapped_q.into());
+                }
+            }
+            "SWAP" => {
+                // If either qubit is non-trimmable, both become non-trimmable
+                let q0_mapped = self.wire_map_builder.wire_map.qubit_wire(targets[0]);
+                let q1_mapped = self.wire_map_builder.wire_map.qubit_wire(targets[1]);
+                if self.nontrimmable_qubits.contains(&q0_mapped.into())
+                    || self.nontrimmable_qubits.contains(&q1_mapped.into())
+                {
+                    self.nontrimmable_qubits.insert(q0_mapped.into());
+                    self.nontrimmable_qubits.insert(q1_mapped.into());
+                }
+            }
+            "S" | "T" | "X" | "Y" | "Z" | "Rz" | "Rzz" => {
+                // These gates don't create superpositions on their own, so do nothing
+            }
+            _ => {
+                // For any other gate, conservatively mark all target qubits as non-trimmable
+                for &q in targets {
+                    let mapped_q = self.wire_map_builder.wire_map.qubit_wire(q);
+                    self.nontrimmable_qubits.insert(mapped_q.into());
+                }
+            }
+        }
+    }
 }
 
 fn first_user_code_location(
@@ -332,6 +413,7 @@ fn first_user_code_location(
 fn finish_circuit(
     mut qubits: Vec<Qubit>,
     mut operations: Vec<Operation>,
+    num_qubits: usize,
     source_location_lookup: &impl SourceLookup,
 ) -> Circuit {
     resolve_locations(&mut operations, source_location_lookup);
@@ -342,7 +424,7 @@ fn finish_circuit(
         }
     }
 
-    let component_grid = operation_list_to_grid(operations, qubits.len());
+    let component_grid = operation_list_to_grid(operations, num_qubits);
     Circuit {
         qubits,
         component_grid,
@@ -458,6 +540,8 @@ pub struct TracerConfig {
     pub source_locations: bool,
     /// Group operations according to call graph in the circuit diagram
     pub group_by_scope: bool,
+    /// Trim purely classical or unused qubits
+    pub trim: bool,
 }
 
 impl TracerConfig {
@@ -476,6 +560,7 @@ impl Default for TracerConfig {
             max_operations: Self::DEFAULT_MAX_OPERATIONS,
             source_locations: true,
             group_by_scope: true,
+            trim: false,
         }
     }
 }

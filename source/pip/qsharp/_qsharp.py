@@ -838,6 +838,7 @@ def circuit(
     max_operations: Optional[int] = None,
     source_locations: bool = False,
     group_by_scope: bool = False,
+    trim: bool = False,
 ) -> Circuit:
     """
     Synthesizes a circuit for a Q# program. Either an entry
@@ -852,6 +853,8 @@ def circuit(
     an operation of a lambda expression. The operation must take only
     qubits or arrays of qubits as parameters.
 
+    :param trim: Whether to trim the circuit to remove unused qubits and purely classical qubits.
+
     :raises QSharpError: If there is an error synthesizing the circuit.
     """
     ipython_helper()
@@ -862,6 +865,7 @@ def circuit(
         generation_method=generation_method,
         source_locations=source_locations,
         group_by_scope=group_by_scope,
+        trim=trim,
     )
 
     if isinstance(entry_expr, Callable) and hasattr(entry_expr, "__global_callable"):

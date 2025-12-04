@@ -12,6 +12,7 @@ fn check_groups(c: &FakeCompilation, instructions: &[(Vec<Frame>, &str)], expect
             max_operations: usize::MAX,
             source_locations: false,
             group_by_scope: true,
+            trim: false,
         },
         &FakeCompilation::user_package_ids(),
     );
