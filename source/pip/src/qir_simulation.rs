@@ -385,8 +385,6 @@ impl NoiseTable {
     /// The bit flip noise to use in simulation.
     ///
     pub fn set_bitflip(&mut self, value: f32) -> PyResult<()> {
-        Self::validate_probability(value)?;
-        assert_eq!(self.qubits, 1);
         self.set_pauli_noise("X", value)
     }
 
@@ -394,8 +392,6 @@ impl NoiseTable {
     /// The phase flip noise to use in simulation.
     ///
     pub fn set_phaseflip(&mut self, value: f32) -> PyResult<()> {
-        Self::validate_probability(value)?;
-        assert_eq!(self.qubits, 1);
         self.set_pauli_noise("Z", value)
     }
 }
