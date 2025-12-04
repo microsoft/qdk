@@ -129,28 +129,28 @@ fn bind_noise_config(
     value: &qdk_simulators::noise_config::NoiseConfig,
 ) -> PyResult<NoiseConfig> {
     Ok(NoiseConfig {
-        i: Py::new(py, NoiseTable::from(value.i))?,
-        x: Py::new(py, NoiseTable::from(value.x))?,
-        y: Py::new(py, NoiseTable::from(value.y))?,
-        z: Py::new(py, NoiseTable::from(value.z))?,
-        h: Py::new(py, NoiseTable::from(value.h))?,
-        s: Py::new(py, NoiseTable::from(value.s))?,
-        s_adj: Py::new(py, NoiseTable::from(value.s_adj))?,
-        t: Py::new(py, NoiseTable::from(value.t))?,
-        t_adj: Py::new(py, NoiseTable::from(value.t_adj))?,
-        sx: Py::new(py, NoiseTable::from(value.sx))?,
-        sx_adj: Py::new(py, NoiseTable::from(value.sx_adj))?,
-        rx: Py::new(py, NoiseTable::from(value.rx))?,
-        ry: Py::new(py, NoiseTable::from(value.ry))?,
-        rz: Py::new(py, NoiseTable::from(value.rz))?,
-        cx: Py::new(py, NoiseTable::from(value.cx))?,
-        cz: Py::new(py, NoiseTable::from(value.cz))?,
-        rxx: Py::new(py, NoiseTable::from(value.rxx))?,
-        ryy: Py::new(py, NoiseTable::from(value.ryy))?,
-        rzz: Py::new(py, NoiseTable::from(value.rzz))?,
-        swap: Py::new(py, NoiseTable::from(value.swap))?,
-        mov: Py::new(py, NoiseTable::from(value.mov))?,
-        mresetz: Py::new(py, NoiseTable::from(value.mresetz))?,
+        i: Py::new(py, NoiseTable::from(value.i.clone()))?,
+        x: Py::new(py, NoiseTable::from(value.x.clone()))?,
+        y: Py::new(py, NoiseTable::from(value.y.clone()))?,
+        z: Py::new(py, NoiseTable::from(value.z.clone()))?,
+        h: Py::new(py, NoiseTable::from(value.h.clone()))?,
+        s: Py::new(py, NoiseTable::from(value.s.clone()))?,
+        s_adj: Py::new(py, NoiseTable::from(value.s_adj.clone()))?,
+        t: Py::new(py, NoiseTable::from(value.t.clone()))?,
+        t_adj: Py::new(py, NoiseTable::from(value.t_adj.clone()))?,
+        sx: Py::new(py, NoiseTable::from(value.sx.clone()))?,
+        sx_adj: Py::new(py, NoiseTable::from(value.sx_adj.clone()))?,
+        rx: Py::new(py, NoiseTable::from(value.rx.clone()))?,
+        ry: Py::new(py, NoiseTable::from(value.ry.clone()))?,
+        rz: Py::new(py, NoiseTable::from(value.rz.clone()))?,
+        cx: Py::new(py, NoiseTable::from(value.cx.clone()))?,
+        cz: Py::new(py, NoiseTable::from(value.cz.clone()))?,
+        rxx: Py::new(py, NoiseTable::from(value.rxx.clone()))?,
+        ryy: Py::new(py, NoiseTable::from(value.ryy.clone()))?,
+        rzz: Py::new(py, NoiseTable::from(value.rzz.clone()))?,
+        swap: Py::new(py, NoiseTable::from(value.swap.clone()))?,
+        mov: Py::new(py, NoiseTable::from(value.mov.clone()))?,
+        mresetz: Py::new(py, NoiseTable::from(value.mresetz.clone()))?,
         idle: Py::new(py, IdleNoiseParams::from(value.idle))?,
     })
 }
@@ -226,66 +226,20 @@ impl From<qdk_simulators::noise_config::IdleNoiseParams> for IdleNoiseParams {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 #[pyclass(module = "qsharp._native")]
 pub struct NoiseTable {
+    qubits: u32,
     #[pyo3(get, set)]
-    pub x: f32,
+    pauli_strings: Vec<String>,
     #[pyo3(get, set)]
-    pub y: f32,
-    #[pyo3(get, set)]
-    pub z: f32,
+    probabilities: Vec<f32>,
     #[pyo3(get, set)]
     pub loss: f32,
 }
 
-#[pymethods]
 impl NoiseTable {
-    #[new]
-    fn new() -> Self {
-        NoiseTable {
-            x: 0.0,
-            y: 0.0,
-            z: 0.0,
-            loss: 0.0,
-        }
-    }
-
-    ///
-    /// The depolarizing noise to use in simulation.
-    ///
-    pub fn set_depolarizing(&mut self, value: f32) -> PyResult<()> {
-        self.validate_propability(value)?;
-        self.x = value / 3.0;
-        self.y = value / 3.0;
-        self.z = value / 3.0;
-        Ok(())
-    }
-
-    ///
-    /// The bit flip noise to use in simulation.
-    ///
-    pub fn set_bitflip(&mut self, value: f32) -> PyResult<()> {
-        self.validate_propability(value)?;
-        self.x = value;
-        self.y = 0.0;
-        self.z = 0.0;
-        Ok(())
-    }
-
-    ///
-    /// The phase flip noise to use in simulation.
-    ///
-    pub fn set_phaseflip(&mut self, value: f32) -> PyResult<()> {
-        self.validate_propability(value)?;
-        self.x = 0.0;
-        self.y = 0.0;
-        self.z = value;
-        Ok(())
-    }
-
-    #[allow(clippy::unused_self)]
-    fn validate_propability(&self, value: f32) -> PyResult<()> {
+    fn validate_propability(value: f32) -> PyResult<()> {
         if value < 0.0 {
             return Err(PyValueError::new_err(
                 "Pauli noise probabilities must be non-negative.",
@@ -298,14 +252,119 @@ impl NoiseTable {
         }
         Ok(())
     }
+
+    fn validate_pauli_string(&self, pauli_string: &str) -> PyResult<()> {
+        // Validate pauli string chars.
+        if !pauli_string
+            .chars()
+            .all(|c| c == 'I' || c == 'X' || c == 'Y' || c == 'Z')
+        {
+            return Err(PyValueError::new_err(format!(
+                "Pauli string can only contain 'I', 'X', 'Y', 'Z' characters, found {pauli_string}"
+            )));
+        }
+        // Validate number of qubits.
+        if pauli_string.len() != self.qubits as usize {
+            return Err(PyValueError::new_err(format!(
+                "Expected a pauli string with {} characters for this operation, found {}",
+                self.qubits, pauli_string
+            )));
+        }
+        Ok(())
+    }
+
+    fn generate_pauli_strings(n: u32, strings: Vec<String>) -> Vec<String> {
+        // Base case.
+        if n == 0 {
+            return strings;
+        }
+
+        // Recursive case.
+        let mut extended_strings = Vec::with_capacity(strings.len() * 4);
+        for s in &strings {
+            extended_strings.push(s.clone() + "X");
+            extended_strings.push(s.clone() + "Y");
+            extended_strings.push(s.clone() + "Z");
+            extended_strings.push(s.clone() + "I");
+        }
+        Self::generate_pauli_strings(n - 1, extended_strings)
+    }
+}
+
+#[pymethods]
+impl NoiseTable {
+    #[new]
+    fn new(qubits: u32) -> Self {
+        NoiseTable {
+            qubits,
+            pauli_strings: Vec::new(),
+            probabilities: Vec::new(),
+            loss: 0.0,
+        }
+    }
+
+    ///
+    /// The correlated pauli noise to use in simulation.
+    ///
+    pub fn set_pauli_noise(&mut self, pauli_string: String, value: f32) -> PyResult<()> {
+        self.validate_pauli_string(&pauli_string)?;
+        self.pauli_strings.push(pauli_string);
+        self.probabilities.push(value);
+        Ok(())
+    }
+
+    ///
+    /// The depolarizing noise to use in simulation.
+    ///
+    pub fn set_depolarizing(&mut self, value: f32) -> PyResult<()> {
+        Self::validate_propability(value)?;
+
+        // Generate all pauli strings.
+        let mut pauli_strings = Self::generate_pauli_strings(self.qubits, vec![String::new()]);
+        // Remove identity.
+        pauli_strings.pop();
+
+        let val = (value / self.qubits as f32) / (2_u32.pow(self.qubits) - 1) as f32;
+        let mut probabilities = Vec::with_capacity(pauli_strings.len());
+        for _ in 0..pauli_strings.len() {
+            probabilities.push(val);
+        }
+
+        self.pauli_strings = pauli_strings;
+        self.probabilities = probabilities;
+
+        Ok(())
+    }
+
+    ///
+    /// The bit flip noise to use in simulation.
+    ///
+    pub fn set_bitflip(&mut self, value: f32) -> PyResult<()> {
+        Self::validate_propability(value)?;
+        assert_eq!(self.qubits, 1);
+        self.pauli_strings = vec![String::from("X")];
+        self.probabilities = vec![value];
+        Ok(())
+    }
+
+    ///
+    /// The phase flip noise to use in simulation.
+    ///
+    pub fn set_phaseflip(&mut self, value: f32) -> PyResult<()> {
+        Self::validate_propability(value)?;
+        assert_eq!(self.qubits, 1);
+        self.pauli_strings = vec![String::from("Z")];
+        self.probabilities = vec![value];
+        Ok(())
+    }
 }
 
 impl From<NoiseTable> for qdk_simulators::noise_config::NoiseTable {
     fn from(value: NoiseTable) -> Self {
         qdk_simulators::noise_config::NoiseTable {
-            x: value.x,
-            y: value.y,
-            z: value.z,
+            qubits: value.qubits,
+            pauli_strings: value.pauli_strings,
+            probabilities: value.probabilities,
             loss: value.loss,
         }
     }
@@ -313,9 +372,9 @@ impl From<NoiseTable> for qdk_simulators::noise_config::NoiseTable {
 
 fn from_noise_table_ref(value: &PyRef<'_, NoiseTable>) -> qdk_simulators::noise_config::NoiseTable {
     qdk_simulators::noise_config::NoiseTable {
-        x: value.x,
-        y: value.y,
-        z: value.z,
+        qubits: value.qubits,
+        pauli_strings: value.pauli_strings.clone(),
+        probabilities: value.probabilities.clone(),
         loss: value.loss,
     }
 }
@@ -323,9 +382,9 @@ fn from_noise_table_ref(value: &PyRef<'_, NoiseTable>) -> qdk_simulators::noise_
 impl From<qdk_simulators::noise_config::NoiseTable> for NoiseTable {
     fn from(value: qdk_simulators::noise_config::NoiseTable) -> Self {
         NoiseTable {
-            x: value.x,
-            y: value.y,
-            z: value.z,
+            qubits: value.qubits,
+            pauli_strings: value.pauli_strings,
+            probabilities: value.probabilities,
             loss: value.loss,
         }
     }

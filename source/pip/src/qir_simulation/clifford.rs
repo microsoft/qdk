@@ -34,13 +34,13 @@ pub fn run_clifford<'py>(
 
     if !noise.rz.is_noiseless() {
         if noise.s.is_noiseless() {
-            noise.s = noise.rz;
+            noise.s = noise.rz.clone();
         }
         if noise.z.is_noiseless() {
-            noise.z = noise.rz;
+            noise.z = noise.rz.clone();
         }
         if noise.s_adj.is_noiseless() {
-            noise.s_adj = noise.rz;
+            noise.s_adj = noise.rz.clone();
         }
     }
 
@@ -85,7 +85,7 @@ fn run_clifford_shot(
     num_results: u32,
     noise: &qdk_simulators::noise_config::NoiseConfig,
 ) -> Vec<MeasurementResult> {
-    let mut sim = Simulator::new(num_qubits as usize, num_results as usize, *noise);
+    let mut sim = Simulator::new(num_qubits as usize, num_results as usize, noise.clone());
     for op in instructions {
         match op {
             QirInstruction::OneQubitGate(id, qubit) => match id {

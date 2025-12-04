@@ -59,8 +59,8 @@ pub fn run_parallel_shots<'py>(
         if let Some(op) = op {
             let mut add_ops: Vec<Op> = vec![op];
             // If there's a NoiseConfig, and we get noise for this op, append it
-            if let Some(noise) = noise
-                && let Some(noise_ops) = get_noise_ops(&op, &noise)
+            if let Some(noise) = &noise
+                && let Some(noise_ops) = get_noise_ops(&op, noise)
             {
                 add_ops.extend(noise_ops);
             }
