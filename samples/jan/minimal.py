@@ -1,6 +1,6 @@
 # %% Import the necessary QDK modules and define the OpenQASM source code
 from qdk import init, TargetProfile
-from qdk.openqasm import compile, run
+from qdk.openqasm import compile
 from qdk.simulation import NeutralAtomDevice, NoiseConfig
 from qdk.widgets import Histogram
 
