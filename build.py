@@ -717,6 +717,7 @@ if build_pip and build_widgets and args.integration_tests:
             or f.startswith("benzene.")
             or f.startswith("carbon.")
             or f.startswith("Ising.")
+            or f.startswith("atoms.")
             or f.startswith("teleport-notebook.")
             or f.startswith("qdk_simulators.")
         )
