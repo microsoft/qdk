@@ -59,6 +59,7 @@ export type DrawOptions = {
 export class Sqore {
   circuit: Circuit;
   gateRegistry: GateRegistry = {};
+  renderDepth: number = this.options.renderDepth ?? 0;
   /**
    * Initializes Sqore object.
    *
@@ -106,7 +107,6 @@ export class Sqore {
     // Create copy of circuit to prevent mutation
     const _circuit: Circuit =
       circuit ?? JSON.parse(JSON.stringify(this.circuit));
-    const renderDepth = this.options.renderDepth || 0;
 
     // Assign unique locations to each operation
     _circuit.componentGrid.forEach((col, colIndex) =>
@@ -118,7 +118,7 @@ export class Sqore {
     // Render operations starting at given depth
     _circuit.componentGrid = this.selectOpsAtDepth(
       _circuit.componentGrid,
-      renderDepth,
+      this.renderDepth,
     );
 
     // If only one top-level operation, expand automatically:
@@ -129,7 +129,9 @@ export class Sqore {
       Object.prototype.hasOwnProperty.call(
         _circuit.componentGrid[0].components[0].dataAttributes,
         "location",
-      )
+      ) &&
+      _circuit.componentGrid[0].components[0].dataAttributes["expanded"] !==
+        "false"
     ) {
       const location: string =
         _circuit.componentGrid[0].components[0].dataAttributes["location"];
@@ -337,11 +339,11 @@ export class Sqore {
         } else {
           selectedCol.push(op);
         }
-        selectedOps.push({ components: selectedCol });
-        if (extraCols.length > 0) {
-          selectedOps.push(...extraCols);
-        }
       });
+      selectedOps.push({ components: selectedCol });
+      if (extraCols.length > 0) {
+        selectedOps.push(...extraCols);
+      }
     });
     return selectedOps;
   }
@@ -478,7 +480,7 @@ export class Sqore {
         // Collapse parent gate and its children
         if (opId.startsWith(parentLoc)) {
           op.conditionalRender = ConditionalRender.Always;
-          delete op.dataAttributes["expanded"];
+          op.dataAttributes["expanded"] = "false";
         }
       }),
     );
