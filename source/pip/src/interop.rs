@@ -610,7 +610,7 @@ pub(crate) fn circuit_qasm_program(
     if let Some(group_by_scope) = config.group_by_scope {
         tracer_config.group_by_scope = group_by_scope;
     }
-    tracer_config.trim = config.trim;
+    tracer_config.prune_classical_qubits = config.prune_classical_qubits;
 
     let generation_method = if let Some(generation_method) = config.generation_method {
         generation_method.into()

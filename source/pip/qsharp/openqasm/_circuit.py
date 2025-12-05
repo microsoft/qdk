@@ -49,13 +49,13 @@ def circuit(
     generation_method = kwargs.pop("generation_method", None)
     source_locations = kwargs.pop("source_locations", None)
     group_by_scope = kwargs.pop("group_by_scope", None)
-    trim = kwargs.pop("trim", False)
+    prune_classical_qubits = kwargs.pop("prune_classical_qubits", False)
     config = CircuitConfig(
         max_operations=max_operations,
         generation_method=generation_method,
         source_locations=source_locations,
         group_by_scope=group_by_scope,
-        trim=trim,
+        prune_classical_qubits=prune_classical_qubits,
     )
 
     if isinstance(source, Callable) and hasattr(source, "__global_callable"):
