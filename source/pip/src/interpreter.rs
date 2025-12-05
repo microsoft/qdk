@@ -808,7 +808,7 @@ impl Interpreter {
         if let Some(group_by_scope) = config.group_by_scope {
             tracer_config.group_by_scope = group_by_scope;
         }
-        tracer_config.trim = config.trim;
+        tracer_config.prune_classical_qubits = config.prune_classical_qubits;
 
         let generation_method = if let Some(generation_method) = config.generation_method {
             generation_method.into()
@@ -1305,26 +1305,26 @@ pub(crate) struct CircuitConfig {
     #[pyo3(get, set)]
     pub(crate) group_by_scope: Option<bool>,
     #[pyo3(get, set)]
-    pub(crate) trim: bool,
+    pub(crate) prune_classical_qubits: bool,
 }
 
 #[pymethods]
 impl CircuitConfig {
     #[new]
-    #[pyo3(signature=(*,max_operations=None, generation_method=None, source_locations=None, group_by_scope=None, trim=false))]
+    #[pyo3(signature=(*,max_operations=None, generation_method=None, source_locations=None, group_by_scope=None, prune_classical_qubits=false))]
     fn new(
         max_operations: Option<usize>,
         generation_method: Option<CircuitGenerationMethod>,
         source_locations: Option<bool>,
         group_by_scope: Option<bool>,
-        trim: bool,
+        prune_classical_qubits: bool,
     ) -> Self {
         Self {
             max_operations,
             generation_method,
             source_locations,
             group_by_scope,
-            trim,
+            prune_classical_qubits,
         }
     }
 }

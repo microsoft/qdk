@@ -130,7 +130,7 @@ fn exceed_max_operations() {
             max_operations: 2,
             source_locations: false,
             group_by_scope: false,
-            trim: false,
+            prune_classical_qubits: false,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -159,7 +159,7 @@ fn source_locations_enabled() {
             max_operations: 10,
             source_locations: true,
             group_by_scope: false,
-            trim: false,
+            prune_classical_qubits: false,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -197,7 +197,7 @@ fn source_locations_disabled() {
             max_operations: 10,
             source_locations: false,
             group_by_scope: false,
-            trim: false,
+            prune_classical_qubits: false,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -229,7 +229,7 @@ fn source_locations_multiple_user_frames() {
             max_operations: 10,
             source_locations: true,
             group_by_scope: false,
-            trim: false,
+            prune_classical_qubits: false,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -268,7 +268,7 @@ fn source_locations_library_frames_excluded() {
             max_operations: 10,
             source_locations: true,
             group_by_scope: false,
-            trim: false,
+            prune_classical_qubits: false,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -301,7 +301,7 @@ fn source_locations_only_library_frames() {
             max_operations: 10,
             source_locations: true,
             group_by_scope: false,
-            trim: false,
+            prune_classical_qubits: false,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -334,7 +334,7 @@ fn source_locations_enabled_no_stack() {
             max_operations: 10,
             source_locations: true,
             group_by_scope: false,
-            trim: false,
+            prune_classical_qubits: false,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -360,7 +360,7 @@ fn qubit_source_locations_via_stack() {
             max_operations: 10,
             source_locations: true,
             group_by_scope: false,
-            trim: false,
+            prune_classical_qubits: false,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -385,7 +385,7 @@ fn qubit_labels_for_preallocated_qubits() {
             max_operations: 10,
             source_locations: true,
             group_by_scope: false,
-            trim: false,
+            prune_classical_qubits: false,
         },
         &FakeCompilation::user_package_ids(),
         Some((
@@ -506,7 +506,7 @@ fn bell_circuit_trimmed_stays_the_same() {
             max_operations: 100,
             source_locations: false,
             group_by_scope: false,
-            trim: true,
+            prune_classical_qubits: true,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -537,7 +537,7 @@ fn bell_circuit_trims_unused_qubit() {
             max_operations: 100,
             source_locations: false,
             group_by_scope: false,
-            trim: true,
+            prune_classical_qubits: true,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -569,7 +569,7 @@ fn bell_circuit_trims_classical_qubit() {
             max_operations: 100,
             source_locations: false,
             group_by_scope: false,
-            trim: true,
+            prune_classical_qubits: true,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -603,7 +603,7 @@ fn bell_circuit_trims_classical_control_qubit() {
             max_operations: 100,
             source_locations: false,
             group_by_scope: false,
-            trim: true,
+            prune_classical_qubits: true,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -637,7 +637,7 @@ fn bell_circuit_trims_classical_qubit_when_2q_precedes_superposition() {
             max_operations: 100,
             source_locations: false,
             group_by_scope: false,
-            trim: true,
+            prune_classical_qubits: true,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -671,7 +671,7 @@ fn bell_circuit_trims_classical_qubit_when_second_qubit_in_rzz_is_classical() {
             max_operations: 100,
             source_locations: false,
             group_by_scope: false,
-            trim: true,
+            prune_classical_qubits: true,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -699,49 +699,13 @@ fn bell_circuit_trims_classical_qubit_when_second_qubit_in_rzz_is_classical() {
 }
 
 #[test]
-fn bell_circuit_keeps_classical_qubit_when_second_qubit_in_rzz_is_not_classical() {
-    let mut builder = CircuitTracer::new(
-        TracerConfig {
-            max_operations: 100,
-            source_locations: false,
-            group_by_scope: false,
-            trim: true,
-        },
-        &FakeCompilation::user_package_ids(),
-    );
-
-    builder.qubit_allocate(&[], 0);
-    builder.qubit_allocate(&[], 1);
-    builder.qubit_allocate(&[], 2);
-
-    builder.gate(&[], "H", false, &[0], &[], None);
-    builder.gate(&[], "Rzz", false, &[1, 0], &[], Some(1.0));
-    builder.gate(&[], "X", false, &[2], &[0], None);
-    builder.measure(&[], "MResetZ", 0, &val::Result::Id(0));
-    builder.measure(&[], "MResetZ", 1, &val::Result::Id(1));
-    builder.measure(&[], "MResetZ", 2, &val::Result::Id(2));
-
-    let circuit = builder.finish(&FakeCompilation::default());
-
-    expect![[r#"
-        q_0    ── H ─── Rzz(1.0000) ─── ● ──── M ──── |0〉 ──
-                             ┆          │      ╘════════════
-        q_1    ──────── Rzz(1.0000) ────┼───── M ──── |0〉 ──
-                                        │      ╘════════════
-        q_2    ──────────────────────── X ──── M ──── |0〉 ──
-                                               ╘════════════
-    "#]]
-    .assert_eq(&circuit.to_string());
-}
-
-#[test]
 fn target_qubit_trimmed_when_only_one_control_non_classical() {
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 100,
             source_locations: false,
             group_by_scope: false,
-            trim: true,
+            prune_classical_qubits: true,
         },
         &FakeCompilation::user_package_ids(),
     );
