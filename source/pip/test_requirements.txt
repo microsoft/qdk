@@ -1,2 +1,2 @@
 pytest
-pyqir==0.10.9
+pyqir<0.12
