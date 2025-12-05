@@ -1,6 +1,6 @@
 # %% Import the necessary QDK modules and define the OpenQASM source code
 from qdk import init, TargetProfile
-from qdk.openqasm import compile, run
+from qdk.openqasm import compile
 from qdk.simulation import NeutralAtomDevice, NoiseConfig
 from qdk.widgets import Histogram
 
@@ -19,7 +19,7 @@ qir = compile(qasm_src)
 
 # %% Create machine model and visualize execution
 device = NeutralAtomDevice()
-device
+device.trace(qir)
 # %% Configure a noise model and run a full-state simulation
 noise = NoiseConfig()
 noise.cz.set_depolarizing(0.05)
