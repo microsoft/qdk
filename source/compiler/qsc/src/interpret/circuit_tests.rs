@@ -1073,7 +1073,11 @@ fn operation_declared_in_eval() {
         )
         .expect("circuit generation should succeed");
 
-    expect![""].assert_eq(&c.to_string());
+    expect![[r#"
+        q_0    ── H ──── M ──
+                         ╘═══
+    "#]]
+    .assert_eq(&c.display_no_locations().to_string());
 }
 
 /// Tests that invoke circuit generation through the debugger.
