@@ -40,7 +40,7 @@ const processOperations = (
 
   // Get classical registers and their starting column index
   const classicalRegs: [number, Register][] =
-    _getClassicalRegStart(componentGrid);
+    _getClassicalRegStarts(componentGrid);
 
   // Map operation index to gate render data for formatting later
   const renderDataArray: GateRenderData[][] = componentGrid.map(
@@ -75,21 +75,21 @@ const processOperations = (
               return children[reg.result].y;
             });
 
-          let qubits: Register[];
+          let targets: Register[];
           switch (op.kind) {
             case "unitary":
-              qubits = op.targets;
+              targets = op.targets;
               break;
             case "measurement":
-              qubits = op.qubits;
+              targets = op.qubits;
               break;
             case "ket":
-              qubits = op.targets;
+              targets = op.targets;
               break;
           }
 
           renderData.targetsY = _splitTargetsY(
-            qubits,
+            targets,
             classicalRegY,
             registers,
           );
@@ -122,7 +122,7 @@ const processOperations = (
  *
  * @returns Array of classical register and their starting column indices in the form [[column, register]].
  */
-const _getClassicalRegStart = (
+const _getClassicalRegStarts = (
   componentGrid: ComponentGrid,
 ): [number, Register][] => {
   const clsRegs: [number, Register][] = [];
@@ -133,6 +133,12 @@ const _getClassicalRegStart = (
           ({ result }) => result !== undefined,
         );
         resultRegs.forEach((reg) => clsRegs.push([colIndex, reg]));
+      } else if (op.children != null) {
+        const componentGrid = op.children;
+        const childClsRegs = _getClassicalRegStarts(componentGrid);
+        childClsRegs.forEach(([childColIndex, reg]) => {
+          clsRegs.push([colIndex + childColIndex, reg]);
+        });
       }
     });
   });
@@ -338,7 +344,7 @@ const _getRegY = (reg: Register, registers: RegisterMap): number => {
 /**
  * Splits `targets` if non-adjacent or intersected by classical registers.
  *
- * @param targets       Target qubit registers.
+ * @param targets       Target registers (can be qubit or classical).
  * @param classicalRegY y coords of classical registers overlapping current column.
  * @param registers     Mapping from register qubit IDs to register render data.
  *

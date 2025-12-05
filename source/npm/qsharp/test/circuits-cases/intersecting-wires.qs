@@ -18,7 +18,28 @@ operation Main() : Unit {
 
     // Spanning all qubit wires, one classical wire extending
     // from the box, and crossing the other classical wires
-    BoxWithMeasurements(qs)
+    BoxWithMeasurements(qs);
+
+    use q1 = Qubit();
+    use q2 = Qubit();
+    Bar(q1);
+    Bar(q2);
+    Foo2(q1);
+    Bar(q1);
+    Foo2(q1);
+    Foo2(q2);
+    Bar(q2);
+    Foo2(q2);
+}
+
+operation Foo2(q : Qubit) : Unit {
+    Bar(q);
+    MResetZ(q);
+}
+
+operation Bar(q : Qubit) : Unit {
+    X(q);
+    Y(q);
 }
 
 operation BoxWithMeasurements(qs: Qubit[]) : Unit {
