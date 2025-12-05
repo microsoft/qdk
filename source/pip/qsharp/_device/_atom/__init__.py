@@ -200,7 +200,7 @@ class NeutralAtomDevice(Device):
         qir: str | QirInputData,
         shots=1,
         noise: NoiseConfig | None = None,
-        type: Literal["clifford", "cpu", "gpu"] = "clifford",
+        type: Literal["clifford", "cpu", "gpu"] = "gpu",
     ) -> List:
         """
         Simulate a QIR program on the NeutralAtomDevice device. This includes approximate layout and scheduling of the program
@@ -210,7 +210,10 @@ class NeutralAtomDevice(Device):
         :param qir: The QIR program to simulate, either as a string or as QirInputData.
         :param shots: The number of shots to simulate. Defaults to 1.
         :param noise: An optional NoiseConfig to include noise in the simulation.
-        :param type: The type of simulation to perform. Currently, only "clifford" is supported.
+        :param type: The type of simulator to use:
+            Use `"clifford"` if your QIR only contains Clifford gates and measurements.
+            Use `"gpu"` if you have a GPU available in your system.
+            Use `"cpu"` as a fallback option if you don't have a GPU in your system.
         :returns: The results of each shot of the simulation as a list.
         """
 

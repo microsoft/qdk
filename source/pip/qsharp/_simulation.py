@@ -483,8 +483,24 @@ def run_qir(
     shots: Optional[int] = 1,
     noise: Optional[NoiseConfig] = None,
     seed: Optional[int] = None,
-    type: Literal["clifford", "cpu", "gpu"] = "clifford",
+    type: Literal["clifford", "cpu", "gpu"] = "gpu",
 ) -> List[str]:
+    """
+    Simulate the given QIR source.
+
+    Args:
+        input: The QIR source to simulate.
+        type: The type of simulator to use.
+            Use `"clifford"` if your QIR only contains Clifford gates and measurements.
+            Use `"gpu"` if you have a GPU available in your system.
+            Use `"cpu"` as a fallback option if you don't have a GPU in your system.
+        shots: The number of shots to run.
+        noise: A noise model to use in the simulation.
+        seed: A seed for reproducibility.
+
+    Returns:
+        A list of measurement results, in the order they happened during the simulation.
+    """
     match type:
         case "clifford":
             return run_qir_clifford(input, shots, noise, seed)
