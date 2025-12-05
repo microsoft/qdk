@@ -19,7 +19,7 @@ qir = compile(qasm_src)
 
 # %% Create machine model and visualize execution
 device = NeutralAtomDevice()
-device
+device.trace(qir)
 # %% Configure a noise model and run a full-state simulation
 noise = NoiseConfig()
 noise.cz.set_depolarizing(0.05)
