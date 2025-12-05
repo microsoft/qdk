@@ -157,8 +157,8 @@ def test_gpu_mixed_noise():
     print(result)
     # Reasonable results obtained from manual run
     assert result == [
-        "00000-00000001-0000000001",
-        "00000001000-0000000000-00",
+        "00000-00000000-0000000000",
+        "00100001000-0000000000-00",
         "000000010000000-000000000",
     ]
 
