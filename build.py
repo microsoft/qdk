@@ -537,7 +537,8 @@ if build_qdk:
             "--no-index",
             "--no-deps",
             "--find-links=" + wheels_dir,
-            "qdk qsharp",
+            "qdk",
+            "qsharp",
         ]
         subprocess.run(install_args, check=True, text=True, cwd=qdk_python_src)
 
