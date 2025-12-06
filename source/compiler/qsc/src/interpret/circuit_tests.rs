@@ -1069,15 +1069,19 @@ fn operation_declared_in_eval() {
         .circuit(
             CircuitEntryPoint::EntryExpr("Foo()".into()),
             CircuitGenerationMethod::ClassicalEval,
-            Default::default(),
+            TracerConfig {
+                max_operations: usize::MAX,
+                source_locations: false,
+                group_by_scope: true,
+            },
         )
         .expect("circuit generation should succeed");
 
     expect![[r#"
-        q_0    ── H ──── M ──
-                         ╘═══
+        q_0    ─ [ [Foo] ─── H ──── M ──── ] ──
+                    [               ╘═════ ] ══
     "#]]
-    .assert_eq(&c.display_no_locations().to_string());
+    .assert_eq(&c.display_with_groups().to_string());
 }
 
 /// Tests that invoke circuit generation through the debugger.

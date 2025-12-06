@@ -116,33 +116,33 @@ pub enum Error {
 }
 
 #[derive(PartialEq, Eq, Copy, Clone)]
-enum FirSelector {
+enum FIRConfig {
     NoDebug,
     Debug,
 }
 
-struct LazyLowerer {
-    nodebug_fir: IncrementalLowerer,
-    debug_fir: IncrementalLowerer,
+struct MultiConfigFIR {
+    nodebug_fir: IncrementalFIR,
+    debug_fir: IncrementalFIR,
 }
 
-impl LazyLowerer {
+impl MultiConfigFIR {
     fn new(
         capabilities: TargetCapabilityFlags,
         compiler: &Compiler,
     ) -> std::result::Result<Self, Vec<Error>> {
         Ok(Self {
-            nodebug_fir: IncrementalLowerer::new(capabilities, compiler, false)?,
-            debug_fir: IncrementalLowerer::new(capabilities, compiler, true)?,
+            nodebug_fir: IncrementalFIR::new(capabilities, compiler, false)?,
+            debug_fir: IncrementalFIR::new(capabilities, compiler, true)?,
         })
     }
 
-    fn package_store(&self, select: FirSelector) -> &fir::PackageStore {
-        &match select {
-            FirSelector::Debug => &self.debug_fir,
-            FirSelector::NoDebug => &self.nodebug_fir,
+    fn package_store(&self, config: FIRConfig) -> &fir::PackageStore {
+        &match config {
+            FIRConfig::Debug => &self.debug_fir,
+            FIRConfig::NoDebug => &self.nodebug_fir,
         }
-        .fir_store
+        .package_store
     }
 
     fn lower(
@@ -150,54 +150,51 @@ impl LazyLowerer {
         capabilities: TargetCapabilityFlags,
         unit_addition: &qsc_frontend::incremental::Increment,
         package_id: PackageId,
-        select: FirSelector,
+        config: FIRConfig,
     ) -> core::result::Result<
         (ExecGraph, Option<PackageStoreComputeProperties>),
         Vec<qsc_passes::Error>,
     > {
-        match select {
-            FirSelector::Debug => &mut self.debug_fir,
-            FirSelector::NoDebug => &mut self.nodebug_fir,
+        // Lower both, but return the result from the requested kind
+        let debug_result = self
+            .debug_fir
+            .lower(capabilities, unit_addition, package_id);
+        let nodebug_result = self
+            .nodebug_fir
+            .lower(capabilities, unit_addition, package_id);
+        match config {
+            FIRConfig::Debug => debug_result,
+            FIRConfig::NoDebug => nodebug_result,
         }
-        .lower(capabilities, unit_addition, package_id)
     }
 
     fn get_entry_exec_graph(
         &self,
-        select: FirSelector,
+        config: FIRConfig,
         package_id: PackageId,
     ) -> std::result::Result<ExecGraph, Vec<Error>> {
-        match select {
-            FirSelector::Debug => self.debug_fir.get_entry_exec_graph(package_id),
-            FirSelector::NoDebug => self.nodebug_fir.get_entry_exec_graph(package_id),
-        }
-    }
-
-    fn set_expr_graph(&mut self, select: FirSelector, grph: ExecGraph) {
-        match select {
-            FirSelector::Debug => self.debug_fir.expr_graph = Some(grph),
-            FirSelector::NoDebug => self.nodebug_fir.expr_graph = Some(grph),
-        }
-    }
-
-    fn expr_graph(&self, select: FirSelector) -> Option<&ExecGraph> {
-        match select {
-            FirSelector::Debug => self.debug_fir.expr_graph.as_ref(),
-            FirSelector::NoDebug => self.nodebug_fir.expr_graph.as_ref(),
+        match config {
+            FIRConfig::Debug => self.debug_fir.get_entry_exec_graph(package_id),
+            FIRConfig::NoDebug => self.nodebug_fir.get_entry_exec_graph(package_id),
         }
     }
 }
 
-struct IncrementalLowerer {
-    // The FIR store
-    fir_store: fir::PackageStore,
-    /// FIR lowerer
-    lowerer: qsc_lowerer::Lowerer,
+struct DefaultFIRConfig {
+    /// The FIR configuration to use by default.
+    config: FIRConfig,
     /// The execution graph for the last expression evaluated.
     expr_graph: Option<ExecGraph>,
 }
 
-impl IncrementalLowerer {
+struct IncrementalFIR {
+    // The FIR store
+    package_store: fir::PackageStore,
+    /// FIR lowerer
+    lowerer: qsc_lowerer::Lowerer,
+}
+
+impl IncrementalFIR {
     fn lower(
         &mut self,
         capabilities: TargetCapabilityFlags,
@@ -221,12 +218,12 @@ impl IncrementalLowerer {
         package_id: PackageId,
     ) {
         {
-            let fir_package = self.fir_store.get_mut(package_id);
+            let fir_package = self.package_store.get_mut(package_id);
             self.lowerer
                 .lower_and_update_package(fir_package, &unit.hir);
         }
-        let fir_package: &Package = self.fir_store.get(package_id);
-        qsc_fir::validate::validate(fir_package, &self.fir_store);
+        let fir_package: &Package = self.package_store.get(package_id);
+        qsc_fir::validate::validate(fir_package, &self.package_store);
     }
 
     fn run_fir_passes(
@@ -241,12 +238,12 @@ impl IncrementalLowerer {
         self.lower_and_update_package(unit, package_id);
 
         let cap_results =
-            PassContext::run_fir_passes_on_fir(&self.fir_store, package_id, capabilities);
+            PassContext::run_fir_passes_on_fir(&self.package_store, package_id, capabilities);
 
         let compute_properties = cap_results.inspect_err(|_| {
             // if there are errors, convert them to interpreter errors
             // and revert the update to the lowerer/FIR store.
-            let fir_package = self.fir_store.get_mut(package_id);
+            let fir_package = self.package_store.get_mut(package_id);
             self.lowerer.revert_last_increment(fir_package);
         })?;
 
@@ -258,7 +255,7 @@ impl IncrementalLowerer {
         &self,
         package_id: PackageId,
     ) -> std::result::Result<ExecGraph, Vec<Error>> {
-        let unit = self.fir_store.get(package_id);
+        let unit = self.package_store.get(package_id);
         if unit.entry.is_some() {
             return Ok(unit.entry_exec_graph.clone());
         }
@@ -271,9 +268,8 @@ impl IncrementalLowerer {
         dbg: bool,
     ) -> std::result::Result<Self, Vec<Error>> {
         Ok(Self {
-            fir_store: lower_to_fir(capabilities, compiler, dbg)?,
+            package_store: lower_to_fir(capabilities, compiler, dbg)?,
             lowerer: qsc_lowerer::Lowerer::new(),
-            expr_graph: None,
         })
     }
 }
@@ -322,7 +318,7 @@ pub struct Interpreter {
     /// This field is used to generate a unique label
     /// for each line evaluated with `eval_fragments`.
     lines: u32,
-    lazy_lowerer: LazyLowerer,
+    fir: MultiConfigFIR,
     /// Checking if an `ItemId` corresponds to the `Std.OpenQASM.Angle.Angle` UDT
     /// is an expensive operation. So, we cache the id to avoid incurring that cost.
     angle_ty_cache: RefCell<Option<crate::hir::ItemId>>,
@@ -348,9 +344,8 @@ pub struct Interpreter {
     classical_seed: Option<u64>,
     /// The evaluator environment.
     env: Env, // TODO: is this sneakily intertwined with the selected FIR?
-    /// During evaluation, execute debug nodes in the execution graph. Useful
-    /// for debugging features such as tracking block scopes at runtime.
-    execute_debug_nodes: FirSelector,
+    /// The FIR kind to use in evaluation by default.
+    default_fir_config: DefaultFIRConfig,
 }
 
 pub type InterpretResult = std::result::Result<Value, Vec<Error>>;
@@ -505,14 +500,13 @@ impl Interpreter {
         let source_package_id = compiler.source_package_id();
         let package_id = compiler.package_id();
         let package = map_hir_package_to_fir(package_id);
-
-        let lazy_lowerer = LazyLowerer::new(capabilities, &compiler)?;
+        let fir = MultiConfigFIR::new(capabilities, &compiler)?;
 
         Ok(Self {
             compiler,
             lines: 0,
             capabilities,
-            lazy_lowerer,
+            fir,
             angle_ty_cache: None.into(),
             complex_ty_cache: None.into(),
             env: Env::default(),
@@ -527,10 +521,13 @@ impl Interpreter {
             classical_seed: None,
             package,
             source_package: map_hir_package_to_fir(source_package_id),
-            execute_debug_nodes: if execute_debug_nodes {
-                FirSelector::Debug
-            } else {
-                FirSelector::NoDebug
+            default_fir_config: DefaultFIRConfig {
+                config: if execute_debug_nodes {
+                    FIRConfig::Debug
+                } else {
+                    FIRConfig::NoDebug
+                },
+                expr_graph: None,
             },
         })
     }
@@ -833,16 +830,15 @@ impl Interpreter {
     /// Returns a vector of errors if evaluating the entry point fails.
     pub fn eval_entry(&mut self, receiver: &mut impl Receiver) -> InterpretResult {
         let graph = self
-            .lazy_lowerer
-            .get_entry_exec_graph(self.execute_debug_nodes, self.source_package)?;
-        self.lazy_lowerer
-            .set_expr_graph(self.execute_debug_nodes, graph.clone());
+            .fir
+            .get_entry_exec_graph(self.default_fir_config.config, self.source_package)?;
+        self.default_fir_config.expr_graph = Some(graph.clone());
         eval(
             self.source_package,
             self.classical_seed,
             graph,
             self.compiler.package_store(),
-            self.lazy_lowerer.package_store(self.execute_debug_nodes),
+            self.fir.package_store(self.default_fir_config.config),
             &mut Env::default(),
             &mut TracingBackend::new(&mut self.sim, self.circuit_tracer.as_mut()),
             receiver,
@@ -857,10 +853,9 @@ impl Interpreter {
         receiver: &mut impl Receiver,
     ) -> InterpretResult {
         let graph = self
-            .lazy_lowerer
-            .get_entry_exec_graph(self.execute_debug_nodes, self.source_package)?;
-        self.lazy_lowerer
-            .set_expr_graph(self.execute_debug_nodes, graph.clone());
+            .fir
+            .get_entry_exec_graph(self.default_fir_config.config, self.source_package)?;
+        self.default_fir_config.expr_graph = Some(graph.clone());
         if self.quantum_seed.is_some() {
             sim.set_seed(self.quantum_seed);
         }
@@ -869,7 +864,7 @@ impl Interpreter {
             self.classical_seed,
             graph,
             self.compiler.package_store(),
-            self.lazy_lowerer.package_store(self.execute_debug_nodes),
+            self.fir.package_store(self.default_fir_config.config),
             &mut Env::default(),
             &mut TracingBackend::no_tracer(sim),
             receiver,
@@ -885,7 +880,7 @@ impl Interpreter {
         receiver: &mut impl Receiver,
         fragments: &str,
     ) -> InterpretResult {
-        self.eval_fragments_with_fir_selector(receiver, fragments, self.execute_debug_nodes)
+        self.eval_fragments_with_fir_selector(receiver, fragments, self.default_fir_config.config)
     }
 
     /// # Errors
@@ -896,7 +891,7 @@ impl Interpreter {
         &mut self,
         receiver: &mut impl Receiver,
         fragments: &str,
-        fir_selector: FirSelector,
+        config: FIRConfig,
     ) -> InterpretResult {
         let label = self.next_line_label();
 
@@ -909,7 +904,7 @@ impl Interpreter {
         // should not change what gets executed.
         increment.clear_entry();
 
-        self.eval_increment(receiver, increment, fir_selector)
+        self.eval_increment(receiver, increment, config)
     }
 
     /// It is assumed that if there were any parse errors on the fragments, the caller would have
@@ -931,23 +926,18 @@ impl Interpreter {
             .compile_ast_fragments_fail_fast(&label, fragments, package)
             .map_err(into_errors)?;
 
-        self.eval_increment(receiver, increment, self.execute_debug_nodes)
+        self.eval_increment(receiver, increment, self.default_fir_config.config)
     }
 
     fn eval_increment(
         &mut self,
         receiver: &mut impl Receiver,
         increment: Increment,
-        execute_debug_nodes: FirSelector,
+        config: FIRConfig,
     ) -> InterpretResult {
         let (graph, _) = self
-            .lazy_lowerer
-            .lower(
-                self.capabilities,
-                &increment,
-                self.package,
-                execute_debug_nodes,
-            )
+            .fir
+            .lower(self.capabilities, &increment, self.package, config)
             .map_err(|caps_errors| {
                 let source_package = self
                     .compiler
@@ -960,8 +950,7 @@ impl Interpreter {
                     .map(|error| Error::Pass(WithSource::from_map(&source_package.sources, error)))
                     .collect::<Vec<_>>()
             })?;
-        self.lazy_lowerer
-            .set_expr_graph(execute_debug_nodes, graph.clone());
+        self.default_fir_config.expr_graph = Some(graph.clone());
 
         // Updating the compiler state with the new AST/HIR nodes
         // is not necessary for the interpreter to function, as all
@@ -976,7 +965,7 @@ impl Interpreter {
             self.classical_seed,
             graph,
             self.compiler.package_store(),
-            self.lazy_lowerer.package_store(execute_debug_nodes),
+            self.fir.package_store(config),
             &mut self.env,
             &mut TracingBackend::new(&mut self.sim, self.circuit_tracer.as_mut()),
             receiver,
@@ -993,7 +982,7 @@ impl Interpreter {
         qsc_eval::invoke(
             self.package,
             self.classical_seed,
-            self.lazy_lowerer.package_store(self.execute_debug_nodes),
+            self.fir.package_store(self.default_fir_config.config),
             &mut self.env,
             &mut TracingBackend::new(&mut self.sim, self.circuit_tracer.as_mut()),
             receiver,
@@ -1003,7 +992,7 @@ impl Interpreter {
         .map_err(|(error, call_stack)| {
             eval_error(
                 self.compiler.package_store(),
-                self.lazy_lowerer.package_store(self.execute_debug_nodes),
+                self.fir.package_store(self.default_fir_config.config),
                 call_stack,
                 error,
             )
@@ -1072,7 +1061,7 @@ impl Interpreter {
         // Compile the expression. This operation will set the expression as
         // the entry-point in the FIR store.
         let (graph, compute_properties) =
-            self.compile_entry_expr(expr, self.execute_debug_nodes)?;
+            self.compile_entry_expr(expr, self.default_fir_config.config)?;
 
         let Some(compute_properties) = compute_properties else {
             // This can only happen if capability analysis was not run. This would be a bug
@@ -1080,8 +1069,8 @@ impl Interpreter {
             panic!("internal error: compute properties not set after lowering entry expression");
         };
         let package = self
-            .lazy_lowerer
-            .package_store(self.execute_debug_nodes)
+            .fir
+            .package_store(self.default_fir_config.config)
             .get(self.package);
         let entry = ProgramEntry {
             exec_graph: graph,
@@ -1095,7 +1084,7 @@ impl Interpreter {
         };
         // Generate QIR
         fir_to_qir(
-            self.lazy_lowerer.package_store(self.execute_debug_nodes),
+            self.fir.package_store(self.default_fir_config.config),
             self.capabilities,
             Some(compute_properties),
             &entry,
@@ -1133,7 +1122,7 @@ impl Interpreter {
         };
 
         fir_to_qir_from_callable(
-            self.lazy_lowerer.package_store(self.execute_debug_nodes),
+            self.fir.package_store(self.default_fir_config.config),
             self.capabilities,
             None,
             *store_item_id,
@@ -1168,9 +1157,9 @@ impl Interpreter {
         // If grouping by scope is enabled, we'll want to execute
         // debug nodes to track block scopes.
         let execute_debug_nodes = if tracer_config.group_by_scope {
-            FirSelector::Debug
+            FIRConfig::Debug
         } else {
-            self.execute_debug_nodes
+            self.default_fir_config.config
         };
 
         let (entry_expr, qubit_params, invoke_params) = match entry {
@@ -1244,9 +1233,8 @@ impl Interpreter {
 
     /// Sets the entry expression for the interpreter.
     pub fn set_entry_expr(&mut self, entry_expr: &str) -> std::result::Result<(), Vec<Error>> {
-        let (graph, _) = self.compile_entry_expr(entry_expr, self.execute_debug_nodes)?;
-        self.lazy_lowerer
-            .set_expr_graph(self.execute_debug_nodes, graph);
+        let (graph, _) = self.compile_entry_expr(entry_expr, self.default_fir_config.config)?;
+        self.default_fir_config.expr_graph = Some(graph);
         Ok(())
     }
 
@@ -1260,14 +1248,13 @@ impl Interpreter {
     ) -> InterpretResult {
         let mut tracing_backend = TracingBackend::no_tracer(sim);
         let graph = if let Some(expr) = expr {
-            let (graph, _) = self.compile_entry_expr(expr, self.execute_debug_nodes)?;
-            self.lazy_lowerer
-                .set_expr_graph(self.execute_debug_nodes, graph.clone());
+            let (graph, _) = self.compile_entry_expr(expr, self.default_fir_config.config)?;
+            self.default_fir_config.expr_graph = Some(graph.clone());
             graph
         } else {
-            self.lazy_lowerer
-                .expr_graph(self.execute_debug_nodes)
-                .cloned()
+            self.default_fir_config
+                .expr_graph
+                .clone()
                 .ok_or(vec![Error::NoEntryPoint])?
         };
 
@@ -1280,7 +1267,7 @@ impl Interpreter {
             self.classical_seed,
             graph,
             self.compiler.package_store(),
-            self.lazy_lowerer.package_store(self.execute_debug_nodes),
+            self.fir.package_store(self.default_fir_config.config),
             &mut Env::default(),
             &mut tracing_backend,
             receiver,
@@ -1292,18 +1279,17 @@ impl Interpreter {
         tracing_backend: &mut TracingBackend<'_, B>,
         out: &mut GenericReceiver,
         entry_expr: Option<&str>,
-        execute_debug_nodes: FirSelector,
+        config: FIRConfig,
     ) -> InterpretResult {
         let (package_id, graph) = if let Some(entry_expr) = entry_expr {
             // entry expression is provided
-            let (graph, _) = self.compile_entry_expr(entry_expr, execute_debug_nodes)?;
+            let (graph, _) = self.compile_entry_expr(entry_expr, config)?;
             (self.package, graph)
         } else {
             // no entry expression, use the entrypoint in the package
             (
                 self.source_package,
-                self.lazy_lowerer
-                    .get_entry_exec_graph(execute_debug_nodes, self.source_package)?,
+                self.fir.get_entry_exec_graph(config, self.source_package)?,
             )
         };
         if self.quantum_seed.is_some() {
@@ -1314,7 +1300,7 @@ impl Interpreter {
             self.classical_seed,
             graph,
             self.compiler.package_store(),
-            self.lazy_lowerer.package_store(execute_debug_nodes),
+            self.fir.package_store(config),
             &mut Env::default(),
             tracing_backend,
             out,
@@ -1335,7 +1321,7 @@ impl Interpreter {
             receiver,
             callable,
             args,
-            self.execute_debug_nodes,
+            self.default_fir_config.config,
         )
     }
 
@@ -1345,12 +1331,12 @@ impl Interpreter {
         receiver: &mut impl Receiver,
         callable: Value,
         args: Value,
-        execute_debug_nodes: FirSelector,
+        config: FIRConfig,
     ) -> InterpretResult {
         qsc_eval::invoke(
             self.package,
             self.classical_seed,
-            self.lazy_lowerer.package_store(execute_debug_nodes),
+            self.fir.package_store(config),
             &mut Env::default(),
             tracing_backend,
             receiver,
@@ -1360,7 +1346,7 @@ impl Interpreter {
         .map_err(|(error, call_stack)| {
             eval_error(
                 self.compiler.package_store(),
-                self.lazy_lowerer.package_store(execute_debug_nodes),
+                self.fir.package_store(config),
                 call_stack,
                 error,
             )
@@ -1370,7 +1356,7 @@ impl Interpreter {
     fn compile_entry_expr(
         &mut self,
         expr: &str,
-        execute_debug_nodes: FirSelector,
+        config: FIRConfig,
     ) -> std::result::Result<(ExecGraph, Option<PackageStoreComputeProperties>), Vec<Error>> {
         let increment = self
             .compiler
@@ -1380,13 +1366,8 @@ impl Interpreter {
         // `lower` will update the entry expression in the FIR store,
         // and it will always return an empty list of statements.
         let (graph, compute_properties) = self
-            .lazy_lowerer
-            .lower(
-                self.capabilities,
-                &increment,
-                self.package,
-                execute_debug_nodes,
-            )
+            .fir
+            .lower(self.capabilities, &increment, self.package, config)
             .map_err(|caps_errors| {
                 let source_package = self
                     .compiler
@@ -1430,12 +1411,12 @@ impl Interpreter {
     fn eval_to_operation(
         &mut self,
         operation_expr: &str,
-        fir_selector: FirSelector,
+        config: FIRConfig,
     ) -> std::result::Result<(PackageId, &qsc_hir::hir::Item, FunctorApp), Vec<Error>> {
         let mut sink = std::io::sink();
         let mut out = GenericReceiver::new(&mut sink);
         let (store_item_id, functor_app) =
-            match self.eval_fragments_with_fir_selector(&mut out, operation_expr, fir_selector)? {
+            match self.eval_fragments_with_fir_selector(&mut out, operation_expr, config)? {
                 Value::Closure(b) => (b.id, b.functor),
                 Value::Global(item_id, functor_app) => (item_id, functor_app),
                 _ => return Err(vec![Error::NotAnOperation]),
@@ -1513,8 +1494,8 @@ impl Debugger {
         )?;
         let source_package_id = interpreter.source_package;
         let unit = interpreter
-            .lazy_lowerer
-            .package_store(FirSelector::Debug)
+            .fir
+            .package_store(FIRConfig::Debug)
             .get(source_package_id);
         let entry_exec_graph = unit.entry_exec_graph.clone();
         Ok(Self {
@@ -1532,8 +1513,8 @@ impl Debugger {
     pub fn from(interpreter: Interpreter, position_encoding: Encoding) -> Self {
         let source_package_id = interpreter.source_package;
         let unit = interpreter
-            .lazy_lowerer
-            .package_store(FirSelector::Debug)
+            .fir
+            .package_store(FIRConfig::Debug)
             .get(source_package_id);
         let entry_exec_graph = unit.entry_exec_graph.clone();
         Self {
@@ -1559,9 +1540,7 @@ impl Debugger {
     ) -> std::result::Result<StepResult, Vec<Error>> {
         self.state
             .eval(
-                self.interpreter
-                    .lazy_lowerer
-                    .package_store(FirSelector::Debug),
+                self.interpreter.fir.package_store(FIRConfig::Debug),
                 &mut self.interpreter.env,
                 &mut TracingBackend::new(
                     &mut self.interpreter.sim,
@@ -1574,9 +1553,7 @@ impl Debugger {
             .map_err(|(error, call_stack)| {
                 eval_error(
                     self.interpreter.compiler.package_store(),
-                    self.interpreter
-                        .lazy_lowerer
-                        .package_store(FirSelector::Debug),
+                    self.interpreter.fir.package_store(FIRConfig::Debug),
                     call_stack,
                     error,
                 )
@@ -1592,8 +1569,8 @@ impl Debugger {
             .map(|frame| {
                 let callable = self
                     .interpreter
-                    .lazy_lowerer
-                    .package_store(FirSelector::Debug)
+                    .fir
+                    .package_store(FIRConfig::Debug)
                     .get_global(frame.id)
                     .expect("frame should exist");
                 let functor = format!("{}", frame.functor);
@@ -1631,8 +1608,8 @@ impl Debugger {
         if let Some(source) = unit.sources.find_by_name(path) {
             let package = self
                 .interpreter
-                .lazy_lowerer
-                .package_store(FirSelector::Debug)
+                .fir
+                .package_store(FIRConfig::Debug)
                 .get(self.interpreter.source_package);
             let mut collector = BreakpointCollector::new(
                 &unit.sources,
@@ -1642,9 +1619,7 @@ impl Debugger {
             );
             collector.visit_package(
                 package,
-                self.interpreter
-                    .lazy_lowerer
-                    .package_store(FirSelector::Debug),
+                self.interpreter.fir.package_store(FIRConfig::Debug),
             );
             let mut spans: Vec<_> = collector.statements.into_iter().collect();
 
