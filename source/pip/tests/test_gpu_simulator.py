@@ -123,7 +123,7 @@ def test_gpu_bitflip_noise():
     p_noise = 0.005
     noise = NoiseConfig()
     noise.rx.set_bitflip(p_noise)
-    noise.rzz.set_bitflip(p_noise)
+    noise.rzz.set_pauli_noise("XX", p_noise)
     noise.mresetz.set_bitflip(p_noise)
 
     output = run_qir_gpu(str(input), shots=3, noise=noise, seed=17)
@@ -131,9 +131,9 @@ def test_gpu_bitflip_noise():
     print(result)
     # Reasonable results obtained from manual run
     assert result == [
-        "0000000000011100001001110",
-        "0001001000000000000100100",
-        "0000001000110000000100011",
+        "0000000000011100000000110",
+        "0001001100000000000100110",
+        "0000000000011000000000000",
     ]
 
 
@@ -157,9 +157,9 @@ def test_gpu_mixed_noise():
     print(result)
     # Reasonable results obtained from manual run
     assert result == [
-        "00000-00010000-0000000001",
-        "00000000000-0000000000-00",
-        "000000000000001-000000000",
+        "00000-00000000-0000000000",
+        "00100001000-0000000000-00",
+        "000000010000000-000000000",
     ]
 
 

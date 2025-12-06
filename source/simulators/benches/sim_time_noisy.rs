@@ -2,7 +2,7 @@
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use qdk_simulators::{
-    noise_config::{IdleNoiseParams, NoiseConfig},
+    noise_config::{IdleNoiseParams, NoiseConfig, NoiseTable},
     stabilizer_simulator::{
         QubitID, Simulator,
         operation::{Operation, cz, h, id, mov, mz, s, x, y, z},
@@ -17,7 +17,28 @@ const NOISE_CONFIG: NoiseConfig = NoiseConfig {
     idle: IdleNoiseParams {
         s_probability: 0.01,
     },
-    ..NoiseConfig::NOISELESS
+    i: NoiseTable::noiseless(1),
+    x: NoiseTable::noiseless(1),
+    y: NoiseTable::noiseless(1),
+    z: NoiseTable::noiseless(1),
+    h: NoiseTable::noiseless(1),
+    s: NoiseTable::noiseless(1),
+    s_adj: NoiseTable::noiseless(1),
+    t: NoiseTable::noiseless(1),
+    t_adj: NoiseTable::noiseless(1),
+    sx: NoiseTable::noiseless(1),
+    sx_adj: NoiseTable::noiseless(1),
+    rx: NoiseTable::noiseless(1),
+    ry: NoiseTable::noiseless(1),
+    rz: NoiseTable::noiseless(1),
+    cx: NoiseTable::noiseless(2),
+    cz: NoiseTable::noiseless(2),
+    rxx: NoiseTable::noiseless(2),
+    ryy: NoiseTable::noiseless(2),
+    rzz: NoiseTable::noiseless(2),
+    swap: NoiseTable::noiseless(2),
+    mov: NoiseTable::noiseless(1),
+    mresetz: NoiseTable::noiseless(1),
 };
 
 fn random_qubit(rng: &mut StdRng) -> QubitID {

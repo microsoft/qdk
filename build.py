@@ -3,15 +3,6 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-# ProactorEventLoop is the default event loop on recent Python versions for Windows.
-# it may not be compatible with Python notebooks as it doesn't implement certain methods,
-# at least currently. It is recommended to use SelectorEventLoop. This policy setting
-# has to be before any other imports that may use asyncio.
-import asyncio
-if hasattr(asyncio, "WindowsSelectorEventLoopPolicy"):
-    print("Setting asyncio policy to SelectorEventLoop on Windows.")
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
 import argparse
 from glob import glob
 import os
@@ -66,13 +57,6 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--universal",
-    action=argparse.BooleanOptionalAction,
-    default=True,
-    help="Build both x86_64 and arm64 wheels on macOS (default is --universal)",
-)
-
-parser.add_argument(
     "--check-prereqs",
     action=argparse.BooleanOptionalAction,
     default=True,
@@ -112,6 +96,13 @@ parser.add_argument(
     action=argparse.BooleanOptionalAction,
     default=False,
     help="Run the GPU simulator tests (default is --no-gpu-tests)",
+)
+
+parser.add_argument(
+    "--optional-dependencies",
+    action=argparse.BooleanOptionalAction,
+    default=True,
+    help="Include optional dependencies (default is --optional-dependencies)",
 )
 
 args = parser.parse_args()
@@ -223,8 +214,13 @@ def use_python_env(folder):
 
 
 if npm_install_needed:
+    command = [npm_cmd, "install"]
+    if not args.optional_dependencies:
+        command.append("--omit")
+        command.append("optional")
+
     step_start("Running npm install")
-    subprocess.run([npm_cmd, "install"], check=True, text=True, cwd=root_dir)
+    subprocess.run(command, check=True, text=True, cwd=root_dir)
     step_end()
 
 if args.check:
@@ -457,9 +453,6 @@ if build_pip:
 
     # copy the process env vars
     pip_env: dict[str, str] = os.environ.copy()
-    if platform.system() == "Darwin" and args.universal:
-        # if on mac, add the arch flags for universal binary
-        pip_env["ARCHFLAGS"] = "-arch x86_64 -arch arm64"
 
     build_qsharp_wheel(pip_src, wheels_dir, python_bin, pip_env)
     step_end()
@@ -542,8 +535,10 @@ if build_qdk:
             "install",
             "--force-reinstall",
             "--no-index",
+            "--no-deps",
             "--find-links=" + wheels_dir,
             "qdk",
+            "qsharp",
         ]
         subprocess.run(install_args, check=True, text=True, cwd=qdk_python_src)
 
@@ -571,7 +566,7 @@ if build_widgets:
 if build_wasm:
     step_start("Building the wasm files")
 
-    add_wasm_tools_to_path()  # Run again here in case --skip-prereqs was passed
+    add_wasm_tools_to_path()  # Run again here in case --no-check-prereqs was passed
 
     platform_sys = platform.system().lower()  # 'windows', 'darwin', or 'linux'
 
@@ -722,7 +717,9 @@ if build_pip and build_widgets and args.integration_tests:
             or f.startswith("benzene.")
             or f.startswith("carbon.")
             or f.startswith("Ising.")
+            or f.startswith("atoms.")
             or f.startswith("teleport-notebook.")
+            or f.startswith("qdk_simulators.")
         )
     ]
     python_bin = use_python_env(samples_src)
@@ -789,7 +786,7 @@ if build_pip and build_widgets and args.integration_tests:
                     "--to",
                     "notebook",
                     "--stdout",
-                    "--ExecutePreprocessor.timeout=60",
+                    "--ExecutePreprocessor.timeout=90",
                     "--sanitize-html",
                     "--execute",
                     notebook,

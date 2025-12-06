@@ -213,7 +213,11 @@ const _opToRenderData = (
         ),
       }))
       .filter((col) => col.components.length > 0);
-    let childrenInstrs = processOperations(onZeroOps, registers);
+    let childrenInstrs = processOperations(
+      onZeroOps,
+      registers,
+      renderLocations,
+    );
     const zeroGates: GateRenderData[][] = childrenInstrs.renderDataArray;
     const zeroChildWidth: number = childrenInstrs.svgWidth;
 
@@ -225,7 +229,7 @@ const _opToRenderData = (
         ),
       }))
       .filter((col) => col.components.length > 0);
-    childrenInstrs = processOperations(onOneOps, registers);
+    childrenInstrs = processOperations(onOneOps, registers, renderLocations);
     const oneGates: GateRenderData[][] = childrenInstrs.renderDataArray;
     const oneChildWidth: number = childrenInstrs.svgWidth;
 
@@ -247,7 +251,11 @@ const _opToRenderData = (
     conditionalRender == ConditionalRender.AsGroup &&
     (children?.length || 0) > 0
   ) {
-    const childrenInstrs = processOperations(children!, registers);
+    const childrenInstrs = processOperations(
+      children!,
+      registers,
+      renderLocations,
+    );
     renderData.type = GateType.Group;
     renderData.children = childrenInstrs.renderDataArray;
     // _zoomButton function in gateFormatter.ts relies on
@@ -285,8 +293,8 @@ const _opToRenderData = (
   // Set gate width
   renderData.width = getGateWidth(renderData);
 
-  if (op.source && renderLocations) {
-    renderData.link = renderLocations([op.source]);
+  if (op.metadata?.source && renderLocations) {
+    renderData.link = renderLocations([op.metadata.source]);
   }
 
   // Extend existing data attributes with user-provided data attributes

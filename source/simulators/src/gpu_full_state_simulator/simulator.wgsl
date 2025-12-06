@@ -511,10 +511,10 @@ fn apply_1q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
     let noise_op = &ops[noise_idx];
 
     // Apply 1-qubit Pauli noise based on the probabilities in the op data, which are stored in
-    // the real part (x) of the first 3 vec2 entries of the unitary array.
-    let p_x = noise_op.unitary[0].x;
-    let p_y = noise_op.unitary[1].x;
-    let p_z = noise_op.unitary[2].x;
+    // the real part (x) of the first 4 vec2 entries of the unitary array (ignore [0] which is "I")
+    let p_x = noise_op.unitary[1].x;
+    let p_y = noise_op.unitary[2].x;
+    let p_z = noise_op.unitary[3].x;
 
     shot.op_type = OPID_SHOT_BUFF_1Q; // Indicate to use the matrix in the shot buffer
 
@@ -561,17 +561,34 @@ fn apply_2q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
     let op = &ops[op_idx];
     let noise_op = &ops[noise_idx];
 
-    // Non correlated noise for now. Just apply the 1Q noise to each qubit in turn
-    let p_x = noise_op.unitary[0].x;
-    let p_y = noise_op.unitary[1].x;
-    let p_z = noise_op.unitary[2].x;
+    // Correlated noise is stored in the real parts of the unitary.
+    // unitary[0] = II, unitary[1] = IX, unitary[2] = IY, unitary[3] = IZ
+    // unitary[4] = XI, unitary[5] = XX, unitary[6] = XY, unitary[7] = XZ
+    // unitary[8] = YI, unitary[9] = YX, unitary[10]= YY, unitary[11]= YZ
+    // unitary[12]= ZI, unitary[13]= ZX, unitary[14]= ZY, unitary[15]= ZZ
 
-    // If doing a 2 qubit gate, we're not doing a measurement, so 'steal' that random number for qubit 2
-    let q1_rand = shot.rand_pauli;
-    let q2_rand = shot.rand_measure;
+    var rand = shot.rand_pauli;
+    var q1_pauli = 0;
+    var q2_pauli = 0;
+
+    // Find the paulis to apply based on the random number and the probabilities
+    for (var i = 0; i < 4; i = i + 1) {
+        for (var j = 0; j < 4; j = j + 1) {
+            let p_ij = noise_op.unitary[i * 4 + j].x;
+            if (rand < p_ij) {
+                q1_pauli = i;
+                q2_pauli = j;
+                // Break out of both loops
+                i = 4;
+                j = 4;
+            } else {
+                rand = rand - p_ij;
+            }
+        }
+    }
 
     // Only apply noise if needed
-    if (q1_rand < (p_x + p_y + p_z ) || q2_rand < (p_x + p_y + p_z )) {
+    if (q1_pauli != 0 || q2_pauli != 0) {
         // Get the rows of the 2 qubit unitary
         var op_row_0 = getOpRow(op_idx, 0);
         var op_row_1 = getOpRow(op_idx, 1);
@@ -585,7 +602,7 @@ fn apply_2q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
         //   Z on q1 is -2 and -3, Z on q2 is -1 and -3
 
         // Apply the q1 permutations as needed
-        if (q1_rand < p_x) {
+        if (q1_pauli == 1) {
             // Apply the X permutation
             let old_row_0 = op_row_0;
             let old_row_1 = op_row_1;
@@ -593,7 +610,7 @@ fn apply_2q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
             op_row_1 = op_row_3;
             op_row_2 = old_row_0;
             op_row_3 = old_row_1;
-        } else if (q1_rand < (p_x + p_y)) {
+        } else if (q1_pauli == 2) {
             // Apply the Y permutation
             let old_row_0 = op_row_0;
             let old_row_1 = op_row_1;
@@ -601,13 +618,13 @@ fn apply_2q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
             op_row_1 = rowNeg(op_row_3);
             op_row_2 = old_row_0;
             op_row_3 = old_row_1;
-        } else if (q1_rand < (p_x + p_y + p_z)) {
+        } else if (q1_pauli == 3) {
             // Apply Z permutation
             op_row_2 = rowNeg(op_row_2);
             op_row_3 = rowNeg(op_row_3);
         }
         // Apply the q2 permutations as needed
-        if (q2_rand < p_x) {
+        if (q2_pauli == 1) {
             // Apply the X permutation
             let old_row_0 = op_row_0;
             let old_row_2 = op_row_2;
@@ -615,7 +632,7 @@ fn apply_2q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
             op_row_2 = op_row_3;
             op_row_1 = old_row_0;
             op_row_3 = old_row_2;
-        } else if (q2_rand < (p_x + p_y)) {
+        } else if (q2_pauli == 2) {
             // Apply the Y permutation
             let old_row_0 = op_row_0;
             let old_row_2 = op_row_2;
@@ -623,7 +640,7 @@ fn apply_2q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
             op_row_2 = rowNeg(op_row_3);
             op_row_1 = old_row_0;
             op_row_3 = old_row_2;
-        } else if (q2_rand < (p_x + p_y + p_z)) {
+        } else if (q2_pauli == 3) {
             // Apply Z permutation
             op_row_1 = rowNeg(op_row_1);
             op_row_3 = rowNeg(op_row_3);
