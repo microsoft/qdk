@@ -214,7 +214,7 @@ fn grouping_nested_callables() {
             max_operations: usize::MAX,
             source_locations: false,
             group_by_scope: true,
-            trim: false,
+            prune_classical_qubits: false,
         },
     )
     .expect("circuit generation should succeed");
