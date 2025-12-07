@@ -8,10 +8,7 @@ use pyo3::{
     prelude::*,
     types::PyList,
 };
-use qdk_simulators::{
-    noise_config::NoiseTable,
-    shader_types::{self, Op},
-};
+use qdk_simulators::shader_types::Op;
 
 /// Checks if a compatible GPU adapter is available on the system.
 ///
@@ -30,75 +27,6 @@ pub fn try_create_gpu_adapter() -> PyResult<String> {
     Ok(name)
 }
 
-// Use the 'real' parts of the Op to store the pauli probabilities.
-// For 1q ops, r00 = pI, r01 = pX, r02 = pY, r03 = pZ
-// For 2q ops, r00 = pII, r01 = pIX, r02 = pIY, r03 = pIZ
-//             r10 = pXI, r11 = pXX, r12 = pXY, r13 = pXZ
-//             r20 = pYI, r21 = pYX, r22 = pYY, r23 = pYZ
-//             r30 = pZI, r31 = pZX, r32 = pZY, r33 = pZZ
-fn set_noise_op_probabilities(noise_table: &NoiseTable, op: &mut Op) {
-    noise_table
-        .pauli_strings
-        .iter()
-        .zip(&noise_table.probabilities)
-        .for_each(|(pauli_str, prob)| match noise_table.qubits {
-            1 => match pauli_str.as_str() {
-                "I" => op.r00 = *prob,
-                "X" => op.r01 = *prob,
-                "Y" => op.r02 = *prob,
-                "Z" => op.r03 = *prob,
-                _ => panic!("Invalid pauli string for 1 qubit: {pauli_str}"),
-            },
-            2 => match pauli_str.as_str() {
-                "II" => op.r00 = *prob,
-                "IX" => op.r01 = *prob,
-                "IY" => op.r02 = *prob,
-                "IZ" => op.r03 = *prob,
-                "XI" => op.r10 = *prob,
-                "XX" => op.r11 = *prob,
-                "XY" => op.r12 = *prob,
-                "XZ" => op.r13 = *prob,
-                "YI" => op.r20 = *prob,
-                "YX" => op.r21 = *prob,
-                "YY" => op.r22 = *prob,
-                "YZ" => op.r23 = *prob,
-                "ZI" => op.r30 = *prob,
-                "ZX" => op.r31 = *prob,
-                "ZY" => op.r32 = *prob,
-                "ZZ" => op.r33 = *prob,
-                _ => panic!("Invalid pauli string for 2 qubits: {pauli_str}"),
-            },
-            _ => panic!(
-                "Unsupported qubit count in noise table: {}",
-                noise_table.qubits
-            ),
-        });
-}
-
-// TODO: Should cache the generated noise ops, as they will be the same for every op of that type
-fn get_noise_op(op: &Op, noise_table: &NoiseTable) -> Op {
-    match noise_table.qubits {
-        1 => {
-            let mut op = Op::new_1q_gate(qdk_simulators::shader_types::ops::PAULI_NOISE_1Q, op.q1);
-            set_noise_op_probabilities(noise_table, &mut op);
-            op
-        }
-        2 => {
-            let mut op = Op::new_2q_gate(
-                qdk_simulators::shader_types::ops::PAULI_NOISE_2Q,
-                op.q1,
-                op.q2,
-            );
-            set_noise_op_probabilities(noise_table, &mut op);
-            op
-        }
-        _ => panic!(
-            "Unsupported qubit count in noise table: {}",
-            noise_table.qubits
-        ),
-    }
-}
-
 #[pyfunction]
 pub fn run_parallel_shots<'py>(
     py: Python<'py>,
@@ -109,60 +37,32 @@ pub fn run_parallel_shots<'py>(
     noise_config: Option<&Bound<'py, NoiseConfig>>,
     seed: Option<u32>,
 ) -> PyResult<PyObject> {
-    let _ = try_create_gpu_adapter()?;
-
-    // Get the list of QirInstructions from the Python input list
-    let mut instructions: Vec<QirInstruction> = vec![];
-    for item in input.iter() {
-        let item = <QirInstruction as FromPyObject>::extract_bound(&item).map_err(|e| {
-            PyValueError::new_err(format!("expected QirInstruction, got {item:?}: {e}"))
+    // First convert the Python objects to Rust types
+    let mut ops: Vec<Op> = Vec::with_capacity(input.len());
+    for intr in input {
+        // Error if the instruction can't be converted
+        let item = <QirInstruction as FromPyObject>::extract_bound(&intr).map_err(|e| {
+            PyValueError::new_err(format!("expected QirInstruction, got {intr:?}: {e}"))
         })?;
-        instructions.push(item);
-    }
-
-    let mut ops = Vec::with_capacity(instructions.len() + 1);
-
-    let rng_seed = seed.unwrap_or(0xfeed_face);
-
-    let noise = noise_config.map(|noise_config| unbind_noise_config(py, noise_config));
-
-    for inst in instructions {
-        let op = map_instruction(&inst, true);
-        if let Some(op) = op {
-            let mut add_ops: Vec<Op> = vec![op];
-            // If there's a NoiseConfig, and we get noise for this op, append it
-            if let Some(noise) = &noise
-                && let Some(noise_ops) = get_noise_ops(&op, noise)
-            {
-                add_ops.extend(noise_ops);
-            }
-            // If it's an MResetZ with noise, change to an Id with noise, followed by MResetZ
-            // (This is just simpler to implement than doing noise inline with MResetZ for now)
-            if op.id == shader_types::ops::MRESETZ && add_ops.len() > 1 {
-                let mz_copy = add_ops[0];
-                add_ops[0] = Op::new_id_gate(op.q1);
-                add_ops.push(mz_copy);
-            }
-            // Convert 'mov' ops to identity, and don't add the ops if it's just a
-            // single identity (but do add if it has noise)
-            if add_ops[0].id == shader_types::ops::MOVE {
-                add_ops[0].id = shader_types::ops::ID;
-            }
-            if add_ops.len() == 1 && add_ops[0].id == shader_types::ops::ID {
-                // skip lone identity gates
-            } else {
-                ops.extend(add_ops);
-            }
+        // However some ops can't be mapped (e.g. OutputRecording), so skip those
+        if let Some(op) = map_instruction(&item) {
+            ops.push(op);
         }
     }
 
-    // Extract the number of qubits and results needed, and a mapping of result index to output
-    // array index. (Only program return type of Result[] is supported for now)
+    let noise = noise_config.map(|noise_config| unbind_noise_config(py, noise_config));
 
-    // Run the final op sequence on the GPU for the specified number of shots
-    let sim_results =
-        qdk_simulators::run_parallel_shots(qubit_count, result_count, ops, shots, rng_seed)
-            .map_err(PyRuntimeError::new_err)?;
+    let rng_seed = seed.unwrap_or(0xfeed_face);
+
+    let sim_results = qdk_simulators::run_shots_with_noise(
+        qubit_count,
+        result_count,
+        ops,
+        shots,
+        rng_seed,
+        &noise,
+    )
+    .map_err(PyRuntimeError::new_err)?;
 
     // Collect and format the results into a Python list of strings
     let result_count: usize = result_count
@@ -194,64 +94,7 @@ pub fn run_parallel_shots<'py>(
         .into_py_any(py)
 }
 
-fn get_noise_ops(
-    op: &Op,
-    noise_config: &qdk_simulators::noise_config::NoiseConfig,
-) -> Option<Vec<Op>> {
-    let noise_table = match op.id {
-        shader_types::ops::ID => &noise_config.i,
-        shader_types::ops::X => &noise_config.x,
-        shader_types::ops::Y => &noise_config.y,
-        shader_types::ops::Z => &noise_config.z,
-        shader_types::ops::H => &noise_config.h,
-        shader_types::ops::S => &noise_config.s,
-        shader_types::ops::S_ADJ => &noise_config.s_adj,
-        shader_types::ops::T => &noise_config.t,
-        shader_types::ops::T_ADJ => &noise_config.t_adj,
-        shader_types::ops::SX => &noise_config.sx,
-        shader_types::ops::SX_ADJ => &noise_config.sx_adj,
-        shader_types::ops::RX => &noise_config.rx,
-        shader_types::ops::RY => &noise_config.ry,
-        shader_types::ops::RZ => &noise_config.rz,
-        shader_types::ops::CX => &noise_config.cx,
-        shader_types::ops::CZ => &noise_config.cz,
-        shader_types::ops::RXX => &noise_config.rxx,
-        shader_types::ops::RYY => &noise_config.ryy,
-        shader_types::ops::RZZ => &noise_config.rzz,
-        shader_types::ops::SWAP => &noise_config.swap,
-        shader_types::ops::MOVE => &noise_config.mov,
-        shader_types::ops::MRESETZ => &noise_config.mresetz,
-        _ => return None,
-    };
-    if noise_table.is_noiseless() {
-        return None;
-    }
-    let mut results = vec![];
-    if noise_table.has_pauli_noise() {
-        results.push(get_noise_op(op, noise_table));
-    }
-
-    if noise_table.loss > 0.0 {
-        if shader_types::ops::is_2q_op(op.id) {
-            // For two-qubit gates, doing loss inline is hard, so just append an Id gate with loss for each qubit
-            results.push(Op::new_id_gate(op.q1));
-            results.push(Op::new_loss_noise(op.q1, noise_table.loss));
-            results.push(Op::new_id_gate(op.q2));
-            results.push(Op::new_loss_noise(op.q2, noise_table.loss));
-        } else if shader_types::ops::is_1q_op(op.id) {
-            // For one-qubit gates, just add the loss noise on the one qubit operation
-            results.push(Op::new_loss_noise(op.q1, noise_table.loss));
-        } else {
-            panic!("unsupported op for loss noise: {op:?}");
-        }
-    }
-    Some(results)
-}
-
-fn map_instruction(
-    qir_inst: &QirInstruction,
-    supports_mz: bool,
-) -> Option<qdk_simulators::shader_types::Op> {
+fn map_instruction(qir_inst: &QirInstruction) -> Option<Op> {
     let op = match qir_inst {
         QirInstruction::OneQubitGate(id, qubit) => match id {
             QirInstructionId::I => Op::new_id_gate(*qubit),
@@ -272,11 +115,7 @@ fn map_instruction(
         },
         QirInstruction::TwoQubitGate(id, control, target) => match id {
             QirInstructionId::M | QirInstructionId::MZ | QirInstructionId::MResetZ => {
-                if supports_mz {
-                    Op::new_mresetz_gate(*control, *target)
-                } else {
-                    return None;
-                }
+                Op::new_mresetz_gate(*control, *target)
             }
             QirInstructionId::CX => Op::new_cx_gate(*control, *target),
             QirInstructionId::CZ => Op::new_cz_gate(*control, *target),
