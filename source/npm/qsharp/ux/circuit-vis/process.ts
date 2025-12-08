@@ -136,8 +136,8 @@ const _getClassicalRegStarts = (
       } else if (op.children != null) {
         const componentGrid = op.children;
         const childClsRegs = _getClassicalRegStarts(componentGrid);
-        childClsRegs.forEach(([childColIndex, reg]) => {
-          clsRegs.push([colIndex + childColIndex, reg]);
+        childClsRegs.forEach(([, reg]) => {
+          clsRegs.push([colIndex, reg]);
         });
       }
     });
