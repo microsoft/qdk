@@ -419,6 +419,15 @@ impl CircuitTracer {
                 }
                 return controls;
             }
+            "Z" => {
+                // Only clean up the classical 1 qubits from the controls list. No need to update the target,
+                // since Z does not introduce superpositions.
+                return controls
+                    .iter()
+                    .filter(|c| !self.classical_one_qubits.contains(c))
+                    .copied()
+                    .collect();
+            }
             "SWAP" => {
                 // If either qubit is non-trimmable, both become non-trimmable
                 let q0_mapped = self.wire_map_builder.wire_map.qubit_wire(targets[0]);
@@ -443,7 +452,7 @@ impl CircuitTracer {
                     }
                 }
             }
-            "S" | "T" | "Z" | "Rz" | "Rzz" => {
+            "S" | "T" | "Rz" | "Rzz" => {
                 // These gates don't create superpositions on their own, so do nothing
             }
             _ => {
