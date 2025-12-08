@@ -55,7 +55,6 @@ struct GpuResources {
     pipeline_prepare_op: ComputePipeline,
     pipeline_execute_op: ComputePipeline,
     pipeline_execute_2q_op: ComputePipeline,
-    pipeline_execute_mz: ComputePipeline,
     bind_group: BindGroup,
     buffers: GpuBuffers,
 }
@@ -645,26 +644,11 @@ impl GpuContext {
                     cache: None,
                 });
 
-        let pipeline_execute_mz =
-            self.device
-                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                    label: Some("execute_mz pipeline"),
-                    layout: Some(pipeline_layout),
-                    module: &self.shader_module,
-                    entry_point: Some("execute_mz"),
-                    compilation_options: wgpu::PipelineCompilationOptions {
-                        constants: &[],
-                        ..Default::default()
-                    },
-                    cache: None,
-                });
-
         self.resources = Some(GpuResources {
             pipeline_init_op,
             pipeline_prepare_op,
             pipeline_execute_op,
             pipeline_execute_2q_op,
-            pipeline_execute_mz,
             bind_group,
             buffers,
         });
@@ -710,7 +694,7 @@ impl GpuContext {
               ensures that state is consistent between dispatches, so the next steps sees the final
               result of the work done here.
             - execute_op: applies the op to the state vector. This is parallelized across threads
-              (and eventually workgroups for >22 qubits), and should only do work that does not
+              and may be split into multiple workgroups, and should only do work that does not
               require any synchronization across workgroups. The next 'prepare_op' step will
               do any cross-shot collation or processing needed after this kernel completes.
 
@@ -718,17 +702,6 @@ impl GpuContext {
           noise decisions, and collating the results of parallel processing in prior dispatches,
           we can ensure that the 'execute_op' step is fully parallelizable, and also only require
           one read-only copy of the program to execute in GPU memory when running shots concurrently.
-
-        The overall processing flow is as follows:
-
-        - For each batch of shots (will be 1 if all shots fit in one batch):
-            - For each block of ops in the program (will be 1 if all ops fit in one block):
-                - For each op in the block:
-                    - Dispatch the prepare_op kernel
-                    - Dispatch the execute_op kernel
-                - Do any end of block processing (e.g., compute & branching for adaptive)
-            - Do any output recording for the shots in the batch
-        - Return the collated shot results
          */
 
         let mut results: Vec<u32> = Vec::new();
@@ -810,7 +783,7 @@ impl GpuContext {
                 for op in chunk {
                     match op.id {
                         // One qubit gates
-                        ops::ID..=ops::RZ | ops::MOVE => {
+                        ops::ID..=ops::RZ | ops::MOVE | ops::MRESETZ | ops::MZ => {
                             compute_pass.set_pipeline(&resources.pipeline_prepare_op);
                             compute_pass.dispatch_workgroups(prepare_workgroup_count, 1, 1);
 
@@ -823,14 +796,6 @@ impl GpuContext {
                             compute_pass.dispatch_workgroups(prepare_workgroup_count, 1, 1);
 
                             compute_pass.set_pipeline(&resources.pipeline_execute_2q_op);
-                            compute_pass.dispatch_workgroups(execute_workgroup_count, 1, 1);
-                        }
-                        ops::MRESETZ | ops::MZ => {
-                            // Measurement has its own execute pipeline
-                            compute_pass.set_pipeline(&resources.pipeline_prepare_op);
-                            compute_pass.dispatch_workgroups(prepare_workgroup_count, 1, 1);
-
-                            compute_pass.set_pipeline(&resources.pipeline_execute_mz);
                             compute_pass.dispatch_workgroups(execute_workgroup_count, 1, 1);
                         }
                         // Skip over noise ops

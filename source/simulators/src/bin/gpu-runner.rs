@@ -4,8 +4,9 @@
 // Build with: cargo build --bin gpu-runner [--release]
 
 use core::panic;
-use qdk_simulators::run_parallel_shots;
+use qdk_simulators::noise_config::NoiseConfig;
 use qdk_simulators::shader_types::{Op, ops};
+use qdk_simulators::{run_parallel_shots, run_shots_with_noise};
 use regex_lite::Regex;
 use std::time::Instant;
 use std::vec;
@@ -13,6 +14,8 @@ use std::vec;
 const DEFAULT_SEED: u32 = 0xfeed_face;
 
 fn main() {
+    two_measurements();
+    just_pauli();
     simple_bell_pair();
     bell_at_scale();
     scale_teleport();
@@ -24,6 +27,7 @@ fn main() {
     test_cx_various_state();
     scaled_ising();
     scaled_grover();
+    noise_config();
 }
 
 fn split_results(result_count: usize, results: &[u32]) -> (Vec<Vec<u32>>, Vec<u32>) {
@@ -39,8 +43,72 @@ fn split_results(result_count: usize, results: &[u32]) -> (Vec<Vec<u32>>, Vec<u3
     (results_list, error_codes)
 }
 
+fn assert_ratio(results: &[Vec<u32>], expected: &[u32], expected_ratio: f64, tolerance: f64) {
+    let actual_count = results.iter().filter(|x| *x == expected).count();
+    #[allow(clippy::cast_precision_loss)]
+    let actual_ratio = actual_count as f64 / results.len() as f64;
+    assert!(
+        (expected_ratio - tolerance..=expected_ratio + tolerance).contains(&actual_ratio),
+        "Expected ratio {expected_ratio:.4}, got {actual_ratio:.4} with tolerance {tolerance:.4}"
+    );
+}
+
 fn has_no_errors(error_codes: &[u32]) -> bool {
     error_codes.iter().all(|&code| code == 0)
+}
+
+fn two_measurements() {
+    let ops: Vec<Op> = vec![
+        Op::new_x_gate(0),
+        Op::new_loss_noise(0, 0.333),
+        // Should be 33% chance of lost, 66% chance of 1
+
+        // If not using the noise model processing, need to turn pauli on measurement into Id with noise then mesurement
+        Op::new_id_gate(0),
+        Op::new_pauli_noise_1q(0, 0.5, 0.0, 0.0),
+        Op::new_mresetz_gate(0, 0),
+        // Measurement will be 50/50 if qubit is not lost, so now 33% chance each of loss, 1, or 2
+        Op::new_mresetz_gate(0, 1),
+    ];
+    let start = Instant::now();
+    let results = run_parallel_shots(1, 2, ops, 300, DEFAULT_SEED).expect("GPU shots failed");
+    let elapsed = start.elapsed();
+    let (results, error_codes) = split_results(2, &results);
+    assert!(
+        has_no_errors(&error_codes),
+        "Error codes from GPU: {error_codes:?}"
+    );
+    let result_0: Vec<Vec<u32>> = results.iter().map(|r| vec![r[0]]).collect();
+    assert_ratio(&result_0, &[0], 0.333, 0.1);
+    assert_ratio(&result_0, &[1], 0.333, 0.1);
+    assert_ratio(&result_0, &[2], 0.333, 0.1);
+
+    // All of the 2nd measurements should be 0
+    assert!(
+        results.iter().all(|r| r[1] == 0),
+        "All second measurements should be 0, but got {results:?}"
+    );
+    println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
+}
+
+fn just_pauli() {
+    let ops: Vec<Op> = vec![
+        Op::new_id_gate(0),
+        // 50% bit and phase flip chance
+        Op::new_pauli_noise_1q(0, 0.0, 0.5, 0.0),
+        Op::new_mresetz_gate(0, 0),
+    ];
+    let start = Instant::now();
+    let results = run_parallel_shots(1, 1, ops, 100, DEFAULT_SEED).expect("GPU shots failed");
+    let elapsed = start.elapsed();
+    let (results, error_codes) = split_results(1, &results);
+    assert!(
+        has_no_errors(&error_codes),
+        "Error codes from GPU: {error_codes:?}"
+    );
+    // Verify the results are 50/50
+    assert_ratio(&results, &[0], 0.5, 0.1);
+    println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
 }
 
 fn simple_bell_pair() {
@@ -51,7 +119,7 @@ fn simple_bell_pair() {
         Op::new_mresetz_gate(11, 1), // 22, 11, 1
     ];
     let start = Instant::now();
-    let results = run_parallel_shots(12, 2, ops, 10, DEFAULT_SEED).expect("GPU shots failed");
+    let results = run_parallel_shots(12, 2, ops, 100, DEFAULT_SEED).expect("GPU shots failed");
     let elapsed = start.elapsed();
 
     let (results, error_codes) = split_results(2, &results);
@@ -59,7 +127,7 @@ fn simple_bell_pair() {
         has_no_errors(&error_codes),
         "Error codes from GPU: {error_codes:?}"
     );
-    println!("[GPU Runner]: Simple Bell Pair on 12 qubits for 10 shots: {results:?}");
+    assert_ratio(&results, &[0, 0], 0.5, 0.1);
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
 }
 
@@ -464,7 +532,7 @@ fn test_cx_various_state() {
     //
     // There was a bug where the offset wasn't incrementing when skipping entries, and took all this to find it :-/
     let start = Instant::now();
-    let results = run_parallel_shots(10, 3, ops, 1, DEFAULT_SEED).expect("GPU shots failed");
+    let results = run_parallel_shots(10, 3, ops, 10, DEFAULT_SEED).expect("GPU shots failed");
     let elapsed = start.elapsed();
 
     let (results, error_codes) = split_results(3, &results);
@@ -533,6 +601,41 @@ fn scaled_grover() {
     for res in &results {
         println!("  {res:?}");
     }
+
+    println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
+}
+
+fn noise_config() {
+    let mut noise: NoiseConfig = NoiseConfig::NOISELESS.clone();
+    noise.x.pauli_strings.push("X".to_string());
+    noise.x.probabilities.push(0.5);
+    noise.x.loss = 0.333_333;
+
+    let ops: Vec<Op> = vec![
+        Op::new_x_gate(0),
+        Op::new_x_gate(1),
+        Op::new_mresetz_gate(0, 0),
+        Op::new_mresetz_gate(1, 1),
+    ];
+
+    let start = Instant::now();
+    let results =
+        run_shots_with_noise(2, 2, ops, 500, DEFAULT_SEED, &Some(noise)).expect("GPU shots failed");
+    let elapsed = start.elapsed();
+
+    let (results, error_codes) = split_results(2, &results);
+    assert!(
+        has_no_errors(&error_codes),
+        "Error codes from GPU: {error_codes:?}"
+    );
+    let result_0: Vec<Vec<u32>> = results.iter().map(|r| vec![r[0]]).collect();
+    let result_1: Vec<Vec<u32>> = results.iter().map(|r| vec![r[1]]).collect();
+    assert_ratio(&result_0, &[0], 0.333, 0.1);
+    assert_ratio(&result_0, &[1], 0.333, 0.1);
+    assert_ratio(&result_0, &[2], 0.333, 0.1);
+    assert_ratio(&result_1, &[0], 0.333, 0.1);
+    assert_ratio(&result_1, &[1], 0.333, 0.1);
+    assert_ratio(&result_1, &[2], 0.333, 0.1);
 
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
 }
