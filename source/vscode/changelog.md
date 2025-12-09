@@ -17,7 +17,7 @@ counts = job.result().get_counts(circuit)
 
 See [the updated Qiskit submission sample notebook](https://github.com/microsoft/qdk/blob/main/samples/python_interop/submit_qiskit_circuit_to_azure.ipynb) for the new supported method of Azure submission with Qiskit 2.
 
-To make sure you get the updated `qdk` package with this support, please use the command `pip install "qdk[azure]" --upgrade`
+To make sure you get the updated `qdk` package with this support, please use the command `pip install "qdk[azure,qiskit]" --upgrade`
 
 ### Interactive Circuit Diagrams with Source Code Navigation
 
