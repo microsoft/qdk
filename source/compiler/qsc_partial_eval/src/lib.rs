@@ -20,7 +20,6 @@ use qsc_eval::{
     self, Error as EvalError, ErrorBehavior, PackageSpan, State, StepAction, StepResult, Variable,
     are_ctls_unique,
     backend::TracingBackend,
-    exec_graph_section,
     intrinsic::qubit_relabel,
     output::GenericReceiver,
     resolve_closure,
@@ -31,10 +30,10 @@ use qsc_eval::{
 };
 use qsc_fir::{
     fir::{
-        self, BinOp, Block, BlockId, CallableDecl, CallableImpl, ExecGraph, Expr, ExprId, ExprKind,
-        Field, Global, Ident, LocalVarId, Mutability, PackageId, PackageStore, PackageStoreLookup,
-        Pat, PatId, PatKind, PrimField, Res, SpecDecl, SpecImpl, Stmt, StmtId, StmtKind,
-        StoreBlockId, StoreExprId, StoreItemId, StorePatId, StoreStmtId, UnOp,
+        self, BinOp, Block, BlockId, CallableDecl, CallableImpl, ExecGraph, ExecGraphConfig, Expr,
+        ExprId, ExprKind, Field, Global, Ident, LocalVarId, Mutability, PackageId, PackageStore,
+        PackageStoreLookup, Pat, PatId, PatKind, PrimField, Res, SpecDecl, SpecImpl, Stmt, StmtId,
+        StmtKind, StoreBlockId, StoreExprId, StoreItemId, StorePatId, StoreStmtId, UnOp,
     },
     ty::{Prim, Ty},
 };
@@ -1098,10 +1097,11 @@ impl<'a> PartialEvaluator<'a> {
         let expr = self.package_store.get_expr(store_expr_id);
         let scope_exec_graph = self.get_current_scope_exec_graph().clone();
         let scope = self.eval_context.get_current_scope_mut();
-        let exec_graph = exec_graph_section(&scope_exec_graph, expr.exec_graph_range.clone());
+        let exec_graph = scope_exec_graph.get_range(&expr.exec_graph_range);
         let mut state = State::new(
             current_package_id,
             exec_graph,
+            ExecGraphConfig::NoDebug,
             None,
             ErrorBehavior::FailOnError,
         );
