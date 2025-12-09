@@ -36,7 +36,8 @@ Most of the core components are implemented in Rust. These components are packag
   - **qsc_partial_eval/**: Partial evaluation and optimization
   - **qsc_passes/**: HIR passes
   - **qsc_project/**: Project system and manifest handling
-  - **qsc_qasm/**: OpenQASM compiler frontend
+  - **qsc_openqasm_compiler/**: OpenQASM compiler frontend
+  - **qsc_openqasm_parser/**: OpenQASM parser frontend
   - **qsc_rca/**: Resource counting and analysis
   - **qsc_rir/**: Runtime Intermediate Representation
 - **fuzz/**: Fuzz testing infrastructure for the compiler

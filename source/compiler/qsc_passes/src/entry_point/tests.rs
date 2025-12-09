@@ -4,8 +4,10 @@
 use crate::{PackageType, entry_point::generate_entry_expr};
 use expect_test::{Expect, expect};
 use indoc::indoc;
-use qsc_data_structures::{language_features::LanguageFeatures, target::TargetCapabilityFlags};
-use qsc_frontend::compile::{self, PackageStore, SourceMap, compile};
+use qsc_data_structures::{
+    language_features::LanguageFeatures, source::SourceMap, target::TargetCapabilityFlags,
+};
+use qsc_frontend::compile::{self, PackageStore, compile};
 
 fn check(file: &str, expr: &str, expect: &Expect) {
     let sources = SourceMap::new([("test".into(), file.into())], Some(expr.into()));
