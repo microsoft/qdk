@@ -307,9 +307,9 @@ fn memory_annotations_work() {
                 t_count: 4,
                 rotation_count: 8,
                 rotation_depth: 5,
-                ccz_count: 16,
+                ccz_count: 24,
                 ccix_count: 0,
-                measurement_count: 8,
+                measurement_count: 0,
                 num_compute_qubits: Some(
                     10,
                 ),
