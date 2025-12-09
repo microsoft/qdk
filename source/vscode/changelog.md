@@ -1,5 +1,48 @@
 # QDK Changelog
 
+## v1.23.0
+
+Below are some of the highlights for the 1.23 release of the QDK.
+
+### Full Qiskit 2 support
+
+The `qdk` python package has been updated to support Qiskit 2 circuit submission to the Azure Quantum service. This is done via the `AzureQuantumProvider` class to get a backend object that can run both Qiskit v1 and v2 circuits. This allows for a simpler submission of Qiskit circuits to Azure as compared to the older approach that required manual QIR compilation before submission. The resulting job objects also handle parsing of the Qiskit output format. The pattern will look similar to:
+
+```python
+provider = AzureQuantumProvider(workspace)
+backend = provider.get_backend(target_name)
+job = backend.run(circuit, shots, job_name)
+counts = job.result().get_counts(circuit)
+```
+
+See [the updated Qiskit submission sample notebook](https://github.com/microsoft/qdk/blob/main/samples/python_interop/submit_qiskit_circuit_to_azure.ipynb) for the new supported method of Azure submission with Qiskit 2.
+
+To make sure you get the updated `qdk` package with this support, please use the command `pip install "qdk[azure,qiskit]" --upgrade`
+
+### Interactive Circuit Diagrams with Source Code Navigation
+
+Circuit diagrams now display clickable source code locations for gates and qubits in VS Code. Click on any operation box to jump directly to where it was called in your Q# or QASM code, or on a qubit label to jump to its declaration site. In Python Jupyter notebooks, source locations can be enabled via `qsharp.circuit(source_locations=True)` to display hover text with code locations.
+
+![20251208-2316-58 9845681](https://github.com/user-attachments/assets/bd4dc646-4416-4928-90a5-28a1b54da3e9)
+
+### Program output in VS Code Terminal
+
+When running a Q# program in VS Code, the output is now displayed in the Terminal instead of the Debug Console, which is more consistent with other VS Code experiences. (When debugging, the output will still be displayed in the Debug Console.)
+
+### Fix display of job results listing
+
+Previously, the job results listing in the VS Code "Quantum Workspaces" explorer view was not displaying correctly if the workspace contained a large number of jobs. This has now been fixed.
+
+### Minimum Python version is 3.10
+
+The minimum Python version for the QDK packages has been updated to 3.10, as Python 3.9 is now end of life and no longer receiving updates.
+
+### Architecture specific macOS packages
+
+With this release we have switched from publishing one Universal wheel for macOS, to shipping two architecture specific wheels (`x86_64` and `arm64`). This should have no visible impact (other than smaller package sizes), but let us know if you encounter any issues.
+
+**Full Changelog**: https://github.com/microsoft/qdk/compare/v1.22.0...v1.23.0
+
 ## v1.22.0
 
 Below are some of the highlights for the 1.22 release of the QDK.

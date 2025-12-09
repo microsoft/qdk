@@ -109,13 +109,13 @@ internal operation EntangleForJointMeasure(basis : Pauli, aux : Qubit, qubit : Q
 internal operation CollectControls(ctls : Qubit[], aux : Qubit[], adjustment : Int) : Unit is Adj {
     // First collect the controls into the first part of the auxiliary list.
     for i in 0..2..(Length(ctls) - 2) {
-        AND(ctls[i], ctls[i + 1], aux[i / 2]);
+        CCNOT(ctls[i], ctls[i + 1], aux[i / 2]);
     }
     // Then collect the auxiliary qubits in the first part of the list forward into the last
     // qubit of the auxiliary list. The adjustment is used to allow the caller to reduce or increase
     // the number of times this is run based on the eventual number of control qubits needed.
     for i in 0..((Length(ctls) / 2) - 2 - adjustment) {
-        AND(aux[i * 2], aux[(i * 2) + 1], aux[i + Length(ctls) / 2]);
+        CCNOT(aux[i * 2], aux[(i * 2) + 1], aux[i + Length(ctls) / 2]);
     }
 }
 
@@ -123,7 +123,7 @@ internal operation CollectControls(ctls : Qubit[], aux : Qubit[], adjustment : I
 /// last control and the second to last auxiliary will be collected into the last auxiliary.
 internal operation AdjustForSingleControl(ctls : Qubit[], aux : Qubit[]) : Unit is Adj {
     if Length(ctls) % 2 != 0 {
-        AND(ctls[Length(ctls) - 1], aux[Length(ctls) - 3], aux[Length(ctls) - 2]);
+        CCNOT(ctls[Length(ctls) - 1], aux[Length(ctls) - 3], aux[Length(ctls) - 2]);
     }
 }
 
