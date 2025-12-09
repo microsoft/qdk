@@ -306,10 +306,15 @@ def repair_manylinux_wheels(cwd, wheelhouse, interpreter):
         print("Not on Linux, skipping manylinux repair")
         return
 
-    tag = "manylinux_2_35_x86_64"
+    from packaging.tags import sys_tags
 
-    if platform.machine() == "aarch64":
-        tag = "manylinux_2_35_aarch64"
+    tag = next(t.platform for t in sys_tags() if t.platform.startswith("manylinux"))
+
+    if not tag.startswith("manylinux"):
+        # we should never get here, but just in case, this gives a better error message.
+        raise ValueError(f"Unexpected platform tag {tag}")
+
+    print(f"Repairing wheels with {tag}")
 
     command_args = [
         interpreter,
