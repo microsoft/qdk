@@ -1,9 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-#[cfg(test)]
-mod tests;
-
 use qsc_data_structures::span::Span;
 
 use super::ast::{BinOp, Expr, Index, LiteralKind, Range};

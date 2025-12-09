@@ -31,6 +31,7 @@ pub(crate) mod output;
 pub(crate) mod sample_circuits;
 pub(crate) mod scopes;
 pub(crate) mod statement;
+pub(crate) mod types;
 
 pub(crate) fn fail_on_compilation_errors(unit: &QasmCompileUnit) {
     if unit.has_errors() {
