@@ -134,7 +134,7 @@ impl Tracer for CircuitTracer {
     }
 
     fn is_stack_tracing_enabled(&self) -> bool {
-        self.config.source_locations
+        self.config.source_locations || self.config.group_by_scope
     }
 }
 

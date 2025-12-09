@@ -189,6 +189,43 @@ fn rotation_gate() {
 }
 
 #[test]
+fn grouping_nested_callables() {
+    let circ = circuit_with_options(
+        r"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    use q = Qubit();
+                    for i in 0..5 {
+                        Foo(q);
+                    }
+                    MResetZ(q);
+                }
+
+                operation Foo(q: Qubit) : Unit {
+                    H(q);
+                }
+            }
+        ",
+        Profile::Unrestricted,
+        CircuitEntryPoint::EntryPoint,
+        CircuitGenerationMethod::ClassicalEval,
+        TracerConfig {
+            max_operations: usize::MAX,
+            source_locations: false,
+            group_by_scope: true,
+        },
+    )
+    .expect("circuit generation should succeed");
+
+    expect![[r#"
+        q_0    ─ [ [Main] ─── [ [Foo] ─── H ──── H ──── H ──── H ──── H ──── H ──── ] ──── M ──── |0〉 ──── ] ──
+                     [                                                                     ╘══════════════ ] ══
+    "#]]
+    .assert_eq(&circ.display_with_groups().to_string());
+}
+
+#[test]
 fn classical_for_loop() {
     let circ = circuit(
         r"
