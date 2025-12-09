@@ -47,7 +47,7 @@ impl Error {
     }
 }
 
-pub(crate) fn get_compile_errors_from_parse_result(
+pub(crate) fn get_semantic_errors_from_lowering_result(
     res: &QasmSemanticParseResult,
 ) -> Vec<WithSource<crate::Error>> {
     res.errors

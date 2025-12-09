@@ -4,7 +4,7 @@
 use crate::compiler::{PragmaConfig, parse_and_compile_to_qsharp_ast_with_config};
 use crate::{
     CompilerConfig, OutputSemantics, ProgramType, QasmCompileUnit, QubitSemantics,
-    get_compile_errors_from_parse_result,
+    get_semantic_errors_from_lowering_result,
 };
 use expect_test::Expect;
 use miette::Report;
@@ -97,7 +97,7 @@ fn compile_with_config<S: Into<Arc<str>>>(
         }
     }
     assert!(!res.has_syntax_errors());
-    let errors = get_compile_errors_from_parse_result(&res);
+    let errors = get_semantic_errors_from_lowering_result(&res);
     let program = res.program;
 
     let compiler = crate::compiler::QasmCompiler {
@@ -161,7 +161,7 @@ pub fn compile_all_with_config<P: Into<Arc<str>>>(
 ) -> miette::Result<QasmCompileUnit, Vec<Report>> {
     let res = parse_all(path, sources)?;
     assert!(!res.has_syntax_errors());
-    let errors = get_compile_errors_from_parse_result(&res);
+    let errors = get_semantic_errors_from_lowering_result(&res);
     let program = res.program;
 
     let compiler = crate::compiler::QasmCompiler {
