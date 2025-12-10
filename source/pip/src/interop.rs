@@ -18,10 +18,10 @@ use pyo3::types::{PyDict, PyList};
 use qsc::hir::PackageId;
 use qsc::interpret::output::Receiver;
 use qsc::interpret::{CircuitEntryPoint, Interpreter, into_errors};
+use qsc::openqasm::compiler::compile_to_qsharp_ast_with_config;
+use qsc::openqasm::semantic::QasmSemanticParseResult;
+use qsc::openqasm::{OperationSignature, QubitSemantics};
 use qsc::project::ProjectType;
-use qsc::qasm::compiler::compile_to_qsharp_ast_with_config;
-use qsc::qasm::semantic::QasmSemanticParseResult;
-use qsc::qasm::{OperationSignature, QubitSemantics};
 use qsc::target::Profile;
 use qsc::{Backend, PackageType, PauliNoise, SparseSim};
 use qsc::{
@@ -105,7 +105,7 @@ pub(crate) fn run_qasm_program(
             "Expected OpenQASM project, but got a different type".to_string(),
         ));
     };
-    let res = qsc::qasm::semantic::parse_sources(&sources);
+    let res = qsc::openqasm::semantic::parse_sources(&sources);
     let (package, source_map, signature) = compile_qasm_enriching_errors(
         res,
         &operation_name,
@@ -221,7 +221,7 @@ pub(crate) fn resource_estimate_qasm_program(
             "Expected OpenQASM project, but got a different type".to_string(),
         ));
     };
-    let res = qsc::qasm::semantic::parse_sources(&sources);
+    let res = qsc::openqasm::semantic::parse_sources(&sources);
 
     let program_type = ProgramType::File;
     let output_semantics = OutputSemantics::ResourceEstimation;
@@ -310,7 +310,7 @@ pub(crate) fn compile_qasm_program_to_qir(
             "Expected OpenQASM project, but got a different type".to_string(),
         ));
     };
-    let res = qsc::qasm::semantic::parse_sources(&sources);
+    let res = qsc::openqasm::semantic::parse_sources(&sources);
 
     let program_ty = ProgramType::File;
     let output_semantics = get_output_semantics(&kwargs, || OutputSemantics::Qiskit)?;
@@ -334,7 +334,7 @@ pub(crate) fn compile_qasm_enriching_errors<S: AsRef<str>>(
     output_semantics: OutputSemantics,
     allow_input_params: bool,
 ) -> PyResult<(Package, SourceMap, OperationSignature)> {
-    let config = qsc::qasm::CompilerConfig::new(
+    let config = qsc::openqasm::CompilerConfig::new(
         QubitSemantics::Qiskit,
         output_semantics.into(),
         program_ty.into(),
@@ -409,7 +409,7 @@ pub(crate) fn compile_qasm_to_qsharp(
             "Expected OpenQASM project, but got a different type".to_string(),
         ));
     };
-    let res = qsc::qasm::semantic::parse_sources(&sources);
+    let res = qsc::openqasm::semantic::parse_sources(&sources);
 
     let program_ty = get_program_type(&kwargs, || ProgramType::File)?;
     let output_semantics = get_output_semantics(&kwargs, || OutputSemantics::Qiskit)?;
@@ -574,7 +574,7 @@ pub(crate) fn circuit_qasm_program(
             "Expected OpenQASM project, but got a different type".to_string(),
         ));
     };
-    let res = qsc::qasm::semantic::parse_sources(&sources);
+    let res = qsc::openqasm::semantic::parse_sources(&sources);
 
     let (package, source_map, signature) = compile_qasm_enriching_errors(
         res,
@@ -636,7 +636,7 @@ fn into_estimation_errors(errors: Vec<interpret::Error>) -> Vec<resource_estimat
 }
 
 /// Formats a list of QASM errors into a single string.
-pub(crate) fn format_qasm_errors(errors: Vec<WithSource<qsc::qasm::error::Error>>) -> String {
+pub(crate) fn format_qasm_errors(errors: Vec<WithSource<qsc::openqasm::error::Error>>) -> String {
     errors
         .into_iter()
         .map(|e| {

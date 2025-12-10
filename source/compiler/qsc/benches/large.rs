@@ -9,7 +9,8 @@ use qsc::{
     compile::{self, compile},
 };
 use qsc_data_structures::language_features::LanguageFeatures;
-use qsc_frontend::compile::{PackageStore, SourceMap};
+use qsc_data_structures::source::SourceMap;
+use qsc_frontend::compile::PackageStore;
 use qsc_passes::PackageType;
 
 const INPUT: &str = include_str!("./large.qs");

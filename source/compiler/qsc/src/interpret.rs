@@ -28,9 +28,11 @@ use qsc_circuit::{
 };
 use qsc_codegen::qir::{fir_to_qir, fir_to_qir_from_callable};
 use qsc_data_structures::{
+    error::WithSource,
     functors::FunctorApp,
     language_features::LanguageFeatures,
     line_column::{Encoding, Range},
+    source::{Source, SourceMap},
     span::Span,
     target::TargetCapabilityFlags,
 };
@@ -57,8 +59,7 @@ use qsc_fir::{
     visit::{self, Visitor},
 };
 use qsc_frontend::{
-    compile::{CompileUnit, Dependencies, PackageStore, Source, SourceMap},
-    error::WithSource,
+    compile::{CompileUnit, Dependencies, PackageStore},
     incremental::Increment,
 };
 use qsc_hir::{global, ty};

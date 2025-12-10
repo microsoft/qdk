@@ -5,8 +5,10 @@
 
 use expect_test::{Expect, expect};
 use indoc::indoc;
-use qsc_data_structures::{language_features::LanguageFeatures, target::TargetCapabilityFlags};
-use qsc_frontend::compile::{self, PackageStore, SourceMap, compile};
+use qsc_data_structures::{
+    language_features::LanguageFeatures, source::SourceMap, target::TargetCapabilityFlags,
+};
+use qsc_frontend::compile::{self, PackageStore, compile};
 use qsc_hir::{validate::Validator, visit::Visitor};
 
 use crate::spec_gen::generate_specs;

@@ -5,13 +5,15 @@ mod multiple_packages;
 
 use std::{rc::Rc, sync::Arc};
 
-use super::{CompileUnit, Error, PackageStore, SourceMap, compile, longest_common_prefix};
+use super::{CompileUnit, Error, PackageStore, SourceMap, compile};
 use crate::compile::TargetCapabilityFlags;
 
 use expect_test::expect;
 use indoc::indoc;
 use miette::Diagnostic;
-use qsc_data_structures::{language_features::LanguageFeatures, span::Span};
+use qsc_data_structures::{
+    language_features::LanguageFeatures, source::longest_common_prefix, span::Span,
+};
 use qsc_hir::{
     global,
     hir::{

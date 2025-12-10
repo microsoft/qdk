@@ -5,9 +5,9 @@ mod given_interpreter {
     use crate::interpret::{InterpretResult, Interpreter};
     use expect_test::Expect;
     use miette::Diagnostic;
+    use qsc_data_structures::source::SourceMap;
     use qsc_data_structures::{language_features::LanguageFeatures, target::TargetCapabilityFlags};
     use qsc_eval::{output::CursorReceiver, val::Value};
-    use qsc_frontend::compile::SourceMap;
     use qsc_passes::PackageType;
     use std::{fmt::Write, io::Cursor, iter, str::from_utf8};
 
@@ -68,7 +68,7 @@ mod given_interpreter {
         use super::*;
 
         mod without_stdlib {
-            use qsc_frontend::compile::SourceMap;
+            use qsc_data_structures::source::SourceMap;
             use qsc_passes::PackageType;
 
             use super::*;
@@ -1695,8 +1695,8 @@ mod given_interpreter {
         use qsc_ast::ast::{
             Expr, ExprKind, NodeId, Package, Path, PathKind, Stmt, StmtKind, TopLevelNode,
         };
+        use qsc_data_structures::source::SourceMap;
         use qsc_data_structures::span::Span;
-        use qsc_frontend::compile::SourceMap;
         use qsc_passes::PackageType;
 
         #[test]

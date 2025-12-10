@@ -11,9 +11,8 @@ use crate::{
 use expect_test::expect;
 use miette::Diagnostic;
 use qsc_circuit::{Circuit, TracerConfig};
-use qsc_data_structures::language_features::LanguageFeatures;
+use qsc_data_structures::{language_features::LanguageFeatures, source::SourceMap};
 use qsc_eval::output::GenericReceiver;
-use qsc_frontend::compile::SourceMap;
 use qsc_passes::PackageType;
 
 fn interpreter(code: &str, package_type: PackageType, profile: Profile) -> Interpreter {
@@ -1091,8 +1090,8 @@ mod debugger_stepping {
     use expect_test::expect;
     use qsc_data_structures::language_features::LanguageFeatures;
     use qsc_data_structures::line_column::Encoding;
+    use qsc_data_structures::source::SourceMap;
     use qsc_eval::{StepAction, StepResult, output::GenericReceiver};
-    use qsc_frontend::compile::SourceMap;
     use std::fmt::Write;
 
     /// Steps through the code in the debugger and collects the

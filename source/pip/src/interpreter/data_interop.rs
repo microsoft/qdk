@@ -272,7 +272,8 @@ pub(super) fn pyobj_to_value(
             match kind {
                 interpret::UdtKind::Angle => {
                     let angle = extract_obj::<f64>(py, obj, ty)?;
-                    let angle = qsc::qasm::stdlib::angle::Angle::from_f64_maybe_sized(angle, None);
+                    let angle =
+                        qsc::openqasm::stdlib::angle::Angle::from_f64_maybe_sized(angle, None);
                     let value = i64::try_from(angle.value)
                         .expect("angles built with `None` size have at most 53 bits");
                     let size = i64::from(angle.size);
@@ -414,7 +415,7 @@ pub(crate) fn value_to_pyobj(
                     let size = values[1].clone().unwrap_int();
                     let value = u64::try_from(value).expect("value should fit in u64");
                     let size = u32::try_from(size).expect("size should fit in u32");
-                    let angle = qsc::qasm::stdlib::angle::Angle::new(value, size);
+                    let angle = qsc::openqasm::stdlib::angle::Angle::new(value, size);
                     let angle: f64 = angle
                         .try_into()
                         .map_err(|_| QasmError::new_err("failed to cast angle to 64-bit float"))?;

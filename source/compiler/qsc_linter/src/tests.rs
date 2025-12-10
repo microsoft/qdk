@@ -9,9 +9,10 @@ use crate::{
 use expect_test::{Expect, expect};
 use indoc::indoc;
 use qsc_data_structures::{
-    language_features::LanguageFeatures, span::Span, target::TargetCapabilityFlags,
+    language_features::LanguageFeatures, source::SourceMap, span::Span,
+    target::TargetCapabilityFlags,
 };
-use qsc_frontend::compile::{self, PackageStore, SourceMap};
+use qsc_frontend::compile::{self, PackageStore};
 use qsc_hir::hir::CallableKind;
 use qsc_passes::PackageType;
 
