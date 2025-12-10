@@ -3,7 +3,7 @@
 
 use core::f64::consts::{E, PI};
 
-use crate::qir::ToQir;
+use crate::qir::v1::ToQir;
 use expect_test::expect;
 use qsc_rir::rir::{
     FcmpConditionCode, Instruction, Literal, Operand, Program, Ty, Variable, VariableId,

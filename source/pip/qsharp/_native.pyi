@@ -112,6 +112,13 @@ class TargetProfile(Enum):
     Describes the unrestricted set of capabilities required to run any Q# program.
     """
 
+    Advanced: TargetProfile
+    """
+    Target supports the Advanced profile, allowing for complex data structures and control flow.
+    
+    This profile includes support for any LLVM IR instructions.
+    """
+
 class GlobalCallable:
     """
     A callable reference that can be invoked with arguments.
