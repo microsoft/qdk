@@ -1212,19 +1212,15 @@ dependencies = [
 name = "qsc_openqasm_compiler"
 version = "0.0.0"
 dependencies = [
- "bitflags",
  "criterion",
  "difference",
- "enum-iterator",
  "expect-test",
  "indenter",
  "indoc",
  "miette",
  "num-bigint",
- "num-traits",
  "qsc",
  "qsc_ast",
- "qsc_codegen",
  "qsc_data_structures",
  "qsc_frontend",
  "qsc_hir",
@@ -1239,17 +1235,12 @@ name = "qsc_openqasm_parser"
 version = "0.0.0"
 dependencies = [
  "bitflags",
- "criterion",
- "difference",
  "enum-iterator",
  "expect-test",
  "indenter",
- "indoc",
  "miette",
  "num-bigint",
  "num-traits",
- "qsc",
- "qsc_codegen",
  "qsc_data_structures",
  "rustc-hash",
  "thiserror",

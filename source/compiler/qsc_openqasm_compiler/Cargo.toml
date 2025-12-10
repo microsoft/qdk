@@ -8,11 +8,8 @@ license.workspace = true
 version.workspace = true
 
 [dependencies]
-bitflags = { workspace = true }
-enum-iterator = { workspace = true }
 indenter = { workspace = true }
 num-bigint = { workspace = true }
-num-traits = { workspace = true }
 miette = { workspace = true }
 qsc_ast = { path = "../qsc_ast" }
 qsc_data_structures = { path = "../qsc_data_structures" }
@@ -31,7 +28,6 @@ miette = { workspace = true, features = ["fancy-no-syscall"] }
 # Self import adding fs feature so that we can test
 # loading qasm from file.
 qsc = { path = "../qsc" }
-qsc_codegen = { path = "../qsc_codegen" }
 qsc_passes = { path = "../qsc_passes" }
 
 [lints]
