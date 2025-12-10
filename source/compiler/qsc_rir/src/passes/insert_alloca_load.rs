@@ -34,7 +34,7 @@ fn process_callable(program: &mut Program, callable_id: CallableId, next_var_id:
     let mut blocks_to_visit = vec![entry_block_id];
     while let Some(block_id) = blocks_to_visit.pop() {
         visited_blocks.insert(block_id);
-        process_block(program, block_id, &mut vars_to_alloca, next_var_id);
+        add_alloca_load_to_block(program, block_id, &mut vars_to_alloca, next_var_id);
         for successor_id in get_block_successors(program.get_block(block_id)) {
             if !visited_blocks.contains(&successor_id) {
                 blocks_to_visit.push(successor_id);
@@ -54,7 +54,7 @@ fn process_callable(program: &mut Program, callable_id: CallableId, next_var_id:
     entry_block.0 = new_instrs;
 }
 
-fn process_block(
+fn add_alloca_load_to_block(
     program: &mut Program,
     block_id: BlockId,
     vars_to_alloca: &mut IndexMap<VariableId, Variable>,
