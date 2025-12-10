@@ -80,7 +80,7 @@ impl ExecGraphBuilder {
         self.debug.push(node);
     }
 
-    /// Pushes a node with the given argument to the execution graph.
+    /// Constructs a node with the given argument, then pushes it to the execution graph.
     fn push_with_arg<F>(&mut self, node_fn: F, arg: ExecGraphIdx)
     where
         F: Fn(u32) -> ExecGraphNode,
@@ -110,8 +110,8 @@ impl ExecGraphBuilder {
         }
     }
 
-    /// Inserts a node at the given index with the given argument.
-    fn insert_with_arg<F>(&mut self, node_fn: F, index: ExecGraphIdx, arg: ExecGraphIdx)
+    /// Constructs a node with the given argument, then sets it at the given index in the execution graph.
+    fn set_with_arg<F>(&mut self, node_fn: F, index: ExecGraphIdx, arg: ExecGraphIdx)
     where
         F: Fn(u32) -> ExecGraphNode,
     {
@@ -129,9 +129,9 @@ impl ExecGraphBuilder {
     }
 
     /// Removes all nodes after and including the given index.
-    fn pop_from(&mut self, idx: ExecGraphIdx) {
-        self.no_debug.drain(idx.no_debug_idx..);
-        self.debug.drain(idx.debug_idx..);
+    fn truncate(&mut self, idx: ExecGraphIdx) {
+        self.no_debug.truncate(idx.no_debug_idx);
+        self.debug.truncate(idx.debug_idx);
     }
 
     /// Removes the last pushed node.
@@ -538,7 +538,7 @@ impl Lowerer {
                 let lhs = self.lower_expr(lhs);
                 // The left-hand side of an assignment is not really an expression to be executed,
                 // so remove any added nodes from the execution graph.
-                self.exec_graph.pop_from(idx);
+                self.exec_graph.truncate(idx);
                 fir::ExprKind::Assign(lhs, self.lower_expr(rhs))
             }
             hir::ExprKind::AssignOp(op, lhs, rhs) => {
@@ -548,7 +548,7 @@ impl Lowerer {
                 if is_array {
                     // The left-hand side of an array append is not really an expression to be
                     // executed, so remove any added nodes from the execution graph.
-                    self.exec_graph.pop_from(idx);
+                    self.exec_graph.truncate(idx);
                 }
                 let idx = self.exec_graph.len();
                 if matches!(op, hir::BinOp::AndL | hir::BinOp::OrL) {
@@ -560,14 +560,14 @@ impl Lowerer {
                 let rhs = self.lower_expr(rhs);
                 match op {
                     hir::BinOp::AndL => {
-                        self.exec_graph.insert_with_arg(
+                        self.exec_graph.set_with_arg(
                             ExecGraphNode::JumpIfNot,
                             idx,
                             self.exec_graph.len(),
                         );
                     }
                     hir::BinOp::OrL => {
-                        self.exec_graph.insert_with_arg(
+                        self.exec_graph.set_with_arg(
                             ExecGraphNode::JumpIf,
                             idx,
                             self.exec_graph.len(),
@@ -592,7 +592,7 @@ impl Lowerer {
                 let container = self.lower_expr(container);
                 // The left-hand side of an array index assignment is not really an expression to be
                 // executed, so remove any added nodes from the execution graph.
-                self.exec_graph.pop_from(idx);
+                self.exec_graph.truncate(idx);
                 fir::ExprKind::AssignIndex(container, index, replace)
             }
             hir::ExprKind::BinOp(op, lhs, rhs) => {
@@ -609,7 +609,7 @@ impl Lowerer {
                     // If the operator is logical AND, update the placeholder to skip the
                     // right-hand side if the left-hand side is false
                     hir::BinOp::AndL => {
-                        self.exec_graph.insert_with_arg(
+                        self.exec_graph.set_with_arg(
                             ExecGraphNode::JumpIfNot,
                             idx,
                             self.exec_graph.len(),
@@ -618,7 +618,7 @@ impl Lowerer {
                     // If the operator is logical OR, update the placeholder to skip the
                     // right-hand side if the left-hand side is true
                     hir::BinOp::OrL => {
-                        self.exec_graph.insert_with_arg(
+                        self.exec_graph.set_with_arg(
                             ExecGraphNode::JumpIf,
                             idx,
                             self.exec_graph.len(),
@@ -657,11 +657,8 @@ impl Lowerer {
                     self.exec_graph.push(ExecGraphNode::Jump(0));
                     let if_false = self.lower_expr(if_false);
                     // Update the placeholder to skip over the false branch
-                    self.exec_graph.insert_with_arg(
-                        ExecGraphNode::Jump,
-                        idx,
-                        self.exec_graph.len(),
-                    );
+                    self.exec_graph
+                        .set_with_arg(ExecGraphNode::Jump, idx, self.exec_graph.len());
                     (Some(if_false), idx + 1)
                 } else {
                     // An if-expr without an else cannot return a value, so we need to
@@ -672,7 +669,7 @@ impl Lowerer {
                 };
                 // Update the placeholder to skip the true branch if the condition is false
                 self.exec_graph
-                    .insert_with_arg(ExecGraphNode::JumpIfNot, branch_idx, else_idx);
+                    .set_with_arg(ExecGraphNode::JumpIfNot, branch_idx, else_idx);
                 fir::ExprKind::If(cond, if_true, if_false)
             }
             hir::ExprKind::Index(container, index) => {
@@ -738,11 +735,8 @@ impl Lowerer {
                 let body = self.lower_block(body);
                 self.exec_graph.push_with_arg(ExecGraphNode::Jump, cond_idx);
                 // Update the placeholder to skip the loop if the condition is false
-                self.exec_graph.insert_with_arg(
-                    ExecGraphNode::JumpIfNot,
-                    idx,
-                    self.exec_graph.len(),
-                );
+                self.exec_graph
+                    .set_with_arg(ExecGraphNode::JumpIfNot, idx, self.exec_graph.len());
                 // While-exprs never have a return value, so we need to insert a no-op to ensure
                 // a Unit value is returned for the expr.
                 self.exec_graph.push(ExecGraphNode::Unit);
