@@ -67,6 +67,7 @@ class NeutralAtomDevice(Device):
             DecomposeMultiQubitToCZ,
             DecomposeSingleRotationToRz,
             DecomposeSingleQubitToRzSX,
+            ReplaceResetWithMResetZ,
         )
         from ._reorder import Reorder
         from pyqir import Module, Context
@@ -141,6 +142,14 @@ class NeutralAtomDevice(Device):
             end_time = time.time()
             print(
                 f"  Optimized single qubit gates in {end_time - start_time:.2f} seconds"
+            )
+            start_time = end_time
+
+        ReplaceResetWithMResetZ().run(module)
+        if verbose:
+            end_time = time.time()
+            print(
+                f"  Replaced resets with mresetz in {end_time - start_time:.2f} seconds"
             )
             start_time = end_time
 

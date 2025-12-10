@@ -10,6 +10,7 @@ from qsharp._device._atom._decomp import (
     DecomposeSingleRotationToRz,
     DecomposeSingleQubitToRzSX,
     DecomposeRzAnglesToCliffordGates,
+    ReplaceResetWithMResetZ,
 )
 
 try:
@@ -23,7 +24,7 @@ SKIP_REASON = "PyQIR is not available"
 
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
-def test_ac1000_ccx_decomposition() -> None:
+def test_ccx_decomposition() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
     qir = qsharp.compile(
         """
@@ -117,7 +118,7 @@ attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptiv
 
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
-def test_ac1000_cx_decomposition() -> None:
+def test_cx_decomposition() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
     qir = qsharp.compile(
         """
@@ -187,7 +188,7 @@ attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptiv
 
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
-def test_ac1000_cy_decomposition() -> None:
+def test_cy_decomposition() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
     qir = qsharp.compile(
         """
@@ -259,7 +260,7 @@ attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptiv
 
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
-def test_ac1000_rxx_decomposition() -> None:
+def test_rxx_decomposition() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
     qir = qsharp.compile(
         """
@@ -333,7 +334,7 @@ attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptiv
 
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
-def test_ac1000_ryy_decomposition() -> None:
+def test_ryy_decomposition() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
     qir = qsharp.compile(
         """
@@ -411,7 +412,7 @@ attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptiv
 
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
-def test_ac1000_rzz_decomposition() -> None:
+def test_rzz_decomposition() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
     qir = qsharp.compile(
         """
@@ -485,7 +486,7 @@ attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptiv
 
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
-def test_ac1000_swap_decomposition() -> None:
+def test_swap_decomposition() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
     qir = qsharp.compile(
         """
@@ -561,7 +562,7 @@ attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptiv
 
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
-def test_ac1000_rx_decomposition() -> None:
+def test_rx_decomposition() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
     qir = qsharp.compile(
         """
@@ -625,7 +626,7 @@ attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptiv
 
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
-def test_ac1000_ry_decomposition() -> None:
+def test_ry_decomposition() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
     qir = qsharp.compile(
         """
@@ -691,7 +692,7 @@ attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptiv
 
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
-def test_ac1000_h_decomposition() -> None:
+def test_h_decomposition() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
     qir = qsharp.compile(
         """
@@ -751,7 +752,7 @@ attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptiv
 
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
-def test_ac1000_s_decomposition() -> None:
+def test_s_decomposition() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
     qir = qsharp.compile(
         """
@@ -809,7 +810,7 @@ attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptiv
 
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
-def test_ac1000_sadj_decomposition() -> None:
+def test_sadj_decomposition() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
     qir = qsharp.compile(
         """
@@ -867,7 +868,7 @@ attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptiv
 
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
-def test_ac1000_t_decomposition() -> None:
+def test_t_decomposition() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
     qir = qsharp.compile(
         """
@@ -925,7 +926,7 @@ attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptiv
 
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
-def test_ac1000_tadj_decomposition() -> None:
+def test_tadj_decomposition() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
     qir = qsharp.compile(
         """
@@ -983,7 +984,7 @@ attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptiv
 
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
-def test_ac1000_x_decomposition() -> None:
+def test_x_decomposition() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
     qir = qsharp.compile(
         """
@@ -1042,7 +1043,7 @@ attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptiv
 
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
-def test_ac1000_y_decomposition() -> None:
+def test_y_decomposition() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
     qir = qsharp.compile(
         """
@@ -1102,7 +1103,7 @@ attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptiv
 
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
-def test_ac1000_z_decomposition() -> None:
+def test_z_decomposition() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
     qir = qsharp.compile(
         """
@@ -1160,7 +1161,7 @@ attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptiv
 
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
-def test_ac1000_rz_3pi_over_2_clifford_decomposition() -> None:
+def test_rz_3pi_over_2_clifford_decomposition() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
     qir = qsharp.compile(
         """
@@ -1220,7 +1221,7 @@ attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptiv
 
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
-def test_ac1000_rz_neg_pi_over_2_clifford_decomposition() -> None:
+def test_rz_neg_pi_over_2_clifford_decomposition() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
     qir = qsharp.compile(
         """
@@ -1280,7 +1281,7 @@ attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptiv
 
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
-def test_ac1000_rz_pi_clifford_decomposition() -> None:
+def test_rz_pi_clifford_decomposition() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
     qir = qsharp.compile(
         """
@@ -1340,7 +1341,7 @@ attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptiv
 
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
-def test_ac1000_rz_neg_pi_clifford_decomposition() -> None:
+def test_rz_neg_pi_clifford_decomposition() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
     qir = qsharp.compile(
         """
@@ -1400,7 +1401,7 @@ attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptiv
 
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
-def test_ac1000_rz_pi_over_2_clifford_decomposition() -> None:
+def test_rz_pi_over_2_clifford_decomposition() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
     qir = qsharp.compile(
         """
@@ -1460,7 +1461,7 @@ attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptiv
 
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
-def test_ac1000_rz_neg_3pi_over_2_clifford_decomposition() -> None:
+def test_rz_neg_3pi_over_2_clifford_decomposition() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
     qir = qsharp.compile(
         """
@@ -1520,7 +1521,7 @@ attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptiv
 
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
-def test_ac1000_rz_2pi_decomposition() -> None:
+def test_rz_2pi_decomposition() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
     qir = qsharp.compile(
         """
@@ -1579,7 +1580,7 @@ attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptiv
 
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
-def test_ac1000_rz_neg_2pi_decomposition() -> None:
+def test_rz_neg_2pi_decomposition() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
     qir = qsharp.compile(
         """
@@ -1638,7 +1639,7 @@ attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptiv
 
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
-def test_ac1000_rz_non_clifford_decomposition_fails() -> None:
+def test_rz_non_clifford_decomposition_fails() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
     qir = qsharp.compile(
         """
@@ -1657,4 +1658,62 @@ def test_ac1000_rz_non_clifford_decomposition_fails() -> None:
     assert_expected_inline(
         str(ex),
         """<ExceptionInfo ValueError('Angle 0.1 used in RZ is not a Clifford compatible rotation angle') tblen=9>""",
+    )
+
+
+@pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
+def test_reset_replaced_by_mresetz() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
+    qir = qsharp.compile(
+        """
+        {
+            use q = Qubit();
+            Reset(q);
+        }
+        """
+    )
+
+    module = pyqir.Module.from_ir(pyqir.Context(), str(qir))
+    ReplaceResetWithMResetZ().run(module)
+    transformed_qir = str(module)
+
+    assert_expected_inline(
+        transformed_qir,
+        """\
+
+%Qubit = type opaque
+%Result = type opaque
+
+@empty_tag = internal constant [1 x i8] zeroinitializer
+
+define i64 @ENTRYPOINT__main() #0 {
+block_0:
+  call void @__quantum__rt__initialize(i8* null)
+  call void @__quantum__qis__mresetz__body(%Qubit* null, %Result* null)
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  ret i64 0
+}
+
+declare void @__quantum__rt__initialize(i8*)
+
+declare void @__quantum__qis__reset__body(%Qubit*) #1
+
+declare void @__quantum__rt__tuple_record_output(i64, i8*)
+
+declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*)
+
+attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
+attributes #1 = { "irreversible" }
+
+!llvm.module.flags = !{!0, !1, !2, !3, !4, !6}
+
+!0 = !{i32 1, !"qir_major_version", i32 1}
+!1 = !{i32 7, !"qir_minor_version", i32 0}
+!2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+!3 = !{i32 1, !"dynamic_result_management", i1 false}
+!4 = !{i32 5, !"int_computations", !5}
+!5 = !{!"i64"}
+!6 = !{i32 5, !"float_computations", !7}
+!7 = !{!"double"}
+""",
     )
