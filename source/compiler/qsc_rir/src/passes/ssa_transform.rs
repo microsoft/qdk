@@ -5,11 +5,11 @@
 mod tests;
 
 use crate::{
-    rir::{Block, BlockId, Instruction, Operand, Program, Variable, VariableId},
-    utils::get_variable_assignments,
+    rir::{BlockId, Instruction, Operand, Program, Variable, VariableId},
+    utils::{get_variable_assignments, map_variable_use_in_block},
 };
 use qsc_data_structures::index_map::IndexMap;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Transforms the program into Single Static Assignment (SSA) form by inserting phi nodes
 /// at the beginning of blocks where necessary, allowing the removal of store instructions.
@@ -116,7 +116,7 @@ pub fn transform_to_ssa(program: &mut Program, preds: &IndexMap<BlockId, Vec<Blo
 
         // Now that the block has finished processing, apply any updates to the block and
         // merge those updates into the stored variable map to propagate to successors.
-        map_variable_use_in_block(block, &mut var_map_updates);
+        map_variable_use_in_block(block, &mut var_map_updates, &FxHashSet::default());
         for (var_id, operand) in var_map_updates {
             let var_map = block_var_map
                 .get_mut(block_id)
@@ -157,118 +157,8 @@ fn map_store_to_dominated_ssa(
             }
             _ => FxHashMap::default(),
         };
-        map_variable_use_in_block(block, &mut var_map);
+        map_variable_use_in_block(block, &mut var_map, &FxHashSet::default());
         block_var_map.insert(block_id, var_map);
     }
     block_var_map
-}
-
-// Propagates stored variables through a block, tracking the latest stored value and replacing
-// usage of the variable with the stored value.
-fn map_variable_use_in_block(block: &mut Block, var_map: &mut FxHashMap<VariableId, Operand>) {
-    let instrs = block.0.drain(..).collect::<Vec<_>>();
-
-    for mut instr in instrs {
-        match &mut instr {
-            // Track the new value of the variable and omit the store instruction.
-            Instruction::Store(operand, var) => {
-                // Note this uses the mapped operand to make sure this variable points to whatever root literal or variable
-                // this operand corresponds to at this point in the block. This makes the new variable respect a point-in-time
-                // copy of the operand.
-                var_map.insert(var.variable_id, operand.mapped(var_map));
-                continue;
-            }
-
-            // Replace any arguments with the new values of stored variables.
-            Instruction::Call(_, args, _) => {
-                *args = args
-                    .iter()
-                    .map(|arg| match arg {
-                        Operand::Variable(var) => {
-                            // If the variable is not in the map, it is not something whose value has been updated via store in this block,
-                            // so just fallback to use the `arg` value directly.
-                            // `map_to_operand` does this automatically by returning `self`` when the variable is not in the map.
-                            var.map_to_operand(var_map)
-                        }
-                        Operand::Literal(_) => *arg,
-                    })
-                    .collect();
-            }
-
-            // Replace the branch condition with the new value of the variable.
-            Instruction::Branch(var, _, _) => {
-                *var = var.map_to_variable(var_map);
-            }
-
-            // Two variable instructions, replace left and right operands with new values.
-            Instruction::Add(lhs, rhs, _)
-            | Instruction::Sub(lhs, rhs, _)
-            | Instruction::Mul(lhs, rhs, _)
-            | Instruction::Sdiv(lhs, rhs, _)
-            | Instruction::Srem(lhs, rhs, _)
-            | Instruction::Shl(lhs, rhs, _)
-            | Instruction::Ashr(lhs, rhs, _)
-            | Instruction::Fadd(lhs, rhs, _)
-            | Instruction::Fsub(lhs, rhs, _)
-            | Instruction::Fmul(lhs, rhs, _)
-            | Instruction::Fdiv(lhs, rhs, _)
-            | Instruction::Fcmp(_, lhs, rhs, _)
-            | Instruction::Icmp(_, lhs, rhs, _)
-            | Instruction::LogicalAnd(lhs, rhs, _)
-            | Instruction::LogicalOr(lhs, rhs, _)
-            | Instruction::BitwiseAnd(lhs, rhs, _)
-            | Instruction::BitwiseOr(lhs, rhs, _)
-            | Instruction::BitwiseXor(lhs, rhs, _) => {
-                *lhs = lhs.mapped(var_map);
-                *rhs = rhs.mapped(var_map);
-            }
-
-            // Single variable instructions, replace operand with new value.
-            Instruction::BitwiseNot(operand, _) | Instruction::LogicalNot(operand, _) => {
-                *operand = operand.mapped(var_map);
-            }
-
-            // Phi nodes are handled separately in the SSA transformation, but need to be passed through
-            // like the unconditional terminators.
-            Instruction::Phi(..) | Instruction::Jump(..) | Instruction::Return => {}
-
-            Instruction::Alloca(..) => panic!("alloca not supported in ssa transformation"),
-            Instruction::Load(..) => panic!("load not supported in ssa transformation"),
-        }
-        block.0.push(instr);
-    }
-}
-
-impl Operand {
-    fn mapped(&self, var_map: &FxHashMap<VariableId, Operand>) -> Operand {
-        match self {
-            Operand::Literal(_) => *self,
-            Operand::Variable(var) => var.map_to_operand(var_map),
-        }
-    }
-}
-
-impl Variable {
-    fn map_to_operand(self, var_map: &FxHashMap<VariableId, Operand>) -> Operand {
-        let mut var = self;
-        while let Some(operand) = var_map.get(&var.variable_id) {
-            if let Operand::Variable(new_var) = operand {
-                var = *new_var;
-            } else {
-                return *operand;
-            }
-        }
-        Operand::Variable(var)
-    }
-
-    fn map_to_variable(self, var_map: &FxHashMap<VariableId, Operand>) -> Variable {
-        let mut var = self;
-        while let Some(operand) = var_map.get(&var.variable_id) {
-            let Operand::Variable(new_var) = operand else {
-                panic!("literal not supported in this context");
-            };
-            var = *new_var;
-        }
-        var
-    }
 }

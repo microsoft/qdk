@@ -4,7 +4,7 @@
 mod build_dominator_graph;
 mod defer_meas;
 mod insert_alloca_load;
-mod prune_unused_stores;
+mod prune_unneeded_stores;
 mod reindex_qubits;
 mod remap_block_ids;
 mod simplify_control_flow;
@@ -26,7 +26,7 @@ pub use unreachable_code_check::check_unreachable_code;
 
 use crate::{
     passes::{
-        insert_alloca_load::insert_alloca_load_instrs, prune_unused_stores::prune_unused_stores,
+        insert_alloca_load::insert_alloca_load_instrs, prune_unneeded_stores::prune_unneeded_stores,
     },
     rir::Program,
     utils::build_predecessors_map,
@@ -49,7 +49,7 @@ pub fn check_and_transform(program: &mut Program) {
     remap_block_ids(program);
 
     if program.config.capabilities.is_advanced() {
-        prune_unused_stores(program);
+        prune_unneeded_stores(program);
         insert_alloca_load_instrs(program);
     } else {
         let preds = build_predecessors_map(program);
