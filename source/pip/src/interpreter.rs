@@ -151,6 +151,10 @@ pub(crate) enum TargetProfile {
     ///
     /// This option maps to the Full Profile as defined by the QIR specification.
     Unrestricted,
+    /// Target supports the advanced set of capabilities required to run any Q# program.
+    /// This profile includes all required Adaptive Profile and `Adaptive_RIF`
+    /// capabilities, as well as support for backwards branching and more complex IR instructions.
+    Advanced,
 }
 
 #[pymethods]
@@ -176,6 +180,7 @@ impl TargetProfile {
             1 => Self::Adaptive_RI,
             2 => Self::Adaptive_RIF,
             3 => Self::Unrestricted,
+            4 => Self::Advanced,
             _ => return Err(PyValueError::new_err("invalid state")),
         };
         Ok(())
@@ -204,6 +209,7 @@ impl From<Profile> for TargetProfile {
             Profile::Base => TargetProfile::Base,
             Profile::AdaptiveRI => TargetProfile::Adaptive_RI,
             Profile::AdaptiveRIF => TargetProfile::Adaptive_RIF,
+            Profile::Advanced => TargetProfile::Advanced,
             Profile::Unrestricted => TargetProfile::Unrestricted,
         }
     }
@@ -215,6 +221,7 @@ impl From<TargetProfile> for Profile {
             TargetProfile::Base => Profile::Base,
             TargetProfile::Adaptive_RI => Profile::AdaptiveRI,
             TargetProfile::Adaptive_RIF => Profile::AdaptiveRIF,
+            TargetProfile::Advanced => Profile::Advanced,
             TargetProfile::Unrestricted => Profile::Unrestricted,
         }
     }

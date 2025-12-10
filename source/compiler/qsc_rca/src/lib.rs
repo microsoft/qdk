@@ -921,7 +921,6 @@ impl RuntimeFeatureFlags {
         }
         if self.contains(RuntimeFeatureFlags::CallToCustomReset) {
             capabilities |= TargetCapabilityFlags::Adaptive;
-            capabilities |= TargetCapabilityFlags::QubitReset;
         }
         capabilities
     }

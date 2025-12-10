@@ -54,6 +54,11 @@ impl Program {
     }
 
     #[must_use]
+    pub fn all_callable_ids(&self) -> Vec<CallableId> {
+        self.callables.iter().map(|(id, _)| id).collect()
+    }
+
+    #[must_use]
     pub fn get_callable(&self, id: CallableId) -> &Callable {
         self.callables.get(id).expect("callable should be present")
     }
@@ -304,6 +309,8 @@ impl Display for FcmpConditionCode {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Instruction {
     Store(Operand, Variable),
+    Load(Variable, Variable),
+    Alloca(Option<u64>, Variable),
     Call(CallableId, Vec<Operand>, Option<Variable>),
     Jump(BlockId),
     Branch(Variable, BlockId, BlockId),
@@ -426,6 +433,17 @@ impl Display for Instruction {
 
         match &self {
             Self::Store(value, variable) => write_unary_instruction(f, "Store", value, *variable)?,
+            Self::Load(lhs, rhs) => {
+                write_unary_instruction(f, "Load", &Operand::Variable(*lhs), *rhs)?;
+            }
+            Self::Alloca(size, variable) => {
+                let mut indent = set_indentation(indented(f), 0);
+                if let Some(size) = size {
+                    write!(indent, "{variable} = Alloca({size})")?;
+                } else {
+                    write!(indent, "{variable} = Alloca")?;
+                }
+            }
             Self::Jump(block_id) => write!(f, "Jump({})", block_id.0)?,
             Self::Call(callable_id, args, variable) => {
                 write_call(f, *callable_id, args, *variable)?;

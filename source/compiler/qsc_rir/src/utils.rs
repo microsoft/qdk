@@ -107,7 +107,9 @@ pub fn get_variable_assignments(program: &Program) -> IndexMap<VariableId, (Bloc
                     has_phi |= matches!(instr, Instruction::Phi(_, _));
                     assignments.insert(var.variable_id, (block_id, idx));
                 }
-                Instruction::Store(_, var) => {
+                Instruction::Alloca(_, var)
+                | Instruction::Load(_, var)
+                | Instruction::Store(_, var) => {
                     has_store = true;
                     assignments.insert(var.variable_id, (block_id, idx));
                 }

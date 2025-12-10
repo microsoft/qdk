@@ -231,6 +231,9 @@ fn map_variable_use_in_block(block: &mut Block, var_map: &mut FxHashMap<Variable
             // Phi nodes are handled separately in the SSA transformation, but need to be passed through
             // like the unconditional terminators.
             Instruction::Phi(..) | Instruction::Jump(..) | Instruction::Return => {}
+
+            Instruction::Alloca(..) => panic!("alloca not supported in ssa transformation"),
+            Instruction::Load(..) => panic!("load not supported in ssa transformation"),
         }
         block.0.push(instr);
     }
