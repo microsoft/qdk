@@ -10,10 +10,12 @@ use crate::{
 };
 use qsc::fir::StmtId;
 use qsc::fmt_complex;
-use qsc::interpret::{Debugger, Error, StepAction, StepResult};
+use qsc::interpret::{Debugger, Error, StepAction, StepResult, Value};
 use qsc::line_column::Encoding;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+
+const PREVIEW_CHILD_LIMIT: usize = 128;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -206,10 +208,44 @@ impl DebugService {
         let locals = self.debugger().get_locals(frame_id + 1);
         let variables: Vec<_> = locals
             .into_iter()
-            .map(|local| Variable {
-                name: (*local.name).to_string(),
-                value: local.value.to_string(),
-                var_type: local.type_name,
+            .map(|local| {
+                let value = local.value;
+                let value_string = value.to_string();
+
+                let mut length = None;
+                let mut element_type = None;
+                let mut preview_children = None;
+                let mut truncated = None;
+
+                if let Value::Array(items) = &value {
+                    let array_len = items.len();
+                    length = Some(array_len);
+                    element_type = items.first().map(|child| child.type_name().to_string());
+
+                    let children: Vec<_> = items
+                        .iter()
+                        .take(PREVIEW_CHILD_LIMIT)
+                        .enumerate()
+                        .map(|(index, child)| VariableChild {
+                            index,
+                            value: child.to_string(),
+                            var_type: child.type_name().to_string(),
+                        })
+                        .collect();
+
+                    preview_children = Some(children);
+                    truncated = Some(array_len > PREVIEW_CHILD_LIMIT);
+                }
+
+                Variable {
+                    name: (*local.name).to_string(),
+                    value: value_string,
+                    var_type: local.type_name,
+                    length,
+                    element_type,
+                    preview_children,
+                    truncated,
+                }
             })
             .collect();
         VariableList { variables }.into()
@@ -388,16 +424,16 @@ serializable_type! {
 }
 
 serializable_type! {
-    Variable,
+    VariableChild,
     {
-        pub name: String,
+        pub index: usize,
         pub value: String,
         pub var_type: String,
     },
-    r#"export interface IVariable {
-        name: string;
+    r#"export interface IVariableChild {
+        index: number;
         value: string;
-        var_type: "Array"
+        varType: "Array"
             | "BigInt"
             | "Bool"
             | "Closure"
@@ -410,6 +446,40 @@ serializable_type! {
             | "Result"
             | "String"
             | "Tuple";
+    }"#
+}
+
+serializable_type! {
+    Variable,
+    {
+        pub name: String,
+        pub value: String,
+        pub var_type: String,
+        pub length: Option<usize>,
+        pub element_type: Option<String>,
+        pub preview_children: Option<Vec<VariableChild>>,
+        pub truncated: Option<bool>,
+    },
+    r#"export interface IVariable {
+        name: string;
+        value: string;
+        varType: "Array"
+            | "BigInt"
+            | "Bool"
+            | "Closure"
+            | "Double"
+            | "Global"
+            | "Int"
+            | "Pauli"
+            | "Qubit"
+            | "Range"
+            | "Result"
+            | "String"
+            | "Tuple";
+        length: number | undefined;
+        elementType: string | undefined;
+        previewChildren: Array<IVariableChild> | undefined;
+        truncated: boolean | undefined;
     }"#
 }
 
