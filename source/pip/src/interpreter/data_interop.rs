@@ -10,7 +10,7 @@ use super::{Pauli, Result};
 use num_bigint::BigInt;
 use pyo3::{
     IntoPyObjectExt,
-    conversion::FromPyObjectBound,
+    conversion::FromPyObject,
     exceptions::PyTypeError,
     prelude::*,
     types::{PyList, PyTuple},
@@ -113,7 +113,7 @@ pub(super) struct UdtIR {
 /// It is a `HashMap` to make it simple checking that the
 /// objects have all the required fields to match the UDTs
 /// they represent, without considering the order of the fields.
-pub(super) type UdtFields = FxHashMap<String, PyObject>;
+pub(super) type UdtFields = FxHashMap<String, Py<PyAny>>;
 
 /// This type is used to send instances of UDTs from Q# to Python.
 /// It is a `Vec` and not a `HashMap` to preserve the order of the fields,
@@ -124,7 +124,7 @@ pub(super) struct UdtValue {
     #[pyo3(get)]
     name: String,
     #[pyo3(get)]
-    fields: Vec<(String, PyObject)>,
+    fields: Vec<(String, Py<PyAny>)>,
 }
 
 #[pyclass]
@@ -183,20 +183,21 @@ where
 }
 
 /// Gets the type name of a Python object.
-fn obj_type(py: Python, obj: &PyObject) -> PyResult<String> {
+fn obj_type(py: Python, obj: &Py<PyAny>) -> PyResult<String> {
     Ok(obj.bind(py).get_type().name()?.to_string())
 }
 
 /// A wrapper around the `obj.extract::<T>` functionality that allows to return
 /// user friendly errors when casting fails, similar to the Q# ones.
-fn extract_obj<'py, 'obj, T>(py: Python<'py>, obj: &'obj PyObject, ty: &Ty) -> PyResult<T>
+fn extract_obj<'py, 'obj, T>(py: Python<'py>, obj: &'obj Py<PyAny>, ty: &Ty) -> PyResult<T>
 where
-    T: FromPyObjectBound<'obj, 'py>,
+    T: FromPyObject<'obj, 'py>,
     'py: 'obj,
 {
     match obj.extract::<T>(py) {
         Ok(val) => Ok(val),
         Err(err) => {
+            let err = err.into();
             if err.is_instance_of::<PyTypeError>(py) {
                 // If we have a type error, we return a friendly user error.
                 Err(PyTypeError::new_err(format!(
@@ -218,7 +219,7 @@ where
 pub(super) fn pyobj_to_value(
     ctx: &interpret::Interpreter,
     py: Python,
-    obj: &PyObject,
+    obj: &Py<PyAny>,
     ty: &Ty,
 ) -> PyResult<Value> {
     match ty {
@@ -235,7 +236,7 @@ pub(super) fn pyobj_to_value(
             }
         },
         Ty::Tuple(tup) => {
-            let objs = extract_obj::<Vec<PyObject>>(py, obj, ty)?;
+            let objs = extract_obj::<Vec<Py<PyAny>>>(py, obj, ty)?;
 
             if tup.len() != objs.len() {
                 return Err(PyTypeError::new_err(format!(
@@ -255,7 +256,7 @@ pub(super) fn pyobj_to_value(
             }
         }
         Ty::Array(ty) => {
-            let objs = extract_obj::<Vec<PyObject>>(py, obj, ty)?;
+            let objs = extract_obj::<Vec<Py<PyAny>>>(py, obj, ty)?;
             let ty = &**ty;
             let mut array = Vec::new();
             for obj in &objs {
@@ -366,7 +367,7 @@ pub(crate) fn value_to_pyobj(
     ctx: &interpret::Interpreter,
     py: Python,
     value: &Value,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     match value {
         Value::Int(val) => val.into_py_any(py),
         Value::BigInt(val) => val.into_py_any(py),

@@ -349,9 +349,9 @@ impl From<ProgramType> for qsc::openqasm::ProgramType {
 pub(crate) struct Interpreter {
     pub(crate) interpreter: interpret::Interpreter,
     /// The Python function to call to create a new function wrapping a callable invocation.
-    pub(crate) make_callable: Option<PyObject>,
+    pub(crate) make_callable: Option<Py<PyAny>>,
     /// The Python function to call to create a class representing a qsharp struct.
-    pub(crate) make_class: Option<PyObject>,
+    pub(crate) make_class: Option<Py<PyAny>>,
     /// Whether circuit tracing was enabled.
     trace_circuit: bool,
 }
@@ -371,12 +371,12 @@ impl Interpreter {
         target_profile: TargetProfile,
         language_features: Option<Vec<String>>,
         project_root: Option<String>,
-        read_file: Option<PyObject>,
-        list_directory: Option<PyObject>,
-        resolve_path: Option<PyObject>,
-        fetch_github: Option<PyObject>,
-        make_callable: Option<PyObject>,
-        make_class: Option<PyObject>,
+        read_file: Option<Py<PyAny>>,
+        list_directory: Option<Py<PyAny>>,
+        resolve_path: Option<Py<PyAny>>,
+        fetch_github: Option<Py<PyAny>>,
+        make_callable: Option<Py<PyAny>>,
+        make_class: Option<Py<PyAny>>,
         trace_circuit: Option<bool>,
     ) -> PyResult<Self> {
         let target = Into::<Profile>::into(target_profile).into();
@@ -477,8 +477,8 @@ impl Interpreter {
         &mut self,
         py: Python,
         input: &str,
-        callback: Option<PyObject>,
-    ) -> PyResult<PyObject> {
+        callback: Option<Py<PyAny>>,
+    ) -> PyResult<Py<PyAny>> {
         let mut receiver = OptionalCallbackReceiver { callback, py };
         match self.interpreter.eval_fragments(&mut receiver, input) {
             Ok(value) => {
@@ -543,13 +543,13 @@ impl Interpreter {
         &mut self,
         py: Python,
         input: &str,
-        output_fn: Option<PyObject>,
-        read_file: Option<PyObject>,
-        list_directory: Option<PyObject>,
-        resolve_path: Option<PyObject>,
-        fetch_github: Option<PyObject>,
+        output_fn: Option<Py<PyAny>>,
+        read_file: Option<Py<PyAny>>,
+        list_directory: Option<Py<PyAny>>,
+        resolve_path: Option<Py<PyAny>>,
+        fetch_github: Option<Py<PyAny>>,
         kwargs: Option<Bound<'_, PyDict>>,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         let kwargs = kwargs.unwrap_or_else(|| PyDict::new(py));
 
         let operation_name = get_operation_name(&kwargs)?;
@@ -646,7 +646,7 @@ impl Interpreter {
     /// in the simulator up to the current point.
     ///
     /// Requires the interpreter to be initialized with `trace_circuit=True`.
-    fn dump_circuit(&mut self, py: Python) -> PyResult<PyObject> {
+    fn dump_circuit(&mut self, py: Python) -> PyResult<Py<PyAny>> {
         if !self.trace_circuit {
             return Err(QSharpError::new_err(
                 "to enable circuit dumping, the interpreter must be created with trace_circuit=True",
@@ -661,12 +661,12 @@ impl Interpreter {
         &mut self,
         py: Python,
         entry_expr: Option<&str>,
-        callback: Option<PyObject>,
+        callback: Option<Py<PyAny>>,
         noise: Option<(f64, f64, f64)>,
         qubit_loss: Option<f64>,
         callable: Option<GlobalCallable>,
-        args: Option<PyObject>,
-    ) -> PyResult<PyObject> {
+        args: Option<Py<PyAny>>,
+    ) -> PyResult<Py<PyAny>> {
         let mut receiver = OptionalCallbackReceiver { callback, py };
 
         let noise = match noise {
@@ -709,9 +709,9 @@ impl Interpreter {
         &mut self,
         py: Python,
         callable: GlobalCallable,
-        args: Option<PyObject>,
-        callback: Option<PyObject>,
-    ) -> PyResult<PyObject> {
+        args: Option<Py<PyAny>>,
+        callback: Option<Py<PyAny>>,
+    ) -> PyResult<Py<PyAny>> {
         let mut receiver = OptionalCallbackReceiver { callback, py };
         let (input_ty, output_ty) = self
             .interpreter
@@ -732,7 +732,7 @@ impl Interpreter {
         py: Python,
         entry_expr: Option<&str>,
         callable: Option<GlobalCallable>,
-        args: Option<PyObject>,
+        args: Option<Py<PyAny>>,
     ) -> PyResult<String> {
         if let Some(entry_expr) = entry_expr {
             match self.interpreter.qirgen(entry_expr) {
@@ -780,8 +780,8 @@ impl Interpreter {
         entry_expr: Option<String>,
         operation: Option<String>,
         callable: Option<GlobalCallable>,
-        args: Option<PyObject>,
-    ) -> PyResult<PyObject> {
+        args: Option<Py<PyAny>>,
+    ) -> PyResult<Py<PyAny>> {
         let entrypoint = match (entry_expr, operation, callable) {
             (Some(entry_expr), None, None) => CircuitEntryPoint::EntryExpr(entry_expr),
             (None, Some(operation), None) => CircuitEntryPoint::Operation(operation),
@@ -833,7 +833,7 @@ impl Interpreter {
         job_params: &str,
         entry_expr: Option<&str>,
         callable: Option<GlobalCallable>,
-        args: Option<PyObject>,
+        args: Option<Py<PyAny>>,
     ) -> PyResult<String> {
         let results = if let Some(entry_expr) = entry_expr {
             estimate_expr(&mut self.interpreter, entry_expr, job_params)
@@ -880,7 +880,7 @@ impl Interpreter {
         py: Python<'a>,
         entry_expr: Option<&str>,
         callable: Option<GlobalCallable>,
-        args: Option<PyObject>,
+        args: Option<Py<PyAny>>,
     ) -> PyResult<Bound<'a, PyDict>> {
         let results = if let Some(entry_expr) = entry_expr {
             logical_counts_expr(&mut self.interpreter, entry_expr)
@@ -935,7 +935,7 @@ impl Interpreter {
 fn args_to_values(
     ctx: &interpret::Interpreter,
     py: Python,
-    args: Option<PyObject>,
+    args: Option<Py<PyAny>>,
     input_ty: &Ty,
     output_ty: &Ty,
 ) -> PyResult<Value> {
@@ -1234,7 +1234,7 @@ impl From<Pauli> for fir::Pauli {
 }
 
 pub(crate) struct OptionalCallbackReceiver<'a> {
-    pub(crate) callback: Option<PyObject>,
+    pub(crate) callback: Option<Py<PyAny>>,
     pub(crate) py: Python<'a>,
 }
 
@@ -1410,7 +1410,7 @@ impl From<GlobalCallable> for Value {
 /// Create a Python callable from a Q# callable and adds it to the given environment.
 fn create_py_callable(
     py: Python,
-    make_callable: &PyObject,
+    make_callable: &Py<PyAny>,
     namespace: &[Rc<str>],
     name: &str,
     val: Value,
@@ -1436,7 +1436,7 @@ fn create_py_callable(
 fn create_py_class(
     ctx: &interpret::Interpreter,
     py: Python,
-    make_class: &PyObject,
+    make_class: &Py<PyAny>,
     namespace: &[Rc<str>],
     name: &str,
     ty: &Ty,
