@@ -8,8 +8,12 @@ from pyqir import (
     FunctionType,
     Type,
     qubit_type,
+    result_type,
+    result,
+    Context,
     Linkage,
     QirModuleVisitor,
+    required_num_results,
 )
 from math import pi
 from ._utils import TOLERANCE
@@ -463,4 +467,45 @@ class DecomposeRzAnglesToCliffordGates(QirModuleVisitor):
                 f"Angle {angle} used in RZ is not a Clifford compatible rotation angle"
             )
 
+        call.erase()
+
+
+class ReplaceResetWithMResetZ(QirModuleVisitor):
+    """
+    Replaces all reset operations with a call to mresetz using a new, ignored result identifier.
+    """
+
+    context: Context
+    mresetz_func: Function
+    next_result_id: int
+
+    def _on_module(self, module):
+        self.context = module.context
+        void = Type.void(self.context)
+        qubit_ty = qubit_type(self.context)
+        result_ty = result_type(self.context)
+        # Find or create the intrinsic mresetz function
+        for func in module.functions:
+            match func.name:
+                case "__quantum__qis__mresetz__body":
+                    self.mresetz_func = func
+        if not hasattr(self, "mresetz_func"):
+            self.mresetz_func = Function(
+                FunctionType(void, [qubit_ty, result_ty]),
+                Linkage.EXTERNAL,
+                "__quantum__qis__mresetz__body",
+                module,
+            )
+        super()._on_module(module)
+
+    def _on_function(self, function):
+        self.next_result_id = required_num_results(function) or 0
+        super()._on_function(function)
+
+    def _on_qis_reset(self, call, target):
+        self.builder.insert_before(call)
+        # Create a new result identifier to ignore the measurement result
+        result_id = result(self.context, self.next_result_id)
+        self.next_result_id += 1
+        self.builder.call(self.mresetz_func, [target, result_id])
         call.erase()
