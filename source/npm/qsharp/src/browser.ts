@@ -190,6 +190,8 @@ export type {
   IStackFrame,
   IStructStepResult,
   ITestDescriptor,
+  IVariable,
+  IVariableChild,
   IWorkspaceEdit,
   VSDiagnostic,
 } from "../lib/web/qsc_wasm.js";
