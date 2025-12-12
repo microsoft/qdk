@@ -1239,7 +1239,13 @@ impl<'a> PartialEvaluator<'a> {
             }
             ExprKind::Var(res, _) => Ok(EvalControlFlow::Continue(self.eval_expr_var(res))),
             ExprKind::While(condition_expr_id, body_block_id) => {
-                self.eval_expr_while(*condition_expr_id, *body_block_id)
+                if self.program.config.capabilities.is_advanced()
+                    && !self.is_classical_expr(*condition_expr_id)
+                {
+                    self.eval_expr_emit_while(*condition_expr_id, *body_block_id)
+                } else {
+                    self.eval_expr_while(*condition_expr_id, *body_block_id)
+                }
             }
         }
     }
@@ -2187,11 +2193,14 @@ impl<'a> PartialEvaluator<'a> {
                     .get_current_scope()
                     .get_hybrid_local_value(*local_var_id);
 
-                // Check whether the bound value is a mutable variable, and if so, return its value directly rather than
-                // the variable if it is static at this moment.
+                // Check whether the bound value is a mutable variable and we are not currently evaluating a branch.
+                // If so, return its value directly rather than the variable if it is static at this moment.
                 if let Value::Var(var) = bound_value {
                     let current_scope = self.eval_context.get_current_scope();
-                    if let Some(literal) = current_scope.get_static_value(var.id.into()) {
+                    if let Some(literal) = current_scope.get_static_value(var.id.into())
+                        && (!current_scope.is_currently_evaluating_branch()
+                            || !self.program.config.capabilities.is_advanced())
+                    {
                         map_rir_literal_to_eval_value(*literal)
                     } else {
                         bound_value.clone()
@@ -2251,6 +2260,86 @@ impl<'a> PartialEvaluator<'a> {
         }
 
         // We have evaluated the loop so just return unit as the value of this loop expression.
+        Ok(EvalControlFlow::Continue(Value::unit()))
+    }
+
+    fn eval_expr_emit_while(
+        &mut self,
+        condition_expr_id: ExprId,
+        body_block_id: BlockId,
+    ) -> Result<EvalControlFlow, Error> {
+        // Pop the current block node and create the necessary block nodes for the loop structure.
+        let current_block_node = self.eval_context.pop_block_node();
+        let conditional_block_node_id = self.create_program_block();
+        let conditional_block_node = BlockNode {
+            id: conditional_block_node_id,
+            successor: current_block_node.successor,
+        };
+        let continuation_block_node_id = self.create_program_block();
+        let continuation_block_node = BlockNode {
+            id: continuation_block_node_id,
+            successor: current_block_node.successor,
+        };
+        self.eval_context.push_block_node(continuation_block_node);
+
+        // Insert the jump instruction to the conditional block from the current block.
+        let jump_to_condition_ins = Instruction::Jump(conditional_block_node_id);
+        self.get_program_block_mut(current_block_node.id)
+            .0
+            .push(jump_to_condition_ins);
+
+        // In the conditional block, evaluate the condition expression and generate the branch instruction.
+        self.eval_context.push_block_node(conditional_block_node);
+        let condition_control_flow = self.try_eval_expr(condition_expr_id)?;
+        if condition_control_flow.is_return() {
+            return Err(Error::Unexpected(
+                "embedded return in loop condition".to_string(),
+                self.get_expr_package_span(condition_expr_id),
+            ));
+        }
+        let condition_value = condition_control_flow.into_value();
+
+        if let Value::Bool(false) = condition_value {
+            // If the condition is statically false, jump directly to the continuation block.
+            let jump_to_continuation_ins = Instruction::Jump(continuation_block_node_id);
+            self.get_current_rir_block_mut()
+                .0
+                .push(jump_to_continuation_ins);
+            let _ = self.eval_context.pop_block_node();
+            return Ok(EvalControlFlow::Continue(Value::unit()));
+        }
+
+        // Otherwise, branch to either the body block or the continuation block.
+        let body_block_node_id = self.create_program_block();
+        let body_block_node = BlockNode {
+            id: body_block_node_id,
+            successor: Some(conditional_block_node_id),
+        };
+        let condition_value_var = condition_value.unwrap_var();
+        let condition_rir_var = map_eval_var_to_rir_var(condition_value_var);
+        let branch_ins = Instruction::Branch(
+            condition_rir_var,
+            body_block_node_id,
+            continuation_block_node_id,
+        );
+        self.get_current_rir_block_mut().0.push(branch_ins);
+        let _ = self.eval_context.pop_block_node();
+
+        // In the body block, evaluate the loop body and jump back to the conditional block.
+        self.eval_context.push_block_node(body_block_node);
+        let body_control_flow = self.try_eval_block(body_block_id)?;
+        if body_control_flow.is_return() {
+            return Err(Error::Unexpected(
+                "embedded return in loop body".to_string(),
+                self.get_expr_package_span(condition_expr_id),
+            ));
+        }
+        let jump_to_condition_ins = Instruction::Jump(conditional_block_node_id);
+        self.get_current_rir_block_mut()
+            .0
+            .push(jump_to_condition_ins);
+        let _ = self.eval_context.pop_block_node();
+
         Ok(EvalControlFlow::Continue(Value::unit()))
     }
 
