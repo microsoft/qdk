@@ -53,7 +53,7 @@ pub use qsc_eval::{
 };
 use qsc_fir::{
     fir::{
-        self, Block, BlockId, ExecGraph, ExecGraphConfig, Expr, ExprId, Global, Package, PackageId,
+        self, Block, BlockId, ExecGraphConfig, ExecGraph, Expr, ExprId, Global, Package, PackageId,
         PackageStoreLookup, Pat, PatId, Stmt, StmtId,
     },
     visit::{self, Visitor},
@@ -201,7 +201,7 @@ impl Interpreter {
         dependencies: &Dependencies,
     ) -> std::result::Result<Self, Vec<Error>> {
         Self::with_sources(
-            false,
+            ExecGraphConfig::NoDebug,
             sources,
             package_type,
             capabilities,
@@ -222,7 +222,7 @@ impl Interpreter {
         circuit_tracer_config: TracerConfig,
     ) -> std::result::Result<Self, Vec<Error>> {
         Self::with_sources(
-            false,
+            ExecGraphConfig::NoDebug,
             sources,
             package_type,
             capabilities,
@@ -246,7 +246,7 @@ impl Interpreter {
         trace_circuit_config: TracerConfig,
     ) -> std::result::Result<Self, Vec<Error>> {
         Self::with_sources(
-            true,
+            ExecGraphConfig::Debug,
             sources,
             package_type,
             capabilities,
@@ -259,7 +259,7 @@ impl Interpreter {
 
     #[allow(clippy::too_many_arguments)]
     fn with_sources(
-        dbg: bool,
+        eval_config: ExecGraphConfig,
         sources: SourceMap,
         package_type: PackageType,
         capabilities: TargetCapabilityFlags,
@@ -278,7 +278,7 @@ impl Interpreter {
         )
         .map_err(into_errors)?;
 
-        Self::with_compiler(dbg, capabilities, circuit_tracer_config, compiler)
+        Self::with_compiler(eval_config, capabilities, circuit_tracer_config, compiler)
     }
 
     pub fn with_package_store(
@@ -301,11 +301,17 @@ impl Interpreter {
         // Always enable circuit tracing along with debugging.
         let circuit_tracer_config = if dbg { Some(Default::default()) } else { None };
 
-        Self::with_compiler(dbg, capabilities, circuit_tracer_config, compiler)
+        let eval_config = if dbg {
+            ExecGraphConfig::Debug
+        } else {
+            ExecGraphConfig::NoDebug
+        };
+
+        Self::with_compiler(eval_config, capabilities, circuit_tracer_config, compiler)
     }
 
     fn with_compiler(
-        dbg: bool,
+        eval_config: ExecGraphConfig,
         capabilities: TargetCapabilityFlags,
         circuit_tracer_config: Option<TracerConfig>,
         compiler: Compiler,
@@ -361,11 +367,7 @@ impl Interpreter {
             classical_seed: None,
             package,
             source_package: map_hir_package_to_fir(source_package_id),
-            eval_config: if dbg {
-                ExecGraphConfig::Debug
-            } else {
-                ExecGraphConfig::NoDebug
-            },
+            eval_config,
         })
     }
 
