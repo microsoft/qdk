@@ -53,7 +53,7 @@ pub use qsc_eval::{
 };
 use qsc_fir::{
     fir::{
-        self, Block, BlockId, ExecGraphConfig, ExecGraph, Expr, ExprId, Global, Package, PackageId,
+        self, Block, BlockId, ExecGraph, ExecGraphConfig, Expr, ExprId, Global, Package, PackageId,
         PackageStoreLookup, Pat, PatId, Stmt, StmtId,
     },
     visit::{self, Visitor},
