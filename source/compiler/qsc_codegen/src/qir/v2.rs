@@ -197,10 +197,38 @@ impl ToQir<String> for rir::Instruction {
             rir::Instruction::Sub(lhs, rhs, variable) => {
                 binop_to_qir("sub", lhs, rhs, *variable, program)
             }
+            rir::Instruction::Convert(operand, variable) => {
+                convert_to_qir(operand, *variable, program)
+            }
             rir::Instruction::Alloca(size, variable) => alloca_to_qir(*size, *variable, program),
             rir::Instruction::Load(var_from, var_to) => load_to_qir(*var_from, *var_to, program),
         }
     }
+}
+
+fn convert_to_qir(
+    operand: &rir::Operand,
+    variable: rir::Variable,
+    program: &rir::Program,
+) -> String {
+    let operand_ty = get_value_ty(operand);
+    let var_ty = get_variable_ty(variable);
+    assert_ne!(
+        operand_ty, var_ty,
+        "input/output types ({operand_ty}, {var_ty}) should not match in convert"
+    );
+
+    let convert_instr = match (operand_ty, var_ty) {
+        ("i64", "double") => "sitofp i64",
+        ("double", "i64") => "fptosi double",
+        _ => panic!("unsupported conversion from {operand_ty} to {var_ty} in convert instruction"),
+    };
+
+    format!(
+        "  {} = {convert_instr} {} to {var_ty}",
+        ToQir::<String>::to_qir(&variable.variable_id, program),
+        get_value_as_str(operand, program),
+    )
 }
 
 fn store_to_qir(operand: rir::Operand, variable: rir::Variable, program: &rir::Program) -> String {

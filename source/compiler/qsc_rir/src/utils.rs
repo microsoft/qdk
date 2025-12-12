@@ -78,6 +78,7 @@ pub fn get_variable_assignments(program: &Program) -> IndexMap<VariableId, (Bloc
         for (idx, instr) in block.0.iter().enumerate() {
             match instr {
                 Instruction::Call(_, _, Some(var))
+                | Instruction::Convert(_, var)
                 | Instruction::Add(_, _, var)
                 | Instruction::Sub(_, _, var)
                 | Instruction::Mul(_, _, var)
@@ -171,6 +172,11 @@ pub(crate) fn map_variable_use_in_block(
 
             // Replace the branch condition with the new value of the variable.
             Instruction::Branch(var, _, _) => {
+                *var = var.map_to_variable(var_map);
+            }
+
+            Instruction::Convert(operand, var) => {
+                *operand = operand.mapped(var_map);
                 *var = var.map_to_variable(var_map);
             }
 
