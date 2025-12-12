@@ -59,7 +59,10 @@ fn check_instr_types(program: &Program, instr: &Instruction) {
             }
         }
 
-        Instruction::Alloca(..) | Instruction::Jump(_) | Instruction::Return => {}
+        Instruction::Convert(..)
+        | Instruction::Alloca(..)
+        | Instruction::Jump(_)
+        | Instruction::Return => {}
     }
 }
 

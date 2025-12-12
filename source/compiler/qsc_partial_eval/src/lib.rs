@@ -1696,6 +1696,14 @@ impl<'a> PartialEvaluator<'a> {
                     callee_expr_span,
                 ))
             }
+            "IntAsDouble" => {
+                let variable_id = self.resource_manager.next_var();
+                self.convert_value(&args_value, rir::Variable::new_double(variable_id))
+            }
+            "Truncate" => {
+                let variable_id = self.resource_manager.next_var();
+                self.convert_value(&args_value, rir::Variable::new_integer(variable_id))
+            }
             _ => self.eval_expr_call_to_intrinsic_qis(
                 store_item_id,
                 callable_decl,
@@ -3563,6 +3571,20 @@ impl<'a> PartialEvaluator<'a> {
         self.eval_context
             .get_current_scope_mut()
             .keep_matching_static_var_mappings(other_mappings);
+    }
+
+    fn convert_value(
+        &mut self,
+        args_value: &Value,
+        variable: rir::Variable,
+    ) -> Result<Value, Error> {
+        let instruction =
+            Instruction::Convert(self.map_eval_value_to_rir_operand(args_value), variable);
+        let current_block = self.get_current_rir_block_mut();
+        current_block.0.push(instruction);
+        Ok(Value::Var(
+            map_rir_var_to_eval_var(variable).expect("variable should convert"),
+        ))
     }
 }
 

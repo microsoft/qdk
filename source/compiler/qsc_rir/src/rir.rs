@@ -335,6 +335,7 @@ pub enum Instruction {
     BitwiseOr(Operand, Operand, Variable),
     BitwiseXor(Operand, Operand, Variable),
     Phi(Vec<(Operand, BlockId)>, Variable),
+    Convert(Operand, Variable),
     Return,
 }
 
@@ -513,6 +514,10 @@ impl Display for Instruction {
             }
             Self::Phi(args, variable) => {
                 write_phi_instruction(f, args, *variable)?;
+            }
+            Self::Convert(operand, variable) => {
+                let mut indent = set_indentation(indented(f), 0);
+                write!(indent, "{variable} = Convert {operand}")?;
             }
             Self::Return => write!(f, "Return")?,
         }

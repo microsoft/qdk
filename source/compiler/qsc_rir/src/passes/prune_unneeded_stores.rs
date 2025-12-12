@@ -149,7 +149,8 @@ fn check_var_usage(
                 used_vars.insert(variable.variable_id);
             }
             Instruction::LogicalNot(operand, variable)
-            | Instruction::BitwiseNot(operand, variable) => {
+            | Instruction::BitwiseNot(operand, variable)
+            | Instruction::Convert(operand, variable) => {
                 if let crate::rir::Operand::Variable(var) = operand {
                     used_vars.insert(var.variable_id);
                 }

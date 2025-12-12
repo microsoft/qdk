@@ -99,7 +99,6 @@ fn add_alloca_load_to_block(
 
             // Replace the branch condition with the new value of the variable.
             Instruction::Branch(var, _, _) => {
-                // *var = var.map_to_variable(&var_map);
                 *var = map_or_load_variable(
                     *var,
                     &mut var_map,
@@ -128,7 +127,6 @@ fn add_alloca_load_to_block(
             | Instruction::BitwiseAnd(lhs, rhs, _)
             | Instruction::BitwiseOr(lhs, rhs, _)
             | Instruction::BitwiseXor(lhs, rhs, _) => {
-                // *lhs = lhs.mapped(&var_map);
                 *lhs = map_or_load_operand(
                     lhs,
                     &mut var_map,
@@ -136,7 +134,6 @@ fn add_alloca_load_to_block(
                     next_var_id,
                     should_load_operand(lhs, vars_to_alloca),
                 );
-                // *rhs = rhs.mapped(&var_map);
                 *rhs = map_or_load_operand(
                     rhs,
                     &mut var_map,
@@ -147,8 +144,9 @@ fn add_alloca_load_to_block(
             }
 
             // Single variable instructions, replace operand with new value.
-            Instruction::BitwiseNot(operand, _) | Instruction::LogicalNot(operand, _) => {
-                // *operand = operand.mapped(&var_map);
+            Instruction::BitwiseNot(operand, _)
+            | Instruction::LogicalNot(operand, _)
+            | Instruction::Convert(operand, _) => {
                 *operand = map_or_load_operand(
                     operand,
                     &mut var_map,
