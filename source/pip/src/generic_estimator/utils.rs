@@ -60,21 +60,21 @@ pub(crate) fn json_map_to_python_dict<'py>(
 pub(crate) fn python_object_to_json_value(value: &Bound<'_, PyAny>) -> Option<Value> {
     if value.is_none() {
         Some(Value::Null)
-    } else if let Ok(n) = value.downcast_exact::<PyInt>() {
+    } else if let Ok(n) = value.cast_exact::<PyInt>() {
         Some(json!(n.extract::<i64>().expect("n is PyInt")))
-    } else if let Ok(n) = value.downcast_exact::<PyFloat>() {
+    } else if let Ok(n) = value.cast_exact::<PyFloat>() {
         Some(json!(n.extract::<f64>().expect("n is PyFloat")))
-    } else if let Ok(b) = value.downcast_exact::<PyBool>() {
+    } else if let Ok(b) = value.cast_exact::<PyBool>() {
         Some(json!(b.extract::<bool>().expect("b is PyBool")))
-    } else if let Ok(s) = value.downcast_exact::<PyString>() {
+    } else if let Ok(s) = value.cast_exact::<PyString>() {
         Some(json!(s.extract::<String>().expect("s is PyString")))
-    } else if let Ok(l) = value.downcast_exact::<PyList>() {
+    } else if let Ok(l) = value.cast_exact::<PyList>() {
         let values: Vec<_> = l
             .iter()
             .map(|v| python_object_to_json_value(&v))
             .collect::<Option<_>>()?;
         Some(Value::Array(values))
-    } else if let Ok(d) = value.downcast_exact::<PyDict>() {
+    } else if let Ok(d) = value.cast_exact::<PyDict>() {
         Some(Value::Object(python_dict_to_json_map(d)?))
     } else {
         None
@@ -111,14 +111,14 @@ impl Serialize for SerializableBound<'_> {
     where
         S: serde::Serializer,
     {
-        if let Ok(dict) = self.downcast::<PyDict>() {
+        if let Ok(dict) = self.cast::<PyDict>() {
             let mut map = serializer.serialize_map(Some(dict.len()))?;
             for (key, value) in dict.iter() {
                 map.serialize_key(&SerializableBound(key))?;
                 map.serialize_value(&SerializableBound(value))?;
             }
             map.end()
-        } else if let Ok(number) = self.downcast::<PyInt>() {
+        } else if let Ok(number) = self.cast::<PyInt>() {
             serializer.serialize_i64(number.extract().expect("number is PyInt"))
         } else {
             serializer.serialize_str(&self.to_string())
