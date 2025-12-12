@@ -75,15 +75,15 @@ use resource_estimator as re;
 pub(crate) fn run_qasm_program(
     py: Python,
     source: &str,
-    callback: Option<PyObject>,
+    callback: Option<Py<PyAny>>,
     noise: Option<(f64, f64, f64)>,
     qubit_loss: Option<f64>,
-    read_file: Option<PyObject>,
-    list_directory: Option<PyObject>,
-    resolve_path: Option<PyObject>,
-    fetch_github: Option<PyObject>,
+    read_file: Option<Py<PyAny>>,
+    list_directory: Option<Py<PyAny>>,
+    resolve_path: Option<Py<PyAny>>,
+    fetch_github: Option<Py<PyAny>>,
     kwargs: Option<Bound<'_, PyDict>>,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let mut receiver = OptionalCallbackReceiver { callback, py };
 
     let kwargs = kwargs.unwrap_or_else(|| PyDict::new(py));
@@ -200,10 +200,10 @@ pub(crate) fn resource_estimate_qasm_program(
     py: Python,
     source: &str,
     job_params: &str,
-    read_file: Option<PyObject>,
-    list_directory: Option<PyObject>,
-    resolve_path: Option<PyObject>,
-    fetch_github: Option<PyObject>,
+    read_file: Option<Py<PyAny>>,
+    list_directory: Option<Py<PyAny>>,
+    resolve_path: Option<Py<PyAny>>,
+    fetch_github: Option<Py<PyAny>>,
     kwargs: Option<Bound<'_, PyDict>>,
 ) -> PyResult<String> {
     let kwargs = kwargs.unwrap_or_else(|| PyDict::new(py));
@@ -288,10 +288,10 @@ pub(crate) fn resource_estimate_qasm_program(
 pub(crate) fn compile_qasm_program_to_qir(
     py: Python,
     source: &str,
-    read_file: Option<PyObject>,
-    list_directory: Option<PyObject>,
-    resolve_path: Option<PyObject>,
-    fetch_github: Option<PyObject>,
+    read_file: Option<Py<PyAny>>,
+    list_directory: Option<Py<PyAny>>,
+    resolve_path: Option<Py<PyAny>>,
+    fetch_github: Option<Py<PyAny>>,
     kwargs: Option<Bound<'_, PyDict>>,
 ) -> PyResult<String> {
     let kwargs = kwargs.unwrap_or_else(|| PyDict::new(py));
@@ -388,10 +388,10 @@ fn generate_qir_from_ast<S: AsRef<str>>(
 pub(crate) fn compile_qasm_to_qsharp(
     py: Python,
     source: &str,
-    read_file: Option<PyObject>,
-    list_directory: Option<PyObject>,
-    resolve_path: Option<PyObject>,
-    fetch_github: Option<PyObject>,
+    read_file: Option<Py<PyAny>>,
+    list_directory: Option<Py<PyAny>>,
+    resolve_path: Option<Py<PyAny>>,
+    fetch_github: Option<Py<PyAny>>,
     kwargs: Option<Bound<'_, PyDict>>,
 ) -> PyResult<String> {
     let kwargs = kwargs.unwrap_or_else(|| PyDict::new(py));
@@ -553,12 +553,12 @@ pub(crate) fn circuit_qasm_program(
     py: Python,
     source: &str,
     config: &CircuitConfig,
-    read_file: Option<PyObject>,
-    list_directory: Option<PyObject>,
-    resolve_path: Option<PyObject>,
-    fetch_github: Option<PyObject>,
+    read_file: Option<Py<PyAny>>,
+    list_directory: Option<Py<PyAny>>,
+    resolve_path: Option<Py<PyAny>>,
+    fetch_github: Option<Py<PyAny>>,
     kwargs: Option<Bound<'_, PyDict>>,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let kwargs = kwargs.unwrap_or_else(|| PyDict::new(py));
 
     let operation_name = get_operation_name(&kwargs)?;
@@ -652,10 +652,10 @@ pub(crate) fn format_qasm_errors(errors: Vec<WithSource<qsc::openqasm::error::Er
 /// If any of the callbacks are missing, this will panic.
 pub(crate) fn create_filesystem_from_py(
     py: Python,
-    read_file: Option<PyObject>,
-    list_directory: Option<PyObject>,
-    resolve_path: Option<PyObject>,
-    fetch_github: Option<PyObject>,
+    read_file: Option<Py<PyAny>>,
+    list_directory: Option<Py<PyAny>>,
+    resolve_path: Option<Py<PyAny>>,
+    fetch_github: Option<Py<PyAny>>,
 ) -> impl FileSystem {
     file_system(
         py,
@@ -754,10 +754,10 @@ pub(crate) fn get_program_type<D>(kwargs: &Bound<'_, PyDict>, default: D) -> PyR
 where
     D: FnOnce() -> ProgramType,
 {
-    let target = kwargs
-        .get_item("program_type")?
-        .map_or_else(|| Ok(default()), |x| x.extract::<ProgramType>())?;
-    Ok(target)
+    match kwargs.get_item("program_type")? {
+        Some(obj) => Ok(obj.extract::<ProgramType>()?),
+        None => Ok(default()),
+    }
 }
 
 /// Extracts the output semantics from the kwargs dictionary.
@@ -768,10 +768,10 @@ pub(crate) fn get_output_semantics<D>(
 where
     D: FnOnce() -> OutputSemantics,
 {
-    let target = kwargs
-        .get_item("output_semantics")?
-        .map_or_else(|| Ok(default()), |x| x.extract::<OutputSemantics>())?;
-    Ok(target)
+    match kwargs.get_item("output_semantics")? {
+        Some(obj) => Ok(obj.extract::<OutputSemantics>()?),
+        None => Ok(default()),
+    }
 }
 
 /// Extracts the name from the kwargs dictionary.
@@ -795,11 +795,10 @@ pub(crate) fn get_operation_name(kwargs: &Bound<'_, PyDict>) -> PyResult<String>
 /// This also maps the `TargetProfile` exposed to Python to a `Profile`
 /// used by the interpreter.
 pub(crate) fn get_target_profile(kwargs: &Bound<'_, PyDict>) -> PyResult<Profile> {
-    let target = kwargs.get_item("target_profile")?.map_or_else(
-        || Ok(TargetProfile::Unrestricted),
-        |x| x.extract::<TargetProfile>(),
-    )?;
-    Ok(target.into())
+    match kwargs.get_item("target_profile")? {
+        Some(obj) => Ok(obj.extract::<TargetProfile>()?.into()),
+        None => Ok(TargetProfile::Unrestricted.into()),
+    }
 }
 
 /// Extracts the shots from the kwargs dictionary.
