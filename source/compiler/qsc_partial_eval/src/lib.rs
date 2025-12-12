@@ -1698,19 +1698,11 @@ impl<'a> PartialEvaluator<'a> {
             }
             "IntAsDouble" => {
                 let variable_id = self.resource_manager.next_var();
-                let variable = rir::Variable {
-                    variable_id,
-                    ty: rir::Ty::Double,
-                };
-                self.convert_value(&args_value, variable)
+                self.convert_value(&args_value, rir::Variable::new_double(variable_id))
             }
             "Truncate" => {
                 let variable_id = self.resource_manager.next_var();
-                let variable = rir::Variable {
-                    variable_id,
-                    ty: rir::Ty::Integer,
-                };
-                self.convert_value(&args_value, variable)
+                self.convert_value(&args_value, rir::Variable::new_integer(variable_id))
             }
             _ => self.eval_expr_call_to_intrinsic_qis(
                 store_item_id,
