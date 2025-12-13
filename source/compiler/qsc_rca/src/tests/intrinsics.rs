@@ -3,6 +3,7 @@
 
 use super::{CompilationContext, check_callable_compute_properties};
 use expect_test::expect;
+use qsc_data_structures::target::TargetCapabilityFlags;
 
 #[test]
 fn check_rca_for_quantum_rt_qubit_allocate() {
@@ -1115,7 +1116,7 @@ fn check_rca_for_quantum_qis_reset_body() {
 
 #[test]
 fn check_rca_for_draw_random_int() {
-    let compilation_context = CompilationContext::default();
+    let compilation_context = CompilationContext::new(TargetCapabilityFlags::all());
     check_callable_compute_properties(
         &compilation_context.fir_store,
         compilation_context.get_compute_properties(),
@@ -1143,7 +1144,7 @@ fn check_rca_for_draw_random_int() {
 
 #[test]
 fn check_rca_for_draw_random_double() {
-    let compilation_context = CompilationContext::default();
+    let compilation_context = CompilationContext::new(TargetCapabilityFlags::all());
     check_callable_compute_properties(
         &compilation_context.fir_store,
         compilation_context.get_compute_properties(),
@@ -1171,7 +1172,7 @@ fn check_rca_for_draw_random_double() {
 
 #[test]
 fn check_rca_for_draw_random_bool() {
-    let compilation_context = CompilationContext::default();
+    let compilation_context = CompilationContext::new(TargetCapabilityFlags::all());
     check_callable_compute_properties(
         &compilation_context.fir_store,
         compilation_context.get_compute_properties(),

@@ -1,6 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#[cfg(test)]
+mod instruction_tests;
+#[cfg(test)]
+mod tests;
+
 use qsc_rir::rir::{self, ConditionCode, FcmpConditionCode};
 use qsc_rir::utils::get_all_block_successors;
 use std::fmt::Write;
