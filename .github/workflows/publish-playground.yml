@@ -30,7 +30,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
         with:
           submodules: "true"
       - name: Setup Pages
@@ -40,10 +40,10 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN_VERSION }}
           components: ${{ env.RUST_TOOLCHAIN_COMPONENTS }}
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v6
         with:
           node-version: "22.14.0"
       - uses: Swatinem/rust-cache@v2
