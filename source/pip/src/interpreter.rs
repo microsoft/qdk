@@ -905,6 +905,15 @@ impl Interpreter {
                 dict.set_item("cczCount", counts.ccz_count)?;
                 dict.set_item("ccixCount", counts.ccix_count)?;
                 dict.set_item("measurementCount", counts.measurement_count)?;
+                if let Some(num_compute_qubits) = counts.num_compute_qubits {
+                    dict.set_item("numComputeQubits", num_compute_qubits)?;
+                }
+                if let Some(read_from_memory_count) = counts.read_from_memory_count {
+                    dict.set_item("readFromMemoryCount", read_from_memory_count)?;
+                }
+                if let Some(write_to_memory_count) = counts.write_to_memory_count {
+                    dict.set_item("writeToMemoryCount", write_to_memory_count)?;
+                }
                 Ok(dict)
             }
             Err(errors) if matches!(errors[0], re::Error::Interpreter(_)) => {
