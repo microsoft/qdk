@@ -5,7 +5,9 @@ use qsc_data_structures::index_map::IndexMap;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
-    rir::{BlockId, CallableId, Instruction, Operand, Program, Variable, VariableId},
+    rir::{
+        AdvancedInstr, BlockId, CallableId, Instruction, Operand, Program, Variable, VariableId,
+    },
     utils::{get_block_successors, get_variable_assignments},
 };
 
@@ -47,7 +49,7 @@ fn process_callable(program: &mut Program, callable_id: CallableId, next_var_id:
 
     let mut alloca_instrs = Vec::new();
     for (_, variable) in vars_to_alloca.iter() {
-        alloca_instrs.push(Instruction::Alloca(None, *variable));
+        alloca_instrs.push(AdvancedInstr::Alloca(None, *variable).into());
     }
     let entry_block = program.get_block_mut(entry_block_id);
     let new_instrs = alloca_instrs
@@ -163,8 +165,12 @@ fn add_alloca_load_to_block(
             // like the unconditional terminators.
             Instruction::Phi(..) | Instruction::Jump(..) | Instruction::Return => {}
 
-            Instruction::Alloca(..) => panic!("alloca not expected in alloca insertion"),
-            Instruction::Load(..) => panic!("load not expected in alloca insertion"),
+            Instruction::Advanced(AdvancedInstr::Alloca(..)) => {
+                panic!("alloca not expected in alloca insertion")
+            }
+            Instruction::Advanced(AdvancedInstr::Load(..)) => {
+                panic!("load not expected in alloca insertion")
+            }
         }
         block.0.push(instr);
     }
@@ -206,7 +212,7 @@ fn map_or_load_variable_to_operand(
             variable_id: *next_var_id,
             ty: variable.ty,
         };
-        instrs.push(Instruction::Load(variable, new_var));
+        instrs.push(AdvancedInstr::Load(variable, new_var).into());
         var_map.insert(variable.variable_id, Operand::Variable(new_var));
         *next_var_id = next_var_id.successor();
         Operand::Variable(new_var)
@@ -231,7 +237,7 @@ fn map_or_load_variable(
                     variable_id: *next_var_id,
                     ty: variable.ty,
                 };
-                instrs.push(Instruction::Load(variable, new_var));
+                instrs.push(AdvancedInstr::Load(variable, new_var).into());
                 var_map.insert(variable.variable_id, Operand::Variable(new_var));
                 *next_var_id = next_var_id.successor();
                 new_var
