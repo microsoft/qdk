@@ -200,8 +200,16 @@ impl ToQir<String> for rir::Instruction {
             rir::Instruction::Convert(operand, variable) => {
                 convert_to_qir(operand, *variable, program)
             }
-            rir::Instruction::Alloca(size, variable) => alloca_to_qir(*size, *variable, program),
-            rir::Instruction::Load(var_from, var_to) => load_to_qir(*var_from, *var_to, program),
+            rir::Instruction::Advanced(instr) => ToQir::<String>::to_qir(instr, program),
+        }
+    }
+}
+
+impl ToQir<String> for rir::AdvancedInstr {
+    fn to_qir(&self, program: &rir::Program) -> String {
+        match self {
+            rir::AdvancedInstr::Alloca(size, variable) => alloca_to_qir(*size, *variable, program),
+            rir::AdvancedInstr::Load(var_from, var_to) => load_to_qir(*var_from, *var_to, program),
         }
     }
 }

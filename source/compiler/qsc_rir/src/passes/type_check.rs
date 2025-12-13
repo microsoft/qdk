@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::rir::{Callable, Instruction, Operand, Program, Ty, Variable};
+use crate::rir::{AdvancedInstr, Callable, Instruction, Operand, Program, Ty, Variable};
 
 #[cfg(test)]
 mod tests;
@@ -51,8 +51,6 @@ fn check_instr_types(program: &Program, instr: &Instruction) {
             assert_eq!(opr.get_type(), var.ty);
         }
 
-        Instruction::Load(var, _) => assert_eq!(var.ty, Ty::Pointer),
-
         Instruction::Phi(args, var) => {
             for (opr, _) in args {
                 assert_eq!(opr.get_type(), var.ty);
@@ -60,7 +58,7 @@ fn check_instr_types(program: &Program, instr: &Instruction) {
         }
 
         Instruction::Convert(..)
-        | Instruction::Alloca(..)
+        | Instruction::Advanced(AdvancedInstr::Alloca(..) | AdvancedInstr::Load(..))
         | Instruction::Jump(_)
         | Instruction::Return => {}
     }

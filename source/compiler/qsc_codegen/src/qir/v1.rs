@@ -211,8 +211,9 @@ impl ToQir<String> for rir::Instruction {
                 convert_to_qir(operand, *variable, program)
             }
             rir::Instruction::Store(_, _) => unimplemented!("store should be removed by pass"),
-            rir::Instruction::Load(..) => unimplemented!("load should not be present"),
-            rir::Instruction::Alloca(..) => unimplemented!("alloca should not be present"),
+            rir::Instruction::Advanced(..) => {
+                unimplemented!("advanced instr should not be present")
+            }
             rir::Instruction::Sub(lhs, rhs, variable) => {
                 binop_to_qir("sub", lhs, rhs, *variable, program)
             }

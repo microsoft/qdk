@@ -6,7 +6,7 @@ use core::panic;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
-    rir::{CallableId, Instruction, Program, VariableId},
+    rir::{AdvancedInstr, CallableId, Instruction, Program, VariableId},
     utils::{get_block_successors, map_variable_use_in_block},
 };
 
@@ -161,8 +161,12 @@ fn check_var_usage(
                 used_vars.insert(variable.variable_id);
             }
 
-            Instruction::Load(..) => panic!("loads should not be present during store pruning"),
-            Instruction::Alloca(..) => panic!("allocas should not be present during store pruning"),
+            Instruction::Advanced(AdvancedInstr::Load(..)) => {
+                panic!("loads should not be present during store pruning")
+            }
+            Instruction::Advanced(AdvancedInstr::Alloca(..)) => {
+                panic!("allocas should not be present during store pruning")
+            }
             Instruction::Phi(..) => panic!("phis should not be present during store pruning"),
 
             Instruction::Return | Instruction::Jump(..) => {}

@@ -1,7 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::rir::{Block, BlockId, Instruction, Operand, Program, Variable, VariableId};
+use crate::rir::{
+    AdvancedInstr, Block, BlockId, Instruction, Operand, Program, Variable, VariableId,
+};
 use qsc_data_structures::index_map::IndexMap;
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -78,7 +80,6 @@ pub fn get_variable_assignments(program: &Program) -> IndexMap<VariableId, (Bloc
         for (idx, instr) in block.0.iter().enumerate() {
             match instr {
                 Instruction::Call(_, _, Some(var))
-                | Instruction::Convert(_, var)
                 | Instruction::Add(_, _, var)
                 | Instruction::Sub(_, _, var)
                 | Instruction::Mul(_, _, var)
@@ -99,7 +100,8 @@ pub fn get_variable_assignments(program: &Program) -> IndexMap<VariableId, (Bloc
                 | Instruction::BitwiseAnd(_, _, var)
                 | Instruction::BitwiseOr(_, _, var)
                 | Instruction::BitwiseXor(_, _, var)
-                | Instruction::Phi(_, var) => {
+                | Instruction::Phi(_, var)
+                | Instruction::Convert(_, var) => {
                     assert!(
                         !assignments.contains_key(var.variable_id),
                         "Duplicate assignment to {:?} in {block_id:?}, instruction {idx}",
@@ -108,9 +110,10 @@ pub fn get_variable_assignments(program: &Program) -> IndexMap<VariableId, (Bloc
                     has_phi |= matches!(instr, Instruction::Phi(_, _));
                     assignments.insert(var.variable_id, (block_id, idx));
                 }
-                Instruction::Alloca(_, var)
-                | Instruction::Load(_, var)
-                | Instruction::Store(_, var) => {
+                Instruction::Store(_, var)
+                | Instruction::Advanced(
+                    AdvancedInstr::Alloca(_, var) | AdvancedInstr::Load(_, var),
+                ) => {
                     has_store = true;
                     assignments.insert(var.variable_id, (block_id, idx));
                 }
@@ -212,8 +215,12 @@ pub(crate) fn map_variable_use_in_block(
             // like the unconditional terminators.
             Instruction::Phi(..) | Instruction::Jump(..) | Instruction::Return => {}
 
-            Instruction::Alloca(..) => panic!("alloca not supported in ssa transformation"),
-            Instruction::Load(..) => panic!("load not supported in ssa transformation"),
+            Instruction::Advanced(AdvancedInstr::Alloca(..)) => {
+                panic!("alloca not supported in ssa transformation")
+            }
+            Instruction::Advanced(AdvancedInstr::Load(..)) => {
+                panic!("load not supported in ssa transformation")
+            }
         }
         block.0.push(instr);
     }
