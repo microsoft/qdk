@@ -136,7 +136,7 @@ impl CompilationContext {
         .expect("should be able to create a new compiler");
         let package_id = map_hir_package_to_fir(compiler.source_package_id());
         let fir_store = lower_hir_package_store(compiler.package_store());
-        let analyzer = Analyzer::init(&fir_store);
+        let analyzer = Analyzer::init(&fir_store, capabilities);
         let compute_properties = analyzer.analyze_all();
         let package = fir_store.get(package_id);
         let entry = ProgramEntry {

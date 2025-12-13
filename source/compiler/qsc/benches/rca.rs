@@ -92,7 +92,7 @@ impl CompilationContext {
     }
 
     fn analyze_all(&mut self) {
-        let analyzer = Analyzer::init(&self.fir_store);
+        let analyzer = Analyzer::init(&self.fir_store, TargetCapabilityFlags::Adaptive);
         let compute_properties = analyzer.analyze_all();
         self.compute_properties = Some(compute_properties);
     }
