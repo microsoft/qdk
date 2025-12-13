@@ -47,7 +47,7 @@ jobs:
           cargo install cargo-fuzz            # Install cargo-fuzz (fuzzing tool).
 
       - name: Checkout the Repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v6
         with:
           submodules: "true"
 
@@ -199,7 +199,7 @@ jobs:
 
       - name: "If Fuzzing Failed: Upload Failure Artifacts"
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.target_name }}-fuzz-failure-artifacts
           path: |

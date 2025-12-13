@@ -27,7 +27,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v6
         with:
           ref: main
       - uses: Swatinem/rust-cache@v2
@@ -40,7 +40,7 @@ jobs:
           echo "${{env.MAIN_MEASUREMENT}}"
           echo $MAIN_MEASUREMENT
 
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v6
       - run: |
           BRANCH_MEASUREMENT=$(cargo run --bin memtest)
           echo "BRANCH_MEASUREMENT<<EOF" >> $GITHUB_ENV
@@ -49,7 +49,7 @@ jobs:
       - run: |
           echo "${{env.BRANCH_MEASUREMENT}}"
           echo $BRANCH_MEASUREMENT
-      - uses: actions/github-script@v6
+      - uses: actions/github-script@v8
         with:
           script: |
             if (${{ env.BRANCH_MEASUREMENT }} !== ${{ env.MAIN_MEASUREMENT }}) {

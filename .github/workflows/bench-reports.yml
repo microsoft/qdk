@@ -18,11 +18,11 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           ref: main
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: setup rust
@@ -34,7 +34,7 @@ jobs:
       - name: run benching script
         run: ./build.py --ci-bench --no-check-prereqs
       - name: preserve bench artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: benchmarks
           path: |
