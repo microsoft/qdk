@@ -58,7 +58,10 @@ pub fn assert_error(error: &Error, expected_error: &Expect) {
 
 #[must_use]
 pub fn get_partial_evaluation_error(source: &str) -> Error {
-    let maybe_program = compile_and_partially_evaluate(source, TargetCapabilityFlags::all());
+    let capabilities = TargetCapabilityFlags::Adaptive
+        | TargetCapabilityFlags::IntegerComputations
+        | TargetCapabilityFlags::FloatingPointComputations;
+    let maybe_program = compile_and_partially_evaluate(source, capabilities);
     match maybe_program {
         Ok(_) => panic!("partial evaluation succeeded"),
         Err(error) => error,
@@ -79,7 +82,10 @@ pub fn get_partial_evaluation_error_with_capabilities(
 
 #[must_use]
 pub fn get_rir_program(source: &str) -> Program {
-    let maybe_program = compile_and_partially_evaluate(source, TargetCapabilityFlags::all());
+    let capabilities = TargetCapabilityFlags::Adaptive
+        | TargetCapabilityFlags::IntegerComputations
+        | TargetCapabilityFlags::FloatingPointComputations;
+    let maybe_program = compile_and_partially_evaluate(source, capabilities);
     match maybe_program {
         Ok(program) => {
             // Verify the program can go through transformations.

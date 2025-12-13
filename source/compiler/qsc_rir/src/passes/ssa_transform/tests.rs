@@ -2263,7 +2263,8 @@ fn ssa_transform_propagates_updates_from_multiple_predecessors_to_later_single_s
             num_qubits: 0
             num_results: 0
             tags:
-    "#]].assert_eq(&program.to_string());
+    "#]]
+    .assert_eq(&program.to_string());
 }
 
 #[test]
@@ -2385,7 +2386,8 @@ fn ssa_transform_maps_store_instrs_that_use_values_from_other_store_instrs() {
             num_qubits: 0
             num_results: 0
             tags:
-    "#]].assert_eq(&program.to_string());
+    "#]]
+    .assert_eq(&program.to_string());
 }
 
 #[test]
@@ -2543,7 +2545,8 @@ fn ssa_transform_maps_store_with_variable_from_store_in_conditional_to_phi_node(
             num_qubits: 0
             num_results: 0
             tags:
-    "#]].assert_eq(&program.to_string());
+    "#]]
+    .assert_eq(&program.to_string());
 }
 
 #[test]
@@ -2700,7 +2703,8 @@ fn ssa_transform_allows_point_in_time_copy_of_dynamic_variable() {
             num_qubits: 0
             num_results: 0
             tags:
-    "#]].assert_eq(&program.to_string());
+    "#]]
+    .assert_eq(&program.to_string());
 }
 
 #[test]

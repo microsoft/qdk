@@ -1,9 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use crate::tests::get_rir_program_with_capabilities;
+
 use super::{assert_block_instructions, assert_blocks, assert_callable, get_rir_program};
 use expect_test::{Expect, expect};
 use indoc::{formatdoc, indoc};
+use qsc_data_structures::target::TargetCapabilityFlags;
 use qsc_rir::rir::{BlockId, CallableId};
 
 fn check_call_to_single_qubit_instrinsic_adds_callable_and_generates_instruction(
@@ -1003,8 +1006,9 @@ fn call_to_check_zero_panics() {
 #[test]
 #[should_panic(expected = "`DrawRandomInt` is not a supported by partial evaluation")]
 fn call_to_draw_random_int_panics() {
-    _ = get_rir_program(indoc! {
-        r#"
+    _ = get_rir_program_with_capabilities(
+        indoc! {
+            r#"
         namespace Test {
             import Std.Random.*;
             @EntryPoint()
@@ -1013,14 +1017,17 @@ fn call_to_draw_random_int_panics() {
             }
         }
         "#,
-    });
+        },
+        TargetCapabilityFlags::all(),
+    );
 }
 
 #[test]
 #[should_panic(expected = "`DrawRandomDouble` is not a supported by partial evaluation")]
 fn call_to_draw_random_double_panics() {
-    _ = get_rir_program(indoc! {
-        r#"
+    _ = get_rir_program_with_capabilities(
+        indoc! {
+            r#"
         namespace Test {
             import Std.Random.*;
             @EntryPoint()
@@ -1029,14 +1036,17 @@ fn call_to_draw_random_double_panics() {
             }
         }
         "#,
-    });
+        },
+        TargetCapabilityFlags::all(),
+    );
 }
 
 #[test]
 #[should_panic(expected = "`DrawRandomBool` is not a supported by partial evaluation")]
 fn call_to_draw_random_bool_panics() {
-    _ = get_rir_program(indoc! {
-        r#"
+    _ = get_rir_program_with_capabilities(
+        indoc! {
+            r#"
         namespace Test {
             import Std.Random.*;
             @EntryPoint()
@@ -1045,7 +1055,9 @@ fn call_to_draw_random_bool_panics() {
             }
         }
         "#,
-    });
+        },
+        TargetCapabilityFlags::all(),
+    );
 }
 
 #[test]

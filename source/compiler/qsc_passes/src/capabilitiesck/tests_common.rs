@@ -14,7 +14,7 @@ use qsc_lowerer::{Lowerer, map_hir_package_to_fir};
 use qsc_rca::{Analyzer, PackageComputeProperties, PackageStoreComputeProperties};
 
 pub fn check(source: &str, expect: &Expect, capabilities: TargetCapabilityFlags) {
-    let compilation_context = CompilationContext::new(source);
+    let compilation_context = CompilationContext::new(source, capabilities);
     let (package, compute_properties) = compilation_context.get_package_compute_properties_tuple();
     let errors = check_supported_capabilities(
         package,
@@ -26,7 +26,7 @@ pub fn check(source: &str, expect: &Expect, capabilities: TargetCapabilityFlags)
 }
 
 pub fn check_for_exe(source: &str, expect: &Expect, capabilities: TargetCapabilityFlags) {
-    let compilation_context = CompilationContext::new_for_exe(source);
+    let compilation_context = CompilationContext::new_for_exe(source, capabilities);
     let (package, compute_properties) = compilation_context.get_package_compute_properties_tuple();
     let errors = check_supported_capabilities(
         package,
@@ -56,8 +56,7 @@ struct CompilationContext {
 }
 
 impl CompilationContext {
-    fn new(source: &str) -> Self {
-        let capabilities = TargetCapabilityFlags::all();
+    fn new(source: &str, capabilities: TargetCapabilityFlags) -> Self {
         let mut store = qsc::PackageStore::new(qsc::compile::core());
         let std_id = store.insert(qsc::compile::std(&store, capabilities));
         let mut compiler = Compiler::new(
@@ -85,8 +84,7 @@ impl CompilationContext {
         }
     }
 
-    fn new_for_exe(source: &str) -> Self {
-        let capabilities = TargetCapabilityFlags::all();
+    fn new_for_exe(source: &str, capabilities: TargetCapabilityFlags) -> Self {
         let (std_id, store) = qsc::compile::package_store_with_stdlib(capabilities);
         let compiler = Compiler::new(
             SourceMap::new([("test".into(), source.into())], Some("".into())),

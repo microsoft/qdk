@@ -92,7 +92,11 @@ impl CompilationContext {
 
 impl Default for CompilationContext {
     fn default() -> Self {
-        Self::new(TargetCapabilityFlags::all())
+        Self::new(
+            TargetCapabilityFlags::Adaptive
+                | TargetCapabilityFlags::IntegerComputations
+                | TargetCapabilityFlags::FloatingPointComputations,
+        )
     }
 }
 
