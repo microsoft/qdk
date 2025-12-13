@@ -5,20 +5,26 @@ use crate::{
     PackageStoreComputeProperties, core, cyclic_callables, overrider::Overrider,
     scaffolding::InternalPackageStoreComputeProperties,
 };
+use qsc_data_structures::target::TargetCapabilityFlags;
 use qsc_fir::fir::{PackageId, PackageStore};
 
 /// A runtime capabilities analyzer.
 pub struct Analyzer<'a> {
     package_store: &'a PackageStore,
     scaffolding: InternalPackageStoreComputeProperties,
+    target_capabilities: TargetCapabilityFlags,
 }
 
 impl<'a> Analyzer<'a> {
     #[must_use]
-    pub fn init(package_store: &'a PackageStore) -> Self {
+    pub fn init(
+        package_store: &'a PackageStore,
+        target_capabilities: TargetCapabilityFlags,
+    ) -> Self {
         Self {
             package_store,
             scaffolding: InternalPackageStoreComputeProperties::init(package_store),
+            target_capabilities,
         }
     }
 
@@ -30,6 +36,7 @@ impl<'a> Analyzer<'a> {
         Self {
             package_store,
             scaffolding: package_store_compute_properties.into(),
+            target_capabilities: TargetCapabilityFlags::default(),
         }
     }
 
@@ -46,7 +53,8 @@ impl<'a> Analyzer<'a> {
         let scaffolding = cyclic_callables_analyzer.analyze_all();
 
         // Now we can safely analyze the rest of the items.
-        let core_analyzer = core::Analyzer::new(self.package_store, scaffolding);
+        let core_analyzer =
+            core::Analyzer::new(self.package_store, scaffolding, self.target_capabilities);
         core_analyzer.analyze_all().into()
     }
 
@@ -57,7 +65,8 @@ impl<'a> Analyzer<'a> {
         let cyclic_callables_analyzer =
             cyclic_callables::Analyzer::new(self.package_store, self.scaffolding);
         let scaffolding = cyclic_callables_analyzer.analyze_package(package_id);
-        let core_analyzer = core::Analyzer::new(self.package_store, scaffolding);
+        let core_analyzer =
+            core::Analyzer::new(self.package_store, scaffolding, self.target_capabilities);
         core_analyzer.analyze_package(package_id).into()
     }
 }

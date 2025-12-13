@@ -57,12 +57,13 @@ struct CompilationContext {
 
 impl CompilationContext {
     fn new(source: &str) -> Self {
+        let capabilities = TargetCapabilityFlags::all();
         let mut store = qsc::PackageStore::new(qsc::compile::core());
-        let std_id = store.insert(qsc::compile::std(&store, TargetCapabilityFlags::all()));
+        let std_id = store.insert(qsc::compile::std(&store, capabilities));
         let mut compiler = Compiler::new(
             SourceMap::default(),
             PackageType::Lib,
-            TargetCapabilityFlags::all(),
+            capabilities,
             LanguageFeatures::default(),
             store,
             &[(std_id, None)],
@@ -75,7 +76,7 @@ impl CompilationContext {
         compiler.update(increment);
         let mut lowerer = Lowerer::new();
         let fir_store = lower_hir_package_store(&mut lowerer, compiler.package_store());
-        let analyzer = Analyzer::init(&fir_store);
+        let analyzer = Analyzer::init(&fir_store, capabilities);
         let compute_properties = analyzer.analyze_all();
         Self {
             fir_store,
@@ -85,11 +86,12 @@ impl CompilationContext {
     }
 
     fn new_for_exe(source: &str) -> Self {
-        let (std_id, store) = qsc::compile::package_store_with_stdlib(TargetCapabilityFlags::all());
+        let capabilities = TargetCapabilityFlags::all();
+        let (std_id, store) = qsc::compile::package_store_with_stdlib(capabilities);
         let compiler = Compiler::new(
             SourceMap::new([("test".into(), source.into())], Some("".into())),
             PackageType::Exe,
-            TargetCapabilityFlags::all(),
+            capabilities,
             LanguageFeatures::default(),
             store,
             &[(std_id, None)],
@@ -98,7 +100,7 @@ impl CompilationContext {
         let package_id = map_hir_package_to_fir(compiler.source_package_id());
         let mut lowerer = Lowerer::new();
         let fir_store = lower_hir_package_store(&mut lowerer, compiler.package_store());
-        let analyzer = Analyzer::init(&fir_store);
+        let analyzer = Analyzer::init(&fir_store, capabilities);
         let compute_properties = analyzer.analyze_all();
         Self {
             fir_store,
