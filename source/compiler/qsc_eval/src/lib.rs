@@ -38,15 +38,16 @@ use num_bigint::BigInt;
 use output::Receiver;
 use qsc_data_structures::{functors::FunctorApp, index_map::IndexMap, span::Span};
 use qsc_fir::fir::{
-    self, BinOp, BlockId, CallableImpl, ExecGraph, ExecGraphNode, Expr, ExprId, ExprKind, Field,
-    FieldAssign, Global, Lit, LocalItemId, LocalVarId, PackageId, PackageStoreLookup, PatId,
-    PatKind, PrimField, Res, StmtId, StoreItemId, StringComponent, UnOp,
+    self, BinOp, BlockId, CallableImpl, ConfiguredExecGraph, ExecGraph, ExecGraphConfig,
+    ExecGraphNode, Expr, ExprId, ExprKind, Field, FieldAssign, Global, Lit, LocalItemId,
+    LocalVarId, PackageId, PackageStoreLookup, PatId, PatKind, PrimField, Res, StmtId, StoreItemId,
+    StringComponent, UnOp,
 };
 use qsc_fir::ty::Ty;
 use qsc_lowerer::map_fir_package_to_hir;
 use rand::{SeedableRng, rngs::StdRng};
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::{array, ops};
+use std::array;
 use std::{
     cell::RefCell,
     fmt::{self, Display, Formatter},
@@ -257,41 +258,29 @@ impl Display for Spec {
     }
 }
 
-/// Utility function to identify a subset of a control flow graph corresponding to a given
-/// range.
-#[must_use]
-pub fn exec_graph_section(graph: &ExecGraph, range: ops::Range<usize>) -> ExecGraph {
-    let start: u32 = range
-        .start
-        .try_into()
-        .expect("exec graph ranges should fit into u32");
-    graph[range]
-        .iter()
-        .map(|node| match node {
-            ExecGraphNode::Jump(idx) => ExecGraphNode::Jump(idx - start),
-            ExecGraphNode::JumpIf(idx) => ExecGraphNode::JumpIf(idx - start),
-            ExecGraphNode::JumpIfNot(idx) => ExecGraphNode::JumpIfNot(idx - start),
-            _ => *node,
-        })
-        .collect::<Vec<_>>()
-        .into()
-}
-
 /// Evaluates the given code with the given context.
 /// # Errors
 /// Returns the first error encountered during execution.
 /// # Panics
 /// On internal error where no result is returned.
+#[allow(clippy::too_many_arguments)]
 pub fn eval<B: Backend>(
     package: PackageId,
     seed: Option<u64>,
     exec_graph: ExecGraph,
+    exec_graph_config: ExecGraphConfig,
     globals: &impl PackageStoreLookup,
     env: &mut Env,
     sim: &mut TracingBackend<'_, B>,
     receiver: &mut impl Receiver,
 ) -> Result<Value, (Error, Vec<Frame>)> {
-    let mut state = State::new(package, exec_graph, seed, ErrorBehavior::FailOnError);
+    let mut state = State::new(
+        package,
+        exec_graph,
+        exec_graph_config,
+        seed,
+        ErrorBehavior::FailOnError,
+    );
     let res = state.eval(globals, env, sim, receiver, &[], StepAction::Continue)?;
     let StepResult::Return(value) = res else {
         panic!("eval should always return a value");
@@ -309,13 +298,20 @@ pub fn invoke<B: Backend>(
     package: PackageId,
     seed: Option<u64>,
     globals: &impl PackageStoreLookup,
+    exec_graph_config: ExecGraphConfig,
     env: &mut Env,
     sim: &mut TracingBackend<'_, B>,
     receiver: &mut impl Receiver,
     callable: Value,
     args: Value,
 ) -> Result<Value, (Error, Vec<Frame>)> {
-    let mut state = State::new(package, Vec::new().into(), seed, ErrorBehavior::FailOnError);
+    let mut state = State::new(
+        package,
+        ExecGraph::default(),
+        exec_graph_config,
+        seed,
+        ErrorBehavior::FailOnError,
+    );
     // Push the callable value into the state stack and then the args value so they are ready for evaluation.
     state.set_val_register(callable);
     state.push_val();
@@ -570,7 +566,7 @@ pub enum ErrorBehavior {
 }
 
 pub struct State {
-    exec_graph_stack: Vec<ExecGraph>,
+    exec_graph_stack: Vec<ConfiguredExecGraph>,
     idx: u32,
     idx_stack: Vec<u32>,
     val_register: Option<Value>,
@@ -584,6 +580,7 @@ pub struct State {
     qubit_counter: Option<QubitCounter>,
     error_behavior: ErrorBehavior,
     last_error: Option<(Error, Vec<Frame>)>,
+    exec_graph_config: ExecGraphConfig,
 }
 
 impl State {
@@ -591,6 +588,7 @@ impl State {
     pub fn new(
         package: PackageId,
         exec_graph: ExecGraph,
+        exec_graph_config: ExecGraphConfig,
         classical_seed: Option<u64>,
         error_behavior: ErrorBehavior,
     ) -> Self {
@@ -599,7 +597,7 @@ impl State {
             None => RefCell::new(StdRng::from_entropy()),
         };
         Self {
-            exec_graph_stack: vec![exec_graph],
+            exec_graph_stack: vec![exec_graph.select(exec_graph_config)],
             idx: 0,
             idx_stack: Vec::new(),
             val_register: None,
@@ -613,6 +611,7 @@ impl State {
             qubit_counter: None,
             error_behavior,
             last_error: None,
+            exec_graph_config,
         }
     }
 
@@ -620,7 +619,12 @@ impl State {
         self.call_stack.len()
     }
 
-    fn push_frame(&mut self, exec_graph: ExecGraph, id: StoreItemId, functor: FunctorApp) {
+    fn push_frame(
+        &mut self,
+        exec_graph: ConfiguredExecGraph,
+        id: StoreItemId,
+        functor: FunctorApp,
+    ) {
         self.call_stack.push_frame(Frame {
             span: self.current_span,
             id,
@@ -1220,7 +1224,11 @@ impl State {
                     Spec::CtlAdj => specialized_implementation.ctl_adj.as_ref(),
                 }
                 .expect("missing specialization should be a compilation error");
-                self.push_frame(spec_decl.exec_graph.clone(), callee_id, functor);
+                self.push_frame(
+                    spec_decl.exec_graph.clone().select(self.exec_graph_config),
+                    callee_id,
+                    functor,
+                );
                 self.push_scope(env);
                 self.increment_call_count(callee_id, functor);
 
@@ -1237,7 +1245,11 @@ impl State {
                 Ok(())
             }
             CallableImpl::SimulatableIntrinsic(spec_decl) => {
-                self.push_frame(spec_decl.exec_graph.clone(), callee_id, functor);
+                self.push_frame(
+                    spec_decl.exec_graph.clone().select(self.exec_graph_config),
+                    callee_id,
+                    functor,
+                );
                 self.push_scope(env);
 
                 self.bind_args_for_spec(
