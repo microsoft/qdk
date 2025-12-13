@@ -838,6 +838,7 @@ def circuit(
     max_operations: Optional[int] = None,
     source_locations: bool = False,
     group_by_scope: bool = False,
+    prune_classical_qubits: bool = False,
 ) -> Circuit:
     """
     Synthesizes a circuit for a Q# program. Either an entry
@@ -862,6 +863,7 @@ def circuit(
         generation_method=generation_method,
         source_locations=source_locations,
         group_by_scope=group_by_scope,
+        prune_classical_qubits=prune_classical_qubits,
     )
 
     if isinstance(entry_expr, Callable) and hasattr(entry_expr, "__global_callable"):
