@@ -1,7 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use core::panic;
+#[cfg(test)]
+mod tests;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 

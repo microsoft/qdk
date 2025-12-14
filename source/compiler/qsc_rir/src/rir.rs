@@ -54,6 +54,35 @@ impl Program {
     }
 
     #[must_use]
+    pub fn with_blocks(blocks: Vec<(BlockId, Block)>) -> Self {
+        let mut program = Self::new();
+        let mut entry_block_id = None;
+        for (id, block) in blocks {
+            if entry_block_id.is_none() {
+                entry_block_id = Some(id);
+            }
+            program.blocks.insert(id, block);
+        }
+
+        if let Some(entry_block_id) = entry_block_id {
+            const ENTRY: CallableId = CallableId(0);
+            program.entry = ENTRY;
+            program.callables.insert(
+                ENTRY,
+                Callable {
+                    name: "entry".into(),
+                    input_type: vec![],
+                    output_type: None,
+                    body: Some(entry_block_id),
+                    call_type: CallableType::Regular,
+                },
+            );
+        }
+
+        program
+    }
+
+    #[must_use]
     pub fn all_callable_ids(&self) -> Vec<CallableId> {
         self.callables.iter().map(|(id, _)| id).collect()
     }
