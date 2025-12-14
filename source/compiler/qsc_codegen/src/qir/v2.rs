@@ -213,7 +213,7 @@ impl ToQir<String> for rir::Instruction {
 impl ToQir<String> for rir::AdvancedInstr {
     fn to_qir(&self, program: &rir::Program) -> String {
         match self {
-            rir::AdvancedInstr::Alloca(size, variable) => alloca_to_qir(*size, *variable, program),
+            rir::AdvancedInstr::Alloca(variable) => alloca_to_qir(*variable, program),
             rir::AdvancedInstr::Load(var_from, var_to) => load_to_qir(*var_from, *var_to, program),
         }
     }
@@ -262,23 +262,12 @@ fn load_to_qir(var_from: rir::Variable, var_to: rir::Variable, program: &rir::Pr
     )
 }
 
-fn alloca_to_qir(size: Option<u64>, variable: rir::Variable, program: &rir::Program) -> String {
-    if let Some(_size) = size {
-        // TODO(swernli): We would need to a way to ensure we get the inner type, since the variable will be something
-        // like `[i64 x 10]` and we want to alloca `i64`.
-        // let variable_ty = get_variable_inner_ty(variable);
-        // format!(
-        //     "  {} = alloca {variable_ty}, i64 {size}",
-        //     ToQir::<String>::to_qir(&variable.variable_id, program),
-        // )
-        todo!("alloca with size")
-    } else {
-        let variable_ty = get_variable_ty(variable);
-        format!(
-            "  {} = alloca {variable_ty}",
-            ToQir::<String>::to_qir(&variable.variable_id, program)
-        )
-    }
+fn alloca_to_qir(variable: rir::Variable, program: &rir::Program) -> String {
+    let variable_ty = get_variable_ty(variable);
+    format!(
+        "  {} = alloca {variable_ty}",
+        ToQir::<String>::to_qir(&variable.variable_id, program)
+    )
 }
 
 pub(crate) fn logical_not_to_qir(

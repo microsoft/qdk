@@ -111,9 +111,8 @@ pub fn get_variable_assignments(program: &Program) -> IndexMap<VariableId, (Bloc
                     assignments.insert(var.variable_id, (block_id, idx));
                 }
                 Instruction::Store(_, var)
-                | Instruction::Advanced(
-                    AdvancedInstr::Alloca(_, var) | AdvancedInstr::Load(_, var),
-                ) => {
+                | Instruction::Advanced(AdvancedInstr::Alloca(var) | AdvancedInstr::Load(_, var)) =>
+                {
                     has_store = true;
                     assignments.insert(var.variable_id, (block_id, idx));
                 }

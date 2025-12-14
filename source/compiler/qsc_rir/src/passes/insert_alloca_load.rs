@@ -49,7 +49,7 @@ fn process_callable(program: &mut Program, callable_id: CallableId, next_var_id:
 
     let mut alloca_instrs = Vec::new();
     for (_, variable) in vars_to_alloca.iter() {
-        alloca_instrs.push(AdvancedInstr::Alloca(None, *variable).into());
+        alloca_instrs.push(AdvancedInstr::Alloca(*variable).into());
     }
     let entry_block = program.get_block_mut(entry_block_id);
     let new_instrs = alloca_instrs

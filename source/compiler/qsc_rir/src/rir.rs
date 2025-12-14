@@ -429,7 +429,7 @@ impl Display for Instruction {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AdvancedInstr {
     Load(Variable, Variable),
-    Alloca(Option<u64>, Variable),
+    Alloca(Variable),
 }
 
 impl From<AdvancedInstr> for Instruction {
@@ -455,13 +455,9 @@ impl Display for AdvancedInstr {
             Self::Load(lhs, rhs) => {
                 write_unary_instruction(f, "Load", &Operand::Variable(*lhs), *rhs)?;
             }
-            Self::Alloca(size, variable) => {
+            Self::Alloca(variable) => {
                 let mut indent = set_indentation(indented(f), 0);
-                if let Some(size) = size {
-                    write!(indent, "{variable} = Alloca({size})")?;
-                } else {
-                    write!(indent, "{variable} = Alloca")?;
-                }
+                write!(indent, "{variable} = Alloca")?;
             }
         }
         Ok(())
@@ -526,6 +522,14 @@ impl Variable {
         Self {
             variable_id: id,
             ty: Ty::Double,
+        }
+    }
+
+    #[must_use]
+    pub fn new_ptr(id: VariableId) -> Self {
+        Self {
+            variable_id: id,
+            ty: Ty::Pointer,
         }
     }
 }
