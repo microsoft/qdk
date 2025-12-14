@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::qir::v1::ToQir;
+use crate::qir::v2::ToQir;
 use qsc_rir::rir;
 
 #[test]
