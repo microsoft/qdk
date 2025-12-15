@@ -1077,3 +1077,63 @@ fn dynamic_repeat_until_fixup_loop() {
                 Jump(4)"#]],
     );
 }
+
+#[test]
+fn dynamic_nested_loop() {
+    let program = get_rir_program_with_capabilities(
+        indoc! {
+            r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                repeat {
+                    while MResetX(q) == One {}
+                } until M(q) == Zero
+                fixup {
+                    X(q);
+                }
+            }
+        }
+        "#,
+        },
+        TargetCapabilityFlags::Adaptive | TargetCapabilityFlags::BackwardsBranching,
+    );
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(0, Boolean) = Store Bool(true)
+                Jump(1)
+            Block 1:Block:
+                Branch Variable(0, Boolean), 3, 2
+            Block 2:Block:
+                Call id(7), args( Integer(0), EmptyTag, )
+                Return
+            Block 3:Block:
+                Jump(4)
+            Block 4:Block:
+                Call id(2), args( Qubit(0), )
+                Call id(3), args( Qubit(0), Result(0), )
+                Variable(1, Boolean) = Call id(4), args( Result(0), )
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Branch Variable(2, Boolean), 6, 5
+            Block 5:Block:
+                Call id(5), args( Qubit(0), Result(1), )
+                Variable(3, Boolean) = Call id(4), args( Result(1), )
+                Variable(4, Boolean) = Icmp Eq, Variable(3, Boolean), Bool(false)
+                Variable(5, Boolean) = LogicalNot Variable(4, Boolean)
+                Variable(0, Boolean) = Store Variable(5, Boolean)
+                Branch Variable(0, Boolean), 8, 7
+            Block 6:Block:
+                Jump(4)
+            Block 7:Block:
+                Jump(1)
+            Block 8:Block:
+                Call id(6), args( Qubit(0), )
+                Jump(7)"#]],
+    );
+}
