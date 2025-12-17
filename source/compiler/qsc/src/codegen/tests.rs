@@ -2,8 +2,9 @@
 // Licensed under the MIT License.
 
 use expect_test::expect;
-use qsc_data_structures::{language_features::LanguageFeatures, target::TargetCapabilityFlags};
-use qsc_frontend::compile::SourceMap;
+use qsc_data_structures::{
+    language_features::LanguageFeatures, source::SourceMap, target::TargetCapabilityFlags,
+};
 
 use crate::codegen::qir::get_qir;
 

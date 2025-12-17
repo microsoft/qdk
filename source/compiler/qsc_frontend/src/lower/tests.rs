@@ -1,10 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::compile::{self, PackageStore, SourceMap, compile};
+use crate::compile::{self, PackageStore, compile};
 use expect_test::{Expect, expect};
 use indoc::indoc;
-use qsc_data_structures::{language_features::LanguageFeatures, target::TargetCapabilityFlags};
+use qsc_data_structures::{
+    language_features::LanguageFeatures, source::SourceMap, target::TargetCapabilityFlags,
+};
 
 fn check_hir(input: &str, expect: &Expect) {
     let sources = SourceMap::new([("test".into(), input.into())], None);

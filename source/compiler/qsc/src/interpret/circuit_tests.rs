@@ -11,17 +11,16 @@ use crate::{
 use expect_test::expect;
 use miette::Diagnostic;
 use qsc_circuit::{Circuit, TracerConfig};
-use qsc_data_structures::language_features::LanguageFeatures;
+use qsc_data_structures::{language_features::LanguageFeatures, source::SourceMap};
 use qsc_eval::output::GenericReceiver;
-use qsc_frontend::compile::SourceMap;
 use qsc_passes::PackageType;
 
-fn interpreter(code: &str, profile: Profile) -> Interpreter {
+fn interpreter(code: &str, package_type: PackageType, profile: Profile) -> Interpreter {
     let sources = SourceMap::new([("test.qs".into(), code.into())], None);
     let (std_id, store) = crate::compile::package_store_with_stdlib(profile.into());
     Interpreter::new(
         sources,
-        PackageType::Exe,
+        package_type,
         profile.into(),
         LanguageFeatures::default(),
         store,
@@ -75,7 +74,7 @@ fn circuit_with_options(
     method: CircuitGenerationMethod,
     config: TracerConfig,
 ) -> Result<Circuit, Vec<Error>> {
-    let mut interpreter = interpreter(code, profile);
+    let mut interpreter = interpreter(code, PackageType::Exe, profile);
     interpreter.set_quantum_seed(Some(2));
     interpreter.circuit(entry, method, config)
 }
@@ -1053,6 +1052,38 @@ fn operation_with_subsequent_qubits_no_added_rows() {
     .assert_eq(&circ);
 }
 
+#[test]
+fn operation_declared_in_eval() {
+    let mut interpreter = interpreter("", PackageType::Lib, Profile::Unrestricted);
+    let mut out = std::io::sink();
+    let mut r = GenericReceiver::new(&mut out);
+
+    interpreter
+        .eval_fragments(
+            &mut r,
+            "operation Foo() : Result { use q = Qubit(); H(q); return M(q) }",
+        )
+        .expect("eval should succeed");
+
+    let c = interpreter
+        .circuit(
+            CircuitEntryPoint::EntryExpr("Foo()".into()),
+            CircuitGenerationMethod::ClassicalEval,
+            TracerConfig {
+                max_operations: usize::MAX,
+                source_locations: false,
+                group_by_scope: true,
+            },
+        )
+        .expect("circuit generation should succeed");
+
+    expect![[r#"
+        q_0    ─ [ [Foo] ─── H ──── M ──── ] ──
+                    [               ╘═════ ] ══
+    "#]]
+    .assert_eq(&c.display_with_groups().to_string());
+}
+
 /// Tests that invoke circuit generation through the debugger.
 mod debugger_stepping {
     use super::Debugger;
@@ -1060,8 +1091,8 @@ mod debugger_stepping {
     use expect_test::expect;
     use qsc_data_structures::language_features::LanguageFeatures;
     use qsc_data_structures::line_column::Encoding;
+    use qsc_data_structures::source::SourceMap;
     use qsc_eval::{StepAction, StepResult, output::GenericReceiver};
-    use qsc_frontend::compile::SourceMap;
     use std::fmt::Write;
 
     /// Steps through the code in the debugger and collects the

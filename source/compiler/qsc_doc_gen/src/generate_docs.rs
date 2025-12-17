@@ -8,8 +8,9 @@ use crate::display::{CodeDisplay, Lookup, increase_header_level, parse_doc_for_s
 use crate::table_of_contents::table_of_contents;
 use qsc_ast::ast;
 use qsc_data_structures::language_features::LanguageFeatures;
+use qsc_data_structures::source::SourceMap;
 use qsc_data_structures::target::TargetCapabilityFlags;
-use qsc_frontend::compile::{self, Dependencies, PackageStore, SourceMap, compile};
+use qsc_frontend::compile::{self, Dependencies, PackageStore, compile};
 use qsc_frontend::resolve;
 use qsc_hir::hir::{CallableKind, Item, ItemKind, Package, PackageId, Res, Visibility};
 use qsc_hir::{hir, ty};

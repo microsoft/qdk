@@ -2,7 +2,8 @@
 // Licensed under the MIT License.
 use crate::{LanguageFeatures, TargetCapabilityFlags, compile};
 use expect_test::expect;
-use qsc_frontend::compile::{CompileUnit, SourceMap};
+use qsc_data_structures::source::SourceMap;
+use qsc_frontend::compile::CompileUnit;
 use qsc_passes::PackageType;
 use qsc_project::{PackageInfo, Project, ProjectType};
 use rustc_hash::FxHashMap;

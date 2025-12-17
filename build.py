@@ -306,17 +306,12 @@ def repair_manylinux_wheels(cwd, wheelhouse, interpreter):
         print("Not on Linux, skipping manylinux repair")
         return
 
-    tag = "manylinux_2_35_x86_64"
-
-    if platform.machine() == "aarch64":
-        tag = "manylinux_2_35_aarch64"
-
     command_args = [
         interpreter,
         "-m",
         "pip",
         "install",
-        "auditwheel",
+        "auditwheel>=6.5.0",
         "patchelf",
     ]
     subprocess.run(command_args, check=True, text=True, cwd=cwd)
@@ -329,8 +324,6 @@ def repair_manylinux_wheels(cwd, wheelhouse, interpreter):
             "-m",
             "auditwheel",
             "repair",
-            "--plat",
-            tag,
             "--wheel-dir",
             wheelhouse,
             wheel,

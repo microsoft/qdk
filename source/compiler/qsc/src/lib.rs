@@ -11,7 +11,7 @@ pub mod packages;
 
 pub use qsc_formatter::formatter;
 
-pub use qsc_frontend::compile::{CompileUnit, PackageStore, SourceContents, SourceMap, SourceName};
+pub use qsc_frontend::compile::{CompileUnit, PackageStore};
 
 pub mod resolve {
     pub use qsc_frontend::resolve::{
@@ -39,8 +39,8 @@ pub mod project {
 }
 
 pub use qsc_data_structures::{
-    functors::FunctorApp, language_features::LanguageFeatures, namespaces::*, span::Span,
-    target::TargetCapabilityFlags,
+    functors::FunctorApp, language_features::LanguageFeatures, namespaces::*, source::*,
+    span::Span, target::TargetCapabilityFlags,
 };
 
 pub use qsc_passes::{PackageType, PassContext, lower_hir_to_fir};
@@ -86,4 +86,4 @@ pub mod target {
     pub use qsc_data_structures::target::Profile;
 }
 
-pub mod qasm;
+pub mod openqasm;

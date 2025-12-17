@@ -12,11 +12,11 @@ use qsc::line_column::Encoding;
 use qsc::line_column::Position;
 use qsc::line_column::Range;
 use qsc::location::Location;
-use qsc::qasm::semantic::ast::Program;
-use qsc::qasm::semantic::passes::ReferenceFinder;
-use qsc::qasm::semantic::passes::SymbolFinder;
-use qsc::qasm::semantic::symbols::SymbolId;
-use qsc::qasm::semantic::symbols::SymbolTable;
+use qsc::openqasm::semantic::ast::Program;
+use qsc::openqasm::semantic::passes::ReferenceFinder;
+use qsc::openqasm::semantic::passes::SymbolFinder;
+use qsc::openqasm::semantic::symbols::SymbolId;
+use qsc::openqasm::semantic::symbols::SymbolTable;
 pub use references::get_references;
 pub use rename::get_rename;
 pub use rename::prepare_rename;
@@ -31,10 +31,10 @@ fn find_symbol_in_sources(
     position: Position,
     position_encoding: Encoding,
 ) -> (
-    qsc::qasm::semantic::QasmSemanticParseResult,
-    Option<qsc::qasm::semantic::symbols::SymbolId>,
+    qsc::openqasm::semantic::QasmSemanticParseResult,
+    Option<qsc::openqasm::semantic::symbols::SymbolId>,
 ) {
-    let res = qsc::qasm::semantic::parse_sources(sources);
+    let res = qsc::openqasm::semantic::parse_sources(sources);
     let offset = source_position_to_package_offset(
         &res.source_map,
         source_name,

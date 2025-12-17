@@ -5,15 +5,16 @@ use crate::{
     Env, Error, ErrorBehavior, State, StepAction, StepResult, Value,
     backend::{Backend, SparseSim, TracingBackend},
     debug::Frame,
-    exec_graph_section,
     output::{GenericReceiver, Receiver},
 };
 use expect_test::{Expect, expect};
 use indoc::indoc;
-use qsc_data_structures::{language_features::LanguageFeatures, target::TargetCapabilityFlags};
-use qsc_fir::fir::{self, ExecGraph, StmtId};
+use qsc_data_structures::{
+    language_features::LanguageFeatures, source::SourceMap, target::TargetCapabilityFlags,
+};
+use qsc_fir::fir::{self, ExecGraph, ExecGraphConfig, StmtId};
 use qsc_fir::fir::{PackageId, PackageStoreLookup};
-use qsc_frontend::compile::{self, PackageStore, SourceMap, compile};
+use qsc_frontend::compile::{self, PackageStore, compile};
 use qsc_lowerer::map_hir_package_to_fir;
 use qsc_passes::{PackageType, run_core_passes, run_default_passes};
 
@@ -25,11 +26,18 @@ pub(super) fn eval_graph(
     graph: ExecGraph,
     sim: &mut impl Backend,
     globals: &impl PackageStoreLookup,
+    exec_graph_config: ExecGraphConfig,
     package: PackageId,
     env: &mut Env,
     out: &mut impl Receiver,
 ) -> Result<Value, (Error, Vec<Frame>)> {
-    let mut state = State::new(package, graph, None, ErrorBehavior::FailOnError);
+    let mut state = State::new(
+        package,
+        graph,
+        exec_graph_config,
+        None,
+        ErrorBehavior::FailOnError,
+    );
     let StepResult::Return(value) = state.eval(
         globals,
         env,
@@ -87,6 +95,7 @@ fn check_expr(file: &str, expr: &str, expect: &Expect) {
         entry,
         &mut SparseSim::new(),
         &fir_store,
+        ExecGraphConfig::NoDebug,
         map_hir_package_to_fir(id),
         &mut Env::default(),
         &mut GenericReceiver::new(&mut out),
@@ -147,9 +156,10 @@ fn check_partial_eval_stmt(
     for stmt_id in most_stmts {
         let stmt = fir_store.get_stmt((id, *stmt_id).into());
         match eval_graph(
-            exec_graph_section(&entry, stmt.exec_graph_range.clone()),
+            entry.get_range(&stmt.exec_graph_range),
             &mut SparseSim::new(),
             &fir_store,
+            ExecGraphConfig::NoDebug,
             id,
             &mut env,
             &mut GenericReceiver::new(&mut out),
@@ -161,9 +171,10 @@ fn check_partial_eval_stmt(
 
     let stmt = fir_store.get_stmt((id, *last_stmt).into());
     match eval_graph(
-        exec_graph_section(&entry, stmt.exec_graph_range.clone()),
+        entry.get_range(&stmt.exec_graph_range),
         &mut SparseSim::new(),
         &fir_store,
+        ExecGraphConfig::NoDebug,
         id,
         &mut env,
         &mut GenericReceiver::new(&mut out),
