@@ -222,20 +222,6 @@ impl Operation {
             Operation::Ket(k) => &mut k.targets,
         }
     }
-
-    #[must_use]
-    pub fn all_qubits(&self) -> Vec<Register> {
-        match self {
-            Operation::Measurement(m) => m.qubits.clone(),
-            Operation::Unitary(u) => {
-                let mut qubits = u.targets.clone();
-                qubits.extend_from_slice(&u.controls);
-                qubits
-            }
-            Operation::Ket(k) => k.targets.clone(),
-        }
-    }
-
     /// Returns if the operation is a controlled operation.
     #[must_use]
     pub fn is_controlled(&self) -> bool {

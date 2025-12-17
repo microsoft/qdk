@@ -400,6 +400,12 @@ fn group_with_no_remaining_operations_is_pruned() {
         &[],
         None,
     );
+    builder.measure(
+        &[c.user_code_frame("Main", 1), c.user_code_frame("Bar", 4)],
+        "M",
+        0,
+        &val::Result::Id(0),
+    );
     builder.gate(
         &[c.user_code_frame("Main", 2), c.user_code_frame("Foo", 3)],
         "H",

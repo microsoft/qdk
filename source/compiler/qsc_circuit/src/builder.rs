@@ -42,8 +42,8 @@ pub struct CircuitTracer {
     circuit_builder: OperationListBuilder,
     next_result_id: usize,
     user_package_ids: Vec<PackageId>,
-    superposition_qubits: FxHashSet<usize>,
-    classical_one_qubits: FxHashSet<usize>,
+    superposition_qubits: FxHashSet<QubitWire>,
+    classical_one_qubits: FxHashSet<QubitWire>,
 }
 
 impl Tracer for CircuitTracer {
@@ -101,7 +101,7 @@ impl Tracer for CircuitTracer {
         self.wire_map_builder.link_result_to_qubit(q, r);
         if name == "MResetZ" {
             self.classical_one_qubits
-                .remove(&self.wire_map_builder.wire_map.qubit_wire(q).into());
+                .remove(&self.wire_map_builder.wire_map.qubit_wire(q));
             self.circuit_builder
                 .mresetz(self.wire_map_builder.current(), q, r, called_at);
         } else {
@@ -113,7 +113,7 @@ impl Tracer for CircuitTracer {
     fn reset(&mut self, stack: &[Frame], q: usize) {
         let called_at = map_stack_frames_to_locations(stack);
         self.classical_one_qubits
-            .remove(&self.wire_map_builder.wire_map.qubit_wire(q).into());
+            .remove(&self.wire_map_builder.wire_map.qubit_wire(q));
         self.circuit_builder
             .reset(self.wire_map_builder.current(), q, called_at);
     }
@@ -237,54 +237,56 @@ impl CircuitTracer {
         operations: &[OperationOrGroup],
         source_lookup: &impl SourceLookup,
     ) -> Circuit {
-        let mut operations: Vec<Operation> = operations
-            .iter()
-            .map(|o| o.clone().into_operation(source_lookup))
-            .collect();
+        let mut operations: Vec<OperationOrGroup> = operations.to_vec();
         let mut qubits = self.wire_map_builder.wire_map.to_qubits();
         // We need to pass the original number of qubits, before any trimming, to finish the circuit below.
         let num_qubits = qubits.len();
 
         if self.config.prune_classical_qubits {
             // Remove qubits that are always classical.
-            qubits.retain(|q| self.superposition_qubits.contains(&q.id));
+            qubits.retain(|q| self.superposition_qubits.contains(&q.id.into()));
 
             // Remove operations that don't use any non-classical qubits.
             operations.retain_mut(|op| self.should_keep_operation_mut(op));
         }
 
+        let operations = operations
+            .iter()
+            .map(|o| o.clone().into_operation(source_lookup))
+            .collect();
+
         finish_circuit(qubits, operations, num_qubits, source_lookup)
     }
 
-    fn should_keep_operation_mut(&self, op: &mut Operation) -> bool {
-        if op.children().is_empty() {
+    fn should_keep_operation_mut(&self, op: &mut OperationOrGroup) -> bool {
+        if matches!(op.kind, OperationOrGroupKind::Single) {
             // This is a normal gate operation, so only keep it if all the qubits are non-classical.
             op.all_qubits()
                 .iter()
-                .all(|q| self.superposition_qubits.contains(&q.qubit))
+                .all(|q| self.superposition_qubits.contains(q))
         } else {
             // This is a grouped operation, so process the children recursively.
             let mut used_qubits = FxHashSet::default();
-            op.children_mut().retain_mut(|child_ops| {
-                // Prune out child ops that don't use any non-classical qubits.
-                // This has the side effect of updating each child op's target qubits.
-                child_ops
-                    .components
-                    .retain_mut(|child_op| self.should_keep_operation_mut(child_op));
-                // Once the child ops and filtered and targets updated, we can determine which qubits are used.
-                for q in child_ops
-                    .components
-                    .iter_mut()
-                    .flat_map(|child_op| child_op.all_qubits())
-                {
-                    used_qubits.insert(q.qubit);
-                }
-                !child_ops.components.is_empty()
-            });
+            op.children_mut()
+                .expect("operation should be a group with children")
+                .retain_mut(|child_op| {
+                    // Prune out child ops that don't use any non-classical qubits.
+                    // This has the side effect of updating each child op's target qubits.
+                    if self.should_keep_operation_mut(child_op) {
+                        for q in child_op.all_qubits() {
+                            used_qubits.insert(q);
+                        }
+                        true
+                    } else {
+                        false
+                    }
+                });
             // Update the targets of this grouped operation to only include qubits actually used by child operations.
-            op.targets_mut().retain(|q| used_qubits.contains(&q.qubit));
-            // Only keep this grouped operation if any of its children were kept.
-            !op.children().is_empty()
+            op.op
+                .targets_mut()
+                .retain(|q| used_qubits.contains(&q.qubit.into()));
+            // Only keep this grouped operation if any of its targets were kept.
+            !op.op.targets_mut().is_empty()
         }
     }
 
@@ -369,15 +371,23 @@ impl CircuitTracer {
     }
 
     fn mark_qubit_in_superposition(&mut self, wire: QubitWire) {
-        self.superposition_qubits.insert(wire.into());
-        self.classical_one_qubits.remove(&wire.into());
+        assert!(
+            self.config.prune_classical_qubits,
+            "should only be called when pruning is enabled"
+        );
+        self.superposition_qubits.insert(wire);
+        self.classical_one_qubits.remove(&wire);
     }
 
     fn flip_classical_qubit(&mut self, wire: QubitWire) {
-        if self.classical_one_qubits.contains(&wire.into()) {
-            self.classical_one_qubits.remove(&wire.into());
+        assert!(
+            self.config.prune_classical_qubits,
+            "should only be called when pruning is enabled"
+        );
+        if self.classical_one_qubits.contains(&wire) {
+            self.classical_one_qubits.remove(&wire);
         } else {
-            self.classical_one_qubits.insert(wire.into());
+            self.classical_one_qubits.insert(wire);
         }
     }
 
@@ -399,14 +409,14 @@ impl CircuitTracer {
                 let mapped_target = self.wire_map_builder.wire_map.qubit_wire(targets[0]);
                 let controls: Vec<usize> = controls
                     .iter()
-                    .filter(|c| !self.classical_one_qubits.contains(c))
+                    .filter(|c| !self.classical_one_qubits.contains(&(**c).into()))
                     .copied()
                     .collect();
-                if !self.superposition_qubits.contains(&mapped_target.into()) {
+                if !self.superposition_qubits.contains(&mapped_target) {
                     // The target is not yet marked as non-trimmable, so check the controls.
                     let superposition_controls_count = controls
                         .iter()
-                        .filter(|c| self.superposition_qubits.contains(c))
+                        .filter(|c| self.superposition_qubits.contains(&(**c).into()))
                         .count();
 
                     if controls.is_empty() {
@@ -424,7 +434,7 @@ impl CircuitTracer {
                 // since Z does not introduce superpositions.
                 return controls
                     .iter()
-                    .filter(|c| !self.classical_one_qubits.contains(c))
+                    .filter(|c| !self.classical_one_qubits.contains(&(**c).into()))
                     .copied()
                     .collect();
             }
@@ -432,15 +442,15 @@ impl CircuitTracer {
                 // If either qubit is non-trimmable, both become non-trimmable
                 let q0_mapped = self.wire_map_builder.wire_map.qubit_wire(targets[0]);
                 let q1_mapped = self.wire_map_builder.wire_map.qubit_wire(targets[1]);
-                if self.superposition_qubits.contains(&q0_mapped.into())
-                    || self.superposition_qubits.contains(&q1_mapped.into())
+                if self.superposition_qubits.contains(&q0_mapped)
+                    || self.superposition_qubits.contains(&q1_mapped)
                 {
                     self.mark_qubit_in_superposition(q0_mapped);
                     self.mark_qubit_in_superposition(q1_mapped);
                 } else {
                     match (
-                        self.classical_one_qubits.contains(&q0_mapped.into()),
-                        self.classical_one_qubits.contains(&q1_mapped.into()),
+                        self.classical_one_qubits.contains(&q0_mapped),
+                        self.classical_one_qubits.contains(&q1_mapped),
                     ) {
                         (true, false) | (false, true) => {
                             self.flip_classical_qubit(q0_mapped);
