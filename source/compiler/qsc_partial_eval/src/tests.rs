@@ -103,7 +103,11 @@ pub fn get_rir_program_with_capabilities(
 ) -> Program {
     let maybe_program = compile_and_partially_evaluate(source, capabilities);
     match maybe_program {
-        Ok(program) => program,
+        Ok(program) => {
+            // Verify the program can go through transformations.
+            check_and_transform(&mut program.clone());
+            program
+        }
         Err(error) => panic!("partial evaluation failed: {error:?}"),
     }
 }

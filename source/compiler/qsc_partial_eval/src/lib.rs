@@ -49,8 +49,8 @@ use qsc_rca::{
 use qsc_rir::{
     builder::{self, initialize_decl},
     rir::{
-        self, Callable, CallableId, CallableType, ConditionCode, FcmpConditionCode, Instruction,
-        Literal, Operand, Program, VariableId,
+        self, AdvancedInstr, Callable, CallableId, CallableType, ConditionCode, FcmpConditionCode,
+        Instruction, Literal, Operand, Program, VariableId,
     },
 };
 use rustc_hash::FxHashMap;
@@ -288,12 +288,22 @@ impl<'a> PartialEvaluator<'a> {
     }
 
     fn bind_value_to_ident(&mut self, mutability: Mutability, ident: &Ident, value: Value) {
+        // If the value is an array and the program target supports static-sized arrays,
+        // emit instructions to allocate and initialize a static-sized array.
+        let should_emit_array = matches!(value, Value::Array(_))
+            && self
+                .program
+                .config
+                .capabilities
+                .contains(TargetCapabilityFlags::StaticSizedArrays);
+
         // We do slightly different things depending on the mutability of the identifier.
         match mutability {
             Mutability::Mutable => self.bind_value_to_mutable_ident(ident, value),
             Mutability::Immutable => {
                 let current_scope = self.eval_context.get_current_scope();
-                if matches!(value, Value::Var(var) if current_scope.get_static_value(var.id.into()).is_none())
+                if should_emit_array
+                    || matches!(&value, Value::Var(var) if current_scope.get_static_value(var.id.into()).is_none())
                 {
                     // An immutable identifier is being bound to a dynamic value, so treat the identifier as mutable.
                     // This allows it to represent a point-in-time copy of the mutable value during evaluation.
@@ -692,21 +702,26 @@ impl<'a> PartialEvaluator<'a> {
             }
         };
 
-        let instruction = match (bin_op, lhs_operand, rhs_operand) {
+        let instruction = match (bin_op, &lhs_operand, &rhs_operand) {
             (BinOp::Eq, Operand::Literal(Literal::Bool(true)), operand)
             | (BinOp::Eq, operand, Operand::Literal(Literal::Bool(true)))
             | (BinOp::Neq, Operand::Literal(Literal::Bool(false)), operand)
             | (BinOp::Neq, operand, Operand::Literal(Literal::Bool(false))) => {
                 // One of the operands is a literal so we just need a store instruction.
-                Instruction::Store(operand, rir_variable)
+                Instruction::Store(operand.clone(), rir_variable.clone())
             }
             // Both operators are non-literals so we need the comparison instruction.
-            _ => Instruction::Icmp(condition_code, lhs_operand, rhs_operand, rir_variable),
+            _ => Instruction::Icmp(
+                condition_code,
+                lhs_operand,
+                rhs_operand,
+                rir_variable.clone(),
+            ),
         };
         self.get_current_rir_block_mut().0.push(instruction);
 
         // Return the variable as a value.
-        let value = Value::Var(map_rir_var_to_eval_var(rir_variable).map_err(|()| {
+        let value = Value::Var(map_rir_var_to_eval_var(&rir_variable).map_err(|()| {
             Error::Unexpected(
                 format!("{} type in binop", rir_variable.ty),
                 bin_op_expr_span,
@@ -754,7 +769,7 @@ impl<'a> PartialEvaluator<'a> {
 
                 // If both operands are literals, evaluate the binary operation and return its value.
                 if let (Operand::Literal(lhs_literal), Operand::Literal(rhs_literal)) =
-                    (lhs_operand, rhs_operand)
+                    (&lhs_operand, &rhs_operand)
                 {
                     let value = eval_bin_op_with_bool_literals(bin_op, lhs_literal, rhs_literal);
                     return Ok(EvalControlFlow::Continue(value));
@@ -767,28 +782,32 @@ impl<'a> PartialEvaluator<'a> {
                     ty: rir::Ty::Boolean,
                 };
                 let bin_op_ins = match bin_op {
-                    BinOp::AndL => {
-                        Instruction::LogicalAnd(lhs_operand, rhs_operand, bin_op_rir_variable)
-                    }
-                    BinOp::OrL => {
-                        Instruction::LogicalOr(lhs_operand, rhs_operand, bin_op_rir_variable)
-                    }
+                    BinOp::AndL => Instruction::LogicalAnd(
+                        lhs_operand,
+                        rhs_operand,
+                        bin_op_rir_variable.clone(),
+                    ),
+                    BinOp::OrL => Instruction::LogicalOr(
+                        lhs_operand,
+                        rhs_operand,
+                        bin_op_rir_variable.clone(),
+                    ),
                     BinOp::Eq => Instruction::Icmp(
                         ConditionCode::Eq,
                         lhs_operand,
                         rhs_operand,
-                        bin_op_rir_variable,
+                        bin_op_rir_variable.clone(),
                     ),
                     BinOp::Neq => Instruction::Icmp(
                         ConditionCode::Ne,
                         lhs_operand,
                         rhs_operand,
-                        bin_op_rir_variable,
+                        bin_op_rir_variable.clone(),
                     ),
                     _ => panic!("unsupported binary operation for bools: {bin_op:?}"),
                 };
                 self.get_current_rir_block_mut().0.push(bin_op_ins);
-                Value::Var(map_rir_var_to_eval_var(bin_op_rir_variable).map_err(|()| {
+                Value::Var(map_rir_var_to_eval_var(&bin_op_rir_variable).map_err(|()| {
                     Error::Unexpected(
                         format!("{} type in binop", bin_op_rir_variable.ty),
                         self.get_expr_package_span(rhs_expr_id),
@@ -812,12 +831,12 @@ impl<'a> PartialEvaluator<'a> {
             }
             BinOp::AndL => {
                 // Logical AND Boolean operations short-circuit on false.
-                let lhs_rir_var = map_eval_var_to_rir_var(lhs_eval_var);
+                let lhs_rir_var = map_eval_var_to_rir_var(&lhs_eval_var);
                 self.eval_logical_bool_bin_op(false, lhs_rir_var, rhs_expr_id)?
             }
             BinOp::OrL => {
                 // Logical OR Boolean operations short-circuit on true.
-                let lhs_rir_var = map_eval_var_to_rir_var(lhs_eval_var);
+                let lhs_rir_var = map_eval_var_to_rir_var(&lhs_eval_var);
                 self.eval_logical_bool_bin_op(true, lhs_rir_var, rhs_expr_id)?
             }
             _ => panic!("invalid Boolean operator {bin_op:?}"),
@@ -842,7 +861,7 @@ impl<'a> PartialEvaluator<'a> {
         let rhs_operand = self.map_eval_value_to_rir_operand(&rhs_value);
 
         // Get the comparison result depending on the operator and the RHS value.
-        let result_var = match (bin_op, rhs_operand) {
+        let result_var = match (bin_op, &rhs_operand) {
             // If the RHS value is a literal, depending on the operand, the result of the Boolean comparison is just the
             // LHS value.
             (BinOp::Neq, Operand::Literal(Literal::Bool(false)))
@@ -850,16 +869,20 @@ impl<'a> PartialEvaluator<'a> {
             // In other cases we have to actually generate the comparison instruction.
             (BinOp::Eq | BinOp::Neq, _) => {
                 let rir_variable = rir::Variable::new_boolean(self.resource_manager.next_var());
-                let lhs_operand = Operand::Variable(map_eval_var_to_rir_var(lhs_eval_var));
+                let lhs_operand = Operand::Variable(map_eval_var_to_rir_var(&lhs_eval_var));
                 let condition_code = match bin_op {
                     BinOp::Eq => ConditionCode::Eq,
                     BinOp::Neq => ConditionCode::Ne,
                     _ => panic!("invalid Boolean comparison operator {bin_op:?}"),
                 };
-                let cmp_inst =
-                    Instruction::Icmp(condition_code, lhs_operand, rhs_operand, rir_variable);
+                let cmp_inst = Instruction::Icmp(
+                    condition_code,
+                    lhs_operand,
+                    rhs_operand,
+                    rir_variable.clone(),
+                );
                 self.get_current_rir_block_mut().0.push(cmp_inst);
-                map_rir_var_to_eval_var(rir_variable).map_err(|()| {
+                map_rir_var_to_eval_var(&rir_variable).map_err(|()| {
                     Error::Unexpected(
                         format!("{} type in comparison binop", rir_variable.ty),
                         self.get_expr_package_span(rhs_expr_id),
@@ -886,7 +909,7 @@ impl<'a> PartialEvaluator<'a> {
         };
         let init_var_ins = Instruction::Store(
             Operand::Literal(Literal::Bool(short_circuit_on_true)),
-            result_rir_var,
+            result_rir_var.clone(),
         );
         self.get_current_rir_block_mut().0.push(init_var_ins);
 
@@ -918,7 +941,7 @@ impl<'a> PartialEvaluator<'a> {
         let rhs_operand = self.map_eval_value_to_rir_operand(&rhs_value);
 
         // Store the RHS value into the the variable that represents the result of the Boolean operation.
-        let store_ins = Instruction::Store(rhs_operand, result_rir_var);
+        let store_ins = Instruction::Store(rhs_operand, result_rir_var.clone());
         self.get_current_rir_block_mut().0.push(store_ins);
         let jump_ins = Instruction::Jump(continuation_block_id);
         self.get_current_rir_block_mut().0.push(jump_ins);
@@ -936,9 +959,10 @@ impl<'a> PartialEvaluator<'a> {
         self.get_program_block_mut(current_block_node.id)
             .0
             .push(branch_ins);
-        let result_eval_var = map_rir_var_to_eval_var(result_rir_var).map_err(|()| {
+        let ty = result_rir_var.ty.clone();
+        let result_eval_var = map_rir_var_to_eval_var(&result_rir_var).map_err(|()| {
             Error::Unexpected(
-                format!("{} type in logical binop", result_rir_var.ty),
+                format!("{ty} type in logical binop"),
                 self.get_expr_package_span(rhs_expr_id),
             )
         })?;
@@ -973,7 +997,7 @@ impl<'a> PartialEvaluator<'a> {
 
         // If both operands are literals, evaluate the binary operation and return its value.
         if let (Operand::Literal(lhs_literal), Operand::Literal(rhs_literal)) =
-            (lhs_operand, rhs_operand)
+            (&lhs_operand, &rhs_operand)
         {
             let value = eval_bin_op_with_double_literals(
                 bin_op,
@@ -992,7 +1016,7 @@ impl<'a> PartialEvaluator<'a> {
                 rhs_operand,
                 bin_op_expr_span,
             )?;
-        let value = Value::Var(map_rir_var_to_eval_var(bin_op_rir_variable).map_err(|()| {
+        let value = Value::Var(map_rir_var_to_eval_var(&bin_op_rir_variable).map_err(|()| {
             Error::Unexpected(
                 format!("{} type in binop", bin_op_rir_variable.ty),
                 bin_op_expr_span,
@@ -1029,7 +1053,7 @@ impl<'a> PartialEvaluator<'a> {
 
         // If both operands are literals, evaluate the binary operation and return its value.
         if let (Operand::Literal(lhs_literal), Operand::Literal(rhs_literal)) =
-            (lhs_operand, rhs_operand)
+            (&lhs_operand, &rhs_operand)
         {
             let value = eval_bin_op_with_integer_literals(
                 bin_op,
@@ -1048,7 +1072,7 @@ impl<'a> PartialEvaluator<'a> {
                 rhs_operand,
                 bin_op_expr_span,
             )?;
-        let value = Value::Var(map_rir_var_to_eval_var(bin_op_rir_variable).map_err(|()| {
+        let value = Value::Var(map_rir_var_to_eval_var(&bin_op_rir_variable).map_err(|()| {
             Error::Unexpected(
                 format!("{} type in binop", bin_op_rir_variable.ty),
                 bin_op_expr_span,
@@ -1069,7 +1093,7 @@ impl<'a> PartialEvaluator<'a> {
                 self.eval_bin_op_with_lhs_dynamic_bool_operand(bin_op, lhs_eval_var, rhs_expr_id)
             }
             VarTy::Integer => {
-                let lhs_rir_var = map_eval_var_to_rir_var(lhs_eval_var);
+                let lhs_rir_var = map_eval_var_to_rir_var(&lhs_eval_var);
                 let lhs_operand = Operand::Variable(lhs_rir_var);
                 self.eval_bin_op_with_lhs_integer_operand(
                     bin_op,
@@ -1079,7 +1103,7 @@ impl<'a> PartialEvaluator<'a> {
                 )
             }
             VarTy::Double => {
-                let lhs_rir_var = map_eval_var_to_rir_var(lhs_eval_var);
+                let lhs_rir_var = map_eval_var_to_rir_var(&lhs_eval_var);
                 let lhs_operand = Operand::Variable(lhs_rir_var);
                 self.eval_bin_op_with_lhs_double_operand(
                     bin_op,
@@ -1088,6 +1112,7 @@ impl<'a> PartialEvaluator<'a> {
                     bin_op_expr_span,
                 )
             }
+            VarTy::Array(..) => panic!("array variables should not be used in binop expressions"),
         }
     }
 
@@ -1207,7 +1232,7 @@ impl<'a> PartialEvaluator<'a> {
                 *otherwise_expr_id,
             ),
             ExprKind::Index(array_expr_id, index_expr_id) => {
-                self.eval_expr_index(*array_expr_id, *index_expr_id)
+                self.eval_expr_index(*array_expr_id, *index_expr_id, expr_id)
             }
             ExprKind::Lit(_) => Err(Error::Unexpected(
                 "literal should have been classically evaluated".to_string(),
@@ -1698,11 +1723,11 @@ impl<'a> PartialEvaluator<'a> {
             }
             "IntAsDouble" => {
                 let variable_id = self.resource_manager.next_var();
-                self.convert_value(&args_value, rir::Variable::new_double(variable_id))
+                self.convert_value(&args_value, &rir::Variable::new_double(variable_id))
             }
             "Truncate" => {
                 let variable_id = self.resource_manager.next_var();
-                self.convert_value(&args_value, rir::Variable::new_integer(variable_id))
+                self.convert_value(&args_value, &rir::Variable::new_integer(variable_id))
             }
             _ => self.eval_expr_call_to_intrinsic_qis(
                 store_item_id,
@@ -1724,7 +1749,7 @@ impl<'a> PartialEvaluator<'a> {
     ) -> Result<Value, Error> {
         // Check if the callable is already in the program, and if not add it.
         let callable = self.create_intrinsic_callable(store_item_id, callable_decl, call_type);
-        let output_var = callable.output_type.map(|output_ty| {
+        let output_var = callable.output_type.clone().map(|output_ty| {
             let variable_id = self.resource_manager.next_var();
             rir::Variable {
                 variable_id,
@@ -1753,13 +1778,13 @@ impl<'a> PartialEvaluator<'a> {
             .map(|arg| self.map_eval_value_to_rir_operand(&arg.into_value()))
             .collect();
 
-        let instruction = Instruction::Call(callable_id, args_operands, output_var);
+        let instruction = Instruction::Call(callable_id, args_operands, output_var.clone());
         let current_block = self.get_current_rir_block_mut();
         current_block.0.push(instruction);
         let ret_val = match output_var {
             None => Value::unit(),
             Some(output_var) => {
-                let rir_var = map_rir_var_to_eval_var(output_var).map_err(|()| {
+                let rir_var = map_rir_var_to_eval_var(&output_var).map_err(|()| {
                     Error::UnexpectedDynamicIntrinsicReturnType(
                         callable_decl.output.to_string(),
                         callee_expr_span,
@@ -1851,8 +1876,11 @@ impl<'a> PartialEvaluator<'a> {
         // Evaluate the body expression.
         // First, we cache the current static variable mappings so that we can restore them later.
         let cached_mappings = self.clone_current_static_var_map();
-        let if_true_block_id =
-            self.eval_expr_if_branch(body_expr_id, continuation_block_node_id, maybe_if_expr_var)?;
+        let if_true_block_id = self.eval_expr_if_branch(
+            body_expr_id,
+            continuation_block_node_id,
+            maybe_if_expr_var.as_ref(),
+        )?;
 
         // Evaluate the otherwise expression (if any), and determine the block to branch to if the condition is false.
         let if_false_block_id = if let Some(otherwise_expr_id) = otherwise_expr_id {
@@ -1863,7 +1891,7 @@ impl<'a> PartialEvaluator<'a> {
             let if_false_block_id = self.eval_expr_if_branch(
                 otherwise_expr_id,
                 continuation_block_node_id,
-                maybe_if_expr_var,
+                maybe_if_expr_var.as_ref(),
             )?;
             // Only keep the static mappings that are the same in both blocks; when they are different,
             // the variable is no longer static across the if expression.
@@ -1880,7 +1908,7 @@ impl<'a> PartialEvaluator<'a> {
 
         // Finally, we insert the branch instruction.
         let condition_value_var = condition_value.unwrap_var();
-        let condition_rir_var = map_eval_var_to_rir_var(condition_value_var);
+        let condition_rir_var = map_eval_var_to_rir_var(&condition_value_var);
         let branch_ins =
             Instruction::Branch(condition_rir_var, if_true_block_id, if_false_block_id);
         self.get_program_block_mut(current_block_node.id)
@@ -1888,7 +1916,7 @@ impl<'a> PartialEvaluator<'a> {
             .push(branch_ins);
 
         // Return the value of the if expression.
-        let if_expr_value = if let Some(if_expr_var) = maybe_if_expr_var {
+        let if_expr_value = if let Some(if_expr_var) = &maybe_if_expr_var {
             Value::Var(map_rir_var_to_eval_var(if_expr_var).map_err(|()| {
                 Error::Unexpected(
                     format!(
@@ -1908,7 +1936,7 @@ impl<'a> PartialEvaluator<'a> {
         &mut self,
         branch_body_expr_id: ExprId,
         continuation_block_id: rir::BlockId,
-        if_expr_var: Option<rir::Variable>,
+        if_expr_var: Option<&rir::Variable>,
     ) -> Result<rir::BlockId, Error> {
         // Create the block node that corresponds to the branch body and push it as the active one.
         let block_node_id = self.create_program_block();
@@ -1928,7 +1956,7 @@ impl<'a> PartialEvaluator<'a> {
         // If there is a variable to save the value of the if expression to, add a store instruction.
         if let Some(if_expr_var) = if_expr_var {
             let body_operand = self.map_eval_value_to_rir_operand(&body_control.into_value());
-            let store_ins = Instruction::Store(body_operand, if_expr_var);
+            let store_ins = Instruction::Store(body_operand, if_expr_var.clone());
             self.get_current_rir_block_mut().0.push(store_ins);
         }
 
@@ -1961,6 +1989,7 @@ impl<'a> PartialEvaluator<'a> {
         &mut self,
         array_expr_id: ExprId,
         index_expr_id: ExprId,
+        expr_id: ExprId,
     ) -> Result<EvalControlFlow, Error> {
         // Get the value of the array expression to use it as the basis to perform a replacement on.
         let array_control_flow = self.try_eval_expr(array_expr_id)?;
@@ -1981,27 +2010,112 @@ impl<'a> PartialEvaluator<'a> {
             ));
         };
 
-        // Get the value at the specified index.
-        let array = array_value.unwrap_array();
-        let index_expr = self.get_expr(index_expr_id);
-        let hir_package_id = map_fir_package_to_hir(self.get_current_package_id());
-        let index_package_span = PackageSpan {
-            package: hir_package_id,
-            span: index_expr.span,
-        };
-        let value_result = match index_value {
-            Value::Int(index) => index_array(&array, index, index_package_span),
-            Value::Range(range) => slice_array(
-                &array,
-                range.start,
-                range.step,
-                range.end,
-                index_package_span,
+        // We need to handle the operation differently depending on whether the index or the array are variables.
+        match (array_value, index_value) {
+            (Value::Var(array_var), Value::Var(index_var)) => {
+                // Both the array and the index are variables.
+                self.eval_expr_emit_index(
+                    map_eval_var_to_rir_var(&array_var),
+                    Operand::Variable(map_eval_var_to_rir_var(&index_var)),
+                    expr_id,
+                )
+            }
+            (Value::Var(array_var), Value::Int(index_int)) => {
+                // The array is a variable, the index is a literal int.
+                self.eval_expr_emit_index(
+                    map_eval_var_to_rir_var(&array_var),
+                    Operand::Literal(Literal::Integer(index_int)),
+                    index_expr_id,
+                )
+            }
+            (Value::Var(_array_var), Value::Range(_index_range)) => {
+                // The array is a variable, the index is a literal range.
+                // TODO: check if the static map has an entry for this variable array and perform
+                // static slicing if possible.
+                Err(Error::Unimplemented(
+                    "slicing of variable arrays".to_string(),
+                    self.get_expr_package_span(index_expr_id),
+                ))
+            }
+            (array_value, Value::Var(index_var)) if matches!(array_value, Value::Array(_)) => {
+                // The array is a literal, the index is a variable,
+                // emit a store instruction to a new variable and
+                // then index into it.
+                let var_ty = self
+                    .try_get_eval_var_type(&array_value)
+                    .expect("array type should conver to var type");
+                let var_id = self.resource_manager.next_var();
+                let eval_var = Var {
+                    id: var_id.into(),
+                    ty: var_ty,
+                };
+                let value_operand = self.map_eval_value_to_rir_operand(&array_value);
+                let rir_var = map_eval_var_to_rir_var(&eval_var);
+                let store_ins = Instruction::Store(value_operand.clone(), rir_var.clone());
+                self.get_current_rir_block_mut().0.push(store_ins);
+                self.eval_expr_emit_index(
+                    rir_var,
+                    Operand::Variable(map_eval_var_to_rir_var(&index_var)),
+                    index_expr_id,
+                )
+            }
+            (Value::Array(array), index_value) => {
+                // Both the array and the index are literals, so just
+                // get the value at the specified index.
+                let index_expr = self.get_expr(index_expr_id);
+                let hir_package_id = map_fir_package_to_hir(self.get_current_package_id());
+                let index_package_span = PackageSpan {
+                    package: hir_package_id,
+                    span: index_expr.span,
+                };
+                let value_result = match index_value {
+                    Value::Int(index) => index_array(&array, index, index_package_span),
+                    Value::Range(range) => slice_array(
+                        &array,
+                        range.start,
+                        range.step,
+                        range.end,
+                        index_package_span,
+                    ),
+                    _ => panic!("invalid kind of value for index"),
+                };
+                let value = value_result.map_err(Error::from)?;
+                Ok(EvalControlFlow::Continue(value))
+            }
+            (array_value, index_value) => panic!(
+                "unexpected combination of array and index values: array: {array_value}, index: {index_value}"
             ),
-            _ => panic!("invalid kind of value for index"),
+        }
+    }
+
+    fn eval_expr_emit_index(
+        &mut self,
+        array_var: rir::Variable,
+        index_op: rir::Operand,
+        index_expr_id: ExprId,
+    ) -> Result<EvalControlFlow, Error> {
+        let variable_id = self.resource_manager.next_var();
+        let rir::Ty::Array(rir_variable_type, _) = array_var.ty.clone() else {
+            panic!("expected array type for array variable in index expression");
         };
-        let value = value_result.map_err(Error::from)?;
-        Ok(EvalControlFlow::Continue(value))
+        let rir_variable = rir::Variable {
+            variable_id,
+            ty: (*rir_variable_type).clone(),
+        };
+        self.get_current_rir_block_mut()
+            .0
+            .push(Instruction::Advanced(AdvancedInstr::Index(
+                array_var,
+                index_op,
+                rir_variable.clone(),
+            )));
+        let eval_variable = map_rir_var_to_eval_var(&rir_variable).map_err(|()| {
+            Error::Unexpected(
+                format!("{rir_variable_type} type in array index"),
+                self.get_expr_package_span(index_expr_id),
+            )
+        })?;
+        Ok(EvalControlFlow::Continue(Value::Var(eval_variable)))
     }
 
     fn eval_expr_field(
@@ -2096,7 +2210,7 @@ impl<'a> PartialEvaluator<'a> {
         };
 
         // Get the variable type corresponding to the value the unary operator acts upon.
-        let Some(eval_variable_type) = try_get_eval_var_type(&value) else {
+        let Some(eval_variable_type) = self.try_get_eval_var_type(&value) else {
             return Err(Error::Unexpected(
                 format!("invalid type for unary operation value: {value}"),
                 value_expr_package_span,
@@ -2118,10 +2232,10 @@ impl<'a> PartialEvaluator<'a> {
         // For all the other supported unary operations we have to generate an instruction, so create a variable to
         // store the result.
         let variable_id = self.resource_manager.next_var();
-        let rir_variable_type = map_eval_var_type_to_rir_type(eval_variable_type);
+        let rir_variable_type = map_eval_var_type_to_rir_type(&eval_variable_type);
         let rir_variable = rir::Variable {
             variable_id,
-            ty: rir_variable_type,
+            ty: rir_variable_type.clone(),
         };
 
         // Generate the instruction depending on the unary operator.
@@ -2130,21 +2244,21 @@ impl<'a> PartialEvaluator<'a> {
             UnOp::Neg => match rir_variable_type {
                 rir::Ty::Integer => {
                     let constant = Operand::Literal(Literal::Integer(-1));
-                    Instruction::Mul(constant, value_operand, rir_variable)
+                    Instruction::Mul(constant, value_operand, rir_variable.clone())
                 }
                 rir::Ty::Double => {
                     let constant = Operand::Literal(Literal::Double(-1.0));
-                    Instruction::Fmul(constant, value_operand, rir_variable)
+                    Instruction::Fmul(constant, value_operand, rir_variable.clone())
                 }
                 _ => panic!("invalid type for negation operator {rir_variable_type}"),
             },
             UnOp::NotB => {
                 assert!(matches!(rir_variable_type, rir::Ty::Integer));
-                Instruction::BitwiseNot(value_operand, rir_variable)
+                Instruction::BitwiseNot(value_operand, rir_variable.clone())
             }
             UnOp::NotL => {
                 assert!(matches!(rir_variable_type, rir::Ty::Boolean));
-                Instruction::LogicalNot(value_operand, rir_variable)
+                Instruction::LogicalNot(value_operand, rir_variable.clone())
             }
             UnOp::Functor(_) | UnOp::Unwrap => {
                 return Err(Error::Unexpected(
@@ -2157,9 +2271,9 @@ impl<'a> PartialEvaluator<'a> {
 
         // Insert the instruction and return the corresponding evaluator variable.
         self.get_current_rir_block_mut().0.push(instruction);
-        let eval_variable = map_rir_var_to_eval_var(rir_variable).map_err(|()| {
+        let eval_variable = map_rir_var_to_eval_var(&rir_variable).map_err(|()| {
             Error::Unexpected(
-                format!("{} type in unop", rir_variable.ty),
+                format!("{rir_variable_type} type in unop"),
                 self.get_expr_package_span(value_expr_id),
             )
         })?;
@@ -2209,7 +2323,7 @@ impl<'a> PartialEvaluator<'a> {
                         && (!current_scope.is_currently_evaluating_branch()
                             || !self.program.config.capabilities.is_advanced())
                     {
-                        map_rir_literal_to_eval_value(*literal)
+                        map_rir_literal_to_eval_value(literal)
                     } else {
                         bound_value.clone()
                     }
@@ -2324,7 +2438,7 @@ impl<'a> PartialEvaluator<'a> {
             successor: Some(conditional_block_node_id),
         };
         let condition_value_var = condition_value.unwrap_var();
-        let condition_rir_var = map_eval_var_to_rir_var(condition_value_var);
+        let condition_rir_var = map_eval_var_to_rir_var(&condition_value_var);
         let branch_ins = Instruction::Branch(
             condition_rir_var,
             body_block_node_id,
@@ -2369,7 +2483,7 @@ impl<'a> PartialEvaluator<'a> {
                 let instruction = Instruction::Call(
                     read_result_callable_id,
                     vec![result_operand],
-                    Some(variable),
+                    Some(variable.clone()),
                 );
                 let current_block = self.get_current_rir_block_mut();
                 current_block.0.push(instruction);
@@ -2400,9 +2514,9 @@ impl<'a> PartialEvaluator<'a> {
         };
 
         let bin_op_rir_ins = match bin_op {
-            BinOp::Add => Instruction::Fadd(lhs_operand, rhs_operand, bin_op_rir_variable),
-            BinOp::Sub => Instruction::Fsub(lhs_operand, rhs_operand, bin_op_rir_variable),
-            BinOp::Mul => Instruction::Fmul(lhs_operand, rhs_operand, bin_op_rir_variable),
+            BinOp::Add => Instruction::Fadd(lhs_operand, rhs_operand, bin_op_rir_variable.clone()),
+            BinOp::Sub => Instruction::Fsub(lhs_operand, rhs_operand, bin_op_rir_variable.clone()),
+            BinOp::Mul => Instruction::Fmul(lhs_operand, rhs_operand, bin_op_rir_variable.clone()),
             BinOp::Div => {
                 // Validate that the RHS is not a zero.
                 if let Operand::Literal(Literal::Double(0.0)) = rhs_operand {
@@ -2410,43 +2524,43 @@ impl<'a> PartialEvaluator<'a> {
                     return Err(error);
                 }
 
-                Instruction::Fdiv(lhs_operand, rhs_operand, bin_op_rir_variable)
+                Instruction::Fdiv(lhs_operand, rhs_operand, bin_op_rir_variable.clone())
             }
             BinOp::Eq => Instruction::Fcmp(
                 FcmpConditionCode::OrderedAndEqual,
                 lhs_operand,
                 rhs_operand,
-                bin_op_rir_variable,
+                bin_op_rir_variable.clone(),
             ),
             BinOp::Neq => Instruction::Fcmp(
                 FcmpConditionCode::OrderedAndNotEqual,
                 lhs_operand,
                 rhs_operand,
-                bin_op_rir_variable,
+                bin_op_rir_variable.clone(),
             ),
             BinOp::Gt => Instruction::Fcmp(
                 FcmpConditionCode::OrderedAndGreaterThan,
                 lhs_operand,
                 rhs_operand,
-                bin_op_rir_variable,
+                bin_op_rir_variable.clone(),
             ),
             BinOp::Gte => Instruction::Fcmp(
                 FcmpConditionCode::OrderedAndGreaterThanOrEqual,
                 lhs_operand,
                 rhs_operand,
-                bin_op_rir_variable,
+                bin_op_rir_variable.clone(),
             ),
             BinOp::Lt => Instruction::Fcmp(
                 FcmpConditionCode::OrderedAndLessThan,
                 lhs_operand,
                 rhs_operand,
-                bin_op_rir_variable,
+                bin_op_rir_variable.clone(),
             ),
             BinOp::Lte => Instruction::Fcmp(
                 FcmpConditionCode::OrderedAndLessThanOrEqual,
                 lhs_operand,
                 rhs_operand,
-                bin_op_rir_variable,
+                bin_op_rir_variable.clone(),
             ),
             _ => panic!("unsupported binary operation for double: {bin_op:?}"),
         };
@@ -2466,24 +2580,33 @@ impl<'a> PartialEvaluator<'a> {
             BinOp::Add => {
                 let bin_op_variable_id = self.resource_manager.next_var();
                 let bin_op_rir_variable = rir::Variable::new_integer(bin_op_variable_id);
-                let bin_op_rir_ins =
-                    Instruction::Add(lhs_operand, rhs_operand, bin_op_rir_variable);
+                let bin_op_rir_ins = Instruction::Add(
+                    lhs_operand.clone(),
+                    rhs_operand,
+                    bin_op_rir_variable.clone(),
+                );
                 self.get_current_rir_block_mut().0.push(bin_op_rir_ins);
                 bin_op_rir_variable
             }
             BinOp::Sub => {
                 let bin_op_variable_id = self.resource_manager.next_var();
                 let bin_op_rir_variable = rir::Variable::new_integer(bin_op_variable_id);
-                let bin_op_rir_ins =
-                    Instruction::Sub(lhs_operand, rhs_operand, bin_op_rir_variable);
+                let bin_op_rir_ins = Instruction::Sub(
+                    lhs_operand.clone(),
+                    rhs_operand,
+                    bin_op_rir_variable.clone(),
+                );
                 self.get_current_rir_block_mut().0.push(bin_op_rir_ins);
                 bin_op_rir_variable
             }
             BinOp::Mul => {
                 let bin_op_variable_id = self.resource_manager.next_var();
                 let bin_op_rir_variable = rir::Variable::new_integer(bin_op_variable_id);
-                let bin_op_rir_ins =
-                    Instruction::Mul(lhs_operand, rhs_operand, bin_op_rir_variable);
+                let bin_op_rir_ins = Instruction::Mul(
+                    lhs_operand.clone(),
+                    rhs_operand,
+                    bin_op_rir_variable.clone(),
+                );
                 self.get_current_rir_block_mut().0.push(bin_op_rir_ins);
                 bin_op_rir_variable
             }
@@ -2495,16 +2618,22 @@ impl<'a> PartialEvaluator<'a> {
                 }
                 let bin_op_variable_id = self.resource_manager.next_var();
                 let bin_op_rir_variable = rir::Variable::new_integer(bin_op_variable_id);
-                let bin_op_rir_ins =
-                    Instruction::Sdiv(lhs_operand, rhs_operand, bin_op_rir_variable);
+                let bin_op_rir_ins = Instruction::Sdiv(
+                    lhs_operand.clone(),
+                    rhs_operand,
+                    bin_op_rir_variable.clone(),
+                );
                 self.get_current_rir_block_mut().0.push(bin_op_rir_ins);
                 bin_op_rir_variable
             }
             BinOp::Mod => {
                 let bin_op_variable_id = self.resource_manager.next_var();
                 let bin_op_rir_variable = rir::Variable::new_integer(bin_op_variable_id);
-                let bin_op_rir_ins =
-                    Instruction::Srem(lhs_operand, rhs_operand, bin_op_rir_variable);
+                let bin_op_rir_ins = Instruction::Srem(
+                    lhs_operand.clone(),
+                    rhs_operand,
+                    bin_op_rir_variable.clone(),
+                );
                 self.get_current_rir_block_mut().0.push(bin_op_rir_ins);
                 bin_op_rir_variable
             }
@@ -2525,16 +2654,18 @@ impl<'a> PartialEvaluator<'a> {
                 // Generate a series of multiplication instructions that represent the exponentiation.
                 let mut current_rir_variable =
                     rir::Variable::new_integer(self.resource_manager.next_var());
-                let init_ins =
-                    Instruction::Store(Operand::Literal(Literal::Integer(1)), current_rir_variable);
+                let init_ins = Instruction::Store(
+                    Operand::Literal(Literal::Integer(1)),
+                    current_rir_variable.clone(),
+                );
                 self.get_current_rir_block_mut().0.push(init_ins);
                 for _ in 0..exponent {
                     let mult_variable =
                         rir::Variable::new_integer(self.resource_manager.next_var());
                     let mult_ins = Instruction::Mul(
-                        Operand::Variable(current_rir_variable),
-                        lhs_operand,
-                        mult_variable,
+                        Operand::Variable(current_rir_variable.clone()),
+                        lhs_operand.clone(),
+                        mult_variable.clone(),
                     );
                     self.get_current_rir_block_mut().0.push(mult_ins);
                     current_rir_variable = mult_variable;
@@ -2545,7 +2676,7 @@ impl<'a> PartialEvaluator<'a> {
                 let bin_op_variable_id = self.resource_manager.next_var();
                 let bin_op_rir_variable = rir::Variable::new_integer(bin_op_variable_id);
                 let bin_op_rir_ins =
-                    Instruction::BitwiseAnd(lhs_operand, rhs_operand, bin_op_rir_variable);
+                    Instruction::BitwiseAnd(lhs_operand, rhs_operand, bin_op_rir_variable.clone());
                 self.get_current_rir_block_mut().0.push(bin_op_rir_ins);
                 bin_op_rir_variable
             }
@@ -2553,7 +2684,7 @@ impl<'a> PartialEvaluator<'a> {
                 let bin_op_variable_id = self.resource_manager.next_var();
                 let bin_op_rir_variable = rir::Variable::new_integer(bin_op_variable_id);
                 let bin_op_rir_ins =
-                    Instruction::BitwiseOr(lhs_operand, rhs_operand, bin_op_rir_variable);
+                    Instruction::BitwiseOr(lhs_operand, rhs_operand, bin_op_rir_variable.clone());
                 self.get_current_rir_block_mut().0.push(bin_op_rir_ins);
                 bin_op_rir_variable
             }
@@ -2561,7 +2692,7 @@ impl<'a> PartialEvaluator<'a> {
                 let bin_op_variable_id = self.resource_manager.next_var();
                 let bin_op_rir_variable = rir::Variable::new_integer(bin_op_variable_id);
                 let bin_op_rir_ins =
-                    Instruction::BitwiseXor(lhs_operand, rhs_operand, bin_op_rir_variable);
+                    Instruction::BitwiseXor(lhs_operand, rhs_operand, bin_op_rir_variable.clone());
                 self.get_current_rir_block_mut().0.push(bin_op_rir_ins);
                 bin_op_rir_variable
             }
@@ -2569,7 +2700,7 @@ impl<'a> PartialEvaluator<'a> {
                 let bin_op_variable_id = self.resource_manager.next_var();
                 let bin_op_rir_variable = rir::Variable::new_integer(bin_op_variable_id);
                 let bin_op_rir_ins =
-                    Instruction::Shl(lhs_operand, rhs_operand, bin_op_rir_variable);
+                    Instruction::Shl(lhs_operand, rhs_operand, bin_op_rir_variable.clone());
                 self.get_current_rir_block_mut().0.push(bin_op_rir_ins);
                 bin_op_rir_variable
             }
@@ -2577,7 +2708,7 @@ impl<'a> PartialEvaluator<'a> {
                 let bin_op_variable_id = self.resource_manager.next_var();
                 let bin_op_rir_variable = rir::Variable::new_integer(bin_op_variable_id);
                 let bin_op_rir_ins =
-                    Instruction::Ashr(lhs_operand, rhs_operand, bin_op_rir_variable);
+                    Instruction::Ashr(lhs_operand, rhs_operand, bin_op_rir_variable.clone());
                 self.get_current_rir_block_mut().0.push(bin_op_rir_ins);
                 bin_op_rir_variable
             }
@@ -2588,7 +2719,7 @@ impl<'a> PartialEvaluator<'a> {
                     ConditionCode::Eq,
                     lhs_operand,
                     rhs_operand,
-                    bin_op_rir_variable,
+                    bin_op_rir_variable.clone(),
                 );
                 self.get_current_rir_block_mut().0.push(bin_op_rir_ins);
                 bin_op_rir_variable
@@ -2600,7 +2731,7 @@ impl<'a> PartialEvaluator<'a> {
                     ConditionCode::Ne,
                     lhs_operand,
                     rhs_operand,
-                    bin_op_rir_variable,
+                    bin_op_rir_variable.clone(),
                 );
                 self.get_current_rir_block_mut().0.push(bin_op_rir_ins);
                 bin_op_rir_variable
@@ -2612,7 +2743,7 @@ impl<'a> PartialEvaluator<'a> {
                     ConditionCode::Sgt,
                     lhs_operand,
                     rhs_operand,
-                    bin_op_rir_variable,
+                    bin_op_rir_variable.clone(),
                 );
                 self.get_current_rir_block_mut().0.push(bin_op_rir_ins);
                 bin_op_rir_variable
@@ -2624,7 +2755,7 @@ impl<'a> PartialEvaluator<'a> {
                     ConditionCode::Sge,
                     lhs_operand,
                     rhs_operand,
-                    bin_op_rir_variable,
+                    bin_op_rir_variable.clone(),
                 );
                 self.get_current_rir_block_mut().0.push(bin_op_rir_ins);
                 bin_op_rir_variable
@@ -2636,7 +2767,7 @@ impl<'a> PartialEvaluator<'a> {
                     ConditionCode::Slt,
                     lhs_operand,
                     rhs_operand,
-                    bin_op_rir_variable,
+                    bin_op_rir_variable.clone(),
                 );
                 self.get_current_rir_block_mut().0.push(bin_op_rir_ins);
                 bin_op_rir_variable
@@ -2648,7 +2779,7 @@ impl<'a> PartialEvaluator<'a> {
                     ConditionCode::Sle,
                     lhs_operand,
                     rhs_operand,
-                    bin_op_rir_variable,
+                    bin_op_rir_variable.clone(),
                 );
                 self.get_current_rir_block_mut().0.push(bin_op_rir_ins);
                 bin_op_rir_variable
@@ -2783,7 +2914,7 @@ impl<'a> PartialEvaluator<'a> {
         value: &Value,
     ) -> Option<(rir::VariableId, Option<Literal>)> {
         // Check if we can create a mutable variable for this value.
-        let var_ty = try_get_eval_var_type(value)?;
+        let var_ty = self.try_get_eval_var_type(value)?;
 
         // Create an evaluator variable and insert it.
         let var_id = self.resource_manager.next_var();
@@ -2793,12 +2924,12 @@ impl<'a> PartialEvaluator<'a> {
         };
         self.eval_context
             .get_current_scope_mut()
-            .insert_hybrid_local_value(local_var_id, Value::Var(eval_var));
+            .insert_hybrid_local_value(local_var_id, Value::Var(eval_var.clone()));
 
         // Insert a store instruction.
         let value_operand = self.map_eval_value_to_rir_operand(value);
-        let rir_var = map_eval_var_to_rir_var(eval_var);
-        let store_ins = Instruction::Store(value_operand, rir_var);
+        let rir_var = map_eval_var_to_rir_var(&eval_var);
+        let store_ins = Instruction::Store(value_operand.clone(), rir_var);
         self.get_current_rir_block_mut().0.push(store_ins);
 
         // Create a mutable variable, mapping it to the static value if any.
@@ -3175,8 +3306,8 @@ impl<'a> PartialEvaluator<'a> {
         if let Value::Var(var) = bound_value {
             // Insert a store instruction when the value of a variable is updated.
             let rhs_operand = self.map_eval_value_to_rir_operand(&value);
-            let rir_var = map_eval_var_to_rir_var(*var);
-            let store_ins = Instruction::Store(rhs_operand, rir_var);
+            let rir_var = map_eval_var_to_rir_var(var);
+            let store_ins = Instruction::Store(rhs_operand.clone(), rir_var.clone());
             self.get_current_rir_block_mut().0.push(store_ins);
 
             // If this is a mutable variable, make sure to update whether it is static or dynamic.
@@ -3241,6 +3372,20 @@ impl<'a> PartialEvaluator<'a> {
         Ok(())
     }
 
+    fn try_get_eval_var_type(&self, value: &Value) -> Option<VarTy> {
+        match value {
+            Value::Bool(_) => Some(VarTy::Boolean),
+            Value::Int(_) => Some(VarTy::Integer),
+            Value::Double(_) => Some(VarTy::Double),
+            Value::Array(array) if self.should_emit_arrays() && !array.is_empty() => {
+                let elem_ty = self.try_get_eval_var_type(&array[0])?;
+                Some(VarTy::Array(elem_ty.into(), array.len()))
+            }
+            Value::Var(var) => Some(var.ty.clone()),
+            _ => None,
+        }
+    }
+
     fn generate_output_recording_instructions(
         &mut self,
         ret_val: Value,
@@ -3255,7 +3400,7 @@ impl<'a> PartialEvaluator<'a> {
             Value::Array(vals) => self.record_array(ty, &mut instrs, &vals, tag_root)?,
             Value::Tuple(vals, _) => self.record_tuple(ty, &mut instrs, &vals, tag_root)?,
             Value::Result(res) => self.record_result(&mut instrs, res, tag_root),
-            Value::Var(var) => self.record_variable(ty, &mut instrs, var, tag_root),
+            Value::Var(var) => self.record_variable(ty, &mut instrs, &var, tag_root),
             Value::Bool(val) => self.record_bool(&mut instrs, val, tag_root),
             Value::Int(val) => self.record_int(&mut instrs, val, tag_root),
             Value::Double(val) => self.record_double(&mut instrs, val, tag_root),
@@ -3324,7 +3469,7 @@ impl<'a> PartialEvaluator<'a> {
         &mut self,
         ty: &Ty,
         instrs: &mut Vec<Instruction>,
-        var: Var,
+        var: &Var,
         tag_root: &str,
     ) {
         let idx = self.program.tags.len();
@@ -3547,7 +3692,26 @@ impl<'a> PartialEvaluator<'a> {
                 val::Result::Val(bool) => Operand::Literal(Literal::Bool(*bool)),
                 val::Result::Loss => panic!("loss result should not occur in partial evaluation"),
             },
-            Value::Var(var) => Operand::Variable(map_eval_var_to_rir_var(*var)),
+            Value::Var(var) => Operand::Variable(map_eval_var_to_rir_var(var)),
+            Value::Array(array) => {
+                let ty = self
+                    .try_get_eval_var_type(value)
+                    .expect("array value should have a variable type");
+                let VarTy::Array(elem_ty, _) = ty else {
+                    panic!("array value should have an array variable type");
+                };
+                let mut elements = Vec::new();
+                for elem in array.iter() {
+                    let Operand::Literal(elem) = self.map_eval_value_to_rir_operand(elem) else {
+                        panic!("array element should map to a literal operand");
+                    };
+                    elements.push(elem);
+                }
+                Operand::Literal(Literal::Array(
+                    elements.into(),
+                    map_eval_var_type_to_rir_type(&elem_ty).into(),
+                ))
+            }
             _ => panic!("{value} cannot be mapped to a RIR operand"),
         }
     }
@@ -3576,15 +3740,24 @@ impl<'a> PartialEvaluator<'a> {
     fn convert_value(
         &mut self,
         args_value: &Value,
-        variable: rir::Variable,
+        variable: &rir::Variable,
     ) -> Result<Value, Error> {
-        let instruction =
-            Instruction::Convert(self.map_eval_value_to_rir_operand(args_value), variable);
+        let instruction = Instruction::Convert(
+            self.map_eval_value_to_rir_operand(args_value),
+            variable.clone(),
+        );
         let current_block = self.get_current_rir_block_mut();
         current_block.0.push(instruction);
         Ok(Value::Var(
             map_rir_var_to_eval_var(variable).expect("variable should convert"),
         ))
+    }
+
+    fn should_emit_arrays(&self) -> bool {
+        self.program
+            .config
+            .capabilities
+            .contains(TargetCapabilityFlags::StaticSizedArrays)
     }
 }
 
@@ -3628,8 +3801,8 @@ fn eval_un_op_with_literals(un_op: UnOp, value: Value) -> Value {
 
 fn eval_bin_op_with_bool_literals(
     bin_op: BinOp,
-    lhs_literal: Literal,
-    rhs_literal: Literal,
+    lhs_literal: &Literal,
+    rhs_literal: &Literal,
 ) -> Value {
     let (Literal::Bool(lhs_bool), Literal::Bool(rhs_bool)) = (lhs_literal, rhs_literal) else {
         panic!("at least one literal is not bool: {lhs_literal}, {rhs_literal}");
@@ -3638,8 +3811,8 @@ fn eval_bin_op_with_bool_literals(
     let bin_op_result = match bin_op {
         BinOp::Eq => lhs_bool == rhs_bool,
         BinOp::Neq => lhs_bool != rhs_bool,
-        BinOp::AndL => lhs_bool && rhs_bool,
-        BinOp::OrL => lhs_bool || rhs_bool,
+        BinOp::AndL => *lhs_bool && *rhs_bool,
+        BinOp::OrL => *lhs_bool || *rhs_bool,
         _ => panic!("invalid bool operator: {bin_op:?}"),
     };
     Value::Bool(bin_op_result)
@@ -3647,8 +3820,8 @@ fn eval_bin_op_with_bool_literals(
 
 fn eval_bin_op_with_double_literals(
     bin_op: BinOp,
-    lhs_literal: Literal,
-    rhs_literal: Literal,
+    lhs_literal: &Literal,
+    rhs_literal: &Literal,
     bin_op_expr_span: PackageSpan, // For diagnostic purposes only
 ) -> Result<Value, Error> {
     fn eval_double_div(lhs: f64, rhs: f64, span: PackageSpan) -> Result<Value, Error> {
@@ -3681,15 +3854,15 @@ fn eval_bin_op_with_double_literals(
         BinOp::Add => Ok(Value::Double(lhs + rhs)),
         BinOp::Sub => Ok(Value::Double(lhs - rhs)),
         BinOp::Mul => Ok(Value::Double(lhs * rhs)),
-        BinOp::Div => eval_double_div(lhs, rhs, bin_op_expr_span),
+        BinOp::Div => eval_double_div(*lhs, *rhs, bin_op_expr_span),
         _ => panic!("invalid double operator: {bin_op:?}"),
     }
 }
 
 fn eval_bin_op_with_integer_literals(
     bin_op: BinOp,
-    lhs_literal: Literal,
-    rhs_literal: Literal,
+    lhs_literal: &Literal,
+    rhs_literal: &Literal,
     bin_op_expr_span: PackageSpan, // For diagnostic purposes only
 ) -> Result<Value, Error> {
     fn eval_integer_div(lhs_int: i64, rhs_int: i64, span: PackageSpan) -> Result<Value, Error> {
@@ -3729,9 +3902,9 @@ fn eval_bin_op_with_integer_literals(
         BinOp::Add => Ok(Value::Int(lhs_int + rhs_int)),
         BinOp::Sub => Ok(Value::Int(lhs_int - rhs_int)),
         BinOp::Mul => Ok(Value::Int(lhs_int * rhs_int)),
-        BinOp::Div => eval_integer_div(lhs_int, rhs_int, bin_op_expr_span),
-        BinOp::Mod => eval_integer_mod(lhs_int, rhs_int, bin_op_expr_span),
-        BinOp::Exp => eval_integer_exp(lhs_int, rhs_int, bin_op_expr_span),
+        BinOp::Div => eval_integer_div(*lhs_int, *rhs_int, bin_op_expr_span),
+        BinOp::Mod => eval_integer_mod(*lhs_int, *rhs_int, bin_op_expr_span),
+        BinOp::Exp => eval_integer_exp(*lhs_int, *rhs_int, bin_op_expr_span),
         BinOp::AndB => Ok(Value::Int(lhs_int & rhs_int)),
         BinOp::OrB => Ok(Value::Int(lhs_int | rhs_int)),
         BinOp::XorB => Ok(Value::Int(lhs_int ^ rhs_int)),
@@ -3762,18 +3935,21 @@ fn get_spec_decl(spec_impl: &SpecImpl, functor_app: FunctorApp) -> &SpecDecl {
     }
 }
 
-fn map_eval_var_to_rir_var(var: Var) -> rir::Variable {
+fn map_eval_var_to_rir_var(var: &Var) -> rir::Variable {
     rir::Variable {
         variable_id: var.id.into(),
-        ty: map_eval_var_type_to_rir_type(var.ty),
+        ty: map_eval_var_type_to_rir_type(&var.ty),
     }
 }
 
-fn map_eval_var_type_to_rir_type(var_ty: VarTy) -> rir::Ty {
+fn map_eval_var_type_to_rir_type(var_ty: &VarTy) -> rir::Ty {
     match var_ty {
         VarTy::Boolean => rir::Ty::Boolean,
         VarTy::Integer => rir::Ty::Integer,
         VarTy::Double => rir::Ty::Double,
+        VarTy::Array(inner, size) => {
+            rir::Ty::Array(map_eval_var_type_to_rir_type(inner).into(), *size)
+        }
     }
 }
 
@@ -3798,37 +3974,35 @@ fn map_fir_type_to_rir_type(ty: &Ty) -> rir::Ty {
     }
 }
 
-fn map_rir_literal_to_eval_value(literal: rir::Literal) -> Value {
+fn map_rir_literal_to_eval_value(literal: &rir::Literal) -> Value {
     match literal {
-        rir::Literal::Bool(b) => Value::Bool(b),
-        rir::Literal::Double(d) => Value::Double(d),
-        rir::Literal::Integer(i) => Value::Int(i),
-        _ => panic!("{literal:?} RIR literal cannot be mapped to evaluator value"),
+        rir::Literal::Bool(b) => Value::Bool(*b),
+        rir::Literal::Double(d) => Value::Double(*d),
+        rir::Literal::Integer(i) => Value::Int(*i),
+        rir::Literal::Array(array, _) => {
+            let mut eval_array = Vec::new();
+            for elem in array.iter() {
+                let eval_elem = map_rir_literal_to_eval_value(elem);
+                eval_array.push(eval_elem);
+            }
+            Value::Array(eval_array.into())
+        }
+        _ => panic!("{literal} RIR literal cannot be mapped to evaluator value"),
     }
 }
 
-fn map_rir_var_to_eval_var(var: rir::Variable) -> Result<Var, ()> {
+fn map_rir_var_to_eval_var(var: &rir::Variable) -> Result<Var, ()> {
     Ok(Var {
         id: var.variable_id.into(),
-        ty: map_rir_type_to_eval_var_type(var.ty)?,
+        ty: map_rir_type_to_eval_var_type(&var.ty)?,
     })
 }
 
-fn map_rir_type_to_eval_var_type(ty: rir::Ty) -> Result<VarTy, ()> {
+fn map_rir_type_to_eval_var_type(ty: &rir::Ty) -> Result<VarTy, ()> {
     match ty {
         rir::Ty::Boolean => Ok(VarTy::Boolean),
         rir::Ty::Integer => Ok(VarTy::Integer),
         rir::Ty::Double => Ok(VarTy::Double),
         _ => Err(()),
-    }
-}
-
-fn try_get_eval_var_type(value: &Value) -> Option<VarTy> {
-    match value {
-        Value::Bool(_) => Some(VarTy::Boolean),
-        Value::Int(_) => Some(VarTy::Integer),
-        Value::Double(_) => Some(VarTy::Double),
-        Value::Var(var) => Some(var.ty),
-        _ => None,
     }
 }

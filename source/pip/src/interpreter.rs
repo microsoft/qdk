@@ -155,6 +155,10 @@ pub(crate) enum TargetProfile {
     /// This profile includes all required Adaptive Profile and `Adaptive_RIF`
     /// capabilities, as well as support for backwards branching and more complex IR instructions.
     Advanced,
+    /// Target supports the advanced2 set of capabilities required to run any Q# program.
+    /// This profile includes all required Adaptive Profile and `Adaptive_RIF`
+    /// capabilities, as well as support for backwards branching, static sized arrays, and more complex IR instructions.
+    Advanced2,
 }
 
 #[pymethods]
@@ -210,6 +214,7 @@ impl From<Profile> for TargetProfile {
             Profile::AdaptiveRI => TargetProfile::Adaptive_RI,
             Profile::AdaptiveRIF => TargetProfile::Adaptive_RIF,
             Profile::Advanced => TargetProfile::Advanced,
+            Profile::Advanced2 => TargetProfile::Advanced2,
             Profile::Unrestricted => TargetProfile::Unrestricted,
         }
     }
@@ -222,6 +227,7 @@ impl From<TargetProfile> for Profile {
             TargetProfile::Adaptive_RI => Profile::AdaptiveRI,
             TargetProfile::Adaptive_RIF => Profile::AdaptiveRIF,
             TargetProfile::Advanced => Profile::Advanced,
+            TargetProfile::Advanced2 => Profile::Advanced2,
             TargetProfile::Unrestricted => Profile::Unrestricted,
         }
     }

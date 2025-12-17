@@ -74,13 +74,13 @@ pub fn transform_to_ssa(program: &mut Program, preds: &IndexMap<BlockId, Vec<Blo
                 }) {
                     // Some predecessors have different values for this variable, so a phi node is needed.
                     // Start with the first predecessor's value and block id, then add the values from the other predecessors.
-                    let mut phi_args = vec![(operand.mapped(first_pred_map), *first_pred)];
+                    let mut phi_args = vec![(operand.clone().mapped(first_pred_map), *first_pred)];
                     for pred in rest_preds {
                         let pred_var_map = block_var_map
                             .get(*pred)
                             .expect("block should have variable map");
                         let mut pred_operand = match pred_var_map.get(var_id) {
-                            Some(operand) => *operand,
+                            Some(operand) => operand.clone(),
                             None => {
                                 // If the variable is not defined in this predecessor, it does not dominate this block.
                                 // Assume it is not used and skip creating a phi node for this variable. If the variable is used,
@@ -95,7 +95,7 @@ pub fn transform_to_ssa(program: &mut Program, preds: &IndexMap<BlockId, Vec<Blo
                 } else {
                     // If all predecessors have the same value for this variable, the value can be propagated.
                     // Update the block variable map with the common operand.
-                    var_map_updates.insert(*var_id, *operand);
+                    var_map_updates.insert(*var_id, operand.clone());
                 }
 
                 // For any phi nodes that need to be inserted, create a new variable and insert
@@ -106,7 +106,7 @@ pub fn transform_to_ssa(program: &mut Program, preds: &IndexMap<BlockId, Vec<Blo
                         variable_id: next_var_id,
                         ty: operand.get_type(),
                     };
-                    let phi_node = Instruction::Phi(args, new_var);
+                    let phi_node = Instruction::Phi(args, new_var.clone());
                     block.0.insert(0, phi_node);
                     var_map_updates.insert(variable_id, Operand::Variable(new_var));
                     next_var_id = next_var_id.successor();

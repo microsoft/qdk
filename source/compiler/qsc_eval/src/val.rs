@@ -155,7 +155,7 @@ impl QubitRef {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct Qubit(pub usize);
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Var {
     pub id: usize,
     pub ty: VarTy,
@@ -231,11 +231,12 @@ impl Display for Value {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum VarTy {
     Boolean,
     Integer,
     Double,
+    Array(Rc<VarTy>, usize),
 }
 
 impl Display for VarTy {
@@ -244,6 +245,7 @@ impl Display for VarTy {
             Self::Boolean => write!(f, "Boolean"),
             Self::Integer => write!(f, "Integer"),
             Self::Double => write!(f, "Double"),
+            Self::Array(elem_ty, size) => write!(f, "Array[{elem_ty}, {size}]"),
         }
     }
 }

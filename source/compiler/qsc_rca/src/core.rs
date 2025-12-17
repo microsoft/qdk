@@ -1414,7 +1414,23 @@ impl<'a> Analyzer<'a> {
                 let application_instance = self.get_current_application_instance();
                 let expr_compute_kind = *application_instance.get_expr_compute_kind(expr_id);
                 let bound_compute_kind = ComputeKind::map_to_type(expr_compute_kind, &pat.ty);
-                self.bind_compute_kind_to_ident(ident, local_kind, bound_compute_kind);
+                if self.should_emit_static_arrays()
+                    && matches!(expr.ty, Ty::Array(_))
+                    && matches!(bound_compute_kind, ComputeKind::Classical)
+                {
+                    // When static arrays are being emitted, we treat all array bindings as quantum with static runtime kinds.
+                    // This allows them to be emitted later during partial evaluation.
+                    self.bind_compute_kind_to_ident(
+                        ident,
+                        local_kind,
+                        ComputeKind::Quantum(QuantumProperties {
+                            runtime_features: RuntimeFeatureFlags::empty(),
+                            value_kind: ValueKind::Array(RuntimeKind::Static, RuntimeKind::Static),
+                        }),
+                    );
+                } else {
+                    self.bind_compute_kind_to_ident(ident, local_kind, bound_compute_kind);
+                }
             }
             PatKind::Tuple(pats) => match &expr.kind {
                 ExprKind::Tuple(exprs) => {
@@ -1776,6 +1792,11 @@ impl<'a> Analyzer<'a> {
     fn should_emit_classical_loops(&self) -> bool {
         self.target_capabilities
             .contains(TargetCapabilityFlags::BackwardsBranching)
+    }
+
+    fn should_emit_static_arrays(&self) -> bool {
+        self.target_capabilities
+            .contains(TargetCapabilityFlags::StaticSizedArrays)
     }
 }
 

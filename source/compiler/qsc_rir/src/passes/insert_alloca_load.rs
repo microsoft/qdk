@@ -52,7 +52,7 @@ fn process_callable(program: &mut Program, callable_id: CallableId, next_var_id:
 
     let mut alloca_instrs = Vec::new();
     for (_, variable) in vars_to_alloca.iter() {
-        alloca_instrs.push(AdvancedInstr::Alloca(*variable).into());
+        alloca_instrs.push(AdvancedInstr::Alloca(variable.clone()).into());
     }
     let entry_block = program.get_block_mut(entry_block_id);
     let new_instrs = alloca_instrs
@@ -62,6 +62,7 @@ fn process_callable(program: &mut Program, callable_id: CallableId, next_var_id:
     entry_block.0 = new_instrs;
 }
 
+#[allow(clippy::too_many_lines)]
 fn add_alloca_load_to_block(
     program: &mut Program,
     block_id: BlockId,
@@ -75,7 +76,7 @@ fn add_alloca_load_to_block(
         match &mut instr {
             // Track that this is a value that needs to be allocated, and clear any previous loaded variables.
             Instruction::Store(operand, var) => {
-                vars_to_alloca.insert(var.variable_id, *var);
+                vars_to_alloca.insert(var.variable_id, var.clone());
                 let new_operand = map_or_load_operand(
                     operand,
                     &mut var_map,
@@ -83,7 +84,7 @@ fn add_alloca_load_to_block(
                     next_var_id,
                     should_load_operand(operand, vars_to_alloca),
                 );
-                block.0.push(Instruction::Store(new_operand, *var));
+                block.0.push(Instruction::Store(new_operand, var.clone()));
                 *next_var_id = next_var_id.successor();
                 continue;
             }
@@ -94,13 +95,13 @@ fn add_alloca_load_to_block(
                     .iter()
                     .map(|arg| match arg {
                         Operand::Variable(var) => map_or_load_variable_to_operand(
-                            *var,
+                            var.clone(),
                             &mut var_map,
                             &mut block.0,
                             next_var_id,
                             vars_to_alloca.contains_key(var.variable_id),
                         ),
-                        Operand::Literal(_) => *arg,
+                        Operand::Literal(_) => arg.clone(),
                     })
                     .collect();
             }
@@ -108,7 +109,7 @@ fn add_alloca_load_to_block(
             // Replace the branch condition with the new value of the variable.
             Instruction::Branch(var, _, _) => {
                 *var = map_or_load_variable(
-                    *var,
+                    var.clone(),
                     &mut var_map,
                     &mut block.0,
                     next_var_id,
@@ -164,6 +165,26 @@ fn add_alloca_load_to_block(
                 );
             }
 
+            // For array indexing, the array remains a pointer and does not need to be loaded, but we must
+            // update the index operand, immediately add the updated instruction, and then load the result.
+            Instruction::Advanced(AdvancedInstr::Index(array, operand, variable)) => {
+                *operand = map_or_load_operand(
+                    operand,
+                    &mut var_map,
+                    &mut block.0,
+                    next_var_id,
+                    should_load_operand(operand, vars_to_alloca),
+                );
+                block.0.push(Instruction::Advanced(AdvancedInstr::Index(
+                    array.clone(),
+                    operand.clone(),
+                    variable.clone(),
+                )));
+                load_from_variable(variable, &mut var_map, &mut block.0, next_var_id);
+                // Continue here to avoid pushing the instruction again below.
+                continue;
+            }
+
             // Phi nodes are handled separately in the SSA transformation, but need to be passed through
             // like the unconditional terminators.
             Instruction::Phi(..) | Instruction::Jump(..) | Instruction::Return => {}
@@ -194,9 +215,9 @@ fn map_or_load_operand(
     should_load: bool,
 ) -> Operand {
     match operand {
-        Operand::Literal(_) => *operand,
+        Operand::Literal(_) => operand.clone(),
         Operand::Variable(var) => {
-            map_or_load_variable_to_operand(*var, var_map, instrs, next_var_id, should_load)
+            map_or_load_variable_to_operand(var.clone(), var_map, instrs, next_var_id, should_load)
         }
     }
 }
@@ -209,19 +230,28 @@ fn map_or_load_variable_to_operand(
     should_load: bool,
 ) -> Operand {
     if let Some(operand) = var_map.get(&variable.variable_id) {
-        *operand
+        operand.clone()
     } else if should_load {
-        let new_var = Variable {
-            variable_id: *next_var_id,
-            ty: variable.ty,
-        };
-        instrs.push(AdvancedInstr::Load(variable, new_var).into());
-        var_map.insert(variable.variable_id, Operand::Variable(new_var));
-        *next_var_id = next_var_id.successor();
-        Operand::Variable(new_var)
+        load_from_variable(&variable, var_map, instrs, next_var_id)
     } else {
         Operand::Variable(variable)
     }
+}
+
+fn load_from_variable(
+    variable: &Variable,
+    var_map: &mut FxHashMap<VariableId, Operand>,
+    instrs: &mut Vec<Instruction>,
+    next_var_id: &mut VariableId,
+) -> Operand {
+    let new_var = Variable {
+        variable_id: *next_var_id,
+        ty: variable.ty.clone(),
+    };
+    instrs.push(AdvancedInstr::Load(variable.clone(), new_var.clone()).into());
+    var_map.insert(variable.variable_id, Operand::Variable(new_var.clone()));
+    *next_var_id = next_var_id.successor();
+    Operand::Variable(new_var)
 }
 
 fn map_or_load_variable(
@@ -232,16 +262,16 @@ fn map_or_load_variable(
     should_load: bool,
 ) -> Variable {
     match var_map.get(&variable.variable_id) {
-        Some(Operand::Variable(var)) => *var,
+        Some(Operand::Variable(var)) => var.clone(),
         Some(Operand::Literal(_)) => panic!("literal not expected in variable mapping"),
         None => {
             if should_load {
                 let new_var = Variable {
                     variable_id: *next_var_id,
-                    ty: variable.ty,
+                    ty: variable.ty.clone(),
                 };
-                instrs.push(AdvancedInstr::Load(variable, new_var).into());
-                var_map.insert(variable.variable_id, Operand::Variable(new_var));
+                instrs.push(AdvancedInstr::Load(variable.clone(), new_var.clone()).into());
+                var_map.insert(variable.variable_id, Operand::Variable(new_var.clone()));
                 *next_var_id = next_var_id.successor();
                 new_var
             } else {

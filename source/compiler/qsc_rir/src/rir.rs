@@ -3,7 +3,10 @@
 
 use indenter::{Indented, indented};
 use qsc_data_structures::{index_map::IndexMap, target::TargetCapabilityFlags};
-use std::fmt::{self, Display, Formatter, Write};
+use std::{
+    fmt::{self, Display, Formatter, Write},
+    rc::Rc,
+};
 
 /// The root of the RIR.
 #[derive(Default, Clone)]
@@ -335,6 +338,8 @@ impl Display for FcmpConditionCode {
     }
 }
 
+// Note: the pattern for instructions that produce a value is to have the output
+// variable as the last argument.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Instruction {
     Store(Operand, Variable),
@@ -371,76 +376,76 @@ impl Display for Instruction {
     #[allow(clippy::too_many_lines)]
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match &self {
-            Self::Store(value, variable) => write_unary_instruction(f, "Store", value, *variable)?,
+            Self::Store(value, variable) => write_unary_instruction(f, "Store", value, variable)?,
             Self::Jump(block_id) => write!(f, "Jump({})", block_id.0)?,
             Self::Call(callable_id, args, variable) => {
-                write_call(f, *callable_id, args, *variable)?;
+                write_call(f, *callable_id, args, variable.as_ref())?;
             }
             Self::Branch(condition, if_true, if_false) => {
-                write_branch(f, *condition, *if_true, *if_false)?;
+                write_branch(f, condition, *if_true, *if_false)?;
             }
             Self::Add(lhs, rhs, variable) => {
-                write_binary_instruction(f, "Add", lhs, rhs, *variable)?;
+                write_binary_instruction(f, "Add", lhs, rhs, variable)?;
             }
             Self::Sub(lhs, rhs, variable) => {
-                write_binary_instruction(f, "Sub", lhs, rhs, *variable)?;
+                write_binary_instruction(f, "Sub", lhs, rhs, variable)?;
             }
             Self::Mul(lhs, rhs, variable) => {
-                write_binary_instruction(f, "Mul", lhs, rhs, *variable)?;
+                write_binary_instruction(f, "Mul", lhs, rhs, variable)?;
             }
             Self::Sdiv(lhs, rhs, variable) => {
-                write_binary_instruction(f, "Sdiv", lhs, rhs, *variable)?;
+                write_binary_instruction(f, "Sdiv", lhs, rhs, variable)?;
             }
             Self::LogicalNot(value, variable) => {
-                write_unary_instruction(f, "LogicalNot", value, *variable)?;
+                write_unary_instruction(f, "LogicalNot", value, variable)?;
             }
             Self::LogicalAnd(lhs, rhs, variable) => {
-                write_binary_instruction(f, "LogicalAnd", lhs, rhs, *variable)?;
+                write_binary_instruction(f, "LogicalAnd", lhs, rhs, variable)?;
             }
             Self::LogicalOr(lhs, rhs, variable) => {
-                write_binary_instruction(f, "LogicalOr", lhs, rhs, *variable)?;
+                write_binary_instruction(f, "LogicalOr", lhs, rhs, variable)?;
             }
             Self::BitwiseNot(value, variable) => {
-                write_unary_instruction(f, "BitwiseNot", value, *variable)?;
+                write_unary_instruction(f, "BitwiseNot", value, variable)?;
             }
             Self::BitwiseAnd(lhs, rhs, variable) => {
-                write_binary_instruction(f, "BitwiseAnd", lhs, rhs, *variable)?;
+                write_binary_instruction(f, "BitwiseAnd", lhs, rhs, variable)?;
             }
             Self::BitwiseOr(lhs, rhs, variable) => {
-                write_binary_instruction(f, "BitwiseOr", lhs, rhs, *variable)?;
+                write_binary_instruction(f, "BitwiseOr", lhs, rhs, variable)?;
             }
             Self::BitwiseXor(lhs, rhs, variable) => {
-                write_binary_instruction(f, "BitwiseXor", lhs, rhs, *variable)?;
+                write_binary_instruction(f, "BitwiseXor", lhs, rhs, variable)?;
             }
             Self::Srem(lhs, rhs, variable) => {
-                write_binary_instruction(f, "Srem", lhs, rhs, *variable)?;
+                write_binary_instruction(f, "Srem", lhs, rhs, variable)?;
             }
             Self::Shl(lhs, rhs, variable) => {
-                write_binary_instruction(f, "Shl", lhs, rhs, *variable)?;
+                write_binary_instruction(f, "Shl", lhs, rhs, variable)?;
             }
             Self::Ashr(lhs, rhs, variable) => {
-                write_binary_instruction(f, "Ashr", lhs, rhs, *variable)?;
+                write_binary_instruction(f, "Ashr", lhs, rhs, variable)?;
             }
             Self::Fadd(lhs, rhs, variable) => {
-                write_binary_instruction(f, "Fadd", lhs, rhs, *variable)?;
+                write_binary_instruction(f, "Fadd", lhs, rhs, variable)?;
             }
             Self::Fsub(lhs, rhs, variable) => {
-                write_binary_instruction(f, "Fsub", lhs, rhs, *variable)?;
+                write_binary_instruction(f, "Fsub", lhs, rhs, variable)?;
             }
             Self::Fmul(lhs, rhs, variable) => {
-                write_binary_instruction(f, "Fmul", lhs, rhs, *variable)?;
+                write_binary_instruction(f, "Fmul", lhs, rhs, variable)?;
             }
             Self::Fdiv(lhs, rhs, variable) => {
-                write_binary_instruction(f, "Fdiv", lhs, rhs, *variable)?;
+                write_binary_instruction(f, "Fdiv", lhs, rhs, variable)?;
             }
             Self::Fcmp(op, lhs, rhs, variable) => {
-                write_fcmp_instruction(f, *op, lhs, rhs, *variable)?;
+                write_fcmp_instruction(f, *op, lhs, rhs, variable)?;
             }
             Self::Icmp(op, lhs, rhs, variable) => {
-                write_icmp_instruction(f, *op, lhs, rhs, *variable)?;
+                write_icmp_instruction(f, *op, lhs, rhs, variable)?;
             }
             Self::Phi(args, variable) => {
-                write_phi_instruction(f, args, *variable)?;
+                write_phi_instruction(f, args, variable)?;
             }
             Self::Convert(operand, variable) => {
                 let mut indent = set_indentation(indented(f), 0);
@@ -455,10 +460,13 @@ impl Display for Instruction {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+// Note: the pattern for instructions that produce a value is to have the output
+// variable as the last argument.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AdvancedInstr {
     Load(Variable, Variable),
     Alloca(Variable),
+    Index(Variable, Operand, Variable),
 }
 
 impl From<AdvancedInstr> for Instruction {
@@ -482,11 +490,15 @@ impl Display for AdvancedInstr {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match &self {
             Self::Load(lhs, rhs) => {
-                write_unary_instruction(f, "Load", &Operand::Variable(*lhs), *rhs)?;
+                write_unary_instruction(f, "Load", &Operand::Variable(lhs.clone()), rhs)?;
             }
             Self::Alloca(variable) => {
                 let mut indent = set_indentation(indented(f), 0);
                 write!(indent, "{variable} = Alloca")?;
+            }
+            Self::Index(array_var, index_opr, result_var) => {
+                let mut indent = set_indentation(indented(f), 0);
+                write!(indent, "{result_var} = Index {array_var}, {index_opr}")?;
             }
         }
         Ok(())
@@ -515,7 +527,7 @@ impl From<usize> for VariableId {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Variable {
     pub variable_id: VariableId,
     pub ty: Ty,
@@ -563,7 +575,7 @@ impl Variable {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ty {
     Qubit,
     Result,
@@ -571,6 +583,7 @@ pub enum Ty {
     Integer,
     Double,
     Pointer,
+    Array(Rc<Ty>, usize),
 }
 
 impl Display for Ty {
@@ -582,12 +595,13 @@ impl Display for Ty {
             Self::Integer => write!(f, "Integer")?,
             Self::Double => write!(f, "Double")?,
             Self::Pointer => write!(f, "Pointer")?,
+            Self::Array(elem_ty, size) => write!(f, "Array({elem_ty}, {size})")?,
         }
         Ok(())
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Operand {
     Literal(Literal),
     Variable(Variable),
@@ -612,14 +626,15 @@ impl Operand {
                 Literal::Bool(_) => Ty::Boolean,
                 Literal::Integer(_) => Ty::Integer,
                 Literal::Double(_) => Ty::Double,
+                Literal::Array(array, ty) => Ty::Array(Rc::clone(ty), array.len()),
                 Literal::Pointer | Literal::Tag(..) | Literal::EmptyTag => Ty::Pointer,
             },
-            Operand::Variable(var) => var.ty,
+            Operand::Variable(var) => var.ty.clone(),
         }
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub enum Literal {
     Qubit(u32),
     Result(u32),
@@ -629,6 +644,7 @@ pub enum Literal {
     Tag(usize, usize),
     EmptyTag,
     Pointer,
+    Array(Rc<[Literal]>, Rc<Ty>),
 }
 
 impl Display for Literal {
@@ -642,6 +658,13 @@ impl Display for Literal {
             Self::Tag(idx, len) => write!(f, "Tag({idx}, {len})")?,
             Self::EmptyTag => write!(f, "EmptyTag")?,
             Self::Pointer => write!(f, "Pointer")?,
+            Self::Array(elements, elem_ty) => {
+                write!(f, "Array({elem_ty})[")?;
+                for element in elements.iter() {
+                    write!(f, " {element},")?;
+                }
+                write!(f, " ]")?;
+            }
         }
         Ok(())
     }
@@ -696,6 +719,23 @@ impl PartialEq for Literal {
                 }
             }
             Self::EmptyTag => *other == Self::EmptyTag,
+            Self::Array(self_elements, self_ty) => {
+                if let Self::Array(other_elements, other_ty) = other {
+                    if self_elements.len() != other_elements.len() {
+                        return false;
+                    }
+                    for (self_element, other_element) in
+                        self_elements.iter().zip(other_elements.iter())
+                    {
+                        if self_element != other_element {
+                            return false;
+                        }
+                    }
+                    self_ty == other_ty
+                } else {
+                    false
+                }
+            }
         }
     }
 }
@@ -719,7 +759,7 @@ fn write_binary_instruction(
     instruction: &str,
     lhs: &Operand,
     rhs: &Operand,
-    variable: Variable,
+    variable: &Variable,
 ) -> fmt::Result {
     let mut indent = set_indentation(indented(f), 0);
     write!(indent, "{variable} = {instruction} {lhs}, {rhs}")?;
@@ -728,7 +768,7 @@ fn write_binary_instruction(
 
 fn write_branch(
     f: &mut Formatter,
-    condition: Variable,
+    condition: &Variable,
     if_true: BlockId,
     if_false: BlockId,
 ) -> fmt::Result {
@@ -741,7 +781,7 @@ fn write_call(
     f: &mut Formatter,
     callable_id: CallableId,
     args: &[Operand],
-    variable: Option<Variable>,
+    variable: Option<&Variable>,
 ) -> fmt::Result {
     let mut indent = set_indentation(indented(f), 0);
     if let Some(variable) = variable {
@@ -759,7 +799,7 @@ fn write_unary_instruction(
     f: &mut Formatter,
     instruction: &str,
     value: &Operand,
-    variable: Variable,
+    variable: &Variable,
 ) -> fmt::Result {
     let mut indent = set_indentation(indented(f), 0);
     write!(indent, "{variable} = {instruction} {value}")?;
@@ -771,7 +811,7 @@ fn write_fcmp_instruction(
     condition: FcmpConditionCode,
     lhs: &Operand,
     rhs: &Operand,
-    variable: Variable,
+    variable: &Variable,
 ) -> fmt::Result {
     let mut indent = set_indentation(indented(f), 0);
     write!(indent, "{variable} = Fcmp {condition}, {lhs}, {rhs}")?;
@@ -783,7 +823,7 @@ fn write_icmp_instruction(
     condition: ConditionCode,
     lhs: &Operand,
     rhs: &Operand,
-    variable: Variable,
+    variable: &Variable,
 ) -> fmt::Result {
     let mut indent = set_indentation(indented(f), 0);
     write!(indent, "{variable} = Icmp {condition}, {lhs}, {rhs}")?;
@@ -793,7 +833,7 @@ fn write_icmp_instruction(
 fn write_phi_instruction(
     f: &mut Formatter,
     args: &[(Operand, BlockId)],
-    variable: Variable,
+    variable: &Variable,
 ) -> fmt::Result {
     let mut indent = set_indentation(indented(f), 0);
     write!(indent, "{variable} = Phi ( ")?;

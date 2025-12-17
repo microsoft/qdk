@@ -111,8 +111,11 @@ pub fn get_variable_assignments(program: &Program) -> IndexMap<VariableId, (Bloc
                     assignments.insert(var.variable_id, (block_id, idx));
                 }
                 Instruction::Store(_, var)
-                | Instruction::Advanced(AdvancedInstr::Alloca(var) | AdvancedInstr::Load(_, var)) =>
-                {
+                | Instruction::Advanced(
+                    AdvancedInstr::Alloca(var)
+                    | AdvancedInstr::Load(_, var)
+                    | AdvancedInstr::Index(_, _, var),
+                ) => {
                     has_store = true;
                     assignments.insert(var.variable_id, (block_id, idx));
                 }
@@ -159,7 +162,7 @@ pub(crate) fn map_variable_use_in_block(
             // Replace any arguments with the new values of stored variables.
             Instruction::Call(_, args, _) => {
                 *args = args
-                    .iter()
+                    .iter_mut()
                     .map(|arg| match arg {
                         Operand::Variable(var) => {
                             // If the variable is not in the map, it is not something whose value has been updated via store in this block,
@@ -167,7 +170,7 @@ pub(crate) fn map_variable_use_in_block(
                             // `map_to_operand` does this automatically by returning `self`` when the variable is not in the map.
                             var.map_to_operand(var_map)
                         }
-                        Operand::Literal(_) => *arg,
+                        Operand::Literal(_) => arg.clone(),
                     })
                     .collect();
             }
@@ -177,7 +180,8 @@ pub(crate) fn map_variable_use_in_block(
                 *var = var.map_to_variable(var_map);
             }
 
-            Instruction::Convert(operand, var) => {
+            Instruction::Advanced(AdvancedInstr::Index(var, operand, _))
+            | Instruction::Convert(operand, var) => {
                 *operand = operand.mapped(var_map);
                 *var = var.map_to_variable(var_map);
             }
@@ -227,9 +231,9 @@ pub(crate) fn map_variable_use_in_block(
 
 impl Operand {
     #[must_use]
-    pub fn mapped(&self, var_map: &FxHashMap<VariableId, Operand>) -> Operand {
+    pub fn mapped(&mut self, var_map: &FxHashMap<VariableId, Operand>) -> Operand {
         match self {
-            Operand::Literal(_) => *self,
+            Operand::Literal(_) => self.clone(),
             Operand::Variable(var) => var.map_to_operand(var_map),
         }
     }
@@ -237,27 +241,24 @@ impl Operand {
 
 impl Variable {
     #[must_use]
-    pub fn map_to_operand(self, var_map: &FxHashMap<VariableId, Operand>) -> Operand {
-        let mut var = self;
+    pub fn map_to_operand(&mut self, var_map: &FxHashMap<VariableId, Operand>) -> Operand {
+        let var = self;
         while let Some(operand) = var_map.get(&var.variable_id) {
             if let Operand::Variable(new_var) = operand {
-                var = *new_var;
+                *var = new_var.clone();
             } else {
-                return *operand;
+                return operand.clone();
             }
         }
-        Operand::Variable(var)
+        Operand::Variable(var.clone())
     }
 
     #[must_use]
-    pub fn map_to_variable(self, var_map: &FxHashMap<VariableId, Operand>) -> Variable {
-        let mut var = self;
-        while let Some(operand) = var_map.get(&var.variable_id) {
-            let Operand::Variable(new_var) = operand else {
-                panic!("literal not supported in this context");
-            };
-            var = *new_var;
+    pub fn map_to_variable(&mut self, var_map: &FxHashMap<VariableId, Operand>) -> Variable {
+        let var = self;
+        while let Some(Operand::Variable(new_var)) = var_map.get(&var.variable_id) {
+            *var = new_var.clone();
         }
-        var
+        var.clone()
     }
 }

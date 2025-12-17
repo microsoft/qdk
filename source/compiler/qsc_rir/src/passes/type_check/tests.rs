@@ -14,7 +14,7 @@ fn binop_instr_matching_types_passes_check() {
         variable_id: VariableId(0),
         ty: Ty::Integer,
     };
-    let opr1 = Operand::Variable(var);
+    let opr1 = Operand::Variable(var.clone());
     let opr2 = Operand::Literal(Literal::Integer(0));
 
     check_instr_types(&Program::new(), &Instruction::Add(opr1, opr2, var));
@@ -27,7 +27,7 @@ fn binop_instr_mismatching_types_fails_check() {
         variable_id: VariableId(0),
         ty: Ty::Integer,
     };
-    let opr1 = Operand::Variable(var);
+    let opr1 = Operand::Variable(var.clone());
     let opr2 = Operand::Literal(Literal::Bool(false));
 
     check_instr_types(&Program::new(), &Instruction::Add(opr1, opr2, var));
@@ -39,7 +39,7 @@ fn unop_instr_matching_types_passes_check() {
         variable_id: VariableId(0),
         ty: Ty::Boolean,
     };
-    let opr = Operand::Variable(var);
+    let opr = Operand::Variable(var.clone());
 
     check_instr_types(&Program::new(), &Instruction::BitwiseNot(opr, var));
 }
@@ -71,11 +71,11 @@ fn phi_instr_matching_types_passes_check() {
         variable_id: VariableId(0),
         ty: Ty::Integer,
     };
-    let opr = Operand::Variable(var);
+    let opr = Operand::Variable(var.clone());
 
     check_instr_types(
         &Program::new(),
-        &Instruction::Phi(vec![(opr, BlockId(0)), (opr, BlockId(1))], var),
+        &Instruction::Phi(vec![(opr.clone(), BlockId(0)), (opr, BlockId(1))], var),
     );
 }
 
@@ -91,7 +91,7 @@ fn phi_instr_mismatching_types_fails_check() {
     check_instr_types(
         &Program::new(),
         &Instruction::Phi(
-            vec![(opr, BlockId(0)), (opr, BlockId(1))],
+            vec![(opr.clone(), BlockId(0)), (opr, BlockId(1))],
             Variable {
                 variable_id: VariableId(1),
                 ty: Ty::Boolean,
@@ -220,7 +220,7 @@ fn call_instr_too_many_args_fails_check() {
         &program,
         &Instruction::Call(
             CallableId(0),
-            vec![opr, opr],
+            vec![opr.clone(), opr],
             Some(Variable {
                 variable_id: VariableId(1),
                 ty: Ty::Integer,

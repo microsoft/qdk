@@ -10,6 +10,8 @@ bitflags! {
         const IntegerComputations = 0b0000_0010;
         const FloatingPointComputations = 0b0000_0100;
         const BackwardsBranching = 0b0000_1000;
+        const StaticSizedArrays = 0b0001_0000;
+        const QubitVariables = 0b0010_0000;
         const HigherLevelConstructs = 0b1000_0000;
     }
 }
@@ -24,6 +26,8 @@ impl std::str::FromStr for TargetCapabilityFlags {
             "IntegerComputations" => Ok(TargetCapabilityFlags::IntegerComputations),
             "FloatingPointComputations" => Ok(TargetCapabilityFlags::FloatingPointComputations),
             "BackwardsBranching" => Ok(TargetCapabilityFlags::BackwardsBranching),
+            "StaticSizedArrays" => Ok(TargetCapabilityFlags::StaticSizedArrays),
+            "QubitVariables" => Ok(TargetCapabilityFlags::QubitVariables),
             "HigherLevelConstructs" => Ok(TargetCapabilityFlags::HigherLevelConstructs),
             "Unrestricted" => Ok(TargetCapabilityFlags::all()),
             _ => Err(()),
@@ -54,6 +58,7 @@ pub enum Profile {
     AdaptiveRI,
     AdaptiveRIF,
     Advanced,
+    Advanced2,
 }
 
 impl Profile {
@@ -65,6 +70,7 @@ impl Profile {
             Self::AdaptiveRI => "Adaptive_RI",
             Self::AdaptiveRIF => "Adaptive_RIF",
             Self::Advanced => "Advanced",
+            Self::Advanced2 => "Advanced2",
         }
     }
 }
@@ -84,6 +90,13 @@ impl From<Profile> for TargetCapabilityFlags {
                     | Self::FloatingPointComputations
                     | Self::BackwardsBranching
             }
+            Profile::Advanced2 => {
+                Self::Adaptive
+                    | Self::IntegerComputations
+                    | Self::FloatingPointComputations
+                    | Self::BackwardsBranching
+                    | Self::StaticSizedArrays
+            }
         }
     }
 }
@@ -98,6 +111,7 @@ impl FromStr for Profile {
             "base" => Ok(Self::Base),
             "unrestricted" => Ok(Self::Unrestricted),
             "advanced" => Ok(Self::Advanced),
+            "advanced2" => Ok(Self::Advanced2),
             _ => Err(()),
         }
     }

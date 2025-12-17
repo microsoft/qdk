@@ -19,8 +19,12 @@ fn inserts_alloca_and_load_for_branch_and_call() {
         (
             BlockId(0),
             Block(vec![
-                Instruction::Store(Operand::Literal(Literal::Bool(true)), stored_var),
-                Instruction::Call(CallableId(1), vec![Operand::Variable(stored_var)], None),
+                Instruction::Store(Operand::Literal(Literal::Bool(true)), stored_var.clone()),
+                Instruction::Call(
+                    CallableId(1),
+                    vec![Operand::Variable(stored_var.clone())],
+                    None,
+                ),
                 Instruction::Branch(stored_var, BlockId(1), BlockId(2)),
             ]),
         ),
@@ -56,10 +60,10 @@ fn reuses_single_load_within_block() {
     let mut program = Program::with_blocks(vec![(
         BlockId(0),
         Block(vec![
-            Instruction::Store(Operand::Literal(Literal::Integer(5)), stored_var),
+            Instruction::Store(Operand::Literal(Literal::Integer(5)), stored_var.clone()),
             Instruction::Add(
-                Operand::Variable(stored_var),
-                Operand::Variable(stored_var),
+                Operand::Variable(stored_var.clone()),
+                Operand::Variable(stored_var.clone()),
                 sum_var,
             ),
             Instruction::Call(CallableId(1), vec![Operand::Variable(stored_var)], None),
@@ -109,7 +113,7 @@ fn inserts_load_in_successor_block() {
         (
             BlockId(0),
             Block(vec![
-                Instruction::Store(Operand::Literal(Literal::Bool(false)), stored_var),
+                Instruction::Store(Operand::Literal(Literal::Bool(false)), stored_var.clone()),
                 Instruction::Jump(BlockId(1)),
             ]),
         ),

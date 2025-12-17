@@ -16,7 +16,9 @@ pub fn check_types(program: &Program) {
 
 fn check_instr_types(program: &Program, instr: &Instruction) {
     match instr {
-        Instruction::Call(id, args, var) => check_call_types(program.get_callable(*id), args, *var),
+        Instruction::Call(id, args, var) => {
+            check_call_types(program.get_callable(*id), args, var.as_ref());
+        }
 
         Instruction::Branch(var, _, _) => assert_eq!(var.ty, Ty::Boolean),
 
@@ -57,6 +59,14 @@ fn check_instr_types(program: &Program, instr: &Instruction) {
             }
         }
 
+        Instruction::Advanced(AdvancedInstr::Index(array, index, var)) => {
+            let Ty::Array(elem_ty, _) = &array.ty else {
+                panic!("expected array type for Index instruction");
+            };
+            assert_eq!(&var.ty, elem_ty.as_ref());
+            assert_eq!(index.get_type(), Ty::Integer);
+        }
+
         Instruction::Convert(..)
         | Instruction::Advanced(AdvancedInstr::Alloca(..) | AdvancedInstr::Load(..))
         | Instruction::Jump(_)
@@ -64,7 +74,7 @@ fn check_instr_types(program: &Program, instr: &Instruction) {
     }
 }
 
-fn check_call_types(callable: &Callable, args: &[Operand], var: Option<Variable>) {
+fn check_call_types(callable: &Callable, args: &[Operand], var: Option<&Variable>) {
     assert_eq!(
         callable.input_type.len(),
         args.len(),
@@ -74,8 +84,8 @@ fn check_call_types(callable: &Callable, args: &[Operand], var: Option<Variable>
         assert_eq!(arg.get_type(), *ty);
     }
 
-    match (var, callable.output_type) {
-        (Some(var), Some(ty)) => assert_eq!(ty, var.ty),
+    match (var, &callable.output_type) {
+        (Some(var), Some(ty)) => assert_eq!(*ty, var.ty),
         (None, None) => {}
         _ => panic!("expected return type to be present in both the instruction and the callable"),
     }

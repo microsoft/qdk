@@ -46,7 +46,7 @@ fn propagates_literal_within_block() {
     let mut program = Program::with_blocks(vec![(
         BlockId(0),
         Block(vec![
-            Instruction::Store(Operand::Literal(Literal::Bool(false)), stored_var),
+            Instruction::Store(Operand::Literal(Literal::Bool(false)), stored_var.clone()),
             Instruction::LogicalNot(
                 Operand::Variable(stored_var),
                 Variable::new_boolean(VariableId(1)),
@@ -80,7 +80,7 @@ fn keeps_store_for_cross_block_use() {
         (
             BlockId(0),
             Block(vec![
-                Instruction::Store(Operand::Literal(Literal::Bool(true)), stored_var),
+                Instruction::Store(Operand::Literal(Literal::Bool(true)), stored_var.clone()),
                 Instruction::Jump(BlockId(1)),
             ]),
         ),
@@ -130,8 +130,8 @@ fn removes_overwritten_store_and_keeps_last_value() {
     let mut program = Program::with_blocks(vec![(
         BlockId(0),
         Block(vec![
-            Instruction::Store(Operand::Literal(Literal::Bool(true)), stored_var),
-            Instruction::Store(Operand::Literal(Literal::Bool(false)), stored_var),
+            Instruction::Store(Operand::Literal(Literal::Bool(true)), stored_var.clone()),
+            Instruction::Store(Operand::Literal(Literal::Bool(false)), stored_var.clone()),
             Instruction::Call(CallableId(1), vec![Operand::Variable(stored_var)], None),
             Instruction::Return,
         ]),
@@ -163,8 +163,8 @@ fn propagates_chained_stores() {
     let mut program = Program::with_blocks(vec![(
         BlockId(0),
         Block(vec![
-            Instruction::Store(Operand::Literal(Literal::Bool(true)), source_var),
-            Instruction::Store(Operand::Variable(source_var), alias_var),
+            Instruction::Store(Operand::Literal(Literal::Bool(true)), source_var.clone()),
+            Instruction::Store(Operand::Variable(source_var.clone()), alias_var.clone()),
             Instruction::Call(CallableId(1), vec![Operand::Variable(alias_var)], None),
             Instruction::Return,
         ]),

@@ -17,7 +17,7 @@ pub trait ToQir<T> {
 }
 
 impl ToQir<String> for rir::Literal {
-    fn to_qir(&self, _program: &rir::Program) -> String {
+    fn to_qir(&self, program: &rir::Program) -> String {
         match self {
             rir::Literal::Bool(b) => format!("i1 {b}"),
             rir::Literal::Double(d) => {
@@ -35,6 +35,18 @@ impl ToQir<String> for rir::Literal {
             rir::Literal::Result(r) => format!("ptr inttoptr (i64 {r} to ptr)"),
             rir::Literal::Tag(idx, _) => format!("ptr @{idx}"),
             rir::Literal::EmptyTag => "ptr @empty_tag".to_string(),
+            rir::Literal::Array(array, ty) => {
+                format!(
+                    "[{} x {}] [",
+                    array.len(),
+                    ToQir::<String>::to_qir(ty.as_ref(), program)
+                ) + &array
+                    .iter()
+                    .map(|elem| elem.to_qir(program))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+                    + " ]"
+            }
         }
     }
 }
@@ -46,6 +58,13 @@ impl ToQir<String> for rir::Ty {
             rir::Ty::Double => "double".to_string(),
             rir::Ty::Integer => "i64".to_string(),
             rir::Ty::Pointer | rir::Ty::Qubit | rir::Ty::Result => "ptr".to_string(),
+            rir::Ty::Array(ty, size) => {
+                format!(
+                    "[{} x {}]",
+                    size,
+                    ToQir::<String>::to_qir(ty.as_ref(), &rir::Program::default())
+                )
+            }
         }
     }
 }
@@ -124,22 +143,22 @@ impl ToQir<String> for rir::Instruction {
     fn to_qir(&self, program: &rir::Program) -> String {
         match self {
             rir::Instruction::Add(lhs, rhs, variable) => {
-                binop_to_qir("add", lhs, rhs, *variable, program)
+                binop_to_qir("add", lhs, rhs, variable, program)
             }
             rir::Instruction::Ashr(lhs, rhs, variable) => {
-                binop_to_qir("ashr", lhs, rhs, *variable, program)
+                binop_to_qir("ashr", lhs, rhs, variable, program)
             }
             rir::Instruction::BitwiseAnd(lhs, rhs, variable) => {
-                simple_bitwise_to_qir("and", lhs, rhs, *variable, program)
+                simple_bitwise_to_qir("and", lhs, rhs, variable, program)
             }
             rir::Instruction::BitwiseNot(value, variable) => {
-                bitwise_not_to_qir(value, *variable, program)
+                bitwise_not_to_qir(value, variable, program)
             }
             rir::Instruction::BitwiseOr(lhs, rhs, variable) => {
-                simple_bitwise_to_qir("or", lhs, rhs, *variable, program)
+                simple_bitwise_to_qir("or", lhs, rhs, variable, program)
             }
             rir::Instruction::BitwiseXor(lhs, rhs, variable) => {
-                simple_bitwise_to_qir("xor", lhs, rhs, *variable, program)
+                simple_bitwise_to_qir("xor", lhs, rhs, variable, program)
             }
             rir::Instruction::Branch(cond, true_id, false_id) => {
                 format!(
@@ -150,60 +169,58 @@ impl ToQir<String> for rir::Instruction {
                 )
             }
             rir::Instruction::Call(call_id, args, output) => {
-                call_to_qir(args, *call_id, *output, program)
+                call_to_qir(args, *call_id, output.as_ref(), program)
             }
             rir::Instruction::Fadd(lhs, rhs, variable) => {
-                fbinop_to_qir("fadd", lhs, rhs, *variable, program)
+                fbinop_to_qir("fadd", lhs, rhs, variable, program)
             }
             rir::Instruction::Fdiv(lhs, rhs, variable) => {
-                fbinop_to_qir("fdiv", lhs, rhs, *variable, program)
+                fbinop_to_qir("fdiv", lhs, rhs, variable, program)
             }
             rir::Instruction::Fmul(lhs, rhs, variable) => {
-                fbinop_to_qir("fmul", lhs, rhs, *variable, program)
+                fbinop_to_qir("fmul", lhs, rhs, variable, program)
             }
             rir::Instruction::Fsub(lhs, rhs, variable) => {
-                fbinop_to_qir("fsub", lhs, rhs, *variable, program)
+                fbinop_to_qir("fsub", lhs, rhs, variable, program)
             }
             rir::Instruction::LogicalAnd(lhs, rhs, variable) => {
-                logical_binop_to_qir("and", lhs, rhs, *variable, program)
+                logical_binop_to_qir("and", lhs, rhs, variable, program)
             }
             rir::Instruction::LogicalNot(value, variable) => {
-                logical_not_to_qir(value, *variable, program)
+                logical_not_to_qir(value, variable, program)
             }
             rir::Instruction::LogicalOr(lhs, rhs, variable) => {
-                logical_binop_to_qir("or", lhs, rhs, *variable, program)
+                logical_binop_to_qir("or", lhs, rhs, variable, program)
             }
             rir::Instruction::Mul(lhs, rhs, variable) => {
-                binop_to_qir("mul", lhs, rhs, *variable, program)
+                binop_to_qir("mul", lhs, rhs, variable, program)
             }
             rir::Instruction::Fcmp(op, lhs, rhs, variable) => {
-                fcmp_to_qir(*op, lhs, rhs, *variable, program)
+                fcmp_to_qir(*op, lhs, rhs, variable, program)
             }
             rir::Instruction::Icmp(op, lhs, rhs, variable) => {
-                icmp_to_qir(*op, lhs, rhs, *variable, program)
+                icmp_to_qir(*op, lhs, rhs, variable, program)
             }
             rir::Instruction::Jump(block_id) => {
                 format!("  br label %{}", ToQir::<String>::to_qir(block_id, program))
             }
-            rir::Instruction::Phi(args, variable) => phi_to_qir(args, *variable, program),
+            rir::Instruction::Phi(args, variable) => phi_to_qir(args, variable, program),
             rir::Instruction::Return => "  ret i64 0".to_string(),
             rir::Instruction::Sdiv(lhs, rhs, variable) => {
-                binop_to_qir("sdiv", lhs, rhs, *variable, program)
+                binop_to_qir("sdiv", lhs, rhs, variable, program)
             }
             rir::Instruction::Shl(lhs, rhs, variable) => {
-                binop_to_qir("shl", lhs, rhs, *variable, program)
+                binop_to_qir("shl", lhs, rhs, variable, program)
             }
             rir::Instruction::Srem(lhs, rhs, variable) => {
-                binop_to_qir("srem", lhs, rhs, *variable, program)
+                binop_to_qir("srem", lhs, rhs, variable, program)
             }
-            rir::Instruction::Store(operand, variable) => {
-                store_to_qir(*operand, *variable, program)
-            }
+            rir::Instruction::Store(operand, variable) => store_to_qir(operand, variable, program),
             rir::Instruction::Sub(lhs, rhs, variable) => {
-                binop_to_qir("sub", lhs, rhs, *variable, program)
+                binop_to_qir("sub", lhs, rhs, variable, program)
             }
             rir::Instruction::Convert(operand, variable) => {
-                convert_to_qir(operand, *variable, program)
+                convert_to_qir(operand, variable, program)
             }
             rir::Instruction::Advanced(instr) => ToQir::<String>::to_qir(instr, program),
         }
@@ -213,15 +230,35 @@ impl ToQir<String> for rir::Instruction {
 impl ToQir<String> for rir::AdvancedInstr {
     fn to_qir(&self, program: &rir::Program) -> String {
         match self {
-            rir::AdvancedInstr::Alloca(variable) => alloca_to_qir(*variable, program),
-            rir::AdvancedInstr::Load(var_from, var_to) => load_to_qir(*var_from, *var_to, program),
+            rir::AdvancedInstr::Alloca(variable) => alloca_to_qir(variable, program),
+            rir::AdvancedInstr::Load(var_from, var_to) => load_to_qir(var_from, var_to, program),
+            rir::AdvancedInstr::Index(array_var, index_op, result_var) => {
+                index_to_qir(array_var, index_op, result_var, program)
+            }
         }
     }
 }
 
+fn index_to_qir(
+    array_var: &rir::Variable,
+    index_op: &rir::Operand,
+    result_var: &rir::Variable,
+    program: &rir::Program,
+) -> String {
+    // Only need to emit the getelementptr instruction here, as passes are expected to insert the subsequent load instruction.
+    format!(
+        "  {} = getelementptr {}, ptr {}, {} {}",
+        ToQir::<String>::to_qir(&result_var.variable_id, program),
+        ToQir::<String>::to_qir(&result_var.ty, program),
+        ToQir::<String>::to_qir(&array_var.variable_id, program),
+        get_value_ty(index_op),
+        get_value_as_str(index_op, program)
+    )
+}
+
 fn convert_to_qir(
     operand: &rir::Operand,
-    variable: rir::Variable,
+    variable: &rir::Variable,
     program: &rir::Program,
 ) -> String {
     let operand_ty = get_value_ty(operand);
@@ -231,7 +268,7 @@ fn convert_to_qir(
         "input/output types ({operand_ty}, {var_ty}) should not match in convert"
     );
 
-    let convert_instr = match (operand_ty, var_ty) {
+    let convert_instr = match (operand_ty.as_str(), var_ty.as_str()) {
         ("i64", "double") => "sitofp i64",
         ("double", "i64") => "fptosi double",
         _ => panic!("unsupported conversion from {operand_ty} to {var_ty} in convert instruction"),
@@ -244,16 +281,20 @@ fn convert_to_qir(
     )
 }
 
-fn store_to_qir(operand: rir::Operand, variable: rir::Variable, program: &rir::Program) -> String {
-    let op_ty = get_value_ty(&operand);
+fn store_to_qir(
+    operand: &rir::Operand,
+    variable: &rir::Variable,
+    program: &rir::Program,
+) -> String {
+    let op_ty = get_value_ty(operand);
     format!(
         "  store {op_ty} {}, ptr {}",
-        get_value_as_str(&operand, program),
+        get_value_as_str(operand, program),
         ToQir::<String>::to_qir(&variable.variable_id, program)
     )
 }
 
-fn load_to_qir(var_from: rir::Variable, var_to: rir::Variable, program: &rir::Program) -> String {
+fn load_to_qir(var_from: &rir::Variable, var_to: &rir::Variable, program: &rir::Program) -> String {
     let var_to_ty = get_variable_ty(var_to);
     format!(
         "  {} = load {var_to_ty}, ptr {}",
@@ -262,7 +303,7 @@ fn load_to_qir(var_from: rir::Variable, var_to: rir::Variable, program: &rir::Pr
     )
 }
 
-fn alloca_to_qir(variable: rir::Variable, program: &rir::Program) -> String {
+fn alloca_to_qir(variable: &rir::Variable, program: &rir::Program) -> String {
     let variable_ty = get_variable_ty(variable);
     format!(
         "  {} = alloca {variable_ty}",
@@ -272,7 +313,7 @@ fn alloca_to_qir(variable: rir::Variable, program: &rir::Program) -> String {
 
 pub(crate) fn logical_not_to_qir(
     value: &rir::Operand,
-    variable: rir::Variable,
+    variable: &rir::Variable,
     program: &rir::Program,
 ) -> String {
     let value_ty = get_value_ty(value);
@@ -294,7 +335,7 @@ pub(crate) fn logical_binop_to_qir(
     op: &str,
     lhs: &rir::Operand,
     rhs: &rir::Operand,
-    variable: rir::Variable,
+    variable: &rir::Variable,
     program: &rir::Program,
 ) -> String {
     let lhs_ty = get_value_ty(lhs);
@@ -320,7 +361,7 @@ pub(crate) fn logical_binop_to_qir(
 
 pub(crate) fn bitwise_not_to_qir(
     value: &rir::Operand,
-    variable: rir::Variable,
+    variable: &rir::Variable,
     program: &rir::Program,
 ) -> String {
     let value_ty = get_value_ty(value);
@@ -341,7 +382,7 @@ pub(crate) fn bitwise_not_to_qir(
 pub(crate) fn call_to_qir(
     args: &[rir::Operand],
     call_id: rir::CallableId,
-    output: Option<rir::Variable>,
+    output: Option<&rir::Variable>,
     program: &rir::Program,
 ) -> String {
     let args = args
@@ -370,7 +411,7 @@ pub(crate) fn fcmp_to_qir(
     op: FcmpConditionCode,
     lhs: &rir::Operand,
     rhs: &rir::Operand,
-    variable: rir::Variable,
+    variable: &rir::Variable,
     program: &rir::Program,
 ) -> String {
     let lhs_ty = get_value_ty(lhs);
@@ -395,7 +436,7 @@ pub(crate) fn icmp_to_qir(
     op: ConditionCode,
     lhs: &rir::Operand,
     rhs: &rir::Operand,
-    variable: rir::Variable,
+    variable: &rir::Variable,
     program: &rir::Program,
 ) -> String {
     let lhs_ty = get_value_ty(lhs);
@@ -420,7 +461,7 @@ pub(crate) fn binop_to_qir(
     op: &str,
     lhs: &rir::Operand,
     rhs: &rir::Operand,
-    variable: rir::Variable,
+    variable: &rir::Variable,
     program: &rir::Program,
 ) -> String {
     let lhs_ty = get_value_ty(lhs);
@@ -448,7 +489,7 @@ pub(crate) fn fbinop_to_qir(
     op: &str,
     lhs: &rir::Operand,
     rhs: &rir::Operand,
-    variable: rir::Variable,
+    variable: &rir::Variable,
     program: &rir::Program,
 ) -> String {
     let lhs_ty = get_value_ty(lhs);
@@ -476,7 +517,7 @@ pub(crate) fn simple_bitwise_to_qir(
     op: &str,
     lhs: &rir::Operand,
     rhs: &rir::Operand,
-    variable: rir::Variable,
+    variable: &rir::Variable,
     program: &rir::Program,
 ) -> String {
     let lhs_ty = get_value_ty(lhs);
@@ -502,7 +543,7 @@ pub(crate) fn simple_bitwise_to_qir(
 
 pub(crate) fn phi_to_qir(
     args: &[(rir::Operand, rir::BlockId)],
-    variable: rir::Variable,
+    variable: &rir::Variable,
     program: &rir::Program,
 ) -> String {
     assert!(
@@ -553,33 +594,53 @@ pub(crate) fn get_value_as_str(value: &rir::Operand, program: &rir::Program) -> 
             rir::Literal::Tag(..) | rir::Literal::EmptyTag => panic!(
                 "tag literals should not be used as string values outside of output recording"
             ),
+            rir::Literal::Array(array, _) => {
+                format!(
+                    "[{}]",
+                    &array
+                        .iter()
+                        .map(|elem| ToQir::<String>::to_qir(elem, program))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            }
         },
         rir::Operand::Variable(var) => ToQir::<String>::to_qir(&var.variable_id, program),
     }
 }
 
-pub(crate) fn get_value_ty(lhs: &rir::Operand) -> &str {
+pub(crate) fn get_value_ty(lhs: &rir::Operand) -> String {
     match lhs {
         rir::Operand::Literal(lit) => match lit {
-            rir::Literal::Integer(_) => "i64",
-            rir::Literal::Bool(_) => "i1",
-            rir::Literal::Double(_) => get_f64_ty(),
+            rir::Literal::Integer(_) => "i64".to_string(),
+            rir::Literal::Bool(_) => "i1".to_string(),
+            rir::Literal::Double(_) => get_f64_ty().to_string(),
             rir::Literal::Qubit(_)
             | rir::Literal::Result(_)
             | rir::Literal::Pointer
             | rir::Literal::Tag(..)
-            | rir::Literal::EmptyTag => "ptr",
+            | rir::Literal::EmptyTag => "ptr".to_string(),
+            rir::Literal::Array(array, ty) => format!(
+                "[{} x {}]",
+                array.len(),
+                ToQir::<String>::to_qir(ty.as_ref(), &rir::Program::default())
+            ),
         },
-        rir::Operand::Variable(var) => get_variable_ty(*var),
+        rir::Operand::Variable(var) => get_variable_ty(var).to_string(),
     }
 }
 
-pub(crate) fn get_variable_ty(variable: rir::Variable) -> &'static str {
-    match variable.ty {
-        rir::Ty::Integer => "i64",
-        rir::Ty::Boolean => "i1",
-        rir::Ty::Double => get_f64_ty(),
-        rir::Ty::Qubit | rir::Ty::Result | rir::Ty::Pointer => "ptr",
+pub(crate) fn get_variable_ty(variable: &rir::Variable) -> String {
+    match &variable.ty {
+        rir::Ty::Integer => "i64".to_string(),
+        rir::Ty::Boolean => "i1".to_string(),
+        rir::Ty::Double => get_f64_ty().to_string(),
+        rir::Ty::Qubit | rir::Ty::Result | rir::Ty::Pointer => "ptr".to_string(),
+        rir::Ty::Array(ty, size) => format!(
+            "[{} x {}]",
+            size,
+            ToQir::<String>::to_qir(ty.as_ref(), &rir::Program::default())
+        ),
     }
 }
 

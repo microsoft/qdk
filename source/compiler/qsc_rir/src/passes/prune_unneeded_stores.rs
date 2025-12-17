@@ -33,14 +33,25 @@ fn process_callable(program: &mut Program, callable_id: CallableId) {
     while let Some(block_id) = blocks_to_visit.pop() {
         visited_blocks.insert(block_id);
         let mut used_vars_in_block = FxHashSet::default();
+        let mut gep_vars_in_block = FxHashSet::default();
         let stored_vars_before_block = stored_vars.clone();
-        check_var_usage(program, block_id, &mut stored_vars, &mut used_vars_in_block);
+        check_var_usage(
+            program,
+            block_id,
+            &mut stored_vars,
+            &mut used_vars_in_block,
+            &mut gep_vars_in_block,
+        );
 
         for var in used_vars_in_block {
-            if !used_vars.insert(var) || stored_vars_before_block.contains(&var) {
+            if !used_vars.insert(var)
+                || stored_vars_before_block.contains(&var)
+                || gep_vars_in_block.contains(&var)
+            {
                 // This variable was already marked as used, which means it is used cross-block.
-                // Alternatively, the variable was stored before this block and is used here.
-                // Either means we shouldn't try to transform stores to this variable away.
+                // OR the variable was stored before this block and is used here.
+                // OR it is used in a getelementptr instruction.
+                // Any of these means we shouldn't try to transform stores to this variable away.
                 cross_block_used_vars.insert(var);
             }
         }
@@ -94,6 +105,7 @@ fn check_var_usage(
     block_id: crate::rir::BlockId,
     stored_vars: &mut FxHashSet<VariableId>,
     used_vars: &mut FxHashSet<VariableId>,
+    gep_vars: &mut FxHashSet<VariableId>,
 ) {
     let block = program.get_block(block_id);
     for instr in &block.0 {
@@ -160,6 +172,18 @@ fn check_var_usage(
                     "not instructions should not use stored variables for capturing return values"
                 );
                 used_vars.insert(variable.variable_id);
+            }
+            Instruction::Advanced(AdvancedInstr::Index(variable1, operand, variable2)) => {
+                if let crate::rir::Operand::Variable(var) = operand {
+                    used_vars.insert(var.variable_id);
+                }
+                used_vars.insert(variable1.variable_id);
+                gep_vars.insert(variable1.variable_id);
+                assert!(
+                    !stored_vars.contains(&variable2.variable_id),
+                    "index instructions should not use stored variables for capturing return values"
+                );
+                used_vars.insert(variable2.variable_id);
             }
 
             Instruction::Advanced(AdvancedInstr::Load(..)) => {

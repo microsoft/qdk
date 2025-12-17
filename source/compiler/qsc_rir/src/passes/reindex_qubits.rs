@@ -184,10 +184,10 @@ impl ReindexQubitPass {
                                         self.highest_used_id = self.highest_used_id.max(*mapped_id);
                                         Operand::Literal(Literal::Qubit(*mapped_id))
                                     }
-                                    None => *arg,
+                                    None => arg.clone(),
                                 }
                             }
-                            _ => *arg,
+                            _ => arg.clone(),
                         })
                         .collect::<Vec<_>>();
 
@@ -205,7 +205,7 @@ impl ReindexQubitPass {
                             block.0.push(Instruction::Call(
                                 self.cx_id,
                                 vec![
-                                    new_args[0],
+                                    new_args[0].clone(),
                                     Operand::Literal(Literal::Qubit(qubit_map.next_qubit_id)),
                                 ],
                                 None,
