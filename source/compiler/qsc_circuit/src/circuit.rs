@@ -4,7 +4,7 @@
 #[cfg(test)]
 mod tests;
 
-use qsc_fir::fir::PackageId;
+use qsc_eval::backend::PackageOffset;
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -354,12 +354,6 @@ pub enum SourceLocation {
     Resolved(ResolvedSourceLocation),
     #[serde(skip)]
     Unresolved(PackageOffset),
-}
-
-#[derive(Clone, Debug, Copy, PartialEq, Eq)]
-pub struct PackageOffset {
-    pub package_id: PackageId,
-    pub offset: u32,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]

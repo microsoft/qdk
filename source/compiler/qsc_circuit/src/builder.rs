@@ -7,8 +7,8 @@ mod tests;
 use crate::{
     ComponentColumn,
     circuit::{
-        Circuit, Ket, Measurement, Metadata, Operation, PackageOffset, Qubit, Register,
-        ResolvedSourceLocation, SourceLocation, Unitary, operation_list_to_grid,
+        Circuit, Ket, Measurement, Metadata, Operation, Qubit, Register, ResolvedSourceLocation,
+        SourceLocation, Unitary, operation_list_to_grid,
     },
     operations::QubitParam,
 };
@@ -18,19 +18,19 @@ use qsc_data_structures::{
     line_column::{Encoding, Position},
 };
 use qsc_eval::{
-    backend::Tracer,
-    debug::Frame,
+    StackTrace,
+    backend::{PackageOffset, Scope, SymbolicStackTrace, SymbolicStackTraceEntry, Tracer},
     val::{self, Value},
 };
-use qsc_fir::fir::{self, PackageId, StoreItemId};
-use qsc_frontend::compile::PackageStore;
+use qsc_fir::fir::{self, BlockId, PackageId, PackageLookup};
+use qsc_frontend::compile::{self};
 use qsc_hir::hir;
 use qsc_lowerer::{map_fir_local_item_to_hir, map_fir_package_to_hir};
 use rustc_hash::FxHashSet;
 use std::{
-    fmt::{Debug, Write},
+    fmt::{Debug, Display, Write},
     hash::Hash,
-    mem::replace,
+    mem::{replace, take},
     rc::Rc,
 };
 
@@ -45,29 +45,42 @@ pub struct CircuitTracer {
 }
 
 impl Tracer for CircuitTracer {
-    fn qubit_allocate(&mut self, stack: &[Frame], q: usize) {
-        let declared_at = self.user_code_call_location(stack);
+    fn qubit_allocate(&mut self, stack: &StackTrace, q: usize) {
+        // TODO: allocate qubits in a loop and see what happens
+        let declared_at = self
+            .config
+            .source_locations
+            .then_some(stack)
+            .and_then(|stack| {
+                retain_user_frames(
+                    &self.user_package_ids,
+                    SymbolicStackTrace::from_trace(stack),
+                )
+                .0
+                .last()
+                .and_then(SymbolicStackTraceEntry::source_location)
+            });
         self.wire_map_builder.map_qubit(q, declared_at);
     }
 
-    fn qubit_release(&mut self, _stack: &[Frame], q: usize) {
+    fn qubit_release(&mut self, _stack: &StackTrace, q: usize) {
         self.wire_map_builder.unmap_qubit(q);
     }
 
-    fn qubit_swap_id(&mut self, _stack: &[Frame], q0: usize, q1: usize) {
+    fn qubit_swap_id(&mut self, _stack: &StackTrace, q0: usize, q1: usize) {
         self.wire_map_builder.swap(q0, q1);
     }
 
     fn gate(
         &mut self,
-        stack: &[Frame],
+        stack: &StackTrace,
         name: &str,
         is_adjoint: bool,
         targets: &[usize],
         controls: &[usize],
         theta: Option<f64>,
     ) {
-        let called_at = map_stack_frames_to_locations(stack);
+        let called_at = SymbolicStackTrace::from_trace(stack);
         let display_args: Vec<String> = theta.map(|p| format!("{p:.4}")).into_iter().collect();
         self.circuit_builder.gate(
             self.wire_map_builder.current(),
@@ -79,8 +92,8 @@ impl Tracer for CircuitTracer {
         );
     }
 
-    fn measure(&mut self, stack: &[Frame], name: &str, q: usize, val: &val::Result) {
-        let called_at = map_stack_frames_to_locations(stack);
+    fn measure(&mut self, stack: &StackTrace, name: &str, q: usize, val: &val::Result) {
+        let called_at = SymbolicStackTrace::from_trace(stack);
         let r = match val {
             val::Result::Id(id) => *id,
             val::Result::Loss | val::Result::Val(_) => {
@@ -99,13 +112,13 @@ impl Tracer for CircuitTracer {
         }
     }
 
-    fn reset(&mut self, stack: &[Frame], q: usize) {
-        let called_at = map_stack_frames_to_locations(stack);
+    fn reset(&mut self, stack: &StackTrace, q: usize) {
+        let called_at = SymbolicStackTrace::from_trace(stack);
         self.circuit_builder
             .reset(self.wire_map_builder.current(), q, called_at);
     }
 
-    fn custom_intrinsic(&mut self, stack: &[Frame], name: &str, arg: Value) {
+    fn custom_intrinsic(&mut self, stack: &StackTrace, name: &str, arg: Value) {
         // The qubit arguments are treated as the targets for custom gates.
         // Any remaining arguments will be kept in the display_args field
         // to be shown as part of the gate label when the circuit is rendered.
@@ -129,7 +142,7 @@ impl Tracer for CircuitTracer {
             } else {
                 vec![classical_args]
             },
-            map_stack_frames_to_locations(stack),
+            SymbolicStackTrace::from_trace(stack),
         );
     }
 
@@ -220,9 +233,16 @@ impl CircuitTracer {
         operations: &[OperationOrGroup],
         source_lookup: &impl SourceLookup,
     ) -> Circuit {
+        let mut operations = operations.to_vec();
+
+        if self.config.group_by_scope {
+            // Collapse unnecessary loop scopes
+            collapse_unnecessary_loop_scopes(&mut operations);
+        }
+
         let operations = operations
-            .iter()
-            .map(|o| o.clone().into_operation(source_lookup))
+            .into_iter()
+            .map(|o| o.into_operation(source_lookup))
             .collect();
 
         finish_circuit(
@@ -304,29 +324,6 @@ impl CircuitTracer {
             classical_args.pop();
         }
     }
-
-    fn user_code_call_location(&self, stack: &[Frame]) -> Option<PackageOffset> {
-        if !self.config.source_locations || stack.is_empty() || self.user_package_ids.is_empty() {
-            return None;
-        }
-        first_user_code_location(&self.user_package_ids, stack)
-    }
-}
-
-fn first_user_code_location(
-    user_package_ids: &[PackageId],
-    stack: &[Frame],
-) -> Option<PackageOffset> {
-    for frame in stack.iter().rev() {
-        if user_package_ids.contains(&frame.id.package) {
-            return Some(PackageOffset {
-                package_id: frame.id.package,
-                offset: frame.span.lo,
-            });
-        }
-    }
-
-    None
 }
 
 fn finish_circuit(
@@ -349,14 +346,77 @@ fn finish_circuit(
     }
 }
 
-pub trait SourceLookup {
-    fn resolve_location(&self, package_offset: &PackageOffset) -> ResolvedSourceLocation;
-    fn resolve_scope(&self, scope: ScopeId) -> LexicalScope;
+fn collapse_unnecessary_loop_scopes(operations: &mut Vec<OperationOrGroup>) {
+    let mut ops = vec![];
+    for mut op in operations.drain(..) {
+        match &mut op.kind {
+            OperationOrGroupKind::Single => {}
+            OperationOrGroupKind::Group { children, .. } => {
+                collapse_unnecessary_loop_scopes(children);
+            }
+        }
+
+        if let Some(children) = collapse_if_unnecessary(&mut op) {
+            ops.extend(children);
+        } else {
+            ops.push(op);
+        }
+    }
+    *operations = ops;
 }
 
-impl SourceLookup for PackageStore {
+/// If the given operation or group is an outer loop scope that can be collapsed,
+/// returns its children operations or groups.
+///
+/// An unnecessary loop scope is one that either has a single child operation/group,
+/// or has multiple children that each operate on distinct sets of qubits.
+fn collapse_if_unnecessary(op: &mut OperationOrGroup) -> Option<Vec<OperationOrGroup>> {
+    if let OperationOrGroupKind::Group {
+        scope_stack,
+        children,
+    } = &mut op.kind
+        && let Scope::LoopContainer(..) = scope_stack.current_lexical_scope()
+    {
+        if children.len() == 1 {
+            // remove the loop scope
+            let mut only_child = children.remove(0);
+            let OperationOrGroupKind::Group { children, .. } = &mut only_child.kind else {
+                panic!("only child of an outer loop scope should be a group");
+            };
+            return Some(take(children));
+        }
+
+        // now, if each c applies to a distinct set of qubits, this loop is entirely vertical and can be collapsed as well
+        let mut distinct_sets_of_qubits = FxHashSet::default();
+        for child_op in children.iter() {
+            let qs = child_op.all_qubits();
+            if !distinct_sets_of_qubits.insert(qs) {
+                // There's overlap, so we won't collapse
+                return None;
+            }
+        }
+        let mut all_children = vec![];
+        for mut child_op in children.drain(..) {
+            let OperationOrGroupKind::Group { children, .. } = &mut child_op.kind else {
+                panic!("only child of an outer loop scope should be a group");
+            };
+            all_children.extend(take(children));
+        }
+        return Some(all_children);
+    }
+    None
+}
+
+pub trait SourceLookup {
+    fn resolve_location(&self, package_offset: &PackageOffset) -> ResolvedSourceLocation;
+    fn resolve_scope(&self, scope: Scope) -> LexicalScope;
+    fn resolve_block(&self, block: BlockId) -> String;
+}
+
+impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
     fn resolve_location(&self, package_offset: &PackageOffset) -> ResolvedSourceLocation {
-        let package = self
+        let package_store = self.0;
+        let package = package_store
             .get(map_fir_package_to_hir(package_offset.package_id))
             .expect("package id must exist in store");
 
@@ -378,42 +438,87 @@ impl SourceLookup for PackageStore {
         }
     }
 
-    fn resolve_scope(&self, scope_id: ScopeId) -> LexicalScope {
-        let ScopeId(item_id, functor_app) = scope_id;
-        let package = self
-            .get(map_fir_package_to_hir(item_id.package))
-            .expect("package id must exist in store");
+    fn resolve_scope(&self, scope_id: Scope) -> LexicalScope {
+        match scope_id {
+            Scope::Callable(store_item_id, functor_app) => {
+                let package_store = self.0;
+                let package = package_store
+                    .get(map_fir_package_to_hir(store_item_id.package))
+                    .expect("package id must exist in store");
 
-        let item = package
-            .package
-            .items
-            .get(map_fir_local_item_to_hir(item_id.item))
-            .expect("item id must exist in package");
+                let item = package
+                    .package
+                    .items
+                    .get(map_fir_local_item_to_hir(store_item_id.item))
+                    .expect("item id must exist in package");
 
-        let hir::ItemKind::Callable(callable_decl) = &item.kind else {
-            panic!("only callables should be in the stack");
-        };
+                let (scope_offset, scope_name) = match &item.kind {
+                    hir::ItemKind::Callable(callable_decl) => {
+                        let spec_decl = if functor_app.adjoint {
+                            callable_decl.adj.as_ref().unwrap_or(&callable_decl.body)
+                        } else {
+                            &callable_decl.body
+                        };
 
-        // Use the proper spec declaration from the source code
-        // depending on which functor application was used.
-        let spec_decl = match (functor_app.adjoint, functor_app.controlled) {
-            (false, 0) => Some(&callable_decl.body),
-            (false, _) => callable_decl.ctl.as_ref(),
-            (true, 0) => callable_decl.adj.as_ref(),
-            (true, _) => callable_decl.ctl_adj.as_ref(),
-        };
+                        (spec_decl.span.lo, callable_decl.name.name.clone())
+                    }
+                    _ => panic!("only callables should be in the stack"),
+                };
 
-        let spec_decl = spec_decl.unwrap_or(&callable_decl.body);
-        let scope_start_offset = spec_decl.span.lo;
-        let scope_name = callable_decl.name.name.clone();
+                LexicalScope::Callable {
+                    location: PackageOffset {
+                        package_id: store_item_id.package,
+                        offset: scope_offset,
+                    },
+                    name: scope_name,
+                    functor_app,
+                }
+            }
+            Scope::LoopContainer(package_id, expr_id) => {
+                let package_store = self.1;
+                let package = package_store.get(package_id);
+                let expr = package.get_expr(expr_id);
+                let expr_contents = self
+                    .0
+                    .get(map_fir_package_to_hir(package_id))
+                    .and_then(|p| p.sources.find_by_offset(expr.span.lo))
+                    .map(|s| {
+                        s.contents
+                            [(expr.span.lo - s.offset) as usize..(expr.span.hi - s.offset) as usize]
+                            .to_string()
+                    });
 
-        LexicalScope::Callable {
-            location: PackageOffset {
-                package_id: item_id.package,
-                offset: scope_start_offset,
+                LexicalScope::LoopOuter {
+                    label: format!("loop: {}", expr_contents.unwrap_or_default()),
+                }
+            }
+            Scope::LoopIteration(_, i) => LexicalScope::LoopIteration {
+                label: format!("({i})"),
             },
-            name: scope_name,
-            functor_app,
+            Scope::Top => LexicalScope::Top,
+        }
+    }
+
+    fn resolve_block(&self, block: BlockId) -> String {
+        let package_store = self.1;
+        let package = package_store.get(2.into()); // TODO obvs
+
+        match package.blocks.get(block) {
+            Some(b) => {
+                // TODO
+                let contents = self
+                    .0
+                    .get(2.into())
+                    .and_then(|p| p.sources.find_by_offset(b.span.lo))
+                    .map(|s| {
+                        s.contents[(b.span.lo - s.offset) as usize..(b.span.hi - s.offset) as usize]
+                            .to_string()
+                    });
+                format!("block at {} {}", b.span.lo, contents.unwrap_or_default())
+            }
+            None => {
+                format!("unknown block {block:?}")
+            }
         }
     }
 }
@@ -615,28 +720,13 @@ impl WireMapBuilder {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct OperationOrGroup {
     kind: OperationOrGroupKind,
     op: Operation,
 }
 
-fn map_stack_frames_to_locations(stack: &[Frame]) -> Vec<LocationMetadata> {
-    stack
-        .iter()
-        .map(|frame| {
-            LocationMetadata::new(
-                PackageOffset {
-                    package_id: frame.id.package,
-                    offset: frame.span.lo,
-                },
-                ScopeId(frame.id, frame.functor),
-            )
-        })
-        .collect::<Vec<_>>()
-}
-
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 enum OperationOrGroupKind {
     Single,
     Group {
@@ -944,7 +1034,7 @@ impl OperationListBuilder {
         }
     }
 
-    fn push_op(&mut self, mut op: OperationOrGroup, unfiltered_call_stack: Vec<LocationMetadata>) {
+    fn push_op(&mut self, mut op: OperationOrGroup, unfiltered_call_stack: SymbolicStackTrace) {
         if self.max_ops_exceeded || self.operations.len() >= self.max_ops {
             // Stop adding gates and leave the circuit as is
             self.max_ops_exceeded = true;
@@ -954,15 +1044,17 @@ impl OperationListBuilder {
         let op_call_stack = if self.group_by_scope || self.source_locations {
             retain_user_frames(&self.user_package_ids, unfiltered_call_stack)
         } else {
-            vec![]
+            SymbolicStackTrace(vec![])
         };
 
         if self.source_locations
-            && let Some(called_at) = op_call_stack.last()
+            && let Some(called_at) = op_call_stack.0.last()
+            && let Some(source_location) = called_at.source_location()
         {
-            op.set_location(called_at.source_location());
+            op.set_location(source_location);
         }
 
+        let default = SymbolicStackTrace::default();
         add_scoped_op(
             &mut self.operations,
             &ScopeStack::top(),
@@ -970,7 +1062,7 @@ impl OperationListBuilder {
             if self.group_by_scope {
                 &op_call_stack
             } else {
-                &[]
+                &default
             },
         );
     }
@@ -990,7 +1082,7 @@ impl OperationListBuilder {
         is_adjoint: bool,
         inputs: &GateInputs,
         args: Vec<String>,
-        call_stack: Vec<LocationMetadata>,
+        call_stack: SymbolicStackTrace,
     ) {
         let targets = inputs
             .targets
@@ -1013,7 +1105,7 @@ impl OperationListBuilder {
         wire_map: &WireMap,
         qubit: usize,
         result: usize,
-        call_stack: Vec<LocationMetadata>,
+        call_stack: SymbolicStackTrace,
     ) {
         let qubit = wire_map.qubit_wire(qubit);
         let result = wire_map.result_wire(result);
@@ -1028,7 +1120,7 @@ impl OperationListBuilder {
         wire_map: &WireMap,
         qubit: usize,
         result: usize,
-        call_stack: Vec<LocationMetadata>,
+        call_stack: SymbolicStackTrace,
     ) {
         let qubit = wire_map.qubit_wire(qubit);
         let result = wire_map.result_wire(result);
@@ -1039,7 +1131,7 @@ impl OperationListBuilder {
         self.push_op(OperationOrGroup::new_ket(qubit), call_stack);
     }
 
-    fn reset(&mut self, wire_map: &WireMap, qubit: usize, call_stack: Vec<LocationMetadata>) {
+    fn reset(&mut self, wire_map: &WireMap, qubit: usize, call_stack: SymbolicStackTrace) {
         let qubit = wire_map.qubit_wire(qubit);
         self.push_op(OperationOrGroup::new_ket(qubit), call_stack);
     }
@@ -1050,44 +1142,19 @@ struct GateInputs<'a> {
     controls: &'a [usize],
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Copy)]
-pub struct ScopeId(StoreItemId, FunctorApp);
-
-impl Default for ScopeId {
-    /// Default represents the "Top" scope
-    fn default() -> Self {
-        ScopeId(
-            StoreItemId {
-                package: usize::MAX.into(),
-                item: usize::MAX.into(),
-            },
-            FunctorApp {
-                adjoint: false,
-                controlled: 0,
-            },
-        )
-    }
-}
-
-impl Hash for ScopeId {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.0.hash(state);
-        let FunctorApp {
-            adjoint,
-            controlled,
-        } = self.1;
-        adjoint.hash(state);
-        controlled.hash(state);
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum LexicalScope {
     Top,
     Callable {
         name: Rc<str>,
         functor_app: FunctorApp,
         location: PackageOffset,
+    },
+    LoopIteration {
+        label: String,
+    },
+    LoopOuter {
+        label: String,
     },
 }
 
@@ -1098,8 +1165,10 @@ impl LexicalScope {
 
     fn location(&self) -> Option<PackageOffset> {
         match self {
-            LexicalScope::Top => None,
             LexicalScope::Callable { location, .. } => Some(*location),
+            LexicalScope::Top
+            | LexicalScope::LoopOuter { .. }
+            | LexicalScope::LoopIteration { .. } => None, // TODO: should have a location...
         }
     }
 
@@ -1107,38 +1176,34 @@ impl LexicalScope {
         match self {
             LexicalScope::Top => "Top".to_string(),
             LexicalScope::Callable { name, .. } => name.to_string(),
+            LexicalScope::LoopOuter { label } | LexicalScope::LoopIteration { label } => {
+                label.clone()
+            }
         }
     }
 
     fn is_adjoint(&self) -> bool {
         match self {
-            LexicalScope::Top => false,
             LexicalScope::Callable { functor_app, .. } => functor_app.adjoint,
+            LexicalScope::Top
+            | LexicalScope::LoopOuter { .. }
+            | LexicalScope::LoopIteration { .. } => false,
         }
     }
 }
 
-/// Inserts an operation into a hierarchical structure that mirrors the call stack.
-///
-/// This function collapses flat call stack traces into nested groups, creating a tree structure
-/// where operations are organized by the lexical scopes (functions/operations) they were called from.
-///
-/// In principle, this is similar to how a profiling tool, such as flamegraph's stackCollapse,
-/// would collapse a series of call stacks into a call hierarchy.
-///
-/// This allows circuit visualizations to show operations grouped by their calling context.
 fn add_scoped_op(
     current_container: &mut Vec<OperationOrGroup>,
     current_scope_stack: &ScopeStack,
     op: OperationOrGroup,
-    op_call_stack: &[LocationMetadata],
+    op_call_stack: &SymbolicStackTrace,
 ) {
     let relative_stack = strip_scope_stack_prefix(
         op_call_stack,
         current_scope_stack,
     ).expect("op_call_stack_rel should be a suffix of op_call_stack_abs after removing current_scope_stack_abs");
 
-    if !relative_stack.is_empty() {
+    if !relative_stack.0.is_empty() {
         if let Some(last_op) = current_container.last_mut() {
             // See if we can add to the last scope inside the current container
             if let Some(last_scope_stack) = last_op.scope_stack_if_group()
@@ -1158,19 +1223,22 @@ fn add_scoped_op(
             }
         }
 
-        let op_scope_stack = scope_stack(op_call_stack);
+        let op_scope_stack = scope_stack(&op_call_stack.0);
         if *current_scope_stack != op_scope_stack {
             // Need to create a new scope group
             let scope_group = OperationOrGroup::new_group(op_scope_stack, vec![op]);
 
-            let parent = op_call_stack
-                .split_last()
-                .expect("should have more than one etc")
-                .1
-                .to_vec();
+            let parent = SymbolicStackTrace(
+                op_call_stack
+                    .0
+                    .split_last()
+                    .expect("should have more than one etc")
+                    .1
+                    .to_vec(),
+            );
+
             // Recursively add the new scope group to the current container
             add_scoped_op(current_container, current_scope_stack, scope_group, &parent);
-
             return;
         }
     }
@@ -1180,65 +1248,41 @@ fn add_scoped_op(
 
 fn retain_user_frames(
     user_package_ids: &[PackageId],
-    mut location_stack: Vec<LocationMetadata>,
-) -> Vec<LocationMetadata> {
-    location_stack.retain(|location| {
+    mut location_stack: SymbolicStackTrace,
+) -> SymbolicStackTrace {
+    location_stack.0.retain(|location| {
         let package_id = location.package_id();
         user_package_ids.is_empty() || user_package_ids.contains(&package_id)
     });
 
-    location_stack
-}
-
-/// Represents a location in the source code along with its lexical scope.
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct LocationMetadata {
-    location: PackageOffset,
-    scope_id: ScopeId,
-}
-
-impl LocationMetadata {
-    fn new(location: PackageOffset, scope_id: ScopeId) -> Self {
-        Self { location, scope_id }
-    }
-    fn lexical_scope(&self) -> ScopeId {
-        self.scope_id
-    }
-
-    fn package_id(&self) -> fir::PackageId {
-        self.location.package_id
-    }
-
-    fn source_location(&self) -> PackageOffset {
-        self.location
-    }
+    SymbolicStackTrace(location_stack.0)
 }
 
 /// Represents a scope in the call stack, tracking the caller chain and current scope identifier.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, PartialEq)]
 struct ScopeStack {
-    caller: Vec<LocationMetadata>,
-    scope: ScopeId,
+    caller: SymbolicStackTrace,
+    scope: Scope,
 }
 
 impl ScopeStack {
-    fn caller(&self) -> &[LocationMetadata] {
-        &self.caller
+    fn caller(&self) -> &[SymbolicStackTraceEntry] {
+        &self.caller.0
     }
 
-    fn current_lexical_scope(&self) -> ScopeId {
+    fn current_lexical_scope(&self) -> Scope {
         assert!(!self.is_top(), "top scope has no lexical scope");
         self.scope
     }
 
     fn is_top(&self) -> bool {
-        self.caller.is_empty() && self.scope == ScopeId::default()
+        self.caller.0.is_empty() && self.scope == Scope::default()
     }
 
     fn top() -> Self {
         ScopeStack {
-            caller: Vec::new(),
-            scope: ScopeId::default(),
+            caller: SymbolicStackTrace::default(),
+            scope: Scope::default(),
         }
     }
 
@@ -1262,28 +1306,64 @@ impl ScopeStack {
 /// the prefix, starting from the first location in the call stack that is in the scope of
 /// `prefix_scope_stack.scope`.
 fn strip_scope_stack_prefix(
-    full_call_stack: &[LocationMetadata],
+    full_call_stack: &SymbolicStackTrace,
     prefix_scope_stack: &ScopeStack,
-) -> Option<Vec<LocationMetadata>> {
+) -> Option<SymbolicStackTrace> {
     if prefix_scope_stack.is_top() {
-        return Some(full_call_stack.to_vec());
+        return Some(full_call_stack.clone());
     }
 
-    if full_call_stack.len() > prefix_scope_stack.caller().len()
-        && let Some(rest) = full_call_stack.strip_prefix(prefix_scope_stack.caller())
+    if full_call_stack.0.len() > prefix_scope_stack.caller().len()
+        && let Some(rest) = full_call_stack.0.strip_prefix(prefix_scope_stack.caller())
         && rest[0].lexical_scope() == prefix_scope_stack.current_lexical_scope()
     {
         assert!(!rest.is_empty());
-        return Some(rest.to_vec());
+        return Some(SymbolicStackTrace(rest.to_vec()));
     }
     None
 }
 
-fn scope_stack(instruction_stack: &[LocationMetadata]) -> ScopeStack {
+fn scope_stack(instruction_stack: &[SymbolicStackTraceEntry]) -> ScopeStack {
     instruction_stack
         .split_last()
         .map_or(ScopeStack::top(), |(youngest, prefix)| ScopeStack {
-            caller: prefix.to_vec(),
+            caller: SymbolicStackTrace(prefix.to_vec()),
             scope: youngest.lexical_scope(),
         })
+}
+
+impl Display for OperationOrGroup {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let OperationOrGroupKind::Group {
+            scope_stack,
+            children,
+        } = &self.kind
+        {
+            write!(f, "group(")?;
+            write!(f, "{}", scope_stack.current_lexical_scope())?;
+            write!(f, ", {} children", children.len())?;
+            write!(f, ")-")?;
+        }
+        write!(
+            f,
+            "{}({}){:?}",
+            self.op.gate(),
+            self.op.args().join(","),
+            self.all_qubits()
+                .into_iter()
+                .map(|q| q.0)
+                .collect::<Vec<_>>()
+        )?;
+        Ok(())
+    }
+}
+
+impl Display for ScopeStack {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.caller)?;
+        if !self.caller.0.is_empty() {
+            write!(f, " -> ")?;
+        }
+        write!(f, "{}", self.scope)
+    }
 }

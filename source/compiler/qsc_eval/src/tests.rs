@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+mod trace;
+
 use crate::{
     Env, Error, ErrorBehavior, State, StepAction, StepResult, Value,
     backend::{Backend, SparseSim, TracingBackend},

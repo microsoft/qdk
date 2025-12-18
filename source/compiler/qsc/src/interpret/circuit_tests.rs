@@ -218,33 +218,315 @@ fn grouping_nested_callables() {
     .expect("circuit generation should succeed");
 
     expect![[r#"
-        q_0    ─ [ [Main] ─── [ [Foo] ─── H ──── H ──── H ──── H ──── H ──── H ──── ] ──── M ──── |0〉 ──── ] ──
-                     [                                                                     ╘══════════════ ] ══
+        q_0    ─ [ [Main] ─── [ [loop: 0..5] ─── [ [(1)] ── [ [Foo] ─── H ──── ] ──── ] ─── [ [(2)] ── [ [Foo] ─── H ──── ] ──── ] ─── [ [(3)] ── [ [Foo] ─── H ──── ] ──── ] ─── [ [(4)] ── [ [Foo] ─── H ──── ] ──── ] ─── [ [(5)] ── [ [Foo] ─── H ──── ] ──── ] ─── [ [(6)] ── [ [Foo] ─── H ──── ] ──── ] ──── ] ──── M ──── |0〉 ──── ] ──
+                     [                                                                                                                                                                                                                                                                                                     ╘══════════════ ] ══
     "#]]
     .assert_eq(&circ.display_with_groups().to_string());
 }
 
 #[test]
-fn classical_for_loop() {
-    let circ = circuit(
+fn classical_for_loop_horizontal() {
+    let circ = circuit_with_options(
         r"
             namespace Test {
                 @EntryPoint()
                 operation Main() : Unit {
                     use q = Qubit();
                     for i in 0..5 {
-                        X(q);
+                        Foo(q);
                     }
+                }
+
+                operation Foo(q: Qubit) : Unit {
+                    X(q);
+                    Y(q);
                 }
             }
         ",
+        Profile::Unrestricted,
         CircuitEntryPoint::EntryPoint,
-    );
+        CircuitGenerationMethod::ClassicalEval,
+        TracerConfig {
+            max_operations: 1000,
+            source_locations: true,
+            group_by_scope: true,
+        },
+    )
+    .expect("circuit generation should succeed");
+
+    let circ = circ.display_with_groups().to_string();
 
     expect![[r#"
-        q_0@test.qs:4:20 ─ X@test.qs:6:24 ─── X@test.qs:6:24 ─── X@test.qs:6:24 ─── X@test.qs:6:24 ─── X@test.qs:6:24 ─── X@test.qs:6:24 ──
+        q_0@test.qs:4:20 ─ [ [Main] ─── [ [loop: 0..5] ─── [ [(1)] ── [ [Foo] ── X@test.qs:11:20 ── Y@test.qs:12:20 ─── ] ──── ] ─── [ [(2)] ── [ [Foo] ── X@test.qs:11:20 ── Y@test.qs:12:20 ─── ] ──── ] ─── [ [(3)] ── [ [Foo] ── X@test.qs:11:20 ── Y@test.qs:12:20 ─── ] ──── ] ─── [ [(4)] ── [ [Foo] ── X@test.qs:11:20 ── Y@test.qs:12:20 ─── ] ──── ] ─── [ [(5)] ── [ [Foo] ── X@test.qs:11:20 ── Y@test.qs:12:20 ─── ] ──── ] ─── [ [(6)] ── [ [Foo] ── X@test.qs:11:20 ── Y@test.qs:12:20 ─── ] ──── ] ──── ] ──── ] ──
     "#]]
     .assert_eq(&circ);
+}
+
+#[test]
+fn classical_repeat_until_loop() {
+    let circ = circuit_with_options(
+        r"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    use q = Qubit();
+                    mutable i = 0;
+                    repeat {
+                        Foo(q);
+                    } until i == 3
+                    fixup {
+                        set i += 1;
+                    }
+                }
+
+                operation Foo(q: Qubit) : Unit {
+                    X(q);
+                    Y(q);
+                }
+            }
+        ",
+        Profile::Unrestricted,
+        CircuitEntryPoint::EntryPoint,
+        CircuitGenerationMethod::ClassicalEval,
+        TracerConfig {
+            max_operations: 1000,
+            source_locations: true,
+            group_by_scope: true,
+        },
+    )
+    .expect("circuit generation should succeed");
+
+    let circ = circ.display_with_groups().to_string();
+
+    expect![[r#"
+        q_0@test.qs:4:20 ─ [ [Main] ─── [ [loop: i == 3] ─── [ [(1)] ── [ [Foo] ── X@test.qs:15:20 ── Y@test.qs:16:20 ─── ] ──── ] ─── [ [(2)] ── [ [Foo] ── X@test.qs:15:20 ── Y@test.qs:16:20 ─── ] ──── ] ─── [ [(3)] ── [ [Foo] ── X@test.qs:15:20 ── Y@test.qs:16:20 ─── ] ──── ] ─── [ [(4)] ── [ [Foo] ── X@test.qs:15:20 ── Y@test.qs:16:20 ─── ] ──── ] ──── ] ──── ] ──
+    "#]]
+    .assert_eq(&circ);
+}
+
+#[test]
+fn classical_while_loop_horizontal() {
+    let circ = circuit_with_options(
+        r"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    use q = Qubit();
+                    mutable i = 0;
+                    while (i < 6) {
+                        Foo(q);
+                        set i += 1;
+                    }
+                }
+
+                operation Foo(q: Qubit) : Unit {
+                    X(q);
+                    Y(q);
+                }
+            }
+        ",
+        Profile::Unrestricted,
+        CircuitEntryPoint::EntryPoint,
+        CircuitGenerationMethod::ClassicalEval,
+        TracerConfig {
+            max_operations: 1000,
+            source_locations: true,
+            group_by_scope: true,
+        },
+    )
+    .expect("circuit generation should succeed");
+
+    let circ = circ.display_with_groups().to_string();
+
+    expect![[r#"
+        q_0@test.qs:4:20 ─ [ [Main] ─── [ [loop: i < 6] ── [ [(1)] ── [ [Foo] ── X@test.qs:13:20 ── Y@test.qs:14:20 ─── ] ──── ] ─── [ [(2)] ── [ [Foo] ── X@test.qs:13:20 ── Y@test.qs:14:20 ─── ] ──── ] ─── [ [(3)] ── [ [Foo] ── X@test.qs:13:20 ── Y@test.qs:14:20 ─── ] ──── ] ─── [ [(4)] ── [ [Foo] ── X@test.qs:13:20 ── Y@test.qs:14:20 ─── ] ──── ] ─── [ [(5)] ── [ [Foo] ── X@test.qs:13:20 ── Y@test.qs:14:20 ─── ] ──── ] ─── [ [(6)] ── [ [Foo] ── X@test.qs:13:20 ── Y@test.qs:14:20 ─── ] ──── ] ──── ] ──── ] ──
+    "#]]
+    .assert_eq(&circ);
+}
+
+#[test]
+fn classical_for_loop_one_iteration() {
+    let circ = circuit_with_options(
+        r"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    use q = Qubit();
+                    for i in 0..0 {
+                        Foo(q);
+                    }
+                }
+
+                operation Foo(q: Qubit) : Unit {
+                    X(q);
+                    Y(q);
+                }
+            }
+        ",
+        Profile::Unrestricted,
+        CircuitEntryPoint::EntryPoint,
+        CircuitGenerationMethod::ClassicalEval,
+        TracerConfig {
+            max_operations: 1000,
+            source_locations: true,
+            group_by_scope: true,
+        },
+    )
+    .expect("circuit generation should succeed");
+
+    let circ = circ.display_with_groups().to_string();
+
+    expect![[r#"
+        q_0@test.qs:4:20 ─ [ [Main] ─── [ [Foo] ── X@test.qs:11:20 ── Y@test.qs:12:20 ─── ] ──── ] ──
+    "#]]
+    .assert_eq(&circ);
+}
+
+#[test]
+fn classical_for_loop_vertical() {
+    let circ = circuit_with_options(
+        r"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    use qs = Qubit[6];
+                    for i in 0..5 {
+                        Foo(qs[i]);
+                    }
+                }
+
+                operation Foo(q: Qubit) : Unit {
+                    X(q);
+                }
+            }
+        ",
+        Profile::Unrestricted,
+        CircuitEntryPoint::EntryPoint,
+        CircuitGenerationMethod::ClassicalEval,
+        TracerConfig {
+            max_operations: 1000,
+            source_locations: true,
+            group_by_scope: true,
+        },
+    )
+    .expect("circuit generation should succeed");
+
+    let circ = circ.display_with_groups().to_string();
+
+    expect![[r#"
+        q_0@test.qs:4:20 ─ [ [Main] ─── [ [Foo] ── X@test.qs:11:20 ─── ] ──── ] ──
+        q_1@test.qs:4:20 ───── [ ────── [ [Foo] ── X@test.qs:11:20 ─── ] ──── ] ──
+        q_2@test.qs:4:20 ───── [ ────── [ [Foo] ── X@test.qs:11:20 ─── ] ──── ] ──
+        q_3@test.qs:4:20 ───── [ ────── [ [Foo] ── X@test.qs:11:20 ─── ] ──── ] ──
+        q_4@test.qs:4:20 ───── [ ────── [ [Foo] ── X@test.qs:11:20 ─── ] ──── ] ──
+        q_5@test.qs:4:20 ───── [ ────── [ [Foo] ── X@test.qs:11:20 ─── ] ──── ] ──
+    "#]]
+    .assert_eq(&circ);
+}
+
+#[test]
+fn classical_for_loop_nested() {
+    let circ = circuit_with_options(
+        r"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    use qs = Qubit[6];
+                    for j in 0..5 {
+                        for i in 0..5 {
+                            Foo(qs[i]);
+                        }
+                    }
+                }
+
+                operation Foo(q: Qubit) : Unit {
+                    X(q);
+                }
+            }
+        ",
+        Profile::Unrestricted,
+        CircuitEntryPoint::EntryPoint,
+        CircuitGenerationMethod::ClassicalEval,
+        TracerConfig {
+            max_operations: 1000,
+            source_locations: true,
+            group_by_scope: true,
+        },
+    )
+    .expect("circuit generation should succeed");
+
+    let circ = circ.display_with_groups().to_string();
+
+    expect![[r#"
+        q_0@test.qs:4:20 ─ [ [Main] ─── [ [loop: 0..5] ─── [ [(1)] ── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ─── [ [(2)] ── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ─── [ [(3)] ── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ─── [ [(4)] ── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ─── [ [(5)] ── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ─── [ [(6)] ── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ──── ] ──── ] ──
+        q_1@test.qs:4:20 ───── [ ───────────── [ ──────────── [ ───── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ────── [ ───── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ────── [ ───── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ────── [ ───── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ────── [ ───── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ────── [ ───── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ──── ] ──── ] ──
+        q_2@test.qs:4:20 ───── [ ───────────── [ ──────────── [ ───── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ────── [ ───── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ────── [ ───── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ────── [ ───── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ────── [ ───── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ────── [ ───── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ──── ] ──── ] ──
+        q_3@test.qs:4:20 ───── [ ───────────── [ ──────────── [ ───── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ────── [ ───── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ────── [ ───── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ────── [ ───── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ────── [ ───── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ────── [ ───── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ──── ] ──── ] ──
+        q_4@test.qs:4:20 ───── [ ───────────── [ ──────────── [ ───── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ────── [ ───── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ────── [ ───── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ────── [ ───── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ────── [ ───── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ────── [ ───── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ──── ] ──── ] ──
+        q_5@test.qs:4:20 ───── [ ───────────── [ ──────────── [ ───── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ────── [ ───── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ────── [ ───── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ────── [ ───── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ────── [ ───── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ────── [ ───── [ [Foo] ── X@test.qs:13:20 ─── ] ──── ] ──── ] ──── ] ──
+    "#]]
+    .assert_eq(&circ);
+}
+
+#[test]
+fn its_a_mystery() {
+    let code = r"
+            operation Main() : Unit {
+                let numberOfSteps : Int = 2;
+                use qubits = Qubit[2];
+                let theta_x = -1.4;
+                let theta_zz = 2.0;
+
+                for i in 1..numberOfSteps {
+                    for q in qubits {
+                        Rx(2.0 * theta_x, q);
+                    }
+                    for j in 0..2..0 {
+                        Rzz(2.0 * theta_zz, qubits[j], qubits[j + 1]);
+                    }
+                }
+            }
+        ";
+
+    let circ_1 = circuit_with_options(
+        code,
+        Profile::Unrestricted,
+        CircuitEntryPoint::EntryPoint,
+        CircuitGenerationMethod::ClassicalEval,
+        TracerConfig {
+            max_operations: 1000,
+            source_locations: true,
+            group_by_scope: true,
+        },
+    )
+    .expect("circuit generation should succeed");
+
+    // let circ_2 = circuit_with_options(
+    //     code,
+    //     Profile::Unrestricted,
+    //     CircuitEntryPoint::EntryPoint,
+    //     CircuitGenerationMethod::ClassicalEval,
+    //     TracerConfig {
+    //         max_operations: 1000,
+    //         source_locations: true,
+    //         group_by_scope: GroupScopesOptions::GroupScopesAndKeepUnnecessaryLoops,
+    //     },
+    // )
+    // .expect("circuit generation should succeed");
+
+    expect![[r#"
+        q_0@test.qs:3:16 ─ [ [Main] ─── [ [loop: 1..numberOfSteps] ─── [ [(1)] ── Rx(-2.8000)@test.qs:9:24 ─── Rzz(4.0000)@test.qs:12:24 ─── ] ─── [ [(2)] ── Rx(-2.8000)@test.qs:9:24 ─── Rzz(4.0000)@test.qs:12:24 ─── ] ──── ] ──── ] ──
+                                                                                                                           ┆                                                                           ┆
+        q_1@test.qs:3:16 ───── [ ─────────────────── [ ────────────────── [ ───── Rx(-2.8000)@test.qs:9:24 ─── Rzz(4.0000)@test.qs:12:24 ─── ] ────── [ ───── Rx(-2.8000)@test.qs:9:24 ─── Rzz(4.0000)@test.qs:12:24 ─── ] ──── ] ──── ] ──
+    "#]]
+    .assert_eq(&circ_1.display_with_groups().to_string());
+
+    // expect![[r#"
+    //     q_0@test.qs:3:16 ─ [ [Main] ─── [ [loop: 1..numberOfSteps] ─── [ [(1)] ── [ [loop: qubits] ─── [ [(1)] ── Rx(-2.8000)@test.qs:9:24 ──── ] ──── ] ─── [ [loop: 0..2..0] ── [ [(1)] ── Rzz(4.0000)@test.qs:12:24 ─── ] ──── ] ──── ] ─── [ [(2)] ── [ [loop: qubits] ─── [ [(1)] ── Rx(-2.8000)@test.qs:9:24 ──── ] ──── ] ─── [ [loop: 0..2..0] ── [ [(1)] ── Rzz(4.0000)@test.qs:12:24 ─── ] ──── ] ──── ] ──── ] ──── ] ──
+    //                                                                                                                                                                                                      ┆                                                                                                                                                                       ┆
+    //     q_1@test.qs:3:16 ───── [ ─────────────────── [ ────────────────── [ ───────────── [ ────────── [ [(2)] ── Rx(-2.8000)@test.qs:9:24 ──── ] ──── ] ─────────── [ ───────────── [ ───── Rzz(4.0000)@test.qs:12:24 ─── ] ──── ] ──── ] ────── [ ───────────── [ ────────── [ [(2)] ── Rx(-2.8000)@test.qs:9:24 ──── ] ──── ] ─────────── [ ───────────── [ ───── Rzz(4.0000)@test.qs:12:24 ─── ] ──── ] ──── ] ──── ] ──── ] ──
+    // "#]]
+    // .assert_eq(&circ_2.display_with_groups().to_string());
 }
 
 #[test]

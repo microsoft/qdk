@@ -1,4 +1,8 @@
 operation Main() : Unit {
+    SingleTopLevelOperation();
+}
+
+operation SingleTopLevelOperation() : Unit {
     use q1 = Qubit();
     use q2 = Qubit();
     Bar(q1);
@@ -10,6 +14,7 @@ operation Main() : Unit {
     Bar(q2);
     Foo(q2);
 }
+
 operation Foo(q : Qubit) : Unit {
     Bar(q);
     MResetZ(q);
