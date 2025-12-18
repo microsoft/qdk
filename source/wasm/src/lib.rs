@@ -181,6 +181,7 @@ pub fn get_circuit(
         source_locations: config.source_locations,
         max_operations: config.max_operations,
         group_by_scope: config.group_by_scope,
+        prune_classical_qubits: false,
     };
 
     if is_openqasm_program(&program) {

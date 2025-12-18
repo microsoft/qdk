@@ -804,12 +804,9 @@ impl Interpreter {
         if let Some(max_ops) = config.max_operations {
             tracer_config.max_operations = max_ops;
         }
-        if let Some(locations) = config.source_locations {
-            tracer_config.source_locations = locations;
-        }
-        if let Some(group_by_scope) = config.group_by_scope {
-            tracer_config.group_by_scope = group_by_scope;
-        }
+        tracer_config.source_locations = config.source_locations;
+        tracer_config.group_by_scope = config.group_by_scope;
+        tracer_config.prune_classical_qubits = config.prune_classical_qubits;
 
         let generation_method = if let Some(generation_method) = config.generation_method {
             generation_method.into()
@@ -1311,26 +1308,30 @@ pub(crate) struct CircuitConfig {
     #[pyo3(get, set)]
     pub(crate) generation_method: Option<CircuitGenerationMethod>,
     #[pyo3(get, set)]
-    pub(crate) source_locations: Option<bool>,
+    pub(crate) source_locations: bool,
     #[pyo3(get, set)]
-    pub(crate) group_by_scope: Option<bool>,
+    pub(crate) group_by_scope: bool,
+    #[pyo3(get, set)]
+    pub(crate) prune_classical_qubits: bool,
 }
 
 #[pymethods]
 impl CircuitConfig {
     #[new]
-    #[pyo3(signature=(*,max_operations=None, generation_method=None, source_locations=None, group_by_scope=None))]
+    #[pyo3(signature=(*,max_operations=None, generation_method=None, source_locations=false, group_by_scope=false, prune_classical_qubits=false))]
     fn new(
         max_operations: Option<usize>,
         generation_method: Option<CircuitGenerationMethod>,
-        source_locations: Option<bool>,
-        group_by_scope: Option<bool>,
+        source_locations: bool,
+        group_by_scope: bool,
+        prune_classical_qubits: bool,
     ) -> Self {
         Self {
             max_operations,
             generation_method,
             source_locations,
             group_by_scope,
+            prune_classical_qubits,
         }
     }
 }

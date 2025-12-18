@@ -1,7 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#![allow(clippy::unicode_not_nfc)]
+
 mod group_scopes;
+mod prune_classical_qubits;
 
 use std::vec;
 
@@ -128,6 +131,7 @@ fn exceed_max_operations() {
             max_operations: 2,
             source_locations: false,
             group_by_scope: false,
+            prune_classical_qubits: false,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -156,6 +160,7 @@ fn source_locations_enabled() {
             max_operations: 10,
             source_locations: true,
             group_by_scope: false,
+            prune_classical_qubits: false,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -193,6 +198,7 @@ fn source_locations_disabled() {
             max_operations: 10,
             source_locations: false,
             group_by_scope: false,
+            prune_classical_qubits: false,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -224,6 +230,7 @@ fn source_locations_multiple_user_frames() {
             max_operations: 10,
             source_locations: true,
             group_by_scope: false,
+            prune_classical_qubits: false,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -262,6 +269,7 @@ fn source_locations_library_frames_excluded() {
             max_operations: 10,
             source_locations: true,
             group_by_scope: false,
+            prune_classical_qubits: false,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -294,6 +302,7 @@ fn source_locations_only_library_frames() {
             max_operations: 10,
             source_locations: true,
             group_by_scope: false,
+            prune_classical_qubits: false,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -326,6 +335,7 @@ fn source_locations_enabled_no_stack() {
             max_operations: 10,
             source_locations: true,
             group_by_scope: false,
+            prune_classical_qubits: false,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -351,6 +361,7 @@ fn qubit_source_locations_via_stack() {
             max_operations: 10,
             source_locations: true,
             group_by_scope: false,
+            prune_classical_qubits: false,
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -375,6 +386,7 @@ fn qubit_labels_for_preallocated_qubits() {
             max_operations: 10,
             source_locations: true,
             group_by_scope: false,
+            prune_classical_qubits: false,
         },
         &FakeCompilation::user_package_ids(),
         Some((
@@ -414,6 +426,7 @@ fn measurement_target_propagated_to_group() {
             max_operations: usize::MAX,
             source_locations: false,
             group_by_scope: true,
+            prune_classical_qubits: false,
         },
         &FakeCompilation::user_package_ids(),
     );
