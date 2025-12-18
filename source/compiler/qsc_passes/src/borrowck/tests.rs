@@ -12,12 +12,14 @@ use qsc_hir::visit::Visitor;
 use crate::borrowck::Checker;
 
 fn check(expr: &str, expect: &Expect) {
-    let store = PackageStore::new(compile::core());
+    let mut store = PackageStore::new(compile::core());
     let sources: SourceMap = SourceMap::new([("test".into(), "".into())], Some(expr.into()));
+    let package_id = store.new_package_id();
     let unit = compile(
         &store,
         &[],
         sources,
+        package_id,
         TargetCapabilityFlags::all(),
         LanguageFeatures::default(),
     );

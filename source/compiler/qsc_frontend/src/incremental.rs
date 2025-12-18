@@ -84,11 +84,18 @@ impl Compiler {
             dropped_names.extend(unit.dropped_names.iter().cloned());
         }
 
+        // This will be the ID of the open package once the store is open.
+        let package_id = store.peek_next_package_id();
+
         Self {
             ast_assigner: AstAssigner::new(),
-            resolver: Resolver::with_persistent_local_scope(resolve_globals, dropped_names),
+            resolver: Resolver::with_persistent_local_scope(
+                package_id,
+                resolve_globals,
+                dropped_names,
+            ),
             checker: Checker::new(typeck_globals),
-            lowerer: Lowerer::new(),
+            lowerer: Lowerer::new(package_id),
             capabilities,
             language_features,
         }

@@ -9,11 +9,14 @@ use qsc_data_structures::{
 };
 
 fn check_hir(input: &str, expect: &Expect) {
+    let mut store = PackageStore::new(compile::core());
     let sources = SourceMap::new([("test".into(), input.into())], None);
+    let package_id = store.new_package_id();
     let unit = compile(
         &PackageStore::new(compile::core()),
         &[],
         sources,
+        package_id,
         TargetCapabilityFlags::all(),
         LanguageFeatures::default(),
     );
@@ -21,11 +24,14 @@ fn check_hir(input: &str, expect: &Expect) {
 }
 
 fn check_errors(input: &str, expect: &Expect) {
+    let mut store = PackageStore::new(compile::core());
     let sources = SourceMap::new([("test".into(), input.into())], None);
+    let package_id = store.new_package_id();
     let unit = compile(
         &PackageStore::new(compile::core()),
         &[],
         sources,
+        package_id,
         TargetCapabilityFlags::all(),
         LanguageFeatures::default(),
     );
@@ -182,7 +188,7 @@ fn lift_local_function() {
                             Block 5 [46-118] [Type Int]:
                                 Stmt 6 [56-93]: Item: 2
                                 Stmt 17 [102-112]: Expr: Expr 18 [102-112] [Type Int]: Call:
-                                    Expr 19 [102-105] [Type (Int -> Int)]: Var: Item 2
+                                    Expr 19 [102-105] [Type (Int -> Int)]: Var: Item 2 (Package 1)
                                     Expr 20 [106-111] [Type Int]: BinOp (Add):
                                         Expr 21 [106-107] [Type Int]: Var: Local 3
                                         Expr 22 [110-111] [Type Int]: Lit: Int(2)
@@ -237,7 +243,7 @@ fn lift_local_operation() {
                                     Pat 15 [108-109] [Type Qubit]: Bind: Ident 16 [108-109] "q"
                                     QubitInit 17 [112-119] [Type Qubit]: Single
                                 Stmt 18 [129-135]: Expr: Expr 19 [129-135] [Type Result]: Call:
-                                    Expr 20 [129-132] [Type (Qubit => Result)]: Var: Item 2
+                                    Expr 20 [129-132] [Type (Qubit => Result)]: Var: Item 2 (Package 1)
                                     Expr 21 [133-134] [Type Qubit]: Var: Local 16
                         adj: <none>
                         ctl: <none>
@@ -285,12 +291,12 @@ fn lift_local_newtype() {
                             Block 4 [39-108] [Type Int]:
                                 Stmt 5 [49-67]: Item: 2
                                 Stmt 7 [76-91]: Local (Immutable):
-                                    Pat 8 [80-81] [Type UDT<"Bar": Item 2>]: Bind: Ident 9 [80-81] "x"
-                                    Expr 10 [84-90] [Type UDT<"Bar": Item 2>]: Call:
-                                        Expr 11 [84-87] [Type (Int -> UDT<"Bar": Item 2>)]: Var: Item 2
+                                    Pat 8 [80-81] [Type UDT<"Bar": Item 2 (Package 1)>]: Bind: Ident 9 [80-81] "x"
+                                    Expr 10 [84-90] [Type UDT<"Bar": Item 2 (Package 1)>]: Call:
+                                        Expr 11 [84-87] [Type (Int -> UDT<"Bar": Item 2 (Package 1)>)]: Var: Item 2 (Package 1)
                                         Expr 12 [88-89] [Type Int]: Lit: Int(5)
                                 Stmt 13 [100-102]: Expr: Expr 14 [100-102] [Type Int]: UnOp (Unwrap):
-                                    Expr 15 [100-101] [Type UDT<"Bar": Item 2>]: Var: Local 9
+                                    Expr 15 [100-101] [Type UDT<"Bar": Item 2 (Package 1)>]: Var: Local 9
                         adj: <none>
                         ctl: <none>
                         ctl-adj: <none>
@@ -332,9 +338,9 @@ fn lift_newtype() {
                         body: SpecDecl 4 [41-95]: Impl:
                             Block 5 [64-95] [Type Unit]:
                                 Stmt 6 [74-89]: Local (Immutable):
-                                    Pat 7 [78-79] [Type UDT<"Foo": Item 1>]: Bind: Ident 8 [78-79] "x"
-                                    Expr 9 [82-88] [Type UDT<"Foo": Item 1>]: Call:
-                                        Expr 10 [82-85] [Type (Int -> UDT<"Foo": Item 1>)]: Var: Item 1
+                                    Pat 7 [78-79] [Type UDT<"Foo": Item 1 (Package 1)>]: Bind: Ident 8 [78-79] "x"
+                                    Expr 9 [82-88] [Type UDT<"Foo": Item 1 (Package 1)>]: Call:
+                                        Expr 10 [82-85] [Type (Int -> UDT<"Foo": Item 1 (Package 1)>)]: Var: Item 1 (Package 1)
                                         Expr 11 [86-87] [Type Int]: Lit: Int(1)
                         adj: <none>
                         ctl: <none>
@@ -372,9 +378,9 @@ fn lift_newtype_tuple() {
                         body: SpecDecl 4 [51-110]: Impl:
                             Block 5 [74-110] [Type Unit]:
                                 Stmt 6 [84-104]: Local (Immutable):
-                                    Pat 7 [88-89] [Type UDT<"Foo": Item 1>]: Bind: Ident 8 [88-89] "x"
-                                    Expr 9 [92-103] [Type UDT<"Foo": Item 1>]: Call:
-                                        Expr 10 [92-95] [Type ((Int, Double) -> UDT<"Foo": Item 1>)]: Var: Item 1
+                                    Pat 7 [88-89] [Type UDT<"Foo": Item 1 (Package 1)>]: Bind: Ident 8 [88-89] "x"
+                                    Expr 9 [92-103] [Type UDT<"Foo": Item 1 (Package 1)>]: Call:
+                                        Expr 10 [92-95] [Type ((Int, Double) -> UDT<"Foo": Item 1 (Package 1)>)]: Var: Item 1 (Package 1)
                                         Expr 11 [95-103] [Type (Int, Double)]: Tuple:
                                             Expr 12 [96-97] [Type Int]: Lit: Int(1)
                                             Expr 13 [99-102] [Type Double]: Lit: Double(2.3)
@@ -420,16 +426,16 @@ fn lift_newtype_tuple_fields() {
                         body: SpecDecl 4 [57-138]: Impl:
                             Block 5 [80-138] [Type Unit]:
                                 Stmt 6 [90-110]: Local (Immutable):
-                                    Pat 7 [94-95] [Type UDT<"Foo": Item 1>]: Bind: Ident 8 [94-95] "x"
-                                    Expr 9 [98-109] [Type UDT<"Foo": Item 1>]: Call:
-                                        Expr 10 [98-101] [Type ((Int, Double) -> UDT<"Foo": Item 1>)]: Var: Item 1
+                                    Pat 7 [94-95] [Type UDT<"Foo": Item 1 (Package 1)>]: Bind: Ident 8 [94-95] "x"
+                                    Expr 9 [98-109] [Type UDT<"Foo": Item 1 (Package 1)>]: Call:
+                                        Expr 10 [98-101] [Type ((Int, Double) -> UDT<"Foo": Item 1 (Package 1)>)]: Var: Item 1 (Package 1)
                                         Expr 11 [101-109] [Type (Int, Double)]: Tuple:
                                             Expr 12 [102-103] [Type Int]: Lit: Int(1)
                                             Expr 13 [105-108] [Type Double]: Lit: Double(2.3)
                                 Stmt 14 [119-132]: Local (Immutable):
                                     Pat 15 [123-124] [Type Double]: Bind: Ident 16 [123-124] "y"
                                     Expr 17 [127-131] [Type Double]: Field:
-                                        Expr 18 [127-128] [Type UDT<"Foo": Item 1>]: Var: Local 8
+                                        Expr 18 [127-128] [Type UDT<"Foo": Item 1 (Package 1)>]: Var: Local 8
                                         Path(FieldPath { indices: [1] })
                         adj: <none>
                         ctl: <none>
@@ -467,9 +473,9 @@ fn lift_newtype_nested_tuple() {
                         body: SpecDecl 4 [59-126]: Impl:
                             Block 5 [82-126] [Type Unit]:
                                 Stmt 6 [92-120]: Local (Immutable):
-                                    Pat 7 [96-97] [Type UDT<"Foo": Item 1>]: Bind: Ident 8 [96-97] "x"
-                                    Expr 9 [100-119] [Type UDT<"Foo": Item 1>]: Call:
-                                        Expr 10 [100-103] [Type ((Int, (Double, Bool)) -> UDT<"Foo": Item 1>)]: Var: Item 1
+                                    Pat 7 [96-97] [Type UDT<"Foo": Item 1 (Package 1)>]: Bind: Ident 8 [96-97] "x"
+                                    Expr 9 [100-119] [Type UDT<"Foo": Item 1 (Package 1)>]: Call:
+                                        Expr 10 [100-103] [Type ((Int, (Double, Bool)) -> UDT<"Foo": Item 1 (Package 1)>)]: Var: Item 1 (Package 1)
                                         Expr 11 [103-119] [Type (Int, (Double, Bool))]: Tuple:
                                             Expr 12 [104-105] [Type Int]: Lit: Int(1)
                                             Expr 13 [107-118] [Type (Double, Bool)]: Tuple:
@@ -521,9 +527,9 @@ fn lift_newtype_nested_tuple_fields() {
                         body: SpecDecl 4 [68-157]: Impl:
                             Block 5 [91-157] [Type Unit]:
                                 Stmt 6 [101-129]: Local (Immutable):
-                                    Pat 7 [105-106] [Type UDT<"Foo": Item 1>]: Bind: Ident 8 [105-106] "x"
-                                    Expr 9 [109-128] [Type UDT<"Foo": Item 1>]: Call:
-                                        Expr 10 [109-112] [Type ((Int, (Double, Bool)) -> UDT<"Foo": Item 1>)]: Var: Item 1
+                                    Pat 7 [105-106] [Type UDT<"Foo": Item 1 (Package 1)>]: Bind: Ident 8 [105-106] "x"
+                                    Expr 9 [109-128] [Type UDT<"Foo": Item 1 (Package 1)>]: Call:
+                                        Expr 10 [109-112] [Type ((Int, (Double, Bool)) -> UDT<"Foo": Item 1 (Package 1)>)]: Var: Item 1 (Package 1)
                                         Expr 11 [112-128] [Type (Int, (Double, Bool))]: Tuple:
                                             Expr 12 [113-114] [Type Int]: Lit: Int(1)
                                             Expr 13 [116-127] [Type (Double, Bool)]: Tuple:
@@ -532,7 +538,7 @@ fn lift_newtype_nested_tuple_fields() {
                                 Stmt 16 [138-151]: Local (Immutable):
                                     Pat 17 [142-143] [Type Bool]: Bind: Ident 18 [142-143] "y"
                                     Expr 19 [146-150] [Type Bool]: Field:
-                                        Expr 20 [146-147] [Type UDT<"Foo": Item 1>]: Var: Local 8
+                                        Expr 20 [146-147] [Type UDT<"Foo": Item 1 (Package 1)>]: Var: Local 8
                                         Path(FieldPath { indices: [1, 1] })
                         adj: <none>
                         ctl: <none>
@@ -580,7 +586,7 @@ fn lift_newtype_from_newtype() {
                                 type: Int
                             TyDef [91-97]: Field:
                                 name: y [91-92]
-                                type: UDT<"Foo": Item 1>
+                                type: UDT<"Foo": Item 1 (Package 1)>
                 Item 3 [104-205] (Internal):
                     Parent: 0
                     Callable 2 [104-205] (operation):
@@ -591,13 +597,13 @@ fn lift_newtype_from_newtype() {
                         body: SpecDecl 5 [104-205]: Impl:
                             Block 6 [127-205] [Type Unit]:
                                 Stmt 7 [137-174]: Local (Immutable):
-                                    Pat 8 [141-142] [Type UDT<"Bar": Item 2>]: Bind: Ident 9 [141-142] "x"
-                                    Expr 10 [145-173] [Type UDT<"Bar": Item 2>]: Call:
-                                        Expr 11 [145-148] [Type ((Int, UDT<"Foo": Item 1>) -> UDT<"Bar": Item 2>)]: Var: Item 2
-                                        Expr 12 [148-173] [Type (Int, UDT<"Foo": Item 1>)]: Tuple:
+                                    Pat 8 [141-142] [Type UDT<"Bar": Item 2 (Package 1)>]: Bind: Ident 9 [141-142] "x"
+                                    Expr 10 [145-173] [Type UDT<"Bar": Item 2 (Package 1)>]: Call:
+                                        Expr 11 [145-148] [Type ((Int, UDT<"Foo": Item 1 (Package 1)>) -> UDT<"Bar": Item 2 (Package 1)>)]: Var: Item 2 (Package 1)
+                                        Expr 12 [148-173] [Type (Int, UDT<"Foo": Item 1 (Package 1)>)]: Tuple:
                                             Expr 13 [149-150] [Type Int]: Lit: Int(1)
-                                            Expr 14 [152-172] [Type UDT<"Foo": Item 1>]: Call:
-                                                Expr 15 [152-155] [Type ((Int, (Double, Bool)) -> UDT<"Foo": Item 1>)]: Var: Item 1
+                                            Expr 14 [152-172] [Type UDT<"Foo": Item 1 (Package 1)>]: Call:
+                                                Expr 15 [152-155] [Type ((Int, (Double, Bool)) -> UDT<"Foo": Item 1 (Package 1)>)]: Var: Item 1 (Package 1)
                                                 Expr 16 [155-172] [Type (Int, (Double, Bool))]: Tuple:
                                                     Expr 17 [156-157] [Type Int]: Lit: Int(2)
                                                     Expr 18 [159-171] [Type (Double, Bool)]: Tuple:
@@ -606,8 +612,8 @@ fn lift_newtype_from_newtype() {
                                 Stmt 21 [183-199]: Local (Immutable):
                                     Pat 22 [187-188] [Type Bool]: Bind: Ident 23 [187-188] "y"
                                     Expr 24 [191-198] [Type Bool]: Field:
-                                        Expr 25 [191-195] [Type UDT<"Foo": Item 1>]: Field:
-                                            Expr 26 [191-192] [Type UDT<"Bar": Item 2>]: Var: Local 9
+                                        Expr 25 [191-195] [Type UDT<"Foo": Item 1 (Package 1)>]: Field:
+                                            Expr 26 [191-192] [Type UDT<"Bar": Item 2 (Package 1)>]: Var: Local 9
                                             Path(FieldPath { indices: [1] })
                                         Path(FieldPath { indices: [1, 1] })
                         adj: <none>
@@ -682,8 +688,8 @@ fn lower_struct_constructor() {
                         body: SpecDecl 4 [76-150]: Impl:
                             Block 5 [99-150] [Type Unit]:
                                 Stmt 6 [109-144]: Local (Immutable):
-                                    Pat 7 [113-114] [Type UDT<"Foo": Item 1>]: Bind: Ident 8 [113-114] "z"
-                                    Expr 9 [117-143] [Type UDT<"Foo": Item 1>]: Struct (Item 1):
+                                    Pat 7 [113-114] [Type UDT<"Foo": Item 1 (Package 1)>]: Bind: Ident 8 [113-114] "z"
+                                    Expr 9 [117-143] [Type UDT<"Foo": Item 1 (Package 1)>]: Struct (Item 1 (Package 1)):
                                         FieldsAssign 10 [127-132]: (Path([0])) Expr 11 [131-132] [Type Int]: Lit: Int(1)
                                         FieldsAssign 12 [134-141]: (Path([1])) Expr 13 [138-141] [Type Double]: Lit: Double(2.3)
                         adj: <none>
@@ -726,17 +732,17 @@ fn lower_struct_copy_constructor() {
                     Callable 1 [76-182] (operation):
                         name: Ident 2 [86-89] "Bar"
                         input: Pat 3 [89-91] [Type Unit]: Unit
-                        output: UDT<"Foo": Item 1>
+                        output: UDT<"Foo": Item 1 (Package 1)>
                         functors: empty set
                         body: SpecDecl 4 [76-182]: Impl:
                             Block 5 [98-182] [Type Unit]:
                                 Stmt 6 [108-143]: Local (Immutable):
-                                    Pat 7 [112-113] [Type UDT<"Foo": Item 1>]: Bind: Ident 8 [112-113] "z"
-                                    Expr 9 [116-142] [Type UDT<"Foo": Item 1>]: Struct (Item 1):
+                                    Pat 7 [112-113] [Type UDT<"Foo": Item 1 (Package 1)>]: Bind: Ident 8 [112-113] "z"
+                                    Expr 9 [116-142] [Type UDT<"Foo": Item 1 (Package 1)>]: Struct (Item 1 (Package 1)):
                                         FieldsAssign 10 [126-131]: (Path([0])) Expr 11 [130-131] [Type Int]: Lit: Int(1)
                                         FieldsAssign 12 [133-140]: (Path([1])) Expr 13 [137-140] [Type Double]: Lit: Double(2.3)
-                                Stmt 14 [152-176]: Semi: Expr 15 [152-175] [Type UDT<"Foo": Item 1>]: Struct (Item 1):
-                                    Copy: Expr 16 [165-166] [Type UDT<"Foo": Item 1>]: Var: Local 8
+                                Stmt 14 [152-176]: Semi: Expr 15 [152-175] [Type UDT<"Foo": Item 1 (Package 1)>]: Struct (Item 1 (Package 1)):
+                                    Copy: Expr 16 [165-166] [Type UDT<"Foo": Item 1 (Package 1)>]: Var: Local 8
                                     FieldsAssign 17 [168-173]: (Path([0])) Expr 18 [172-173] [Type Int]: Lit: Int(4)
                         adj: <none>
                         ctl: <none>
@@ -782,19 +788,19 @@ fn lower_struct_copy_constructor_with_alternative_fields() {
                     Callable 1 [94-226] (operation):
                         name: Ident 2 [104-107] "Bar"
                         input: Pat 3 [107-109] [Type Unit]: Unit
-                        output: UDT<"Foo": Item 1>
+                        output: UDT<"Foo": Item 1 (Package 1)>
                         functors: empty set
                         body: SpecDecl 4 [94-226]: Impl:
                             Block 5 [116-226] [Type Unit]:
                                 Stmt 6 [126-173]: Local (Immutable):
-                                    Pat 7 [130-131] [Type UDT<"Foo": Item 1>]: Bind: Ident 8 [130-131] "z"
-                                    Expr 9 [134-172] [Type UDT<"Foo": Item 1>]: Struct (Item 1):
+                                    Pat 7 [130-131] [Type UDT<"Foo": Item 1 (Package 1)>]: Bind: Ident 8 [130-131] "z"
+                                    Expr 9 [134-172] [Type UDT<"Foo": Item 1 (Package 1)>]: Struct (Item 1 (Package 1)):
                                         FieldsAssign 10 [144-149]: (Path([0])) Expr 11 [148-149] [Type Int]: Lit: Int(1)
                                         FieldsAssign 12 [151-158]: (Path([1])) Expr 13 [155-158] [Type Double]: Lit: Double(2.3)
                                         FieldsAssign 14 [160-170]: (Path([2])) Expr 15 [164-170] [Type String]: String:
                                             Lit: "four"
-                                Stmt 16 [182-220]: Semi: Expr 17 [182-219] [Type UDT<"Foo": Item 1>]: Struct (Item 1):
-                                    Copy: Expr 18 [195-196] [Type UDT<"Foo": Item 1>]: Var: Local 8
+                                Stmt 16 [182-220]: Semi: Expr 17 [182-219] [Type UDT<"Foo": Item 1 (Package 1)>]: Struct (Item 1 (Package 1)):
+                                    Copy: Expr 18 [195-196] [Type UDT<"Foo": Item 1 (Package 1)>]: Var: Local 8
                                     FieldsAssign 19 [198-208]: (Path([2])) Expr 20 [202-208] [Type String]: String:
                                         Lit: "five"
                                     FieldsAssign 21 [210-217]: (Path([1])) Expr 22 [214-217] [Type Double]: Lit: Double(6.7)
@@ -827,14 +833,14 @@ fn lower_fields_path() {
                         TyDef [20-38]: Tuple:
                             TyDef [31-36]: Field:
                                 name: b [31-32]
-                                type: UDT<"B": Item 2>
+                                type: UDT<"B": Item 2 (Package 1)>
                 Item 2 [43-61] (Internal):
                     Parent: 0
                     Type (Ident 1 [50-51] "B"): UDT [43-61]:
                         TyDef [43-61]: Tuple:
                             TyDef [54-59]: Field:
                                 name: c [54-55]
-                                type: UDT<"C": Item 3>
+                                type: UDT<"C": Item 3 (Package 1)>
                 Item 3 [66-86] (Internal):
                     Parent: 0
                     Type (Ident 2 [73-74] "C"): UDT [66-86]:
@@ -846,7 +852,7 @@ fn lower_fields_path() {
                     Parent: 0
                     Callable 3 [91-151] (operation):
                         name: Ident 4 [101-104] "Bar"
-                        input: Pat 5 [105-110] [Type UDT<"A": Item 1>]: Bind: Ident 6 [105-106] "a"
+                        input: Pat 5 [105-110] [Type UDT<"A": Item 1 (Package 1)>]: Bind: Ident 6 [105-106] "a"
                         output: Unit
                         functors: empty set
                         body: SpecDecl 7 [91-151]: Impl:
@@ -854,9 +860,9 @@ fn lower_fields_path() {
                                 Stmt 9 [129-145]: Local (Immutable):
                                     Pat 10 [133-134] [Type Int]: Bind: Ident 11 [133-134] "x"
                                     Expr 12 [137-144] [Type Int]: Field:
-                                        Expr 15 [137-142] [Type UDT<"C": Item 3>]: Field:
-                                            Expr 14 [137-140] [Type UDT<"B": Item 2>]: Field:
-                                                Expr 13 [137-138] [Type UDT<"A": Item 1>]: Var: Local 6
+                                        Expr 15 [137-142] [Type UDT<"C": Item 3 (Package 1)>]: Field:
+                                            Expr 14 [137-140] [Type UDT<"B": Item 2 (Package 1)>]: Field:
+                                                Expr 13 [137-138] [Type UDT<"A": Item 1 (Package 1)>]: Var: Local 6
                                                 Path(FieldPath { indices: [0] })
                                             Path(FieldPath { indices: [0] })
                                         Path(FieldPath { indices: [0] })
@@ -889,14 +895,14 @@ fn lower_fields_path_with_expr() {
                         TyDef [20-38]: Tuple:
                             TyDef [31-36]: Field:
                                 name: b [31-32]
-                                type: UDT<"B": Item 2>
+                                type: UDT<"B": Item 2 (Package 1)>
                 Item 2 [43-61] (Internal):
                     Parent: 0
                     Type (Ident 1 [50-51] "B"): UDT [43-61]:
                         TyDef [43-61]: Tuple:
                             TyDef [54-59]: Field:
                                 name: c [54-55]
-                                type: UDT<"C": Item 3>
+                                type: UDT<"C": Item 3 (Package 1)>
                 Item 3 [66-86] (Internal):
                     Parent: 0
                     Type (Ident 2 [73-74] "C"): UDT [66-86]:
@@ -908,7 +914,7 @@ fn lower_fields_path_with_expr() {
                     Parent: 0
                     Callable 3 [91-155] (operation):
                         name: Ident 4 [101-104] "Bar"
-                        input: Pat 5 [105-110] [Type UDT<"A": Item 1>]: Bind: Ident 6 [105-106] "a"
+                        input: Pat 5 [105-110] [Type UDT<"A": Item 1 (Package 1)>]: Bind: Ident 6 [105-106] "a"
                         output: Unit
                         functors: empty set
                         body: SpecDecl 7 [91-155]: Impl:
@@ -916,10 +922,10 @@ fn lower_fields_path_with_expr() {
                                 Stmt 9 [129-149]: Local (Immutable):
                                     Pat 10 [133-134] [Type Int]: Bind: Ident 11 [133-134] "x"
                                     Expr 12 [137-148] [Type Int]: Field:
-                                        Expr 13 [137-146] [Type UDT<"C": Item 3>]: Field:
-                                            Expr 14 [137-144] [Type UDT<"B": Item 2>]: Expr Block: Block 15 [137-144] [Type UDT<"B": Item 2>]:
-                                                Stmt 16 [139-142]: Expr: Expr 17 [139-142] [Type UDT<"B": Item 2>]: Field:
-                                                    Expr 18 [139-140] [Type UDT<"A": Item 1>]: Var: Local 6
+                                        Expr 13 [137-146] [Type UDT<"C": Item 3 (Package 1)>]: Field:
+                                            Expr 14 [137-144] [Type UDT<"B": Item 2 (Package 1)>]: Expr Block: Block 15 [137-144] [Type UDT<"B": Item 2 (Package 1)>]:
+                                                Stmt 16 [139-142]: Expr: Expr 17 [139-142] [Type UDT<"B": Item 2 (Package 1)>]: Field:
+                                                    Expr 18 [139-140] [Type UDT<"A": Item 1 (Package 1)>]: Var: Local 6
                                                     Path(FieldPath { indices: [0] })
                                             Path(FieldPath { indices: [0] })
                                         Path(FieldPath { indices: [0] })
@@ -1019,7 +1025,7 @@ fn lambda_function_empty_closure_passed() {
                         body: SpecDecl 13 [66-106]: Impl:
                             Block 14 [87-106] [Type Int]:
                                 Stmt 15 [89-104]: Expr: Expr 16 [89-104] [Type Int]: Call:
-                                    Expr 17 [89-92] [Type ((Int -> Int) -> Int)]: Var: Item 1
+                                    Expr 17 [89-92] [Type ((Int -> Int) -> Int)]: Var: Item 1 (Package 1)
                                     Expr 18 [93-103] [Type (Int -> Int)]: Closure([], 3)
                         adj: <none>
                         ctl: <none>
@@ -1203,7 +1209,7 @@ fn lambda_function_closure_passed() {
                                     Pat 16 [101-102] [Type Int]: Bind: Ident 17 [101-102] "x"
                                     Expr 18 [105-106] [Type Int]: Lit: Int(5)
                                 Stmt 19 [116-131]: Expr: Expr 20 [116-131] [Type Int]: Call:
-                                    Expr 21 [116-119] [Type ((Int -> Int) -> Int)]: Var: Item 1
+                                    Expr 21 [116-119] [Type ((Int -> Int) -> Int)]: Var: Item 1 (Package 1)
                                     Expr 22 [120-130] [Type (Int -> Int)]: Closure([17], 3)
                         adj: <none>
                         ctl: <none>
@@ -1277,7 +1283,7 @@ fn lambda_function_nested_closure() {
                                     Pat 18 [111-112] [Type Int]: Bind: Ident 19 [111-112] "a"
                                     Expr 20 [115-116] [Type Int]: Lit: Int(5)
                                 Stmt 21 [126-201]: Expr: Expr 22 [126-201] [Type Int]: Call:
-                                    Expr 23 [126-129] [Type ((Int -> (Int -> Int)) -> Int)]: Var: Item 1
+                                    Expr 23 [126-129] [Type ((Int -> (Int -> Int)) -> Int)]: Var: Item 1 (Package 1)
                                     Expr 24 [130-200] [Type (Int -> (Int -> Int))]: Closure([19], 4)
                         adj: <none>
                         ctl: <none>
@@ -1374,7 +1380,7 @@ fn lambda_operation_empty_closure() {
                             Block 18 [131-147] [Type Unit]:
                                 Stmt 19 [133-145]: Expr: Expr 20 [133-145] [Type Unit]: Call:
                                     Expr 21 [133-136] [Type ((Qubit => Unit) => Unit)]: Var:
-                                        res: Item 1
+                                        res: Item 1 (Package 1)
                                         generics:
                                             empty set
                                     Expr 22 [137-144] [Type (Qubit => Unit)]: Closure([], 3)
@@ -1457,7 +1463,7 @@ fn lambda_operation_closure() {
                                     QubitInit 23 [178-185] [Type Qubit]: Single
                                 Stmt 24 [195-216]: Expr: Expr 25 [195-216] [Type Result]: Call:
                                     Expr 26 [195-198] [Type ((Unit => Result) => Result)]: Var:
-                                        res: Item 2
+                                        res: Item 2 (Package 1)
                                         generics:
                                             empty set
                                     Expr 27 [199-215] [Type (Unit => Result)]: Closure([22], 4)
@@ -1476,7 +1482,7 @@ fn lambda_operation_closure() {
                         body: SpecDecl 37 [205-215]: Impl:
                             Block 38 [205-215] [Type Result]:
                                 Stmt 39 [205-215]: Expr: Expr 29 [205-215] [Type Result]: Call:
-                                    Expr 30 [205-212] [Type (Qubit => Result)]: Var: Item 1
+                                    Expr 30 [205-212] [Type (Qubit => Result)]: Var: Item 1 (Package 1)
                                     Expr 31 [213-214] [Type Qubit]: Var: Local 32
                         adj: <none>
                         ctl: <none>
@@ -1535,7 +1541,7 @@ fn lambda_adj() {
                             Block 16 [132-151] [Type Unit]:
                                 Stmt 17 [134-149]: Semi: Expr 18 [134-148] [Type Unit]: Call:
                                     Expr 19 [134-137] [Type ((Qubit => Unit is Adj) => Unit)]: Var:
-                                        res: Item 2
+                                        res: Item 2 (Package 1)
                                         generics:
                                             Adj
                                     Expr 20 [138-147] [Type (Qubit => Unit is Adj)]: Closure([], 4)
@@ -1553,7 +1559,7 @@ fn lambda_adj() {
                         body: SpecDecl 29 [143-147]: Impl:
                             Block 30 [143-147] [Type Unit]:
                                 Stmt 31 [143-147]: Expr: Expr 23 [143-147] [Type Unit]: Call:
-                                    Expr 24 [143-144] [Type (Qubit => Unit is Adj)]: Var: Item 1
+                                    Expr 24 [143-144] [Type (Qubit => Unit is Adj)]: Var: Item 1 (Package 1)
                                     Expr 25 [145-146] [Type Qubit]: Var: Local 22
                         adj: <none>
                         ctl: <none>
@@ -1622,7 +1628,7 @@ fn partial_app_one_hole() {
                         body: SpecDecl 39 [99-108]: Impl:
                             Block 40 [99-108] [Type Int]:
                                 Stmt 41 [99-108]: Expr: Expr 33 [99-108] [Type Int]: Call:
-                                    Expr 22 [99-102] [Type ((Int, Int) -> Int)]: Var: Item 1
+                                    Expr 22 [99-102] [Type ((Int, Int) -> Int)]: Var: Item 1 (Package 1)
                                     Expr 32 [102-108] [Type (Int, Int)]: Tuple:
                                         Expr 25 [103-104] [Type Int]: Var: Local 23
                                         Expr 28 [106-107] [Type Int]: Var: Local 34
@@ -1691,7 +1697,7 @@ fn partial_app_two_holes() {
                         body: SpecDecl 35 [99-108]: Impl:
                             Block 36 [99-108] [Type Int]:
                                 Stmt 37 [99-108]: Expr: Expr 31 [99-108] [Type Int]: Call:
-                                    Expr 22 [99-102] [Type ((Int, Int) -> Int)]: Var: Item 1
+                                    Expr 22 [99-102] [Type ((Int, Int) -> Int)]: Var: Item 1 (Package 1)
                                     Expr 29 [102-108] [Type (Int, Int)]: Tuple:
                                         Expr 25 [103-104] [Type Int]: Var: Local 23
                                         Expr 28 [106-107] [Type Int]: Var: Local 26
@@ -1768,7 +1774,7 @@ fn partial_app_nested_tuple() {
                         body: SpecDecl 54 [130-152]: Impl:
                             Block 55 [130-152] [Type Unit]:
                                 Stmt 56 [130-152]: Expr: Expr 48 [130-152] [Type Unit]: Call:
-                                    Expr 25 [130-133] [Type ((Int, (Bool, Double, String), Result) -> Unit)]: Var: Item 1
+                                    Expr 25 [130-133] [Type ((Int, (Bool, Double, String), Result) -> Unit)]: Var: Item 1 (Package 1)
                                     Expr 46 [133-152] [Type (Int, (Bool, Double, String), Result)]: Tuple:
                                         Expr 28 [134-135] [Type Int]: Var: Local 26
                                         Expr 41 [137-148] [Type (Bool, Double, String)]: Tuple:
@@ -1851,7 +1857,7 @@ fn partial_app_nested_tuple_singleton_unwrap() {
                         body: SpecDecl 58 [130-155]: Impl:
                             Block 59 [130-155] [Type Unit]:
                                 Stmt 60 [130-155]: Expr: Expr 50 [130-155] [Type Unit]: Call:
-                                    Expr 25 [130-133] [Type ((Int, (Bool, Double, String), Result) -> Unit)]: Var: Item 1
+                                    Expr 25 [130-133] [Type ((Int, (Bool, Double, String), Result) -> Unit)]: Var: Item 1 (Package 1)
                                     Expr 48 [133-155] [Type (Int, (Bool, Double, String), Result)]: Tuple:
                                         Expr 28 [134-135] [Type Int]: Var: Local 26
                                         Expr 44 [137-151] [Type (Bool, Double, String)]: Tuple:
@@ -2028,7 +2034,7 @@ fn partial_app_too_many_args() {
                                 Stmt 13 [78-99]: Local (Immutable):
                                     Pat 14 [82-83] [Type Int]: Bind: Ident 15 [82-83] "f"
                                     Expr 16 [86-98] [Type Int]: Call:
-                                        Expr 17 [86-89] [Type (Int -> Int)]: Var: Item 1
+                                        Expr 17 [86-89] [Type (Int -> Int)]: Var: Item 1 (Package 1)
                                         Expr 18 [89-98] [Type (Int, ?1, ?2)]: Tuple:
                                             Expr 19 [90-91] [Type Int]: Lit: Int(1)
                                             Expr 20 [93-94] [Type ?1]: Hole
@@ -2102,7 +2108,7 @@ fn partial_app_bound_to_non_arrow_ty() {
                         body: SpecDecl 39 [113-122]: Impl:
                             Block 40 [113-122] [Type Int]:
                                 Stmt 41 [113-122]: Expr: Expr 33 [113-122] [Type Int]: Call:
-                                    Expr 22 [113-116] [Type ((Int, Int) -> Int)]: Var: Item 1
+                                    Expr 22 [113-116] [Type ((Int, Int) -> Int)]: Var: Item 1 (Package 1)
                                     Expr 32 [116-122] [Type (Int, Int)]: Tuple:
                                         Expr 25 [117-118] [Type Int]: Var: Local 34
                                         Expr 31 [120-121] [Type Int]: Var: Local 29
@@ -2614,7 +2620,7 @@ fn duplicate_commas_in_arg_tuple() {
                         body: SpecDecl 9 [21-93]: Impl:
                             Block 10 [68-93] [Type Int]:
                                 Stmt 11 [78-87]: Expr: Expr 12 [78-87] [Type Int]: Call:
-                                    Expr 13 [78-81] [Type ((Int, Int, Int) => Int)]: Var: Item 1
+                                    Expr 13 [78-81] [Type ((Int, Int, Int) => Int)]: Var: Item 1 (Package 1)
                                     Expr 14 [81-87] [Type (Int, ?, Int)]: Tuple:
                                         Expr 15 [82-83] [Type Int]: Var: Local 4
                                         Expr 16 [84-84] [Type ?]: Err
@@ -2741,7 +2747,7 @@ fn export_in_different_namespace_creates_export_item() {
                     Namespace (Ident 9 [59-63] "Test"): Item 3
                 Item 3 [70-85] (Public):
                     Parent: 2
-                    Export (Ident 8 [81-84] "Bar"): Item 1"#]],
+                    Export (Ident 8 [81-84] "Bar"): Item 1 (Package 1)"#]],
     );
 }
 
@@ -2782,7 +2788,7 @@ fn wildcard_import_export_in_different_namespace_creates_export_item() {
                     Namespace (Ident 16 [57-61] "Test"): Item 3, Item 4
                 Item 3 [86-97] (Public):
                     Parent: 2
-                    Export (Ident 6 [93-96] "Bar"): Item 1
+                    Export (Ident 6 [93-96] "Bar"): Item 1 (Package 1)
                 Item 4 [102-147] (Internal):
                     Parent: 2
                     Callable 7 [102-147] (function):
@@ -2793,7 +2799,7 @@ fn wildcard_import_export_in_different_namespace_creates_export_item() {
                         body: SpecDecl 10 [102-147]: Impl:
                             Block 11 [125-147] [Type Unit]:
                                 Stmt 12 [135-141]: Semi: Expr 13 [135-140] [Type Unit]: Call:
-                                    Expr 14 [135-138] [Type (Unit -> Unit)]: Var: Item 1
+                                    Expr 14 [135-138] [Type (Unit -> Unit)]: Var: Item 1 (Package 1)
                                     Expr 15 [138-140] [Type Unit]: Unit
                         adj: <none>
                         ctl: <none>
@@ -2835,7 +2841,7 @@ fn aliased_export_creates_export_item() {
                     Namespace (Ident 9 [59-63] "Test"): Item 3
                 Item 3 [70-92] (Public):
                     Parent: 2
-                    Export (Ident 8 [88-91] "Baz"): Item 1"#]],
+                    Export (Ident 8 [88-91] "Baz"): Item 1 (Package 1)"#]],
     );
 }
 

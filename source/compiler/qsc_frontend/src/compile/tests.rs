@@ -17,8 +17,8 @@ use qsc_data_structures::{
 use qsc_hir::{
     global,
     hir::{
-        Block, Expr, ExprKind, ItemId, ItemKind, Lit, LocalItemId, NodeId, Res, SpecBody, Stmt,
-        StmtKind,
+        Block, Expr, ExprKind, ItemId, ItemKind, Lit, LocalItemId, NodeId, PackageId, Res,
+        SpecBody, Stmt, StmtKind,
     },
     mut_visit::MutVisitor,
     ty::{Prim, Ty},
@@ -57,14 +57,18 @@ fn source_span<'a>(sources: &'a SourceMap, error: &Error) -> (&'a str, Span) {
 }
 
 /// runs a compile with the default configuration
-fn default_compile(sources: SourceMap) -> CompileUnit {
-    compile(
-        &PackageStore::new(super::core()),
+fn default_compile(sources: SourceMap) -> (CompileUnit, PackageId) {
+    let mut store = PackageStore::new(super::core());
+    let package_id = store.new_package_id();
+    let unit = compile(
+        &store,
         &[],
         sources,
+        package_id,
         TargetCapabilityFlags::all(),
         LanguageFeatures::default(),
-    )
+    );
+    (unit, package_id)
 }
 
 #[test]
@@ -82,7 +86,7 @@ fn one_file_no_entry() {
         None,
     );
 
-    let unit = default_compile(sources);
+    let (unit, _) = default_compile(sources);
     assert!(unit.errors.is_empty(), "{:#?}", unit.errors);
 
     let entry = unit.package.entry.as_ref();
@@ -106,7 +110,7 @@ fn one_file_error() {
         None,
     );
 
-    let unit = default_compile(sources);
+    let (unit, _) = default_compile(sources);
     let errors: Vec<_> = unit
         .errors
         .iter()
@@ -144,7 +148,7 @@ fn two_files_dependency() {
         None,
     );
 
-    let unit = default_compile(sources);
+    let (unit, _) = default_compile(sources);
     assert!(unit.errors.is_empty(), "{:#?}", unit.errors);
 }
 
@@ -178,7 +182,7 @@ fn two_files_mutual_dependency() {
         None,
     );
 
-    let unit = default_compile(sources);
+    let (unit, _) = default_compile(sources);
     assert!(unit.errors.is_empty(), "{:#?}", unit.errors);
 }
 
@@ -210,7 +214,7 @@ fn two_files_error() {
         None,
     );
 
-    let unit = default_compile(sources);
+    let (unit, _) = default_compile(sources);
     let errors: Vec<_> = unit
         .errors
         .iter()
@@ -241,7 +245,7 @@ fn entry_call_operation() {
         Some("Foo.A()".into()),
     );
 
-    let unit = default_compile(sources);
+    let (unit, package_id) = default_compile(sources);
     assert!(unit.errors.is_empty(), "{:#?}", unit.errors);
 
     let entry = &unit.package.entry.expect("package should have entry");
@@ -253,7 +257,7 @@ fn entry_call_operation() {
     };
     assert_eq!(
         &Res::Item(ItemId {
-            package: None,
+            package: package_id,
             item: LocalItemId::from(1),
         }),
         res
@@ -275,7 +279,7 @@ fn entry_error() {
         Some("Foo.B()".into()),
     );
 
-    let unit = default_compile(sources);
+    let (unit, _) = default_compile(sources);
     assert_eq!(
         ("<entry>", Span { lo: 0, hi: 5 }),
         source_span(&unit.sources, &unit.errors[0])
@@ -312,7 +316,7 @@ fn replace_node() {
         None,
     );
 
-    let mut unit = default_compile(sources);
+    let (mut unit, _) = default_compile(sources);
     assert!(unit.errors.is_empty(), "{:#?}", unit.errors);
     Replacer.visit_package(&mut unit.package);
     unit.assigner.visit_package(&mut unit.package);
@@ -398,7 +402,7 @@ fn insert_core_call() {
     );
 
     let store = PackageStore::new(super::core());
-    let mut unit = default_compile(sources);
+    let (mut unit, _) = default_compile(sources);
     assert!(unit.errors.is_empty(), "{:#?}", unit.errors);
     let mut inserter = Inserter { core: store.core() };
     inserter.visit_package(&mut unit.package);
@@ -445,15 +449,18 @@ fn package_dependency() {
         )],
         None,
     );
+
+    let package_id_1 = store.new_package_id();
     let unit1 = compile(
         &store,
         &[],
         sources1,
+        package_id_1,
         TargetCapabilityFlags::all(),
         LanguageFeatures::default(),
     );
     assert!(unit1.errors.is_empty(), "{:#?}", unit1.errors);
-    let package1 = store.insert(unit1);
+    store.insert(package_id_1, unit1);
 
     let sources2 = SourceMap::new(
         [(
@@ -469,10 +476,12 @@ fn package_dependency() {
         )],
         None,
     );
+    let package_id_2 = store.new_package_id();
     let unit2 = compile(
         &store,
-        &[(package1, Some(Arc::from("PackageAlias")))],
+        &[(package_id_1, Some(Arc::from("PackageAlias")))],
         sources2,
+        package_id_2,
         TargetCapabilityFlags::all(),
         LanguageFeatures::default(),
     );
@@ -518,15 +527,17 @@ fn package_dependency_internal_error() {
         )],
         None,
     );
+    let package_id_1 = store.new_package_id();
     let unit1 = compile(
         &store,
         &[],
         sources1,
+        package_id_1,
         TargetCapabilityFlags::all(),
         LanguageFeatures::default(),
     );
     assert!(unit1.errors.is_empty(), "{:#?}", unit1.errors);
-    let package1 = store.insert(unit1);
+    store.insert(package_id_1, unit1);
 
     let sources2 = SourceMap::new(
         [(
@@ -542,10 +553,12 @@ fn package_dependency_internal_error() {
         )],
         None,
     );
+    let package_id_2 = store.new_package_id();
     let unit2 = compile(
         &store,
-        &[(package1, Some(Arc::from("PackageAlias")))],
+        &[(package_id_1, Some(Arc::from("PackageAlias")))],
         sources2,
+        package_id_2,
         TargetCapabilityFlags::all(),
         LanguageFeatures::default(),
     );
@@ -599,15 +612,17 @@ fn package_dependency_udt() {
         )],
         None,
     );
+    let package_id_1 = store.new_package_id();
     let unit1 = compile(
         &store,
         &[],
         sources1,
+        package_id_1,
         TargetCapabilityFlags::all(),
         LanguageFeatures::default(),
     );
     assert!(unit1.errors.is_empty(), "{:#?}", unit1.errors);
-    let package1 = store.insert(unit1);
+    store.insert(package_id_1, unit1);
 
     let sources2 = SourceMap::new(
         [(
@@ -623,10 +638,12 @@ fn package_dependency_udt() {
         )],
         None,
     );
+    let package_id_2 = store.new_package_id();
     let unit2 = compile(
         &store,
-        &[(package1, Some(Arc::from("PackageAlias")))],
+        &[(package_id_1, Some(Arc::from("PackageAlias")))],
         sources2,
+        package_id_2,
         TargetCapabilityFlags::all(),
         LanguageFeatures::default(),
     );
@@ -656,6 +673,7 @@ fn package_dependency_udt() {
     .assert_eq(&unit2.package.to_string());
 }
 
+#[allow(clippy::too_many_lines)]
 #[test]
 fn package_dependency_nested_udt() {
     let mut store = PackageStore::new(super::core());
@@ -675,15 +693,17 @@ fn package_dependency_nested_udt() {
         )],
         None,
     );
+    let package_id_1 = store.new_package_id();
     let unit1 = compile(
         &store,
         &[],
         sources1,
+        package_id_1,
         TargetCapabilityFlags::all(),
         LanguageFeatures::default(),
     );
     assert!(unit1.errors.is_empty(), "{:#?}", unit1.errors);
-    let package1 = store.insert(unit1);
+    store.insert(package_id_1, unit1);
 
     let sources2 = SourceMap::new(
         [(
@@ -705,10 +725,12 @@ fn package_dependency_nested_udt() {
         )],
         None,
     );
+    let package_id_2 = store.new_package_id();
     let unit2 = compile(
         &store,
-        &[(package1, Some(Arc::from("PackageAlias")))],
+        &[(package_id_1, Some(Arc::from("PackageAlias")))],
         sources2,
+        package_id_2,
         TargetCapabilityFlags::all(),
         LanguageFeatures::default(),
     );
@@ -766,7 +788,11 @@ fn package_dependency_nested_udt() {
 #[test]
 fn std_dependency() {
     let mut store = PackageStore::new(super::core());
-    let std = store.insert(super::std(&store, TargetCapabilityFlags::all()));
+    let std_id = store.new_package_id();
+    store.insert(
+        std_id,
+        super::std(std_id, &store, TargetCapabilityFlags::all()),
+    );
     let sources = SourceMap::new(
         [(
             "test".into(),
@@ -784,11 +810,12 @@ fn std_dependency() {
         )],
         Some("Foo.Main()".into()),
     );
-
+    let package_id = store.new_package_id();
     let unit = compile(
         &store,
-        &[(std, None)],
+        &[(std_id, None)],
         sources,
+        package_id,
         TargetCapabilityFlags::all(),
         LanguageFeatures::default(),
     );
@@ -798,7 +825,11 @@ fn std_dependency() {
 #[test]
 fn std_dependency_base_profile() {
     let mut store = PackageStore::new(super::core());
-    let std = store.insert(super::std(&store, TargetCapabilityFlags::empty()));
+    let std_id = store.new_package_id();
+    store.insert(
+        std_id,
+        super::std(std_id, &store, TargetCapabilityFlags::empty()),
+    );
     let sources = SourceMap::new(
         [(
             "test".into(),
@@ -817,10 +848,12 @@ fn std_dependency_base_profile() {
         Some("Foo.Main()".into()),
     );
 
+    let package_id = store.new_package_id();
     let unit = compile(
         &store,
-        &[(std, None)],
+        &[(std_id, None)],
         sources,
+        package_id,
         TargetCapabilityFlags::empty(),
         LanguageFeatures::default(),
     );
@@ -830,7 +863,11 @@ fn std_dependency_base_profile() {
 #[test]
 fn introduce_prelude_ambiguity() {
     let mut store = PackageStore::new(super::core());
-    let std = store.insert(super::std(&store, TargetCapabilityFlags::all()));
+    let std_id = store.new_package_id();
+    store.insert(
+        std_id,
+        super::std(std_id, &store, TargetCapabilityFlags::all()),
+    );
     let sources = SourceMap::new(
         [(
             "test".into(),
@@ -845,10 +882,12 @@ fn introduce_prelude_ambiguity() {
         Some("Foo.Main()".into()),
     );
 
+    let package_id = store.new_package_id();
     let unit = compile(
         &store,
-        &[(std, None)],
+        &[(std_id, None)],
         sources,
+        package_id,
         TargetCapabilityFlags::all(),
         LanguageFeatures::default(),
     );
@@ -874,7 +913,7 @@ fn entry_parse_error() {
         Some("Foo.B)".into()),
     );
 
-    let unit = default_compile(sources);
+    let (unit, _) = default_compile(sources);
 
     assert_eq!(
         unit.errors[0]
@@ -900,7 +939,7 @@ fn two_files_error_eof() {
         None,
     );
 
-    let unit = default_compile(sources);
+    let (unit, _) = default_compile(sources);
     let errors: Vec<_> = unit
         .errors
         .iter()
@@ -935,15 +974,17 @@ fn unimplemented_call_from_dependency_produces_error() {
         None,
     );
     let mut store = PackageStore::new(super::core());
+    let lib_id = store.new_package_id();
     let lib = compile(
         &store,
         &[],
         lib_sources,
+        lib_id,
         TargetCapabilityFlags::all(),
         LanguageFeatures::default(),
     );
     assert!(lib.errors.is_empty(), "{:#?}", lib.errors);
-    let lib = store.insert(lib);
+    store.insert(lib_id, lib);
 
     let sources = SourceMap::new(
         [(
@@ -960,10 +1001,12 @@ fn unimplemented_call_from_dependency_produces_error() {
         )],
         None,
     );
+    let package_id = store.new_package_id();
     let unit = compile(
         &store,
-        &[(lib, None)],
+        &[(lib_id, None)],
         sources,
+        package_id,
         TargetCapabilityFlags::all(),
         LanguageFeatures::default(),
     );
@@ -1003,7 +1046,7 @@ fn unimplemented_attribute_call_within_unit_error() {
         )],
         None,
     );
-    let unit = default_compile(sources);
+    let (unit, _) = default_compile(sources);
     expect![[r#"
         [
             Error(
@@ -1037,7 +1080,7 @@ fn unimplemented_attribute_with_non_unit_expr_error() {
         )],
         None,
     );
-    let unit = default_compile(sources);
+    let (unit, _) = default_compile(sources);
     expect![[r#"
         [
             Error(
@@ -1072,15 +1115,17 @@ fn unimplemented_attribute_avoids_ambiguous_error_with_duplicate_names_in_scope(
         None,
     );
     let mut store = PackageStore::new(super::core());
+    let lib_id = store.new_package_id();
     let lib = compile(
         &store,
         &[],
         lib_sources,
+        lib_id,
         TargetCapabilityFlags::all(),
         LanguageFeatures::default(),
     );
     assert!(lib.errors.is_empty(), "{:#?}", lib.errors);
-    let lib = store.insert(lib);
+    store.insert(lib_id, lib);
 
     let sources = SourceMap::new(
         [(
@@ -1101,10 +1146,12 @@ fn unimplemented_attribute_avoids_ambiguous_error_with_duplicate_names_in_scope(
         )],
         None,
     );
+    let package_id = store.new_package_id();
     let unit = compile(
         &store,
-        &[(lib, None)],
+        &[(lib_id, None)],
         sources,
+        package_id,
         TargetCapabilityFlags::all(),
         LanguageFeatures::default(),
     );
@@ -1130,15 +1177,17 @@ fn duplicate_intrinsic_from_dependency() {
     );
 
     let mut store = PackageStore::new(super::core());
+    let lib_id = store.new_package_id();
     let lib = compile(
         &store,
         &[],
         lib_sources,
+        lib_id,
         TargetCapabilityFlags::all(),
         LanguageFeatures::default(),
     );
     assert!(lib.errors.is_empty(), "{:#?}", lib.errors);
-    let lib = store.insert(lib);
+    store.insert(lib_id, lib);
 
     let sources = SourceMap::new(
         [(
@@ -1153,10 +1202,12 @@ fn duplicate_intrinsic_from_dependency() {
         None,
     );
 
+    let package_id = store.new_package_id();
     let unit = compile(
         &store,
-        &[(lib, None)],
+        &[(lib_id, None)],
         sources,
+        package_id,
         TargetCapabilityFlags::all(),
         LanguageFeatures::default(),
     );
@@ -1181,7 +1232,11 @@ fn duplicate_intrinsic_from_dependency() {
 #[test]
 fn reject_use_qubit_block_syntax_if_preview_feature_is_on() {
     let mut store = PackageStore::new(super::core());
-    let std = store.insert(super::std(&store, TargetCapabilityFlags::empty()));
+    let std_id = store.new_package_id();
+    store.insert(
+        std_id,
+        super::std(std_id, &store, TargetCapabilityFlags::empty()),
+    );
     let sources = SourceMap::new(
         [(
             "test".into(),
@@ -1204,10 +1259,12 @@ fn reject_use_qubit_block_syntax_if_preview_feature_is_on() {
         Some("Foo.Main()".into()),
     );
 
+    let package_id = store.new_package_id();
     let unit = compile(
         &store,
-        &[(std, None)],
+        &[(std_id, None)],
         sources,
+        package_id,
         TargetCapabilityFlags::empty(),
         LanguageFeatures::V2PreviewSyntax,
     );
@@ -1237,7 +1294,11 @@ fn reject_use_qubit_block_syntax_if_preview_feature_is_on() {
 #[test]
 fn accept_use_qubit_block_syntax_if_preview_feature_is_off() {
     let mut store = PackageStore::new(super::core());
-    let std = store.insert(super::std(&store, TargetCapabilityFlags::empty()));
+    let std_id = store.new_package_id();
+    store.insert(
+        std_id,
+        super::std(std_id, &store, TargetCapabilityFlags::empty()),
+    );
     let sources = SourceMap::new(
         [(
             "test".into(),
@@ -1258,11 +1319,12 @@ fn accept_use_qubit_block_syntax_if_preview_feature_is_off() {
         )],
         Some("Foo.Main()".into()),
     );
-
+    let package_id = store.new_package_id();
     let unit = compile(
         &store,
-        &[(std, None)],
+        &[(std_id, None)],
         sources,
+        package_id,
         TargetCapabilityFlags::empty(),
         LanguageFeatures::default(),
     );
@@ -1290,11 +1352,13 @@ fn hierarchical_namespace_basic() {
         None,
     );
 
-    let store = PackageStore::new(super::core());
+    let mut store = PackageStore::new(super::core());
+    let package_id = store.new_package_id();
     let lib = compile(
         &store,
         &[],
         lib_sources,
+        package_id,
         TargetCapabilityFlags::all(),
         LanguageFeatures::default(),
     );
@@ -1334,7 +1398,7 @@ fn implicit_namespace_basic() {
         ],
         None,
     );
-    let unit = default_compile(sources);
+    let (unit, _) = default_compile(sources);
     assert!(unit.errors.is_empty(), "{:#?}", unit.errors);
 }
 
@@ -1370,7 +1434,7 @@ fn bad_filename_implicit_namespace_best_effort_fixup() {
         ],
         None,
     );
-    let unit = default_compile(sources);
+    let (unit, _) = default_compile(sources);
     expect![[r#"
         [
             Error(
@@ -1484,6 +1548,6 @@ fn export_namespace_with_same_name_as_newtype_does_not_cause_panic() {
         None,
     );
 
-    let unit = default_compile(sources);
+    let (unit, _) = default_compile(sources);
     expect!["[]"].assert_eq(&format!("{:?}", unit.errors));
 }

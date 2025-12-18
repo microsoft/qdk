@@ -61,16 +61,18 @@ pub fn compile_openqasm(unit: QasmCompileUnit, package_type: PackageType) -> Com
     let (stdid, mut store) = package_store_with_stdlib(profile.into());
     let dependencies = vec![(PackageId::CORE, None), (stdid, None)];
 
+    let source_package_id = store.new_package_id();
     let (mut unit, compile_errors) = crate::compile::compile_ast(
         &store,
         &dependencies,
         package,
         source_map.clone(),
         package_type,
+        source_package_id,
         profile.into(),
     );
     unit.expose();
-    let source_package_id = store.insert(unit);
+    store.insert(source_package_id, unit);
 
     // We allow the best effort compilation, but for errors we only
     // want to provide OpenQASM OR Q# errors. Otherwise we get confusing

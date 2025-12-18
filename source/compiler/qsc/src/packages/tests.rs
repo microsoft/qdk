@@ -55,7 +55,7 @@ fn test_prepare_package_store() {
     let ProjectType::QSharp(package_graph_sources) = program.project_type else {
         panic!("project should be a Q# project");
     };
-    let buildable_program =
+    let mut buildable_program =
         super::prepare_package_store(TargetCapabilityFlags::default(), package_graph_sources);
 
     expect![[r"
@@ -64,11 +64,13 @@ fn test_prepare_package_store() {
     .assert_debug_eq(&buildable_program.dependency_errors);
 
     // compile the user code
+    let package_id = buildable_program.store.new_package_id();
     let compiled = compile::compile(
         &buildable_program.store,
         &buildable_program.user_code_dependencies[..],
         SourceMap::new(buildable_program.user_code.sources, None),
         PackageType::Exe,
+        package_id,
         TargetCapabilityFlags::default(),
         LanguageFeatures::default(),
     );
@@ -83,7 +85,7 @@ fn test_prepare_package_store() {
     expect![[r#"
             Package:
                 entry expression: Expr 8 [0-0] [Type Unit]: Call:
-                    Expr 7 [24-28] [Type Unit]: Var: Item 1
+                    Expr 7 [24-28] [Type Unit]: Var: Item 1 (Package 3)
                     Expr 6 [28-30] [Type Unit]: Unit
                 Item 0 [0-40] (Public):
                     Namespace (Ident 5 [0-40] "test"): Item 1
@@ -133,7 +135,7 @@ fn missing_dependency_doesnt_force_failure() {
         .dependencies
         .insert("NonExistent".into(), "nonexistent-dep-key".into());
 
-    let buildable_program =
+    let mut buildable_program =
         super::prepare_package_store(TargetCapabilityFlags::default(), package_graph_sources);
 
     expect![[r"
@@ -142,11 +144,13 @@ fn missing_dependency_doesnt_force_failure() {
     .assert_debug_eq(&buildable_program.dependency_errors);
 
     // compile the user code
+    let package_id = buildable_program.store.new_package_id();
     let compiled = compile::compile(
         &buildable_program.store,
         &buildable_program.user_code_dependencies[..],
         SourceMap::new(buildable_program.user_code.sources, None),
         PackageType::Exe,
+        package_id,
         TargetCapabilityFlags::default(),
         LanguageFeatures::default(),
     );
@@ -161,7 +165,7 @@ fn missing_dependency_doesnt_force_failure() {
     expect![[r#"
             Package:
                 entry expression: Expr 8 [0-0] [Type Unit]: Call:
-                    Expr 7 [24-28] [Type Unit]: Var: Item 1
+                    Expr 7 [24-28] [Type Unit]: Var: Item 1 (Package 3)
                     Expr 6 [28-30] [Type Unit]: Unit
                 Item 0 [0-40] (Public):
                     Namespace (Ident 5 [0-40] "test"): Item 1
@@ -213,7 +217,7 @@ fn dependency_error() {
         .sources[0]
         .1 = "broken_syntax".into();
 
-    let buildable_program =
+    let mut buildable_program =
         super::prepare_package_store(TargetCapabilityFlags::default(), package_graph_sources);
 
     expect![[r#"
@@ -248,11 +252,13 @@ fn dependency_error() {
     .assert_debug_eq(&buildable_program.dependency_errors);
 
     // compile the user code
+    let package_id = buildable_program.store.new_package_id();
     let compiled = compile::compile(
         &buildable_program.store,
         &buildable_program.user_code_dependencies[..],
         SourceMap::new(buildable_program.user_code.sources, None),
         PackageType::Exe,
+        package_id,
         TargetCapabilityFlags::default(),
         LanguageFeatures::default(),
     );
@@ -267,7 +273,7 @@ fn dependency_error() {
     expect![[r#"
             Package:
                 entry expression: Expr 8 [0-0] [Type Unit]: Call:
-                    Expr 7 [24-28] [Type Unit]: Var: Item 1
+                    Expr 7 [24-28] [Type Unit]: Var: Item 1 (Package 3)
                     Expr 6 [28-30] [Type Unit]: Unit
                 Item 0 [0-40] (Public):
                     Namespace (Ident 5 [0-40] "test"): Item 1

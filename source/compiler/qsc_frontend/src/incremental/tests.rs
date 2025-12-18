@@ -279,7 +279,11 @@ fn conditional_compilation_not_available() {
 #[test]
 fn errors_across_multiple_lines() {
     let mut store = PackageStore::new(compile::core());
-    let std_id = store.insert(compile::std(&store, TargetCapabilityFlags::all()));
+    let std_id = store.new_package_id();
+    store.insert(
+        std_id,
+        compile::std(std_id, &store, TargetCapabilityFlags::all()),
+    );
     let mut compiler = Compiler::new(
         &store,
         &[(std_id, None)],

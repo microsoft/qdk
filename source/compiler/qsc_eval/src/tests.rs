@@ -61,26 +61,29 @@ fn check_expr(file: &str, expr: &str, expect: &Expect) {
     let core_fir = fir_lowerer.lower_package(&core.package, &fir_store);
     let mut store = PackageStore::new(core);
 
-    let mut std = compile::std(&store, TargetCapabilityFlags::all());
+    let std_id = store.new_package_id();
+    let mut std = compile::std(std_id, &store, TargetCapabilityFlags::all());
     assert!(std.errors.is_empty());
-    assert!(run_default_passes(store.core(), &mut std, PackageType::Lib).is_empty());
+    assert!(run_default_passes(store.core(), &mut std, PackageType::Lib, std_id).is_empty());
     let std_fir = fir_lowerer.lower_package(&std.package, &fir_store);
-    let std_id = store.insert(std);
+    store.insert(std_id, std);
 
     let sources = SourceMap::new([("test".into(), file.into())], Some(expr.into()));
+    let package_id = store.new_package_id();
     let mut unit = compile(
         &store,
         &[(std_id, None)],
         sources,
+        package_id,
         TargetCapabilityFlags::all(),
         LanguageFeatures::default(),
     );
     assert!(unit.errors.is_empty(), "{:?}", unit.errors);
-    let pass_errors = run_default_passes(store.core(), &mut unit, PackageType::Lib);
+    let pass_errors = run_default_passes(store.core(), &mut unit, PackageType::Lib, package_id);
     assert!(pass_errors.is_empty(), "{pass_errors:?}");
     let unit_fir = fir_lowerer.lower_package(&unit.package, &fir_store);
     let entry = unit_fir.entry_exec_graph.clone();
-    let id = store.insert(unit);
+    store.insert(package_id, unit);
 
     let mut fir_store = fir::PackageStore::new();
     fir_store.insert(
@@ -88,7 +91,7 @@ fn check_expr(file: &str, expr: &str, expect: &Expect) {
         core_fir,
     );
     fir_store.insert(map_hir_package_to_fir(std_id), std_fir);
-    fir_store.insert(map_hir_package_to_fir(id), unit_fir);
+    fir_store.insert(map_hir_package_to_fir(package_id), unit_fir);
 
     let mut out = Vec::new();
     match eval_graph(
@@ -96,7 +99,7 @@ fn check_expr(file: &str, expr: &str, expect: &Expect) {
         &mut SparseSim::new(),
         &fir_store,
         ExecGraphConfig::NoDebug,
-        map_hir_package_to_fir(id),
+        map_hir_package_to_fir(package_id),
         &mut Env::default(),
         &mut GenericReceiver::new(&mut out),
     ) {
@@ -117,29 +120,31 @@ fn check_partial_eval_stmt(
     let fir_store = fir::PackageStore::new();
     let core_fir = qsc_lowerer::Lowerer::new().lower_package(&core.package, &fir_store);
     let mut store = PackageStore::new(core);
-
-    let mut std = compile::std(&store, TargetCapabilityFlags::all());
+    let std_id = store.new_package_id();
+    let mut std = compile::std(std_id, &store, TargetCapabilityFlags::all());
     assert!(std.errors.is_empty());
-    assert!(run_default_passes(store.core(), &mut std, PackageType::Lib).is_empty());
+    assert!(run_default_passes(store.core(), &mut std, PackageType::Lib, std_id).is_empty());
     let std_fir = qsc_lowerer::Lowerer::new().lower_package(&std.package, &fir_store);
-    let std_id = store.insert(std);
+    store.insert(std_id, std);
 
     let sources = SourceMap::new([("test".into(), file.into())], Some(expr.into()));
+    let id = store.new_package_id();
     let mut unit = compile(
         &store,
         &[(std_id, None)],
         sources,
+        id,
         TargetCapabilityFlags::all(),
         LanguageFeatures::default(),
     );
     assert!(unit.errors.is_empty(), "{:?}", unit.errors);
-    let pass_errors = run_default_passes(store.core(), &mut unit, PackageType::Lib);
+    let pass_errors = run_default_passes(store.core(), &mut unit, PackageType::Lib, id);
     assert!(pass_errors.is_empty(), "{pass_errors:?}");
     let unit_fir = qsc_lowerer::Lowerer::new().lower_package(&unit.package, &fir_store);
     fir_expect.assert_eq(&unit_fir.to_string());
 
     let entry = unit_fir.entry_exec_graph.clone();
-    let id = store.insert(unit);
+    store.insert(id, unit);
 
     let mut fir_store = fir::PackageStore::new();
     fir_store.insert(
@@ -4156,14 +4161,14 @@ fn partial_eval_stmt_function_calls() {
                     Expr 1 [9-21] [Type Int]: Call:
                         2
                         3
-                    Expr 2 [9-18] [Type (Int -> Int)]: Var: Item 1
+                    Expr 2 [9-18] [Type (Int -> Int)]: Var: Item 1 (Package 2)
                     Expr 3 [19-20] [Type Int]: Lit: Int(4)
                     Expr 4 [23-26] [Type Int]: Expr Block: 1
                     Expr 5 [24-25] [Type Int]: Var: Local 0
                     Expr 6 [27-39] [Type Int]: Call:
                         7
                         8
-                    Expr 7 [27-36] [Type (Int -> Int)]: Var: Item 1
+                    Expr 7 [27-36] [Type (Int -> Int)]: Var: Item 1 (Package 2)
                     Expr 8 [37-38] [Type Int]: Lit: Int(3)
                     Expr 9 [93-98] [Type Int]: BinOp (Add):
                         10

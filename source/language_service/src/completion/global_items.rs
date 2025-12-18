@@ -13,7 +13,7 @@ use qsc::{
     resolve::{Local, NameKind},
 };
 use rustc_hash::FxHashSet;
-use std::{cmp::Ordering, mem::take, rc::Rc};
+use std::{mem::take, rc::Rc};
 
 /// Provides the globals that are visible or importable at the cursor offset.
 pub(super) struct Globals<'a> {
@@ -366,7 +366,7 @@ impl<'a> Globals<'a> {
     /// Turns the final list of items into completion items, filling in
     /// details and including any text edits if requested.
     ///
-    /// Items are sorted by package, with the user package (`None`)
+    /// Items are sorted by package, with the user package
     /// coming first, with the dependencies in reverse order, so
     /// that the "closer" dependencies are listed first in the completion list.
     fn to_completions(
@@ -374,19 +374,15 @@ impl<'a> Globals<'a> {
         mut items: Vec<ItemInfo<'_>>,
         edit_range: Option<&TextEditRange>,
     ) -> Vec<Vec<Completion>> {
-        items.sort_by(|a, b| match (a.item_id.package, b.item_id.package) {
-            (None, Some(_)) => Ordering::Greater,
-            (Some(_), None) => Ordering::Less,
-            (a, b) => a.cmp(&b),
-        });
+        items.sort_by(|a, b| a.item_id.package.cmp(&b.item_id.package));
         items.reverse();
 
         let mut groups = Vec::new();
         let mut group = Vec::new();
-        let mut last_package_id = items.first().and_then(|item| item.item_id.package);
+        let mut last_package_id = items.first().map(|item| item.item_id.package);
 
         for item in items {
-            let curr_package_id = item.item_id.package;
+            let curr_package_id = Some(item.item_id.package);
             if curr_package_id != last_package_id {
                 // push the group to the groups
                 if !group.is_empty() {

@@ -142,12 +142,14 @@ fn compile_and_run_qasm_internal(source: &str, debug: bool) -> String {
     let (stdid, mut store) = qsc::compile::package_store_with_stdlib(capabilities);
     let dependencies = vec![(PackageId::CORE, None), (stdid, None)];
 
+    let source_package_id = store.new_package_id();
     let (mut unit, errors) = qsc::compile::compile_ast(
         &store,
         &dependencies,
         package,
         source_map,
         package_type,
+        source_package_id,
         capabilities,
     );
 
@@ -157,7 +159,7 @@ fn compile_and_run_qasm_internal(source: &str, debug: bool) -> String {
     );
 
     unit.expose();
-    let source_package_id = store.insert(unit);
+    store.insert(source_package_id, unit);
 
     let mut interpreter = match Interpreter::with_package_store(
         debug,

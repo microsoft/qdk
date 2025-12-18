@@ -2132,16 +2132,17 @@ mod given_interpreter {
             );
 
             let mut store = crate::PackageStore::new(crate::compile::core());
-            let dependencies = vec![(
-                store.insert(crate::compile::std(&store, capabilities)),
-                None,
-            )];
+            let std_id = store.new_package_id();
+            store.insert(std_id, crate::compile::std(std_id, &store, capabilities));
+            let dependencies = vec![(std_id, None)];
 
+            let package_id = store.new_package_id();
             let (mut unit, errors) = crate::compile::compile(
                 &store,
                 &dependencies,
                 sources,
                 package_type,
+                package_id,
                 capabilities,
                 language_features,
             );
@@ -2150,7 +2151,7 @@ mod given_interpreter {
                 eprintln!("{e:?}");
             }
             assert!(errors.is_empty(), "compilation failed: {}", errors[0]);
-            let package_id = store.insert(unit);
+            store.insert(package_id, unit);
 
             let mut interpreter = Interpreter::with_package_store(
                 false,

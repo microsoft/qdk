@@ -210,15 +210,17 @@ fn compile_qasm_best_effort(source: &str) {
     );
     let (sources, _, package, _, profile) = unit.into_tuple();
 
-    let (stdid, store) = package_store_with_stdlib(profile.into());
+    let (stdid, mut store) = package_store_with_stdlib(profile.into());
     let dependencies = vec![(PackageId::CORE, None), (stdid, None)];
 
+    let package_id = store.new_package_id();
     let (mut _unit, _errors) = compile_ast(
         &store,
         &dependencies,
         package,
         sources,
         PackageType::Lib,
+        package_id,
         profile.into(),
     );
 }

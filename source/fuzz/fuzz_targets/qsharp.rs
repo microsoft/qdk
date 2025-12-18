@@ -14,8 +14,9 @@ fn compile(data: &[u8]) {
         thread_local! {
             static STORE_STD: (PackageStore, PackageId) = {
                 let mut store = PackageStore::new(qsc::compile::core());
-                let std = store.insert(qsc::compile::std(&store, Profile::Unrestricted.into()));
-                (store, std)
+                let std_id = store.new_package_id();
+                store.insert(std_id, qsc::compile::std(std_id, &store, Profile::Unrestricted.into()));
+                (store, std_id)
             };
         }
         let sources = SourceMap::new([("fuzzed_code".into(), fuzzed_code.into())], None);
@@ -25,6 +26,7 @@ fn compile(data: &[u8]) {
                 &[(*std, None)],
                 sources,
                 qsc::PackageType::Lib,
+                store.peek_next_package_id(),
                 Profile::Unrestricted.into(),
                 LanguageFeatures::default(),
             );

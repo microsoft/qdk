@@ -48,8 +48,9 @@ static ALLOCATOR: AllocationCounter<System> = AllocationCounter::new(System);
 
 #[must_use]
 pub fn compile_stdlib() -> CompileUnit {
-    let store = PackageStore::new(compile::core());
-    compile::std(&store, TargetCapabilityFlags::all())
+    let mut store = PackageStore::new(compile::core());
+    let std_id = store.new_package_id();
+    compile::std(std_id, &store, TargetCapabilityFlags::all())
 }
 
 fn main() {

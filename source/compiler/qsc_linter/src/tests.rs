@@ -921,18 +921,24 @@ fn check_that_hir_lints_are_deduplicated_in_operations_with_multiple_specializat
 
 fn compile_and_collect_lints(source: &str, config: Option<&[LintOrGroupConfig]>) -> Vec<Lint> {
     let mut store = PackageStore::new(compile::core());
-    let std = store.insert(compile::std(&store, TargetCapabilityFlags::all()));
+    let std_id = store.new_package_id();
+    store.insert(
+        std_id,
+        compile::std(std_id, &store, TargetCapabilityFlags::all()),
+    );
     let sources = SourceMap::new([("source.qs".into(), source.into())], None);
+    let id = store.new_package_id();
     let (unit, _) = qsc::compile::compile(
         &store,
-        &[(std, None)],
+        &[(std_id, None)],
         sources,
         PackageType::Exe,
+        id,
         TargetCapabilityFlags::all(),
         LanguageFeatures::default(),
     );
 
-    let id = store.insert(unit);
+    store.insert(id, unit);
     let unit = store.get(id).expect("user package should exist");
     run_lints_without_deduplication(&store, unit, config)
 }

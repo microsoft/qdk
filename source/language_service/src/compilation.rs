@@ -83,18 +83,20 @@ impl Compilation {
         } = buildable_program;
         let user_code = SourceMap::new(user_code.sources, None);
 
+        let package_id = package_store.new_package_id();
         let (unit, mut this_errors) = compile::compile(
             &package_store,
             &user_code_dependencies,
             user_code,
             package_type,
+            package_id,
             target_profile.into(),
             language_features,
         );
 
         compile_errors.append(&mut this_errors);
 
-        let package_id = package_store.insert(unit);
+        package_store.insert(package_id, unit);
         let unit = package_store
             .get(package_id)
             .expect("expected to find user package");
@@ -462,21 +464,17 @@ impl Lookup for Compilation {
         &self,
         item_id: &hir::ItemId,
     ) -> (&hir::Item, &hir::Package, hir::ItemId) {
-        self.resolve_item(self.user_package_id, item_id)
+        self.resolve_item(item_id)
     }
 
     /// Returns the hir `Item` node referred to by `res`.
     /// `Res`s can resolve to external packages, and the references
     /// are relative, so here we also need the
     /// local `PackageId` that the `res` itself came from.
-    fn resolve_item_res(
-        &self,
-        local_package_id: PackageId,
-        res: &hir::Res,
-    ) -> (&hir::Item, hir::ItemId) {
+    fn resolve_item_res(&self, res: &hir::Res) -> (&hir::Item, hir::ItemId) {
         match res {
             hir::Res::Item(item_id) => {
-                let (item, _, resolved_item_id) = self.resolve_item(local_package_id, item_id);
+                let (item, _, resolved_item_id) = self.resolve_item(item_id);
                 (item, resolved_item_id)
             }
             _ => panic!("expected to find item"),
@@ -487,16 +485,12 @@ impl Lookup for Compilation {
     /// `ItemId`s can refer to external packages, and the references
     /// are relative, so here we also need the local `PackageId`
     /// that the `ItemId` originates from.
-    fn resolve_item(
-        &self,
-        local_package_id: PackageId,
-        item_id: &hir::ItemId,
-    ) -> (&hir::Item, &hir::Package, hir::ItemId) {
+    fn resolve_item(&self, item_id: &hir::ItemId) -> (&hir::Item, &hir::Package, hir::ItemId) {
         // If the `ItemId` contains a package id, use that.
         // Lack of a package id means the item is in the
         // same package as the one this `ItemId` reference
         // came from. So use the local package id passed in.
-        let package_id = item_id.package.unwrap_or(local_package_id);
+        let package_id = item_id.package;
         let package = &self
             .package_store
             .get(package_id)
@@ -512,20 +506,16 @@ impl Lookup for Compilation {
         while let hir::ItemKind::Export(
             _,
             Res::Item(hir::ItemId {
-                package: package_id,
+                package: id,
                 item: local_item_id,
             }),
         ) = &item.kind
         {
-            let package: &hir::Package = if let Some(id) = package_id {
-                &self
-                    .package_store
-                    .get(*id)
-                    .expect("package should exist in store")
-                    .package
-            } else {
-                package
-            };
+            let package: &hir::Package = &self
+                .package_store
+                .get(*id)
+                .expect("package should exist in store")
+                .package;
 
             item = package
                 .items
@@ -536,7 +526,7 @@ impl Lookup for Compilation {
             item,
             package,
             hir::ItemId {
-                package: Some(package_id),
+                package: package_id,
                 item: item_id.item,
             },
         )

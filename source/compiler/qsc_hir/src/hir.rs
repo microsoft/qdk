@@ -177,7 +177,7 @@ impl From<LocalItemId> for usize {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ItemId {
     /// The package ID or `None` for the local package.
-    pub package: Option<PackageId>,
+    pub package: PackageId,
     /// The item ID.
     pub item: LocalItemId,
 }
@@ -187,7 +187,7 @@ impl ItemId {
     #[must_use]
     pub fn complex() -> Self {
         Self {
-            package: Some(PackageId::CORE),
+            package: PackageId::CORE,
             item: LocalItemId(3),
         }
     }
@@ -195,10 +195,7 @@ impl ItemId {
 
 impl Display for ItemId {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match self.package {
-            None => write!(f, "Item {}", self.item),
-            Some(package) => write!(f, "Item {} (Package {package})", self.item),
-        }
+        write!(f, "Item {} (Package {})", self.item, self.package)
     }
 }
 
@@ -234,20 +231,6 @@ pub enum Res {
     Item(ItemId),
     /// A local variable.
     Local(NodeId),
-}
-
-impl Res {
-    /// Returns an updated resolution with the given package ID.
-    #[must_use]
-    pub fn with_package(&self, package: PackageId) -> Self {
-        match self {
-            Res::Item(id) if id.package.is_none() => Res::Item(ItemId {
-                package: Some(package),
-                item: id.item,
-            }),
-            _ => *self,
-        }
-    }
 }
 
 impl Display for Res {

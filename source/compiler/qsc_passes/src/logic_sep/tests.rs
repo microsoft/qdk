@@ -30,11 +30,17 @@ impl<'a> Visitor<'a> for StmtSpans {
 
 fn check(block_str: &str, expect: &Expect) {
     let mut store = PackageStore::new(compile::core());
-    let std = store.insert(compile::std(&store, TargetCapabilityFlags::all()));
+    let std_id = store.new_package_id();
+    store.insert(
+        std_id,
+        compile::std(std_id, &store, TargetCapabilityFlags::all()),
+    );
+    let package_id = store.new_package_id();
     let unit = compile(
         &store,
-        &[(std, None)],
+        &[(std_id, None)],
         SourceMap::new([], Some(block_str.into())),
+        package_id,
         TargetCapabilityFlags::all(),
         LanguageFeatures::default(),
     );

@@ -52,6 +52,7 @@ fn compile(data: &[u8]) {
                 package,
                 sources,
                 PackageType::Lib,
+                store.peek_next_package_id(),
                 profile.into(),
             );
         });

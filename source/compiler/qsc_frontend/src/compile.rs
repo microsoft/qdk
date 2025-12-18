@@ -102,7 +102,7 @@ impl Debug for PackageStore {
 impl PackageStore {
     #[must_use]
     pub fn new(core: CompileUnit) -> Self {
-        let table = global::iter_package(Some(PackageId::CORE), &core.package).collect();
+        let table = global::iter_package(PackageId::CORE, &core.package).collect();
         let mut units = IndexMap::new();
         units.insert(PackageId::CORE, core);
         Self {
@@ -117,11 +117,25 @@ impl PackageStore {
         &self.core
     }
 
-    pub fn insert(&mut self, unit: CompileUnit) -> PackageId {
+    /// Returns the next package ID and advances the inner `next_id`.
+    ///
+    /// If you need an ID for a throw-away compilation unit,
+    /// look at [`Self::peek_next_package_id`].
+    #[must_use]
+    pub fn new_package_id(&mut self) -> PackageId {
         let id = self.next_id;
         self.next_id = id.successor();
-        self.units.insert(id, unit);
         id
+    }
+
+    /// Use only for throw-away compilation units.
+    #[must_use]
+    pub fn peek_next_package_id(&self) -> PackageId {
+        self.next_id
+    }
+
+    pub fn insert(&mut self, id: PackageId, unit: CompileUnit) {
+        self.units.insert(id, unit);
     }
 
     #[must_use]
@@ -237,6 +251,7 @@ pub fn compile(
     store: &PackageStore,
     dependencies: &Dependencies,
     sources: SourceMap,
+    package_id: PackageId,
     capabilities: TargetCapabilityFlags,
     language_features: LanguageFeatures,
 ) -> CompileUnit {
@@ -246,6 +261,7 @@ pub fn compile(
         store,
         dependencies,
         ast_package,
+        package_id,
         sources,
         capabilities,
         parse_errors,
@@ -257,6 +273,7 @@ pub fn compile_ast(
     store: &PackageStore,
     dependencies: &Dependencies,
     mut ast_package: ast::Package,
+    package_id: PackageId,
     sources: SourceMap,
     capabilities: TargetCapabilityFlags,
     parse_errors: Vec<qsc_parse::Error>,
@@ -282,10 +299,11 @@ pub fn compile_ast(
         dependencies,
         &mut hir_assigner,
         &ast_package,
+        package_id,
         dropped_names.clone(),
     );
     let (tys, ty_errors) = typeck_all(store, dependencies, &ast_package, &names);
-    let mut lowerer = Lowerer::new();
+    let mut lowerer = Lowerer::new(package_id);
     let package = lowerer
         .with(&mut hir_assigner, &names, &tys)
         .lower_package(&ast_package);
@@ -340,6 +358,7 @@ pub fn core() -> CompileUnit {
         &store,
         &[],
         sources,
+        PackageId::CORE,
         TargetCapabilityFlags::empty(),
         LanguageFeatures::default(),
     );
@@ -353,7 +372,11 @@ pub fn core() -> CompileUnit {
 ///
 /// Panics if the standard library does not compile without errors.
 #[must_use]
-pub fn std(store: &PackageStore, capabilities: TargetCapabilityFlags) -> CompileUnit {
+pub fn std(
+    package_id: PackageId,
+    store: &PackageStore,
+    capabilities: TargetCapabilityFlags,
+) -> CompileUnit {
     let std: Vec<(SourceName, SourceContents)> = library::STD_LIB
         .iter()
         .map(|(name, contents)| ((*name).into(), (*contents).into()))
@@ -364,6 +387,7 @@ pub fn std(store: &PackageStore, capabilities: TargetCapabilityFlags) -> Compile
         store,
         &[(PackageId::CORE, None)],
         sources,
+        package_id,
         capabilities,
         LanguageFeatures::default(),
     );
@@ -439,6 +463,7 @@ fn resolve_all(
     dependencies: &Dependencies,
     assigner: &mut HirAssigner,
     package: &ast::Package,
+    package_id: PackageId,
     mut dropped_names: Vec<TrackedName>,
 ) -> ResolveResult {
     let mut globals = resolve::GlobalTable::new();
@@ -457,8 +482,8 @@ fn resolve_all(
     }
 
     // bind all declarations in the package, but don't resolve imports/exports yet
-    errors.extend(globals.add_local_package(assigner, package));
-    let mut resolver = Resolver::new(globals, dropped_names);
+    errors.extend(globals.add_local_package(assigner, package, package_id));
+    let mut resolver = Resolver::new(package_id, globals, dropped_names);
 
     // resolve all symbols, binding imports/export names as they're resolved
     resolver.resolve(assigner, package);

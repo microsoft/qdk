@@ -30,7 +30,7 @@ use qsc_frontend::compile::CompileUnit;
 use qsc_hir::{
     assigner::Assigner,
     global::{self, Table},
-    hir::Package,
+    hir::{Package, PackageId},
     mut_visit::MutVisitor,
     validate::Validator,
     visit::Visitor,
@@ -99,6 +99,7 @@ impl PassContext {
         assigner: &mut Assigner,
         core: &Table,
         package_type: PackageType,
+        package_id: PackageId,
     ) -> Vec<Error> {
         let mut call_limits = CallableLimits::default();
         call_limits.visit_package(package);
@@ -119,7 +120,7 @@ impl PassContext {
         let measurement_decl_errors = measurement::validate_measurement_declarations(package);
         let reset_decl_errors = reset::validate_reset_declarations(package);
 
-        let entry_point_errors = generate_entry_expr(package, assigner, package_type);
+        let entry_point_errors = generate_entry_expr(package, assigner, package_type, package_id);
         Validator::default().visit_package(package);
 
         LoopUni { core, assigner }.visit_package(package);
@@ -158,8 +159,15 @@ pub fn run_default_passes(
     core: &Table,
     unit: &mut CompileUnit,
     package_type: PackageType,
+    package_id: PackageId,
 ) -> Vec<Error> {
-    PassContext::new().run_default_passes(&mut unit.package, &mut unit.assigner, core, package_type)
+    PassContext::new().run_default_passes(
+        &mut unit.package,
+        &mut unit.assigner,
+        core,
+        package_type,
+        package_id,
+    )
 }
 
 pub fn run_core_passes(core: &mut CompileUnit) -> Vec<Error> {
@@ -167,7 +175,7 @@ pub fn run_core_passes(core: &mut CompileUnit) -> Vec<Error> {
     borrow_check.visit_package(&core.package);
     let borrow_errors = borrow_check.errors;
 
-    let table = global::iter_package(None, &core.package).collect();
+    let table = global::iter_package(PackageId::CORE, &core.package).collect();
     LoopUni {
         core: &table,
         assigner: &mut core.assigner,

@@ -21,7 +21,7 @@ use qsc_data_structures::{
 };
 use qsc_hir::{
     assigner::Assigner,
-    hir::{self, ItemId, LocalItemId, Res, Visibility},
+    hir::{self, ItemId, LocalItemId, PackageId, Res, Visibility},
     mut_visit::MutVisitor,
     ty::{Arrow, FunctorSetValue, GenericArg, ParamId, Ty, TypeParameter},
 };
@@ -136,6 +136,7 @@ impl From<TyConversionError> for Error {
 }
 
 pub(super) struct Lowerer {
+    package_id: PackageId,
     nodes: IndexMap<ast::NodeId, hir::NodeId>,
     locals: IndexMap<hir::NodeId, (hir::Ident, Ty)>,
     parent: Option<LocalItemId>,
@@ -144,8 +145,9 @@ pub(super) struct Lowerer {
 }
 
 impl Lowerer {
-    pub(super) fn new() -> Self {
+    pub(super) fn new(package_id: PackageId) -> Self {
         Self {
+            package_id,
             nodes: IndexMap::new(),
             locals: IndexMap::new(),
             parent: None,
@@ -205,7 +207,7 @@ impl With<'_> {
             .map(|i| (i.id, i))
             .collect::<IndexMap<_, _>>();
 
-        collapse_self_exports(&mut items);
+        collapse_self_exports(&mut items, self.lowerer.package_id);
 
         hir::Package {
             items,
@@ -1020,15 +1022,15 @@ impl With<'_> {
                 ..,
             )) => hir::Res::Item(item_id),
             Some(&resolve::Res::Importable(resolve::Importable::Namespace(_, Some(item_id)))) => {
-                if item_id.package.is_some() {
+                if item_id.package == self.lowerer.package_id {
+                    hir::Res::Item(item_id)
+                } else {
                     // This is a namespace from an external package, and reexporting is
                     // disallowed since it has no meaningful effect.
                     self.lowerer
                         .errors
                         .push(Error::CrossPackageNamespaceReexport(path.span));
                     hir::Res::Err
-                } else {
-                    hir::Res::Item(item_id)
                 }
             }
             Some(&resolve::Res::Importable(resolve::Importable::Namespace(_, None))) => {
@@ -1177,11 +1179,11 @@ impl With<'_> {
 /// These exports essentially serve to make the original item public, and don't need
 /// to be lowered as items of their own. In fact, lowering them would result in two
 /// items with the same name in the same namespace.
-fn collapse_self_exports(items: &mut IndexMap<LocalItemId, hir::Item>) {
+fn collapse_self_exports(items: &mut IndexMap<LocalItemId, hir::Item>, this_package: PackageId) {
     let mut to_export = Vec::new();
     for (id, item) in &*items {
         if let hir::ItemKind::Export(name, Res::Item(original_item_id)) = &item.kind
-            && original_item_id.package.is_none()
+            && original_item_id.package == this_package
         {
             let original_item_id = original_item_id.item;
             let original_item = items

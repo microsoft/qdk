@@ -11,12 +11,14 @@ use qsc_frontend::compile::{self, PackageStore, compile};
 use qsc_hir::{mut_visit::MutVisitor, validate::Validator, visit::Visitor};
 
 fn check(file: &str, expect: &Expect) {
-    let store = PackageStore::new(compile::core());
+    let mut store = PackageStore::new(compile::core());
     let sources = SourceMap::new([("test".into(), file.into())], None);
+    let package_id = store.new_package_id();
     let mut unit = compile(
         &store,
         &[],
         sources,
+        package_id,
         TargetCapabilityFlags::all(),
         LanguageFeatures::default(),
     );
