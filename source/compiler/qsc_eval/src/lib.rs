@@ -258,6 +258,83 @@ impl Display for Spec {
     }
 }
 
+pub struct EvalParams {
+    entry_point: EvalEntryPoint,
+    package: PackageId,
+    classical_seed: Option<u64>,
+    exec_graph_config: ExecGraphConfig,
+}
+
+impl EvalParams {
+    #[must_use]
+    pub fn exec_graph(
+        exec_graph: ExecGraph,
+        package: PackageId,
+        classical_seed: Option<u64>,
+        exec_graph_config: ExecGraphConfig,
+    ) -> Self {
+        Self {
+            entry_point: EvalEntryPoint::ExecGraph(exec_graph),
+            package,
+            classical_seed,
+            exec_graph_config,
+        }
+    }
+
+    #[must_use]
+    pub fn invoke_callable(
+        callable: Value,
+        args: Value,
+        package: PackageId,
+        classical_seed: Option<u64>,
+        exec_graph_config: ExecGraphConfig,
+    ) -> Self {
+        Self {
+            entry_point: EvalEntryPoint::Callable { callable, args },
+            package,
+            classical_seed,
+            exec_graph_config,
+        }
+    }
+}
+
+pub enum EvalEntryPoint {
+    ExecGraph(ExecGraph),
+    Callable { callable: Value, args: Value },
+}
+
+pub fn real_eval<B: Backend>(
+    params: EvalParams,
+    globals: &impl PackageStoreLookup,
+    env: &mut Env,
+    sim: &mut TracingBackend<'_, B>,
+    receiver: &mut impl Receiver,
+) -> Result<Value, (Error, Vec<Frame>)> {
+    match params.entry_point {
+        EvalEntryPoint::ExecGraph(exec_graph) => eval(
+            params.package,
+            params.classical_seed,
+            exec_graph,
+            params.exec_graph_config,
+            globals,
+            env,
+            sim,
+            receiver,
+        ),
+        EvalEntryPoint::Callable { callable, args } => invoke(
+            params.package,
+            params.classical_seed,
+            globals,
+            params.exec_graph_config,
+            env,
+            sim,
+            receiver,
+            callable,
+            args,
+        ),
+    }
+}
+
 /// Evaluates the given code with the given context.
 /// # Errors
 /// Returns the first error encountered during execution.
@@ -294,7 +371,7 @@ pub fn eval<B: Backend>(
 /// # Panics
 /// On internal error where no result is returned.
 #[allow(clippy::too_many_arguments)]
-pub fn invoke<B: Backend>(
+fn invoke<B: Backend>(
     package: PackageId,
     seed: Option<u64>,
     globals: &impl PackageStoreLookup,
