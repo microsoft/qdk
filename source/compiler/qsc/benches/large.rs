@@ -18,19 +18,14 @@ const INPUT: &str = include_str!("./large.qs");
 pub fn large_file(c: &mut Criterion) {
     c.bench_function("Large input file compilation", |b| {
         let mut store = PackageStore::new(compile::core());
-        let std_id = store.new_package_id();
-        store.insert(
-            std_id,
-            compile::std(std_id, &store, TargetCapabilityFlags::all()),
-        );
+        let std = store.insert(compile::std(&store, TargetCapabilityFlags::all()));
         b.iter(|| {
             let sources = SourceMap::new([("large.qs".into(), INPUT.into())], None);
             let (_, reports) = compile(
                 &store,
-                &[(std_id, None)],
+                &[(std, None)],
                 sources,
                 PackageType::Exe,
-                store.peek_next_package_id(),
                 TargetCapabilityFlags::all(),
                 LanguageFeatures::default(),
             );

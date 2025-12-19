@@ -55,7 +55,7 @@ fn test_prepare_package_store() {
     let ProjectType::QSharp(package_graph_sources) = program.project_type else {
         panic!("project should be a Q# project");
     };
-    let mut buildable_program =
+    let buildable_program =
         super::prepare_package_store(TargetCapabilityFlags::default(), package_graph_sources);
 
     expect![[r"
@@ -64,13 +64,11 @@ fn test_prepare_package_store() {
     .assert_debug_eq(&buildable_program.dependency_errors);
 
     // compile the user code
-    let package_id = buildable_program.store.new_package_id();
     let compiled = compile::compile(
         &buildable_program.store,
         &buildable_program.user_code_dependencies[..],
         SourceMap::new(buildable_program.user_code.sources, None),
         PackageType::Exe,
-        package_id,
         TargetCapabilityFlags::default(),
         LanguageFeatures::default(),
     );
@@ -83,25 +81,25 @@ fn test_prepare_package_store() {
     } = compiled.0;
 
     expect![[r#"
-            Package:
-                entry expression: Expr 8 [0-0] [Type Unit]: Call:
-                    Expr 7 [24-28] [Type Unit]: Var: Item 1 (Package 3)
-                    Expr 6 [28-30] [Type Unit]: Unit
-                Item 0 [0-40] (Public):
-                    Namespace (Ident 5 [0-40] "test"): Item 1
-                Item 1 [0-40] (Internal):
-                    Parent: 0
-                    EntryPoint
-                    Callable 0 [14-40] (operation):
-                        name: Ident 1 [24-28] "Main"
-                        input: Pat 2 [28-30] [Type Unit]: Unit
-                        output: Unit
-                        functors: empty set
-                        body: SpecDecl 3 [14-40]: Impl:
-                            Block 4 [38-40]: <empty>
-                        adj: <none>
-                        ctl: <none>
-                        ctl-adj: <none>"#]]
+        Package:
+            entry expression: Expr 8 [0-0] [Type Unit]: Call:
+                Expr 7 [24-28] [Type Unit]: Var: Item 1 (Package 3)
+                Expr 6 [28-30] [Type Unit]: Unit
+            Item 0 [0-40] (Public):
+                Namespace (Ident 5 [0-40] "test"): Item 1
+            Item 1 [0-40] (Internal):
+                Parent: 0
+                EntryPoint
+                Callable 0 [14-40] (operation):
+                    name: Ident 1 [24-28] "Main"
+                    input: Pat 2 [28-30] [Type Unit]: Unit
+                    output: Unit
+                    functors: empty set
+                    body: SpecDecl 3 [14-40]: Impl:
+                        Block 4 [38-40]: <empty>
+                    adj: <none>
+                    ctl: <none>
+                    ctl-adj: <none>"#]]
     .assert_eq(&package.to_string());
     expect![[r#"
             Package 0:
@@ -135,7 +133,7 @@ fn missing_dependency_doesnt_force_failure() {
         .dependencies
         .insert("NonExistent".into(), "nonexistent-dep-key".into());
 
-    let mut buildable_program =
+    let buildable_program =
         super::prepare_package_store(TargetCapabilityFlags::default(), package_graph_sources);
 
     expect![[r"
@@ -144,13 +142,11 @@ fn missing_dependency_doesnt_force_failure() {
     .assert_debug_eq(&buildable_program.dependency_errors);
 
     // compile the user code
-    let package_id = buildable_program.store.new_package_id();
     let compiled = compile::compile(
         &buildable_program.store,
         &buildable_program.user_code_dependencies[..],
         SourceMap::new(buildable_program.user_code.sources, None),
         PackageType::Exe,
-        package_id,
         TargetCapabilityFlags::default(),
         LanguageFeatures::default(),
     );
@@ -163,25 +159,25 @@ fn missing_dependency_doesnt_force_failure() {
     } = compiled.0;
 
     expect![[r#"
-            Package:
-                entry expression: Expr 8 [0-0] [Type Unit]: Call:
-                    Expr 7 [24-28] [Type Unit]: Var: Item 1 (Package 3)
-                    Expr 6 [28-30] [Type Unit]: Unit
-                Item 0 [0-40] (Public):
-                    Namespace (Ident 5 [0-40] "test"): Item 1
-                Item 1 [0-40] (Internal):
-                    Parent: 0
-                    EntryPoint
-                    Callable 0 [14-40] (operation):
-                        name: Ident 1 [24-28] "Main"
-                        input: Pat 2 [28-30] [Type Unit]: Unit
-                        output: Unit
-                        functors: empty set
-                        body: SpecDecl 3 [14-40]: Impl:
-                            Block 4 [38-40]: <empty>
-                        adj: <none>
-                        ctl: <none>
-                        ctl-adj: <none>"#]]
+        Package:
+            entry expression: Expr 8 [0-0] [Type Unit]: Call:
+                Expr 7 [24-28] [Type Unit]: Var: Item 1 (Package 3)
+                Expr 6 [28-30] [Type Unit]: Unit
+            Item 0 [0-40] (Public):
+                Namespace (Ident 5 [0-40] "test"): Item 1
+            Item 1 [0-40] (Internal):
+                Parent: 0
+                EntryPoint
+                Callable 0 [14-40] (operation):
+                    name: Ident 1 [24-28] "Main"
+                    input: Pat 2 [28-30] [Type Unit]: Unit
+                    output: Unit
+                    functors: empty set
+                    body: SpecDecl 3 [14-40]: Impl:
+                        Block 4 [38-40]: <empty>
+                    adj: <none>
+                    ctl: <none>
+                    ctl-adj: <none>"#]]
     .assert_eq(&package.to_string());
     expect![[r#"
             Package 0:
@@ -217,7 +213,7 @@ fn dependency_error() {
         .sources[0]
         .1 = "broken_syntax".into();
 
-    let mut buildable_program =
+    let buildable_program =
         super::prepare_package_store(TargetCapabilityFlags::default(), package_graph_sources);
 
     expect![[r#"
@@ -252,13 +248,11 @@ fn dependency_error() {
     .assert_debug_eq(&buildable_program.dependency_errors);
 
     // compile the user code
-    let package_id = buildable_program.store.new_package_id();
     let compiled = compile::compile(
         &buildable_program.store,
         &buildable_program.user_code_dependencies[..],
         SourceMap::new(buildable_program.user_code.sources, None),
         PackageType::Exe,
-        package_id,
         TargetCapabilityFlags::default(),
         LanguageFeatures::default(),
     );
@@ -271,25 +265,25 @@ fn dependency_error() {
     } = compiled.0;
 
     expect![[r#"
-            Package:
-                entry expression: Expr 8 [0-0] [Type Unit]: Call:
-                    Expr 7 [24-28] [Type Unit]: Var: Item 1 (Package 3)
-                    Expr 6 [28-30] [Type Unit]: Unit
-                Item 0 [0-40] (Public):
-                    Namespace (Ident 5 [0-40] "test"): Item 1
-                Item 1 [0-40] (Internal):
-                    Parent: 0
-                    EntryPoint
-                    Callable 0 [14-40] (operation):
-                        name: Ident 1 [24-28] "Main"
-                        input: Pat 2 [28-30] [Type Unit]: Unit
-                        output: Unit
-                        functors: empty set
-                        body: SpecDecl 3 [14-40]: Impl:
-                            Block 4 [38-40]: <empty>
-                        adj: <none>
-                        ctl: <none>
-                        ctl-adj: <none>"#]]
+        Package:
+            entry expression: Expr 8 [0-0] [Type Unit]: Call:
+                Expr 7 [24-28] [Type Unit]: Var: Item 1 (Package 3)
+                Expr 6 [28-30] [Type Unit]: Unit
+            Item 0 [0-40] (Public):
+                Namespace (Ident 5 [0-40] "test"): Item 1
+            Item 1 [0-40] (Internal):
+                Parent: 0
+                EntryPoint
+                Callable 0 [14-40] (operation):
+                    name: Ident 1 [24-28] "Main"
+                    input: Pat 2 [28-30] [Type Unit]: Unit
+                    output: Unit
+                    functors: empty set
+                    body: SpecDecl 3 [14-40]: Impl:
+                        Block 4 [38-40]: <empty>
+                    adj: <none>
+                    ctl: <none>
+                    ctl-adj: <none>"#]]
     .assert_eq(&package.to_string());
     expect![[r#"
             Package 0:

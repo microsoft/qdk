@@ -46,13 +46,11 @@ impl Compiler {
         mut store: PackageStore,
         dependencies: &Dependencies,
     ) -> Result<Self, Errors> {
-        let source_package_id = store.new_package_id();
         let (mut unit, errors) = compile(
             &store,
             dependencies,
             sources,
             package_type,
-            source_package_id,
             capabilities,
             language_features,
         );
@@ -65,7 +63,7 @@ impl Compiler {
 
         let mut dependencies = dependencies.iter().map(Clone::clone).collect::<Vec<_>>();
 
-        store.insert(source_package_id, unit);
+        let source_package_id = store.insert(unit);
         dependencies.push((source_package_id, None));
 
         let frontend = qsc_frontend::incremental::Compiler::new(
@@ -166,7 +164,6 @@ impl Compiler {
     where
         F: FnMut(Errors) -> Result<(), Errors>,
     {
-        let package_id = self.package_id();
         let (core, unit) = self.store.get_open_mut();
 
         let mut errors = false;
@@ -184,7 +181,6 @@ impl Compiler {
                 &mut unit.assigner,
                 core,
                 PackageType::Lib,
-                package_id,
             );
 
             accumulate_errors(into_errors_with_source(pass_errors, &unit.sources))?;
@@ -210,7 +206,6 @@ impl Compiler {
     where
         F: FnMut(Errors) -> Result<(), Errors>,
     {
-        let package_id = self.package_id();
         let (core, unit) = self.store.get_open_mut();
 
         let mut errors = false;
@@ -232,7 +227,6 @@ impl Compiler {
                 &mut unit.assigner,
                 core,
                 PackageType::Lib,
-                package_id,
             );
 
             accumulate_errors(into_errors_with_source(pass_errors, &unit.sources))?;
@@ -251,7 +245,6 @@ impl Compiler {
     /// It is then the caller's responsibility to merge
     /// these packages into the current `CompileUnit` using the `update()` method.
     pub fn compile_entry_expr(&mut self, expr: &str) -> Result<Increment, Errors> {
-        let package_id = self.package_id();
         let (core, unit) = self.store.get_open_mut();
 
         let mut increment = self
@@ -264,7 +257,6 @@ impl Compiler {
             &mut unit.assigner,
             core,
             PackageType::Lib,
-            package_id,
         );
 
         if !pass_errors.is_empty() {

@@ -210,6 +210,7 @@ impl With<'_> {
         collapse_self_exports(&mut items, self.lowerer.package_id);
 
         hir::Package {
+            package_id: self.lowerer.package_id,
             items,
             stmts,
             entry,

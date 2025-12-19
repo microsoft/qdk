@@ -99,7 +99,6 @@ impl PassContext {
         assigner: &mut Assigner,
         core: &Table,
         package_type: PackageType,
-        package_id: PackageId,
     ) -> Vec<Error> {
         let mut call_limits = CallableLimits::default();
         call_limits.visit_package(package);
@@ -120,7 +119,7 @@ impl PassContext {
         let measurement_decl_errors = measurement::validate_measurement_declarations(package);
         let reset_decl_errors = reset::validate_reset_declarations(package);
 
-        let entry_point_errors = generate_entry_expr(package, assigner, package_type, package_id);
+        let entry_point_errors = generate_entry_expr(package, assigner, package_type);
         Validator::default().visit_package(package);
 
         LoopUni { core, assigner }.visit_package(package);
@@ -159,15 +158,8 @@ pub fn run_default_passes(
     core: &Table,
     unit: &mut CompileUnit,
     package_type: PackageType,
-    package_id: PackageId,
 ) -> Vec<Error> {
-    PassContext::new().run_default_passes(
-        &mut unit.package,
-        &mut unit.assigner,
-        core,
-        package_type,
-        package_id,
-    )
+    PassContext::new().run_default_passes(&mut unit.package, &mut unit.assigner, core, package_type)
 }
 
 pub fn run_core_passes(core: &mut CompileUnit) -> Vec<Error> {

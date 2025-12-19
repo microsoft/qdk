@@ -169,18 +169,16 @@ pub fn prepare_package_store(
             .map(|(alias, b)| (*b, Some(alias.clone())))
             .chain(std::iter::once((std_id, None)))
             .collect::<Vec<_>>();
-        let package_id = package_store.new_package_id();
         let (compile_unit, mut this_errors) = compile::compile(
             &package_store,
             &dependencies[..],
             source_map,
             PackageType::Lib,
-            package_id,
             capabilities,
             LanguageFeatures::from_iter(package_to_compile.language_features),
         );
 
-        package_store.insert(package_id, compile_unit);
+        let package_id = package_store.insert(compile_unit);
         if !this_errors.is_empty() {
             dependency_errors.append(&mut this_errors);
         }

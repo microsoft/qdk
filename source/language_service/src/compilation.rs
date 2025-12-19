@@ -83,20 +83,18 @@ impl Compilation {
         } = buildable_program;
         let user_code = SourceMap::new(user_code.sources, None);
 
-        let package_id = package_store.new_package_id();
         let (unit, mut this_errors) = compile::compile(
             &package_store,
             &user_code_dependencies,
             user_code,
             package_type,
-            package_id,
             target_profile.into(),
             language_features,
         );
 
         compile_errors.append(&mut this_errors);
 
-        package_store.insert(package_id, unit);
+        let package_id = package_store.insert(unit);
         let unit = package_store
             .get(package_id)
             .expect("expected to find user package");

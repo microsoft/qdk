@@ -223,9 +223,8 @@ mod tests {
 
         let (package_type, capabilities) = (PackageType::Lib, TargetCapabilityFlags::all());
 
-        let std_package_id = store.new_package_id();
-        let std = compile::std(std_package_id, &store, capabilities);
-        store.insert(std_package_id, std);
+        let std = compile::std(&store, capabilities);
+        let std_package_id = store.insert(std);
 
         dependencies.push((std_package_id, None));
         let sources = SourceMap::new(
@@ -235,17 +234,15 @@ mod tests {
             ],
             None,
         );
-        let user_package_id = store.new_package_id();
         let (unit, _) = compile::compile(
             &store,
             &dependencies,
             sources,
             package_type,
-            user_package_id,
             capabilities,
             LanguageFeatures::default(),
         );
-        store.insert(user_package_id, unit);
+        let user_package_id = store.insert(unit);
 
         (store, std_package_id, user_package_id)
     }

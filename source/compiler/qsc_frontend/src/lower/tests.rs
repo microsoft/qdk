@@ -9,14 +9,11 @@ use qsc_data_structures::{
 };
 
 fn check_hir(input: &str, expect: &Expect) {
-    let mut store = PackageStore::new(compile::core());
     let sources = SourceMap::new([("test".into(), input.into())], None);
-    let package_id = store.new_package_id();
     let unit = compile(
         &PackageStore::new(compile::core()),
         &[],
         sources,
-        package_id,
         TargetCapabilityFlags::all(),
         LanguageFeatures::default(),
     );
@@ -24,14 +21,11 @@ fn check_hir(input: &str, expect: &Expect) {
 }
 
 fn check_errors(input: &str, expect: &Expect) {
-    let mut store = PackageStore::new(compile::core());
     let sources = SourceMap::new([("test".into(), input.into())], None);
-    let package_id = store.new_package_id();
     let unit = compile(
         &PackageStore::new(compile::core()),
         &[],
         sources,
-        package_id,
         TargetCapabilityFlags::all(),
         LanguageFeatures::default(),
     );

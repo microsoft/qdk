@@ -85,7 +85,7 @@ impl Compiler {
         }
 
         // This will be the ID of the open package once the store is open.
-        let package_id = store.peek_next_package_id();
+        let package_id = store.peek_package_id();
 
         Self {
             ast_assigner: AstAssigner::new(),

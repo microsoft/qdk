@@ -244,8 +244,10 @@ impl Display for Res {
 }
 
 /// The root node of the HIR.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Package {
+    /// The ID linking this package to the package store.
+    pub package_id: PackageId,
     /// The items in the package.
     pub items: IndexMap<LocalItemId, Item>,
     /// The top-level statements in the package.
@@ -276,6 +278,17 @@ impl Display for Package {
 pub type TestCallableName = String;
 
 impl Package {
+    /// Creates an empty package given a [`PackageId`].
+    #[must_use]
+    pub fn new(package_id: PackageId) -> Self {
+        Self {
+            package_id,
+            items: Default::default(),
+            stmts: Default::default(),
+            entry: Default::default(),
+        }
+    }
+
     /// Returns a collection of the fully qualified names of any callables annotated with `@Test()`
     #[must_use]
     pub fn get_test_callables(&self) -> Vec<(TestCallableName, Span)> {

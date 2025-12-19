@@ -51,14 +51,13 @@ pub(super) fn generate_entry_expr(
     package: &mut Package,
     assigner: &mut Assigner,
     package_type: PackageType,
-    package_id: PackageId,
 ) -> Vec<super::Error> {
     if package.entry.is_some() {
         return vec![];
     }
     let callables = get_callables(package);
 
-    match create_entry_from_callables(assigner, callables, package_type, package_id) {
+    match create_entry_from_callables(assigner, callables, package_type, package.package_id) {
         Ok(expr) => {
             package.entry = Some(expr);
             vec![]

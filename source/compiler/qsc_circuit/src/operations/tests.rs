@@ -13,16 +13,14 @@ use qsc_hir::hir::{Item, ItemKind};
 fn compile_one_operation(code: &str) -> (Item, String) {
     let core_pkg = core();
     let mut store = PackageStore::new(core_pkg);
-    let std_id = store.new_package_id();
-    store.insert(std_id, std(std_id, &store, TargetCapabilityFlags::empty()));
+    let std = std(&store, TargetCapabilityFlags::empty());
+    let std = store.insert(std);
 
     let sources = SourceMap::new([("test".into(), code.into())], None);
-    let test_id = store.new_package_id();
     let unit = compile(
         &store,
-        &[(std_id, None)],
+        &[(std, None)],
         sources,
-        test_id,
         TargetCapabilityFlags::empty(),
         LanguageFeatures::default(),
     );

@@ -54,12 +54,10 @@ fn multiple_package_check_inner(
             None,
         );
 
-        let package_id = store.new_package_id();
         let unit = compile(
             &store,
             &deps[..],
             sources,
-            package_id,
             TargetCapabilityFlags::all(),
             LanguageFeatures::default(),
         );
@@ -73,8 +71,7 @@ fn multiple_package_check_inner(
             }
         }
 
-        store.insert(package_id, unit);
-        prev_id_and_name = Some((package_id, package_name));
+        prev_id_and_name = Some((store.insert(unit), package_name));
     }
 }
 
@@ -105,12 +102,10 @@ fn multiple_package_multiple_source_check(
             None,
         );
 
-        let package_id = store.new_package_id();
         let unit = compile(
             &store,
             &deps[..],
             sources,
-            package_id,
             TargetCapabilityFlags::all(),
             LanguageFeatures::default(),
         );
@@ -124,8 +119,7 @@ fn multiple_package_multiple_source_check(
             }
         }
 
-        store.insert(package_id, unit);
-        prev_id_and_name = Some((package_id, package_name));
+        prev_id_and_name = Some((store.insert(unit), package_name));
     }
 }
 

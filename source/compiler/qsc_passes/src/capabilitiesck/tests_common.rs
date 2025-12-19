@@ -58,11 +58,7 @@ struct CompilationContext {
 impl CompilationContext {
     fn new(source: &str) -> Self {
         let mut store = qsc::PackageStore::new(qsc::compile::core());
-        let std_id = store.new_package_id();
-        store.insert(
-            std_id,
-            qsc::compile::std(std_id, &store, TargetCapabilityFlags::all()),
-        );
+        let std_id = store.insert(qsc::compile::std(&store, TargetCapabilityFlags::all()));
         let mut compiler = Compiler::new(
             SourceMap::default(),
             PackageType::Lib,

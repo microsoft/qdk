@@ -24,7 +24,7 @@ fn one_callable() {
     );
     let unit = compiler
         .compile_fragments(
-            &mut CompileUnit::default(),
+            &mut CompileUnit::new(store.peek_package_id()),
             "test_1",
             "namespace Foo { operation Main() : Unit {} }",
             fail_on_error,
@@ -150,7 +150,7 @@ fn one_statement() {
     );
     let unit = compiler
         .compile_fragments(
-            &mut CompileUnit::default(),
+            &mut CompileUnit::new(store.peek_package_id()),
             "test_1",
             "use q = Qubit();",
             fail_on_error,
@@ -213,7 +213,12 @@ fn parse_error() {
         LanguageFeatures::default(),
     );
     let errors = compiler
-        .compile_fragments(&mut CompileUnit::default(), "test_1", "}}", fail_on_error)
+        .compile_fragments(
+            &mut CompileUnit::new(store.peek_package_id()),
+            "test_1",
+            "}}",
+            fail_on_error,
+        )
         .expect_err("should fail");
 
     expect![[r#"
@@ -259,7 +264,7 @@ fn conditional_compilation_not_available() {
     );
     let errors = compiler
         .compile_fragments(
-            &mut CompileUnit::default(),
+            &mut CompileUnit::new(store.peek_package_id()),
             "test_1",
             indoc! {"
                 @Config(Base)
@@ -279,18 +284,14 @@ fn conditional_compilation_not_available() {
 #[test]
 fn errors_across_multiple_lines() {
     let mut store = PackageStore::new(compile::core());
-    let std_id = store.new_package_id();
-    store.insert(
-        std_id,
-        compile::std(std_id, &store, TargetCapabilityFlags::all()),
-    );
+    let std_id = store.insert(compile::std(&store, TargetCapabilityFlags::all()));
     let mut compiler = Compiler::new(
         &store,
         &[(std_id, None)],
         TargetCapabilityFlags::all(),
         LanguageFeatures::default(),
     );
-    let mut unit = CompileUnit::default();
+    let mut unit = CompileUnit::new(store.peek_package_id());
     compiler
         .compile_fragments(
             &mut unit,
@@ -363,7 +364,7 @@ fn continue_after_parse_error() {
 
     compiler
         .compile_fragments(
-            &mut CompileUnit::default(),
+            &mut CompileUnit::new(store.peek_package_id()),
             "test_1",
             "operation Main() : Foo {
             }}",
@@ -435,7 +436,7 @@ fn continue_after_lower_error() {
         TargetCapabilityFlags::all(),
         LanguageFeatures::default(),
     );
-    let mut unit = CompileUnit::default();
+    let mut unit = CompileUnit::new(store.peek_package_id());
 
     let mut errors = Vec::new();
 

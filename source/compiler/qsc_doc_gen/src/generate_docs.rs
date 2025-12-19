@@ -177,17 +177,13 @@ impl Compilation {
 
         let package_store =
             if let Some((mut package_store, dependencies, sources)) = additional_program {
-                let package_id = package_store.new_package_id();
                 let unit = compile(
                     &package_store,
                     dependencies,
                     sources,
-                    package_id,
                     actual_capabilities,
                     actual_language_features,
                 );
-                package_store.insert(package_id, unit);
-
                 // We ignore errors here (unit.errors vector) and use whatever
                 // documentation we can produce. In future we may consider
                 // displaying the fact of error presence on documentation page.
@@ -198,13 +194,12 @@ impl Compilation {
                     }
                 }
 
-                current_package_id = Some(package_id);
+                current_package_id = Some(package_store.insert(unit));
                 package_store
             } else {
                 let mut package_store = PackageStore::new(compile::core());
-                let std_id = package_store.new_package_id();
-                let std_unit = compile::std(std_id, &package_store, actual_capabilities);
-                package_store.insert(std_id, std_unit);
+                let std_unit = compile::std(&package_store, actual_capabilities);
+                package_store.insert(std_unit);
                 package_store
             };
 

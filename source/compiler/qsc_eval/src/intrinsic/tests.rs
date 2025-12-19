@@ -160,29 +160,26 @@ fn check_intrinsic(file: &str, expr: &str, out: &mut impl Receiver) -> Result<Va
     let core_fir = qsc_lowerer::Lowerer::new().lower_package(&core.package, &fir_store);
     let mut store = PackageStore::new(core);
 
-    let std_id = store.new_package_id();
-    let mut std = compile::std(std_id, &store, TargetCapabilityFlags::all());
+    let mut std = compile::std(&store, TargetCapabilityFlags::all());
     assert!(std.errors.is_empty());
-    assert!(run_default_passes(store.core(), &mut std, PackageType::Lib, std_id).is_empty());
+    assert!(run_default_passes(store.core(), &mut std, PackageType::Lib).is_empty());
     let std_fir = qsc_lowerer::Lowerer::new().lower_package(&std.package, &fir_store);
-    store.insert(std_id, std);
+    let std_id = store.insert(std);
 
     let sources = SourceMap::new([("test".into(), file.into())], Some(expr.into()));
-    let id = store.new_package_id();
     let mut unit = compile(
         &store,
         &[(std_id, None)],
         sources,
-        id,
         TargetCapabilityFlags::all(),
         LanguageFeatures::default(),
     );
     assert!(unit.errors.is_empty());
-    assert!(run_default_passes(store.core(), &mut unit, PackageType::Lib, id).is_empty());
+    assert!(run_default_passes(store.core(), &mut unit, PackageType::Lib).is_empty());
     let unit_fir = qsc_lowerer::Lowerer::new().lower_package(&unit.package, &fir_store);
     let entry = unit_fir.entry_exec_graph.clone();
 
-    store.insert(id, unit);
+    let id = store.insert(unit);
 
     let mut fir_store = fir::PackageStore::new();
     fir_store.insert(

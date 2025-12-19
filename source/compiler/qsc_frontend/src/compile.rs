@@ -39,7 +39,7 @@ use qsc_hir::{
 use std::{fmt::Debug, sync::Arc};
 use thiserror::Error;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct CompileUnit {
     pub package: hir::Package,
     pub ast: AstPackage,
@@ -50,10 +50,26 @@ pub struct CompileUnit {
 }
 
 impl CompileUnit {
+    #[must_use]
+    pub fn new(package_id: PackageId) -> Self {
+        Self {
+            package: hir::Package::new(package_id),
+            ast: Default::default(),
+            assigner: Default::default(),
+            sources: Default::default(),
+            errors: Default::default(),
+            dropped_names: Default::default(),
+        }
+    }
+
     pub fn expose(&mut self) {
         for (_item_id, item) in self.package.items.iter_mut() {
             item.visibility = hir::Visibility::Public;
         }
+    }
+
+    pub fn package_id(&self) -> PackageId {
+        self.package.package_id
     }
 }
 
@@ -117,25 +133,21 @@ impl PackageStore {
         &self.core
     }
 
-    /// Returns the next package ID and advances the inner `next_id`.
-    ///
-    /// If you need an ID for a throw-away compilation unit,
-    /// look at [`Self::peek_next_package_id`].
     #[must_use]
-    pub fn new_package_id(&mut self) -> PackageId {
-        let id = self.next_id;
-        self.next_id = id.successor();
-        id
-    }
-
-    /// Use only for throw-away compilation units.
-    #[must_use]
-    pub fn peek_next_package_id(&self) -> PackageId {
+    pub fn peek_package_id(&self) -> PackageId {
         self.next_id
     }
 
-    pub fn insert(&mut self, id: PackageId, unit: CompileUnit) {
+    pub fn insert(&mut self, unit: CompileUnit) -> PackageId {
+        let id = self.next_id;
+        assert_eq!(
+            id,
+            unit.package_id(),
+            "The id of the inserted unit should match the next_id of the store."
+        );
+        self.next_id = id.successor();
         self.units.insert(id, unit);
+        id
     }
 
     #[must_use]
@@ -155,7 +167,7 @@ impl PackageStore {
     pub fn open(mut self) -> OpenPackageStore {
         let id = self.next_id;
         self.next_id = id.successor();
-        self.units.insert(id, CompileUnit::default());
+        self.units.insert(id, CompileUnit::new(id));
 
         OpenPackageStore {
             store: self,
@@ -251,7 +263,6 @@ pub fn compile(
     store: &PackageStore,
     dependencies: &Dependencies,
     sources: SourceMap,
-    package_id: PackageId,
     capabilities: TargetCapabilityFlags,
     language_features: LanguageFeatures,
 ) -> CompileUnit {
@@ -261,7 +272,6 @@ pub fn compile(
         store,
         dependencies,
         ast_package,
-        package_id,
         sources,
         capabilities,
         parse_errors,
@@ -273,7 +283,6 @@ pub fn compile_ast(
     store: &PackageStore,
     dependencies: &Dependencies,
     mut ast_package: ast::Package,
-    package_id: PackageId,
     sources: SourceMap,
     capabilities: TargetCapabilityFlags,
     parse_errors: Vec<qsc_parse::Error>,
@@ -299,10 +308,10 @@ pub fn compile_ast(
         dependencies,
         &mut hir_assigner,
         &ast_package,
-        package_id,
         dropped_names.clone(),
     );
     let (tys, ty_errors) = typeck_all(store, dependencies, &ast_package, &names);
+    let package_id = store.peek_package_id();
     let mut lowerer = Lowerer::new(package_id);
     let package = lowerer
         .with(&mut hir_assigner, &names, &tys)
@@ -358,7 +367,6 @@ pub fn core() -> CompileUnit {
         &store,
         &[],
         sources,
-        PackageId::CORE,
         TargetCapabilityFlags::empty(),
         LanguageFeatures::default(),
     );
@@ -372,11 +380,7 @@ pub fn core() -> CompileUnit {
 ///
 /// Panics if the standard library does not compile without errors.
 #[must_use]
-pub fn std(
-    package_id: PackageId,
-    store: &PackageStore,
-    capabilities: TargetCapabilityFlags,
-) -> CompileUnit {
+pub fn std(store: &PackageStore, capabilities: TargetCapabilityFlags) -> CompileUnit {
     let std: Vec<(SourceName, SourceContents)> = library::STD_LIB
         .iter()
         .map(|(name, contents)| ((*name).into(), (*contents).into()))
@@ -387,7 +391,6 @@ pub fn std(
         store,
         &[(PackageId::CORE, None)],
         sources,
-        package_id,
         capabilities,
         LanguageFeatures::default(),
     );
@@ -463,7 +466,6 @@ fn resolve_all(
     dependencies: &Dependencies,
     assigner: &mut HirAssigner,
     package: &ast::Package,
-    package_id: PackageId,
     mut dropped_names: Vec<TrackedName>,
 ) -> ResolveResult {
     let mut globals = resolve::GlobalTable::new();
@@ -482,6 +484,7 @@ fn resolve_all(
     }
 
     // bind all declarations in the package, but don't resolve imports/exports yet
+    let package_id = store.peek_package_id();
     errors.extend(globals.add_local_package(assigner, package, package_id));
     let mut resolver = Resolver::new(package_id, globals, dropped_names);
 

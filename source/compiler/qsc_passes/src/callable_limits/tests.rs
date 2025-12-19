@@ -12,14 +12,12 @@ use qsc_hir::visit::Visitor;
 use crate::callable_limits::CallableLimits;
 
 fn check(file: &str, expect: &Expect) {
-    let mut store = PackageStore::new(compile::core());
+    let store = PackageStore::new(compile::core());
     let sources = SourceMap::new([("test".into(), file.into())], None);
-    let package_id = store.new_package_id();
     let unit = compile(
         &store,
         &[],
         sources,
-        package_id,
         TargetCapabilityFlags::all(),
         LanguageFeatures::default(),
     );

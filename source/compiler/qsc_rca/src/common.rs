@@ -179,9 +179,8 @@ pub fn try_resolve_callee(
 }
 
 fn resolve_item_callee(item_id: ItemId) -> Callee {
-    let package_id = item_id.package;
     Callee {
-        item: (package_id, item_id.item).into(),
+        item: (item_id.package, item_id.item).into(),
         functor_app: FunctorApp::default(),
     }
 }

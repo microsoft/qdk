@@ -12,14 +12,12 @@ use qsc_hir::{validate::Validator, visit::Visitor};
 use crate::test_attribute::validate_test_attributes;
 
 fn check(file: &str, expect: &Expect) {
-    let mut store = PackageStore::new(compile::core());
+    let store = PackageStore::new(compile::core());
     let sources = SourceMap::new([("test".into(), file.into())], None);
-    let package_id = store.new_package_id();
     let mut unit = compile(
         &store,
         &[],
         sources,
-        package_id,
         TargetCapabilityFlags::all(),
         LanguageFeatures::default(),
     );

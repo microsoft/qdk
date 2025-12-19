@@ -8,7 +8,6 @@ use qsc_data_structures::{
 };
 pub use qsc_frontend::compile::Dependencies;
 use qsc_frontend::compile::{CompileUnit, PackageStore};
-use qsc_hir::hir::PackageId;
 use qsc_passes::{PackageType, run_core_passes, run_default_passes};
 use thiserror::Error;
 
@@ -62,19 +61,17 @@ pub fn compile_ast(
     ast_package: qsc_ast::ast::Package,
     sources: SourceMap,
     package_type: PackageType,
-    package_id: PackageId,
     capabilities: TargetCapabilityFlags,
 ) -> (CompileUnit, Vec<Error>) {
     let unit = qsc_frontend::compile::compile_ast(
         store,
         dependencies,
         ast_package,
-        package_id,
         sources,
         capabilities,
         vec![],
     );
-    process_compile_unit(store, package_type, package_id, unit)
+    process_compile_unit(store, package_type, unit)
 }
 
 /// Compiles a package from its source representation.
@@ -84,7 +81,6 @@ pub fn compile(
     dependencies: &Dependencies,
     sources: SourceMap,
     package_type: PackageType,
-    package_id: PackageId,
     capabilities: TargetCapabilityFlags,
     language_features: LanguageFeatures,
 ) -> (CompileUnit, Vec<Error>) {
@@ -92,11 +88,10 @@ pub fn compile(
         store,
         dependencies,
         sources,
-        package_id,
         capabilities,
         language_features,
     );
-    process_compile_unit(store, package_type, package_id, unit)
+    process_compile_unit(store, package_type, unit)
 }
 
 #[must_use]
@@ -104,7 +99,6 @@ pub fn compile(
 fn process_compile_unit(
     store: &PackageStore,
     package_type: PackageType,
-    package_id: PackageId,
     mut unit: CompileUnit,
 ) -> (CompileUnit, Vec<Error>) {
     let mut errors = Vec::new();
@@ -113,7 +107,7 @@ fn process_compile_unit(
     }
 
     if errors.is_empty() {
-        for error in run_default_passes(store.core(), &mut unit, package_type, package_id) {
+        for error in run_default_passes(store.core(), &mut unit, package_type) {
             errors.push(WithSource::from_map(&unit.sources, error.into()));
         }
     }
@@ -126,8 +120,7 @@ pub fn package_store_with_stdlib(
     capabilities: TargetCapabilityFlags,
 ) -> (qsc_hir::hir::PackageId, PackageStore) {
     let mut store = PackageStore::new(core());
-    let std_id = store.new_package_id();
-    store.insert(std_id, std(std_id, &store, capabilities));
+    let std_id = store.insert(std(&store, capabilities));
     (std_id, store)
 }
 
@@ -158,13 +151,9 @@ pub fn core() -> CompileUnit {
 ///
 /// Panics if the standard library does not compile without errors.
 #[must_use]
-pub fn std(
-    package_id: PackageId,
-    store: &PackageStore,
-    capabilities: TargetCapabilityFlags,
-) -> CompileUnit {
-    let mut unit = qsc_frontend::compile::std(package_id, store, capabilities);
-    let pass_errors = run_default_passes(store.core(), &mut unit, PackageType::Lib, package_id);
+pub fn std(store: &PackageStore, capabilities: TargetCapabilityFlags) -> CompileUnit {
+    let mut unit = qsc_frontend::compile::std(store, capabilities);
+    let pass_errors = run_default_passes(store.core(), &mut unit, PackageType::Lib);
     if pass_errors.is_empty() {
         unit
     } else {

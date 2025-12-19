@@ -216,19 +216,17 @@ fn compile_project_with_markers_cursor_optional(
         (package_store, vec![(std_package_id, None)])
     };
     let source_map = SourceMap::new(sources, None);
-    let package_id = package_store.new_package_id();
     let (unit, errors) = compile::compile(
         &package_store,
         &dependencies,
         source_map,
         PackageType::Lib,
-        package_id,
         Profile::Unrestricted.into(),
         LanguageFeatures::default(),
     );
 
     let test_cases = unit.package.get_test_callables();
-    package_store.insert(package_id, unit);
+    let package_id = package_store.insert(unit);
 
     (
         Compilation {
@@ -305,18 +303,16 @@ fn compile_fake_stdlib() -> (PackageId, PackageStore) {
         [(FAKE_STDLIB_NAME.into(), FAKE_STDLIB_CONTENTS.into())],
         None,
     );
-    let std_package_id = package_store.new_package_id();
     let (std_compile_unit, std_errors) = compile::compile(
         &package_store,
         &[(PackageId::CORE, None)],
         std_source_map,
         PackageType::Lib,
-        std_package_id,
         Profile::Unrestricted.into(),
         LanguageFeatures::default(),
     );
     assert!(std_errors.is_empty());
-    package_store.insert(std_package_id, std_compile_unit);
+    let std_package_id = package_store.insert(std_compile_unit);
     (std_package_id, package_store)
 }
 

@@ -32,14 +32,12 @@ pub mod qir {
             return Err(vec![Error::UnsupportedRuntimeCapabilities]);
         }
 
-        let package_id = store.new_package_id();
         let (unit, errors) = crate::compile::compile_ast(
             store,
             dependencies,
             ast_package,
             sources,
             PackageType::Exe,
-            package_id,
             capabilities,
         );
 
@@ -48,7 +46,7 @@ pub mod qir {
             return Err(errors.iter().map(|e| Error::Compile(e.clone())).collect());
         }
 
-        store.insert(package_id, unit);
+        let package_id = store.insert(unit);
         let (fir_store, fir_package_id) = qsc_passes::lower_hir_to_fir(store, package_id);
         let package = fir_store.get(fir_package_id);
         let entry = ProgramEntry {
@@ -170,20 +168,18 @@ pub mod qir {
         if capabilities == TargetCapabilityFlags::all() {
             return Err(vec![Error::UnsupportedRuntimeCapabilities]);
         }
-        let package_id = package_store.new_package_id();
         let (unit, errors) = crate::compile::compile(
             package_store,
             dependencies,
             sources,
             PackageType::Exe,
-            package_id,
             capabilities,
             language_features,
         );
         if !errors.is_empty() {
             return Err(errors.iter().map(|e| Error::Compile(e.clone())).collect());
         }
-        package_store.insert(package_id, unit);
+        let package_id = package_store.insert(unit);
         let (fir_store, fir_package_id) = qsc_passes::lower_hir_to_fir(package_store, package_id);
         let package = fir_store.get(fir_package_id);
         let entry = ProgramEntry {

@@ -10,25 +10,17 @@ use qsc_data_structures::{
 use qsc_frontend::compile::{self, PackageStore, compile};
 
 fn check(file: &str, expr: &str, expect: &Expect) {
-    let mut store = PackageStore::new(compile::core());
     let sources = SourceMap::new([("test".into(), file.into())], Some(expr.into()));
-    let package_id = store.new_package_id();
     let mut unit = compile(
-        &store,
+        &PackageStore::new(compile::core()),
         &[],
         sources,
-        package_id,
         TargetCapabilityFlags::all(),
         LanguageFeatures::default(),
     );
     assert!(unit.errors.is_empty(), "{:?}", unit.errors);
 
-    let errors = generate_entry_expr(
-        &mut unit.package,
-        &mut unit.assigner,
-        PackageType::Exe,
-        package_id,
-    );
+    let errors = generate_entry_expr(&mut unit.package, &mut unit.assigner, PackageType::Exe);
     if errors.is_empty() {
         expect.assert_eq(
             &unit
