@@ -681,14 +681,12 @@ fn create_interpreter_from_ast(
     let (stdid, mut store) = qsc::compile::package_store_with_stdlib(capabilities);
     let dependencies = vec![(PackageId::CORE, None), (stdid, None)];
 
-    let source_package_id = store.new_package_id();
     let (mut unit, errors) = qsc::compile::compile_ast(
         &store,
         &dependencies,
         ast_package,
         source_map,
         package_type,
-        source_package_id,
         capabilities,
     );
 
@@ -697,7 +695,7 @@ fn create_interpreter_from_ast(
     }
 
     unit.expose();
-    store.insert(source_package_id, unit);
+    let source_package_id = store.insert(unit);
 
     interpret::Interpreter::with_package_store(
         false,

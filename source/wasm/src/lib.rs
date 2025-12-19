@@ -265,7 +265,6 @@ pub fn get_ast(code: &str, language_features: Vec<String>) -> Result<String, Str
             &[(*std, None)],
             sources,
             PackageType::Exe,
-            store.peek_next_package_id(),
             profile.into(),
             language_features,
         );
@@ -285,7 +284,6 @@ pub fn get_hir(code: &str, language_features: Vec<String>) -> Result<String, Str
             &[(*std, None)],
             sources,
             PackageType::Exe,
-            store.peek_next_package_id(),
             profile.into(),
             language_features,
         );
