@@ -1420,7 +1420,8 @@ impl<'a> Analyzer<'a> {
                 let expr_compute_kind = *application_instance.get_expr_compute_kind(expr_id);
                 let bound_compute_kind = ComputeKind::map_to_type(expr_compute_kind, &pat.ty);
                 if self.should_emit_static_arrays()
-                    && matches!(expr.ty, Ty::Array(_))
+                    && let Ty::Array(inner_ty) = &expr.ty
+                    && self.should_emit_dynamic_type(inner_ty)
                     && matches!(bound_compute_kind, ComputeKind::Classical)
                 {
                     // When static arrays are being emitted, we treat all array bindings as quantum with static runtime kinds.
@@ -1802,6 +1803,24 @@ impl<'a> Analyzer<'a> {
     fn should_emit_static_arrays(&self) -> bool {
         self.target_capabilities
             .contains(TargetCapabilityFlags::StaticSizedArrays)
+    }
+
+    fn should_emit_dynamic_type(&self, ty: &Ty) -> bool {
+        match ty {
+            Ty::Prim(Prim::Bool) => self
+                .target_capabilities
+                .contains(TargetCapabilityFlags::Adaptive),
+            Ty::Prim(Prim::Int) => self
+                .target_capabilities
+                .contains(TargetCapabilityFlags::IntegerComputations),
+            Ty::Prim(Prim::Double) => self
+                .target_capabilities
+                .contains(TargetCapabilityFlags::FloatingPointComputations),
+            Ty::Prim(Prim::Qubit) => self
+                .target_capabilities
+                .contains(TargetCapabilityFlags::QubitVariables),
+            _ => false,
+        }
     }
 }
 
