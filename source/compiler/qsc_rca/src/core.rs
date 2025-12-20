@@ -416,6 +416,11 @@ impl<'a> Analyzer<'a> {
                         quantum_properties.runtime_features,
                         ValueKind::Element(RuntimeKind::Dynamic),
                     )
+                } else if self.should_emit_static_arrays() {
+                    ComputeKind::new_with_runtime_features(
+                        quantum_properties.runtime_features,
+                        ValueKind::Element(RuntimeKind::Static),
+                    )
                 } else {
                     ComputeKind::Classical
                 }

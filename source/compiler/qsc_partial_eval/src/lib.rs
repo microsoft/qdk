@@ -1636,6 +1636,7 @@ impl<'a> PartialEvaluator<'a> {
         Ok((callee_control_flow, args_control_flow))
     }
 
+    #[allow(clippy::too_many_lines)]
     fn eval_expr_call_to_intrinsic(
         &mut self,
         store_item_id: StoreItemId,
@@ -1710,17 +1711,36 @@ impl<'a> PartialEvaluator<'a> {
                 "CheckZero".to_string(),
                 callee_expr_span,
             )),
+            "Length" => {
+                let len = match args_value {
+                    Value::Array(arr) => Ok(arr.len()),
+                    Value::Var(Var {
+                        id: _,
+                        ty: VarTy::Array(_, len),
+                    }) => Ok(len),
+                    _ => Err(Error::Unexpected(
+                        "Length intrinsic expects an array argument with known length".to_string(),
+                        args_span,
+                    )),
+                }?
+                .try_into();
+                let Ok(len) = len else {
+                    return Err(Error::EvaluationFailed(
+                        EvalError::ArrayTooLarge(args_span).to_string(),
+                        args_span,
+                    ));
+                };
+                Ok(Value::Int(len))
+            }
             // The following intrinsic functions and operations should never make it past conditional compilation and
             // the capabilities check pass.
-            "DrawRandomInt" | "DrawRandomDouble" | "DrawRandomBool" | "Length" => {
-                Err(Error::Unexpected(
-                    format!(
-                        "`{}` is not a supported by partial evaluation",
-                        callable_decl.name.name
-                    ),
-                    callee_expr_span,
-                ))
-            }
+            "DrawRandomInt" | "DrawRandomDouble" | "DrawRandomBool" => Err(Error::Unexpected(
+                format!(
+                    "`{}` is not a supported by partial evaluation",
+                    callable_decl.name.name
+                ),
+                callee_expr_span,
+            )),
             "IntAsDouble" => {
                 let variable_id = self.resource_manager.next_var();
                 self.convert_value(&args_value, &rir::Variable::new_double(variable_id))
