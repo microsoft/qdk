@@ -119,24 +119,24 @@ fn custom_gates_can_be_called_bypassing_stdgates() -> miette::Result<(), Vec<Rep
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        operation h(a : Qubit) : Unit is Adj + Ctl {
+        operation h(a : Qubit) : Unit {
             U(Std.OpenQASM.Angle.DoubleAsAngle(3.141592653589793 / 2., 53), new Std.OpenQASM.Angle.Angle {
                 Value = 0,
                 Size = 53
             }, Std.OpenQASM.Angle.DoubleAsAngle(3.141592653589793, 53), a);
             gphase(Std.OpenQASM.Angle.DoubleAsAngle(-3.141592653589793 / 4., 53));
         }
-        operation x(a : Qubit) : Unit is Adj + Ctl {
+        operation x(a : Qubit) : Unit is Ctl {
             U(Std.OpenQASM.Angle.DoubleAsAngle(3.141592653589793, 53), new Std.OpenQASM.Angle.Angle {
                 Value = 0,
                 Size = 53
             }, Std.OpenQASM.Angle.DoubleAsAngle(3.141592653589793, 53), a);
             gphase(Std.OpenQASM.Angle.DoubleAsAngle(-3.141592653589793 / 2., 53));
         }
-        operation cx(a : Qubit, b : Qubit) : Unit is Adj + Ctl {
+        operation cx(a : Qubit, b : Qubit) : Unit {
             Controlled x([a], b);
         }
-        operation rz(λ : Std.OpenQASM.Angle.Angle, a : Qubit) : Unit is Adj + Ctl {
+        operation rz(λ : Std.OpenQASM.Angle.Angle, a : Qubit) : Unit {
             gphase(Std.OpenQASM.Angle.DivideAngleByInt(Std.OpenQASM.Angle.NegAngle(λ), 2));
             U(new Std.OpenQASM.Angle.Angle {
                 Value = 0,
@@ -146,7 +146,7 @@ fn custom_gates_can_be_called_bypassing_stdgates() -> miette::Result<(), Vec<Rep
                 Size = 53
             }, λ, a);
         }
-        operation rxx(theta : Std.OpenQASM.Angle.Angle, a : Qubit, b : Qubit) : Unit is Adj + Ctl {
+        operation rxx(theta : Std.OpenQASM.Angle.Angle, a : Qubit, b : Qubit) : Unit {
             h(a);
             h(b);
             cx(a, b);
@@ -459,7 +459,7 @@ fn custom_gate_can_be_called() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        operation my_gate(q1 : Qubit, q2 : Qubit) : Unit is Adj + Ctl {
+        operation my_gate(q1 : Qubit, q2 : Qubit) : Unit {
             h(q1);
             h(q2);
         }
@@ -486,7 +486,7 @@ fn custom_gate_can_be_called_with_inv_modifier() -> miette::Result<(), Vec<Repor
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        operation my_gate(q1 : Qubit, q2 : Qubit) : Unit is Adj + Ctl {
+        operation my_gate(q1 : Qubit, q2 : Qubit) : Unit is Adj {
             h(q1);
             h(q2);
         }
@@ -514,7 +514,7 @@ fn custom_gate_can_be_called_with_ctrl_modifier() -> miette::Result<(), Vec<Repo
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        operation my_gate(q1 : Qubit, q2 : Qubit) : Unit is Adj + Ctl {
+        operation my_gate(q1 : Qubit, q2 : Qubit) : Unit is Ctl {
             h(q1);
             h(q2);
         }
@@ -543,7 +543,7 @@ fn custom_gate_can_be_called_with_negctrl_modifier() -> miette::Result<(), Vec<R
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        operation my_gate(q1 : Qubit, q2 : Qubit) : Unit is Adj + Ctl {
+        operation my_gate(q1 : Qubit, q2 : Qubit) : Unit is Ctl {
             h(q1);
             h(q2);
         }
@@ -571,7 +571,7 @@ fn custom_gate_can_be_called_with_pow_modifier() -> miette::Result<(), Vec<Repor
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        operation my_gate(q1 : Qubit, q2 : Qubit) : Unit is Adj + Ctl {
+        operation my_gate(q1 : Qubit, q2 : Qubit) : Unit is Adj {
             h(q1);
             h(q2);
         }
@@ -1014,7 +1014,7 @@ fn qasm2_custom_gates_can_be_called_bypassing_stdgates() -> miette::Result<(), V
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        operation u1(lambda : Std.OpenQASM.Angle.Angle, q : Qubit) : Unit is Adj + Ctl {
+        operation u1(lambda : Std.OpenQASM.Angle.Angle, q : Qubit) : Unit {
             U(new Std.OpenQASM.Angle.Angle {
                 Value = 0,
                 Size = 53
@@ -1023,28 +1023,28 @@ fn qasm2_custom_gates_can_be_called_bypassing_stdgates() -> miette::Result<(), V
                 Size = 53
             }, lambda, q);
         }
-        operation u2(phi : Std.OpenQASM.Angle.Angle, lambda : Std.OpenQASM.Angle.Angle, q : Qubit) : Unit is Adj + Ctl {
+        operation u2(phi : Std.OpenQASM.Angle.Angle, lambda : Std.OpenQASM.Angle.Angle, q : Qubit) : Unit {
             U(Std.OpenQASM.Angle.DoubleAsAngle(3.141592653589793 / 2., 53), phi, lambda, q);
         }
-        operation u3(theta : Std.OpenQASM.Angle.Angle, phi : Std.OpenQASM.Angle.Angle, lambda : Std.OpenQASM.Angle.Angle, q : Qubit) : Unit is Adj + Ctl {
+        operation u3(theta : Std.OpenQASM.Angle.Angle, phi : Std.OpenQASM.Angle.Angle, lambda : Std.OpenQASM.Angle.Angle, q : Qubit) : Unit {
             U(theta, phi, lambda, q);
         }
-        operation h(a : Qubit) : Unit is Adj + Ctl {
+        operation h(a : Qubit) : Unit {
             u2(new Std.OpenQASM.Angle.Angle {
                 Value = 0,
                 Size = 53
             }, Std.OpenQASM.Angle.DoubleAsAngle(3.141592653589793, 53), a);
         }
-        operation x(a : Qubit) : Unit is Adj + Ctl {
+        operation x(a : Qubit) : Unit {
             u3(Std.OpenQASM.Angle.DoubleAsAngle(3.141592653589793, 53), new Std.OpenQASM.Angle.Angle {
                 Value = 0,
                 Size = 53
             }, Std.OpenQASM.Angle.DoubleAsAngle(3.141592653589793, 53), a);
         }
-        operation rz(phi : Std.OpenQASM.Angle.Angle, a : Qubit) : Unit is Adj + Ctl {
+        operation rz(phi : Std.OpenQASM.Angle.Angle, a : Qubit) : Unit {
             u1(phi, a);
         }
-        operation rxx(theta : Std.OpenQASM.Angle.Angle, a : Qubit, b : Qubit) : Unit is Adj + Ctl {
+        operation rxx(theta : Std.OpenQASM.Angle.Angle, a : Qubit, b : Qubit) : Unit {
             h(a);
             h(b);
             CX(a, b);
@@ -1370,7 +1370,7 @@ fn qasm2_custom_gate_can_be_called() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        operation my_gate(q1 : Qubit, q2 : Qubit) : Unit is Adj + Ctl {
+        operation my_gate(q1 : Qubit, q2 : Qubit) : Unit {
             h(q1);
             h(q2);
         }

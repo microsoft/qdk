@@ -20,6 +20,7 @@ use qsc_hir::hir::PackageId;
 use qsc_openqasm_parser::io::{InMemorySourceResolver, SourceResolver};
 use qsc_openqasm_parser::semantic::{QasmSemanticParseResult, parse_source};
 use qsc_passes::PackageType;
+use rustc_hash::FxHashMap;
 use std::sync::Arc;
 
 pub(crate) mod assignment;
@@ -107,6 +108,7 @@ fn compile_with_config<S: Into<Arc<str>>>(
         symbols: res.symbols,
         errors,
         pragma_config: PragmaConfig::default(),
+        functor_constraints: FxHashMap::default(),
     };
 
     let unit = compiler.compile(&program);
@@ -171,6 +173,7 @@ pub fn compile_all_with_config<P: Into<Arc<str>>>(
         symbols: res.symbols,
         errors,
         pragma_config: PragmaConfig::default(),
+        functor_constraints: FxHashMap::default(),
     };
 
     let unit = compiler.compile(&program);
