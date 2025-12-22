@@ -346,7 +346,7 @@ extends:
 
                   # every other platform
                   - script: |
-                      python build.py --pip --no-check-prereqs --integration-tests --manylinux
+                      python build.py --pip --no-check-prereqs --integration-tests
                     displayName: Build Platform-Dependent Py Packages
                     condition: not(and(eq(variables['Agent.OS'], 'Windows_NT'), eq(variables['arch'], 'aarch64')))
 
