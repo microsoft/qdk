@@ -244,6 +244,7 @@ fn entry_call_operation() {
     let unit = default_compile(sources);
     assert!(unit.errors.is_empty(), "{:#?}", unit.errors);
 
+    let package = unit.package_id();
     let entry = &unit.package.entry.expect("package should have entry");
     let ExprKind::Call(callee, _) = &entry.kind else {
         panic!("entry should be a call")
@@ -253,7 +254,7 @@ fn entry_call_operation() {
     };
     assert_eq!(
         &Res::Item(ItemId {
-            package: None,
+            package,
             item: LocalItemId::from(1),
         }),
         res

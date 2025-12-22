@@ -2176,7 +2176,7 @@ impl<'a> PartialEvaluator<'a> {
             Res::Err => panic!("resolution error"),
             Res::Item(item) => Value::Global(
                 StoreItemId {
-                    package: item.package.unwrap_or(self.get_current_package_id()),
+                    package: item.package,
                     item: item.item,
                 },
                 FunctorApp::default(),

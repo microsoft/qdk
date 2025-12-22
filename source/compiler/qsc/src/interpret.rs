@@ -381,7 +381,7 @@ impl Interpreter {
             .get(map_fir_package_to_hir(package_id))
             .expect("package should exist in the package store")
             .package;
-        for global in global::iter_package(Some(map_fir_package_to_hir(package_id)), package) {
+        for global in global::iter_package(map_fir_package_to_hir(package_id), package) {
             if let global::Kind::Callable(term) = global.kind {
                 let store_item_id = fir::StoreItemId {
                     package: package_id,
@@ -447,7 +447,7 @@ impl Interpreter {
             .get(map_fir_package_to_hir(package_id))
             .expect("package should exist in the package store")
             .package;
-        for global in global::iter_package(Some(map_fir_package_to_hir(package_id)), package) {
+        for global in global::iter_package(map_fir_package_to_hir(package_id), package) {
             if let global::Kind::Ty(ty) = global.kind {
                 exported_items.push(TaggedItem {
                     item_id: ty.id,
@@ -475,7 +475,7 @@ impl Interpreter {
         store_item_id: crate::fir::StoreItemId,
     ) -> (&ty::Udt, UdtKind) {
         self.udt_ty_from_item_id(&crate::hir::ItemId {
-            package: Some(map_fir_package_to_hir(store_item_id.package)),
+            package: map_fir_package_to_hir(store_item_id.package),
             item: map_fir_local_item_to_hir(store_item_id.item),
         })
     }
@@ -485,15 +485,9 @@ impl Interpreter {
     /// Panics if the item is not a UDT.
     pub fn udt_ty_from_item_id(&self, item_id: &crate::hir::ItemId) -> (&ty::Udt, UdtKind) {
         let crate::hir::ItemId {
-            package: package_id_opt,
+            package: package_id,
             item: local_item_id,
         } = item_id;
-
-        let package_id = if let Some(package_id) = package_id_opt {
-            package_id
-        } else {
-            &self.compiler.package_id()
-        };
 
         let unit = self
             .compiler
@@ -555,15 +549,10 @@ impl Interpreter {
     pub fn get_angle_id(&self) -> fir::StoreItemId {
         if let Some(id) = &*self.angle_ty_cache.borrow() {
             let crate::hir::ItemId {
-                package: hir_package_id_opt,
+                package: hir_package_id,
                 item: hir_local_item_id,
             } = id;
-            let package_id = if let Some(package_id) = hir_package_id_opt {
-                package_id
-            } else {
-                &self.compiler.package_id()
-            };
-            let fir_package_id = map_hir_package_to_fir(*package_id);
+            let fir_package_id = map_hir_package_to_fir(*hir_package_id);
             let fir_local_item_id = map_hir_local_item_to_fir(*hir_local_item_id);
             crate::fir::StoreItemId {
                 package: fir_package_id,
@@ -597,19 +586,11 @@ impl Interpreter {
     pub fn get_complex_id(&self) -> crate::fir::StoreItemId {
         if let Some(id) = &*self.complex_ty_cache.borrow() {
             let crate::hir::ItemId {
-                package: hir_package_id_opt,
+                package: hir_package_id,
                 item: hir_local_item_id,
             } = id;
-
-            let package_id = if let Some(package_id) = hir_package_id_opt {
-                package_id
-            } else {
-                &self.compiler.package_id()
-            };
-
-            let fir_package_id = map_hir_package_to_fir(*package_id);
+            let fir_package_id = map_hir_package_to_fir(*hir_package_id);
             let fir_local_item_id = map_hir_local_item_to_fir(*hir_local_item_id);
-
             crate::fir::StoreItemId {
                 package: fir_package_id,
                 item: fir_local_item_id,

@@ -4156,14 +4156,14 @@ fn partial_eval_stmt_function_calls() {
                     Expr 1 [9-21] [Type Int]: Call:
                         2
                         3
-                    Expr 2 [9-18] [Type (Int -> Int)]: Var: Item 1
+                    Expr 2 [9-18] [Type (Int -> Int)]: Var: Item 1 (Package 2)
                     Expr 3 [19-20] [Type Int]: Lit: Int(4)
                     Expr 4 [23-26] [Type Int]: Expr Block: 1
                     Expr 5 [24-25] [Type Int]: Var: Local 0
                     Expr 6 [27-39] [Type Int]: Call:
                         7
                         8
-                    Expr 7 [27-36] [Type (Int -> Int)]: Var: Item 1
+                    Expr 7 [27-36] [Type (Int -> Int)]: Var: Item 1 (Package 2)
                     Expr 8 [37-38] [Type Int]: Lit: Int(3)
                     Expr 9 [93-98] [Type Int]: BinOp (Add):
                         10

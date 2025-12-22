@@ -1434,7 +1434,7 @@ impl State {
 
         let store_item_id = if let Res::Item(item_id) = res {
             StoreItemId {
-                package: item_id.package.unwrap_or(self.package),
+                package: item_id.package,
                 item: item_id.item,
             }
         } else {
@@ -1844,7 +1844,7 @@ fn resolve_binding(env: &Env, package: PackageId, res: Res, span: Span) -> Resul
         Res::Err => panic!("resolution error"),
         Res::Item(item) => Value::Global(
             StoreItemId {
-                package: item.package.unwrap_or(package),
+                package: item.package,
                 item: item.item,
             },
             FunctorApp::default(),

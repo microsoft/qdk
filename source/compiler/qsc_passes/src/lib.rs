@@ -30,7 +30,7 @@ use qsc_frontend::compile::CompileUnit;
 use qsc_hir::{
     assigner::Assigner,
     global::{self, Table},
-    hir::Package,
+    hir::{Package, PackageId},
     mut_visit::MutVisitor,
     validate::Validator,
     visit::Visitor,
@@ -167,7 +167,7 @@ pub fn run_core_passes(core: &mut CompileUnit) -> Vec<Error> {
     borrow_check.visit_package(&core.package);
     let borrow_errors = borrow_check.errors;
 
-    let table = global::iter_package(None, &core.package).collect();
+    let table = global::iter_package(PackageId::CORE, &core.package).collect();
     LoopUni {
         core: &table,
         assigner: &mut core.assigner,

@@ -66,10 +66,7 @@ impl<'a> Handler<'a> for DefinitionFinder<'a> {
         item_id: &hir::ItemId,
         decl: &'a hir::CallableDecl,
     ) {
-        self.definition = Some(self.location(
-            decl.name.span,
-            item_id.package.expect("package id should be resolved"),
-        ));
+        self.definition = Some(self.location(decl.name.span, item_id.package));
     }
 
     fn at_type_param_def(
@@ -117,10 +114,7 @@ impl<'a> Handler<'a> for DefinitionFinder<'a> {
         type_name: &'a hir::Ident,
         _: &'a hir::ty::Udt,
     ) {
-        self.definition = Some(self.location(
-            type_name.span,
-            item_id.package.expect("package id should be resolved"),
-        ));
+        self.definition = Some(self.location(type_name.span, item_id.package));
     }
 
     fn at_field_def(&mut self, _: &LocatorContext<'a>, field_name: &ast::Ident, _: &'a ast::Ty) {
@@ -136,10 +130,7 @@ impl<'a> Handler<'a> for DefinitionFinder<'a> {
         let span = field_def
             .name_span
             .expect("field found via name should have a name");
-        self.definition = Some(self.location(
-            span,
-            item_id.package.expect("package id should be resolved"),
-        ));
+        self.definition = Some(self.location(span, item_id.package));
     }
 
     fn at_local_def(&mut self, _: &LocatorContext<'a>, ident: &'a ast::Ident, _: &'a ast::Pat) {
