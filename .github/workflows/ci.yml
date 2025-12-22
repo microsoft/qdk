@@ -116,7 +116,7 @@ jobs:
       - name: Prereqs
         run: python ./prereqs.py --install
       - name: Build and Test
-        run: python ./build.py --no-check --wasm --npm --vscode --play --pip --widgets --jupyterlab --qdk --manylinux
+        run: python ./build.py --no-check --wasm --npm --vscode --play --pip --widgets --jupyterlab --qdk
 
   unit-tests:
     name: Rust Unit tests
@@ -183,7 +183,7 @@ jobs:
       - name: Prereqs
         run: python ./prereqs.py --install
       - name: Run integration tests
-        run: python ./build.py --no-check --no-test --wasm --npm --vscode --pip --widgets --qdk --integration-tests --manylinux
+        run: python ./build.py --no-check --no-test --wasm --npm --vscode --pip --widgets --qdk --integration-tests
 
   status-check:
     name: Status Check
