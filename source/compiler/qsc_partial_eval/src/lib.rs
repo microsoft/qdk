@@ -2048,14 +2048,9 @@ impl<'a> PartialEvaluator<'a> {
                     index_expr_id,
                 )
             }
-            (Value::Var(_array_var), Value::Range(_index_range)) => {
+            (Value::Var(array_var), Value::Range(index_range)) => {
                 // The array is a variable, the index is a literal range.
-                // TODO: check if the static map has an entry for this variable array and perform
-                // static slicing if possible.
-                Err(Error::Unimplemented(
-                    "slicing of variable arrays".to_string(),
-                    self.get_expr_package_span(index_expr_id),
-                ))
+                self.eval_expr_var_slice(index_expr_id, &array_var, &index_range)
             }
             (array_value, Value::Var(index_var)) if matches!(array_value, Value::Array(_)) => {
                 // The array is a literal, the index is a variable,
@@ -2106,6 +2101,45 @@ impl<'a> PartialEvaluator<'a> {
                 "unexpected combination of array and index values: array: {array_value}, index: {index_value}"
             ),
         }
+    }
+
+    fn eval_expr_var_slice(
+        &mut self,
+        index_expr_id: ExprId,
+        array_var: &Var,
+        index_range: &val::Range,
+    ) -> Result<EvalControlFlow, Error> {
+        let Some(array_lit) = self
+            .eval_context
+            .get_current_scope()
+            .get_static_value(array_var.id.into())
+        else {
+            // For now, we only support slicing of variable arrays with a known static value.
+            // True variable slicing will require emitting load and store instructions to take
+            // value from and write value to a new array variable.
+            return Err(Error::Unimplemented(
+                "slicing of variable arrays".to_string(),
+                self.get_expr_package_span(index_expr_id),
+            ));
+        };
+
+        let array_value = map_rir_literal_to_eval_value(array_lit);
+        let index_expr = self.get_expr(index_expr_id);
+        let hir_package_id = map_fir_package_to_hir(self.get_current_package_id());
+        let index_package_span = PackageSpan {
+            package: hir_package_id,
+            span: index_expr.span,
+        };
+        let sliced = slice_array(
+            &array_value.unwrap_array(),
+            index_range.start,
+            index_range.step,
+            index_range.end,
+            index_package_span,
+        )
+        .map_err(Error::from)?;
+
+        Ok(EvalControlFlow::Continue(sliced))
     }
 
     fn eval_expr_emit_index(
