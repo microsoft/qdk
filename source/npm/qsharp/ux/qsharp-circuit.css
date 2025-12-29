@@ -499,7 +499,7 @@
 /* State visualizer panel */
 .state-panel {
   flex: 0 0 360px;
-  border-left: 1px solid #ddd;
+  border-left: none; /* replaced by clickable edge */
   display: flex;
   flex-direction: column;
   background: var(--vscode-editor-background, #ffffff);
@@ -508,12 +508,94 @@
   min-height: 0; /* allow scroll in short windows */
   overflow-y: auto;
   overflow-x: hidden;
+  position: relative; /* anchor toggle button */
+  transition:
+    flex-basis 0.2s ease,
+    width 0.2s ease;
+  padding-left: 28px; /* reserve space for the clickable edge */
 }
 
 .state-panel .state-svg {
   flex: 0 0 auto; /* size to content */
   width: 100%;
   height: auto; /* allow panel to scroll when content is taller */
+}
+
+/* Collapsed state: shrink panel and hide content except the toggle */
+.state-panel.collapsed {
+  flex: 0 0 28px !important; /* match edge width */
+  width: 28px; /* assist transition in some browsers */
+  overflow: visible; /* keep toggle visible */
+  padding-left: 0; /* only the edge remains visible */
+}
+
+.state-panel.collapsed .state-svg {
+  display: none;
+}
+
+/* Full-height clickable edge with vertical text */
+.state-edge {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 28px;
+  background: var(--vscode-editorWidget-background, #e6e6e6);
+  border-right: 1px solid var(--vscode-editorWidget-border, #c8c8c8);
+  box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.06);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  pointer-events: auto;
+}
+
+.state-edge:focus {
+  outline: 2px solid var(--vscode-focusBorder, #005a9e);
+  outline-offset: -2px;
+}
+
+.state-edge-text {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--vscode-editor-foreground, #333);
+  letter-spacing: 0.5px;
+  user-select: none;
+}
+
+/* Edge icons (top and bottom triangles) */
+.state-edge .edge-icon {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  right: 6px;
+  pointer-events: none; /* clicks go to the edge */
+  transform-origin: 50% 50%;
+}
+
+.state-edge .edge-icon-top {
+  top: 6px;
+}
+.state-edge .edge-icon-bottom {
+  bottom: 6px;
+}
+
+.state-edge .edge-icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.state-edge .edge-icon path {
+  fill: var(--vscode-editor-foreground, #555);
+  stroke: none; /* sharp corners, no outline */
+}
+
+/* When collapsed, flip icons to point left */
+.state-panel.collapsed .state-edge .edge-icon {
+  transform: rotate(180deg);
 }
 
 .state-svg .state-header {

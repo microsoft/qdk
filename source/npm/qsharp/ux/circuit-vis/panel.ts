@@ -494,13 +494,58 @@ const createStatePanel = (): HTMLElement => {
   const panel = document.createElement("div");
   panel.className = "state-panel";
 
+  // Full-height clickable edge with vertical text
+  const edge = document.createElement("div");
+  edge.className = "state-edge";
+  edge.setAttribute("role", "button");
+  edge.setAttribute("tabindex", "0");
+  edge.setAttribute("aria-label", "Toggle state panel");
+  edge.setAttribute("aria-expanded", "true");
+  const edgeText = document.createElement("span");
+  edgeText.className = "state-edge-text";
+  edgeText.textContent = "State Vizualization";
+  edge.appendChild(edgeText);
+
+  // Add top and bottom right-pointing triangle icons
+  const mkEdgeIcon = (cls: string): SVGSVGElement => {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 14 14");
+    svg.setAttribute("aria-hidden", "true");
+    svg.classList.add("edge-icon", cls);
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    // Equilateral right-pointing triangle: base at x=4.25, y=3 and y=11; tip at x=11, y=7
+    // Derived from equilateral geometry: (tip.x - base.x) = sqrt(3) * (base half-height)
+    path.setAttribute("d", "M 4.25 11 L 11 7 L 4.25 3 Z");
+    svg.appendChild(path);
+    return svg as SVGSVGElement;
+  };
+
+  const iconTop = mkEdgeIcon("edge-icon-top");
+  const iconBottom = mkEdgeIcon("edge-icon-bottom");
+  edge.appendChild(iconTop);
+  edge.appendChild(iconBottom);
+
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.classList.add("state-svg");
   svg.setAttribute("width", "100%");
   svg.setAttribute("height", "100%");
   // Styling moved to CSS (.state-panel .state-svg)
 
+  panel.appendChild(edge);
   panel.appendChild(svg);
+
+  // Click/keyboard handlers: accordion-collapse to the right
+  const toggleCollapsed = () => {
+    const collapsed = panel.classList.toggle("collapsed");
+    edge.setAttribute("aria-expanded", (!collapsed).toString());
+  };
+  edge.addEventListener("click", toggleCollapsed);
+  edge.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter" || ev.key === " ") {
+      ev.preventDefault();
+      toggleCollapsed();
+    }
+  });
   return panel;
 };
 
