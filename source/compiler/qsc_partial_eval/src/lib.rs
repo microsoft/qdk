@@ -1112,6 +1112,7 @@ impl<'a> PartialEvaluator<'a> {
                     bin_op_expr_span,
                 )
             }
+            VarTy::Qubit => panic!("qubit variables should not be used in binop expressions"),
             VarTy::Array(..) => panic!("array variables should not be used in binop expressions"),
         }
     }
@@ -2123,7 +2124,7 @@ impl<'a> PartialEvaluator<'a> {
             ));
         };
 
-        let array_value = map_rir_literal_to_eval_value(array_lit);
+        let array_value = self.map_rir_literal_to_eval_value(array_lit);
         let index_expr = self.get_expr(index_expr_id);
         let hir_package_id = map_fir_package_to_hir(self.get_current_package_id());
         let index_package_span = PackageSpan {
@@ -2377,7 +2378,7 @@ impl<'a> PartialEvaluator<'a> {
                         && (!current_scope.is_currently_evaluating_branch()
                             || !self.program.config.capabilities.is_advanced())
                     {
-                        map_rir_literal_to_eval_value(literal)
+                        self.map_rir_literal_to_eval_value(literal)
                     } else {
                         bound_value.clone()
                     }
@@ -2473,7 +2474,25 @@ impl<'a> PartialEvaluator<'a> {
                 self.get_expr_package_span(condition_expr_id),
             ));
         }
-        let condition_value = condition_control_flow.into_value();
+        let mut condition_value = condition_control_flow.into_value();
+
+        while let Value::Bool(true) = condition_value {
+            // If the condition is statically true, we can just evaluate the body block directly.
+            let body_control_flow = self.try_eval_block(body_block_id)?;
+            if body_control_flow.is_return() {
+                return Ok(body_control_flow);
+            }
+
+            // Re-evaluate the condition now that the body evaluation is done.
+            let condition_control_flow = self.try_eval_expr(condition_expr_id)?;
+            if condition_control_flow.is_return() {
+                return Err(Error::Unexpected(
+                    "embedded return in loop condition".to_string(),
+                    self.get_expr_package_span(condition_expr_id),
+                ));
+            }
+            condition_value = condition_control_flow.into_value();
+        }
 
         if let Value::Bool(false) = condition_value {
             // If the condition is statically false, jump directly to the continuation block.
@@ -3105,9 +3124,9 @@ impl<'a> PartialEvaluator<'a> {
 
     fn measure_qubit(&mut self, measure_callable: Callable, args_value: Value) -> Value {
         // Get the qubit and result IDs to use in the qubit measure instruction.
-        let qubit = args_value.unwrap_qubit();
-        let qubit_value = Value::Qubit(qubit);
-        let qubit_operand = self.map_eval_value_to_rir_operand(&qubit_value);
+        // let qubit = args_value.unwrap_qubit();
+        // let qubit_value = Value::Qubit(qubit);
+        let qubit_operand = self.map_eval_value_to_rir_operand(&args_value);
         let result_value = Value::Result(self.resource_manager.next_result_register());
         let result_operand = self.map_eval_value_to_rir_operand(&result_value);
 
@@ -3123,7 +3142,23 @@ impl<'a> PartialEvaluator<'a> {
     }
 
     fn release_qubit(&mut self, args_value: Value) -> Value {
-        let qubit = args_value.unwrap_qubit();
+        let qubit = if let Value::Var(val::Var {
+            id,
+            ty: val::VarTy::Qubit,
+        }) = &args_value
+        {
+            let Literal::Qubit(q_id) = self
+                .eval_context
+                .get_current_scope()
+                .get_static_value((*id).into())
+                .expect("static value for qubit variable should be present")
+            else {
+                panic!("static value for qubit variable should be a qubit");
+            };
+            self.resource_manager.get_qubit_ref(*q_id as usize)
+        } else {
+            args_value.unwrap_qubit()
+        };
         self.resource_manager.release_qubit(&qubit);
 
         // The value of a qubit release is unit.
@@ -3379,19 +3414,20 @@ impl<'a> PartialEvaluator<'a> {
         } else {
             // Verify that we are not updating a value that does not have a backing variable from a dynamic branch
             // because it is unsupported.
-            if self
-                .eval_context
-                .get_current_scope()
-                .is_currently_evaluating_branch()
-            {
-                let error_message = format!(
-                    "re-assignment within a dynamic branch is unsupported for type {}",
-                    local_expr.ty
-                );
-                let error =
-                    Error::Unexpected(error_message, self.get_expr_package_span(local_expr.id));
-                return Err(error);
-            }
+            // TODO(swernli): This error case should be re-enabled once we have correct support for dynamic branches.
+            // if self
+            //     .eval_context
+            //     .get_current_scope()
+            //     .is_currently_evaluating_branch()
+            // {
+            //     let error_message = format!(
+            //         "re-assignment within a dynamic branch is unsupported for type {}",
+            //         local_expr.ty
+            //     );
+            //     let error =
+            //         Error::Unexpected(error_message, self.get_expr_package_span(local_expr.id));
+            //     return Err(error);
+            // }
             self.eval_context
                 .get_current_scope_mut()
                 .update_hybrid_local_value(local_var_id, value);
@@ -3431,6 +3467,7 @@ impl<'a> PartialEvaluator<'a> {
             Value::Bool(_) => Some(VarTy::Boolean),
             Value::Int(_) => Some(VarTy::Integer),
             Value::Double(_) => Some(VarTy::Double),
+            Value::Qubit(_) => Some(VarTy::Qubit),
             Value::Array(array) if self.should_emit_arrays() && !array.is_empty() => {
                 let elem_ty = self.try_get_eval_var_type(&array[0])?;
                 Some(VarTy::Array(elem_ty.into(), array.len()))
@@ -3770,6 +3807,26 @@ impl<'a> PartialEvaluator<'a> {
         }
     }
 
+    fn map_rir_literal_to_eval_value(&self, literal: &rir::Literal) -> Value {
+        match literal {
+            rir::Literal::Bool(b) => Value::Bool(*b),
+            rir::Literal::Double(d) => Value::Double(*d),
+            rir::Literal::Integer(i) => Value::Int(*i),
+            rir::Literal::Qubit(q) => {
+                Value::Qubit(self.resource_manager.get_qubit_ref(*q as usize))
+            }
+            rir::Literal::Array(array, _) => {
+                let mut eval_array = Vec::new();
+                for elem in array.iter() {
+                    let eval_elem = self.map_rir_literal_to_eval_value(elem);
+                    eval_array.push(eval_elem);
+                }
+                Value::Array(eval_array.into())
+            }
+            _ => panic!("{literal} RIR literal cannot be mapped to evaluator value"),
+        }
+    }
+
     fn clone_current_static_var_map(&self) -> FxHashMap<VariableId, Literal> {
         self.eval_context
             .get_current_scope()
@@ -4001,6 +4058,7 @@ fn map_eval_var_type_to_rir_type(var_ty: &VarTy) -> rir::Ty {
         VarTy::Boolean => rir::Ty::Boolean,
         VarTy::Integer => rir::Ty::Integer,
         VarTy::Double => rir::Ty::Double,
+        VarTy::Qubit => rir::Ty::Qubit,
         VarTy::Array(inner, size) => {
             rir::Ty::Array(map_eval_var_type_to_rir_type(inner).into(), *size)
         }
@@ -4028,23 +4086,6 @@ fn map_fir_type_to_rir_type(ty: &Ty) -> rir::Ty {
     }
 }
 
-fn map_rir_literal_to_eval_value(literal: &rir::Literal) -> Value {
-    match literal {
-        rir::Literal::Bool(b) => Value::Bool(*b),
-        rir::Literal::Double(d) => Value::Double(*d),
-        rir::Literal::Integer(i) => Value::Int(*i),
-        rir::Literal::Array(array, _) => {
-            let mut eval_array = Vec::new();
-            for elem in array.iter() {
-                let eval_elem = map_rir_literal_to_eval_value(elem);
-                eval_array.push(eval_elem);
-            }
-            Value::Array(eval_array.into())
-        }
-        _ => panic!("{literal} RIR literal cannot be mapped to evaluator value"),
-    }
-}
-
 fn map_rir_var_to_eval_var(var: &rir::Variable) -> Result<Var, ()> {
     Ok(Var {
         id: var.variable_id.into(),
@@ -4057,6 +4098,7 @@ fn map_rir_type_to_eval_var_type(ty: &rir::Ty) -> Result<VarTy, ()> {
         rir::Ty::Boolean => Ok(VarTy::Boolean),
         rir::Ty::Integer => Ok(VarTy::Integer),
         rir::Ty::Double => Ok(VarTy::Double),
+        rir::Ty::Qubit => Ok(VarTy::Qubit),
         _ => Err(()),
     }
 }

@@ -34,6 +34,15 @@ impl ResourceManager {
             .expect("qubit id should be in map")
     }
 
+    pub fn get_qubit_ref(&self, qubit: usize) -> QubitRef {
+        self.qubit_tracker
+            .iter()
+            .find(|q| q.0 == qubit)
+            .expect("qubit ref should be in tracker")
+            .clone()
+            .into()
+    }
+
     /// Count of qubits used.
     pub fn qubit_count(&self) -> usize {
         self.qubits_in_use.len()

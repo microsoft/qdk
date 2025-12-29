@@ -58,6 +58,74 @@ fn unitary_call_within_a_for_loop_unrolled() {
 }
 
 #[test]
+fn custom() {
+    let program = get_rir_program_with_capabilities(
+        indoc! {
+            r#"
+        namespace Test {
+            operation op(q : Qubit) : Unit { body intrinsic; }
+            @EntryPoint()
+            operation Main() : Unit {
+                use qs = Qubit[3];
+                //use (q0, q1, q2) = (Qubit(), Qubit(), Qubit());
+                //let qs = [q0, q1, q2];
+                //for _ in 1..4 {
+                //for q in qs {
+                //    op(q);
+                //}
+                //}
+                if M(qs[0]) == One {
+                    let rs = MResetEachZ(qs);
+                    if rs[0] == rs[1] {
+                        op(qs[0]);
+                    }
+                } else {
+                MResetEachZ(qs);
+                }
+            }
+        }
+        "#,
+        },
+        TargetCapabilityFlags::Adaptive
+            | TargetCapabilityFlags::IntegerComputations
+            | TargetCapabilityFlags::BackwardsBranching
+            | TargetCapabilityFlags::StaticSizedArrays
+            | TargetCapabilityFlags::QubitVariables,
+    );
+
+    assert_blocks(&program, &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Variable(0, Integer) = Store Integer(0)
+            Variable(0, Integer) = Store Integer(1)
+            Variable(0, Integer) = Store Integer(2)
+            Variable(0, Integer) = Store Integer(3)
+            Variable(1, Array(Qubit, 3)) = Store Array(Qubit)[ Qubit(0), Qubit(1), Qubit(2), ]
+            Variable(2, Array(Qubit, 3)) = Store Array(Qubit)[ Qubit(0), Qubit(1), Qubit(2), ]
+            Variable(3, Integer) = Store Integer(0)
+            Jump(1)
+        Block 1:Block:
+            Variable(4, Boolean) = Icmp Slt, Variable(3, Integer), Integer(3)
+            Branch Variable(4, Boolean), 3, 2
+        Block 2:Block:
+            Variable(8, Array(Qubit, 3)) = Store Array(Qubit)[ Qubit(0), Qubit(1), Qubit(2), ]
+            Variable(9, Integer) = Store Integer(0)
+            Variable(9, Integer) = Store Integer(1)
+            Variable(9, Integer) = Store Integer(2)
+            Variable(9, Integer) = Store Integer(3)
+            Call id(3), args( Integer(0), EmptyTag, )
+            Return
+        Block 3:Block:
+            Variable(5, Qubit) = Index Variable(2, Array(Qubit, 3)), Variable(3, Integer)
+            Variable(6, Qubit) = Store Variable(5, Qubit)
+            Call id(2), args( Variable(6, Qubit), )
+            Variable(7, Integer) = Add Variable(3, Integer), Integer(1)
+            Variable(3, Integer) = Store Variable(7, Integer)
+            Jump(1)"#]]);
+}
+
+#[test]
 fn unitary_call_within_a_for_loop() {
     let program = get_rir_program_with_capabilities(
         indoc! {

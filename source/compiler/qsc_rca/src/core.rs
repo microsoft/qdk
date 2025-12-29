@@ -1796,13 +1796,17 @@ impl<'a> Analyzer<'a> {
     }
 
     fn should_emit_classical_loops(&self) -> bool {
-        self.target_capabilities
-            .contains(TargetCapabilityFlags::BackwardsBranching)
+        self.get_current_item_context().id.package != PackageId::CORE
+            && self
+                .target_capabilities
+                .contains(TargetCapabilityFlags::BackwardsBranching)
     }
 
     fn should_emit_static_arrays(&self) -> bool {
-        self.target_capabilities
-            .contains(TargetCapabilityFlags::StaticSizedArrays)
+        self.get_current_item_context().id.package != PackageId::CORE
+            && self
+                .target_capabilities
+                .contains(TargetCapabilityFlags::StaticSizedArrays)
     }
 
     fn should_emit_dynamic_type(&self, ty: &Ty) -> bool {

@@ -96,6 +96,7 @@ impl From<Profile> for TargetCapabilityFlags {
                     | Self::FloatingPointComputations
                     | Self::BackwardsBranching
                     | Self::StaticSizedArrays
+                    | Self::QubitVariables
             }
         }
     }
