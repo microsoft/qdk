@@ -154,6 +154,11 @@ const _createToolbox = (): HTMLElement => {
   const runButtonGroup = _createRunButton(prefixY + gateHeight + 20);
   svgElem.appendChild(runButtonGroup);
 
+  // Size SVG to content height so the toolbox panel can scroll when window is short
+  const totalSvgHeight = prefixY + 2 * gateHeight + 32; // gates + button + padding
+  svgElem.setAttribute("height", totalSvgHeight.toString());
+  svgElem.setAttribute("width", "100%");
+
   // Generate toolbox panel
   const toolboxElem = _elem("div", "toolbox-panel");
   _children(toolboxElem, [_title("Toolbox")]);
@@ -544,7 +549,7 @@ const updateStatePanel = (
       24,
   );
 
-  const h = height - margin.top - margin.bottom;
+  // Height is set on the SVG after rendering; bar section uses a fixed height.
 
   const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
   g.setAttribute("transform", `translate(${margin.left},${margin.top})`);
@@ -556,10 +561,8 @@ const updateStatePanel = (
     Math.max(...barsData.map((b) => b.prob ?? 0)),
   );
   const maxBarSectionHeight = 180;
-  const hBars = Math.max(
-    10,
-    Math.min(h - barHeaderSpace - barLabelSpace, maxBarSectionHeight),
-  );
+  // Restore previous fixed bar section height for consistent visuals
+  const hBars = maxBarSectionHeight;
   const scaleY = (p: number) => (p / maxProb) * hBars;
 
   const totalProb = barsData.reduce((s, b) => s + (b.prob ?? 0), 0) || 1;
@@ -709,6 +712,16 @@ const updateStatePanel = (
   });
 
   // Simplified: no axis, legend, or header — bars with percentage labels and optional bitstring labels
+
+  // Size the SVG to the content so the panel can scroll if needed
+  try {
+    const bbox = g.getBBox();
+    const svgHeight = Math.max(height, Math.ceil(bbox.height + margin.top + 8));
+    svg.setAttribute("height", svgHeight.toString());
+    svg.setAttribute("width", "100%");
+  } catch {
+    // Fallback: keep existing height if getBBox is unavailable
+  }
 };
 
 export { createStatePanel, updateStatePanel };

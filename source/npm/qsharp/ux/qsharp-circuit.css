@@ -300,6 +300,9 @@
   .panel {
     display: flex;
     flex-direction: row;
+    height: 100%;
+    align-items: stretch;
+    min-height: 0; /* allow flex children to scroll */
   }
 
   .container {
@@ -331,6 +334,10 @@
     width: 100px;
     min-height: var(--minToolboxHeight);
     border-right: medium solid var(--vscode-editorWidget-border, #000000);
+    height: 100%;
+    min-height: 0; /* enable internal scroll in flex container */
+    overflow-y: auto;
+    overflow-x: hidden;
   }
 
   .toolbox-panel .title {
@@ -340,7 +347,7 @@
   .toolbox-panel-svg {
     width: -webkit-fill-available;
     min-height: var(--minToolboxHeight);
-    height: 100%;
+    height: auto; /* let SVG expand to content height */
   }
 
   .ghost {
@@ -497,16 +504,19 @@
   flex-direction: column;
   background: var(--vscode-editor-background, #ffffff);
   pointer-events: auto;
+  height: 100%;
+  min-height: 0; /* allow scroll in short windows */
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .state-panel .state-svg {
-  flex: 1;
+  flex: 0 0 auto; /* size to content */
   width: 100%;
-  height: 100%;
+  height: auto; /* allow panel to scroll when content is taller */
 }
 
 .state-svg .state-header {
-  fill: #555;
   font-size: 13px; /* slightly larger */
   font-weight: 600;
   text-anchor: start; /* override circuit default */
@@ -525,7 +535,6 @@
 
 .state-svg .state-bar-label {
   font-size: 10px;
-  fill: #333;
   text-anchor: middle;
   dominant-baseline: hanging;
   pointer-events: none;
@@ -538,7 +547,6 @@
 }
 
 .state-svg .state-phase-text {
-  fill: #333;
   text-anchor: middle;
   dominant-baseline: hanging; /* align like percentage labels */
   font-size: 10px; /* match percentage label size */
