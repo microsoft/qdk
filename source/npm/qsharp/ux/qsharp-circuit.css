@@ -540,13 +540,19 @@
 .state-svg .state-phase-text {
   fill: #333;
   text-anchor: middle;
-  dominant-baseline: middle;
+  dominant-baseline: hanging; /* align like percentage labels */
+  font-size: 10px; /* match percentage label size */
   pointer-events: none;
 }
 
 .state-svg .state-phase-dot {
   stroke: #333;
   stroke-width: 0.5px;
+}
+
+.state-svg .state-phase-wedge {
+  stroke: none;
+  fill-opacity: 0.25;
 }
 
 .state-svg .state-bitstring {

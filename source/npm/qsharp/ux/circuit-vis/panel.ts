@@ -509,7 +509,7 @@ const updateStatePanel = (
 
   const width = svg.clientWidth || 340;
   const height = svg.clientHeight || 260;
-  const margin = { top: 10, right: 10, bottom: 48, left: 28 };
+  const margin = { top: 0, right: 10, bottom: 48, left: 28 };
 
   while (svg.firstChild) svg.removeChild(svg.firstChild);
 
@@ -532,9 +532,16 @@ const updateStatePanel = (
   const barHeaderSpace = 28;
   const phaseHeaderSpace = 20;
   const stateHeaderSpace = 20;
+  const barLabelSpace = 22; // gap(6) + label(10) + gap(6)
+  const phaseLabelSpace = 30; // add a bit more bottom gap for phase labels
   margin.bottom = Math.max(
     48,
-    phaseHeaderSpace + rCol * 2 + 16 + stateHeaderSpace + extraForBits + 24,
+    phaseHeaderSpace +
+      rCol * 2 +
+      phaseLabelSpace +
+      stateHeaderSpace +
+      extraForBits +
+      24,
   );
 
   const h = height - margin.top - margin.bottom;
@@ -548,7 +555,11 @@ const updateStatePanel = (
     1e-12,
     Math.max(...barsData.map((b) => b.prob ?? 0)),
   );
-  const hBars = Math.max(10, h - barHeaderSpace);
+  const maxBarSectionHeight = 180;
+  const hBars = Math.max(
+    10,
+    Math.min(h - barHeaderSpace - barLabelSpace, maxBarSectionHeight),
+  );
   const scaleY = (p: number) => (p / maxProb) * hBars;
 
   const totalProb = barsData.reduce((s, b) => s + (b.prob ?? 0), 0) || 1;
@@ -576,15 +587,15 @@ const updateStatePanel = (
   // Bars section: top separator at section start, header label below it
   // Header labels aligned to group left; no extra X needed.
   const sepBarY = 0;
-  g.appendChild(mkSep(sepBarY));
+  // No separator line above the Probability Density section; only the header
   g.appendChild(mkLabel("Probability Density", -8, sepBarY + 9));
   // Phase section: separator at end of bars content (top of phase section)
-  const sepPhaseY = h;
+  const sepPhaseY = barHeaderSpace + hBars + barLabelSpace;
   g.appendChild(mkSep(sepPhaseY));
   g.appendChild(mkLabel("Phase", -8, sepPhaseY + 9));
   // State section: separator at end of phase content (top of state section)
   // Place the phase-state separator just below the circles (include padding)
-  const sepStateY = h + phaseHeaderSpace + 2 * rCol + 16;
+  const sepStateY = sepPhaseY + phaseHeaderSpace + 2 * rCol + phaseLabelSpace;
   g.appendChild(mkSep(sepStateY));
   g.appendChild(mkLabel("State", -8, sepStateY + 9));
 
@@ -612,10 +623,8 @@ const updateStatePanel = (
         "text",
       );
       label.setAttribute("x", `${x + bw / 2}`);
-      const labelY = Math.max(
-        barHeaderSpace + 6,
-        barHeaderSpace + hBars - scaleY(b.prob) - 4,
-      );
+      // Place percentage label below the bars within the section
+      const labelY = barHeaderSpace + hBars + 6;
       label.setAttribute("y", `${labelY}`);
       label.setAttribute("class", "state-bar-label");
       label.textContent =
@@ -626,8 +635,24 @@ const updateStatePanel = (
     // Phase indicator circle below each bar, sized to column width, with phase label inside
     const cx = x + bw / 2;
     const r = rCol;
-    const phaseContentYBase = h + phaseHeaderSpace;
+    const phaseContentYBase = sepPhaseY + phaseHeaderSpace;
     const cy = phaseContentYBase + r + 8;
+    // Angle wedge (sector) inside the phase circle from 0 to φ
+    const sx = cx + r;
+    const sy = cy;
+    const ex = cx + r * Math.cos(b.phase);
+    const ey = cy - r * Math.sin(b.phase);
+    const largeArc = Math.abs(b.phase) > Math.PI ? 1 : 0;
+    const sweep = b.phase < 0 ? 1 : 0; // CW for negative φ, CCW for positive φ
+    const wedge = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "path",
+    );
+    const d = `M ${cx} ${cy} L ${sx} ${sy} A ${r} ${r} 0 ${largeArc} ${sweep} ${ex} ${ey} Z`;
+    wedge.setAttribute("d", d);
+    wedge.setAttribute("class", "state-phase-wedge");
+    wedge.setAttribute("fill", phaseColor(b.phase));
+    g.appendChild(wedge);
     const circle = document.createElementNS(
       "http://www.w3.org/2000/svg",
       "circle",
@@ -650,11 +675,9 @@ const updateStatePanel = (
       "text",
     );
     phaseText.setAttribute("x", `${cx}`);
-    phaseText.setAttribute("y", `${cy + 3}`);
-    phaseText.setAttribute(
-      "font-size",
-      `${Math.max(8, Math.min(11, Math.floor(r * 0.8)))}`,
-    );
+    // Place phase text below the circle
+    phaseText.setAttribute("y", `${cy + r + 6}`);
+    // Font size controlled by CSS (.state-phase-text)
     phaseText.setAttribute("class", "state-phase-text");
     phaseText.textContent = _formatPhasePi(b.phase);
     g.appendChild(phaseText);
@@ -668,7 +691,7 @@ const updateStatePanel = (
     );
     dot.setAttribute("cx", `${cx + dx}`);
     dot.setAttribute("cy", `${cy - dy}`);
-    dot.setAttribute("r", `${Math.max(1.5, r * 0.28)}`);
+    dot.setAttribute("r", `${Math.max(1.5, r * 0.2)}`);
     dot.setAttribute("fill", phaseColor(b.phase));
     dot.setAttribute("class", "state-phase-dot");
     g.appendChild(dot);
