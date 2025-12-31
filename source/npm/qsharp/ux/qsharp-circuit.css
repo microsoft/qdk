@@ -265,7 +265,7 @@
   .gate:hover > .gate-expand {
     visibility: visible;
     opacity: 1;
-    transition: opacity 1s;
+    transition: opacity 0.2s;
   }
 
   .dropzone-layer {

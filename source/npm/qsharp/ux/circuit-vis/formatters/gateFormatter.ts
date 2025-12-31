@@ -117,13 +117,11 @@ const _createGate = (
     ([attr, val]) => (attributes[`data-${attr}`] = val),
   );
 
-  const zoomBtn: SVGElement | null = _zoomButton(renderData, nestedDepth);
-  if (zoomBtn != null) svgElems = svgElems.concat([zoomBtn]);
-
-  const gateElem = group(svgElems, attributes);
-
   // If there's a source location, wrap the gate in an SVG <a> element to make it clickable
-  if (renderData.link) {
+  //
+  // `GateType.Group` corresponds to an *expanded* group, which will contain clickable gates
+  // so therefore should not itself be clickable
+  if (renderData.link && renderData.type !== GateType.Group) {
     const linkElem = createSvgElement("a", {
       href: renderData.link.href,
       class: "qs-circuit-source-link",
@@ -134,12 +132,20 @@ const _createGate = (
     titleElem.textContent = renderData.link.title;
     linkElem.appendChild(titleElem);
 
-    // Add the gate as a child of the link
-    linkElem.appendChild(gateElem);
-    return linkElem;
+    // Add the gate elements as children of the link
+    for (const e of svgElems) {
+      linkElem.appendChild(e);
+    }
+
+    svgElems = [linkElem];
   }
 
-  return gateElem;
+  // Zoom button comes last so it's on top of the <a> element if both are present
+  // This allows clicking the zoom button without triggering the link
+  const zoomBtn: SVGElement | null = _zoomButton(renderData, nestedDepth);
+  if (zoomBtn != null) svgElems = svgElems.concat([zoomBtn]);
+
+  return group(svgElems, attributes);
 };
 
 /**
