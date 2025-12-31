@@ -7,6 +7,7 @@ import {
   updateStatePanelFromMap,
   getStaticMockAmpMap,
 } from "./stateViz.js";
+import { computeAmpMapFromCurrentModel } from "./stateCompute.js";
 import {
   gateHeight,
   horizontalGap,
@@ -92,11 +93,18 @@ const createPanel = (container: HTMLElement): void => {
     ".state-panel",
   ) as HTMLElement | null;
   if (panelElem) {
-    // Prefer the simplified map-based input for the visualizer
-    updateStatePanelFromMap(panelElem, getStaticMockAmpMap(mockDataSetNumber), {
-      normalize: false,
-    });
-    mockDataSetNumber++;
+    const ampMap = computeAmpMapFromCurrentModel();
+    if (ampMap) {
+      updateStatePanelFromMap(panelElem, ampMap, { normalize: true });
+    } else {
+      // Fallback to static mock if no circuit model is available yet
+      updateStatePanelFromMap(
+        panelElem,
+        getStaticMockAmpMap(mockDataSetNumber),
+        { normalize: false },
+      );
+      mockDataSetNumber++;
+    }
   }
 };
 
