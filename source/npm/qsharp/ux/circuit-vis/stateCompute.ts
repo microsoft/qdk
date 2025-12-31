@@ -5,6 +5,8 @@ import { ComponentGrid, Operation, Qubit } from "./circuit.js";
 import { AmpMap } from "./stateViz.js";
 import { getCurrentCircuitModel } from "./events.js";
 
+export type Endianness = "big" | "little";
+
 // Small complex helpers
 class Complex {
   constructor(
@@ -137,6 +139,7 @@ function applyResetZero(state: Complex[], target: number): void {
 export function computeAmpMapForCircuit(
   qubits: Qubit[],
   componentGrid: ComponentGrid,
+  endianness: Endianness = "big",
 ): AmpMap {
   const n = qubits.length;
   const dim = 1 << n;
@@ -220,10 +223,16 @@ export function computeAmpMapForCircuit(
     const a = state[i];
     const p = a.re * a.re + a.im * a.im;
     if (p > eps) {
-      // Build bitstring label
+      // Build bitstring label per requested endianness
       let bits = "";
-      for (let q = 0; q < n; q++) {
-        bits = ((i >> q) & 1 ? "1" : "0") + bits;
+      if (endianness === "big") {
+        for (let q = n - 1; q >= 0; q--) {
+          bits += (i >> q) & 1 ? "1" : "0";
+        }
+      } else {
+        for (let q = 0; q < n; q++) {
+          bits += (i >> q) & 1 ? "1" : "0";
+        }
       }
       ampMap[bits] = { re: a.re, im: a.im };
     }
@@ -231,8 +240,10 @@ export function computeAmpMapForCircuit(
   return ampMap;
 }
 
-export function computeAmpMapFromCurrentModel(): AmpMap | null {
+export function computeAmpMapFromCurrentModel(
+  endianness: Endianness = "big",
+): AmpMap | null {
   const model = getCurrentCircuitModel();
   if (!model) return null;
-  return computeAmpMapForCircuit(model.qubits, model.componentGrid);
+  return computeAmpMapForCircuit(model.qubits, model.componentGrid, endianness);
 }
