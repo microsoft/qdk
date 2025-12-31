@@ -498,7 +498,8 @@
 
 /* State visualizer panel */
 .state-panel {
-  flex: 0 0 360px;
+  --stateScale: 1; /* default scale */
+  flex: 0 0 calc(468px * var(--stateScale));
   border-left: none; /* replaced by clickable edge */
   display: flex;
   flex-direction: column;
@@ -512,7 +513,9 @@
   transition:
     flex-basis 0.2s ease,
     width 0.2s ease;
-  padding-left: 28px; /* reserve space for the clickable edge */
+  padding-left: calc(
+    36px * var(--stateScale)
+  ); /* reserve space for the clickable edge */
 }
 
 .state-panel .state-svg {
@@ -523,8 +526,10 @@
 
 /* Collapsed state: shrink panel and hide content except the toggle */
 .state-panel.collapsed {
-  flex: 0 0 28px !important; /* match edge width */
-  width: 28px; /* assist transition in some browsers */
+  flex: 0 0 calc(36px * var(--stateScale)) !important; /* match edge width */
+  width: calc(
+    36px * var(--stateScale)
+  ); /* assist transition in some browsers */
   overflow: visible; /* keep toggle visible */
   padding-left: 0; /* only the edge remains visible */
 }
@@ -539,7 +544,7 @@
   top: 0;
   left: 0;
   bottom: 0;
-  width: 28px;
+  width: calc(36px * var(--stateScale));
   background: var(--vscode-editorWidget-background, #e6e6e6);
   border-right: 1px solid var(--vscode-editorWidget-border, #c8c8c8);
   box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.06);
@@ -559,28 +564,28 @@
 .state-edge-text {
   writing-mode: vertical-rl;
   text-orientation: mixed;
-  font-size: 12px;
+  font-size: calc(16px * var(--stateScale));
   font-weight: 600;
   color: var(--vscode-editor-foreground, #333);
-  letter-spacing: 0.5px;
+  letter-spacing: calc(0.65px * var(--stateScale));
   user-select: none;
 }
 
 /* Edge icons (top and bottom triangles) */
 .state-edge .edge-icon {
   position: absolute;
-  width: 14px;
-  height: 14px;
-  right: 6px;
+  width: calc(18px * var(--stateScale));
+  height: calc(18px * var(--stateScale));
+  right: calc(8px * var(--stateScale));
   pointer-events: none; /* clicks go to the edge */
   transform-origin: 50% 50%;
 }
 
 .state-edge .edge-icon-top {
-  top: 6px;
+  top: calc(8px * var(--stateScale));
 }
 .state-edge .edge-icon-bottom {
-  bottom: 6px;
+  bottom: calc(8px * var(--stateScale));
 }
 
 .state-edge .edge-icon svg {
@@ -599,7 +604,7 @@
 }
 
 .state-svg .state-header {
-  font-size: 13px; /* slightly larger */
+  font-size: calc(17px * var(--stateScale)); /* slightly larger */
   font-weight: 600;
   text-anchor: start; /* override circuit default */
   dominant-baseline: hanging;
@@ -616,7 +621,7 @@
 }
 
 .state-svg .state-bar-label {
-  font-size: 10px;
+  font-size: calc(14px * var(--stateScale));
   text-anchor: middle;
   dominant-baseline: hanging;
   pointer-events: none;
@@ -631,7 +636,7 @@
 .state-svg .state-phase-text {
   text-anchor: middle;
   dominant-baseline: hanging; /* align like percentage labels */
-  font-size: 10px; /* match percentage label size */
+  font-size: calc(14px * var(--stateScale)); /* match percentage label size */
   pointer-events: none;
 }
 
@@ -646,7 +651,7 @@
 }
 
 .state-svg .state-bitstring {
-  font-size: 10px;
+  font-size: calc(14px * var(--stateScale));
   text-anchor: middle;
   dominant-baseline: hanging;
   pointer-events: none;

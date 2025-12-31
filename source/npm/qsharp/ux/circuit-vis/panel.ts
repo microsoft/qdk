@@ -448,6 +448,7 @@ type RenderOptions = {
   barSpacingPx?: number; // horizontal spacing between bars (default 3)
   minPanelWidthPx?: number; // prescribed minimum panel width in pixels
   maxPanelWidthPx?: number; // prescribed maximum panel width in pixels
+  uiScale?: number; // global UI scale multiplier (default 1)
 };
 
 const _defaultPhaseColor = (phi: number) => {
@@ -455,8 +456,15 @@ const _defaultPhaseColor = (phi: number) => {
   return `hsl(${hue},70%,50%)`;
 };
 
-// Format phase in multiples of π, e.g., -0.50π, +0.25π
+// Format phase in multiples of π, e.g., -0.5, +0.2
 const _formatPhasePi = (phi: number): string => {
+  const k = phi / Math.PI;
+  const sign = k >= 0 ? "+" : "";
+  return `${sign}${k.toFixed(1)}`;
+};
+
+// Format phase in multiples of π, e.g., -0.50π, +0.25π
+const _formatPhasePiTip = (phi: number): string => {
   const k = phi / Math.PI;
   const sign = k >= 0 ? "+" : "";
   return `${sign}${k.toFixed(2)}π`;
@@ -655,21 +663,41 @@ const renderStatePanelBars = (
 ): void => {
   const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
   if (!svg) return;
-  const height = svg.clientHeight || opts.heightPx || 260;
-  const margin = { top: 0, right: 10, bottom: 48, left: 28 };
+  // Resolve global UI scale from CSS variable or options
+  let s = 1;
+  try {
+    const v = getComputedStyle(panel).getPropertyValue("--stateScale").trim();
+    if (v) {
+      const parsed = parseFloat(v);
+      if (!isNaN(parsed) && isFinite(parsed)) s = parsed;
+    }
+  } catch {
+    // ignore
+  }
+  if (opts.uiScale && isFinite(opts.uiScale)) s = opts.uiScale;
+  const height =
+    svg.clientHeight ||
+    (opts.heightPx ? Math.round(opts.heightPx * s) : Math.round(338 * s));
+  const margin = {
+    top: 0,
+    right: Math.round(13 * s),
+    bottom: Math.round(62 * s),
+    left: Math.round(36 * s),
+  };
 
   while (svg.firstChild) svg.removeChild(svg.firstChild);
 
   const n = barsData.length;
-  const spacing = Math.max(1, Math.floor(opts.barSpacingPx ?? 3));
-  const minBarWidth = Math.max(12, opts.minBarWidth ?? 28);
+  const spacing = Math.max(1, Math.floor((opts.barSpacingPx ?? 4) * s));
+  const baseMinBar = opts.minBarWidth ?? 36;
+  const minBarWidth = Math.max(Math.floor(16 * s), Math.floor(baseMinBar * s));
   // Precompute a target width for the maximum column count to bound growth
   // Use prescribed min/max panel widths when provided
   const maxCols = Math.max(4, opts.maxBars ?? 16);
-  const defaultMinWidth = 120;
+  const defaultMinWidth = Math.floor(190 * s);
   const defaultMaxWidth =
     margin.left + margin.right + maxCols * (minBarWidth + spacing);
-  console.log("maxWidthPx:", defaultMaxWidth);
+
   const minWidthPx = Math.max(80, opts.minPanelWidthPx ?? defaultMinWidth);
   const maxWidthPx = Math.max(
     minWidthPx,
@@ -682,13 +710,13 @@ const renderStatePanelBars = (
   );
   const wTemp = width - margin.left - margin.right;
   const bw = Math.max(2, Math.floor(wTemp / Math.max(1, n)) - spacing);
-  const rCol = Math.max(6, Math.floor(bw / 2) - 1);
-  const extraForBits = n <= 16 ? 18 : 0;
-  const barHeaderSpace = 28;
-  const phaseHeaderSpace = 20;
-  const stateHeaderSpace = 20;
-  const barLabelSpace = 22; // gap(6) + label(10) + gap(6)
-  const phaseLabelSpace = 30; // add a bit more bottom gap for phase labels
+  const rCol = Math.max(Math.round(8 * s), Math.floor(bw / 2) - 1);
+  const extraForBits = n <= 16 ? Math.round(24 * s) : 0;
+  const barHeaderSpace = Math.round(36 * s);
+  const phaseHeaderSpace = Math.round(26 * s);
+  const stateHeaderSpace = Math.round(26 * s);
+  const barLabelSpace = Math.round(29 * s); // gap(8) + label(13) + gap(8)
+  const phaseLabelSpace = Math.round(39 * s); // add a bit more bottom gap for phase labels
   margin.bottom = Math.max(
     48,
     phaseHeaderSpace +
@@ -708,7 +736,7 @@ const renderStatePanelBars = (
     1e-12,
     Math.max(...barsData.map((b) => b.prob ?? 0)),
   );
-  const hBars = 180; // fixed section height
+  const hBars = Math.round(234 * s); // baked baseline height
   // Always scale relative to tallest bar so the max reaches full height.
   const scaleY = (p: number) => (p / maxProb) * hBars;
 
@@ -761,7 +789,7 @@ const renderStatePanelBars = (
         "text",
       );
       label.setAttribute("x", `${x + bw / 2}`);
-      const labelY = barHeaderSpace + hBars + 6;
+      const labelY = barHeaderSpace + hBars + Math.round(8 * s);
       label.setAttribute("y", `${labelY}`);
       label.setAttribute("class", "state-bar-label");
       const pct = (b.prob ?? 0) * 100;
@@ -773,7 +801,7 @@ const renderStatePanelBars = (
     const cx = x + bw / 2;
     const r = rCol;
     const phaseContentYBase = sepPhaseY + phaseHeaderSpace;
-    const cy = phaseContentYBase + r + 8;
+    const cy = phaseContentYBase + r + Math.round(10 * s);
     const sx = cx + r;
     const sy = cy;
     const ex = cx + r * Math.cos(b.phase);
@@ -802,7 +830,7 @@ const renderStatePanelBars = (
       "http://www.w3.org/2000/svg",
       "title",
     );
-    tipPhase.textContent = `φ=${_formatPhasePi(b.phase)}`;
+    tipPhase.textContent = `φ=${_formatPhasePiTip(b.phase)}`;
     circle.appendChild(tipPhase);
     g.appendChild(circle);
 
@@ -811,7 +839,7 @@ const renderStatePanelBars = (
       "text",
     );
     phaseText.setAttribute("x", `${cx}`);
-    phaseText.setAttribute("y", `${cy + r + 6}`);
+    phaseText.setAttribute("y", `${cy + r + Math.round(8 * s)}`);
     phaseText.setAttribute("class", "state-phase-text");
     phaseText.textContent = _formatPhasePi(b.phase);
     g.appendChild(phaseText);
@@ -834,7 +862,7 @@ const renderStatePanelBars = (
       const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
       t.setAttribute("x", `${x + bw / 2}`);
       const stateContentYBase = sepStateY + stateHeaderSpace;
-      t.setAttribute("y", `${stateContentYBase + 12}`);
+      t.setAttribute("y", `${stateContentYBase + Math.round(16 * s)}`);
       t.setAttribute("class", "state-bitstring");
       t.textContent = b.bit;
       g.appendChild(t);
@@ -843,11 +871,14 @@ const renderStatePanelBars = (
 
   try {
     const bbox = g.getBBox();
-    const svgHeight = Math.max(height, Math.ceil(bbox.height + margin.top + 8));
+    const svgHeight = Math.max(
+      height,
+      Math.ceil(bbox.height + margin.top + Math.round(10 * s)),
+    );
     svg.setAttribute("height", svgHeight.toString());
     svg.setAttribute("width", width.toString());
     // Expand panel width to accommodate desired SVG width
-    const edgePad = 28; // left edge width/padding
+    const edgePad = Math.round(36 * s); // left edge width/padding
     if (!panel.classList.contains("collapsed")) {
       panel.style.flexBasis = `${Math.ceil(width + edgePad)}px`;
     }
@@ -859,6 +890,7 @@ const renderStatePanelBars = (
 const createStatePanel = (): HTMLElement => {
   const panel = document.createElement("div");
   panel.className = "state-panel";
+  // UI scale uses CSS variable --stateScale (default 1)
 
   // Full-height clickable edge with vertical text
   const edge = document.createElement("div");
