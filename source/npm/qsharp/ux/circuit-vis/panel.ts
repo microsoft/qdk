@@ -1,3 +1,4 @@
+// Snapshot wiring is disabled for now; we'll render static mock data.
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
@@ -40,6 +41,12 @@ const createPanel = (container: HTMLElement): void => {
   const prevMsg = wrapper.querySelector(".empty-circuit-message");
   if (prevMsg) prevMsg.remove();
 
+  // Ensure the toolbox panel exists on the left
+  if (container.querySelector(".panel") == null) {
+    const panelElem = _panel();
+    container.prepend(panelElem);
+  }
+
   // Check if the circuit is empty by inspecting the .wires group
   const wiresGroup = circuit?.querySelector(".wires");
   if (!wiresGroup || wiresGroup.children.length === 0) {
@@ -54,12 +61,32 @@ const createPanel = (container: HTMLElement): void => {
     wrapper.appendChild(emptyMsg);
   }
 
-  if (container.querySelector(".panel") == null) {
-    const panelElem = _panel();
-    container.prepend(panelElem);
-    container.style.display = "flex";
-    container.style.height = "80vh";
-    container.style.width = "95vw";
+  // Ensure flex layout
+  container.style.display = "flex";
+  container.style.height = "80vh";
+  container.style.width = "95vw";
+  container.style.alignItems = "stretch";
+  wrapper.style.flex = "1 1 auto";
+  wrapper.style.minWidth = "0";
+
+  // Ensure a right-side state panel exists
+  if (container.querySelector(".state-panel") == null) {
+    const statePanel = createStatePanel();
+    statePanel.style.position = "relative";
+    statePanel.style.zIndex = "10";
+    statePanel.style.pointerEvents = "auto";
+    statePanel.style.flexShrink = "0";
+    statePanel.style.flexGrow = "0";
+    statePanel.style.flexBasis = "360px";
+    container.appendChild(statePanel);
+  }
+
+  // Render static mock data in the state panel immediately.
+  const panelElem = container.querySelector(
+    ".state-panel",
+  ) as HTMLElement | null;
+  if (panelElem) {
+    updateStatePanel(panelElem, getStaticMockSnapshot());
   }
 };
 
@@ -82,7 +109,6 @@ const enableRunButton = (
 
 /**
  * Function to produce panel element
- * @param context       Context object to manage extension state
  * @returns             HTML element for panel
  */
 const _panel = (): HTMLElement => {
@@ -94,7 +120,6 @@ const _panel = (): HTMLElement => {
 
 /**
  * Function to produce toolbox element
- * @param context       Context object to manage extension state
  * @returns             HTML element for toolbox
  */
 const _createToolbox = (): HTMLElement => {
@@ -395,3 +420,330 @@ toolboxGateDictionary["RY"].params = [{ name: "theta", type: "Double" }];
 toolboxGateDictionary["RZ"].params = [{ name: "theta", type: "Double" }];
 
 export { createPanel, enableRunButton, toolboxGateDictionary, toRenderData };
+
+/**
+ * Lightweight state panel (right-side) showing a bar chart of state probabilities
+ * with phase encoded as hue. Designed to be minimally invasive to existing code.
+ */
+type SnapshotState = {
+  nQubits: number;
+  basis: string;
+  amplitudes?: Array<{ index: number; ampRe: number; ampIm: number }>;
+  topK?: Array<{
+    index: number;
+    prob: number;
+    phase: number;
+    ampRe: number;
+    ampIm: number;
+  }>;
+  tailMass?: number;
+  shots?: Array<{ bitstring: string; count: number }>;
+  mode: "ideal" | "noisy";
+  norm: number;
+};
+
+type RenderOptions = {
+  maxBars?: number;
+  heightPx?: number;
+  widthPx?: number;
+  phaseColorMap?: (phaseRad: number) => string;
+};
+
+const _defaultPhaseColor = (phi: number) => {
+  const hue = ((phi + Math.PI) / (2 * Math.PI)) * 360;
+  return `hsl(${hue},70%,50%)`;
+};
+
+// Format phase in multiples of π, e.g., -0.50π, +0.25π
+const _formatPhasePi = (phi: number): string => {
+  const k = phi / Math.PI;
+  const sign = k >= 0 ? "+" : "";
+  return `${sign}${k.toFixed(2)}π`;
+};
+
+// Static mock snapshot used for non-representative bar rendering.
+const getStaticMockSnapshot = (): SnapshotState => {
+  const nQubits = 3;
+  const probs = [0.35, 0.2, 0.1, 0.08, 0.07, 0.06, 0.03, 0.01];
+  const phaseCount = probs.length;
+  const topK = probs.map((p, i) => ({
+    index: i,
+    prob: p,
+    // Evenly span phases from -π to +π across bars
+    phase: phaseCount > 1 ? -Math.PI + (2 * Math.PI * i) / (phaseCount - 1) : 0,
+    ampRe: Math.sqrt(p),
+    ampIm: 0,
+  }));
+  const tailMass = Math.max(0, 1 - probs.reduce((a, b) => a + b, 0));
+  return {
+    nQubits,
+    basis: "computational",
+    topK,
+    tailMass,
+    mode: "ideal",
+    norm: 1.0,
+  };
+};
+
+const createStatePanel = (): HTMLElement => {
+  const panel = document.createElement("div");
+  panel.className = "state-panel";
+
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.classList.add("state-svg");
+  svg.setAttribute("width", "100%");
+  svg.setAttribute("height", "100%");
+  // Styling moved to CSS (.state-panel .state-svg)
+
+  panel.appendChild(svg);
+  return panel;
+};
+
+const updateStatePanel = (
+  panel: HTMLElement,
+  snap: SnapshotState,
+  opts: RenderOptions = {},
+): void => {
+  const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
+  if (!svg) return;
+
+  const width = svg.clientWidth || 340;
+  const height = svg.clientHeight || 260;
+  const margin = { top: 10, right: 10, bottom: 48, left: 28 };
+
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+  const barsData =
+    snap.amplitudes && snap.nQubits <= 8
+      ? snap.amplitudes.map((a) => {
+          const prob = a.ampRe * a.ampRe + a.ampIm * a.ampIm;
+          const phase = Math.atan2(a.ampIm, a.ampRe);
+          return { index: a.index, prob, phase };
+        })
+      : (snap.topK ?? []);
+
+  const n = barsData.length;
+  const spacing = 2;
+  // Temporarily estimate width before final margin to size phase circles
+  const wTemp = width - margin.left - margin.right;
+  const bw = Math.max(2, Math.floor(wTemp / Math.max(1, n)) - spacing);
+  const rCol = Math.max(6, Math.floor(bw / 2) - 1);
+  const extraForBits = n <= 16 ? 18 : 0;
+  const barHeaderSpace = 28;
+  const phaseHeaderSpace = 20;
+  const stateHeaderSpace = 20;
+  margin.bottom = Math.max(
+    48,
+    phaseHeaderSpace + rCol * 2 + 16 + stateHeaderSpace + extraForBits + 24,
+  );
+
+  const h = height - margin.top - margin.bottom;
+
+  const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  g.setAttribute("transform", `translate(${margin.left},${margin.top})`);
+  svg.appendChild(g);
+  const phaseColor = opts.phaseColorMap ?? _defaultPhaseColor;
+
+  const maxProb = Math.max(
+    1e-12,
+    Math.max(...barsData.map((b) => b.prob ?? 0)),
+  );
+  const hBars = Math.max(10, h - barHeaderSpace);
+  const scaleY = (p: number) => (p / maxProb) * hBars;
+
+  const totalProb = barsData.reduce((s, b) => s + (b.prob ?? 0), 0) || 1;
+
+  // Section labels and separators
+  const mkLabel = (text: string, x: number, y: number) => {
+    const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    t.setAttribute("x", `${x}`);
+    t.setAttribute("y", `${y}`);
+    t.setAttribute("class", "state-header");
+    t.textContent = text;
+    return t;
+  };
+  const mkSep = (y: number) => {
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    line.setAttribute("x1", "0");
+    line.setAttribute("y1", `${y}`);
+    line.setAttribute("x2", `${wTemp}`);
+    line.setAttribute("y2", `${y}`);
+    line.setAttribute("class", "state-separator");
+    return line;
+  };
+
+  // Header rows (bold, left-aligned); content starts below each header space
+  // Bars section: top separator at section start, header label below it
+  // Header labels aligned to group left; no extra X needed.
+  const sepBarY = 0;
+  g.appendChild(mkSep(sepBarY));
+  g.appendChild(mkLabel("Probability Density", -8, sepBarY + 9));
+  // Phase section: separator at end of bars content (top of phase section)
+  const sepPhaseY = h;
+  g.appendChild(mkSep(sepPhaseY));
+  g.appendChild(mkLabel("Phase", -8, sepPhaseY + 9));
+  // State section: separator at end of phase content (top of state section)
+  // Place the phase-state separator just below the circles (include padding)
+  const sepStateY = h + phaseHeaderSpace + 2 * rCol + 16;
+  g.appendChild(mkSep(sepStateY));
+  g.appendChild(mkLabel("State", -8, sepStateY + 9));
+
+  barsData.forEach((b, i) => {
+    const x = i * (bw + spacing);
+    const bar = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    bar.setAttribute("x", `${x}`);
+    bar.setAttribute("y", `${barHeaderSpace + (hBars - scaleY(b.prob))}`);
+    bar.setAttribute("width", `${bw}`);
+    bar.setAttribute("height", `${scaleY(b.prob)}`);
+    bar.setAttribute("fill", phaseColor(b.phase));
+    bar.setAttribute("class", "state-bar");
+    // Tooltip with probability and phase
+    const tip = document.createElementNS("http://www.w3.org/2000/svg", "title");
+    const pctTip = (100 * (b.prob ?? 0)) / totalProb;
+    tip.textContent = `${pctTip.toFixed(1)}% • φ=${_formatPhasePi(b.phase)}`;
+    bar.appendChild(tip);
+    g.appendChild(bar);
+
+    // Numeric label showing percentage relative to displayed bars
+    if (bw >= 4) {
+      const pct = (100 * (b.prob ?? 0)) / totalProb;
+      const label = document.createElementNS(
+        "http://www.w3.org/2000/svg",
+        "text",
+      );
+      label.setAttribute("x", `${x + bw / 2}`);
+      const labelY = Math.max(
+        barHeaderSpace + 6,
+        barHeaderSpace + hBars - scaleY(b.prob) - 4,
+      );
+      label.setAttribute("y", `${labelY}`);
+      label.setAttribute("class", "state-bar-label");
+      label.textContent =
+        pct >= 1 ? `${pct.toFixed(0)}%` : `${pct.toFixed(1)}%`;
+      g.appendChild(label);
+    }
+
+    // Phase indicator circle below each bar, sized to column width, with phase label inside
+    const cx = x + bw / 2;
+    const r = rCol;
+    const phaseContentYBase = h + phaseHeaderSpace;
+    const cy = phaseContentYBase + r + 8;
+    const circle = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "circle",
+    );
+    circle.setAttribute("cx", `${cx}`);
+    circle.setAttribute("cy", `${cy}`);
+    circle.setAttribute("r", `${r}`);
+    circle.setAttribute("class", "state-phase-circle");
+    const tipPhase = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "title",
+    );
+    tipPhase.textContent = `φ=${_formatPhasePi(b.phase)}`;
+    circle.appendChild(tipPhase);
+    g.appendChild(circle);
+
+    // Phase text centered inside the circle
+    const phaseText = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "text",
+    );
+    phaseText.setAttribute("x", `${cx}`);
+    phaseText.setAttribute("y", `${cy + 3}`);
+    phaseText.setAttribute(
+      "font-size",
+      `${Math.max(8, Math.min(11, Math.floor(r * 0.8)))}`,
+    );
+    phaseText.setAttribute("class", "state-phase-text");
+    phaseText.textContent = _formatPhasePi(b.phase);
+    g.appendChild(phaseText);
+
+    // Small dot on the circle perimeter indicating phase angle
+    const dx = r * Math.cos(b.phase);
+    const dy = r * Math.sin(b.phase);
+    const dot = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "circle",
+    );
+    dot.setAttribute("cx", `${cx + dx}`);
+    dot.setAttribute("cy", `${cy - dy}`);
+    dot.setAttribute("r", `${Math.max(1.5, r * 0.28)}`);
+    dot.setAttribute("fill", phaseColor(b.phase));
+    dot.setAttribute("class", "state-phase-dot");
+    g.appendChild(dot);
+
+    if (n <= 16) {
+      const bit = b.index.toString(2).padStart(snap.nQubits, "0");
+      const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      t.setAttribute("x", `${x + bw / 2}`);
+      const stateContentYBase = sepStateY + stateHeaderSpace;
+      t.setAttribute("y", `${stateContentYBase + 12}`);
+      t.setAttribute("class", "state-bitstring");
+      t.textContent = bit;
+      g.appendChild(t);
+    }
+  });
+
+  // Simplified: no axis, legend, or header — bars with percentage labels and optional bitstring labels
+};
+
+export { createStatePanel, updateStatePanel };
+
+// --- Snapshot API adapter (stub) ---
+
+type SnapshotRequest = {
+  circuitId?: string;
+  columnIndex: number;
+  maxTopK?: number;
+  sampleShots?: number;
+  mode?: "ideal" | "noisy";
+  componentGrid?: any;
+};
+
+const getSnapshot = async (req: SnapshotRequest): Promise<SnapshotState> => {
+  // TODO: replace with WASM-backed implementation. For now, produce demo data.
+  const nQubits = 3;
+  const maxTopK = req.maxTopK ?? 8;
+  const phase = (i: number) => -Math.PI + (2 * Math.PI * (i % 100)) / 100;
+  const amps = Array.from({ length: Math.min(1 << nQubits, 16) }, (_, i) => {
+    const p = Math.exp(-((i - (req.columnIndex ?? 0)) ** 2) / 8);
+    const norm = Math.sqrt(
+      Array.from({ length: Math.min(1 << nQubits, 16) }, (_, j) =>
+        Math.exp(-((j - (req.columnIndex ?? 0)) ** 2) / 8),
+      ).reduce((a, b) => a + b, 0),
+    );
+    const mag = Math.sqrt(p) / (norm || 1);
+    return {
+      index: i,
+      ampRe: mag * Math.cos(phase(i)),
+      ampIm: mag * Math.sin(phase(i)),
+    };
+  });
+  const topK = amps
+    .map((a) => {
+      const prob = a.ampRe * a.ampRe + a.ampIm * a.ampIm;
+      const ph = Math.atan2(a.ampIm, a.ampRe);
+      return {
+        index: a.index,
+        prob,
+        phase: ph,
+        ampRe: a.ampRe,
+        ampIm: a.ampIm,
+      };
+    })
+    .sort((x, y) => y.prob - x.prob)
+    .slice(0, maxTopK);
+  const tailMass = Math.max(0, 1 - topK.reduce((s, k) => s + k.prob, 0));
+  return {
+    nQubits,
+    basis: "computational",
+    amplitudes: nQubits <= 8 ? amps : undefined,
+    topK,
+    tailMass,
+    mode: req.mode ?? "ideal",
+    norm: 1.0,
+  };
+};
+
+export { getSnapshot };
