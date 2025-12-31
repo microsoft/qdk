@@ -2,9 +2,9 @@
 // Licensed under the MIT License.
 
 use super::FakeCompilation;
-use crate::{CircuitTracer, TracerConfig};
+use crate::{CircuitTracer, TracerConfig, builder::tests::stack_trace};
 use expect_test::{Expect, expect};
-use qsc_eval::{backend::Tracer, debug::Frame};
+use qsc_eval::{StackTrace, backend::Tracer, debug::Frame};
 
 fn check_groups(c: &FakeCompilation, instructions: &[(Vec<Frame>, &str)], expect: &Expect) {
     let mut tracer = CircuitTracer::new(
@@ -20,14 +20,12 @@ fn check_groups(c: &FakeCompilation, instructions: &[(Vec<Frame>, &str)], expect
     let qubit_id = 0;
 
     // Allocate qubit 0
-    tracer.qubit_allocate(&[], qubit_id);
+    tracer.qubit_allocate(&StackTrace::default(), qubit_id);
 
     // Trace each instruction, applying it to qubit 0
-    for i in instructions {
-        let stack = &i.0;
-        let name = i.1;
-
-        tracer.gate(stack, name, false, &[qubit_id], &[], None);
+    for (stack, instruction_name) in instructions {
+        let stack = stack_trace(stack.clone());
+        tracer.gate(&stack, instruction_name, false, &[qubit_id], &[], None);
     }
 
     let circuit = tracer.finish(c);

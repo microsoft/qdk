@@ -7,9 +7,8 @@ mod utils;
 mod tests;
 
 use crate::{
-    Error, Rc,
+    Error, Rc, StackTrace,
     backend::{Backend, TracingBackend},
-    debug::Frame,
     error::PackageSpan,
     output::Receiver,
     val::{self, Value, unwrap_tuple},
@@ -26,7 +25,7 @@ pub(crate) fn call<B: Backend>(
     name_span: PackageSpan,
     arg: Value,
     arg_span: PackageSpan,
-    call_stack: &[Frame],
+    call_stack: &StackTrace,
     sim: &mut TracingBackend<'_, B>,
     rng: &mut StdRng,
     out: &mut dyn Receiver,

@@ -39,9 +39,9 @@ use output::Receiver;
 use qsc_data_structures::{functors::FunctorApp, index_map::IndexMap, span::Span};
 use qsc_fir::fir::{
     self, BinOp, BlockId, CallableImpl, ConfiguredExecGraph, ExecGraph, ExecGraphConfig,
-    ExecGraphNode, Expr, ExprId, ExprKind, Field, FieldAssign, Global, Lit, LocalItemId,
-    LocalVarId, PackageId, PackageStoreLookup, PatId, PatKind, PrimField, Res, StmtId, StoreItemId,
-    StringComponent, UnOp,
+    ExecGraphDebugNode, ExecGraphNode, Expr, ExprId, ExprKind, Field, FieldAssign, Global, Lit,
+    LocalItemId, LocalVarId, PackageId, PackageStoreLookup, PatId, PatKind, PrimField, Res, StmtId,
+    StoreItemId, StringComponent, UnOp,
 };
 use qsc_fir::ty::Ty;
 use qsc_lowerer::map_fir_package_to_hir;
@@ -461,6 +461,19 @@ impl Env {
         self.scopes.push(scope);
     }
 
+    pub fn push_loop_scope(&mut self, frame_id: usize, loop_expr: ExprId) {
+        let iteration_count = 0;
+        let scope = Scope {
+            frame_id,
+            loop_scope: Some(LoopScope {
+                loop_expr,
+                iteration_count,
+            }),
+            ..Default::default()
+        };
+        self.scopes.push(scope);
+    }
+
     pub fn leave_scope(&mut self) {
         // Only pop the scope if there is more than one scope in the stack,
         // because the global/top-level scope cannot be exited.
@@ -549,10 +562,17 @@ impl Env {
     }
 }
 
-#[derive(Default)]
-struct Scope {
+#[derive(Default, Clone)]
+pub struct Scope {
     bindings: IndexMap<LocalVarId, Variable>,
-    frame_id: usize,
+    pub frame_id: usize,
+    pub loop_scope: Option<LoopScope>,
+}
+
+#[derive(Default, Clone)]
+pub struct LoopScope {
+    pub loop_expr: ExprId,
+    pub iteration_count: usize,
 }
 
 type CallableCountKey = (StoreItemId, bool, bool);
@@ -581,6 +601,37 @@ pub struct State {
     error_behavior: ErrorBehavior,
     last_error: Option<(Error, Vec<Frame>)>,
     exec_graph_config: ExecGraphConfig,
+}
+
+#[derive(Default)]
+pub struct StackTrace {
+    call_stack: Vec<Frame>,
+    scope_stack: Vec<Scope>,
+}
+
+impl StackTrace {
+    #[must_use]
+    pub fn new(call_stack: Vec<Frame>, scope_stack: Vec<Scope>) -> Self {
+        Self {
+            call_stack,
+            scope_stack,
+        }
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.call_stack.is_empty() && self.scope_stack.is_empty()
+    }
+
+    #[must_use]
+    pub fn call_stack(&self) -> &Vec<Frame> {
+        &self.call_stack
+    }
+
+    #[must_use]
+    pub fn scope_stack(&self) -> &Vec<Scope> {
+        &self.scope_stack
+    }
 }
 
 impl State {
@@ -651,6 +702,10 @@ impl State {
         env.push_scope(self.current_frame_id());
     }
 
+    fn push_loop_scope(&mut self, env: &mut Env, loop_expr: ExprId) {
+        env.push_loop_scope(self.current_frame_id(), loop_expr);
+    }
+
     fn take_val_register(&mut self) -> Value {
         self.val_register.take().expect("value should be present")
     }
@@ -698,11 +753,12 @@ impl State {
     pub fn capture_stack_if_trace_enabled<B: Backend>(
         &self,
         tracing_backend: &TracingBackend<'_, B>,
-    ) -> Vec<Frame> {
+        env: &Env,
+    ) -> StackTrace {
         if tracing_backend.is_stacks_enabled() {
-            self.capture_stack()
+            StackTrace::new(self.capture_stack(), env.scopes.clone())
         } else {
-            vec![]
+            StackTrace::default()
         }
     }
 
@@ -766,15 +822,6 @@ impl State {
                         }
                     }
                 }
-                Some(ExecGraphNode::Stmt(stmt)) => {
-                    self.idx += 1;
-                    self.current_span = globals.get_stmt((self.package, *stmt).into()).span;
-
-                    match self.check_for_break(breakpoints, *stmt, step, current_frame) {
-                        Some(value) => value,
-                        None => continue,
-                    }
-                }
                 Some(ExecGraphNode::Jump(idx)) => {
                     self.idx = *idx;
                     continue;
@@ -812,31 +859,57 @@ impl State {
                     env.leave_scope();
                     continue;
                 }
-                Some(ExecGraphNode::RetFrame) => {
-                    self.leave_frame();
-                    env.leave_current_frame();
-                    continue;
-                }
-                Some(ExecGraphNode::PushScope) => {
-                    self.push_scope(env);
-                    self.idx += 1;
-                    continue;
-                }
-                Some(ExecGraphNode::PopScope) => {
-                    env.leave_scope();
-                    self.idx += 1;
-                    continue;
-                }
-                Some(ExecGraphNode::BlockEnd(id)) => {
-                    self.idx += 1;
-                    match self.check_for_block_exit_break(globals, *id, step, current_frame) {
-                        Some((result, span)) => {
-                            self.current_span = span;
-                            return Ok(result);
-                        }
-                        None => continue,
+                Some(ExecGraphNode::Debug(dbg_node)) => match dbg_node {
+                    ExecGraphDebugNode::PushScope => {
+                        self.push_scope(env);
+                        self.idx += 1;
+                        continue;
                     }
-                }
+                    ExecGraphDebugNode::PushLoopScope(expr) => {
+                        self.push_loop_scope(env, *expr);
+                        self.idx += 1;
+                        continue;
+                    }
+                    ExecGraphDebugNode::RetFrame => {
+                        self.leave_frame();
+                        env.leave_current_frame();
+                        continue;
+                    }
+                    ExecGraphDebugNode::LoopIteration => {
+                        // we're in an iteration, increment counter
+                        let current_scope = env.scopes.last_mut().expect("last scope should exist");
+                        let Some(loop_scope) = &mut current_scope.loop_scope.as_mut() else {
+                            panic!("expected to be in a loop scope");
+                        };
+                        loop_scope.iteration_count += 1;
+                        self.idx += 1;
+                        continue;
+                    }
+                    ExecGraphDebugNode::PopScope => {
+                        env.leave_scope();
+                        self.idx += 1;
+                        continue;
+                    }
+                    ExecGraphDebugNode::BlockEnd(id) => {
+                        self.idx += 1;
+                        match self.check_for_block_exit_break(globals, *id, step, current_frame) {
+                            Some((result, span)) => {
+                                self.current_span = span;
+                                return Ok(result);
+                            }
+                            None => continue,
+                        }
+                    }
+                    ExecGraphDebugNode::Stmt(stmt) => {
+                        self.idx += 1;
+                        self.current_span = globals.get_stmt((self.package, *stmt).into()).span;
+
+                        match self.check_for_break(breakpoints, *stmt, step, current_frame) {
+                            Some(value) => value,
+                            None => continue,
+                        }
+                    }
+                },
                 None => {
                     // We have reached the end of the current graph without reaching an explicit return node,
                     // usually indicating the partial execution of a single sub-expression.
@@ -1280,7 +1353,7 @@ impl State {
         arg_span: PackageSpan,
         out: &mut impl Receiver,
     ) -> Result<(), Error> {
-        let call_stack = self.capture_stack_if_trace_enabled(sim);
+        let call_stack = self.capture_stack_if_trace_enabled(sim, env);
         self.push_frame(Vec::new().into(), callee_id, functor);
         self.current_span = callee_span.span;
         self.increment_call_count(callee_id, functor);

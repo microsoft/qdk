@@ -4,7 +4,8 @@
 use qsc_data_structures::index_map::IndexMap;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
-    Block, CallableImpl, ExecGraph, ExecGraphIdx, ExecGraphNode, Expr, Pat, SpecImpl, Stmt,
+    Block, CallableImpl, ExecGraph, ExecGraphDebugNode, ExecGraphIdx, ExecGraphNode, Expr, Pat,
+    SpecImpl, Stmt,
 };
 use qsc_fir::{
     fir::{self, BlockId, ExprId, LocalItemId, PatId, StmtId},
@@ -55,7 +56,7 @@ impl ExecGraphBuilder {
         let debug_exec_graph = self
             .debug
             .drain(..)
-            .chain(once(ExecGraphNode::RetFrame))
+            .chain(once(ExecGraphNode::Debug(ExecGraphDebugNode::RetFrame)))
             .collect::<Vec<_>>()
             .into();
 
@@ -70,8 +71,8 @@ impl ExecGraphBuilder {
     }
 
     /// Pushes a node to *only* the debug execution graph.
-    fn debug_push(&mut self, node: ExecGraphNode) {
-        self.debug.push(node);
+    fn debug_push(&mut self, node: ExecGraphDebugNode) {
+        self.debug.push(ExecGraphNode::Debug(node));
     }
 
     /// Pushes a node to the execution graph.
@@ -99,7 +100,8 @@ impl ExecGraphBuilder {
     /// Pushes a return node to the execution graph.
     fn push_ret(&mut self) {
         self.no_debug.push(ExecGraphNode::Ret);
-        self.debug.push(ExecGraphNode::RetFrame);
+        self.debug
+            .push(ExecGraphNode::Debug(ExecGraphDebugNode::RetFrame));
     }
 
     /// Returns the current length of the execution graph.
@@ -400,7 +402,7 @@ impl Lowerer {
             panic!("if a SpecDecl is some, then it must be an implementation");
         };
         let input = pat.as_ref().map(|p| self.lower_spec_decl_pat(p));
-        let block = self.lower_block(block);
+        let block = self.lower_block(block, false);
         fir::SpecDecl {
             id: self.lower_id(decl.id),
             span: decl.span,
@@ -429,7 +431,7 @@ impl Lowerer {
         id
     }
 
-    fn lower_block(&mut self, block: &hir::Block) -> BlockId {
+    fn lower_block(&mut self, block: &hir::Block, is_loop_body: bool) -> BlockId {
         let id = self.assigner.next_block();
         // When lowering for debugging, we need to be more strict about scoping for variables
         // otherwise variables that are not in scope will be visible in the locals view.
@@ -440,7 +442,15 @@ impl Lowerer {
         // is performed via their lowered local variable ID, so they cannot be accessed outside of
         // their scope. Associated memory is still cleaned up at callable exit rather than block
         // exit.
-        self.exec_graph.debug_push(ExecGraphNode::PushScope);
+
+        if is_loop_body {
+            // Increment iteration counter for loop body scopes
+            self.exec_graph
+                .debug_push(ExecGraphDebugNode::LoopIteration);
+        }
+
+        self.exec_graph.debug_push(ExecGraphDebugNode::PushScope);
+
         let set_unit = block.stmts.is_empty()
             || !matches!(
                 block.stmts.last().expect("block should be non-empty").kind,
@@ -455,8 +465,8 @@ impl Lowerer {
         if set_unit {
             self.exec_graph.push(ExecGraphNode::Unit);
         }
-        self.exec_graph.debug_push(ExecGraphNode::BlockEnd(id));
-        self.exec_graph.debug_push(ExecGraphNode::PopScope);
+        self.exec_graph.debug_push(ExecGraphDebugNode::BlockEnd(id));
+        self.exec_graph.debug_push(ExecGraphDebugNode::PopScope);
         self.blocks.insert(id, block);
         id
     }
@@ -464,7 +474,8 @@ impl Lowerer {
     fn lower_stmt(&mut self, stmt: &hir::Stmt) -> fir::StmtId {
         let id = self.assigner.next_stmt();
         let graph_start_idx = self.exec_graph.len();
-        self.exec_graph.debug_push(ExecGraphNode::Stmt(id));
+
+        self.exec_graph.debug_push(ExecGraphDebugNode::Stmt(id));
         let kind = match &stmt.kind {
             hir::StmtKind::Expr(expr) => fir::StmtKind::Expr(self.lower_expr(expr)),
             hir::StmtKind::Item(item) => fir::StmtKind::Item(lower_local_item_id(*item)),
@@ -628,7 +639,7 @@ impl Lowerer {
                 }
                 fir::ExprKind::BinOp(lower_binop(*op), lhs, rhs)
             }
-            hir::ExprKind::Block(block) => fir::ExprKind::Block(self.lower_block(block)),
+            hir::ExprKind::Block(block) => fir::ExprKind::Block(self.lower_block(block, false)),
             hir::ExprKind::Call(callee, arg) => {
                 let call = self.lower_expr(callee);
                 self.exec_graph.push(ExecGraphNode::Store);
@@ -727,16 +738,22 @@ impl Lowerer {
                 fir::ExprKind::UnOp(lower_unop(*op), self.lower_expr(operand))
             }
             hir::ExprKind::While(cond, body) => {
+                self.exec_graph
+                    .debug_push(ExecGraphDebugNode::PushLoopScope(id));
+
                 let cond_idx = self.exec_graph.len();
                 let cond = self.lower_expr(cond);
                 let idx = self.exec_graph.len();
                 // Put a placeholder in the execution graph for the jump past the loop
                 self.exec_graph.push(ExecGraphNode::Jump(0));
-                let body = self.lower_block(body);
+                let body = self.lower_block(body, true);
                 self.exec_graph.push_with_arg(ExecGraphNode::Jump, cond_idx);
                 // Update the placeholder to skip the loop if the condition is false
                 self.exec_graph
                     .set_with_arg(ExecGraphNode::JumpIfNot, idx, self.exec_graph.len());
+
+                self.exec_graph.debug_push(ExecGraphDebugNode::PopScope);
+
                 // While-exprs never have a return value, so we need to insert a no-op to ensure
                 // a Unit value is returned for the expr.
                 self.exec_graph.push(ExecGraphNode::Unit);
