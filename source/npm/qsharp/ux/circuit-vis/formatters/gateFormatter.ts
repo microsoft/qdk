@@ -551,7 +551,7 @@ const _controlledGate = (
   // Create control lines
   const maxY: number = Math.max(...controlsY, ...(targetsY as number[]));
   const minY: number = Math.min(...controlsY, ...(targetsY as number[]));
-  const vertLine: SVGElement = line(x, minY, x, maxY);
+  const vertLine: SVGElement = line(x, minY, x, maxY, "control-line");
   vertLine.style.pointerEvents = "none";
   const svg: SVGElement = _createGate(
     [vertLine, ...controlledDotsSvg, ...targetGateSvgs],
