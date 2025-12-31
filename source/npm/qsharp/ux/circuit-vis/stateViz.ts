@@ -323,7 +323,7 @@ const renderStatePanelBars = (
     bar.setAttribute("class", "state-bar");
     const tip = document.createElementNS("http://www.w3.org/2000/svg", "title");
     const pctTip = (b.prob ?? 0) * 100;
-    tip.textContent = `${pctTip.toFixed(1)}% • φ=${_formatPhasePi(b.phase)}`;
+    tip.textContent = `${pctTip.toFixed(1)}% • φ=${_formatPhasePiTip(b.phase)}`;
     bar.appendChild(tip);
     g.appendChild(bar);
 
