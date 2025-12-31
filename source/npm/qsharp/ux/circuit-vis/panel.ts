@@ -13,6 +13,8 @@ import { formatGate } from "./formatters/gateFormatter.js";
 import { GateType, GateRenderData } from "./gateRenderData.js";
 import { getGateWidth } from "./utils.js";
 
+let mockDataSetNumber = 0;
+
 /**
  * Create a panel for the circuit visualization.
  * @param container     HTML element for rendering visualization into
@@ -87,9 +89,10 @@ const createPanel = (container: HTMLElement): void => {
   ) as HTMLElement | null;
   if (panelElem) {
     // Prefer the simplified map-based input for the visualizer
-    updateStatePanelFromMap(panelElem, getStaticMockAmpMap(), {
+    updateStatePanelFromMap(panelElem, getStaticMockAmpMap(mockDataSetNumber), {
       normalize: false,
     });
+    mockDataSetNumber++;
   }
 };
 
@@ -441,6 +444,10 @@ type RenderOptions = {
   widthPx?: number;
   phaseColorMap?: (phaseRad: number) => string;
   normalize?: boolean; // normalize probabilities to unit mass (default true)
+  minBarWidth?: number; // minimum width per bar to avoid label collisions
+  barSpacingPx?: number; // horizontal spacing between bars (default 3)
+  minPanelWidthPx?: number; // prescribed minimum panel width in pixels
+  maxPanelWidthPx?: number; // prescribed maximum panel width in pixels
 };
 
 const _defaultPhaseColor = (phi: number) => {
@@ -491,7 +498,23 @@ const toAmpMapPolar = (
 };
 
 // Static mock map with a few non-zero amplitudes; other states are implicitly zero.
-const getStaticMockAmpMap = (): AmpMap => {
+const getStaticMockAmpMap = (setNum: number): AmpMap => {
+  console.log(`Using static mock amplitude set #${setNum}`);
+  switch (setNum % 4) {
+    case 0:
+      return staticMockAmp1();
+    case 1:
+      return staticMockAmp2();
+    case 2:
+      return staticMockAmp3();
+    case 3:
+      return staticMockAmp4();
+    default:
+      return {};
+  }
+};
+
+const staticMockAmp1 = (): AmpMap => {
   // 3-qubit example with evenly varied phases across states
   const states: Array<{ bit: string; p: number }> = [
     { bit: "000", p: 0.35 },
@@ -511,6 +534,27 @@ const getStaticMockAmpMap = (): AmpMap => {
     ampMap[s.bit] = { re: mag * Math.cos(phi), im: mag * Math.sin(phi) };
   });
 
+  return ampMap;
+};
+
+const staticMockAmp2 = (): AmpMap => {
+  const ampMap = staticMockAmp1();
+
+  delete ampMap["000"];
+  delete ampMap["001"];
+  delete ampMap["010"];
+  // delete ampMap["011"];
+  delete ampMap["100"];
+  delete ampMap["101"];
+  delete ampMap["110"];
+  delete ampMap["111"];
+
+  return ampMap;
+};
+
+const staticMockAmp3 = (): AmpMap => {
+  const ampMap = staticMockAmp1();
+
   delete ampMap["000"];
   delete ampMap["001"];
   delete ampMap["010"];
@@ -521,6 +565,31 @@ const getStaticMockAmpMap = (): AmpMap => {
   delete ampMap["111"];
 
   return ampMap;
+};
+
+const staticMockAmp4 = (): AmpMap => {
+  return {
+    A: { prob: 0.6, phase: 0 },
+    B: { prob: 0.6, phase: 0 },
+    C: { prob: 0.6, phase: 0 },
+    D: { prob: 0.6, phase: 0 },
+    E: { prob: 0.6, phase: 0 },
+    F: { prob: 0.6, phase: 0 },
+    G: { prob: 0.6, phase: 0 },
+    H: { prob: 0.6, phase: 0 },
+    I: { prob: 0.6, phase: 0 },
+    J: { prob: 0.6, phase: 0 },
+    K: { prob: 0.6, phase: 0 },
+    L: { prob: 0.6, phase: 0 },
+    M: { prob: 0.6, phase: 0 },
+    N: { prob: 0.6, phase: 0 },
+    O: { prob: 0.6, phase: 0 },
+    P: { prob: 0.6, phase: 0 },
+    Q: { prob: 0.6, phase: 0 },
+    R: { prob: 0.6, phase: 0 },
+    S: { prob: 0.6, phase: 0 },
+    T: { prob: 0.6, phase: 0 },
+  };
 };
 
 // Adapter: render from a map of named states to complex amplitudes.
@@ -586,15 +655,31 @@ const renderStatePanelBars = (
 ): void => {
   const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
   if (!svg) return;
-
-  const width = svg.clientWidth || opts.widthPx || 340;
   const height = svg.clientHeight || opts.heightPx || 260;
   const margin = { top: 0, right: 10, bottom: 48, left: 28 };
 
   while (svg.firstChild) svg.removeChild(svg.firstChild);
 
   const n = barsData.length;
-  const spacing = 2;
+  const spacing = Math.max(1, Math.floor(opts.barSpacingPx ?? 3));
+  const minBarWidth = Math.max(12, opts.minBarWidth ?? 28);
+  // Precompute a target width for the maximum column count to bound growth
+  // Use prescribed min/max panel widths when provided
+  const maxCols = Math.max(4, opts.maxBars ?? 16);
+  const defaultMinWidth = 120;
+  const defaultMaxWidth =
+    margin.left + margin.right + maxCols * (minBarWidth + spacing);
+  console.log("maxWidthPx:", defaultMaxWidth);
+  const minWidthPx = Math.max(80, opts.minPanelWidthPx ?? defaultMinWidth);
+  const maxWidthPx = Math.max(
+    minWidthPx,
+    opts.maxPanelWidthPx ?? defaultMaxWidth,
+  );
+  // Monotonic growth: at 1 column, use min width; at maxCols, use max width
+  const growthFactor = Math.min(1, Math.max(0, (n - 1) / (maxCols - 1)));
+  const width = Math.round(
+    minWidthPx + growthFactor * (maxWidthPx - minWidthPx),
+  );
   const wTemp = width - margin.left - margin.right;
   const bw = Math.max(2, Math.floor(wTemp / Math.max(1, n)) - spacing);
   const rCol = Math.max(6, Math.floor(bw / 2) - 1);
@@ -744,8 +829,8 @@ const renderStatePanelBars = (
     dot.setAttribute("class", "state-phase-dot");
     g.appendChild(dot);
 
-    // Use provided bitstring for display if reasonable count
-    if (n <= 16 && /^([01]+)$/.test(b.bit)) {
+    // Display provided state label if reasonable count
+    if (n <= 16) {
       const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
       t.setAttribute("x", `${x + bw / 2}`);
       const stateContentYBase = sepStateY + stateHeaderSpace;
@@ -760,7 +845,12 @@ const renderStatePanelBars = (
     const bbox = g.getBBox();
     const svgHeight = Math.max(height, Math.ceil(bbox.height + margin.top + 8));
     svg.setAttribute("height", svgHeight.toString());
-    svg.setAttribute("width", "100%");
+    svg.setAttribute("width", width.toString());
+    // Expand panel width to accommodate desired SVG width
+    const edgePad = 28; // left edge width/padding
+    if (!panel.classList.contains("collapsed")) {
+      panel.style.flexBasis = `${Math.ceil(width + edgePad)}px`;
+    }
   } catch {
     // Fallback: keep existing height if getBBox is unavailable
   }
