@@ -94,11 +94,133 @@ function rotationZ(theta: number) {
   return [eNeg, new Complex(0, 0), new Complex(0, 0), ePos];
 }
 
+// Evaluate a simple arithmetic expression supporting numbers, + - * /, parentheses, and π
+export function evaluateAngleExpression(expr: string): number | undefined {
+  if (!expr) return undefined;
+  const src = expr.trim().replace(/pi/gi, "π");
+
+  // Tokenizer
+  type Tok = { type: "num" | "pi" | "op" | "lpar" | "rpar"; value?: string };
+  const toks: Tok[] = [];
+  let i = 0;
+  while (i < src.length) {
+    const ch = src[i];
+    if (ch === " " || ch === "\t" || ch === "\n") {
+      i++;
+      continue;
+    }
+    if (ch === "(" || ch === ")") {
+      toks.push({ type: ch === "(" ? "lpar" : "rpar" });
+      i++;
+      continue;
+    }
+    if (ch === "+" || ch === "-" || ch === "*" || ch === "/") {
+      toks.push({ type: "op", value: ch });
+      i++;
+      continue;
+    }
+    if (ch === "π") {
+      toks.push({ type: "pi" });
+      i++;
+      continue;
+    }
+    // number: digits with optional decimal point; allow leading dot e.g. .5
+    if (ch === "." || /\d/.test(ch)) {
+      let j = i + 1;
+      while (j < src.length && /[0-9.]/.test(src[j])) j++;
+      const numStr = src.slice(i, j);
+      // Reject malformed like multiple dots
+      if (!/^\d*(?:\.\d+)?$/.test(numStr) && !/^\.\d+$/.test(numStr))
+        return undefined;
+      toks.push({ type: "num", value: numStr });
+      i = j;
+      continue;
+    }
+    // Unknown char
+    return undefined;
+  }
+
+  // Recursive descent parser
+  let k = 0;
+  const peek = () => toks[k];
+  const consume = () => toks[k++];
+
+  const parseExpr = (): number | undefined => {
+    let lhs = parseTerm();
+    if (lhs === undefined) return undefined;
+    while (
+      peek() &&
+      peek().type === "op" &&
+      (peek().value === "+" || peek().value === "-")
+    ) {
+      const op = consume().value!;
+      const rhs = parseTerm();
+      if (rhs === undefined) return undefined;
+      lhs = op === "+" ? lhs + rhs : lhs - rhs;
+    }
+    return lhs;
+  };
+
+  const parseTerm = (): number | undefined => {
+    let lhs = parseFactor();
+    if (lhs === undefined) return undefined;
+    while (
+      peek() &&
+      peek().type === "op" &&
+      (peek().value === "*" || peek().value === "/")
+    ) {
+      const op = consume().value!;
+      const rhs = parseFactor();
+      if (rhs === undefined) return undefined;
+      lhs = op === "*" ? lhs * rhs : lhs / rhs;
+    }
+    return lhs;
+  };
+
+  const parseFactor = (): number | undefined => {
+    // unary +/-
+    let sign = 1;
+    while (
+      peek() &&
+      peek().type === "op" &&
+      (peek().value === "+" || peek().value === "-")
+    ) {
+      const s = consume().value!;
+      sign *= s === "-" ? -1 : 1;
+    }
+    const t = peek();
+    if (!t) return undefined;
+    if (t.type === "num") {
+      consume();
+      const v = t.value === "." ? 0 : parseFloat(t.value!);
+      return sign * v;
+    }
+    if (t.type === "pi") {
+      consume();
+      return sign * Math.PI;
+    }
+    if (t.type === "lpar") {
+      consume();
+      const v = parseExpr();
+      if (peek() && peek().type === "rpar") consume();
+      else return undefined;
+      return sign * (v ?? 0);
+    }
+    return undefined;
+  };
+
+  const result = parseExpr();
+  // All tokens must be consumed and result finite
+  if (result === undefined || k !== toks.length || !isFinite(result))
+    return undefined;
+  return result;
+}
+
 function parseTheta(op: Operation): number | undefined {
   const arg = op.args?.[0];
   if (!arg) return undefined;
-  const n = parseFloat(arg);
-  return isFinite(n) ? n : undefined;
+  const v = evaluateAngleExpression(arg);
+  return v;
 }
 
 function applySingleQubit(
