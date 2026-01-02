@@ -124,14 +124,14 @@ export function evaluateAngleExpression(expr: string): number | undefined {
       i++;
       continue;
     }
-    // number: digits with optional decimal point; allow leading dot e.g. .5
+    // number: digits with optional decimal part; mirror validator semantics (no leading dot)
     if (ch === "." || /\d/.test(ch)) {
       let j = i + 1;
       while (j < src.length && /[0-9.]/.test(src[j])) j++;
       const numStr = src.slice(i, j);
-      // Reject malformed like multiple dots
-      if (!/^\d*(?:\.\d+)?$/.test(numStr) && !/^\.\d+$/.test(numStr))
-        return undefined;
+      // Accept integers, decimals, and trailing-dot integers; reject leading-dot decimals and malformed like multiple dots
+      const valid = /^(?:\d+(?:\.\d*)?)$/.test(numStr);
+      if (!valid) return undefined;
       toks.push({ type: "num", value: numStr });
       i = j;
       continue;
@@ -178,15 +178,15 @@ export function evaluateAngleExpression(expr: string): number | undefined {
   };
 
   const parseFactor = (): number | undefined => {
-    // unary +/-
+    // Allow a single unary +/-, matching validator semantics
     let sign = 1;
-    while (
+    if (
       peek() &&
       peek().type === "op" &&
       (peek().value === "+" || peek().value === "-")
     ) {
       const s = consume().value!;
-      sign *= s === "-" ? -1 : 1;
+      sign = s === "-" ? -1 : 1;
     }
     const t = peek();
     if (!t) return undefined;

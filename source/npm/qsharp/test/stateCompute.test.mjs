@@ -29,9 +29,9 @@ test("basic numbers", () => {
   assert.ok(approxEq(evaluateAngleExpression("3.5"), 3.5));
   assert.ok(approxEq(evaluateAngleExpression("+3.5"), 3.5));
   assert.ok(approxEq(evaluateAngleExpression("-3.5"), -3.5));
-  assert.ok(approxEq(evaluateAngleExpression(".5"), 0.5));
-  assert.ok(approxEq(evaluateAngleExpression("+.5"), 0.5));
-  assert.ok(approxEq(evaluateAngleExpression("-.5"), -0.5));
+  assert.ok(approxEq(evaluateAngleExpression("5."), 5));
+  assert.ok(approxEq(evaluateAngleExpression("+5."), 5));
+  assert.ok(approxEq(evaluateAngleExpression("-5."), -5));
 });
 
 test("arithmetic operations", () => {
@@ -47,14 +47,16 @@ test("parentheses nesting", () => {
 });
 
 test("invalid inputs return undefined", () => {
-  // Multiple unary signs are valid and collapse (e.g., ++π -> +π, --π -> +π)
-  assert.ok(approxEq(evaluateAngleExpression("++π"), Math.PI));
-  assert.ok(approxEq(evaluateAngleExpression("--π"), Math.PI));
+  assert.equal(evaluateAngleExpression("++π"), undefined);
+  assert.equal(evaluateAngleExpression("--π"), undefined);
   assert.equal(evaluateAngleExpression("π // 2"), undefined);
   assert.equal(evaluateAngleExpression("1..2"), undefined);
   assert.equal(evaluateAngleExpression("(π"), undefined);
   assert.equal(evaluateAngleExpression("π / 0"), undefined); // Infinity -> undefined
   assert.equal(evaluateAngleExpression(""), undefined);
+  assert.equal(evaluateAngleExpression(".5"), undefined);
+  assert.equal(evaluateAngleExpression("+.5"), undefined);
+  assert.equal(evaluateAngleExpression("-.5"), undefined);
 });
 
 // --------------------
