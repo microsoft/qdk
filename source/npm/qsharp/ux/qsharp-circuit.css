@@ -538,6 +538,11 @@
   display: none;
 }
 
+/* Hide toolbar when collapsed */
+.state-panel.collapsed .state-toolbar {
+  display: none !important;
+}
+
 /* Full-height clickable edge with vertical text */
 .state-edge {
   position: absolute;

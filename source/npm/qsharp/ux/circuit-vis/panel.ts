@@ -7,7 +7,7 @@ import {
   updateStatePanelFromMap,
   getStaticMockAmpMap,
 } from "./stateViz.js";
-import { computeAmpMapFromCurrentModel } from "./stateCompute.js";
+import { computeAmpMapFromCurrentModel, Endianness } from "./stateCompute.js";
 import {
   gateHeight,
   horizontalGap,
@@ -19,6 +19,7 @@ import { GateType, GateRenderData } from "./gateRenderData.js";
 import { getGateWidth } from "./utils.js";
 
 let mockDataSetNumber = 0;
+let vizEndianness: Endianness = "big";
 
 /**
  * Create a panel for the circuit visualization.
@@ -93,18 +94,52 @@ const createPanel = (container: HTMLElement): void => {
     ".state-panel",
   ) as HTMLElement | null;
   if (panelElem) {
-    const ampMap = computeAmpMapFromCurrentModel();
-    if (ampMap) {
-      updateStatePanelFromMap(panelElem, ampMap, { normalize: true });
-    } else {
-      // Fallback to static mock if no circuit model is available yet
-      updateStatePanelFromMap(
-        panelElem,
-        getStaticMockAmpMap(mockDataSetNumber),
-        { normalize: false },
-      );
-      mockDataSetNumber++;
+    // Add a simple endianness toggle toolbar just above the SVG
+    const svgElem = panelElem.querySelector("svg.state-svg");
+    if (svgElem && !panelElem.querySelector(".state-toolbar")) {
+      const toolbar = document.createElement("div");
+      toolbar.className = "state-toolbar";
+      toolbar.style.display = "flex";
+      toolbar.style.alignItems = "center";
+      toolbar.style.gap = "6px";
+      toolbar.style.padding = "4px 6px";
+      toolbar.style.fontSize = "12px";
+      toolbar.style.borderBottom = "1px solid #ddd";
+      const label = document.createElement("span");
+      label.textContent = "Endianness:";
+      const select = document.createElement("select");
+      select.className = "endianness-select";
+      const optBig = document.createElement("option");
+      optBig.value = "big";
+      optBig.text = "Big";
+      const optLittle = document.createElement("option");
+      optLittle.value = "little";
+      optLittle.text = "Little";
+      select.appendChild(optBig);
+      select.appendChild(optLittle);
+      select.value = vizEndianness;
+      select.addEventListener("change", () => {
+        vizEndianness = (select.value as Endianness) ?? "big";
+        renderStateFromModel(panelElem);
+      });
+      toolbar.appendChild(label);
+      toolbar.appendChild(select);
+      panelElem.insertBefore(toolbar, svgElem);
     }
+
+    const renderStateFromModel = (panel: HTMLElement) => {
+      const ampMap = computeAmpMapFromCurrentModel(vizEndianness);
+      if (ampMap) {
+        updateStatePanelFromMap(panel, ampMap, { normalize: true });
+      } else {
+        updateStatePanelFromMap(panel, getStaticMockAmpMap(mockDataSetNumber), {
+          normalize: false,
+        });
+        mockDataSetNumber++;
+      }
+    };
+
+    renderStateFromModel(panelElem);
   }
 };
 
