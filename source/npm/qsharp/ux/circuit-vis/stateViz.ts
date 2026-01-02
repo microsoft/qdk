@@ -558,16 +558,6 @@ export const createStatePanel = (): HTMLElement => {
   const toggleCollapsed = () => {
     const collapsed = panel.classList.toggle("collapsed");
     edge.setAttribute("aria-expanded", (!collapsed).toString());
-    const msg = panel.querySelector(
-      ".state-empty-message",
-    ) as HTMLElement | null;
-    if (msg) {
-      msg.style.display = collapsed ? "none" : "";
-    }
-    const toolbar = panel.querySelector(".state-toolbar") as HTMLElement | null;
-    if (toolbar && collapsed) {
-      toolbar.style.display = "none";
-    }
   };
   edge.addEventListener("click", toggleCollapsed);
   edge.addEventListener("keydown", (ev) => {

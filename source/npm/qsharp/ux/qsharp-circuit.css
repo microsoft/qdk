@@ -512,7 +512,8 @@
   position: relative; /* anchor toggle button */
   transition:
     flex-basis 0.2s ease,
-    width 0.2s ease;
+    width 0.2s ease,
+    padding-left 0.2s ease;
   padding-left: calc(
     36px * var(--stateScale)
   ); /* reserve space for the clickable edge */
@@ -522,6 +523,12 @@
   flex: 0 0 auto; /* size to content */
   width: 100%;
   height: auto; /* allow panel to scroll when content is taller */
+  transition: opacity 0.2s ease;
+}
+
+/* Endianness toolbar above the visualizer */
+.state-toolbar {
+  transition: opacity 0.2s ease;
 }
 
 /* Collapsed state: shrink panel and hide content except the toggle */
@@ -534,13 +541,12 @@
   padding-left: 0; /* only the edge remains visible */
 }
 
-.state-panel.collapsed .state-svg {
-  display: none;
-}
-
-/* Hide toolbar when collapsed */
-.state-panel.collapsed .state-toolbar {
-  display: none !important;
+/* Fade content while collapsing instead of instantly hiding */
+.state-panel.collapsed .state-svg,
+.state-panel.collapsed .state-toolbar,
+.state-panel.collapsed .state-empty-message {
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* Full-height clickable edge with vertical text */
@@ -660,4 +666,19 @@
   text-anchor: middle;
   dominant-baseline: hanging;
   pointer-events: none;
+}
+
+/* Centered empty-state message in the panel */
+.state-empty-message {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  padding: 8px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--vscode-descriptionForeground, #666);
+  z-index: 20;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
 }
