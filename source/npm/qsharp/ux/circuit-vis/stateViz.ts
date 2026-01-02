@@ -171,6 +171,45 @@ export const updateStatePanelFromMap = (
 
   const guessN =
     opts.nQubits ?? entries.reduce((m, [k]) => Math.max(m, k.length), 0);
+
+  // Handle zero-qubit map by showing the empty-state message and hiding SVG
+  if (!guessN || guessN <= 0) {
+    const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
+    if (svg) {
+      while (svg.firstChild) svg.removeChild(svg.firstChild);
+      svg.style.display = "none";
+    }
+    const toolbar = panel.querySelector(".state-toolbar") as HTMLElement | null;
+    if (toolbar) toolbar.style.display = "none";
+    let msg = panel.querySelector(".state-empty-message") as HTMLElement | null;
+    if (!msg) {
+      msg = document.createElement("div");
+      msg.className = "state-empty-message";
+      msg.textContent = "The circuit is empty.";
+      msg.style.position = "absolute";
+      msg.style.top = "50%";
+      msg.style.left = "50%";
+      msg.style.transform = "translate(-50%, -50%)";
+      msg.style.padding = "8px";
+      msg.style.textAlign = "center";
+      msg.style.fontSize = "13px";
+      msg.style.color = "#666";
+      msg.style.zIndex = "20";
+      msg.style.pointerEvents = "none";
+      panel.appendChild(msg);
+    }
+    return;
+  }
+
+  // Ensure SVG is visible and remove any empty-state message when rendering data
+  const svgEnsure = panel.querySelector(
+    "svg.state-svg",
+  ) as SVGSVGElement | null;
+  if (svgEnsure) svgEnsure.style.display = "";
+  const toolbar = panel.querySelector(".state-toolbar") as HTMLElement | null;
+  if (toolbar) toolbar.style.display = "";
+  const emptyMsg = panel.querySelector(".state-empty-message");
+  if (emptyMsg) emptyMsg.remove();
   const raw = entries.map(([bit, a]) => {
     const { prob, phase } = _toPolar(a);
     return { bit, prob, phase };
@@ -201,6 +240,54 @@ export const updateStatePanelFromMap = (
   });
   const top = sorted.slice(0, maxBars);
   renderStatePanelBars(panel, top, { ...opts, nQubits: guessN });
+};
+
+// Render a default state in the visualization panel.
+// - If nQubits <= 0: hide the SVG and show a friendly message.
+// - If nQubits > 0: show the SVG and render a zero-phase |0…0⟩ state immediately.
+export const renderDefaultStatePanel = (
+  panel: HTMLElement,
+  nQubits: number,
+): void => {
+  const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
+  if (!svg) return;
+
+  if (!nQubits || nQubits <= 0) {
+    // Hide SVG graphics and show message
+    svg.style.display = "none";
+    const toolbar = panel.querySelector(".state-toolbar") as HTMLElement | null;
+    if (toolbar) toolbar.style.display = "none";
+    let msg = panel.querySelector(".state-empty-message") as HTMLElement | null;
+    if (!msg) {
+      msg = document.createElement("div");
+      msg.className = "state-empty-message";
+      msg.textContent = "The circuit is empty.";
+      msg.style.position = "absolute";
+      msg.style.top = "50%";
+      msg.style.left = "50%";
+      msg.style.transform = "translate(-50%, -50%)";
+      msg.style.padding = "8px";
+      msg.style.textAlign = "center";
+      msg.style.fontSize = "13px";
+      msg.style.color = "#666";
+      msg.style.zIndex = "20";
+      msg.style.pointerEvents = "none";
+      panel.appendChild(msg);
+    }
+  } else {
+    // Remove message and render the deterministic zero-state
+    const msg = panel.querySelector(".state-empty-message");
+    if (msg) msg.remove();
+    const toolbar = panel.querySelector(".state-toolbar") as HTMLElement | null;
+    if (toolbar) toolbar.style.display = "";
+    svg.style.display = "";
+    const zeros = "0".repeat(nQubits);
+    updateStatePanelFromMap(
+      panel,
+      { [zeros]: { re: 1, im: 0 } },
+      { normalize: true, nQubits },
+    );
+  }
 };
 
 // Render helper that draws the state panel directly from bar data
@@ -471,6 +558,16 @@ export const createStatePanel = (): HTMLElement => {
   const toggleCollapsed = () => {
     const collapsed = panel.classList.toggle("collapsed");
     edge.setAttribute("aria-expanded", (!collapsed).toString());
+    const msg = panel.querySelector(
+      ".state-empty-message",
+    ) as HTMLElement | null;
+    if (msg) {
+      msg.style.display = collapsed ? "none" : "";
+    }
+    const toolbar = panel.querySelector(".state-toolbar") as HTMLElement | null;
+    if (toolbar && collapsed) {
+      toolbar.style.display = "none";
+    }
   };
   edge.addEventListener("click", toggleCollapsed);
   edge.addEventListener("keydown", (ev) => {

@@ -5,7 +5,7 @@ import { Ket, Measurement, Operation, Unitary } from "./circuit.js";
 import {
   createStatePanel,
   updateStatePanelFromMap,
-  getStaticMockAmpMap,
+  renderDefaultStatePanel,
 } from "./stateViz.js";
 import { computeAmpMapFromCurrentModel, Endianness } from "./stateCompute.js";
 import {
@@ -18,7 +18,6 @@ import { formatGate } from "./formatters/gateFormatter.js";
 import { GateType, GateRenderData } from "./gateRenderData.js";
 import { getGateWidth } from "./utils.js";
 
-let mockDataSetNumber = 0;
 let vizEndianness: Endianness = "big";
 
 /**
@@ -133,10 +132,12 @@ const createPanel = (container: HTMLElement): void => {
         updateStatePanelFromMap(panel, ampMap, { normalize: true });
         return true;
       } else {
-        updateStatePanelFromMap(panel, getStaticMockAmpMap(mockDataSetNumber), {
-          normalize: false,
-        });
-        mockDataSetNumber++;
+        // When model isn't ready yet, render a deterministic default instead of mock
+        // Determine current wire count from the circuit DOM
+        const circuit = container.querySelector("svg.qviz");
+        const wiresGroup = circuit?.querySelector(".wires");
+        const wireCount = wiresGroup ? wiresGroup.children.length : 0;
+        renderDefaultStatePanel(panel, wireCount);
         return false;
       }
     };
