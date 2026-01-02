@@ -131,15 +131,26 @@ const createPanel = (container: HTMLElement): void => {
       const ampMap = computeAmpMapFromCurrentModel(vizEndianness);
       if (ampMap) {
         updateStatePanelFromMap(panel, ampMap, { normalize: true });
+        return true;
       } else {
         updateStatePanelFromMap(panel, getStaticMockAmpMap(mockDataSetNumber), {
           normalize: false,
         });
         mockDataSetNumber++;
+        return false;
       }
     };
 
-    renderStateFromModel(panelElem);
+    // Initial render; if the circuit model isn't ready yet, retry briefly until available
+    const gotReal = renderStateFromModel(panelElem);
+    if (!gotReal) {
+      let attempts = 20; // try for ~2 seconds total
+      const retry = () => {
+        if (renderStateFromModel(panelElem)) return; // success swaps mock for real
+        if (--attempts > 0) setTimeout(retry, 100);
+      };
+      setTimeout(retry, 100);
+    }
   }
 };
 
