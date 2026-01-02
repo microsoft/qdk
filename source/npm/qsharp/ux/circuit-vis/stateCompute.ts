@@ -5,6 +5,7 @@ import { ComponentGrid, Operation, Qubit } from "./circuit.js";
 import { AmpMap } from "./stateViz.js";
 import { getCurrentCircuitModel } from "./events.js";
 
+// Endianness here controls only bitstring labeling for visualization.
 export type Endianness = "big" | "little";
 
 // Small complex helpers
@@ -380,11 +381,13 @@ export function computeAmpMapForCircuit(
       // Build bitstring label per requested endianness
       let bits = "";
       if (endianness === "big") {
-        for (let q = n - 1; q >= 0; q--) {
+        // Big-endian: editor qubit 0 is the most significant (leftmost) bit
+        for (let q = 0; q < n; q++) {
           bits += (i >> q) & 1 ? "1" : "0";
         }
       } else {
-        for (let q = 0; q < n; q++) {
+        // Little-endian: editor qubit 0 is the least significant (rightmost) bit
+        for (let q = n - 1; q >= 0; q--) {
           bits += (i >> q) & 1 ? "1" : "0";
         }
       }
