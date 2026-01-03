@@ -12,6 +12,7 @@ export type RenderOptions = {
   minPanelWidthPx?: number; // prescribed minimum panel width in pixels
   maxPanelWidthPx?: number; // prescribed maximum panel width in pixels
   uiScale?: number; // global UI scale multiplier (default 1)
+  animationMs?: number; // global animation duration in ms (default 200ms)
 };
 
 const _defaultPhaseColor = (phi: number) => {
@@ -52,6 +53,45 @@ const _toPolar = (a: AmpLike): { prob: number; phase: number } => {
   const re = typeof maybe.re === "number" ? maybe.re : 0;
   const im = typeof maybe.im === "number" ? maybe.im : 0;
   return { prob: re * re + im * im, phase: Math.atan2(im, re) };
+};
+
+// Simple animation helper for numeric interpolation
+const _animate = (
+  from: number,
+  to: number,
+  durationMs: number,
+  onUpdate: (v: number) => void,
+  onDone?: () => void,
+) => {
+  const start = performance.now();
+  const tick = (now: number) => {
+    const t = Math.min(1, (now - start) / durationMs);
+    const v = from + (to - from) * t;
+    try {
+      onUpdate(v);
+    } catch {
+      void 0;
+    }
+    if (t < 1) requestAnimationFrame(tick);
+    else if (onDone) onDone();
+  };
+  requestAnimationFrame(tick);
+};
+
+// Parse CSS duration strings (e.g., "200ms" or "0.2s") into milliseconds
+const _parseDurationMs = (val: string): number => {
+  const s = (val || "").trim();
+  if (!s) return NaN;
+  if (s.endsWith("ms")) {
+    const v = parseFloat(s.slice(0, -2));
+    return isFinite(v) ? v : NaN;
+  }
+  if (s.endsWith("s")) {
+    const v = parseFloat(s.slice(0, -1));
+    return isFinite(v) ? Math.round(v * 1000) : NaN;
+  }
+  const v = parseFloat(s);
+  return isFinite(v) ? v : NaN;
 };
 
 // Helper: create an AmpMap from polar entries
@@ -300,6 +340,8 @@ const renderStatePanelBars = (
 ): void => {
   const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
   if (!svg) return;
+  const prev: Record<string, { prob: number; phase: number }> =
+    (panel as any)._stateVizPrev ?? {};
   let s = 1;
   try {
     const v = getComputedStyle(panel).getPropertyValue("--stateScale").trim();
@@ -311,6 +353,25 @@ const renderStatePanelBars = (
     void 0;
   }
   if (opts.uiScale && isFinite(opts.uiScale)) s = opts.uiScale;
+
+  // Resolve global animation duration (opts overrides CSS variable; defaults to 200ms)
+  let animMs = 200;
+  try {
+    const cssDur = getComputedStyle(panel)
+      .getPropertyValue("--stateAnimMs")
+      .trim();
+    const parsed = _parseDurationMs(cssDur);
+    if (!isNaN(parsed) && parsed > 0) animMs = parsed;
+  } catch {
+    void 0;
+  }
+  if (
+    typeof opts.animationMs === "number" &&
+    isFinite(opts.animationMs) &&
+    opts.animationMs > 0
+  ) {
+    animMs = Math.round(opts.animationMs);
+  }
   const height =
     svg.clientHeight ||
     (opts.heightPx ? Math.round(opts.heightPx * s) : Math.round(338 * s));
@@ -403,16 +464,26 @@ const renderStatePanelBars = (
     const x = i * (bw + spacing);
     const bar = document.createElementNS("http://www.w3.org/2000/svg", "rect");
     bar.setAttribute("x", `${x}`);
-    bar.setAttribute("y", `${barHeaderSpace + (hBars - scaleY(b.prob))}`);
     bar.setAttribute("width", `${bw}`);
-    bar.setAttribute("height", `${scaleY(b.prob)}`);
     bar.setAttribute("fill", phaseColor(b.phase));
     bar.setAttribute("class", "state-bar");
     const tip = document.createElementNS("http://www.w3.org/2000/svg", "title");
-    const pctTip = (b.prob ?? 0) * 100;
-    tip.textContent = `${pctTip.toFixed(1)}% • φ=${_formatPhasePiTip(b.phase)}`;
+    const pctTipTarget = (b.prob ?? 0) * 100;
+    tip.textContent = `${pctTipTarget.toFixed(1)}% • φ=${_formatPhasePiTip(b.phase)}`;
     bar.appendChild(tip);
     g.appendChild(bar);
+
+    // Animate probability bar from previous prob to new prob
+    const prevProb = prev[b.bit]?.prob ?? 0;
+    const fromH = scaleY(prevProb);
+    const baseY = barHeaderSpace + hBars;
+    bar.setAttribute("y", `${baseY - fromH}`);
+    bar.setAttribute("height", `${fromH}`);
+    _animate(prevProb, b.prob, animMs, (pv) => {
+      const h = scaleY(pv);
+      bar.setAttribute("y", `${baseY - h}`);
+      bar.setAttribute("height", `${h}`);
+    });
 
     if (bw >= 4) {
       const label = document.createElementNS(
@@ -423,9 +494,12 @@ const renderStatePanelBars = (
       const labelY = barHeaderSpace + hBars + Math.round(8 * s);
       label.setAttribute("y", `${labelY}`);
       label.setAttribute("class", "state-bar-label");
-      const pct = (b.prob ?? 0) * 100;
-      label.textContent =
-        pct >= 1 ? `${pct.toFixed(0)}%` : `${pct.toFixed(1)}%`;
+      // Animate percentage text along with bar height
+      _animate(prevProb, b.prob, animMs, (pv) => {
+        const pct = (pv ?? 0) * 100;
+        label.textContent =
+          pct >= 1 ? `${pct.toFixed(0)}%` : `${pct.toFixed(1)}%`;
+      });
       g.appendChild(label);
     }
 
@@ -443,8 +517,8 @@ const renderStatePanelBars = (
       "http://www.w3.org/2000/svg",
       "path",
     );
-    const d = `M ${cx} ${cy} L ${sx} ${sy} A ${r} ${r} 0 ${largeArc} ${sweep} ${ex} ${ey} Z`;
-    wedge.setAttribute("d", d);
+    const dTarget = `M ${cx} ${cy} L ${sx} ${sy} A ${r} ${r} 0 ${largeArc} ${sweep} ${ex} ${ey} Z`;
+    wedge.setAttribute("d", dTarget);
     wedge.setAttribute("class", "state-phase-wedge");
     wedge.setAttribute("fill", phaseColor(b.phase));
     g.appendChild(wedge);
@@ -472,21 +546,44 @@ const renderStatePanelBars = (
     phaseText.setAttribute("x", `${cx}`);
     phaseText.setAttribute("y", `${cy + r + Math.round(8 * s)}`);
     phaseText.setAttribute("class", "state-phase-text");
-    phaseText.textContent = _formatPhasePi(b.phase);
+    // Animate phase text from previous phase to new
+    const prevPhase = prev[b.bit]?.phase ?? 0;
+    _animate(prevPhase, b.phase, animMs, (pv) => {
+      phaseText.textContent = _formatPhasePi(pv);
+    });
     g.appendChild(phaseText);
 
-    const dx = r * Math.cos(b.phase);
-    const dy = r * Math.sin(b.phase);
+    const prevDx = r * Math.cos(prev[b.bit]?.phase ?? 0);
+    const prevDy = r * Math.sin(prev[b.bit]?.phase ?? 0);
     const dot = document.createElementNS(
       "http://www.w3.org/2000/svg",
       "circle",
     );
-    dot.setAttribute("cx", `${cx + dx}`);
-    dot.setAttribute("cy", `${cy - dy}`);
+    dot.setAttribute("cx", `${cx + prevDx}`);
+    dot.setAttribute("cy", `${cy - prevDy}`);
     dot.setAttribute("r", `${Math.max(1.5, r * 0.2)}`);
     dot.setAttribute("fill", phaseColor(b.phase));
     dot.setAttribute("class", "state-phase-dot");
     g.appendChild(dot);
+
+    // Animate dot position and wedge color along the phase change
+    _animate(prev[b.bit]?.phase ?? 0, b.phase, animMs, (pv) => {
+      const dx = r * Math.cos(pv);
+      const dy = r * Math.sin(pv);
+      dot.setAttribute("cx", `${cx + dx}`);
+      dot.setAttribute("cy", `${cy - dy}`);
+      const fillColor = phaseColor(pv);
+      wedge.setAttribute("fill", fillColor);
+      dot.setAttribute("fill", fillColor);
+      bar.setAttribute("fill", fillColor);
+      // also animate wedge arc path to follow phase
+      const exA = cx + r * Math.cos(pv);
+      const eyA = cy - r * Math.sin(pv);
+      const largeArcA = Math.abs(pv) > Math.PI ? 1 : 0;
+      const sweepA = pv < 0 ? 1 : 0;
+      const dA = `M ${cx} ${cy} L ${sx} ${sy} A ${r} ${r} 0 ${largeArcA} ${sweepA} ${exA} ${eyA} Z`;
+      wedge.setAttribute("d", dA);
+    });
 
     if (n <= 16) {
       const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
@@ -511,6 +608,15 @@ const renderStatePanelBars = (
     if (!panel.classList.contains("collapsed")) {
       panel.style.flexBasis = `${Math.ceil(width + edgePad)}px`;
     }
+  } catch {
+    void 0;
+  }
+
+  // Save current values for smooth animation on next update
+  try {
+    const store: Record<string, { prob: number; phase: number }> = {};
+    for (const b of barsData) store[b.bit] = { prob: b.prob, phase: b.phase };
+    (panel as any)._stateVizPrev = store;
   } catch {
     void 0;
   }
