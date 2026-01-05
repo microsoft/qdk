@@ -434,7 +434,22 @@ const renderStatePanelBars = (
   const wTemp = width - margin.left - margin.right;
   const bw = Math.max(2, Math.floor(wTemp / Math.max(1, n)) - spacing);
   const rCol = Math.max(Math.round(12 * s), Math.floor(bw / 2) - 1);
-  const extraForBits = n <= 16 ? Math.round(24 * s) : 0;
+  // Determine label orientation: if any label is longer than 4 chars,
+  // switch all state labels to vertical to avoid collisions.
+  const maxLabelLen = barsData.reduce(
+    (m, b) => Math.max(m, (b.bit || "").length),
+    0,
+  );
+  const verticalLabels = maxLabelLen > 4;
+  // Reserve extra bottom margin depending on orientation.
+  // Horizontal labels need a small buffer; vertical labels need
+  // space proportional to the longest label length.
+  const extraForBits =
+    n <= 16
+      ? verticalLabels
+        ? Math.round((maxLabelLen * 14 + 12) * s) // 14px font-size per char + padding
+        : Math.round(24 * s)
+      : 0;
   const barHeaderSpace = Math.round(36 * s);
   const phaseHeaderSpace = Math.round(26 * s);
   const stateHeaderSpace = Math.round(26 * s);
@@ -638,13 +653,43 @@ const renderStatePanelBars = (
     });
 
     if (n <= 16) {
-      const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      t.setAttribute("x", `${x + bw / 2}`);
       const stateContentYBase = sepStateY + stateHeaderSpace;
-      t.setAttribute("y", `${stateContentYBase + Math.round(16 * s)}`);
-      t.setAttribute("class", "state-bitstring");
-      t.textContent = b.bit;
-      g.appendChild(t);
+      const labelX = x + bw / 2;
+      const labelY = verticalLabels
+        ? stateContentYBase + Math.round(4 * s)
+        : stateContentYBase + Math.round(16 * s);
+
+      if (verticalLabels) {
+        // Use foreignObject with HTML vertical writing-mode for clean vertical text
+        const lineH = Math.round(14 * s);
+        const labelH = lineH * Math.max(1, (b.bit || "").length);
+        const fo = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "foreignObject",
+        );
+        fo.setAttribute("x", `${x}`);
+        fo.setAttribute("y", `${labelY}`);
+        fo.setAttribute("width", `${bw}`);
+        fo.setAttribute("height", `${labelH}`);
+        const div = document.createElementNS(
+          "http://www.w3.org/1999/xhtml",
+          "div",
+        );
+        div.setAttribute("class", "state-bitstring-fo");
+        div.textContent = b.bit;
+        fo.appendChild(div);
+        g.appendChild(fo);
+      } else {
+        const t = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "text",
+        );
+        t.setAttribute("x", `${labelX}`);
+        t.setAttribute("y", `${labelY}`);
+        t.setAttribute("class", "state-bitstring");
+        t.textContent = b.bit;
+        g.appendChild(t);
+      }
     }
   });
 

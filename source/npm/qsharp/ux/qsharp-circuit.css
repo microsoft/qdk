@@ -677,6 +677,19 @@
   pointer-events: none;
 }
 
+/* Vertical orientation for long state labels to avoid collisions */
+
+/* HTML-based vertical labels inside foreignObject */
+.state-svg .state-bitstring-fo {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-size: calc(14px * var(--stateScale));
+  line-height: 1;
+  text-align: center; /* center within the column width */
+  color: var(--vscode-editor-foreground, #000);
+  pointer-events: none;
+}
+
 /* Centered empty-state message in the panel */
 .state-empty-message {
   position: absolute;
