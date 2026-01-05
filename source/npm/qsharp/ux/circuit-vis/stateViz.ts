@@ -432,6 +432,7 @@ const renderStatePanelBars = (
   );
   const hBars = Math.round(234 * s);
   const scaleY = (p: number) => (p / maxProb) * hBars;
+  const clampProb = (p: number) => Math.max(0, Math.min(p, maxProb));
   const DOT_FRAC = 0.25; // dot radius as a fraction of phase circle radius
 
   const mkLabel = (text: string, x: number, y: number) => {
@@ -476,12 +477,12 @@ const renderStatePanelBars = (
 
     // Animate probability bar from previous prob to new prob
     const prevProb = prev[b.bit]?.prob ?? 0;
-    const fromH = scaleY(prevProb);
+    const fromH = scaleY(clampProb(prevProb));
     const baseY = barHeaderSpace + hBars;
     bar.setAttribute("y", `${baseY - fromH}`);
     bar.setAttribute("height", `${fromH}`);
     _animate(prevProb, b.prob, animMs, (pv) => {
-      const h = scaleY(pv);
+      const h = scaleY(clampProb(pv));
       bar.setAttribute("y", `${baseY - h}`);
       bar.setAttribute("height", `${h}`);
     });
