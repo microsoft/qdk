@@ -400,9 +400,10 @@ const renderStatePanelBars = (
   ) {
     animMs = Math.round(opts.animationMs);
   }
-  const height =
-    svg.clientHeight ||
-    (opts.heightPx ? Math.round(opts.heightPx * s) : Math.round(338 * s));
+  // Deterministic base height: avoid relying on svg.clientHeight (causes flicker)
+  const baseHeight = opts.heightPx
+    ? Math.round(opts.heightPx * s)
+    : Math.round(80 * s);
   const margin = {
     top: 0,
     right: Math.round(36 * s),
@@ -649,16 +650,17 @@ const renderStatePanelBars = (
 
   try {
     const bbox = g.getBBox();
-    const svgHeight = Math.max(
-      height,
-      Math.ceil(bbox.height + margin.top + Math.round(10 * s)),
+    // Compute content-driven height deterministically from geometry
+    const contentHeight = Math.ceil(
+      bbox.height + margin.top + Math.round(10 * s),
     );
+    const svgHeight = Math.max(baseHeight, contentHeight);
     svg.setAttribute("height", svgHeight.toString());
     svg.setAttribute("width", width.toString());
     const edgePad = Math.round(36 * s);
-    if (!panel.classList.contains("collapsed")) {
-      panel.style.flexBasis = `${Math.ceil(width + edgePad)}px`;
-    }
+    // Always update flex-basis so that when the panel is expanded later,
+    // it immediately uses the correct width computed from current content.
+    panel.style.flexBasis = `${Math.ceil(width + edgePad)}px`;
   } catch {
     void 0;
   }
