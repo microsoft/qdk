@@ -303,23 +303,6 @@ export function CircuitPanel(props: CircuitProps) {
         </h1>
       </div>
       {error && <div class="qs-circuit-error">{error}</div>}
-      {props.targetProfile && <p>{props.targetProfile}</p>}
-      {props.simulated && (
-        <p>
-          WARNING: This diagram shows the result of tracing a dynamic circuit,
-          and may change from run to run.
-        </p>
-      )}
-      <p>
-        Learn more at{" "}
-        {props.isEditable ? (
-          <a href="https://aka.ms/qdk.circuit-editor">
-            https://aka.ms/qdk.circuit-editor
-          </a>
-        ) : (
-          <a href="https://aka.ms/qdk.circuits">https://aka.ms/qdk.circuits</a>
-        )}
-      </p>
       {props.calculating ? (
         <div>
           <Spinner />
@@ -334,6 +317,27 @@ export function CircuitPanel(props: CircuitProps) {
           renderLocations={renderLocations}
         ></Circuit>
       ) : null}
+      <div class="qs-circuit-footer">
+        {props.targetProfile && <p>{props.targetProfile}</p>}
+        {props.simulated && (
+          <p>
+            WARNING: This diagram shows the result of tracing a dynamic circuit,
+            and may change from run to run.
+          </p>
+        )}
+        <p>
+          Learn more at{" "}
+          {props.isEditable ? (
+            <a href="https://aka.ms/qdk.circuit-editor">
+              https://aka.ms/qdk.circuit-editor
+            </a>
+          ) : (
+            <a href="https://aka.ms/qdk.circuits">
+              https://aka.ms/qdk.circuits
+            </a>
+          )}
+        </p>
+      </div>
     </div>
   );
 }
