@@ -377,7 +377,7 @@ const renderStatePanelBars = (
     (opts.heightPx ? Math.round(opts.heightPx * s) : Math.round(338 * s));
   const margin = {
     top: 0,
-    right: Math.round(13 * s),
+    right: Math.round(36 * s),
     bottom: Math.round(62 * s),
     left: Math.round(36 * s),
   };
@@ -404,7 +404,7 @@ const renderStatePanelBars = (
   );
   const wTemp = width - margin.left - margin.right;
   const bw = Math.max(2, Math.floor(wTemp / Math.max(1, n)) - spacing);
-  const rCol = Math.max(Math.round(8 * s), Math.floor(bw / 2) - 1);
+  const rCol = Math.max(Math.round(12 * s), Math.floor(bw / 2) - 1);
   const extraForBits = n <= 16 ? Math.round(24 * s) : 0;
   const barHeaderSpace = Math.round(36 * s);
   const phaseHeaderSpace = Math.round(26 * s);
@@ -432,6 +432,7 @@ const renderStatePanelBars = (
   );
   const hBars = Math.round(234 * s);
   const scaleY = (p: number) => (p / maxProb) * hBars;
+  const DOT_FRAC = 0.25; // dot radius as a fraction of phase circle radius
 
   const mkLabel = (text: string, x: number, y: number) => {
     const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
@@ -504,7 +505,17 @@ const renderStatePanelBars = (
     }
 
     const cx = x + bw / 2;
-    const r = rCol;
+    const padX = Math.max(2, Math.round(2 * s));
+    let r = rCol;
+    // Clamp radius so the phase dot stays within the column bounds
+    // Constraint: r + dotR <= bw/2 - padX, where dotR = max(1.5, 0.2 * r)
+    if (r >= 7.5) {
+      const maxR = Math.floor((bw / 2 - padX) / (1 + DOT_FRAC));
+      r = Math.min(r, Math.max(2, maxR));
+    } else {
+      const maxR = Math.floor(bw / 2 - padX - 1.5);
+      r = Math.min(r, Math.max(2, maxR));
+    }
     const phaseContentYBase = sepPhaseY + phaseHeaderSpace;
     const cy = phaseContentYBase + r + Math.round(10 * s);
     const sx = cx + r;
@@ -544,7 +555,18 @@ const renderStatePanelBars = (
       "text",
     );
     phaseText.setAttribute("x", `${cx}`);
-    phaseText.setAttribute("y", `${cy + r + Math.round(8 * s)}`);
+    // Center phase label between the bottom of the circle (including dot)
+    // and the separator line below the phase section, accounting for text height
+    // because dominant-baseline is set to 'hanging' (y is the top of the text box).
+    const dotRadius = Math.max(1.5, r * DOT_FRAC);
+    const yTop = cy + r + dotRadius;
+    const yBottom = sepStateY - Math.round(6 * s); // small margin above separator
+    const textH = Math.round(14 * s); // matches CSS font-size for .state-phase-text
+    // Compute the top of the text box so the text is visually centered in the region
+    let yTextTop = Math.round((yTop + yBottom) / 2 - textH / 2);
+    // Clamp to stay within available region
+    yTextTop = Math.max(yTop, Math.min(yTextTop, yBottom - textH));
+    phaseText.setAttribute("y", `${yTextTop}`);
     phaseText.setAttribute("class", "state-phase-text");
     // Animate phase text from previous phase to new
     const prevPhase = prev[b.bit]?.phase ?? 0;
@@ -561,7 +583,7 @@ const renderStatePanelBars = (
     );
     dot.setAttribute("cx", `${cx + prevDx}`);
     dot.setAttribute("cy", `${cy - prevDy}`);
-    dot.setAttribute("r", `${Math.max(1.5, r * 0.2)}`);
+    dot.setAttribute("r", `${Math.max(1.5, r * DOT_FRAC)}`);
     dot.setAttribute("fill", phaseColor(b.phase));
     dot.setAttribute("class", "state-phase-dot");
     g.appendChild(dot);
