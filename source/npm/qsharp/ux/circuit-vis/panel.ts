@@ -84,7 +84,8 @@ const createPanel = (container: HTMLElement): void => {
     statePanel.style.pointerEvents = "auto";
     statePanel.style.flexShrink = "0";
     statePanel.style.flexGrow = "0";
-    statePanel.style.flexBasis = "360px";
+    // Start with zero width; stateViz will set accurate flex-basis on first render
+    statePanel.style.flexBasis = "0px";
     container.appendChild(statePanel);
   }
 

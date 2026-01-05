@@ -217,6 +217,13 @@ export const updateStatePanelFromMap = (
     const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
     if (svg) {
       while (svg.firstChild) svg.removeChild(svg.firstChild);
+      // Reset any stale height to avoid carrying over large values
+      try {
+        svg.removeAttribute("height");
+        (svg as any).style.height = "auto";
+      } catch {
+        void 0;
+      }
       svg.style.display = "none";
     }
     const toolbar = panel.querySelector(".state-toolbar") as HTMLElement | null;
@@ -237,6 +244,13 @@ export const updateStatePanelFromMap = (
       msg.style.zIndex = "20";
       msg.style.pointerEvents = "none";
       panel.appendChild(msg);
+    }
+    try {
+      if (!panel.classList.contains("collapsed")) {
+        panel.style.flexBasis = "360px";
+      }
+    } catch {
+      void 0;
     }
     return;
   }
@@ -294,6 +308,13 @@ export const renderDefaultStatePanel = (
 
   if (!nQubits || nQubits <= 0) {
     // Hide SVG graphics and show message
+    // Reset any stale height to avoid carrying over large values
+    try {
+      svg.removeAttribute("height");
+      (svg as any).style.height = "auto";
+    } catch {
+      void 0;
+    }
     svg.style.display = "none";
     const toolbar = panel.querySelector(".state-toolbar") as HTMLElement | null;
     if (toolbar) toolbar.style.display = "none";
@@ -313,6 +334,13 @@ export const renderDefaultStatePanel = (
       msg.style.zIndex = "20";
       msg.style.pointerEvents = "none";
       panel.appendChild(msg);
+    }
+    try {
+      if (!panel.classList.contains("collapsed")) {
+        panel.style.flexBasis = "360px";
+      }
+    } catch {
+      void 0;
     }
   } else {
     // Remove message and render the deterministic zero-state
