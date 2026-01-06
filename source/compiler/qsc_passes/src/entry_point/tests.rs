@@ -45,7 +45,7 @@ fn test_entry_point_attr_to_expr() {
         "",
         &expect![[r#"
             Expr 12 [0-0] [Type Int]: Call:
-                Expr 11 [50-54] [Type Int]: Var: Item 1
+                Expr 11 [50-54] [Type Int]: Var: Item 1 (Package 1)
                 Expr 10 [54-56] [Type Unit]: Unit"#]],
     );
 }
@@ -60,7 +60,7 @@ fn test_entry_point_attr_missing_implies_main() {
         "",
         &expect![[r#"
             Expr 12 [0-0] [Type Int]: Call:
-                Expr 11 [32-36] [Type Int]: Var: Item 1
+                Expr 11 [32-36] [Type Int]: Var: Item 1 (Package 1)
                 Expr 10 [36-38] [Type Unit]: Unit"#]],
     );
 }

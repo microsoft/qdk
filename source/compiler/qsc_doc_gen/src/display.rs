@@ -4,7 +4,7 @@
 use qsc_ast::ast::{self, Idents, TypeParameter as AstTypeParameter};
 use qsc_frontend::resolve;
 use qsc_hir::{
-    hir::{self, PackageId},
+    hir,
     ty::{self, TypeParameter as HirTypeParameter},
 };
 use regex_lite::Regex;
@@ -33,21 +33,13 @@ pub trait Lookup {
     /// `Res`s can resolve to external packages, and the references
     /// are relative, so here we also need the
     /// local `PackageId` that the `res` itself came from.
-    fn resolve_item_res(
-        &self,
-        local_package_id: PackageId,
-        res: &hir::Res,
-    ) -> (&hir::Item, hir::ItemId);
+    fn resolve_item_res(&self, res: &hir::Res) -> (&hir::Item, hir::ItemId);
 
     /// Returns the hir `Item` node referred to by `item_id`.
     /// `ItemId`s can refer to external packages, and the references
     /// are relative, so here we also need the local `PackageId`
     /// that the `ItemId` originates from.
-    fn resolve_item(
-        &self,
-        local_package_id: PackageId,
-        item_id: &hir::ItemId,
-    ) -> (&hir::Item, &hir::Package, hir::ItemId);
+    fn resolve_item(&self, item_id: &hir::ItemId) -> (&hir::Item, &hir::Package, hir::ItemId);
 }
 
 pub struct CodeDisplay<'a> {

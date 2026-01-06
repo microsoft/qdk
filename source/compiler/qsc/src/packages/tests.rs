@@ -81,25 +81,25 @@ fn test_prepare_package_store() {
     } = compiled.0;
 
     expect![[r#"
-            Package:
-                entry expression: Expr 8 [0-0] [Type Unit]: Call:
-                    Expr 7 [24-28] [Type Unit]: Var: Item 1
-                    Expr 6 [28-30] [Type Unit]: Unit
-                Item 0 [0-40] (Public):
-                    Namespace (Ident 5 [0-40] "test"): Item 1
-                Item 1 [0-40] (Internal):
-                    Parent: 0
-                    EntryPoint
-                    Callable 0 [14-40] (operation):
-                        name: Ident 1 [24-28] "Main"
-                        input: Pat 2 [28-30] [Type Unit]: Unit
-                        output: Unit
-                        functors: empty set
-                        body: SpecDecl 3 [14-40]: Impl:
-                            Block 4 [38-40]: <empty>
-                        adj: <none>
-                        ctl: <none>
-                        ctl-adj: <none>"#]]
+        Package:
+            entry expression: Expr 8 [0-0] [Type Unit]: Call:
+                Expr 7 [24-28] [Type Unit]: Var: Item 1 (Package 3)
+                Expr 6 [28-30] [Type Unit]: Unit
+            Item 0 [0-40] (Public):
+                Namespace (Ident 5 [0-40] "test"): Item 1
+            Item 1 [0-40] (Internal):
+                Parent: 0
+                EntryPoint
+                Callable 0 [14-40] (operation):
+                    name: Ident 1 [24-28] "Main"
+                    input: Pat 2 [28-30] [Type Unit]: Unit
+                    output: Unit
+                    functors: empty set
+                    body: SpecDecl 3 [14-40]: Impl:
+                        Block 4 [38-40]: <empty>
+                    adj: <none>
+                    ctl: <none>
+                    ctl-adj: <none>"#]]
     .assert_eq(&package.to_string());
     expect![[r#"
             Package 0:
@@ -159,25 +159,25 @@ fn missing_dependency_doesnt_force_failure() {
     } = compiled.0;
 
     expect![[r#"
-            Package:
-                entry expression: Expr 8 [0-0] [Type Unit]: Call:
-                    Expr 7 [24-28] [Type Unit]: Var: Item 1
-                    Expr 6 [28-30] [Type Unit]: Unit
-                Item 0 [0-40] (Public):
-                    Namespace (Ident 5 [0-40] "test"): Item 1
-                Item 1 [0-40] (Internal):
-                    Parent: 0
-                    EntryPoint
-                    Callable 0 [14-40] (operation):
-                        name: Ident 1 [24-28] "Main"
-                        input: Pat 2 [28-30] [Type Unit]: Unit
-                        output: Unit
-                        functors: empty set
-                        body: SpecDecl 3 [14-40]: Impl:
-                            Block 4 [38-40]: <empty>
-                        adj: <none>
-                        ctl: <none>
-                        ctl-adj: <none>"#]]
+        Package:
+            entry expression: Expr 8 [0-0] [Type Unit]: Call:
+                Expr 7 [24-28] [Type Unit]: Var: Item 1 (Package 3)
+                Expr 6 [28-30] [Type Unit]: Unit
+            Item 0 [0-40] (Public):
+                Namespace (Ident 5 [0-40] "test"): Item 1
+            Item 1 [0-40] (Internal):
+                Parent: 0
+                EntryPoint
+                Callable 0 [14-40] (operation):
+                    name: Ident 1 [24-28] "Main"
+                    input: Pat 2 [28-30] [Type Unit]: Unit
+                    output: Unit
+                    functors: empty set
+                    body: SpecDecl 3 [14-40]: Impl:
+                        Block 4 [38-40]: <empty>
+                    adj: <none>
+                    ctl: <none>
+                    ctl-adj: <none>"#]]
     .assert_eq(&package.to_string());
     expect![[r#"
             Package 0:
@@ -265,25 +265,25 @@ fn dependency_error() {
     } = compiled.0;
 
     expect![[r#"
-            Package:
-                entry expression: Expr 8 [0-0] [Type Unit]: Call:
-                    Expr 7 [24-28] [Type Unit]: Var: Item 1
-                    Expr 6 [28-30] [Type Unit]: Unit
-                Item 0 [0-40] (Public):
-                    Namespace (Ident 5 [0-40] "test"): Item 1
-                Item 1 [0-40] (Internal):
-                    Parent: 0
-                    EntryPoint
-                    Callable 0 [14-40] (operation):
-                        name: Ident 1 [24-28] "Main"
-                        input: Pat 2 [28-30] [Type Unit]: Unit
-                        output: Unit
-                        functors: empty set
-                        body: SpecDecl 3 [14-40]: Impl:
-                            Block 4 [38-40]: <empty>
-                        adj: <none>
-                        ctl: <none>
-                        ctl-adj: <none>"#]]
+        Package:
+            entry expression: Expr 8 [0-0] [Type Unit]: Call:
+                Expr 7 [24-28] [Type Unit]: Var: Item 1 (Package 3)
+                Expr 6 [28-30] [Type Unit]: Unit
+            Item 0 [0-40] (Public):
+                Namespace (Ident 5 [0-40] "test"): Item 1
+            Item 1 [0-40] (Internal):
+                Parent: 0
+                EntryPoint
+                Callable 0 [14-40] (operation):
+                    name: Ident 1 [24-28] "Main"
+                    input: Pat 2 [28-30] [Type Unit]: Unit
+                    output: Unit
+                    functors: empty set
+                    body: SpecDecl 3 [14-40]: Impl:
+                        Block 4 [38-40]: <empty>
+                    adj: <none>
+                    ctl: <none>
+                    ctl-adj: <none>"#]]
     .assert_eq(&package.to_string());
     expect![[r#"
             Package 0:

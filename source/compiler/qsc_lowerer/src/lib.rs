@@ -1070,7 +1070,7 @@ fn lower_prim_field(field: hir::PrimField) -> fir::PrimField {
 fn lower_item_id(id: &hir::ItemId) -> fir::ItemId {
     fir::ItemId {
         item: lower_local_item_id(id.item),
-        package: id.package.map(|p| fir::PackageId::from(usize::from(p))),
+        package: map_hir_package_to_fir(id.package),
     }
 }
 

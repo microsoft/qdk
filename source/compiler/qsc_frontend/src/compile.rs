@@ -39,7 +39,7 @@ use qsc_hir::{
 use std::{fmt::Debug, sync::Arc};
 use thiserror::Error;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct CompileUnit {
     pub package: hir::Package,
     pub ast: AstPackage,
@@ -50,10 +50,26 @@ pub struct CompileUnit {
 }
 
 impl CompileUnit {
+    #[must_use]
+    pub fn new(package_id: PackageId) -> Self {
+        Self {
+            package: hir::Package::new(package_id),
+            ast: Default::default(),
+            assigner: Default::default(),
+            sources: Default::default(),
+            errors: Default::default(),
+            dropped_names: Default::default(),
+        }
+    }
+
     pub fn expose(&mut self) {
         for (_item_id, item) in self.package.items.iter_mut() {
             item.visibility = hir::Visibility::Public;
         }
+    }
+
+    pub fn package_id(&self) -> PackageId {
+        self.package.package_id
     }
 }
 
@@ -102,7 +118,7 @@ impl Debug for PackageStore {
 impl PackageStore {
     #[must_use]
     pub fn new(core: CompileUnit) -> Self {
-        let table = global::iter_package(Some(PackageId::CORE), &core.package).collect();
+        let table = global::iter_package(PackageId::CORE, &core.package).collect();
         let mut units = IndexMap::new();
         units.insert(PackageId::CORE, core);
         Self {
@@ -117,8 +133,18 @@ impl PackageStore {
         &self.core
     }
 
+    #[must_use]
+    pub fn peek_package_id(&self) -> PackageId {
+        self.next_id
+    }
+
     pub fn insert(&mut self, unit: CompileUnit) -> PackageId {
         let id = self.next_id;
+        assert_eq!(
+            id,
+            unit.package_id(),
+            "The id of the inserted unit should match the next_id of the store."
+        );
         self.next_id = id.successor();
         self.units.insert(id, unit);
         id
@@ -141,7 +167,7 @@ impl PackageStore {
     pub fn open(mut self) -> OpenPackageStore {
         let id = self.next_id;
         self.next_id = id.successor();
-        self.units.insert(id, CompileUnit::default());
+        self.units.insert(id, CompileUnit::new(id));
 
         OpenPackageStore {
             store: self,
@@ -285,7 +311,8 @@ pub fn compile_ast(
         dropped_names.clone(),
     );
     let (tys, ty_errors) = typeck_all(store, dependencies, &ast_package, &names);
-    let mut lowerer = Lowerer::new();
+    let package_id = store.peek_package_id();
+    let mut lowerer = Lowerer::new(package_id);
     let package = lowerer
         .with(&mut hir_assigner, &names, &tys)
         .lower_package(&ast_package);
@@ -457,8 +484,9 @@ fn resolve_all(
     }
 
     // bind all declarations in the package, but don't resolve imports/exports yet
-    errors.extend(globals.add_local_package(assigner, package));
-    let mut resolver = Resolver::new(globals, dropped_names);
+    let package_id = store.peek_package_id();
+    errors.extend(globals.add_local_package(assigner, package, package_id));
+    let mut resolver = Resolver::new(package_id, globals, dropped_names);
 
     // resolve all symbols, binding imports/export names as they're resolved
     resolver.resolve(assigner, package);

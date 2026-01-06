@@ -145,7 +145,7 @@ impl From<LocalItemId> for usize {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ItemId {
     /// The package ID or `None` for the local package.
-    pub package: Option<PackageId>,
+    pub package: PackageId,
     /// The item ID.
     pub item: LocalItemId,
 }
@@ -155,7 +155,7 @@ impl ItemId {
     #[must_use]
     pub fn complex() -> Self {
         Self {
-            package: Some(PackageId::CORE),
+            package: PackageId::CORE,
             item: LocalItemId(3),
         }
     }
@@ -163,10 +163,7 @@ impl ItemId {
 
 impl Display for ItemId {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match self.package {
-            None => write!(f, "Item {}", self.item),
-            Some(package) => write!(f, "Item {} (Package {package})", self.item),
-        }
+        write!(f, "Item {} (Package {})", self.item, self.package)
     }
 }
 
@@ -204,20 +201,6 @@ pub enum Res {
     Local(NodeId),
 }
 
-impl Res {
-    /// Returns an updated resolution with the given package ID.
-    #[must_use]
-    pub fn with_package(&self, package: PackageId) -> Self {
-        match self {
-            Res::Item(id) if id.package.is_none() => Res::Item(ItemId {
-                package: Some(package),
-                item: id.item,
-            }),
-            _ => *self,
-        }
-    }
-}
-
 impl Display for Res {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
@@ -229,8 +212,10 @@ impl Display for Res {
 }
 
 /// The root node of the HIR.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Package {
+    /// The ID linking this package to the package store.
+    pub package_id: PackageId,
     /// The items in the package.
     pub items: IndexMap<LocalItemId, Item>,
     /// The top-level statements in the package.
@@ -261,6 +246,17 @@ impl Display for Package {
 pub type TestCallableName = String;
 
 impl Package {
+    /// Creates an empty package given a [`PackageId`].
+    #[must_use]
+    pub fn new(package_id: PackageId) -> Self {
+        Self {
+            package_id,
+            items: Default::default(),
+            stmts: Default::default(),
+            entry: Default::default(),
+        }
+    }
+
     /// Returns a collection of the fully qualified names of any callables annotated with `@Test()`
     #[must_use]
     pub fn get_test_callables(&self) -> Vec<(TestCallableName, Span)> {

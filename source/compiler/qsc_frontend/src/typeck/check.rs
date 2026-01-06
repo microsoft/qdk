@@ -55,7 +55,7 @@ impl GlobalTable {
         store: &crate::compile::PackageStore,
     ) {
         let item_id = ItemId {
-            package: Some(package_id),
+            package: package_id,
             item: item.id,
         };
         match &item.kind {
@@ -78,9 +78,9 @@ impl GlobalTable {
             ) => {
                 // If this item is an export, then we need to grab the ID that it references.
                 // It could be from the same package, or it could be from another package.
-                let package_id = other_package.unwrap_or(package_id);
+                let package_id = other_package;
                 // So, we get the correct package first,
-                let package = store.get(package_id).expect("package should exist");
+                let package = store.get(*package_id).expect("package should exist");
                 // find the actual item
                 let resolved_export = package
                     .package
@@ -88,7 +88,7 @@ impl GlobalTable {
                     .get(*exported_item)
                     .expect("exported item should exist");
                 // and recursively resolve it (it could be another export, i.e. a chain of exports.
-                self.handle_item(resolved_export, package_id, store);
+                self.handle_item(resolved_export, *package_id, store);
             }
             hir::ItemKind::Export(..) => {
                 // An export that failed to resolve, skip it.

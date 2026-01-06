@@ -247,17 +247,14 @@ impl From<LocalItemId> for usize {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ItemId {
     /// The package ID or `None` for the local package.
-    pub package: Option<PackageId>,
+    pub package: PackageId,
     /// The item ID.
     pub item: LocalItemId,
 }
 
 impl Display for ItemId {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match self.package {
-            None => write!(f, "Item {}", self.item),
-            Some(package) => write!(f, "Item {} (Package {package})", self.item),
-        }
+        write!(f, "Item {} (Package {})", self.item, self.package)
     }
 }
 
