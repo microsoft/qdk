@@ -670,7 +670,7 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
                 let block = package.get_block(*body);
 
                 LexicalScope {
-                    name: format!("({i})").into(),
+                    name: format!("iter {i}").into(),
                     location: Some(PackageOffset {
                         package_id,
                         offset: block.span.lo,
