@@ -188,6 +188,7 @@ pub fn get_circuit(
         loop_detection: config.loop_detection,
         group_by_scope: config.group_by_scope,
         collapse_qubit_registers: config.collapse_qubit_registers,
+        prune_classical_qubits: false,
     };
 
     if is_openqasm_program(&program) {

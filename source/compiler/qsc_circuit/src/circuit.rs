@@ -217,6 +217,14 @@ impl Operation {
         }
     }
 
+    #[must_use]
+    pub fn targets_mut(&mut self) -> &mut Vec<Register> {
+        match self {
+            Operation::Measurement(m) => &mut m.qubits,
+            Operation::Unitary(u) => &mut u.targets,
+            Operation::Ket(k) => &mut k.targets,
+        }
+    }
     /// Returns if the operation is a controlled operation.
     #[must_use]
     pub fn is_controlled(&self) -> bool {

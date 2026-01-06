@@ -64,6 +64,7 @@ fn compile_and_run_internal(sources: SourceMap, debug: bool) -> String {
                 source_locations: false,
                 loop_detection: false,
                 max_operations: 0,
+                prune_classical_qubits: false,
             },
         )
     } else {

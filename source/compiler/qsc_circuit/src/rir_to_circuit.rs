@@ -135,12 +135,15 @@ pub fn make_circuit(
         config,
     );
 
+    let qubits = wire_map.to_qubits();
+    let num_qubits = qubits.len();
     let circuit = finish_circuit(
-        &wire_map,
+        qubits,
         operations
             .into_iter()
             .map(|o| o.into_operation(package_store))
             .collect(),
+        num_qubits,
         package_store,
         config.loop_detection,
         config.collapse_qubit_registers,

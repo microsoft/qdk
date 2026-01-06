@@ -604,12 +604,9 @@ pub(crate) fn circuit_qasm_program(
     if let Some(max_ops) = config.max_operations {
         tracer_config.max_operations = max_ops;
     }
-    if let Some(locations) = config.source_locations {
-        tracer_config.source_locations = locations;
-    }
-    if let Some(group_by_scope) = config.group_by_scope {
-        tracer_config.group_by_scope = group_by_scope;
-    }
+    tracer_config.source_locations = config.source_locations;
+    tracer_config.group_by_scope = config.group_by_scope;
+    tracer_config.prune_classical_qubits = config.prune_classical_qubits;
 
     let generation_method = if let Some(generation_method) = config.generation_method {
         generation_method.into()

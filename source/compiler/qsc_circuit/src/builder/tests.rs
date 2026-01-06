@@ -1,7 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#![allow(clippy::unicode_not_nfc)]
+
 mod group_scopes;
+mod prune_classical_qubits;
 
 use std::vec;
 
@@ -129,7 +132,7 @@ fn exceed_max_operations() {
             source_locations: false,
             loop_detection: false,
             group_by_scope: false,
-            collapse_qubit_registers: false,
+            ..Default::default()
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -197,7 +200,7 @@ fn source_locations_disabled() {
             source_locations: false,
             loop_detection: false,
             group_by_scope: false,
-            collapse_qubit_registers: false,
+            ..Default::default()
         },
         &FakeCompilation::user_package_ids(),
     );
