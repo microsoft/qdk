@@ -45,6 +45,8 @@ export interface GateRenderData {
    *  y coords, where each group represents a unitary box to be rendered separately.
    */
   targetsY: (number | number[])[];
+  /** y coord of top of gate row */
+  topY: number;
   /** Gate label. */
   label: string;
   /** Gate arguments as string. */

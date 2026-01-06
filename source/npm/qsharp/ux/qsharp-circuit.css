@@ -52,6 +52,11 @@
     font-style: normal;
   }
 
+  .gate .qs-group-label {
+    fill: var(--main-color);
+    text-anchor: start;
+  }
+
   .qs-mathtext {
     font-family: "KaTeX_Math", "MJXZERO", "MJXTEX-I", serif;
   }
