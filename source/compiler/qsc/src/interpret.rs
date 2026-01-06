@@ -1059,6 +1059,7 @@ impl Interpreter {
                         &mut out,
                         callable,
                         args,
+                        eval_config,
                     )?;
                 }
                 return self.static_circuit(entry_expr.as_deref(), tracer_config);

@@ -29,6 +29,21 @@ fn interpreter(code: &str, package_type: PackageType, profile: Profile) -> Inter
     .expect("interpreter creation should succeed")
 }
 
+fn interpreter_with_circuit_trace(code: &str, profile: Profile) -> Interpreter {
+    let sources = SourceMap::new([("test.qs".into(), code.into())], None);
+    let (std_id, store) = crate::compile::package_store_with_stdlib(profile.into());
+    Interpreter::with_circuit_trace(
+        sources,
+        PackageType::Exe,
+        profile.into(),
+        LanguageFeatures::default(),
+        store,
+        &[(std_id, None)],
+        Default::default(),
+    )
+    .expect("interpreter creation should succeed")
+}
+
 fn circuit_both_ways(code: &str, entry: CircuitEntryPoint) -> String {
     let eval_circ = circuit(
         code,
@@ -948,7 +963,7 @@ fn two_qubit_reuse() {
 
 #[test]
 fn eval_method_result_comparison() {
-    let mut interpreter = interpreter(
+    let mut interpreter = interpreter_with_circuit_trace(
         r"
             namespace Test {
                 import Std.Measurement.*;
@@ -969,7 +984,6 @@ fn eval_method_result_comparison() {
             }
         ",
         Profile::Unrestricted,
-        true,
     );
 
     interpreter.set_quantum_seed(Some(2));
@@ -3444,13 +3458,16 @@ fn operation_declared_in_eval() {
                 max_operations: usize::MAX,
                 source_locations: false,
                 group_by_scope: true,
+                ..Default::default()
             },
         )
         .expect("circuit generation should succeed");
 
     expect![[r#"
-        q_0    ─ [ [Foo] ─── H ──── M ──── ] ──
-                    [               ╘═════ ] ══
+                  ┌──── [Foo] ───────────┐
+        q_0    ───┼────── H ───── M ─────┼───
+                  │               ╘══════╪═══
+                  └──────────────────────┘
     "#]]
     .assert_eq(&c.display_with_groups().to_string());
 }
