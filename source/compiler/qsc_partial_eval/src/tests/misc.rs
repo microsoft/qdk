@@ -49,18 +49,18 @@ fn unitary_call_within_an_if_with_classical_condition_within_a_for_loop() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Integer) = Store Integer(0) !dbg dbg_location=1
+                Variable(0, Integer) = Store Integer(0) !dbg dbg_location=0
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=1
+                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=1
+                Variable(0, Integer) = Store Integer(2) !dbg dbg_location=1
                 Call id(2), args( Qubit(0), ) !dbg dbg_location=2
-                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=2
-                Variable(0, Integer) = Store Integer(2) !dbg dbg_location=2
+                Variable(0, Integer) = Store Integer(3) !dbg dbg_location=2
+                Variable(0, Integer) = Store Integer(4) !dbg dbg_location=2
                 Call id(2), args( Qubit(0), ) !dbg dbg_location=3
-                Variable(0, Integer) = Store Integer(3) !dbg dbg_location=3
-                Variable(0, Integer) = Store Integer(4) !dbg dbg_location=3
-                Call id(2), args( Qubit(0), ) !dbg dbg_location=4
-                Variable(0, Integer) = Store Integer(5) !dbg dbg_location=4
-                Variable(0, Integer) = Store Integer(6) !dbg dbg_location=4
-                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Variable(0, Integer) = Store Integer(5) !dbg dbg_location=3
+                Variable(0, Integer) = Store Integer(6) !dbg dbg_location=3
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -104,18 +104,18 @@ fn unitary_call_within_an_if_with_classical_condition_within_a_while_loop() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Integer) = Store Integer(0) !dbg dbg_location=1
+                Variable(0, Integer) = Store Integer(0) !dbg dbg_location=0
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=1
+                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=1
+                Variable(0, Integer) = Store Integer(2) !dbg dbg_location=1
                 Call id(2), args( Qubit(0), ) !dbg dbg_location=2
-                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=2
-                Variable(0, Integer) = Store Integer(2) !dbg dbg_location=2
+                Variable(0, Integer) = Store Integer(3) !dbg dbg_location=2
+                Variable(0, Integer) = Store Integer(4) !dbg dbg_location=2
                 Call id(2), args( Qubit(0), ) !dbg dbg_location=3
-                Variable(0, Integer) = Store Integer(3) !dbg dbg_location=3
-                Variable(0, Integer) = Store Integer(4) !dbg dbg_location=3
-                Call id(2), args( Qubit(0), ) !dbg dbg_location=4
-                Variable(0, Integer) = Store Integer(5) !dbg dbg_location=4
-                Variable(0, Integer) = Store Integer(6) !dbg dbg_location=4
-                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Variable(0, Integer) = Store Integer(5) !dbg dbg_location=3
+                Variable(0, Integer) = Store Integer(6) !dbg dbg_location=3
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -159,25 +159,25 @@ fn unitary_call_within_an_if_with_classical_condition_within_a_repeat_until_loop
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Integer) = Store Integer(0) !dbg dbg_location=1
+                Variable(0, Integer) = Store Integer(0) !dbg dbg_location=0
+                Variable(1, Boolean) = Store Bool(true) !dbg dbg_location=0
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=1
+                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=1
+                Variable(1, Boolean) = Store Bool(true) !dbg dbg_location=1
+                Variable(0, Integer) = Store Integer(2) !dbg dbg_location=1
                 Variable(1, Boolean) = Store Bool(true) !dbg dbg_location=1
                 Call id(2), args( Qubit(0), ) !dbg dbg_location=2
-                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=2
+                Variable(0, Integer) = Store Integer(3) !dbg dbg_location=2
                 Variable(1, Boolean) = Store Bool(true) !dbg dbg_location=2
-                Variable(0, Integer) = Store Integer(2) !dbg dbg_location=2
+                Variable(0, Integer) = Store Integer(4) !dbg dbg_location=2
                 Variable(1, Boolean) = Store Bool(true) !dbg dbg_location=2
                 Call id(2), args( Qubit(0), ) !dbg dbg_location=3
-                Variable(0, Integer) = Store Integer(3) !dbg dbg_location=3
+                Variable(0, Integer) = Store Integer(5) !dbg dbg_location=3
                 Variable(1, Boolean) = Store Bool(true) !dbg dbg_location=3
-                Variable(0, Integer) = Store Integer(4) !dbg dbg_location=3
-                Variable(1, Boolean) = Store Bool(true) !dbg dbg_location=3
-                Call id(2), args( Qubit(0), ) !dbg dbg_location=4
-                Variable(0, Integer) = Store Integer(5) !dbg dbg_location=4
-                Variable(1, Boolean) = Store Bool(true) !dbg dbg_location=4
-                Variable(0, Integer) = Store Integer(6) !dbg dbg_location=4
-                Variable(1, Boolean) = Store Bool(false) !dbg dbg_location=4
-                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Variable(0, Integer) = Store Integer(6) !dbg dbg_location=3
+                Variable(1, Boolean) = Store Bool(false) !dbg dbg_location=3
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -204,18 +204,18 @@ fn boolean_assign_and_update_with_classical_value_within_an_if_with_dynamic_cond
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Boolean) = Store Bool(true) !dbg dbg_location=1
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(1, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=2
-                Branch Variable(2, Boolean), 2, 1 !dbg dbg_location=2
+                Variable(0, Boolean) = Store Bool(true) !dbg dbg_location=0
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=1
+                Branch Variable(2, Boolean), 2, 1 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=2
-                Call id(4), args( Variable(3, Boolean), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(3, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=1
+                Call id(4), args( Variable(3, Boolean), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 2:Block:
-                Variable(0, Boolean) = Store Bool(false) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2"#]],
+                Variable(0, Boolean) = Store Bool(false) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -242,18 +242,18 @@ fn integer_assign_and_update_with_classical_value_within_an_if_with_dynamic_cond
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=1
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(1, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=2
-                Branch Variable(2, Boolean), 2, 1 !dbg dbg_location=2
+                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=0
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=1
+                Branch Variable(2, Boolean), 2, 1 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(0, Integer) !dbg dbg_location=2
-                Call id(4), args( Variable(3, Integer), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(3, Integer) = Store Variable(0, Integer) !dbg dbg_location=1
+                Call id(4), args( Variable(3, Integer), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 2:Block:
-                Variable(0, Integer) = Store Integer(5) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2"#]],
+                Variable(0, Integer) = Store Integer(5) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -322,30 +322,30 @@ fn integer_assign_with_hybrid_value_within_an_if_with_dynamic_condition() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Integer) = Store Integer(0) !dbg dbg_location=1
-                Variable(1, Integer) = Store Integer(0) !dbg dbg_location=1
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(2, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(3, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=2
-                Branch Variable(3, Boolean), 2, 1 !dbg dbg_location=2
+                Variable(0, Integer) = Store Integer(0) !dbg dbg_location=0
+                Variable(1, Integer) = Store Integer(0) !dbg dbg_location=0
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(2, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(3, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=1
+                Branch Variable(3, Boolean), 2, 1 !dbg dbg_location=1
             Block 1:Block:
-                Variable(1, Integer) = Store Integer(1) !dbg dbg_location=2
-                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=5
-                Variable(4, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=4
-                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=4
-                Branch Variable(5, Boolean), 4, 3 !dbg dbg_location=4
+                Variable(1, Integer) = Store Integer(1) !dbg dbg_location=1
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=4
+                Variable(4, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=3
+                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=3
+                Branch Variable(5, Boolean), 4, 3 !dbg dbg_location=3
             Block 2:Block:
-                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(1, Integer) = Store Integer(2) !dbg dbg_location=4
-                Variable(7, Integer) = Store Variable(0, Integer) !dbg dbg_location=4
-                Call id(4), args( Variable(7, Integer), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(1, Integer) = Store Integer(2) !dbg dbg_location=3
+                Variable(7, Integer) = Store Variable(0, Integer) !dbg dbg_location=3
+                Call id(4), args( Variable(7, Integer), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 4:Block:
-                Variable(6, Integer) = BitwiseOr Variable(0, Integer), Integer(2) !dbg dbg_location=4
-                Variable(0, Integer) = Store Variable(6, Integer) !dbg dbg_location=4
-                Jump(3) !dbg dbg_location=4"#]],
+                Variable(6, Integer) = BitwiseOr Variable(0, Integer), Integer(2) !dbg dbg_location=3
+                Variable(0, Integer) = Store Variable(6, Integer) !dbg dbg_location=3
+                Jump(3) !dbg dbg_location=3"#]],
     );
 }
 
@@ -379,10 +379,10 @@ fn large_loop_with_inner_if_completes_eval_and_transform() {
         BlockId(395),
         &expect![[r#"
             Block:
-                Variable(1, Integer) = Store Integer(100) !dbg dbg_location=200
-                Variable(400, Integer) = Store Variable(0, Integer) !dbg dbg_location=200
-                Call id(4), args( Variable(400, Integer), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Variable(1, Integer) = Store Integer(100) !dbg dbg_location=199
+                Variable(400, Integer) = Store Variable(0, Integer) !dbg dbg_location=199
+                Call id(4), args( Variable(400, Integer), Tag(0, 3), ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -467,28 +467,28 @@ fn if_else_expression_with_dynamic_logical_and_condition() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=5
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=4
-                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=4
-                Variable(2, Boolean) = Store Bool(false) !dbg dbg_location=4
-                Branch Variable(1, Boolean), 2, 1 !dbg dbg_location=6
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=4
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=3
+                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=3
+                Variable(2, Boolean) = Store Bool(false) !dbg dbg_location=3
+                Branch Variable(1, Boolean), 2, 1 !dbg dbg_location=5
             Block 1:Block:
-                Branch Variable(2, Boolean), 4, 5 !dbg dbg_location=9
+                Branch Variable(2, Boolean), 4, 5 !dbg dbg_location=8
             Block 2:Block:
-                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=7
-                Variable(3, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=6
-                Variable(4, Boolean) = Store Variable(3, Boolean) !dbg dbg_location=6
-                Variable(2, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=6
-                Jump(1) !dbg dbg_location=6
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=6
+                Variable(3, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=5
+                Variable(4, Boolean) = Store Variable(3, Boolean) !dbg dbg_location=5
+                Variable(2, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=5
+                Jump(1) !dbg dbg_location=5
             Block 3:Block:
-                Call id(6), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Call id(6), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg
             Block 4:Block:
-                Call id(4), args( Qubit(2), ) !dbg dbg_location=8
-                Jump(3) !dbg dbg_location=8
+                Call id(4), args( Qubit(2), ) !dbg dbg_location=7
+                Jump(3) !dbg dbg_location=7
             Block 5:Block:
-                Call id(5), args( Qubit(2), ) !dbg dbg_location=9
-                Jump(3) !dbg dbg_location=9"#]],
+                Call id(5), args( Qubit(2), ) !dbg dbg_location=8
+                Jump(3) !dbg dbg_location=8"#]],
     );
 }
 
@@ -573,28 +573,28 @@ fn if_else_expression_with_dynamic_logical_or_condition() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=5
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=4
-                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=4
-                Variable(2, Boolean) = Store Bool(true) !dbg dbg_location=4
-                Branch Variable(1, Boolean), 1, 2 !dbg dbg_location=6
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=4
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=3
+                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=3
+                Variable(2, Boolean) = Store Bool(true) !dbg dbg_location=3
+                Branch Variable(1, Boolean), 1, 2 !dbg dbg_location=5
             Block 1:Block:
-                Branch Variable(2, Boolean), 4, 5 !dbg dbg_location=9
+                Branch Variable(2, Boolean), 4, 5 !dbg dbg_location=8
             Block 2:Block:
-                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=7
-                Variable(3, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=6
-                Variable(4, Boolean) = Store Variable(3, Boolean) !dbg dbg_location=6
-                Variable(2, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=6
-                Jump(1) !dbg dbg_location=6
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=6
+                Variable(3, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=5
+                Variable(4, Boolean) = Store Variable(3, Boolean) !dbg dbg_location=5
+                Variable(2, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=5
+                Jump(1) !dbg dbg_location=5
             Block 3:Block:
-                Call id(6), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Call id(6), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg
             Block 4:Block:
-                Call id(4), args( Qubit(2), ) !dbg dbg_location=8
-                Jump(3) !dbg dbg_location=8
+                Call id(4), args( Qubit(2), ) !dbg dbg_location=7
+                Jump(3) !dbg dbg_location=7
             Block 5:Block:
-                Call id(5), args( Qubit(2), ) !dbg dbg_location=9
-                Jump(3) !dbg dbg_location=9"#]],
+                Call id(5), args( Qubit(2), ) !dbg dbg_location=8
+                Jump(3) !dbg dbg_location=8"#]],
     );
 }
 

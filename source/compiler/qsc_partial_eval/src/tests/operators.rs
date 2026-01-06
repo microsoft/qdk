@@ -67,21 +67,21 @@ fn leading_positive_unary_operator_on_integer_does_not_generate_rir_instruction(
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
-                Variable(4, Integer) = Store Variable(3, Integer) !dbg dbg_location=2
-                Call id(4), args( Variable(4, Integer), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=1
+                Variable(4, Integer) = Store Variable(3, Integer) !dbg dbg_location=1
+                Call id(4), args( Variable(4, Integer), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -143,22 +143,22 @@ fn leading_negative_unary_operator_on_integer_generates_rir_instruction() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
-                Variable(4, Integer) = Mul Integer(-1), Variable(3, Integer) !dbg dbg_location=2
-                Variable(5, Integer) = Store Variable(4, Integer) !dbg dbg_location=2
-                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=1
+                Variable(4, Integer) = Mul Integer(-1), Variable(3, Integer) !dbg dbg_location=1
+                Variable(5, Integer) = Store Variable(4, Integer) !dbg dbg_location=1
+                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -220,22 +220,22 @@ fn bitwise_not_unary_operator_generates_rir_instruction() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
-                Variable(4, Integer) = BitwiseNot Variable(3, Integer) !dbg dbg_location=2
-                Variable(5, Integer) = Store Variable(4, Integer) !dbg dbg_location=2
-                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=1
+                Variable(4, Integer) = BitwiseNot Variable(3, Integer) !dbg dbg_location=1
+                Variable(5, Integer) = Store Variable(4, Integer) !dbg dbg_location=1
+                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -297,14 +297,14 @@ fn logical_not_unary_operator_generates_logical_not_rir_instruction() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=2
-                Variable(3, Boolean) = LogicalNot Variable(2, Boolean) !dbg dbg_location=2
-                Variable(4, Boolean) = Store Variable(3, Boolean) !dbg dbg_location=2
-                Call id(4), args( Variable(4, Boolean), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=1
+                Variable(3, Boolean) = LogicalNot Variable(2, Boolean) !dbg dbg_location=1
+                Variable(4, Boolean) = Store Variable(3, Boolean) !dbg dbg_location=1
+                Call id(4), args( Variable(4, Boolean), Tag(0, 3), ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -369,14 +369,14 @@ fn comparing_measurement_results_for_equality_adds_read_result_and_comparison_in
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=4
-                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=6
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=5
-                Variable(1, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=5
-                Variable(2, Boolean) = Icmp Eq, Variable(0, Boolean), Variable(1, Boolean) !dbg dbg_location=5
-                Variable(3, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=5
-                Call id(4), args( Variable(3, Boolean), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=5
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=4
+                Variable(1, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=4
+                Variable(2, Boolean) = Icmp Eq, Variable(0, Boolean), Variable(1, Boolean) !dbg dbg_location=4
+                Variable(3, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=4
+                Call id(4), args( Variable(3, Boolean), Tag(0, 3), ) !dbg
+                Return !dbg"#]],
     );
     assert_eq!(program.num_qubits, 2);
     assert_eq!(program.num_results, 2);
@@ -443,14 +443,14 @@ fn comparing_measurement_results_for_inequality_adds_read_result_and_comparison_
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=4
-                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=6
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=5
-                Variable(1, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=5
-                Variable(2, Boolean) = Icmp Ne, Variable(0, Boolean), Variable(1, Boolean) !dbg dbg_location=5
-                Variable(3, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=5
-                Call id(4), args( Variable(3, Boolean), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=5
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=4
+                Variable(1, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=4
+                Variable(2, Boolean) = Icmp Ne, Variable(0, Boolean), Variable(1, Boolean) !dbg dbg_location=4
+                Variable(3, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=4
+                Call id(4), args( Variable(3, Boolean), Tag(0, 3), ) !dbg
+                Return !dbg"#]],
     );
     assert_eq!(program.num_qubits, 2);
     assert_eq!(program.num_results, 2);
@@ -517,12 +517,12 @@ fn comparing_measurement_result_against_result_literal_for_equality_adds_read_re
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=2
-                Call id(4), args( Variable(2, Boolean), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=1
+                Call id(4), args( Variable(2, Boolean), Tag(0, 3), ) !dbg
+                Return !dbg"#]],
     );
     assert_eq!(program.num_qubits, 1);
     assert_eq!(program.num_results, 1);
@@ -589,12 +589,12 @@ fn comparing_measurement_result_against_result_literal_for_inequality_adds_read_
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true) !dbg dbg_location=2
-                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=2
-                Call id(4), args( Variable(2, Boolean), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true) !dbg dbg_location=1
+                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=1
+                Call id(4), args( Variable(2, Boolean), Tag(0, 3), ) !dbg
+                Return !dbg"#]],
     );
     assert_eq!(program.num_qubits, 1);
     assert_eq!(program.num_results, 1);
@@ -660,14 +660,14 @@ fn comparing_lhs_classical_boolean_against_rhs_dynamic_boolean_for_equality() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=2
-                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=2
-                Variable(3, Boolean) = Icmp Eq, Bool(false), Variable(2, Boolean) !dbg dbg_location=2
-                Variable(4, Boolean) = Store Variable(3, Boolean) !dbg dbg_location=2
-                Call id(4), args( Variable(4, Boolean), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=1
+                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=1
+                Variable(3, Boolean) = Icmp Eq, Bool(false), Variable(2, Boolean) !dbg dbg_location=1
+                Variable(4, Boolean) = Store Variable(3, Boolean) !dbg dbg_location=1
+                Call id(4), args( Variable(4, Boolean), Tag(0, 3), ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -730,16 +730,16 @@ fn comparing_lhs_dynamic_boolean_against_rhs_dynamic_boolean_for_equality() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=5
-                Variable(2, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=4
-                Variable(3, Boolean) = Icmp Eq, Variable(2, Boolean), Bool(false) !dbg dbg_location=4
-                Variable(4, Boolean) = Icmp Eq, Variable(1, Boolean), Variable(3, Boolean) !dbg dbg_location=4
-                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=4
-                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=4
+                Variable(2, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=3
+                Variable(3, Boolean) = Icmp Eq, Variable(2, Boolean), Bool(false) !dbg dbg_location=3
+                Variable(4, Boolean) = Icmp Eq, Variable(1, Boolean), Variable(3, Boolean) !dbg dbg_location=3
+                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=3
+                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -803,14 +803,14 @@ fn comparing_lhs_classical_boolean_against_rhs_dynamic_boolean_for_inequality() 
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=2
-                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=2
-                Variable(3, Boolean) = Icmp Ne, Bool(true), Variable(2, Boolean) !dbg dbg_location=2
-                Variable(4, Boolean) = Store Variable(3, Boolean) !dbg dbg_location=2
-                Call id(4), args( Variable(4, Boolean), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=1
+                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=1
+                Variable(3, Boolean) = Icmp Ne, Bool(true), Variable(2, Boolean) !dbg dbg_location=1
+                Variable(4, Boolean) = Store Variable(3, Boolean) !dbg dbg_location=1
+                Call id(4), args( Variable(4, Boolean), Tag(0, 3), ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -873,16 +873,16 @@ fn comparing_lhs_dynamic_boolean_against_rhs_dynamic_boolean_for_inequality() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=5
-                Variable(2, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=4
-                Variable(3, Boolean) = Icmp Eq, Variable(2, Boolean), Bool(false) !dbg dbg_location=4
-                Variable(4, Boolean) = Icmp Ne, Variable(1, Boolean), Variable(3, Boolean) !dbg dbg_location=4
-                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=4
-                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=4
+                Variable(2, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=3
+                Variable(3, Boolean) = Icmp Eq, Variable(2, Boolean), Bool(false) !dbg dbg_location=3
+                Variable(4, Boolean) = Icmp Ne, Variable(1, Boolean), Variable(3, Boolean) !dbg dbg_location=3
+                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=3
+                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -946,13 +946,13 @@ fn logical_and_with_lhs_classical_true_is_optimized_as_store() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=2
-                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=2
-                Variable(3, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=2
-                Call id(4), args( Variable(3, Boolean), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=1
+                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=1
+                Variable(3, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=1
+                Call id(4), args( Variable(3, Boolean), Tag(0, 3), ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -1016,12 +1016,12 @@ fn logical_and_with_lhs_classical_false_short_circuits_evaluation() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=2
-                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=2
-                Call id(4), args( Bool(false), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=1
+                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=1
+                Call id(4), args( Bool(false), Tag(0, 3), ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -1084,21 +1084,21 @@ fn logical_and_with_dynamic_lhs_and_dynamic_rhs_short_circuits_when_lhs_is_false
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Variable(2, Boolean) = Store Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 1 !dbg dbg_location=4
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Variable(2, Boolean) = Store Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 1 !dbg dbg_location=3
             Block 1:Block:
-                Variable(5, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=4
-                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(5, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=3
+                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 2:Block:
-                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=5
-                Variable(3, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=4
-                Variable(4, Boolean) = Icmp Eq, Variable(3, Boolean), Bool(false) !dbg dbg_location=4
-                Variable(2, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=4
-                Jump(1) !dbg dbg_location=4"#]],
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=4
+                Variable(3, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=3
+                Variable(4, Boolean) = Icmp Eq, Variable(3, Boolean), Bool(false) !dbg dbg_location=3
+                Variable(2, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=3
+                Jump(1) !dbg dbg_location=3"#]],
     );
 }
 
@@ -1162,12 +1162,12 @@ fn logical_or_with_lhs_classical_true_short_circuits_evaluation() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=2
-                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=2
-                Call id(4), args( Bool(true), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=1
+                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=1
+                Call id(4), args( Bool(true), Tag(0, 3), ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -1231,13 +1231,13 @@ fn logical_or_with_lhs_classical_false_is_optimized_as_store() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=2
-                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=2
-                Variable(3, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=2
-                Call id(4), args( Variable(3, Boolean), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=1
+                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=1
+                Variable(3, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=1
+                Call id(4), args( Variable(3, Boolean), Tag(0, 3), ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -1300,21 +1300,21 @@ fn logical_or_with_dynamic_lhs_and_dynamic_rhs_short_circuits_when_rhs_is_true()
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true) !dbg dbg_location=2
-                Variable(2, Boolean) = Store Bool(true) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 1, 2 !dbg dbg_location=4
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true) !dbg dbg_location=1
+                Variable(2, Boolean) = Store Bool(true) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 1, 2 !dbg dbg_location=3
             Block 1:Block:
-                Variable(5, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=4
-                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(5, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=3
+                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 2:Block:
-                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=5
-                Variable(3, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=4
-                Variable(4, Boolean) = Icmp Ne, Variable(3, Boolean), Bool(true) !dbg dbg_location=4
-                Variable(2, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=4
-                Jump(1) !dbg dbg_location=4"#]],
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=4
+                Variable(3, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=3
+                Variable(4, Boolean) = Icmp Ne, Variable(3, Boolean), Bool(true) !dbg dbg_location=3
+                Variable(2, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=3
+                Jump(1) !dbg dbg_location=3"#]],
     );
 }
 
@@ -1377,30 +1377,30 @@ fn logical_and_and_sequence_with_dynamic_operands() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=5
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=4
-                Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true) !dbg dbg_location=4
-                Variable(2, Boolean) = Store Bool(false) !dbg dbg_location=4
-                Branch Variable(1, Boolean), 2, 1 !dbg dbg_location=6
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=4
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=3
+                Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true) !dbg dbg_location=3
+                Variable(2, Boolean) = Store Bool(false) !dbg dbg_location=3
+                Branch Variable(1, Boolean), 2, 1 !dbg dbg_location=5
             Block 1:Block:
-                Variable(5, Boolean) = Store Bool(false) !dbg dbg_location=6
-                Branch Variable(2, Boolean), 4, 3 !dbg dbg_location=8
+                Variable(5, Boolean) = Store Bool(false) !dbg dbg_location=5
+                Branch Variable(2, Boolean), 4, 3 !dbg dbg_location=7
             Block 2:Block:
-                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=7
-                Variable(3, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=6
-                Variable(4, Boolean) = Icmp Ne, Variable(3, Boolean), Bool(true) !dbg dbg_location=6
-                Variable(2, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=6
-                Jump(1) !dbg dbg_location=6
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=6
+                Variable(3, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=5
+                Variable(4, Boolean) = Icmp Ne, Variable(3, Boolean), Bool(true) !dbg dbg_location=5
+                Variable(2, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=5
+                Jump(1) !dbg dbg_location=5
             Block 3:Block:
-                Variable(8, Boolean) = Store Variable(5, Boolean) !dbg dbg_location=8
-                Call id(4), args( Variable(8, Boolean), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(8, Boolean) = Store Variable(5, Boolean) !dbg dbg_location=7
+                Call id(4), args( Variable(8, Boolean), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 4:Block:
-                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=9
-                Variable(6, Boolean) = Call id(3), args( Result(2), ) !dbg dbg_location=8
-                Variable(7, Boolean) = Icmp Ne, Variable(6, Boolean), Bool(true) !dbg dbg_location=8
-                Variable(5, Boolean) = Store Variable(7, Boolean) !dbg dbg_location=8
-                Jump(3) !dbg dbg_location=8"#]],
+                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=8
+                Variable(6, Boolean) = Call id(3), args( Result(2), ) !dbg dbg_location=7
+                Variable(7, Boolean) = Icmp Ne, Variable(6, Boolean), Bool(true) !dbg dbg_location=7
+                Variable(5, Boolean) = Store Variable(7, Boolean) !dbg dbg_location=7
+                Jump(3) !dbg dbg_location=7"#]],
     );
 }
 
@@ -1463,30 +1463,30 @@ fn logical_and_or_sequence_with_dynamic_operands() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=5
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=4
-                Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true) !dbg dbg_location=4
-                Variable(2, Boolean) = Store Bool(false) !dbg dbg_location=4
-                Branch Variable(1, Boolean), 2, 1 !dbg dbg_location=6
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=4
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=3
+                Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true) !dbg dbg_location=3
+                Variable(2, Boolean) = Store Bool(false) !dbg dbg_location=3
+                Branch Variable(1, Boolean), 2, 1 !dbg dbg_location=5
             Block 1:Block:
-                Variable(5, Boolean) = Store Bool(true) !dbg dbg_location=6
-                Branch Variable(2, Boolean), 3, 4 !dbg dbg_location=8
+                Variable(5, Boolean) = Store Bool(true) !dbg dbg_location=5
+                Branch Variable(2, Boolean), 3, 4 !dbg dbg_location=7
             Block 2:Block:
-                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=7
-                Variable(3, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=6
-                Variable(4, Boolean) = Icmp Ne, Variable(3, Boolean), Bool(true) !dbg dbg_location=6
-                Variable(2, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=6
-                Jump(1) !dbg dbg_location=6
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=6
+                Variable(3, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=5
+                Variable(4, Boolean) = Icmp Ne, Variable(3, Boolean), Bool(true) !dbg dbg_location=5
+                Variable(2, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=5
+                Jump(1) !dbg dbg_location=5
             Block 3:Block:
-                Variable(8, Boolean) = Store Variable(5, Boolean) !dbg dbg_location=8
-                Call id(4), args( Variable(8, Boolean), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(8, Boolean) = Store Variable(5, Boolean) !dbg dbg_location=7
+                Call id(4), args( Variable(8, Boolean), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 4:Block:
-                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=9
-                Variable(6, Boolean) = Call id(3), args( Result(2), ) !dbg dbg_location=8
-                Variable(7, Boolean) = Icmp Ne, Variable(6, Boolean), Bool(true) !dbg dbg_location=8
-                Variable(5, Boolean) = Store Variable(7, Boolean) !dbg dbg_location=8
-                Jump(3) !dbg dbg_location=8"#]],
+                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=8
+                Variable(6, Boolean) = Call id(3), args( Result(2), ) !dbg dbg_location=7
+                Variable(7, Boolean) = Icmp Ne, Variable(6, Boolean), Bool(true) !dbg dbg_location=7
+                Variable(5, Boolean) = Store Variable(7, Boolean) !dbg dbg_location=7
+                Jump(3) !dbg dbg_location=7"#]],
     );
 }
 
@@ -1549,30 +1549,30 @@ fn logical_or_and_sequence_with_dynamic_operands() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=5
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=4
-                Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true) !dbg dbg_location=4
-                Variable(2, Boolean) = Store Bool(true) !dbg dbg_location=4
-                Branch Variable(1, Boolean), 1, 2 !dbg dbg_location=8
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=4
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=3
+                Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true) !dbg dbg_location=3
+                Variable(2, Boolean) = Store Bool(true) !dbg dbg_location=3
+                Branch Variable(1, Boolean), 1, 2 !dbg dbg_location=7
             Block 1:Block:
-                Variable(8, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=8
-                Call id(4), args( Variable(8, Boolean), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(8, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=7
+                Call id(4), args( Variable(8, Boolean), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 2:Block:
-                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=7
-                Variable(3, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=6
-                Variable(4, Boolean) = Icmp Ne, Variable(3, Boolean), Bool(true) !dbg dbg_location=6
-                Variable(5, Boolean) = Store Bool(false) !dbg dbg_location=6
-                Branch Variable(4, Boolean), 4, 3 !dbg dbg_location=8
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=6
+                Variable(3, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=5
+                Variable(4, Boolean) = Icmp Ne, Variable(3, Boolean), Bool(true) !dbg dbg_location=5
+                Variable(5, Boolean) = Store Bool(false) !dbg dbg_location=5
+                Branch Variable(4, Boolean), 4, 3 !dbg dbg_location=7
             Block 3:Block:
-                Variable(2, Boolean) = Store Variable(5, Boolean) !dbg dbg_location=8
-                Jump(1) !dbg dbg_location=8
+                Variable(2, Boolean) = Store Variable(5, Boolean) !dbg dbg_location=7
+                Jump(1) !dbg dbg_location=7
             Block 4:Block:
-                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=9
-                Variable(6, Boolean) = Call id(3), args( Result(2), ) !dbg dbg_location=8
-                Variable(7, Boolean) = Icmp Ne, Variable(6, Boolean), Bool(true) !dbg dbg_location=8
-                Variable(5, Boolean) = Store Variable(7, Boolean) !dbg dbg_location=8
-                Jump(3) !dbg dbg_location=8"#]],
+                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=8
+                Variable(6, Boolean) = Call id(3), args( Result(2), ) !dbg dbg_location=7
+                Variable(7, Boolean) = Icmp Ne, Variable(6, Boolean), Bool(true) !dbg dbg_location=7
+                Variable(5, Boolean) = Store Variable(7, Boolean) !dbg dbg_location=7
+                Jump(3) !dbg dbg_location=7"#]],
     );
 }
 
@@ -1635,30 +1635,30 @@ fn logical_or_or_sequence_with_dynamic_operands() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=5
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=4
-                Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true) !dbg dbg_location=4
-                Variable(2, Boolean) = Store Bool(true) !dbg dbg_location=4
-                Branch Variable(1, Boolean), 1, 2 !dbg dbg_location=6
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=4
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=3
+                Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true) !dbg dbg_location=3
+                Variable(2, Boolean) = Store Bool(true) !dbg dbg_location=3
+                Branch Variable(1, Boolean), 1, 2 !dbg dbg_location=5
             Block 1:Block:
-                Variable(5, Boolean) = Store Bool(true) !dbg dbg_location=6
-                Branch Variable(2, Boolean), 3, 4 !dbg dbg_location=8
+                Variable(5, Boolean) = Store Bool(true) !dbg dbg_location=5
+                Branch Variable(2, Boolean), 3, 4 !dbg dbg_location=7
             Block 2:Block:
-                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=7
-                Variable(3, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=6
-                Variable(4, Boolean) = Icmp Ne, Variable(3, Boolean), Bool(true) !dbg dbg_location=6
-                Variable(2, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=6
-                Jump(1) !dbg dbg_location=6
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=6
+                Variable(3, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=5
+                Variable(4, Boolean) = Icmp Ne, Variable(3, Boolean), Bool(true) !dbg dbg_location=5
+                Variable(2, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=5
+                Jump(1) !dbg dbg_location=5
             Block 3:Block:
-                Variable(8, Boolean) = Store Variable(5, Boolean) !dbg dbg_location=8
-                Call id(4), args( Variable(8, Boolean), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(8, Boolean) = Store Variable(5, Boolean) !dbg dbg_location=7
+                Call id(4), args( Variable(8, Boolean), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 4:Block:
-                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=9
-                Variable(6, Boolean) = Call id(3), args( Result(2), ) !dbg dbg_location=8
-                Variable(7, Boolean) = Icmp Ne, Variable(6, Boolean), Bool(true) !dbg dbg_location=8
-                Variable(5, Boolean) = Store Variable(7, Boolean) !dbg dbg_location=8
-                Jump(3) !dbg dbg_location=8"#]],
+                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=8
+                Variable(6, Boolean) = Call id(3), args( Result(2), ) !dbg dbg_location=7
+                Variable(7, Boolean) = Icmp Ne, Variable(6, Boolean), Bool(true) !dbg dbg_location=7
+                Variable(5, Boolean) = Store Variable(7, Boolean) !dbg dbg_location=7
+                Jump(3) !dbg dbg_location=7"#]],
     );
 }
 
@@ -1722,22 +1722,22 @@ fn integer_add_with_lhs_classical_integer_and_rhs_dynamic_integer() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
-                Variable(4, Integer) = Add Integer(1), Variable(3, Integer) !dbg dbg_location=2
-                Variable(5, Integer) = Store Variable(4, Integer) !dbg dbg_location=2
-                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=1
+                Variable(4, Integer) = Add Integer(1), Variable(3, Integer) !dbg dbg_location=1
+                Variable(5, Integer) = Store Variable(4, Integer) !dbg dbg_location=1
+                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -1801,22 +1801,22 @@ fn integer_sub_with_lhs_dynamic_integer_and_rhs_classical_integer() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
-                Variable(4, Integer) = Sub Variable(3, Integer), Integer(1) !dbg dbg_location=2
-                Variable(5, Integer) = Store Variable(4, Integer) !dbg dbg_location=2
-                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=1
+                Variable(4, Integer) = Sub Variable(3, Integer), Integer(1) !dbg dbg_location=1
+                Variable(5, Integer) = Store Variable(4, Integer) !dbg dbg_location=1
+                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -1881,34 +1881,34 @@ fn integer_mul_with_lhs_dynamic_integer_and_rhs_dynamic_integer() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
-                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=5
-                Variable(4, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=4
-                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg dbg_location=4
-                Branch Variable(5, Boolean), 5, 6 !dbg dbg_location=4
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=1
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=4
+                Variable(4, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=3
+                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg dbg_location=3
+                Branch Variable(5, Boolean), 5, 6 !dbg dbg_location=3
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 4:Block:
-                Variable(7, Integer) = Store Variable(6, Integer) !dbg dbg_location=4
-                Variable(8, Integer) = Mul Variable(3, Integer), Variable(7, Integer) !dbg dbg_location=4
-                Variable(9, Integer) = Store Variable(8, Integer) !dbg dbg_location=4
-                Call id(4), args( Variable(9, Integer), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(7, Integer) = Store Variable(6, Integer) !dbg dbg_location=3
+                Variable(8, Integer) = Mul Variable(3, Integer), Variable(7, Integer) !dbg dbg_location=3
+                Variable(9, Integer) = Store Variable(8, Integer) !dbg dbg_location=3
+                Call id(4), args( Variable(9, Integer), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 5:Block:
-                Variable(6, Integer) = Store Integer(1) !dbg dbg_location=4
-                Jump(4) !dbg dbg_location=4
+                Variable(6, Integer) = Store Integer(1) !dbg dbg_location=3
+                Jump(4) !dbg dbg_location=3
             Block 6:Block:
-                Variable(6, Integer) = Store Integer(0) !dbg dbg_location=4
-                Jump(4) !dbg dbg_location=4"#]],
+                Variable(6, Integer) = Store Integer(0) !dbg dbg_location=3
+                Jump(4) !dbg dbg_location=3"#]],
     );
 }
 
@@ -1972,22 +1972,22 @@ fn integer_div_with_lhs_classical_integer_and_rhs_dynamic_integer() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
-                Variable(4, Integer) = Sdiv Integer(1), Variable(3, Integer) !dbg dbg_location=2
-                Variable(5, Integer) = Store Variable(4, Integer) !dbg dbg_location=2
-                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=1
+                Variable(4, Integer) = Sdiv Integer(1), Variable(3, Integer) !dbg dbg_location=1
+                Variable(5, Integer) = Store Variable(4, Integer) !dbg dbg_location=1
+                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -2073,22 +2073,22 @@ fn integer_mod_with_lhs_dynamic_integer_and_rhs_classical_integer() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
-                Variable(4, Integer) = Srem Variable(3, Integer), Integer(1) !dbg dbg_location=2
-                Variable(5, Integer) = Store Variable(4, Integer) !dbg dbg_location=2
-                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=1
+                Variable(4, Integer) = Srem Variable(3, Integer), Integer(1) !dbg dbg_location=1
+                Variable(5, Integer) = Store Variable(4, Integer) !dbg dbg_location=1
+                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -2197,22 +2197,22 @@ fn integer_exponentiation_with_lhs_dynamic_integer_and_rhs_classical_zero_intege
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
-                Variable(4, Integer) = Store Integer(1) !dbg dbg_location=2
-                Variable(5, Integer) = Store Variable(4, Integer) !dbg dbg_location=2
-                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=1
+                Variable(4, Integer) = Store Integer(1) !dbg dbg_location=1
+                Variable(5, Integer) = Store Variable(4, Integer) !dbg dbg_location=1
+                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -2276,25 +2276,25 @@ fn integer_exponentiation_with_lhs_dynamic_integer_and_rhs_classical_positive_in
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
-                Variable(4, Integer) = Store Integer(1) !dbg dbg_location=2
-                Variable(5, Integer) = Mul Variable(4, Integer), Variable(3, Integer) !dbg dbg_location=2
-                Variable(6, Integer) = Mul Variable(5, Integer), Variable(3, Integer) !dbg dbg_location=2
-                Variable(7, Integer) = Mul Variable(6, Integer), Variable(3, Integer) !dbg dbg_location=2
-                Variable(8, Integer) = Store Variable(7, Integer) !dbg dbg_location=2
-                Call id(4), args( Variable(8, Integer), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=1
+                Variable(4, Integer) = Store Integer(1) !dbg dbg_location=1
+                Variable(5, Integer) = Mul Variable(4, Integer), Variable(3, Integer) !dbg dbg_location=1
+                Variable(6, Integer) = Mul Variable(5, Integer), Variable(3, Integer) !dbg dbg_location=1
+                Variable(7, Integer) = Mul Variable(6, Integer), Variable(3, Integer) !dbg dbg_location=1
+                Variable(8, Integer) = Store Variable(7, Integer) !dbg dbg_location=1
+                Call id(4), args( Variable(8, Integer), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -2382,34 +2382,34 @@ fn integer_bitwise_and_with_lhs_dynamic_integer_and_rhs_dynamic_integer() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
-                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=5
-                Variable(4, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=4
-                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg dbg_location=4
-                Branch Variable(5, Boolean), 5, 6 !dbg dbg_location=4
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=1
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=4
+                Variable(4, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=3
+                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg dbg_location=3
+                Branch Variable(5, Boolean), 5, 6 !dbg dbg_location=3
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 4:Block:
-                Variable(7, Integer) = Store Variable(6, Integer) !dbg dbg_location=4
-                Variable(8, Integer) = BitwiseAnd Variable(3, Integer), Variable(7, Integer) !dbg dbg_location=4
-                Variable(9, Integer) = Store Variable(8, Integer) !dbg dbg_location=4
-                Call id(4), args( Variable(9, Integer), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(7, Integer) = Store Variable(6, Integer) !dbg dbg_location=3
+                Variable(8, Integer) = BitwiseAnd Variable(3, Integer), Variable(7, Integer) !dbg dbg_location=3
+                Variable(9, Integer) = Store Variable(8, Integer) !dbg dbg_location=3
+                Call id(4), args( Variable(9, Integer), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 5:Block:
-                Variable(6, Integer) = Store Integer(1) !dbg dbg_location=4
-                Jump(4) !dbg dbg_location=4
+                Variable(6, Integer) = Store Integer(1) !dbg dbg_location=3
+                Jump(4) !dbg dbg_location=3
             Block 6:Block:
-                Variable(6, Integer) = Store Integer(0) !dbg dbg_location=4
-                Jump(4) !dbg dbg_location=4"#]],
+                Variable(6, Integer) = Store Integer(0) !dbg dbg_location=3
+                Jump(4) !dbg dbg_location=3"#]],
     );
 }
 
@@ -2473,22 +2473,22 @@ fn integer_bitwise_or_with_lhs_classical_integer_and_rhs_dynamic_integer() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
-                Variable(4, Integer) = BitwiseOr Integer(1), Variable(3, Integer) !dbg dbg_location=2
-                Variable(5, Integer) = Store Variable(4, Integer) !dbg dbg_location=2
-                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=1
+                Variable(4, Integer) = BitwiseOr Integer(1), Variable(3, Integer) !dbg dbg_location=1
+                Variable(5, Integer) = Store Variable(4, Integer) !dbg dbg_location=1
+                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -2552,22 +2552,22 @@ fn integer_bitwise_xor_with_lhs_dynamic_integer_and_rhs_classical_integer() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
-                Variable(4, Integer) = BitwiseXor Variable(3, Integer), Integer(1) !dbg dbg_location=2
-                Variable(5, Integer) = Store Variable(4, Integer) !dbg dbg_location=2
-                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=1
+                Variable(4, Integer) = BitwiseXor Variable(3, Integer), Integer(1) !dbg dbg_location=1
+                Variable(5, Integer) = Store Variable(4, Integer) !dbg dbg_location=1
+                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -2632,34 +2632,34 @@ fn integer_bitwise_left_shif_with_lhs_dynamic_integer_and_rhs_dynamic_integer() 
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
-                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=5
-                Variable(4, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=4
-                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg dbg_location=4
-                Branch Variable(5, Boolean), 5, 6 !dbg dbg_location=4
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=1
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=4
+                Variable(4, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=3
+                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg dbg_location=3
+                Branch Variable(5, Boolean), 5, 6 !dbg dbg_location=3
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 4:Block:
-                Variable(7, Integer) = Store Variable(6, Integer) !dbg dbg_location=4
-                Variable(8, Integer) = Shl Variable(3, Integer), Variable(7, Integer) !dbg dbg_location=4
-                Variable(9, Integer) = Store Variable(8, Integer) !dbg dbg_location=4
-                Call id(4), args( Variable(9, Integer), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(7, Integer) = Store Variable(6, Integer) !dbg dbg_location=3
+                Variable(8, Integer) = Shl Variable(3, Integer), Variable(7, Integer) !dbg dbg_location=3
+                Variable(9, Integer) = Store Variable(8, Integer) !dbg dbg_location=3
+                Call id(4), args( Variable(9, Integer), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 5:Block:
-                Variable(6, Integer) = Store Integer(1) !dbg dbg_location=4
-                Jump(4) !dbg dbg_location=4
+                Variable(6, Integer) = Store Integer(1) !dbg dbg_location=3
+                Jump(4) !dbg dbg_location=3
             Block 6:Block:
-                Variable(6, Integer) = Store Integer(0) !dbg dbg_location=4
-                Jump(4) !dbg dbg_location=4"#]],
+                Variable(6, Integer) = Store Integer(0) !dbg dbg_location=3
+                Jump(4) !dbg dbg_location=3"#]],
     );
 }
 
@@ -2723,22 +2723,22 @@ fn integer_bitwise_right_shift_with_lhs_classical_integer_and_rhs_dynamic_intege
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
-                Variable(4, Integer) = Ashr Integer(1), Variable(3, Integer) !dbg dbg_location=2
-                Variable(5, Integer) = Store Variable(4, Integer) !dbg dbg_location=2
-                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=1
+                Variable(4, Integer) = Ashr Integer(1), Variable(3, Integer) !dbg dbg_location=1
+                Variable(5, Integer) = Store Variable(4, Integer) !dbg dbg_location=1
+                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -2802,22 +2802,22 @@ fn integer_equality_comparison_with_lhs_dynamic_integer_and_rhs_classical_intege
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
-                Variable(4, Boolean) = Icmp Eq, Variable(3, Integer), Integer(1) !dbg dbg_location=2
-                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=2
-                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=1
+                Variable(4, Boolean) = Icmp Eq, Variable(3, Integer), Integer(1) !dbg dbg_location=1
+                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=1
+                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -2882,34 +2882,34 @@ fn integer_inequality_comparison_with_lhs_dynamic_integer_and_rhs_dynamic_intege
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
-                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=5
-                Variable(4, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=4
-                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg dbg_location=4
-                Branch Variable(5, Boolean), 5, 6 !dbg dbg_location=4
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=1
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=4
+                Variable(4, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=3
+                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg dbg_location=3
+                Branch Variable(5, Boolean), 5, 6 !dbg dbg_location=3
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 4:Block:
-                Variable(7, Integer) = Store Variable(6, Integer) !dbg dbg_location=4
-                Variable(8, Boolean) = Icmp Ne, Variable(3, Integer), Variable(7, Integer) !dbg dbg_location=4
-                Variable(9, Boolean) = Store Variable(8, Boolean) !dbg dbg_location=4
-                Call id(4), args( Variable(9, Boolean), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(7, Integer) = Store Variable(6, Integer) !dbg dbg_location=3
+                Variable(8, Boolean) = Icmp Ne, Variable(3, Integer), Variable(7, Integer) !dbg dbg_location=3
+                Variable(9, Boolean) = Store Variable(8, Boolean) !dbg dbg_location=3
+                Call id(4), args( Variable(9, Boolean), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 5:Block:
-                Variable(6, Integer) = Store Integer(1) !dbg dbg_location=4
-                Jump(4) !dbg dbg_location=4
+                Variable(6, Integer) = Store Integer(1) !dbg dbg_location=3
+                Jump(4) !dbg dbg_location=3
             Block 6:Block:
-                Variable(6, Integer) = Store Integer(0) !dbg dbg_location=4
-                Jump(4) !dbg dbg_location=4"#]],
+                Variable(6, Integer) = Store Integer(0) !dbg dbg_location=3
+                Jump(4) !dbg dbg_location=3"#]],
     );
 }
 
@@ -2973,22 +2973,22 @@ fn integer_greater_than_comparison_with_lhs_classical_integer_and_rhs_dynamic_in
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
-                Variable(4, Boolean) = Icmp Sgt, Integer(1), Variable(3, Integer) !dbg dbg_location=2
-                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=2
-                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=1
+                Variable(4, Boolean) = Icmp Sgt, Integer(1), Variable(3, Integer) !dbg dbg_location=1
+                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=1
+                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -3052,22 +3052,22 @@ fn integer_greater_or_equal_than_comparison_with_lhs_dynamic_integer_and_rhs_cla
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
-                Variable(4, Boolean) = Icmp Sge, Variable(3, Integer), Integer(1) !dbg dbg_location=2
-                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=2
-                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=1
+                Variable(4, Boolean) = Icmp Sge, Variable(3, Integer), Integer(1) !dbg dbg_location=1
+                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=1
+                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -3132,34 +3132,34 @@ fn integer_less_than_comparison_with_lhs_dynamic_integer_and_rhs_dynamic_integer
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
-                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=5
-                Variable(4, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=4
-                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg dbg_location=4
-                Branch Variable(5, Boolean), 5, 6 !dbg dbg_location=4
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=1
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=4
+                Variable(4, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=3
+                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg dbg_location=3
+                Branch Variable(5, Boolean), 5, 6 !dbg dbg_location=3
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 4:Block:
-                Variable(7, Integer) = Store Variable(6, Integer) !dbg dbg_location=4
-                Variable(8, Boolean) = Icmp Slt, Variable(3, Integer), Variable(7, Integer) !dbg dbg_location=4
-                Variable(9, Boolean) = Store Variable(8, Boolean) !dbg dbg_location=4
-                Call id(4), args( Variable(9, Boolean), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(7, Integer) = Store Variable(6, Integer) !dbg dbg_location=3
+                Variable(8, Boolean) = Icmp Slt, Variable(3, Integer), Variable(7, Integer) !dbg dbg_location=3
+                Variable(9, Boolean) = Store Variable(8, Boolean) !dbg dbg_location=3
+                Call id(4), args( Variable(9, Boolean), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 5:Block:
-                Variable(6, Integer) = Store Integer(1) !dbg dbg_location=4
-                Jump(4) !dbg dbg_location=4
+                Variable(6, Integer) = Store Integer(1) !dbg dbg_location=3
+                Jump(4) !dbg dbg_location=3
             Block 6:Block:
-                Variable(6, Integer) = Store Integer(0) !dbg dbg_location=4
-                Jump(4) !dbg dbg_location=4"#]],
+                Variable(6, Integer) = Store Integer(0) !dbg dbg_location=3
+                Jump(4) !dbg dbg_location=3"#]],
     );
 }
 
@@ -3223,22 +3223,22 @@ fn integer_less_or_equal_than_comparison_with_lhs_classical_integer_and_rhs_dyna
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
-                Variable(4, Boolean) = Icmp Sle, Integer(1), Variable(3, Integer) !dbg dbg_location=2
-                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=2
-                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=1
+                Variable(4, Boolean) = Icmp Sle, Integer(1), Variable(3, Integer) !dbg dbg_location=1
+                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=1
+                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -3300,21 +3300,21 @@ fn leading_positive_unary_operator_on_double_does_not_generate_rir_instruction()
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=2
-                Variable(4, Double) = Store Variable(3, Double) !dbg dbg_location=2
-                Call id(4), args( Variable(4, Double), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=1
+                Variable(4, Double) = Store Variable(3, Double) !dbg dbg_location=1
+                Call id(4), args( Variable(4, Double), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 2:Block:
-                Variable(2, Double) = Store Double(0) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Double) = Store Double(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Double) = Store Double(1) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2"#]],
+                Variable(2, Double) = Store Double(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -3376,22 +3376,22 @@ fn leading_negative_unary_operator_on_double_generates_rir_instruction() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=2
-                Variable(4, Double) = Fmul Double(-1), Variable(3, Double) !dbg dbg_location=2
-                Variable(5, Double) = Store Variable(4, Double) !dbg dbg_location=2
-                Call id(4), args( Variable(5, Double), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=1
+                Variable(4, Double) = Fmul Double(-1), Variable(3, Double) !dbg dbg_location=1
+                Variable(5, Double) = Store Variable(4, Double) !dbg dbg_location=1
+                Call id(4), args( Variable(5, Double), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 2:Block:
-                Variable(2, Double) = Store Double(0) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Double) = Store Double(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Double) = Store Double(1) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2"#]],
+                Variable(2, Double) = Store Double(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -3455,22 +3455,22 @@ fn double_add_with_lhs_classical_double_and_rhs_dynamic_double() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=2
-                Variable(4, Double) = Fadd Double(1), Variable(3, Double) !dbg dbg_location=2
-                Variable(5, Double) = Store Variable(4, Double) !dbg dbg_location=2
-                Call id(4), args( Variable(5, Double), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=1
+                Variable(4, Double) = Fadd Double(1), Variable(3, Double) !dbg dbg_location=1
+                Variable(5, Double) = Store Variable(4, Double) !dbg dbg_location=1
+                Call id(4), args( Variable(5, Double), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 2:Block:
-                Variable(2, Double) = Store Double(0) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Double) = Store Double(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Double) = Store Double(1) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2"#]],
+                Variable(2, Double) = Store Double(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -3534,22 +3534,22 @@ fn double_sub_with_lhs_dynamic_double_and_rhs_classical_double() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=2
-                Variable(4, Double) = Fsub Variable(3, Double), Double(1) !dbg dbg_location=2
-                Variable(5, Double) = Store Variable(4, Double) !dbg dbg_location=2
-                Call id(4), args( Variable(5, Double), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=1
+                Variable(4, Double) = Fsub Variable(3, Double), Double(1) !dbg dbg_location=1
+                Variable(5, Double) = Store Variable(4, Double) !dbg dbg_location=1
+                Call id(4), args( Variable(5, Double), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 2:Block:
-                Variable(2, Double) = Store Double(0) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Double) = Store Double(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Double) = Store Double(1) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2"#]],
+                Variable(2, Double) = Store Double(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -3614,34 +3614,34 @@ fn double_mul_with_lhs_dynamic_double_and_rhs_dynamic_double() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=2
-                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=5
-                Variable(4, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=4
-                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg dbg_location=4
-                Branch Variable(5, Boolean), 5, 6 !dbg dbg_location=4
+                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=1
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=4
+                Variable(4, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=3
+                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg dbg_location=3
+                Branch Variable(5, Boolean), 5, 6 !dbg dbg_location=3
             Block 2:Block:
-                Variable(2, Double) = Store Double(0) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Double) = Store Double(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Double) = Store Double(1) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Double) = Store Double(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 4:Block:
-                Variable(7, Double) = Store Variable(6, Double) !dbg dbg_location=4
-                Variable(8, Double) = Fmul Variable(3, Double), Variable(7, Double) !dbg dbg_location=4
-                Variable(9, Double) = Store Variable(8, Double) !dbg dbg_location=4
-                Call id(4), args( Variable(9, Double), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(7, Double) = Store Variable(6, Double) !dbg dbg_location=3
+                Variable(8, Double) = Fmul Variable(3, Double), Variable(7, Double) !dbg dbg_location=3
+                Variable(9, Double) = Store Variable(8, Double) !dbg dbg_location=3
+                Call id(4), args( Variable(9, Double), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 5:Block:
-                Variable(6, Double) = Store Double(1.1) !dbg dbg_location=4
-                Jump(4) !dbg dbg_location=4
+                Variable(6, Double) = Store Double(1.1) !dbg dbg_location=3
+                Jump(4) !dbg dbg_location=3
             Block 6:Block:
-                Variable(6, Double) = Store Double(0.1) !dbg dbg_location=4
-                Jump(4) !dbg dbg_location=4"#]],
+                Variable(6, Double) = Store Double(0.1) !dbg dbg_location=3
+                Jump(4) !dbg dbg_location=3"#]],
     );
 }
 
@@ -3705,22 +3705,22 @@ fn double_div_with_lhs_classical_double_and_rhs_dynamic_double() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=2
-                Variable(4, Double) = Fdiv Double(1), Variable(3, Double) !dbg dbg_location=2
-                Variable(5, Double) = Store Variable(4, Double) !dbg dbg_location=2
-                Call id(4), args( Variable(5, Double), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=1
+                Variable(4, Double) = Fdiv Double(1), Variable(3, Double) !dbg dbg_location=1
+                Variable(5, Double) = Store Variable(4, Double) !dbg dbg_location=1
+                Call id(4), args( Variable(5, Double), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 2:Block:
-                Variable(2, Double) = Store Double(0) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Double) = Store Double(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Double) = Store Double(1) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2"#]],
+                Variable(2, Double) = Store Double(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -3806,22 +3806,22 @@ fn double_equality_comparison_with_lhs_dynamic_double_and_rhs_classical_double()
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=2
-                Variable(4, Boolean) = Fcmp Oeq, Variable(3, Double), Double(1) !dbg dbg_location=2
-                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=2
-                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=1
+                Variable(4, Boolean) = Fcmp Oeq, Variable(3, Double), Double(1) !dbg dbg_location=1
+                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=1
+                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 2:Block:
-                Variable(2, Double) = Store Double(0) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Double) = Store Double(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Double) = Store Double(1) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2"#]],
+                Variable(2, Double) = Store Double(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -3886,34 +3886,34 @@ fn double_inequality_comparison_with_lhs_dynamic_double_and_rhs_dynamic_double()
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=2
-                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=5
-                Variable(4, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=4
-                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg dbg_location=4
-                Branch Variable(5, Boolean), 5, 6 !dbg dbg_location=4
+                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=1
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=4
+                Variable(4, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=3
+                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg dbg_location=3
+                Branch Variable(5, Boolean), 5, 6 !dbg dbg_location=3
             Block 2:Block:
-                Variable(2, Double) = Store Double(0) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Double) = Store Double(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Double) = Store Double(1) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Double) = Store Double(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 4:Block:
-                Variable(7, Double) = Store Variable(6, Double) !dbg dbg_location=4
-                Variable(8, Boolean) = Fcmp One, Variable(3, Double), Variable(7, Double) !dbg dbg_location=4
-                Variable(9, Boolean) = Store Variable(8, Boolean) !dbg dbg_location=4
-                Call id(4), args( Variable(9, Boolean), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(7, Double) = Store Variable(6, Double) !dbg dbg_location=3
+                Variable(8, Boolean) = Fcmp One, Variable(3, Double), Variable(7, Double) !dbg dbg_location=3
+                Variable(9, Boolean) = Store Variable(8, Boolean) !dbg dbg_location=3
+                Call id(4), args( Variable(9, Boolean), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 5:Block:
-                Variable(6, Double) = Store Double(1.1) !dbg dbg_location=4
-                Jump(4) !dbg dbg_location=4
+                Variable(6, Double) = Store Double(1.1) !dbg dbg_location=3
+                Jump(4) !dbg dbg_location=3
             Block 6:Block:
-                Variable(6, Double) = Store Double(0.1) !dbg dbg_location=4
-                Jump(4) !dbg dbg_location=4"#]],
+                Variable(6, Double) = Store Double(0.1) !dbg dbg_location=3
+                Jump(4) !dbg dbg_location=3"#]],
     );
 }
 
@@ -3977,22 +3977,22 @@ fn double_greater_than_comparison_with_lhs_classical_double_and_rhs_dynamic_doub
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=2
-                Variable(4, Boolean) = Fcmp Ogt, Double(1), Variable(3, Double) !dbg dbg_location=2
-                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=2
-                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=1
+                Variable(4, Boolean) = Fcmp Ogt, Double(1), Variable(3, Double) !dbg dbg_location=1
+                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=1
+                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 2:Block:
-                Variable(2, Double) = Store Double(0) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Double) = Store Double(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Double) = Store Double(1) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2"#]],
+                Variable(2, Double) = Store Double(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -4056,22 +4056,22 @@ fn double_greater_or_equal_than_comparison_with_lhs_dynamic_double_and_rhs_class
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=2
-                Variable(4, Boolean) = Fcmp Oge, Variable(3, Double), Double(1) !dbg dbg_location=2
-                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=2
-                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=1
+                Variable(4, Boolean) = Fcmp Oge, Variable(3, Double), Double(1) !dbg dbg_location=1
+                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=1
+                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 2:Block:
-                Variable(2, Double) = Store Double(0) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Double) = Store Double(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Double) = Store Double(1) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2"#]],
+                Variable(2, Double) = Store Double(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -4136,34 +4136,34 @@ fn double_less_than_comparison_with_lhs_dynamic_double_and_rhs_dynamic_double() 
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=2
-                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=5
-                Variable(4, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=4
-                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg dbg_location=4
-                Branch Variable(5, Boolean), 5, 6 !dbg dbg_location=4
+                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=1
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=4
+                Variable(4, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=3
+                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg dbg_location=3
+                Branch Variable(5, Boolean), 5, 6 !dbg dbg_location=3
             Block 2:Block:
-                Variable(2, Double) = Store Double(0) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Double) = Store Double(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Double) = Store Double(1) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Double) = Store Double(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 4:Block:
-                Variable(7, Double) = Store Variable(6, Double) !dbg dbg_location=4
-                Variable(8, Boolean) = Fcmp Olt, Variable(3, Double), Variable(7, Double) !dbg dbg_location=4
-                Variable(9, Boolean) = Store Variable(8, Boolean) !dbg dbg_location=4
-                Call id(4), args( Variable(9, Boolean), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(7, Double) = Store Variable(6, Double) !dbg dbg_location=3
+                Variable(8, Boolean) = Fcmp Olt, Variable(3, Double), Variable(7, Double) !dbg dbg_location=3
+                Variable(9, Boolean) = Store Variable(8, Boolean) !dbg dbg_location=3
+                Call id(4), args( Variable(9, Boolean), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 5:Block:
-                Variable(6, Double) = Store Double(1.1) !dbg dbg_location=4
-                Jump(4) !dbg dbg_location=4
+                Variable(6, Double) = Store Double(1.1) !dbg dbg_location=3
+                Jump(4) !dbg dbg_location=3
             Block 6:Block:
-                Variable(6, Double) = Store Double(0.1) !dbg dbg_location=4
-                Jump(4) !dbg dbg_location=4"#]],
+                Variable(6, Double) = Store Double(0.1) !dbg dbg_location=3
+                Jump(4) !dbg dbg_location=3"#]],
     );
 }
 
@@ -4227,21 +4227,21 @@ fn double_less_or_equal_than_comparison_with_lhs_classical_double_and_rhs_dynami
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=2
-                Variable(4, Boolean) = Fcmp Ole, Double(1), Variable(3, Double) !dbg dbg_location=2
-                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=2
-                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=1
+                Variable(4, Boolean) = Fcmp Ole, Double(1), Variable(3, Double) !dbg dbg_location=1
+                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=1
+                Call id(4), args( Variable(5, Boolean), Tag(0, 3), ) !dbg
+                Return !dbg
             Block 2:Block:
-                Variable(2, Double) = Store Double(0) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Double) = Store Double(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Double) = Store Double(1) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2"#]],
+                Variable(2, Double) = Store Double(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }

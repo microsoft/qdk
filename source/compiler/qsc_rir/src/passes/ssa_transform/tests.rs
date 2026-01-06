@@ -116,7 +116,7 @@ fn ssa_transform_removes_store_in_single_block_program() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]]
@@ -150,7 +150,7 @@ fn ssa_transform_removes_store_in_single_block_program() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]]
@@ -278,7 +278,7 @@ fn ssa_transform_removes_multiple_stores_in_single_block_program() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]]
@@ -314,7 +314,7 @@ fn ssa_transform_removes_multiple_stores_in_single_block_program() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]]
@@ -451,7 +451,7 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]]
@@ -493,7 +493,7 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]]
@@ -603,7 +603,7 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks_without_i
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]]
@@ -643,7 +643,7 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks_without_i
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]]
@@ -802,7 +802,7 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]]
@@ -845,7 +845,7 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]].assert_eq(&program.to_string());
@@ -978,7 +978,7 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage_in_one_branch() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]]
@@ -1020,7 +1020,7 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage_in_one_branch() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]].assert_eq(&program.to_string());
@@ -1237,7 +1237,7 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]]
@@ -1289,7 +1289,7 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]].assert_eq(&program.to_string());
@@ -1469,7 +1469,7 @@ fn ssa_transform_inserts_phi_for_multiple_stored_values() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]]
@@ -1514,7 +1514,7 @@ fn ssa_transform_inserts_phi_for_multiple_stored_values() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]].assert_eq(&program.to_string());
@@ -1799,7 +1799,7 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]]
@@ -1853,7 +1853,7 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]].assert_eq(&program.to_string());
@@ -2097,7 +2097,7 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]]
@@ -2150,7 +2150,7 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]].assert_eq(&program.to_string());
@@ -2284,7 +2284,7 @@ fn ssa_transform_propagates_updates_from_multiple_predecessors_to_later_single_s
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]]
@@ -2326,7 +2326,7 @@ fn ssa_transform_propagates_updates_from_multiple_predecessors_to_later_single_s
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]].assert_eq(&program.to_string());
@@ -2420,7 +2420,7 @@ fn ssa_transform_maps_store_instrs_that_use_values_from_other_store_instrs() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]]
@@ -2454,7 +2454,7 @@ fn ssa_transform_maps_store_instrs_that_use_values_from_other_store_instrs() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]].assert_eq(&program.to_string());
@@ -2579,7 +2579,7 @@ fn ssa_transform_maps_store_with_variable_from_store_in_conditional_to_phi_node(
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]]
@@ -2618,7 +2618,7 @@ fn ssa_transform_maps_store_with_variable_from_store_in_conditional_to_phi_node(
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]].assert_eq(&program.to_string());
@@ -2745,7 +2745,7 @@ fn ssa_transform_allows_point_in_time_copy_of_dynamic_variable() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]]
@@ -2781,7 +2781,7 @@ fn ssa_transform_allows_point_in_time_copy_of_dynamic_variable() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]].assert_eq(&program.to_string());
@@ -2955,7 +2955,7 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]]
@@ -3008,7 +3008,7 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]]

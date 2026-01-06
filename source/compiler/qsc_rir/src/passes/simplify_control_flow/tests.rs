@@ -75,7 +75,7 @@ fn simplify_control_flow_removes_single_redundant_block() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]]
@@ -97,7 +97,7 @@ fn simplify_control_flow_removes_single_redundant_block() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]]
@@ -167,7 +167,7 @@ fn simplify_control_flow_removes_multiple_redundant_blocks() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]]
@@ -190,7 +190,7 @@ fn simplify_control_flow_removes_multiple_redundant_blocks() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]]
@@ -315,7 +315,7 @@ fn simplify_control_flow_removes_redundant_blocks_across_branches() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]]
@@ -345,7 +345,7 @@ fn simplify_control_flow_removes_redundant_blocks_across_branches() {
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]]
@@ -476,7 +476,7 @@ fn simplify_control_flow_removes_redundant_blocks_across_out_of_order_branches()
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]]
@@ -506,7 +506,7 @@ fn simplify_control_flow_removes_redundant_blocks_across_out_of_order_branches()
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
             dbg_locations:
             tags:
     "#]]

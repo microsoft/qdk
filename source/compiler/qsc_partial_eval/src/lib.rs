@@ -16,7 +16,7 @@ use evaluation_context::{Arg, BlockNode, EvalControlFlow, EvaluationContext, Sco
 use management::{QuantumIntrinsicsChecker, ResourceManager};
 use miette::Diagnostic;
 use qsc_data_structures::{
-    debug::{DbgLocation, DbgLocationId, DbgMetadataScope, DbgScopeId, InstructionMetadata},
+    debug::{DbgLocation, DbgLocationId, DbgMetadataScope, InstructionMetadata},
     functors::FunctorApp,
     span::Span,
     target::TargetCapabilityFlags,

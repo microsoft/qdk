@@ -45,8 +45,8 @@ fn non_classical_entry_point_with_classical_implicit_return() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Bool(true), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Bool(true), Tag(0, 3), ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -94,9 +94,9 @@ fn non_classical_entry_point_with_non_classical_implicit_return() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
-                Call id(3), args( Result(0), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=1
+                Call id(3), args( Result(0), Tag(0, 3), ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -130,8 +130,8 @@ fn non_classical_entry_point_with_classical_explicit_return() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Bool(false), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Bool(false), Tag(0, 3), ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -179,9 +179,9 @@ fn non_classical_entry_point_with_non_classical_explicit_return() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
-                Call id(3), args( Result(0), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=1
+                Call id(3), args( Result(0), Tag(0, 3), ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -232,9 +232,9 @@ fn non_classical_entry_point_with_classical_inline_early_return_halts_evaluation
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), ) !dbg dbg_location=2
-                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=1
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -283,9 +283,9 @@ fn non_classical_entry_point_with_non_classical_inline_early_return_halts_evalua
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
-                Call id(3), args( Result(0), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=1
+                Call id(3), args( Result(0), Tag(0, 3), ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -340,9 +340,9 @@ fn non_classical_entry_point_with_classical_early_return_within_classical_branch
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), ) !dbg dbg_location=2
-                Call id(3), args( Bool(true), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=1
+                Call id(3), args( Bool(true), Tag(0, 3), ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -502,20 +502,20 @@ fn non_classical_entry_point_with_early_return_after_branching_halts_evaluation(
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=3
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=3
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=5
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=4
             Block 1:Block:
-                Call id(6), args( Qubit(1), ) !dbg dbg_location=6
-                Call id(7), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Call id(6), args( Qubit(1), ) !dbg dbg_location=5
+                Call id(7), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg
             Block 2:Block:
-                Call id(4), args( Qubit(1), ) !dbg dbg_location=4
-                Jump(1) !dbg dbg_location=4
+                Call id(4), args( Qubit(1), ) !dbg dbg_location=3
+                Jump(1) !dbg dbg_location=3
             Block 3:Block:
-                Call id(5), args( Qubit(1), ) !dbg dbg_location=5
-                Jump(1) !dbg dbg_location=5"#]],
+                Call id(5), args( Qubit(1), ) !dbg dbg_location=4
+                Jump(1) !dbg dbg_location=4"#]],
     );
 }
 
@@ -614,17 +614,17 @@ fn operation_with_early_return_within_dynamic_branch_halts_evaluation_at_the_cal
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 1 !dbg dbg_location=3
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=1
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 1 !dbg dbg_location=2
             Block 1:Block:
-                Call id(5), args( Qubit(0), ) !dbg dbg_location=5
-                Call id(6), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Call id(5), args( Qubit(0), ) !dbg dbg_location=4
+                Call id(6), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg
             Block 2:Block:
-                Call id(4), args( Qubit(0), ) !dbg dbg_location=4
-                Jump(1) !dbg dbg_location=3"#]],
+                Call id(4), args( Qubit(0), ) !dbg dbg_location=3
+                Jump(1) !dbg dbg_location=2"#]],
     );
 }
 
@@ -682,11 +682,11 @@ fn default_qubit_management_releases_qubits_when_they_are_out_of_scope_with_impl
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), ) !dbg dbg_location=2
-                Call id(3), args( Qubit(1), ) !dbg dbg_location=5
-                Call id(2), args( Qubit(1), ) !dbg dbg_location=8
-                Call id(4), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=1
+                Call id(3), args( Qubit(1), ) !dbg dbg_location=4
+                Call id(2), args( Qubit(1), ) !dbg dbg_location=7
+                Call id(4), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
     assert_eq!(program.num_qubits, 2);
     assert_eq!(program.num_results, 0);
@@ -747,11 +747,11 @@ fn default_qubit_management_releases_qubits_when_they_are_out_of_scope_with_expl
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), ) !dbg dbg_location=2
-                Call id(3), args( Qubit(1), ) !dbg dbg_location=5
-                Call id(2), args( Qubit(1), ) !dbg dbg_location=8
-                Call id(4), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=1
+                Call id(3), args( Qubit(1), ) !dbg dbg_location=4
+                Call id(2), args( Qubit(1), ) !dbg dbg_location=7
+                Call id(4), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
     assert_eq!(program.num_qubits, 2);
     assert_eq!(program.num_results, 0);
@@ -814,11 +814,11 @@ fn default_qubit_management_releases_qubits_when_they_are_out_of_scope_with_expl
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), ) !dbg dbg_location=2
-                Call id(3), args( Qubit(1), ) !dbg dbg_location=5
-                Call id(2), args( Qubit(1), ) !dbg dbg_location=8
-                Call id(4), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=1
+                Call id(3), args( Qubit(1), ) !dbg dbg_location=4
+                Call id(2), args( Qubit(1), ) !dbg dbg_location=7
+                Call id(4), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
     assert_eq!(program.num_qubits, 2);
     assert_eq!(program.num_results, 0);

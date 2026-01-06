@@ -73,12 +73,12 @@ fn array_with_dynamic_content() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=4
-                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=6
-                Call id(3), args( Integer(2), EmptyTag, ) !dbg dbg_location=0
-                Call id(4), args( Result(0), Tag(0, 5), ) !dbg dbg_location=0
-                Call id(4), args( Result(1), Tag(1, 5), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=5
+                Call id(3), args( Integer(2), EmptyTag, ) !dbg
+                Call id(4), args( Result(0), Tag(0, 5), ) !dbg
+                Call id(4), args( Result(1), Tag(1, 5), ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -140,13 +140,13 @@ fn array_with_hybrid_content() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=2
-                Call id(4), args( Integer(2), EmptyTag, ) !dbg dbg_location=0
-                Call id(5), args( Bool(true), Tag(0, 5), ) !dbg dbg_location=0
-                Call id(5), args( Variable(1, Boolean), Tag(1, 5), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=1
+                Call id(4), args( Integer(2), EmptyTag, ) !dbg
+                Call id(5), args( Bool(true), Tag(0, 5), ) !dbg
+                Call id(5), args( Variable(1, Boolean), Tag(1, 5), ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -208,11 +208,11 @@ fn array_repeat_with_dynamic_content() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Call id(3), args( Integer(2), EmptyTag, ) !dbg dbg_location=0
-                Call id(4), args( Result(0), Tag(0, 5), ) !dbg dbg_location=0
-                Call id(4), args( Result(0), Tag(1, 5), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Call id(3), args( Integer(2), EmptyTag, ) !dbg
+                Call id(4), args( Result(0), Tag(0, 5), ) !dbg
+                Call id(4), args( Result(0), Tag(1, 5), ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -261,10 +261,10 @@ fn result_array_value_at_index() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=4
-                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=6
-                Call id(3), args( Result(1), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=5
+                Call id(3), args( Result(1), Tag(0, 3), ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -286,10 +286,10 @@ fn result_array_value_at_negative_index_works() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=4
-                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=6
-                Call id(3), args( Result(1), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=5
+                Call id(3), args( Result(1), Tag(0, 3), ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -372,16 +372,16 @@ fn result_array_slice_with_explicit_range() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=7
-                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=9
-                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=11
-                Call id(2), args( Qubit(3), Result(3), ) !dbg dbg_location=13
-                Call id(2), args( Qubit(4), Result(4), ) !dbg dbg_location=15
-                Call id(3), args( Integer(3), EmptyTag, ) !dbg dbg_location=0
-                Call id(4), args( Result(0), Tag(0, 5), ) !dbg dbg_location=0
-                Call id(4), args( Result(2), Tag(1, 5), ) !dbg dbg_location=0
-                Call id(4), args( Result(4), Tag(2, 5), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=6
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=8
+                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=10
+                Call id(2), args( Qubit(3), Result(3), ) !dbg dbg_location=12
+                Call id(2), args( Qubit(4), Result(4), ) !dbg dbg_location=14
+                Call id(3), args( Integer(3), EmptyTag, ) !dbg
+                Call id(4), args( Result(0), Tag(0, 5), ) !dbg
+                Call id(4), args( Result(2), Tag(1, 5), ) !dbg
+                Call id(4), args( Result(4), Tag(2, 5), ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -444,13 +444,13 @@ fn result_array_slice_with_open_start_range() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=5
-                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=7
-                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=9
-                Call id(3), args( Integer(2), EmptyTag, ) !dbg dbg_location=0
-                Call id(4), args( Result(0), Tag(0, 5), ) !dbg dbg_location=0
-                Call id(4), args( Result(1), Tag(1, 5), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=4
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=6
+                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=8
+                Call id(3), args( Integer(2), EmptyTag, ) !dbg
+                Call id(4), args( Result(0), Tag(0, 5), ) !dbg
+                Call id(4), args( Result(1), Tag(1, 5), ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -513,13 +513,13 @@ fn result_array_slice_with_open_ended_range() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=5
-                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=7
-                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=9
-                Call id(3), args( Integer(2), EmptyTag, ) !dbg dbg_location=0
-                Call id(4), args( Result(1), Tag(0, 5), ) !dbg dbg_location=0
-                Call id(4), args( Result(2), Tag(1, 5), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=4
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=6
+                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=8
+                Call id(3), args( Integer(2), EmptyTag, ) !dbg
+                Call id(4), args( Result(1), Tag(0, 5), ) !dbg
+                Call id(4), args( Result(2), Tag(1, 5), ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -582,16 +582,16 @@ fn result_array_slice_with_open_two_step_range() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=7
-                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=9
-                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=11
-                Call id(2), args( Qubit(3), Result(3), ) !dbg dbg_location=13
-                Call id(2), args( Qubit(4), Result(4), ) !dbg dbg_location=15
-                Call id(3), args( Integer(3), EmptyTag, ) !dbg dbg_location=0
-                Call id(4), args( Result(0), Tag(0, 5), ) !dbg dbg_location=0
-                Call id(4), args( Result(2), Tag(1, 5), ) !dbg dbg_location=0
-                Call id(4), args( Result(4), Tag(2, 5), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=6
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=8
+                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=10
+                Call id(2), args( Qubit(3), Result(3), ) !dbg dbg_location=12
+                Call id(2), args( Qubit(4), Result(4), ) !dbg dbg_location=14
+                Call id(3), args( Integer(3), EmptyTag, ) !dbg
+                Call id(4), args( Result(0), Tag(0, 5), ) !dbg
+                Call id(4), args( Result(2), Tag(1, 5), ) !dbg
+                Call id(4), args( Result(4), Tag(2, 5), ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -674,15 +674,15 @@ fn result_array_copy_and_update_with_single_index() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=6
-                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=8
-                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=10
-                Call id(2), args( Qubit(3), Result(3), ) !dbg dbg_location=12
-                Call id(3), args( Integer(3), EmptyTag, ) !dbg dbg_location=0
-                Call id(4), args( Result(0), Tag(0, 5), ) !dbg dbg_location=0
-                Call id(4), args( Result(3), Tag(1, 5), ) !dbg dbg_location=0
-                Call id(4), args( Result(2), Tag(2, 5), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=5
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=7
+                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=9
+                Call id(2), args( Qubit(3), Result(3), ) !dbg dbg_location=11
+                Call id(3), args( Integer(3), EmptyTag, ) !dbg
+                Call id(4), args( Result(0), Tag(0, 5), ) !dbg
+                Call id(4), args( Result(3), Tag(1, 5), ) !dbg
+                Call id(4), args( Result(2), Tag(2, 5), ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -786,21 +786,21 @@ fn result_array_copy_and_update_with_explicit_range() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=10
-                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=12
-                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=14
-                Call id(2), args( Qubit(3), Result(3), ) !dbg dbg_location=16
-                Call id(2), args( Qubit(4), Result(4), ) !dbg dbg_location=18
-                Call id(2), args( Qubit(5), Result(5), ) !dbg dbg_location=20
-                Call id(2), args( Qubit(6), Result(6), ) !dbg dbg_location=22
-                Call id(2), args( Qubit(7), Result(7), ) !dbg dbg_location=24
-                Call id(3), args( Integer(5), EmptyTag, ) !dbg dbg_location=0
-                Call id(4), args( Result(5), Tag(0, 5), ) !dbg dbg_location=0
-                Call id(4), args( Result(1), Tag(1, 5), ) !dbg dbg_location=0
-                Call id(4), args( Result(6), Tag(2, 5), ) !dbg dbg_location=0
-                Call id(4), args( Result(3), Tag(3, 5), ) !dbg dbg_location=0
-                Call id(4), args( Result(7), Tag(4, 5), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=9
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=11
+                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=13
+                Call id(2), args( Qubit(3), Result(3), ) !dbg dbg_location=15
+                Call id(2), args( Qubit(4), Result(4), ) !dbg dbg_location=17
+                Call id(2), args( Qubit(5), Result(5), ) !dbg dbg_location=19
+                Call id(2), args( Qubit(6), Result(6), ) !dbg dbg_location=21
+                Call id(2), args( Qubit(7), Result(7), ) !dbg dbg_location=23
+                Call id(3), args( Integer(5), EmptyTag, ) !dbg
+                Call id(4), args( Result(5), Tag(0, 5), ) !dbg
+                Call id(4), args( Result(1), Tag(1, 5), ) !dbg
+                Call id(4), args( Result(6), Tag(2, 5), ) !dbg
+                Call id(4), args( Result(3), Tag(3, 5), ) !dbg
+                Call id(4), args( Result(7), Tag(4, 5), ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -863,16 +863,16 @@ fn result_array_copy_and_update_with_open_start_range() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=7
-                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=9
-                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=11
-                Call id(2), args( Qubit(3), Result(3), ) !dbg dbg_location=13
-                Call id(2), args( Qubit(4), Result(4), ) !dbg dbg_location=15
-                Call id(3), args( Integer(3), EmptyTag, ) !dbg dbg_location=0
-                Call id(4), args( Result(3), Tag(0, 5), ) !dbg dbg_location=0
-                Call id(4), args( Result(4), Tag(1, 5), ) !dbg dbg_location=0
-                Call id(4), args( Result(2), Tag(2, 5), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=6
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=8
+                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=10
+                Call id(2), args( Qubit(3), Result(3), ) !dbg dbg_location=12
+                Call id(2), args( Qubit(4), Result(4), ) !dbg dbg_location=14
+                Call id(3), args( Integer(3), EmptyTag, ) !dbg
+                Call id(4), args( Result(3), Tag(0, 5), ) !dbg
+                Call id(4), args( Result(4), Tag(1, 5), ) !dbg
+                Call id(4), args( Result(2), Tag(2, 5), ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -935,16 +935,16 @@ fn result_array_copy_and_update_with_open_ended_range() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=7
-                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=9
-                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=11
-                Call id(2), args( Qubit(3), Result(3), ) !dbg dbg_location=13
-                Call id(2), args( Qubit(4), Result(4), ) !dbg dbg_location=15
-                Call id(3), args( Integer(3), EmptyTag, ) !dbg dbg_location=0
-                Call id(4), args( Result(0), Tag(0, 5), ) !dbg dbg_location=0
-                Call id(4), args( Result(3), Tag(1, 5), ) !dbg dbg_location=0
-                Call id(4), args( Result(4), Tag(2, 5), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=6
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=8
+                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=10
+                Call id(2), args( Qubit(3), Result(3), ) !dbg dbg_location=12
+                Call id(2), args( Qubit(4), Result(4), ) !dbg dbg_location=14
+                Call id(3), args( Integer(3), EmptyTag, ) !dbg
+                Call id(4), args( Result(0), Tag(0, 5), ) !dbg
+                Call id(4), args( Result(3), Tag(1, 5), ) !dbg
+                Call id(4), args( Result(4), Tag(2, 5), ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -1007,16 +1007,16 @@ fn result_array_copy_and_update_with_open_two_step_range() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=7
-                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=9
-                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=11
-                Call id(2), args( Qubit(3), Result(3), ) !dbg dbg_location=13
-                Call id(2), args( Qubit(4), Result(4), ) !dbg dbg_location=15
-                Call id(3), args( Integer(3), EmptyTag, ) !dbg dbg_location=0
-                Call id(4), args( Result(3), Tag(0, 5), ) !dbg dbg_location=0
-                Call id(4), args( Result(1), Tag(1, 5), ) !dbg dbg_location=0
-                Call id(4), args( Result(4), Tag(2, 5), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=6
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=8
+                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=10
+                Call id(2), args( Qubit(3), Result(3), ) !dbg dbg_location=12
+                Call id(2), args( Qubit(4), Result(4), ) !dbg dbg_location=14
+                Call id(3), args( Integer(3), EmptyTag, ) !dbg
+                Call id(4), args( Result(3), Tag(0, 5), ) !dbg
+                Call id(4), args( Result(1), Tag(1, 5), ) !dbg
+                Call id(4), args( Result(4), Tag(2, 5), ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -1089,43 +1089,42 @@ fn result_array_index_range_returns_length_as_end() {
                 Block 0: Block:
                     Call id(1), args( Pointer, )
                     Variable(0, Integer) = Store Integer(0) !dbg
-                    Variable(0, Integer) = Store Integer(1) !dbg dbg_location=2
-                    Variable(0, Integer) = Store Integer(2) !dbg dbg_location=3
+                    Variable(0, Integer) = Store Integer(1) !dbg dbg_location=1
+                    Variable(0, Integer) = Store Integer(2) !dbg dbg_location=2
                     Variable(1, Integer) = Store Integer(0) !dbg
-                    Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=6
-                    Variable(1, Integer) = Store Integer(1) !dbg dbg_location=5
-                    Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=8
-                    Variable(1, Integer) = Store Integer(2) !dbg dbg_location=7
+                    Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=5
+                    Variable(1, Integer) = Store Integer(1) !dbg dbg_location=4
+                    Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=7
+                    Variable(1, Integer) = Store Integer(2) !dbg dbg_location=6
                     Variable(2, Integer) = Store Integer(0) !dbg
-                    Variable(2, Integer) = Store Integer(1) !dbg dbg_location=11
-                    Variable(2, Integer) = Store Integer(2) !dbg dbg_location=12
-                    Call id(3), args( Integer(1), Tag(0, 3), ) !dbg dbg_location=0
-                    Return !dbg dbg_location=0
+                    Variable(2, Integer) = Store Integer(1) !dbg dbg_location=10
+                    Variable(2, Integer) = Store Integer(2) !dbg dbg_location=11
+                    Call id(3), args( Integer(1), Tag(0, 3), ) !dbg
+                    Return !dbg
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
             num_qubits: 2
             num_results: 2
             dbg_metadata_scopes:
-                0 = SubProgram name=entry location=(package_id=0 span=[0-0])
-                1 = SubProgram name=Main location=(package_id=2 span=[40-179])
-                2 = SubProgram name=AllocateQubitArray location=(package_id=0 span=[2577-2872])
-                3 = SubProgram name=MResetEachZ location=(package_id=1 span=[179488-179657])
-                4 = SubProgram name=MResetZ location=(package_id=1 span=[180988-181076])
-                5 = SubProgram name=ReleaseQubitArray location=(package_id=0 span=[2878-3011])
+                0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
+                1 = SubProgram name=Main location=(package_id=2 span=[40-179]) item_id=((2, 1))
+                2 = SubProgram name=AllocateQubitArray location=(package_id=0 span=[2577-2872]) item_id=((0, 10))
+                3 = SubProgram name=MResetEachZ location=(package_id=1 span=[179488-179657]) item_id=((1, 503))
+                4 = SubProgram name=MResetZ location=(package_id=1 span=[180988-181076]) item_id=((1, 506))
+                5 = SubProgram name=ReleaseQubitArray location=(package_id=0 span=[2878-3011]) item_id=((0, 11))
             dbg_locations:
-                [0]:  scope=0location=(package_id=2 span=[0-0])
-                [1]:  scope=1location=(package_id=2 span=[73-91]) inlined_at=0
-                [2]:  scope=2location=(package_id=0 span=[2812-2843]) inlined_at=1
-                [3]:  scope=2location=(package_id=0 span=[2812-2843]) inlined_at=1
-                [4]:  scope=1location=(package_id=2 span=[114-129]) inlined_at=0
-                [5]:  scope=3location=(package_id=1 span=[179621-179635]) inlined_at=4
-                [6]:  scope=4location=(package_id=1 span=[181037-181074]) inlined_at=5
-                [7]:  scope=3location=(package_id=1 span=[179621-179635]) inlined_at=4
-                [8]:  scope=4location=(package_id=1 span=[181037-181074]) inlined_at=7
-                [9]:  scope=1location=(package_id=2 span=[139-169]) inlined_at=0
-                [10]:  scope=1location=(package_id=2 span=[73-91]) inlined_at=0
-                [11]:  scope=5location=(package_id=0 span=[2963-2994]) inlined_at=10
-                [12]:  scope=5location=(package_id=0 span=[2963-2994]) inlined_at=10
+                [0]:  scope=1location=(package_id=2 span=[73-91])
+                [1]:  scope=2location=(package_id=0 span=[2812-2843]) inlined_at=0
+                [2]:  scope=2location=(package_id=0 span=[2812-2843]) inlined_at=0
+                [3]:  scope=1location=(package_id=2 span=[114-129])
+                [4]:  scope=3location=(package_id=1 span=[179621-179635]) inlined_at=3
+                [5]:  scope=4location=(package_id=1 span=[181037-181074]) inlined_at=4
+                [6]:  scope=3location=(package_id=1 span=[179621-179635]) inlined_at=3
+                [7]:  scope=4location=(package_id=1 span=[181037-181074]) inlined_at=6
+                [8]:  scope=1location=(package_id=2 span=[139-169])
+                [9]:  scope=1location=(package_id=2 span=[73-91])
+                [10]:  scope=5location=(package_id=0 span=[2963-2994]) inlined_at=9
+                [11]:  scope=5location=(package_id=0 span=[2963-2994]) inlined_at=9
             tags:
                 [0]: 0_i
     "#]].assert_eq(&program.to_string());

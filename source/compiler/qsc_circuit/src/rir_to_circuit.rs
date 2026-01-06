@@ -9,12 +9,12 @@ use core::panic;
 use std::{fmt::Display, vec};
 
 use crate::{
-    Circuit, ComponentColumn, Error, Ket, Measurement, Operation, Register, TracerConfig, Unitary,
+    Circuit, Error, TracerConfig,
     builder::{
-        GateInputs, LexicalScope, OperationOrGroup, OperationOrGroupKind, QubitWire, ResultWire,
-        ScopeId, ScopeStack, SourceLocationMetadata, WireMap, add_op_with_grouping, finish_circuit,
+        GateInputs, OperationOrGroup, QubitWire, ResultWire, ScopeId, SourceLocationMetadata,
+        WireMap, add_op_with_grouping, finish_circuit,
     },
-    circuit::{PackageOffset, SourceLocation},
+    circuit::PackageOffset,
     rir_to_circuit::tracer::FixedQubitRegisterMapBuilder,
 };
 use log::{debug, warn};
@@ -475,10 +475,10 @@ fn combine_exprs(options: Vec<Expr>) -> Result<Option<Expr>, Error> {
 
 fn extend_with_successors(
     user_package_ids: &[PackageId],
-    dbg_stuff: &DbgStuff,
+    _dbg_stuff: &DbgStuff,
     state: &ProgramMap,
     entry_block: &CircuitBlock,
-    config: TracerConfig,
+    _config: TracerConfig,
 ) -> Vec<OperationOrGroup> {
     let mut operations = vec![];
     let mut block_stack = vec![entry_block.clone()];
@@ -598,10 +598,10 @@ fn expand_branch(
     target_qubits.dedup();
     // TODO: target results for container? measurements in branches?
 
-    let args = vec![branch_block.cond_expr.to_string().clone()];
+    let _args = [branch_block.cond_expr.to_string().clone()];
     let label = "check ".to_string();
 
-    let location = branch
+    let _location = branch
         .cond_expr_instruction_metadata
         .as_ref()
         .and_then(|md| md.dbg_location);
@@ -704,9 +704,9 @@ impl DbgStuff<'_> {
 
         while let Some(location_idx) = current_location_idx {
             let source_location_metadata = SourceLocationMetadata::new(
-                self.source_location(&location_idx),
+                self.source_location(location_idx),
                 self.dbg_info
-                    .resolve_scope(&self.lexical_scope(&location_idx)),
+                    .resolve_scope(&self.lexical_scope(location_idx)),
             );
             location_stack.push(source_location_metadata);
             let location = self.dbg_info.get_location(location_idx);
@@ -728,8 +728,8 @@ impl ScopeResolver for DbgInfo {
     fn resolve_scope(&self, scope_id: &Self::ScopeId) -> ScopeId {
         match &self.get_scope(*scope_id) {
             DbgMetadataScope::SubProgram {
-                name,
-                location,
+                name: _,
+                location: _,
                 item_id,
             } => ScopeId(StoreItemId {
                 package: item_id.0.into(),
@@ -739,18 +739,18 @@ impl ScopeResolver for DbgInfo {
     }
 }
 
-pub(crate) trait DbgStuffExt {
-    type SourceLocation: PartialEq + Sized + Clone + PartialEq;
-    type Scope: std::fmt::Debug + std::fmt::Display + Default + PartialEq;
+// pub(crate) trait DbgStuffExt {
+//     type SourceLocation: PartialEq + Sized + Clone + PartialEq;
+//     type Scope: std::fmt::Debug + std::fmt::Display + Default + PartialEq;
 
-    fn package_id(&self, location: &Self::SourceLocation) -> PackageId;
-    fn lexical_scope(&self, location: &Self::SourceLocation) -> Self::Scope;
-    fn source_location(&self, location: &Self::SourceLocation) -> PackageOffset;
-}
+//     fn package_id(&self, location: &Self::SourceLocation) -> PackageId;
+//     fn lexical_scope(&self, location: &Self::SourceLocation) -> Self::Scope;
+//     fn source_location(&self, location: &Self::SourceLocation) -> PackageOffset;
+// }
 
 impl DbgStuff<'_> {
-    fn lexical_scope(&self, location: &DbgLocationId) -> DbgScopeId {
-        self.dbg_info.get_location(*location).scope
+    fn lexical_scope(&self, location: DbgLocationId) -> DbgScopeId {
+        self.dbg_info.get_location(location).scope
     }
 
     // fn package_id(&self, location: &Self::SourceLocation) -> PackageId {
@@ -760,8 +760,8 @@ impl DbgStuff<'_> {
     //     }
     // }
 
-    fn source_location(&self, location: &DbgLocationId) -> PackageOffset {
-        let dbg_location = self.dbg_info.get_location(*location);
+    fn source_location(&self, location: DbgLocationId) -> PackageOffset {
+        let dbg_location = self.dbg_info.get_location(location);
         PackageOffset {
             package_id: dbg_location.location.package,
             offset: dbg_location.location.span.lo,
@@ -2026,9 +2026,9 @@ struct OpListBuilder {
     max_ops: usize,
     max_ops_exceeded: bool,
     operations: Vec<(OperationOrGroup, Vec<SourceLocationMetadata>)>,
-    source_locations: bool,
+    _source_locations: bool,
     _group_scopes: bool,
-    user_package_ids: Vec<PackageId>,
+    _user_package_ids: Vec<PackageId>,
 }
 
 impl OpListBuilder {
@@ -2042,16 +2042,16 @@ impl OpListBuilder {
             max_ops: max_operations,
             max_ops_exceeded: false,
             operations: vec![],
-            source_locations,
+            _source_locations: source_locations,
             _group_scopes: group_scopes,
-            user_package_ids,
+            _user_package_ids: user_package_ids,
         }
     }
 
     fn push_op(
         &mut self,
-        dbg_stuff: &DbgStuff,
-        mut op: OperationOrGroup,
+        _dbg_stuff: &DbgStuff,
+        op: OperationOrGroup,
         unfiltered_call_stack: Vec<SourceLocationMetadata>,
     ) {
         if self.max_ops_exceeded || self.operations.len() >= self.max_ops {
@@ -2061,7 +2061,7 @@ impl OpListBuilder {
         }
 
         // TODO: how do we do scope grouping within branches
-        self.operations.push((op, unfiltered_call_stack))
+        self.operations.push((op, unfiltered_call_stack));
     }
 
     pub fn into_operations(self) -> Vec<(OperationOrGroup, Vec<SourceLocationMetadata>)> {

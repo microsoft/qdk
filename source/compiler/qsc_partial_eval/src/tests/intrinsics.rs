@@ -146,9 +146,9 @@ fn call_to_intrinsic_h_adds_callable_and_generates_instruction() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), ) !dbg dbg_location=2
-                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=1
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -167,9 +167,9 @@ fn call_to_intrinsic_s_adds_callable_and_generates_instruction() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), ) !dbg dbg_location=2
-                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=1
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -188,9 +188,9 @@ fn call_to_intrinsic_adjoint_s_adds_callable_and_generates_instruction() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), ) !dbg dbg_location=2
-                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=1
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -209,9 +209,9 @@ fn call_to_intrinsic_sx_adds_callable_and_generates_instruction() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), ) !dbg dbg_location=2
-                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=1
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -230,9 +230,9 @@ fn call_to_intrinsic_t_adds_callable_and_generates_instruction() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), ) !dbg dbg_location=2
-                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=1
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -251,9 +251,9 @@ fn call_to_intrinsic_adjoint_t_adds_callable_and_generates_instruction() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), ) !dbg dbg_location=2
-                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=1
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -272,9 +272,9 @@ fn call_to_intrinsic_x_adds_callable_and_generates_instruction() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), ) !dbg dbg_location=2
-                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=1
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -293,9 +293,9 @@ fn call_to_intrinsic_y_adds_callable_and_generates_instruction() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), ) !dbg dbg_location=2
-                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=1
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -314,9 +314,9 @@ fn call_to_intrinsic_z_adds_callable_and_generates_instruction() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), ) !dbg dbg_location=2
-                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=1
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -335,9 +335,9 @@ fn call_to_intrinsic_swap_adds_callable_and_generates_instruction() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Qubit(1), ) !dbg dbg_location=3
-                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Qubit(1), ) !dbg dbg_location=2
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -356,9 +356,9 @@ fn call_to_intrinsic_cx_adds_callable_and_generates_instruction() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Qubit(1), ) !dbg dbg_location=3
-                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Qubit(1), ) !dbg dbg_location=2
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -377,9 +377,9 @@ fn call_to_intrinsic_cy_adds_callable_and_generates_instruction() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Qubit(1), ) !dbg dbg_location=3
-                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Qubit(1), ) !dbg dbg_location=2
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -398,9 +398,9 @@ fn call_to_intrinsic_cz_adds_callable_and_generates_instruction() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Qubit(1), ) !dbg dbg_location=3
-                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Qubit(1), ) !dbg dbg_location=2
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -419,9 +419,9 @@ fn call_to_intrinsic_ccx_adds_callable_and_generates_instruction() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Qubit(1), Qubit(2), ) !dbg dbg_location=4
-                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Qubit(1), Qubit(2), ) !dbg dbg_location=3
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -440,9 +440,9 @@ fn call_to_intrinsic_rx_adds_callable_and_generates_instruction() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Double(0), Qubit(0), ) !dbg dbg_location=2
-                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Double(0), Qubit(0), ) !dbg dbg_location=1
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -461,9 +461,9 @@ fn call_to_intrinsic_rxx_adds_callable_and_generates_instruction() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Double(0), Qubit(0), Qubit(1), ) !dbg dbg_location=3
-                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Double(0), Qubit(0), Qubit(1), ) !dbg dbg_location=2
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -482,9 +482,9 @@ fn call_to_intrinsic_ry_adds_callable_and_generates_instruction() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Double(0), Qubit(0), ) !dbg dbg_location=2
-                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Double(0), Qubit(0), ) !dbg dbg_location=1
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -503,9 +503,9 @@ fn call_to_intrinsic_ryy_adds_callable_and_generates_instruction() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Double(0), Qubit(0), Qubit(1), ) !dbg dbg_location=3
-                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Double(0), Qubit(0), Qubit(1), ) !dbg dbg_location=2
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -524,9 +524,9 @@ fn call_to_intrinsic_rz_adds_callable_and_generates_instruction() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Double(0), Qubit(0), ) !dbg dbg_location=2
-                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Double(0), Qubit(0), ) !dbg dbg_location=1
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -545,9 +545,9 @@ fn call_to_intrinsic_rzz_adds_callable_and_generates_instruction() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Double(0), Qubit(0), Qubit(1), ) !dbg dbg_location=3
-                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Double(0), Qubit(0), Qubit(1), ) !dbg dbg_location=2
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -583,9 +583,9 @@ fn check_partial_eval_for_call_to_reset() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), ) !dbg dbg_location=2
-                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=1
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -621,9 +621,9 @@ fn call_to_intrinsic_m_adds_callable_and_generates_instruction() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
-                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=1
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -659,9 +659,9 @@ fn call_to_intrinsic_mresetz_adds_callable_and_generates_instruction() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
-                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=1
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -704,10 +704,10 @@ fn calls_to_intrinsic_begin_estimate_caching_with_classical_values_always_yield_
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=1
                 Call id(2), args( Qubit(0), ) !dbg dbg_location=2
-                Call id(2), args( Qubit(0), ) !dbg dbg_location=3
-                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -789,21 +789,21 @@ fn call_to_intrinsic_begin_estimate_caching_with_dynamic_values_yields_true() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
-                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=1
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=2
-                Call id(4), args( Qubit(0), ) !dbg dbg_location=4
-                Call id(5), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=1
+                Call id(4), args( Qubit(0), ) !dbg dbg_location=3
+                Call id(5), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
-                Jump(1) !dbg dbg_location=2"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -851,8 +851,8 @@ fn call_to_account_for_estimates_does_not_generate_instructions() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -876,8 +876,8 @@ fn call_to_begin_repeat_estimates_does_not_generate_instructions() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -901,8 +901,8 @@ fn call_to_end_repeat_estimates_does_not_generate_instructions() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -950,8 +950,8 @@ fn call_to_dump_register_does_not_generate_instructions() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -976,8 +976,8 @@ fn use_of_noise_does_not_generate_instructions() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -1100,9 +1100,9 @@ fn call_to_length_in_inner_function_succeeds() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
-                Call id(3), args( Integer(1), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Call id(3), args( Integer(1), Tag(0, 3), ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -1125,8 +1125,8 @@ fn call_to_pauli_i_rotation_for_global_phase_is_noop() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -1184,11 +1184,11 @@ fn call_to_operation_with_codegen_intrinsic_override_should_skip_impl() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( ) !dbg dbg_location=1
-                Call id(3), args( ) !dbg dbg_location=2
-                Call id(2), args( ) !dbg dbg_location=4
-                Call id(4), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( ) !dbg dbg_location=0
+                Call id(3), args( ) !dbg dbg_location=1
+                Call id(2), args( ) !dbg dbg_location=3
+                Call id(4), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -1225,9 +1225,9 @@ fn call_to_intrinsic_operation_that_returns_bool_value_should_produce_variable_u
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Boolean) = Call id(2), args( ) !dbg dbg_location=1
-                Call id(3), args( Variable(0, Boolean), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Variable(0, Boolean) = Call id(2), args( ) !dbg dbg_location=0
+                Call id(3), args( Variable(0, Boolean), Tag(0, 3), ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -1264,9 +1264,9 @@ fn call_to_intrinsic_operation_that_returns_int_value_should_produce_variable_us
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Integer) = Call id(2), args( ) !dbg dbg_location=1
-                Call id(3), args( Variable(0, Integer), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Variable(0, Integer) = Call id(2), args( ) !dbg dbg_location=0
+                Call id(3), args( Variable(0, Integer), Tag(0, 3), ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -1303,9 +1303,9 @@ fn call_to_intrinsic_operation_that_returns_double_value_should_produce_variable
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Double) = Call id(2), args( ) !dbg dbg_location=1
-                Call id(3), args( Variable(0, Double), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Variable(0, Double) = Call id(2), args( ) !dbg dbg_location=0
+                Call id(3), args( Variable(0, Double), Tag(0, 3), ) !dbg
+                Return !dbg"#]],
     );
 }
 

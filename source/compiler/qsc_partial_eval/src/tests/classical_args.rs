@@ -36,9 +36,9 @@ fn call_to_intrinsic_operation_using_double_literal() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Double(1), ) !dbg dbg_location=1
-                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Double(1), ) !dbg dbg_location=0
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -75,11 +75,11 @@ fn calls_to_intrinsic_operation_using_inline_expressions() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Double(0), ) !dbg dbg_location=1
+                Call id(2), args( Double(0), ) !dbg dbg_location=0
+                Call id(2), args( Double(1), ) !dbg dbg_location=1
                 Call id(2), args( Double(1), ) !dbg dbg_location=2
-                Call id(2), args( Double(1), ) !dbg dbg_location=3
-                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -119,12 +119,12 @@ fn calls_to_intrinsic_operation_using_variables() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Double(2), ) !dbg dbg_location=1
-                Variable(0, Double) = Store Double(4) !dbg dbg_location=1
-                Call id(2), args( Double(4), ) !dbg dbg_location=2
-                Variable(0, Double) = Store Double(8) !dbg dbg_location=2
-                Call id(2), args( Double(8), ) !dbg dbg_location=3
-                Call id(3), args( Integer(0), EmptyTag, ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Double(2), ) !dbg dbg_location=0
+                Variable(0, Double) = Store Double(4) !dbg dbg_location=0
+                Call id(2), args( Double(4), ) !dbg dbg_location=1
+                Variable(0, Double) = Store Double(8) !dbg dbg_location=1
+                Call id(2), args( Double(8), ) !dbg dbg_location=2
+                Call id(3), args( Integer(0), EmptyTag, ) !dbg
+                Return !dbg"#]],
     );
 }

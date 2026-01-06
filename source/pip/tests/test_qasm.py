@@ -658,7 +658,6 @@ def test_circuit_from_callable_with_args() -> None:
     assert str(c) == dedent(
         """\
         q_0    ── X ──
-
         q_1    ── X ──
         """
     )

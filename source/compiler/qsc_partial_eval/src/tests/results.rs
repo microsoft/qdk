@@ -52,9 +52,9 @@ fn result_ids_are_correct_for_measuring_and_resetting_one_qubit() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
-                Call id(3), args( Result(0), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=1
+                Call id(3), args( Result(0), Tag(0, 3), ) !dbg
+                Return !dbg"#]],
     );
     assert_eq!(program.num_qubits, 1);
     assert_eq!(program.num_results, 1);
@@ -106,9 +106,9 @@ fn result_ids_are_correct_for_measuring_one_qubit() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
-                Call id(3), args( Result(0), Tag(0, 3), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=1
+                Call id(3), args( Result(0), Tag(0, 3), ) !dbg
+                Return !dbg"#]],
     );
     assert_eq!(program.num_qubits, 1);
     assert_eq!(program.num_results, 1);
@@ -176,14 +176,14 @@ fn result_ids_are_correct_for_measuring_one_qubit_multiple_times() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
-                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=3
-                Call id(2), args( Qubit(0), Result(2), ) !dbg dbg_location=4
-                Call id(3), args( Integer(3), EmptyTag, ) !dbg dbg_location=0
-                Call id(4), args( Result(0), Tag(0, 5), ) !dbg dbg_location=0
-                Call id(4), args( Result(1), Tag(1, 5), ) !dbg dbg_location=0
-                Call id(4), args( Result(2), Tag(2, 5), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=1
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(2), ) !dbg dbg_location=3
+                Call id(3), args( Integer(3), EmptyTag, ) !dbg
+                Call id(4), args( Result(0), Tag(0, 5), ) !dbg
+                Call id(4), args( Result(1), Tag(1, 5), ) !dbg
+                Call id(4), args( Result(2), Tag(2, 5), ) !dbg
+                Return !dbg"#]],
     );
 }
 
@@ -249,14 +249,14 @@ fn result_ids_are_correct_for_measuring_one_qubit_multiple_times_into_array() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
-                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=3
-                Call id(2), args( Qubit(0), Result(2), ) !dbg dbg_location=4
-                Call id(3), args( Integer(3), EmptyTag, ) !dbg dbg_location=0
-                Call id(4), args( Result(0), Tag(0, 5), ) !dbg dbg_location=0
-                Call id(4), args( Result(1), Tag(1, 5), ) !dbg dbg_location=0
-                Call id(4), args( Result(2), Tag(2, 5), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=1
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=2
+                Call id(2), args( Qubit(0), Result(2), ) !dbg dbg_location=3
+                Call id(3), args( Integer(3), EmptyTag, ) !dbg
+                Call id(4), args( Result(0), Tag(0, 5), ) !dbg
+                Call id(4), args( Result(1), Tag(1, 5), ) !dbg
+                Call id(4), args( Result(2), Tag(2, 5), ) !dbg
+                Return !dbg"#]],
     );
     assert_eq!(program.num_qubits, 1);
     assert_eq!(program.num_results, 3);
@@ -324,14 +324,14 @@ fn result_ids_are_correct_for_measuring_multiple_qubits() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=4
-                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=5
-                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=6
-                Call id(3), args( Integer(3), EmptyTag, ) !dbg dbg_location=0
-                Call id(4), args( Result(0), Tag(0, 5), ) !dbg dbg_location=0
-                Call id(4), args( Result(1), Tag(1, 5), ) !dbg dbg_location=0
-                Call id(4), args( Result(2), Tag(2, 5), ) !dbg dbg_location=0
-                Return !dbg dbg_location=0"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=4
+                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=5
+                Call id(3), args( Integer(3), EmptyTag, ) !dbg
+                Call id(4), args( Result(0), Tag(0, 5), ) !dbg
+                Call id(4), args( Result(1), Tag(1, 5), ) !dbg
+                Call id(4), args( Result(2), Tag(2, 5), ) !dbg
+                Return !dbg"#]],
     );
     assert_eq!(program.num_qubits, 3);
     assert_eq!(program.num_results, 3);

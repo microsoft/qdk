@@ -1083,6 +1083,7 @@ fn add_operation_to_rows(
         // control and target wires and crossing any in between
         // (vertical lines may overlap if there are multiple controls/targets,
         // this is ok in practice)
+        #[allow(clippy::needless_range_loop)]
         for i in begin..end {
             let row = &mut rows[i];
             let existing = row
@@ -1096,18 +1097,15 @@ fn add_operation_to_rows(
                 match existing {
                     CircuitObject::Object(o) => {
                         eprintln!(
-                            "adding vertical line at column {} row {} crossing object: {:?}",
-                            column, i, o
+                            "adding vertical line at column {column} row {i} crossing object: {o:?}"
                         );
                         if i == begin {
                             eprintln!(
-                                "adding vertical to subrows below axis at column {} row {}",
-                                column, i
+                                "adding vertical to subrows below axis at column {column} row {i}"
                             );
                             for sr in 1..=row.current_bottom_offset {
                                 eprintln!(
-                                    "adding vertical to subrows below axis at column {} row {}",
-                                    column, i
+                                    "adding vertical to subrows below axis at column {column} row {i}"
                                 );
                                 // add vertical to subrows below axis
                                 let row_row = row.objects.entry(column).or_default();
@@ -1115,13 +1113,11 @@ fn add_operation_to_rows(
                             }
                         } else if i == end - 1 {
                             eprintln!(
-                                "adding vertical to subrows above axis at column {} row {}",
-                                column, i
+                                "adding vertical to subrows above axis at column {column} row {i}"
                             );
                             for sr in 1..=row.current_top_offset {
                                 eprintln!(
-                                    "adding vertical to subrows above axis at column {} row {}",
-                                    column, i
+                                    "adding vertical to subrows above axis at column {column} row {i}"
                                 );
                                 // add vertical to subrows above axis
                                 let row_row = row.objects.entry(column).or_default();
@@ -1129,16 +1125,12 @@ fn add_operation_to_rows(
                             }
                         } else {
                             // crossing wire, leave as is
-                            eprintln!(
-                                "leaving crossing wire at column {} row {}: {:?}",
-                                column, i, o
-                            );
+                            eprintln!("leaving crossing wire at column {column} row {i}: {o:?}");
                         }
                     }
                     _ => {
                         eprintln!(
-                            "adding vertical line at column {} row {} crossing object: {:?}",
-                            column, i, existing
+                            "adding vertical line at column {column} row {i} crossing object: {existing:?}"
                         );
                     }
                 }
@@ -1332,14 +1324,26 @@ fn add_box_end(
 
     let first = *register_to_row
         .get(&(
-            registers.first().unwrap().qubit,
-            registers.first().unwrap().result,
+            registers
+                .first()
+                .expect("registers should not be empty")
+                .qubit,
+            registers
+                .first()
+                .expect("registers should not be empty")
+                .result,
         ))
         .expect("register must map to a row");
     let last = *register_to_row
         .get(&(
-            registers.last().unwrap().qubit,
-            registers.last().unwrap().result,
+            registers
+                .last()
+                .expect("registers should not be empty")
+                .qubit,
+            registers
+                .last()
+                .expect("registers should not be empty")
+                .result,
         ))
         .expect("register must map to a row");
 

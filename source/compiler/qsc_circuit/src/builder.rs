@@ -445,6 +445,14 @@ fn resolve_locations(operations: &mut [Operation], source_location_lookup: &impl
         if let Some(source) = op.source_mut() {
             resolve_source_location_if_unresolved(source, source_location_lookup);
         }
+
+        if let Operation::Unitary(Unitary {
+            scope_location: Some(scope_location),
+            ..
+        }) = op
+        {
+            resolve_source_location_if_unresolved(scope_location, source_location_lookup);
+        }
     }
 }
 
