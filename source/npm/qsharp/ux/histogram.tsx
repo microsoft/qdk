@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { useRef, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 
 const menuItems = [
   {
@@ -18,22 +18,67 @@ const menuItems = [
   },
 ];
 const maxMenuOptions = 3;
-const defaultMenuSelection: { [idx: string]: number } = {
-  itemCount: 0,
-  sortOrder: 0,
-  labels: 0,
-};
 
-const reKetResult = /^\[(?:(Zero|One), *)*(Zero|One)\]$/;
+function getDefaultMenuSelection(
+  labels?: "raw" | "kets" | "none",
+  items?: "all" | "top-10" | "top-25",
+  sort?: "a-to-z" | "high-to-low" | "low-to-high",
+): {
+  [idx: string]: number;
+} {
+  const selection = {
+    itemCount: 0,
+    sortOrder: 0,
+    labels: 0,
+  };
+  switch (items) {
+    case "top-10":
+      selection["itemCount"] = 1;
+      break;
+    case "top-25":
+      selection["itemCount"] = 2;
+      break;
+    default:
+      selection["itemCount"] = 0;
+      break;
+  }
+  switch (sort) {
+    case "high-to-low":
+      selection["sortOrder"] = 1;
+      break;
+    case "low-to-high":
+      selection["sortOrder"] = 2;
+      break;
+    default:
+      selection["sortOrder"] = 0;
+      break;
+  }
+  switch (labels) {
+    case "kets":
+      selection["labels"] = 1;
+      break;
+    case "none":
+      selection["labels"] = 2;
+      break;
+    default:
+      selection["labels"] = 0;
+      break;
+  }
+  return selection;
+}
+
+const reKetResult = /^\[(?:(Zero|One|Loss), *)*(Zero|One|Loss)\]$/;
 function resultToKet(result: string): string {
   if (typeof result !== "string") return "ERROR";
 
   if (reKetResult.test(result)) {
     // The result is a simple array of Zero and One
     // The below will return an array of "Zero" or "One" in the order found
-    const matches = result.match(/(One|Zero)/g);
+    const matches = result.match(/(One|Zero|Loss)/g);
     let ket = "|";
-    matches?.forEach((digit) => (ket += digit == "One" ? "1" : "0"));
+    matches?.forEach(
+      (digit) => (ket += digit == "One" ? "1" : digit == "Zero" ? "0" : "-"),
+    );
     ket += "⟩";
     return ket;
   } else {
@@ -47,10 +92,21 @@ export function Histogram(props: {
   filter: string;
   onFilter: (filter: string) => void;
   shotsHeader: boolean;
+  labels?: "raw" | "kets" | "none";
+  items?: "all" | "top-10" | "top-25";
+  sort?: "a-to-z" | "high-to-low" | "low-to-high";
 }) {
   const [hoverLabel, setHoverLabel] = useState("");
   const [scale, setScale] = useState({ zoom: 1.0, offset: 1.0 });
-  const [menuSelection, setMenuSelection] = useState(defaultMenuSelection);
+  const [menuSelection, setMenuSelection] = useState(() => {
+    return getDefaultMenuSelection(props.labels, props.items, props.sort);
+  });
+
+  useEffect(() => {
+    setMenuSelection(
+      getDefaultMenuSelection(props.labels, props.items, props.sort),
+    );
+  }, [props.labels, props.items, props.sort]);
 
   const gMenu = useRef<SVGGElement>(null);
   const gInfo = useRef<SVGGElement>(null);
@@ -92,9 +148,12 @@ export function Histogram(props: {
   }
 
   bucketArray.sort((a, b) => {
+    const a_label = showKetLabels ? resultToKet(a[0]) : a[0];
+    const b_label = showKetLabels ? resultToKet(b[0]) : b[0];
+
     // If they can be converted to numbers, then sort as numbers, else lexically
-    const ax = Number(a[0]);
-    const bx = Number(b[0]);
+    const ax = Number(a_label);
+    const bx = Number(b_label);
     switch (menuSelection["sortOrder"]) {
       case 1: // high-to-low
         return a[1] < b[1] ? 1 : -1;
@@ -104,7 +163,7 @@ export function Histogram(props: {
         break;
       default: // a-z
         if (!isNaN(ax) && !isNaN(bx)) return ax < bx ? -1 : 1;
-        return a[0] < b[0] ? -1 : 1;
+        return a_label < b_label ? -1 : 1;
         break;
     }
   });
@@ -248,6 +307,8 @@ export function Histogram(props: {
     setScale({ zoom: newZoom, offset: boundScrollOffset });
   }
 
+  const label_class = showKetLabels ? "bar-label bar-label-ket" : "bar-label";
+
   return (
     <>
       {props.shotsHeader ? (
@@ -262,10 +323,12 @@ export function Histogram(props: {
             const x = barBoxWidth * idx + barPaddingSize;
             const labelX = barBoxWidth * idx + barBoxWidth / 2 - fontOffset;
             const y = barAreaHeight + 15 - height;
-            const barLabel = `${label} at ${(
-              (entry[1] / totalAllBuckets) *
-              100
-            ).toFixed(2)}%`;
+            const barLabel =
+              props.shotCount == 0
+                ? `${entry[1]}`
+                : `${label} at ${((entry[1] / totalAllBuckets) * 100).toFixed(
+                    2,
+                  )}%`;
             let barClass = "bar";
 
             if (entry[0] === props.filter) {
@@ -289,7 +352,7 @@ export function Histogram(props: {
                 </rect>
                 {
                   <text
-                    class="bar-label"
+                    class={label_class}
                     x={labelX}
                     y="85"
                     visibility={showLabels ? "visible" : "hidden"}
