@@ -425,6 +425,7 @@ fn measurement_target_propagated_to_group() {
             max_operations: usize::MAX,
             source_locations: false,
             group_by_scope: true,
+            ..Default::default()
         },
         &FakeCompilation::user_package_ids(),
     );

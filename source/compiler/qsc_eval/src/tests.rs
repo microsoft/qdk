@@ -10,10 +10,12 @@ use crate::{
 };
 use expect_test::{Expect, expect};
 use indoc::indoc;
-use qsc_data_structures::{language_features::LanguageFeatures, target::TargetCapabilityFlags};
+use qsc_data_structures::{
+    language_features::LanguageFeatures, source::SourceMap, target::TargetCapabilityFlags,
+};
 use qsc_fir::fir::{self, ExecGraph, StmtId};
 use qsc_fir::fir::{PackageId, PackageStoreLookup};
-use qsc_frontend::compile::{self, PackageStore, SourceMap, compile};
+use qsc_frontend::compile::{self, PackageStore, compile};
 use qsc_lowerer::map_hir_package_to_fir;
 use qsc_passes::{PackageType, run_core_passes, run_default_passes};
 

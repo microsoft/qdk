@@ -11,9 +11,8 @@ use crate::{
 use expect_test::expect;
 use miette::Diagnostic;
 use qsc_circuit::{Circuit, TracerConfig};
-use qsc_data_structures::language_features::LanguageFeatures;
+use qsc_data_structures::{language_features::LanguageFeatures, source::SourceMap};
 use qsc_eval::output::GenericReceiver;
-use qsc_frontend::compile::SourceMap;
 use qsc_passes::PackageType;
 
 fn interpreter(code: &str, profile: Profile, trace_circuit: bool) -> Interpreter {
@@ -319,7 +318,7 @@ fn rotation_gate() {
 
 #[test]
 fn grouping_nested_callables() {
-    let circ = circuit_with_options(
+    let circ = circuit_both_ways(
         r"
             namespace Test {
                 @EntryPoint()
@@ -336,22 +335,27 @@ fn grouping_nested_callables() {
                 }
             }
         ",
-        Profile::Unrestricted,
         CircuitEntryPoint::EntryPoint,
-        CircuitGenerationMethod::ClassicalEval,
-        TracerConfig {
-            max_operations: usize::MAX,
-            source_locations: false,
-            group_by_scope: true,
-        },
-    )
-    .expect("circuit generation should succeed");
+    );
 
     expect![[r#"
-        q_0    ─ [ [Main] ─── [ [Foo] ─── H ──── H ──── H ──── H ──── H ──── H ──── ] ──── M ──── |0〉 ──── ] ──
-                     [                                                                     ╘══════════════ ] ══
+        Eval:
+                            ┌──── [Main] ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+                            │        ┌─────────── [Foo] ────────────────────────────────────────────────────────────────────────────────────────────────────────┐                                                │
+        q_0@test.qs:4:20 ───┼────────┼────── H@test.qs:12:20 ── H@test.qs:12:20 ── H@test.qs:12:20 ── H@test.qs:12:20 ── H@test.qs:12:20 ── H@test.qs:12:20 ────┼──── M@test.qs:8:20 ──── |0〉@test.qs:8:20 ──────┼───
+                            │        └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘                                                │
+                            │                                                                                                                                                ╘═══════════════════════════════════╪═══
+                            └────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+        Static:
+                  ┌──── [Main] ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+                  │        ┌─────────── [Foo] ────────────────────────────────────────────────────────────────────────────────────────────────────────┐                                                │
+        q_0    ───┼────────┼────── H@test.qs:12:20 ── H@test.qs:12:20 ── H@test.qs:12:20 ── H@test.qs:12:20 ── H@test.qs:12:20 ── H@test.qs:12:20 ────┼──── M@test.qs:8:20 ──── |0〉@test.qs:8:20 ──────┼───
+                  │        └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘                                                │
+                  │                                                                                                                                                ╘═══════════════════════════════════╪═══
+                  └────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
     "#]]
-    .assert_eq(&circ.display_with_groups().to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
@@ -3438,8 +3442,8 @@ mod debugger_stepping {
     use expect_test::expect;
     use qsc_data_structures::language_features::LanguageFeatures;
     use qsc_data_structures::line_column::Encoding;
+    use qsc_data_structures::source::SourceMap;
     use qsc_eval::{StepAction, StepResult, output::GenericReceiver};
-    use qsc_frontend::compile::SourceMap;
     use std::fmt::Write;
 
     /// Steps through the code in the debugger and collects the

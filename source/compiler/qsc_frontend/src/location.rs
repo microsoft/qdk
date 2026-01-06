@@ -53,10 +53,10 @@ impl Location {
 
 #[cfg(test)]
 mod tests {
-    use crate::compile::{self, PackageStore, SourceMap};
+    use crate::compile::{self, PackageStore};
     use expect_test::expect;
     use qsc_data_structures::{
-        language_features::LanguageFeatures, line_column::Encoding, span::Span,
+        language_features::LanguageFeatures, line_column::Encoding, source::SourceMap, span::Span,
         target::TargetCapabilityFlags,
     };
     use qsc_hir::hir::PackageId;

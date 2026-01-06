@@ -212,7 +212,7 @@ fn check_rca_for_operation_lambda_two_parameters_with_controls() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
+                    runtime_features: RuntimeFeatureFlags(0x0)
                     value_kind: Element(Static)
                 dynamic_param_applications: <empty>"#]],
     );

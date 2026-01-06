@@ -122,7 +122,7 @@ impl Overhead for PythonCounts<'_> {
             .logical_qubits_method
             .call0()
             .map_err(|e| e.to_string())?;
-        result.extract().map_err(|e| e.to_string())
+        result.extract().map_err(|e: pyo3::PyErr| e.to_string())
     }
 
     fn logical_depth(&self, budget: &ErrorBudget) -> Result<u64, String> {
@@ -133,7 +133,7 @@ impl Overhead for PythonCounts<'_> {
             .call1((budget,))
             .map_err(|e| e.to_string())?;
 
-        result.extract().map_err(|e| e.to_string())
+        result.extract().map_err(|e: pyo3::PyErr| e.to_string())
     }
 
     fn num_magic_states(&self, budget: &ErrorBudget, index: usize) -> Result<u64, String> {
@@ -143,7 +143,7 @@ impl Overhead for PythonCounts<'_> {
             .call1((budget, index))
             .map_err(|e| e.to_string())?;
 
-        result.extract().map_err(|e| e.to_string())
+        result.extract().map_err(|e: pyo3::PyErr| e.to_string())
     }
 
     fn prune_error_budget(
@@ -164,21 +164,21 @@ impl Overhead for PythonCounts<'_> {
                     .get_item("logical")
                     .map_err(|e| e.to_string())?
                     .extract()
-                    .map_err(|e| e.to_string())?,
+                    .map_err(|e: pyo3::PyErr| e.to_string())?,
             );
             budget.set_rotations(
                 budget_dict
                     .get_item("rotations")
                     .map_err(|e| e.to_string())?
                     .extract()
-                    .map_err(|e| e.to_string())?,
+                    .map_err(|e: pyo3::PyErr| e.to_string())?,
             );
             budget.set_magic_states(
                 budget_dict
                     .get_item("magic_states")
                     .map_err(|e| e.to_string())?
                     .extract()
-                    .map_err(|e| e.to_string())?,
+                    .map_err(|e: pyo3::PyErr| e.to_string())?,
             );
         }
         Ok(())

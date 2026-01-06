@@ -12,11 +12,11 @@ pub mod qsharp {
 pub mod qir {
     use qsc_codegen::qir::{fir_to_qir, fir_to_rir};
 
-    use qsc_data_structures::{language_features::LanguageFeatures, target::TargetCapabilityFlags};
-    use qsc_frontend::{
-        compile::{Dependencies, PackageStore, SourceMap},
-        error::WithSource,
+    use qsc_data_structures::{
+        error::WithSource, language_features::LanguageFeatures, source::SourceMap,
+        target::TargetCapabilityFlags,
     };
+    use qsc_frontend::compile::{Dependencies, PackageStore};
     use qsc_partial_eval::ProgramEntry;
     use qsc_passes::{PackageType, PassContext};
 

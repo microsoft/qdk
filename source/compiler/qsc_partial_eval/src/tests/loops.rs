@@ -561,18 +561,18 @@ fn result_array_index_range_in_for_loop() {
                 0 = SubProgram name=entry location=(package_id=0 span=[0-0]) item_id=((0, 0))
                 1 = SubProgram name=Main location=(package_id=2 span=[40-318]) item_id=((2, 1))
                 2 = SubProgram name=AllocateQubitArray location=(package_id=0 span=[2577-2872]) item_id=((0, 10))
-                3 = SubProgram name=MResetEachZ location=(package_id=1 span=[179488-179657]) item_id=((1, 503))
-                4 = SubProgram name=MResetZ location=(package_id=1 span=[180988-181076]) item_id=((1, 506))
+                3 = SubProgram name=MResetEachZ location=(package_id=1 span=[179494-179663]) item_id=((1, 503))
+                4 = SubProgram name=MResetZ location=(package_id=1 span=[180994-181082]) item_id=((1, 506))
                 5 = SubProgram name=ReleaseQubitArray location=(package_id=0 span=[2878-3011]) item_id=((0, 11))
             dbg_locations:
                 [0]:  scope=1location=(package_id=2 span=[73-91])
                 [1]:  scope=2location=(package_id=0 span=[2812-2843]) inlined_at=0
                 [2]:  scope=2location=(package_id=0 span=[2812-2843]) inlined_at=0
                 [3]:  scope=1location=(package_id=2 span=[114-129])
-                [4]:  scope=3location=(package_id=1 span=[179621-179635]) inlined_at=3
-                [5]:  scope=4location=(package_id=1 span=[181037-181074]) inlined_at=4
-                [6]:  scope=3location=(package_id=1 span=[179621-179635]) inlined_at=3
-                [7]:  scope=4location=(package_id=1 span=[181037-181074]) inlined_at=6
+                [4]:  scope=3location=(package_id=1 span=[179627-179641]) inlined_at=3
+                [5]:  scope=4location=(package_id=1 span=[181043-181080]) inlined_at=4
+                [6]:  scope=3location=(package_id=1 span=[179627-179641]) inlined_at=3
+                [7]:  scope=4location=(package_id=1 span=[181043-181080]) inlined_at=6
                 [8]:  scope=1location=(package_id=2 span=[175-205])
                 [9]:  scope=1location=(package_id=2 span=[73-91])
                 [10]:  scope=5location=(package_id=0 span=[2963-2994]) inlined_at=9

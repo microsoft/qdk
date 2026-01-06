@@ -26,11 +26,11 @@ use qsc::{
     compile,
     hir::PackageId,
     interpret::{GenericReceiver, Interpreter},
-    packages::BuildableProgram,
-    qasm::{
+    openqasm::{
         OutputSemantics, ProgramType, QubitSemantics,
         compiler::parse_and_compile_to_qsharp_ast_with_config, io::InMemorySourceResolver,
     },
+    packages::BuildableProgram,
 };
 use qsc_project::{FileSystem, ProjectType, StdFs};
 
@@ -113,7 +113,7 @@ fn compile_and_run_debug_qasm(source: &str) -> String {
 }
 
 fn compile_and_run_qasm_internal(source: &str, debug: bool) -> String {
-    let config = qsc::qasm::CompilerConfig::new(
+    let config = qsc::openqasm::CompilerConfig::new(
         QubitSemantics::Qiskit,
         OutputSemantics::OpenQasm,
         ProgramType::File,
