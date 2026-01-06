@@ -253,6 +253,7 @@ const toRenderData = (
     targetsY: [target],
     label: "",
     width: -1,
+    topY: target - gateHeight / 2,
   };
 
   if (operation === undefined) return renderData;

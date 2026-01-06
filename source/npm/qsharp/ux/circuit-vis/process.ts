@@ -72,7 +72,7 @@ const processOperations = (
                 throw new Error(
                   `Failed to find classical registers for qubit ID ${reg.qubit}.`,
                 );
-              return children[reg.result].y;
+              return children[reg.result].wireY;
             });
 
           let targets: Register[];
@@ -164,6 +164,7 @@ const _opToRenderData = (
     x: 0,
     controlsY: [],
     targetsY: [],
+    topY: 0,
     label: "",
     width: -1,
   };
@@ -201,8 +202,14 @@ const _opToRenderData = (
   } = op;
 
   // Set y coords
-  renderData.controlsY = controls?.map((reg) => _getRegY(reg, registers)) || [];
-  renderData.targetsY = targets.map((reg) => _getRegY(reg, registers));
+  renderData.controlsY =
+    controls?.map((reg) => _getRegY(reg, registers).wireY) || [];
+  renderData.targetsY = targets.map((reg) => _getRegY(reg, registers).wireY);
+  renderData.topY = Math.min(
+    targets
+      .map((reg) => _getRegY(reg, registers).topY)
+      .reduce((a, b) => Math.min(a, b)),
+  );
 
   if (isConditional) {
     // Classically-controlled operations
@@ -263,6 +270,7 @@ const _opToRenderData = (
       renderLocations,
     );
     renderData.type = GateType.Group;
+    renderData.label = gate;
     renderData.children = childrenInstrs.renderDataArray;
     // _zoomButton function in gateFormatter.ts relies on
     // 'expanded' attribute to render zoom button
@@ -321,13 +329,16 @@ const _opToRenderData = (
  *
  * @returns The y coord of give register.
  */
-const _getRegY = (reg: Register, registers: RegisterMap): number => {
+const _getRegY = (
+  reg: Register,
+  registers: RegisterMap,
+): { wireY: number; topY: number } => {
   const { qubit: qId, result } = reg;
   if (!Object.prototype.hasOwnProperty.call(registers, qId))
     throw new Error(`ERROR: Qubit register with ID ${qId} not found.`);
-  const { y, children } = registers[qId];
+  const { wireY: y, topY, children } = registers[qId];
   if (result == null) {
-    return y;
+    return { wireY: y, topY };
   } else {
     if (children == null)
       throw new Error(
@@ -337,7 +348,7 @@ const _getRegY = (reg: Register, registers: RegisterMap): number => {
       throw new Error(
         `ERROR: Classical register ID ${result} invalid for qubit ID ${qId} with ${children.length} classical register(s).`,
       );
-    return children[result].y;
+    return { wireY: children[result].wireY, topY: children[result].topY };
   }
 };
 
@@ -359,7 +370,7 @@ const _splitTargetsY = (
 
   // Get qIds sorted by ascending y value
   const orderedQIds: number[] = Object.keys(registers).map(Number);
-  orderedQIds.sort((a, b) => registers[a].y - registers[b].y);
+  orderedQIds.sort((a, b) => registers[a].wireY - registers[b].wireY);
   const qIdPosition: { [qId: number]: number } = {};
   orderedQIds.forEach((qId, i) => (qIdPosition[qId] = i));
 
@@ -378,7 +389,7 @@ const _splitTargetsY = (
   let prevY = 0;
 
   return targets.reduce((groups: number[][], target: Register) => {
-    const y = _getRegY(target, registers);
+    const y = _getRegY(target, registers).wireY;
     const pos = qIdPosition[target.qubit];
 
     // Split into new group if one of the following holds:
