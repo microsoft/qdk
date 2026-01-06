@@ -152,7 +152,6 @@ serializable_type! {
         group_by_scope: bool,
         collapse_qubit_registers: bool,
         source_locations: bool,
-        group_by_scope: bool,
     },
     r#"export interface ICircuitConfig {
         generationMethod: "simulate" | "classicalEval" | "static";
@@ -161,7 +160,6 @@ serializable_type! {
         groupByScope: boolean;
         collapseQubitRegisters: boolean;
         sourceLocations: boolean;
-        groupByScope: boolean;
     }"#,
     ICircuitConfig
 }

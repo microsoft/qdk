@@ -171,7 +171,7 @@ export class QSharpTools {
         message?: string;
       }
   > {
-    const circuitConfig = getCircuitConfig();
+    const circuitConfig = getCircuitConfig(true); // TODO: whatever
     const targetProfileFallback =
       circuitConfig.generationMethod === "static" ? "adaptive_rif" : undefined;
     const program = await this.getProgram(input.filePath, {

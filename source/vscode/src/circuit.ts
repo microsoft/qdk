@@ -315,7 +315,7 @@ export function getConfig(prerelease: boolean) {
   const defaultConfig = {
     maxOperations: 10001,
     loopDetection: false,
-    groupByScope: true,
+    groupByScope: prerelease,
     generationMethod: "static" as const,
     collapseQubitRegisters: false,
     sourceLocations: true,

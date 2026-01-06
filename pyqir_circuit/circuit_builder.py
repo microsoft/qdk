@@ -516,7 +516,7 @@ def make_circuit(
     package_store: Any = None,
     position_encoding: Any = None,
     loop_detection: bool = False,
-    group_scopes: bool = False,
+    group_by_scope: bool = False,
 ) -> Circuit:
     """
     Create a Circuit object from a program representation.

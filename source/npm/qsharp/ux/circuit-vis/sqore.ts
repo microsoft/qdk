@@ -124,6 +124,23 @@ export class Sqore {
     const grid = _circuit.componentGrid;
     this.expandUntilDepth(grid, this.renderDepth);
 
+    // If only one top-level operation, expand automatically:
+    if (
+      _circuit.componentGrid.length == 1 &&
+      _circuit.componentGrid[0].components.length == 1 &&
+      _circuit.componentGrid[0].components[0].dataAttributes != null &&
+      Object.prototype.hasOwnProperty.call(
+        _circuit.componentGrid[0].components[0].dataAttributes,
+        "location",
+      ) &&
+      _circuit.componentGrid[0].components[0].dataAttributes["expanded"] !==
+        "false"
+    ) {
+      const location: string =
+        _circuit.componentGrid[0].components[0].dataAttributes["location"];
+      this.expandOperation(_circuit.componentGrid, location);
+    }
+
     // Create visualization components
     const composedSqore: ComposedSqore = this.compose(_circuit);
     const svg: SVGElement = this.generateSvg(composedSqore);
