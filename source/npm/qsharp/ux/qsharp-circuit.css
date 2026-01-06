@@ -526,8 +526,8 @@
   transition: opacity var(--stateAnimMs, 200ms) ease;
 }
 
-/* Endianness toolbar above the visualizer */
-.state-toolbar {
+/* Developer toolbar above the visualizer */
+.dev-toolbar {
   transition: opacity var(--stateAnimMs, 200ms) ease;
 }
 
@@ -543,7 +543,7 @@
 
 /* Fade content while collapsing instead of instantly hiding */
 .state-panel.collapsed .state-svg,
-.state-panel.collapsed .state-toolbar,
+.state-panel.collapsed .dev-toolbar,
 .state-panel.collapsed .state-empty-message {
   opacity: 0;
   pointer-events: none;
@@ -685,7 +685,11 @@
   text-orientation: mixed;
   font-size: calc(14px * var(--stateScale));
   line-height: 1;
-  text-align: center; /* center within the column width */
+  text-align: center;
+  width: -moz-fit-content;
+  width: fit-content; /* shrink to content so we can center via margins */
+  margin-left: auto;
+  margin-right: auto; /* center within the column width */
   color: var(--vscode-editor-foreground, #000);
   pointer-events: none;
 }
