@@ -1,11 +1,13 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+mod group_scopes;
+
 use std::vec;
 
 use super::*;
 use expect_test::expect;
-use qsc_data_structures::span::Span;
+use qsc_data_structures::{functors::FunctorApp, span::Span};
 use rustc_hash::FxHashMap;
 
 #[derive(Default)]
@@ -30,15 +32,16 @@ impl SourceLookup for FakeCompilation {
         let name = self
             .scopes
             .id_to_name
-            .get(&scope_id)
+            .get(&scope_id.0)
             .expect("unknown scope id")
             .clone();
-        LexicalScope::Named {
+        LexicalScope::Callable {
             name,
             location: PackageOffset {
                 package_id: scope_id.0.package,
                 offset: 0,
             },
+            functor_app: scope_id.1,
         }
     }
 }
@@ -52,50 +55,69 @@ impl FakeCompilation {
     }
 
     fn library_frame(&mut self, offset: u32) -> Frame {
+        let scope_id =
+            self.scopes
+                .get_or_create_scope(Self::LIBRARY_PACKAGE_ID, "library_item", false);
+        Self::frame(scope_id, offset, false)
+    }
+
+    fn user_code_frame(&mut self, scope_name: &str, offset: u32) -> Frame {
         let scope_id = self
             .scopes
-            .get_or_create_scope(Self::LIBRARY_PACKAGE_ID, "library_item");
-        Self::frame(scope_id, offset)
+            .get_or_create_scope(Self::USER_PACKAGE_ID, scope_name, false);
+        Self::frame(scope_id, offset, false)
     }
 
-    pub(crate) fn user_code_frame(&mut self, name: &str, offset: u32) -> Frame {
-        let scope_id = self.scopes.get_or_create_scope(Self::USER_PACKAGE_ID, name);
-        Self::frame(scope_id, offset)
+    fn user_code_adjoint_frame(&mut self, scope_name: &str, offset: u32) -> Frame {
+        let scope_id = self
+            .scopes
+            .get_or_create_scope(Self::USER_PACKAGE_ID, scope_name, true);
+        Self::frame(scope_id, offset, true)
     }
 
-    fn frame(scope_item_id: ScopeId, offset: u32) -> Frame {
+    fn frame(scope_item_id: ScopeId, offset: u32, is_adjoint: bool) -> Frame {
         Frame {
             span: Span {
                 lo: offset,
                 hi: offset + 1,
             },
             id: scope_item_id.0,
-            caller: PackageId::CORE,     // unused
-            functor: Default::default(), // unused
+            caller: PackageId::CORE, // unused in tests
+            functor: FunctorApp {
+                adjoint: is_adjoint,
+                controlled: 0,
+            },
         }
     }
 }
 
 #[derive(Default)]
-pub(crate) struct Scopes {
-    id_to_name: FxHashMap<ScopeId, Rc<str>>,
-    name_to_id: FxHashMap<Rc<str>, ScopeId>,
+struct Scopes {
+    id_to_name: FxHashMap<StoreItemId, Rc<str>>,
+    name_to_id: FxHashMap<Rc<str>, StoreItemId>,
 }
 
 impl Scopes {
-    fn get_or_create_scope(&mut self, package_id: usize, name: &str) -> ScopeId {
+    fn get_or_create_scope(&mut self, package_id: usize, name: &str, is_adjoint: bool) -> ScopeId {
         let name: Rc<str> = name.into();
-        if let Some(scope_id) = self.name_to_id.get(&name) {
-            *scope_id
+        let item_id = if let Some(item_id) = self.name_to_id.get(&name) {
+            *item_id
         } else {
-            let scope_id = ScopeId(StoreItemId {
+            let item_id = StoreItemId {
                 package: package_id.into(),
                 item: self.id_to_name.len().into(),
-            });
-            self.id_to_name.insert(scope_id, name.clone());
-            self.name_to_id.insert(name.clone(), scope_id);
-            scope_id
-        }
+            };
+            self.id_to_name.insert(item_id, name.clone());
+            self.name_to_id.insert(name, item_id);
+            item_id
+        };
+        ScopeId(
+            item_id,
+            FunctorApp {
+                adjoint: is_adjoint,
+                controlled: 0,
+            },
+        )
     }
 }
 
@@ -106,7 +128,7 @@ fn exceed_max_operations() {
             max_operations: 2,
             source_locations: false,
             loop_detection: false,
-            group_scopes: false,
+            group_by_scope: false,
             collapse_qubit_registers: false,
         },
         &FakeCompilation::user_package_ids(),
@@ -135,7 +157,7 @@ fn source_locations_enabled() {
         TracerConfig {
             max_operations: 10,
             source_locations: true,
-            group_scopes: false,
+            group_by_scope: false,
             ..Default::default()
         },
         &FakeCompilation::user_package_ids(),
@@ -174,7 +196,7 @@ fn source_locations_disabled() {
             max_operations: 10,
             source_locations: false,
             loop_detection: false,
-            group_scopes: false,
+            group_by_scope: false,
             collapse_qubit_registers: false,
         },
         &FakeCompilation::user_package_ids(),
@@ -206,7 +228,7 @@ fn source_locations_multiple_user_frames() {
         TracerConfig {
             max_operations: 10,
             source_locations: true,
-            group_scopes: false,
+            group_by_scope: false,
             ..Default::default()
         },
         &FakeCompilation::user_package_ids(),
@@ -245,7 +267,7 @@ fn source_locations_library_frames_excluded() {
         TracerConfig {
             max_operations: 10,
             source_locations: true,
-            group_scopes: false,
+            group_by_scope: false,
             ..Default::default()
         },
         &FakeCompilation::user_package_ids(),
@@ -278,7 +300,7 @@ fn source_locations_only_library_frames() {
         TracerConfig {
             max_operations: 10,
             source_locations: true,
-            group_scopes: false,
+            group_by_scope: false,
             ..Default::default()
         },
         &FakeCompilation::user_package_ids(),
@@ -311,7 +333,7 @@ fn source_locations_enabled_no_stack() {
         TracerConfig {
             max_operations: 10,
             source_locations: true,
-            group_scopes: false,
+            group_by_scope: false,
             ..Default::default()
         },
         &FakeCompilation::user_package_ids(),
@@ -337,7 +359,7 @@ fn qubit_source_locations_via_stack() {
         TracerConfig {
             max_operations: 10,
             source_locations: true,
-            group_scopes: false,
+            group_by_scope: false,
             ..Default::default()
         },
         &FakeCompilation::user_package_ids(),
@@ -362,7 +384,7 @@ fn qubit_labels_for_preallocated_qubits() {
         TracerConfig {
             max_operations: 10,
             source_locations: true,
-            group_scopes: false,
+            group_by_scope: false,
             ..Default::default()
         },
         &FakeCompilation::user_package_ids(),

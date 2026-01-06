@@ -58,6 +58,7 @@ export type CircuitOrError = {
 
 export async function showCircuitCommand(
   extensionUri: Uri,
+  prerelease: boolean,
   operation: IOperationInfo | undefined,
   telemetryInvocationType: UserTaskInvocationType,
   telemetryDocumentType?: QsharpDocumentType,
@@ -76,7 +77,7 @@ export async function showCircuitCommand(
     {},
   );
 
-  const circuitConfig = getConfig();
+  const circuitConfig = getConfig(prerelease);
   if (!programConfig) {
     const targetProfileFallback =
       circuitConfig.generationMethod === "static" ? "adaptive_rif" : undefined;
@@ -310,11 +311,11 @@ async function getCircuitOrError(
   }
 }
 
-export function getConfig() {
+export function getConfig(prerelease: boolean) {
   const defaultConfig = {
     maxOperations: 10001,
     loopDetection: false,
-    groupScopes: true,
+    groupByScope: true,
     generationMethod: "static" as const,
     collapseQubitRegisters: false,
     sourceLocations: true,
@@ -333,10 +334,10 @@ export function getConfig() {
       "loopDetection" in config && typeof config.loopDetection === "boolean"
         ? config.loopDetection
         : defaultConfig.loopDetection,
-    groupScopes:
-      "groupScopes" in config && typeof config.groupScopes === "boolean"
-        ? config.groupScopes
-        : defaultConfig.groupScopes,
+    groupByScope:
+      "groupByScope" in config && typeof config.groupByScope === "boolean"
+        ? config.groupByScope
+        : defaultConfig.groupByScope,
     generationMethod:
       "generationMethod" in config &&
       typeof config.generationMethod === "string" &&
@@ -422,7 +423,9 @@ export function updateCircuitPanel(
 ) {
   const panelId = params?.operation?.operation || projectName;
   const title = params?.operation
-    ? `${params.operation.operation} with ${params.operation.totalNumQubits} input qubits`
+    ? params.operation.totalNumQubits > 0
+      ? `${params.operation.operation} with ${params.operation.totalNumQubits} input qubits`
+      : params.operation.operation
     : projectName;
 
   const target = `Target profile: ${getTargetFriendlyName(targetProfile)} `;

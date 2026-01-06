@@ -1,8 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-#[cfg(test)]
-mod tests;
 pub(crate) mod tracer;
 
 use core::panic;
@@ -11,8 +9,8 @@ use std::{fmt::Display, vec};
 use crate::{
     Circuit, Error, TracerConfig,
     builder::{
-        GateInputs, OperationOrGroup, QubitWire, ResultWire, ScopeId, SourceLocationMetadata,
-        WireMap, add_op_with_grouping, finish_circuit,
+        GateInputs, LocationMetadata, OperationOrGroup, QubitWire, ResultWire, ScopeId, WireMap,
+        add_op_with_grouping, finish_circuit,
     },
     circuit::PackageOffset,
     rir_to_circuit::tracer::FixedQubitRegisterMapBuilder,
@@ -20,6 +18,7 @@ use crate::{
 use log::{debug, warn};
 use qsc_data_structures::{
     debug::{DbgInfo, DbgLocationId, DbgMetadataScope, DbgScopeId, InstructionMetadata},
+    functors::FunctorApp,
     index_map::IndexMap,
 };
 use qsc_fir::fir::StoreItemId;
@@ -99,7 +98,7 @@ pub fn make_circuit(
     for (id, block) in program.blocks.iter() {
         let block_operations = operations_in_block(
             config.source_locations,
-            config.group_scopes,
+            config.group_by_scope,
             user_package_ids,
             &mut program_map,
             &wire_map,
@@ -308,7 +307,7 @@ struct VarsOnlyGroupOp {
 }
 
 fn make_group_op_vars_only(
-    operations: &[(OperationOrGroup, Vec<SourceLocationMetadata>)],
+    operations: &[(OperationOrGroup, Vec<LocationMetadata>)],
     control_results: &[ResultWire],
 ) -> VarsOnlyGroupOp {
     let children = operations
@@ -323,7 +322,7 @@ fn make_group_op_vars_only(
 
 fn make_group_op(
     label: &str,
-    operations: &[(OperationOrGroup, Vec<SourceLocationMetadata>)],
+    operations: &[(OperationOrGroup, Vec<LocationMetadata>)],
     targets: &[QubitWire],
     control_results: &[ResultWire],
 ) -> OperationOrGroup {
@@ -624,14 +623,14 @@ fn expand_branch(
 struct CircuitBlock {
     phis: Vec<(Variable, Vec<(Expr, BlockId)>)>,
     // This has to be Op since it may contain logical stacks from dbg metadata
-    operations: Vec<(OperationOrGroup, Vec<SourceLocationMetadata>)>, // unfiltered_call_stack
+    operations: Vec<(OperationOrGroup, Vec<LocationMetadata>)>, // unfiltered_call_stack
     terminator: Option<Terminator>,
 }
 
 #[allow(clippy::too_many_arguments)]
 fn operations_in_block(
     source_locations: bool,
-    group_scopes: bool,
+    group_by_scope: bool,
     user_package_ids: &[PackageId],
     state: &mut ProgramMap,
     register_map: &WireMap,
@@ -649,7 +648,7 @@ fn operations_in_block(
     let mut builder = OpListBuilder::new(
         ops_remaining,
         source_locations,
-        group_scopes,
+        group_by_scope,
         user_package_ids.to_vec(),
     );
     for instruction in &block.0 {
@@ -695,15 +694,12 @@ pub(crate) struct DbgStuff<'a> {
 
 impl DbgStuff<'_> {
     /// Returns oldest->youngest
-    fn instruction_logical_stack(
-        &self,
-        dbg_location_idx: DbgLocationId,
-    ) -> Vec<SourceLocationMetadata> {
+    fn instruction_logical_stack(&self, dbg_location_idx: DbgLocationId) -> Vec<LocationMetadata> {
         let mut location_stack = vec![];
         let mut current_location_idx = Some(dbg_location_idx);
 
         while let Some(location_idx) = current_location_idx {
-            let source_location_metadata = SourceLocationMetadata::new(
+            let source_location_metadata = LocationMetadata::new(
                 self.source_location(location_idx),
                 self.dbg_info
                     .resolve_scope(&self.lexical_scope(location_idx)),
@@ -731,10 +727,13 @@ impl ScopeResolver for DbgInfo {
                 name: _,
                 location: _,
                 item_id,
-            } => ScopeId(StoreItemId {
-                package: item_id.0.into(),
-                item: item_id.1.into(),
-            }),
+            } => ScopeId(
+                StoreItemId {
+                    package: item_id.0.into(),
+                    item: item_id.1.into(),
+                },
+                FunctorApp::default(), // TODO: is this the right functor app?
+            ),
         }
     }
 }
@@ -1155,7 +1154,7 @@ fn eq_expr(expr_left: Expr, expr_right: Expr) -> Result<BoolExpr, Error> {
 
 #[derive(Clone, Debug)]
 struct ConditionalBlock {
-    operations: Vec<(OperationOrGroup, Vec<SourceLocationMetadata>)>, // unfiltered_call_stack
+    operations: Vec<(OperationOrGroup, Vec<LocationMetadata>)>, // unfiltered_call_stack
     targets: Vec<QubitWire>,
 }
 
@@ -1276,7 +1275,7 @@ fn make_simple_branch_block(
 }
 
 fn expand_real_branch_block(
-    operations: &Vec<(OperationOrGroup, Vec<SourceLocationMetadata>)>,
+    operations: &Vec<(OperationOrGroup, Vec<LocationMetadata>)>,
 ) -> Result<ConditionalBlock, Error> {
     let mut seen = FxHashSet::default();
     let mut real_ops = vec![];
@@ -2025,7 +2024,7 @@ fn match_operands(
 struct OpListBuilder {
     max_ops: usize,
     max_ops_exceeded: bool,
-    operations: Vec<(OperationOrGroup, Vec<SourceLocationMetadata>)>,
+    operations: Vec<(OperationOrGroup, Vec<LocationMetadata>)>,
     _source_locations: bool,
     _group_scopes: bool,
     _user_package_ids: Vec<PackageId>,
@@ -2052,7 +2051,7 @@ impl OpListBuilder {
         &mut self,
         _dbg_stuff: &DbgStuff,
         op: OperationOrGroup,
-        unfiltered_call_stack: Vec<SourceLocationMetadata>,
+        unfiltered_call_stack: Vec<LocationMetadata>,
     ) {
         if self.max_ops_exceeded || self.operations.len() >= self.max_ops {
             // Stop adding gates and leave the circuit as is
@@ -2064,7 +2063,7 @@ impl OpListBuilder {
         self.operations.push((op, unfiltered_call_stack));
     }
 
-    pub fn into_operations(self) -> Vec<(OperationOrGroup, Vec<SourceLocationMetadata>)> {
+    pub fn into_operations(self) -> Vec<(OperationOrGroup, Vec<LocationMetadata>)> {
         self.operations
     }
 
@@ -2077,7 +2076,7 @@ impl OpListBuilder {
         is_adjoint: bool,
         inputs: &GateInputs,
         args: Vec<String>,
-        call_stack: &[SourceLocationMetadata],
+        call_stack: &[LocationMetadata],
     ) {
         self.push_op(
             dbg_stuff,
@@ -2092,7 +2091,7 @@ impl OpListBuilder {
         wire_map: &WireMap,
         qubit: usize,
         result: usize,
-        call_stack: &[SourceLocationMetadata],
+        call_stack: &[LocationMetadata],
     ) {
         self.push_op(
             dbg_stuff,
@@ -2107,7 +2106,7 @@ impl OpListBuilder {
         wire_map: &WireMap,
         qubit: usize,
         result: usize,
-        call_stack: &[SourceLocationMetadata],
+        call_stack: &[LocationMetadata],
     ) {
         self.push_op(
             dbg_stuff,
@@ -2126,7 +2125,7 @@ impl OpListBuilder {
         dbg_stuff: &DbgStuff,
         wire_map: &WireMap,
         qubit: usize,
-        call_stack: &[SourceLocationMetadata],
+        call_stack: &[LocationMetadata],
     ) {
         self.push_op(
             dbg_stuff,

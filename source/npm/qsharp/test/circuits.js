@@ -236,13 +236,23 @@ test("circuit snapshot tests - .qs files", async (t) => {
         circuitSource,
         "circuit-static",
         "static",
+        0,
       );
 
       await generateAndDrawCircuit(
         relName,
         circuitSource,
-        "circuit-eval",
+        "circuit-eval-collapsed",
         "classicalEval",
+        0,
+      );
+
+      await generateAndDrawCircuit(
+        relName,
+        circuitSource,
+        "circuit-eval-expanded",
+        "classicalEval",
+        999999,
       );
 
       await checkDocumentSnapshot(tt, tt.name);
@@ -255,14 +265,19 @@ test("circuit snapshot tests - .qs files", async (t) => {
  * @param {string} circuitSource
  * @param {string} id
  * @param {"static" | "classicalEval" | "simulate"} generationMethod
+ * @param {number} renderDepth
  */
 async function generateAndDrawCircuit(
   name,
   circuitSource,
   id,
   generationMethod,
+  renderDepth,
 ) {
   const compiler = getCompiler();
+  const title = document.createElement("div");
+  title.innerHTML = `<h2>${id}</h2>`;
+  document.body.appendChild(title);
   const container = createContainerElement(id);
   try {
     // Generate the circuit from Q#
@@ -275,7 +290,7 @@ async function generateAndDrawCircuit(
       {
         generationMethod,
         collapseQubitRegisters: false,
-        groupScopes: true,
+        groupByScope: true,
         loopDetection: false,
         maxOperations: 100,
         sourceLocations: true,
@@ -285,7 +300,7 @@ async function generateAndDrawCircuit(
 
     // Render the circuit
     draw(circuit, container, {
-      renderDepth: 10,
+      renderDepth,
       renderLocations,
     });
   } catch (e) {

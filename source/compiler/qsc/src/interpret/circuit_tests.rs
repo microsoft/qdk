@@ -334,7 +334,7 @@ fn classical_for_loop() {
         CircuitEntryPoint::EntryPoint,
         TracerConfig {
             loop_detection: true,
-            group_scopes: true,
+            group_by_scope: true,
             ..Default::default()
         },
     );
@@ -385,7 +385,7 @@ fn for_loop_in_function_call() {
         CircuitEntryPoint::EntryPoint,
         TracerConfig {
             loop_detection: true,
-            group_scopes: true,
+            group_by_scope: true,
             ..Default::default()
         },
     );
@@ -1190,7 +1190,7 @@ fn loop_and_scope() {
         CircuitEntryPoint::Operation("Test.Main".into()),
         TracerConfig {
             loop_detection: true,
-            group_scopes: true,
+            group_by_scope: true,
             ..Default::default()
         },
     );

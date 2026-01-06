@@ -146,20 +146,22 @@ pub(crate) fn get_estimates_from_openqasm(
 serializable_type! {
     CircuitConfig,
     {
+        generation_method: String,
         max_operations: usize,
         loop_detection: bool,
-        group_scopes: bool,
-        generation_method: String,
+        group_by_scope: bool,
         collapse_qubit_registers: bool,
         source_locations: bool,
+        group_by_scope: bool,
     },
     r#"export interface ICircuitConfig {
+        generationMethod: "simulate" | "classicalEval" | "static";
         maxOperations: number;
         loopDetection: boolean;
-        groupScopes: boolean;
-        generationMethod: "simulate" | "classicalEval" | "static";
+        groupByScope: boolean;
         collapseQubitRegisters: boolean;
         sourceLocations: boolean;
+        groupByScope: boolean;
     }"#,
     ICircuitConfig
 }
@@ -186,7 +188,7 @@ pub fn get_circuit(
         source_locations: config.source_locations,
         max_operations: config.max_operations,
         loop_detection: config.loop_detection,
-        group_scopes: config.group_scopes,
+        group_by_scope: config.group_by_scope,
         collapse_qubit_registers: config.collapse_qubit_registers,
     };
 

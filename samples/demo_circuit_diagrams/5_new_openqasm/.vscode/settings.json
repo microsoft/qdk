@@ -2,7 +2,7 @@
   "Q#.circuits.config": {
     "maxOperations": 10001,
     "loopDetection": true,
-    "groupScopes": true,
+    "groupByScope": true,
     "generationMethod": "static",
     "collapseQubitRegisters": false
   }

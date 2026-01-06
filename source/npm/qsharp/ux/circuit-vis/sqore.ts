@@ -490,7 +490,7 @@ export class Sqore {
         // Collapse parent gate and its children
         if (opId.startsWith(parentLoc)) {
           op.conditionalRender = ConditionalRender.Always;
-          delete op.dataAttributes["expanded"];
+          op.dataAttributes["expanded"] = "false";
         }
       }),
     );

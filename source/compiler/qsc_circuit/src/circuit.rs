@@ -54,6 +54,17 @@ impl Circuit {
             render_groups: false,
         }
     }
+
+    #[must_use]
+    pub fn display_with_groups(&self) -> impl Display {
+        // Groups rendered only in tests since the current line rendering
+        // doesn't look good enough to be user-facing.
+        CircuitDisplay {
+            circuit: self,
+            render_locations: true,
+            render_groups: true,
+        }
+    }
 }
 
 impl Display for Circuit {
@@ -133,20 +144,56 @@ impl Operation {
     }
 
     #[must_use]
-    pub fn source(&self) -> &Option<SourceLocation> {
+    pub fn source_location(&self) -> Option<&SourceLocation> {
         match self {
-            Self::Measurement(measurement) => &measurement.source,
-            Self::Unitary(unitary) => &unitary.source,
-            Self::Ket(ket) => &ket.source,
+            Self::Measurement(measurement) => measurement.metadata.as_ref(),
+            Self::Unitary(unitary) => unitary.metadata.as_ref(),
+            Self::Ket(ket) => ket.metadata.as_ref(),
+        }
+        .and_then(|m| m.source.as_ref())
+    }
+
+    #[must_use]
+    pub fn source_location_mut(&mut self) -> &mut Option<SourceLocation> {
+        let md = match self {
+            Self::Measurement(measurement) => &mut measurement.metadata,
+            Self::Unitary(unitary) => &mut unitary.metadata,
+            Self::Ket(ket) => &mut ket.metadata,
+        };
+
+        if md.is_none() {
+            md.replace(Metadata {
+                source: None,
+                scope_location: None,
+            });
+        }
+
+        if let Some(md) = md {
+            &mut md.source
+        } else {
+            unreachable!()
         }
     }
 
     #[must_use]
-    pub fn source_mut(&mut self) -> &mut Option<SourceLocation> {
-        match self {
-            Self::Measurement(measurement) => &mut measurement.source,
-            Self::Unitary(unitary) => &mut unitary.source,
-            Self::Ket(ket) => &mut ket.source,
+    pub fn scope_location_mut(&mut self) -> &mut Option<SourceLocation> {
+        let md = match self {
+            Self::Measurement(measurement) => &mut measurement.metadata,
+            Self::Unitary(unitary) => &mut unitary.metadata,
+            Self::Ket(ket) => &mut ket.metadata,
+        };
+
+        if md.is_none() {
+            md.replace(Metadata {
+                source: None,
+                scope_location: None,
+            });
+        }
+
+        if let Some(md) = md {
+            &mut md.scope_location
+        } else {
+            unreachable!()
         }
     }
 
@@ -167,16 +214,6 @@ impl Operation {
             Operation::Measurement(m) => &mut m.children,
             Operation::Unitary(u) => &mut u.children,
             Operation::Ket(k) => &mut k.children,
-        }
-    }
-
-    /// Returns the source location for the operation.
-    #[must_use]
-    pub fn source_location(&self) -> &Option<SourceLocation> {
-        match self {
-            Operation::Measurement(m) => &m.source,
-            Operation::Unitary(u) => &u.source,
-            Operation::Ket(k) => &k.source,
         }
     }
 
@@ -221,7 +258,7 @@ pub struct Measurement {
     pub qubits: Vec<Register>,
     pub results: Vec<Register>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub source: Option<SourceLocation>,
+    pub metadata: Option<Metadata>,
 }
 
 /// Representation of a unitary operation.
@@ -243,10 +280,7 @@ pub struct Unitary {
     #[serde(default)]
     pub is_adjoint: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub source: Option<SourceLocation>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    /// Only if this operation represents a scope group.
-    pub scope_location: Option<SourceLocation>,
+    pub metadata: Option<Metadata>,
 }
 
 /// Representation of a gate that will set the target to a specific state.
@@ -261,7 +295,7 @@ pub struct Ket {
     pub children: ComponentGrid,
     pub targets: Vec<Register>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub source: Option<SourceLocation>,
+    pub metadata: Option<Metadata>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Eq, Hash, PartialEq, Clone)]
@@ -303,6 +337,18 @@ pub struct Qubit {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     #[serde(default)]
     pub declarations: Vec<SourceLocation>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+/// The schema of `Metadata` may change and its contents
+/// are never meant to be persisted in a .qsc file.
+pub struct Metadata {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    /// The location in the source code that this operation originated from.
+    pub source: Option<SourceLocation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Only populated if this operation represents a scope group.
+    pub scope_location: Option<SourceLocation>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -1064,7 +1110,7 @@ fn add_operation_to_rows(
                 &operation.gate(),
                 &operation.args(),
                 operation.is_adjoint(),
-                operation.source().as_ref(),
+                operation.source_location(),
             );
         }
     }
@@ -1073,7 +1119,7 @@ fn add_operation_to_rows(
         for i in controls {
             let row = &mut rows[*i];
             if matches!(row.wire, Wire::Qubit { .. }) && operation.is_measurement() {
-                row.add_measurement(column, operation.source().as_ref());
+                row.add_measurement(column, operation.source_location());
             } else {
                 row.add_object_to_row_wire(column, "●");
             }
@@ -1273,7 +1319,7 @@ fn group_label(operation: &Operation) -> String {
         let _ = write!(&mut gate_label, "({args})");
     }
 
-    if let Some(SourceLocation::Resolved(loc)) = operation.source() {
+    if let Some(SourceLocation::Resolved(loc)) = operation.source_location() {
         let _ = write!(&mut gate_label, "@{loc}");
     }
 

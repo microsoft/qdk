@@ -103,7 +103,7 @@
           "default": {
             "maxOperations": 10001,
             "loopDetection": false,
-            "groupScopes": true,
+            "groupByScope": true,
             "generationMethod": "static",
             "collapseQubitRegisters": false,
             "sourceLocations": true
@@ -120,7 +120,7 @@
               "default": false,
               "description": "Whether to attempt to detect loops in the program and group them in the circuit diagram."
             },
-            "groupScopes": {
+            "groupByScope": {
               "type": "boolean",
               "default": true,
               "description": "Whether to group operations into scopes based on the original source code."
