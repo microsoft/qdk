@@ -234,9 +234,17 @@ test("circuit snapshot tests - .qs files", async (t) => {
       await generateAndDrawCircuit(
         relName,
         circuitSource,
-        "circuit-static",
+        "circuit-static-collapsed",
         "static",
         0,
+      );
+
+      await generateAndDrawCircuit(
+        relName,
+        circuitSource,
+        "circuit-static-expanded",
+        "static",
+        999999,
       );
 
       await generateAndDrawCircuit(
