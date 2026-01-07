@@ -499,7 +499,7 @@
 /* State visualizer panel */
 .state-panel {
   --stateScale: 1; /* default scale */
-  flex: 0 0 calc(468px * var(--stateScale));
+  flex: 0 0 0px;
   border-left: none; /* replaced by clickable edge */
   display: flex;
   flex-direction: column;
@@ -528,7 +528,24 @@
 
 /* Developer toolbar above the visualizer */
 .dev-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  row-gap: 4px;
+  width: 100%;
+  padding: 4px 6px;
+  font-size: 12px;
+  border-bottom: 1px solid #ddd;
   transition: opacity var(--stateAnimMs, 200ms) ease;
+}
+
+.dev-toolbar-sep {
+  opacity: 0.6;
+}
+
+.dev-toolbar input {
+  width: 56px;
 }
 
 /* Collapsed state: shrink panel and hide content except the toggle */
@@ -707,4 +724,28 @@
   z-index: 20;
   pointer-events: none;
   transition: opacity var(--stateAnimMs, 200ms) ease;
+}
+
+/* Circuit container/wrapper layout extracted from inline styles */
+.circuit-editor-container {
+  display: flex;
+  height: 80vh;
+  width: 95vw;
+  align-items: stretch;
+}
+
+.circuit-wrapper {
+  display: block;
+  overflow: auto;
+  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Empty circuit message extracted from inline styles */
+.empty-circuit-message {
+  padding: 2em;
+  text-align: center;
+  color: var(--vscode-descriptionForeground, #888);
+  font-size: 1.1em;
 }

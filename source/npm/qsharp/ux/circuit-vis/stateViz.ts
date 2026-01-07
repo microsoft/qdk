@@ -46,6 +46,50 @@ export type AmpMap = Record<string, AmpLike>;
 
 const OTHERS_KEY = "__OTHERS__";
 
+// Helpers to manage empty/content states without inline styles duplication
+const _ensureEmptyMessage = (panel: HTMLElement, text: string): void => {
+  let msg = panel.querySelector(".state-empty-message") as HTMLElement | null;
+  if (!msg) {
+    msg = document.createElement("div");
+    msg.className = "state-empty-message";
+    panel.appendChild(msg);
+  }
+  msg.textContent = text;
+};
+
+const _showEmptyState = (panel: HTMLElement): void => {
+  const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
+  if (svg) {
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    try {
+      svg.removeAttribute("height");
+      (svg as any).style.height = "auto";
+    } catch {
+      void 0;
+    }
+    svg.style.display = "none";
+  }
+  const toolbar = panel.querySelector(".dev-toolbar") as HTMLElement | null;
+  if (toolbar) toolbar.style.display = "none";
+  _ensureEmptyMessage(panel, "The circuit is empty.");
+  try {
+    if (!panel.classList.contains("collapsed")) {
+      panel.style.flexBasis = "360px";
+    }
+  } catch {
+    void 0;
+  }
+};
+
+const _showContentState = (panel: HTMLElement): void => {
+  const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
+  if (svg) svg.style.display = "";
+  const toolbar = panel.querySelector(".dev-toolbar") as HTMLElement | null;
+  if (toolbar) toolbar.style.display = "";
+  const emptyMsg = panel.querySelector(".state-empty-message");
+  if (emptyMsg) emptyMsg.remove();
+};
+
 // Convert amplitude to polar `{ prob, phase }`.
 const _toPolar = (a: AmpLike): { prob: number; phase: number } => {
   const maybe = a as Partial<AmpComplex & AmpPolar>;
@@ -220,56 +264,12 @@ export const updateStatePanelFromMap = (
 
   // Handle zero-qubit map by showing the empty-state message and hiding SVG
   if (!guessN || guessN <= 0) {
-    const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
-    if (svg) {
-      while (svg.firstChild) svg.removeChild(svg.firstChild);
-      // Reset any stale height to avoid carrying over large values
-      try {
-        svg.removeAttribute("height");
-        (svg as any).style.height = "auto";
-      } catch {
-        void 0;
-      }
-      svg.style.display = "none";
-    }
-    const toolbar = panel.querySelector(".dev-toolbar") as HTMLElement | null;
-    if (toolbar) toolbar.style.display = "none";
-    let msg = panel.querySelector(".state-empty-message") as HTMLElement | null;
-    if (!msg) {
-      msg = document.createElement("div");
-      msg.className = "state-empty-message";
-      msg.textContent = "The circuit is empty.";
-      msg.style.position = "absolute";
-      msg.style.top = "50%";
-      msg.style.left = "50%";
-      msg.style.transform = "translate(-50%, -50%)";
-      msg.style.padding = "8px";
-      msg.style.textAlign = "center";
-      msg.style.fontSize = "13px";
-      msg.style.color = "#666";
-      msg.style.zIndex = "20";
-      msg.style.pointerEvents = "none";
-      panel.appendChild(msg);
-    }
-    try {
-      if (!panel.classList.contains("collapsed")) {
-        panel.style.flexBasis = "360px";
-      }
-    } catch {
-      void 0;
-    }
+    _showEmptyState(panel);
     return;
   }
 
   // Ensure SVG is visible and remove any empty-state message when rendering data
-  const svgEnsure = panel.querySelector(
-    "svg.state-svg",
-  ) as SVGSVGElement | null;
-  if (svgEnsure) svgEnsure.style.display = "";
-  const toolbar = panel.querySelector(".dev-toolbar") as HTMLElement | null;
-  if (toolbar) toolbar.style.display = "";
-  const emptyMsg = panel.querySelector(".state-empty-message");
-  if (emptyMsg) emptyMsg.remove();
+  _showContentState(panel);
   const raw = entries.map(([bit, a]) => {
     const { prob, phase } = _toPolar(a);
     return { bit, prob, phase };
@@ -385,46 +385,10 @@ export const renderDefaultStatePanel = (
   if (!nQubits || nQubits <= 0) {
     // Hide SVG graphics and show message
     // Reset any stale height to avoid carrying over large values
-    try {
-      svg.removeAttribute("height");
-      (svg as any).style.height = "auto";
-    } catch {
-      void 0;
-    }
-    svg.style.display = "none";
-    const toolbar = panel.querySelector(".dev-toolbar") as HTMLElement | null;
-    if (toolbar) toolbar.style.display = "none";
-    let msg = panel.querySelector(".state-empty-message") as HTMLElement | null;
-    if (!msg) {
-      msg = document.createElement("div");
-      msg.className = "state-empty-message";
-      msg.textContent = "The circuit is empty.";
-      msg.style.position = "absolute";
-      msg.style.top = "50%";
-      msg.style.left = "50%";
-      msg.style.transform = "translate(-50%, -50%)";
-      msg.style.padding = "8px";
-      msg.style.textAlign = "center";
-      msg.style.fontSize = "13px";
-      msg.style.color = "#666";
-      msg.style.zIndex = "20";
-      msg.style.pointerEvents = "none";
-      panel.appendChild(msg);
-    }
-    try {
-      if (!panel.classList.contains("collapsed")) {
-        panel.style.flexBasis = "360px";
-      }
-    } catch {
-      void 0;
-    }
+    _showEmptyState(panel);
   } else {
     // Remove message and render the deterministic zero-state
-    const msg = panel.querySelector(".state-empty-message");
-    if (msg) msg.remove();
-    const toolbar = panel.querySelector(".dev-toolbar") as HTMLElement | null;
-    if (toolbar) toolbar.style.display = "";
-    svg.style.display = "";
+    _showContentState(panel);
     const zeros = "0".repeat(nQubits);
     updateStatePanelFromMap(
       panel,

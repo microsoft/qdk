@@ -25,7 +25,7 @@ let vizDataMode: DataMode = "live";
 let vizMockSet = 0;
 let vizMinProbThreshold = 0.001; // 0..1 default 0.1%
 // Toggle to show/hide the developer toolbar for the state panel
-const SHOW_STATE_DEV_TOOLBAR = false;
+const SHOW_STATE_DEV_TOOLBAR = true;
 
 /**
  * Create a panel for the circuit visualization.
@@ -41,9 +41,6 @@ const createPanel = (container: HTMLElement): void => {
   if (!wrapper) {
     wrapper = _elem("div", "");
     wrapper.className = "circuit-wrapper";
-    wrapper.style.display = "block";
-    wrapper.style.overflow = "auto";
-    wrapper.style.width = "100%";
     wrapper.appendChild(circuit);
     container.appendChild(wrapper);
   } else if (circuit.parentElement !== wrapper) {
@@ -68,31 +65,16 @@ const createPanel = (container: HTMLElement): void => {
     emptyMsg.className = "empty-circuit-message";
     emptyMsg.textContent =
       "Your circuit is empty. Drag gates from the toolbox to get started!";
-    emptyMsg.style.padding = "2em";
-    emptyMsg.style.textAlign = "center";
-    emptyMsg.style.color = "#888";
-    emptyMsg.style.fontSize = "1.1em";
     wrapper.appendChild(emptyMsg);
   }
 
-  // Ensure flex layout
-  container.style.display = "flex";
-  container.style.height = "80vh";
-  container.style.width = "95vw";
-  container.style.alignItems = "stretch";
-  wrapper.style.flex = "1 1 auto";
-  wrapper.style.minWidth = "0";
+  // Ensure flex layout via CSS classes
+  container.classList.add("circuit-editor-container");
+  wrapper.classList.add("circuit-wrapper");
 
   // Ensure a right-side state panel exists
   if (container.querySelector(".state-panel") == null) {
     const statePanel = createStatePanel();
-    statePanel.style.position = "relative";
-    statePanel.style.zIndex = "10";
-    statePanel.style.pointerEvents = "auto";
-    statePanel.style.flexShrink = "0";
-    statePanel.style.flexGrow = "0";
-    // Start with zero width; stateViz will set accurate flex-basis on first render
-    statePanel.style.flexBasis = "0px";
     container.appendChild(statePanel);
   }
 
@@ -110,12 +92,7 @@ const createPanel = (container: HTMLElement): void => {
     ) {
       const toolbar = document.createElement("div");
       toolbar.className = "dev-toolbar";
-      toolbar.style.display = "flex";
-      toolbar.style.alignItems = "center";
-      toolbar.style.gap = "6px";
-      toolbar.style.padding = "4px 6px";
-      toolbar.style.fontSize = "12px";
-      toolbar.style.borderBottom = "1px solid #ddd";
+
       // Endianness control
       const labelEndian = document.createElement("span");
       labelEndian.textContent = "Endianness:";
@@ -139,8 +116,8 @@ const createPanel = (container: HTMLElement): void => {
 
       // Separator
       const sep = document.createElement("span");
+      sep.className = "dev-toolbar-sep";
       sep.textContent = "|";
-      sep.style.opacity = "0.6";
       toolbar.appendChild(sep);
 
       // Data mode control
@@ -193,8 +170,8 @@ const createPanel = (container: HTMLElement): void => {
 
       // Separator
       const sep2 = document.createElement("span");
+      sep2.className = "dev-toolbar-sep";
       sep2.textContent = "|";
-      sep2.style.opacity = "0.6";
       toolbar.appendChild(sep2);
 
       // Minimum probability threshold control (percentage)
@@ -205,7 +182,6 @@ const createPanel = (container: HTMLElement): void => {
       inputThresh.min = "0";
       inputThresh.max = "100";
       inputThresh.step = "0.1";
-      inputThresh.style.width = "56px";
       inputThresh.value = "0.1";
       inputThresh.title =
         "States below this percentage are aggregated into Others";
@@ -280,7 +256,6 @@ const enableRunButton = (
 
 /**
  * Function to produce panel element
- * @returns             HTML element for panel
  */
 const _panel = (): HTMLElement => {
   const panelElem = _elem("div");
