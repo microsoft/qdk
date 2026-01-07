@@ -7,12 +7,13 @@ use core::panic;
 use std::{fmt::Display, vec};
 
 use crate::{
-    Circuit, Error, TracerConfig,
+    Circuit, Error, Ket, Measurement, Operation, Register, TracerConfig, Unitary,
     builder::{
-        GateInputs, LocationMetadata, OperationOrGroup, QubitWire, ResultWire, ScopeId, WireMap,
-        add_op_with_grouping, finish_circuit,
+        GateInputs, LocationMetadata, LogicalStackTrace, OperationOrGroup, QubitWire, ResultWire,
+        ScopeId, ScopeStack, WireMap, add_scoped_op, finish_circuit, retain_user_frames,
+        scope_stack,
     },
-    circuit::PackageOffset,
+    circuit::{Metadata, PackageOffset},
     rir_to_circuit::tracer::FixedQubitRegisterMapBuilder,
 };
 use log::{debug, warn};
@@ -40,93 +41,238 @@ struct Branch {
     cond_expr_instruction_metadata: Option<InstructionMetadata>,
 }
 
+#[derive(Clone, Debug)]
+struct OperationOrConditional {
+    kind: OperationOrConditionalGroupKind,
+    op: Operation,
+    instruction_metadata: Option<InstructionMetadata>,
+}
+
+#[derive(Clone, Debug)]
+enum OperationOrConditionalGroupKind {
+    Single,
+    ConditionalGroup {
+        label: String,
+        children: Vec<OperationOrConditional>,
+        scope_location: Option<PackageOffset>,
+        control_results: Vec<ResultWire>,
+        targets: Vec<QubitWire>,
+    },
+}
+
+impl OperationOrConditional {
+    fn new_single(op: Operation, instruction_metadata: Option<InstructionMetadata>) -> Self {
+        Self {
+            kind: OperationOrConditionalGroupKind::Single,
+            op,
+            instruction_metadata,
+        }
+    }
+
+    fn new_unitary(
+        name: &str,
+        is_adjoint: bool,
+        targets: &[QubitWire],
+        controls: &[QubitWire],
+        control_results: &[ResultWire],
+        args: Vec<String>,
+        instruction_metadata: Option<InstructionMetadata>,
+    ) -> Self {
+        Self::new_single(
+            Operation::Unitary(Unitary {
+                gate: name.to_string(),
+                args,
+                children: vec![],
+                targets: targets
+                    .iter()
+                    .map(|q| Register {
+                        qubit: q.0,
+                        result: None,
+                    })
+                    .collect(),
+                controls: controls
+                    .iter()
+                    .map(|q| Register {
+                        qubit: q.0,
+                        result: None,
+                    })
+                    .chain(control_results.iter().map(|r| Register {
+                        qubit: r.0,
+                        result: Some(r.1),
+                    }))
+                    .collect(),
+                is_adjoint,
+                metadata: None,
+            }),
+            instruction_metadata,
+        )
+    }
+
+    fn new_measurement(
+        label: &str,
+        qubit: QubitWire,
+        result: ResultWire,
+        instruction_metadata: Option<InstructionMetadata>,
+    ) -> Self {
+        Self::new_single(
+            Operation::Measurement(Measurement {
+                gate: label.to_string(),
+                args: vec![],
+                children: vec![],
+                qubits: vec![Register {
+                    qubit: qubit.0,
+                    result: None,
+                }],
+                results: vec![Register {
+                    qubit: result.0,
+                    result: Some(result.1),
+                }],
+                metadata: None,
+            }),
+            instruction_metadata,
+        )
+    }
+
+    fn new_ket(qubit: QubitWire, instruction_metadata: Option<InstructionMetadata>) -> Self {
+        Self::new_single(
+            Operation::Ket(Ket {
+                gate: "0".to_string(),
+                args: vec![],
+                children: vec![],
+                targets: vec![Register {
+                    qubit: qubit.0,
+                    result: None,
+                }],
+                metadata: None,
+            }),
+            instruction_metadata,
+        )
+    }
+
+    fn new_conditional_group(
+        label: String,
+        scope_location: Option<PackageOffset>,
+        children: Vec<Self>,
+        control_results: Vec<ResultWire>,
+        targets: Vec<QubitWire>,
+        cond_expr_instruction_metadata: Option<InstructionMetadata>,
+    ) -> Self {
+        Self {
+            kind: OperationOrConditionalGroupKind::ConditionalGroup {
+                label: label.clone(),
+                children,
+                scope_location,
+                control_results,
+                targets,
+            },
+            instruction_metadata: cond_expr_instruction_metadata,
+            // TODO: op is a placeholder
+            op: Operation::Unitary(Unitary {
+                gate: label,
+                args: vec![],
+                children: vec![],
+                targets: vec![],
+                controls: vec![],
+                is_adjoint: false,
+                metadata: Some(Metadata {
+                    source: None,
+                    scope_location: None,
+                }),
+            }),
+        }
+    }
+
+    fn conditional_group_has_children(&self) -> bool {
+        if let OperationOrConditionalGroupKind::ConditionalGroup { children, .. } = &self.kind {
+            !children.is_empty()
+        } else {
+            false
+        }
+    }
+
+    fn extend_control_results(&mut self, control_results: &[ResultWire]) {
+        match &mut self.op {
+            // TODO: support control results on measurements?
+            Operation::Unitary(unitary) => {
+                unitary
+                    .controls
+                    .extend(control_results.iter().map(|r| Register {
+                        qubit: r.0,
+                        result: Some(r.1),
+                    }));
+                unitary
+                    .controls
+                    .sort_unstable_by_key(|r| (r.qubit, r.result));
+                unitary.controls.dedup();
+            }
+            Operation::Measurement(_) | Operation::Ket(_) => {} // TODO: support control results on kets?
+        }
+    }
+
+    fn all_qubits(&self) -> Vec<QubitWire> {
+        let qubits: FxHashSet<QubitWire> = match &self.op {
+            Operation::Measurement(measurement) => measurement.qubits.clone(),
+            Operation::Unitary(unitary) => unitary
+                .targets
+                .iter()
+                .chain(unitary.controls.iter())
+                .filter(|r| r.result.is_none())
+                .cloned()
+                .collect(),
+            Operation::Ket(ket) => ket.targets.clone(),
+        }
+        .into_iter()
+        .map(|r| QubitWire(r.qubit))
+        .collect();
+        qubits.into_iter().collect()
+    }
+
+    fn all_results(&self) -> Vec<ResultWire> {
+        let results: FxHashSet<ResultWire> = match &self.op {
+            Operation::Measurement(measurement) => measurement
+                .results
+                .iter()
+                .filter_map(|r| r.result.map(|res| ResultWire(r.qubit, res)))
+                .collect(),
+            Operation::Unitary(unitary) => unitary
+                .targets
+                .iter()
+                .chain(unitary.controls.iter())
+                .filter_map(|r| r.result.map(|res| ResultWire(r.qubit, res)))
+                .collect(),
+            Operation::Ket(_) => vec![],
+        }
+        .into_iter()
+        .collect();
+        results.into_iter().collect()
+    }
+}
+
 pub fn make_circuit(
-    program: &Program,
+    program_rir: &Program,
     package_store: &PackageStore,
     config: TracerConfig,
     user_package_ids: &[PackageId],
 ) -> std::result::Result<Circuit, Error> {
-    let mut register_map_builder = FixedQubitRegisterMapBuilder::new(
-        usize::try_from(program.num_qubits).expect("number of qubits should fit in usize"),
-    );
-    let callables = &program.callables;
+    let (mut program_map, wire_map) = build_blocks(program_rir, config, user_package_ids)?;
 
-    let mut variables: IndexMap<VariableId, Expr> = IndexMap::default();
-    let mut i = 0;
-    let mut done = false;
-    while !done {
-        let mut blocks: IndexMap<BlockId, CircuitBlock> = IndexMap::default();
-        for (id, block) in program.blocks.iter() {
-            let block_operations = process_block_vars(
-                &program.dbg_info,
-                &mut variables,
-                &mut register_map_builder,
-                callables,
-                block,
-            )?;
-            blocks.insert(id, block_operations);
-        }
+    expand_branches(&mut program_map, &wire_map, program_rir)?;
 
-        done = expand_branches_for_vars(
-            register_map_builder.register_map(),
-            program,
-            &mut variables,
-            &blocks,
-        )?;
-        i += 1;
-        if i > 100 {
-            warn!("make_circuit: too many iterations expanding branches, giving up");
-            return Err(Error::UnsupportedFeature(
-                "too many iterations expanding branches".to_owned(),
-            ));
-        }
-    }
-
-    let mut program_map = ProgramMap {
-        variables,
-        blocks: IndexMap::default(),
-    };
-
-    let wire_map = register_map_builder.into_register_map();
-
-    let mut ops_remaining = config.max_operations;
-
-    let dbg_stuff = DbgStuff {
-        dbg_info: &program.dbg_info,
-    };
-    // Do it all again, with all variables properly resolved
-    for (id, block) in program.blocks.iter() {
-        let block_operations = operations_in_block(
-            config.source_locations,
-            config.group_by_scope,
-            user_package_ids,
-            &mut program_map,
-            &wire_map,
-            &program.dbg_info,
-            callables,
-            block,
-            ops_remaining,
-        )?;
-
-        ops_remaining = ops_remaining.saturating_sub(block_operations.operations.len());
-
-        program_map.blocks.insert(id, block_operations);
-    }
-
-    expand_branches(&mut program_map, &wire_map, program)?;
-
-    let entry_block = program
+    let entry_block_id = program_rir
         .callables
-        .get(program.entry)
+        .get(program_rir.entry)
         .expect("entry callable should exist")
         .body
         .expect("entry callable should have a body");
 
     let entry_block = program_map
         .blocks
-        .get(entry_block)
+        .get(entry_block_id)
         .expect("entry block should have been processed");
 
+    let dbg_stuff = DbgStuff {
+        dbg_info: &program_rir.dbg_info,
+    };
     let operations = extend_with_successors(
         user_package_ids,
         &dbg_stuff,
@@ -150,6 +296,71 @@ pub fn make_circuit(
     );
 
     Ok(circuit)
+}
+
+fn build_blocks(
+    program_rir: &Program,
+    config: TracerConfig,
+    user_package_ids: &[PackageId],
+) -> Result<(ProgramMap, WireMap), Error> {
+    let mut register_map_builder = FixedQubitRegisterMapBuilder::new(
+        usize::try_from(program_rir.num_qubits).expect("number of qubits should fit in usize"),
+    );
+    let callables = &program_rir.callables;
+    let mut variables: IndexMap<VariableId, Expr> = IndexMap::default();
+    let mut i = 0;
+    let mut done = false;
+    while !done {
+        let mut blocks: IndexMap<BlockId, CircuitBlock> = IndexMap::default();
+        for (id, block) in program_rir.blocks.iter() {
+            let block_operations = process_block_vars(
+                &program_rir.dbg_info,
+                &mut variables,
+                &mut register_map_builder,
+                callables,
+                block,
+            )?;
+            blocks.insert(id, block_operations);
+        }
+
+        done = expand_branches_for_vars(
+            register_map_builder.register_map(),
+            program_rir,
+            &mut variables,
+            &blocks,
+        )?;
+        i += 1;
+        if i > 100 {
+            warn!("make_circuit: too many iterations expanding branches, giving up");
+            return Err(Error::UnsupportedFeature(
+                "too many iterations expanding branches".to_owned(),
+            ));
+        }
+    }
+    let mut program_map = ProgramMap {
+        variables,
+        blocks: IndexMap::default(),
+    };
+    let wire_map = register_map_builder.into_register_map();
+    let mut ops_remaining = config.max_operations;
+    for (id, block) in program_rir.blocks.iter() {
+        let block_operations = operations_in_block(
+            config.source_locations,
+            config.group_by_scope,
+            user_package_ids,
+            &mut program_map,
+            &wire_map,
+            &program_rir.dbg_info,
+            callables,
+            block,
+            ops_remaining,
+        )?;
+
+        ops_remaining = ops_remaining.saturating_sub(block_operations.operations.len());
+
+        program_map.blocks.insert(id, block_operations);
+    }
+    Ok((program_map, wire_map))
 }
 
 /// true result means done
@@ -310,12 +521,12 @@ struct VarsOnlyGroupOp {
 }
 
 fn make_group_op_vars_only(
-    operations: &[(OperationOrGroup, Vec<LocationMetadata>)],
+    operations: &[OperationOrConditional],
     control_results: &[ResultWire],
 ) -> VarsOnlyGroupOp {
     let children = operations
         .iter()
-        .map(|(o, _)| {
+        .map(|o| {
             let mut o = o.clone();
             o.extend_control_results(control_results);
         })
@@ -325,25 +536,27 @@ fn make_group_op_vars_only(
 
 fn make_group_op(
     label: &str,
-    operations: &[(OperationOrGroup, Vec<LocationMetadata>)],
+    cond_expr_instruction_metadata: Option<InstructionMetadata>,
+    operations: &[OperationOrConditional],
     targets: &[QubitWire],
     control_results: &[ResultWire],
-) -> OperationOrGroup {
+) -> OperationOrConditional {
     let children = operations
         .iter()
         .map(|o| {
             let mut o = o.clone();
-            o.0.extend_control_results(control_results);
-            o.0
+            o.extend_control_results(control_results);
+            o
         })
         .collect();
 
-    OperationOrGroup::new_conditional_group(
+    OperationOrConditional::new_conditional_group(
         label.to_string(),
         None,
         children,
         control_results.to_vec(),
         targets.to_vec(),
+        cond_expr_instruction_metadata,
     )
 }
 
@@ -395,13 +608,13 @@ fn process_block_vars(
 /// the corresponding block in the program map is modified to replace the conditional branch with an unconditional branch,
 /// and an operation is added to the block that represents the branch logic (i.e., a unitary operation with two children, one for the true branch and one for the false branch).
 fn expand_branches(
-    state: &mut ProgramMap,
+    program_map: &mut ProgramMap,
     register_map: &WireMap,
     program: &Program,
 ) -> Result<(), Error> {
     for (block_id, _) in program.blocks.iter() {
         // TODO: we can just iterate over state.blocks here
-        let mut circuit_block = state
+        let mut circuit_block = program_map
             .blocks
             .get(block_id)
             .expect("block should exist")
@@ -411,7 +624,7 @@ fn expand_branches(
             .terminator
             .take_if(|t| matches!(t, Terminator::Conditional(_)))
         {
-            let expanded_branch = expand_branch(state, register_map, block_id, &branch)?;
+            let expanded_branch = expand_branch(program_map, register_map, block_id, &branch)?;
 
             if expanded_branch
                 .grouped_operation
@@ -420,14 +633,14 @@ fn expand_branches(
                 // don't add operations for empty branches
                 circuit_block
                     .operations
-                    .push((expanded_branch.grouped_operation, vec![])); // TODO: proper call stacks for branches
+                    .push(expanded_branch.grouped_operation); // TODO: proper call stacks for branches
             }
             circuit_block.terminator = Some(Terminator::Unconditional(
                 expanded_branch.unconditional_successor,
             ));
         }
 
-        state.blocks.insert(block_id, circuit_block);
+        program_map.blocks.insert(block_id, circuit_block);
     }
     Ok(())
 }
@@ -477,12 +690,12 @@ fn combine_exprs(options: Vec<Expr>) -> Result<Option<Expr>, Error> {
 
 fn extend_with_successors(
     user_package_ids: &[PackageId],
-    _dbg_stuff: &DbgStuff,
+    dbg_stuff: &DbgStuff,
     state: &ProgramMap,
     entry_block: &CircuitBlock,
     _config: TracerConfig,
 ) -> Vec<OperationOrGroup> {
-    let mut operations = vec![];
+    let mut all_operations = vec![];
     let mut block_stack = vec![entry_block.clone()];
 
     while let Some(block) = block_stack.pop() {
@@ -496,23 +709,141 @@ fn extend_with_successors(
             block_stack.push(successor_block.clone());
         }
 
-        for (op, unfiltered_call_stack) in block.operations {
-            add_op_with_grouping(
-                true,
-                true,
-                user_package_ids,
-                &mut operations,
-                op,
-                unfiltered_call_stack,
-            );
-        }
+        extend_with_block(
+            &mut all_operations,
+            dbg_stuff,
+            user_package_ids,
+            block.operations,
+            &ScopeStack::top(),
+        );
     }
-    operations
+    all_operations
+}
+
+fn extend_with_block(
+    all_operations: &mut Vec<OperationOrGroup>,
+    dbg_stuff: &DbgStuff,
+    user_package_ids: &[PackageId],
+    block_operations: Vec<OperationOrConditional>,
+    curr_scope_stack: &ScopeStack,
+) {
+    // TODO: configure
+    let source_locations = true;
+    let group_by_scope = true;
+
+    for op in block_operations {
+        let (op, stack) = match op.kind {
+            OperationOrConditionalGroupKind::Single => (
+                OperationOrGroup::new_single(op.op),
+                dbg_stuff.map_instruction_logical_stack(op.instruction_metadata),
+            ),
+            OperationOrConditionalGroupKind::ConditionalGroup {
+                label,
+                children,
+                scope_location,
+                control_results,
+                targets,
+            } => {
+                let cond_expr_logical_stack =
+                    dbg_stuff.map_instruction_logical_stack(op.instruction_metadata);
+
+                let (cond_expr_logical_stack, _) = user_stack_and_source_location(
+                    source_locations,
+                    group_by_scope,
+                    user_package_ids,
+                    cond_expr_logical_stack,
+                );
+
+                let mut grouped_operations = vec![];
+
+                let cond_expr_scope_stack = scope_stack(&cond_expr_logical_stack);
+                extend_with_block(
+                    &mut grouped_operations,
+                    dbg_stuff,
+                    user_package_ids,
+                    children,
+                    &cond_expr_scope_stack,
+                );
+
+                (
+                    OperationOrGroup::new_conditional_group(
+                        label,
+                        scope_location,
+                        grouped_operations,
+                        control_results,
+                        targets,
+                    ),
+                    cond_expr_logical_stack,
+                )
+            }
+        };
+        add_op_with_grouping(
+            source_locations,
+            group_by_scope,
+            user_package_ids,
+            all_operations,
+            op,
+            stack,
+            curr_scope_stack,
+        );
+    }
+}
+
+fn add_op_with_grouping(
+    source_locations: bool,
+    group_by_scope: bool,
+    user_package_ids: &[PackageId],
+    operations: &mut Vec<OperationOrGroup>,
+    mut op: OperationOrGroup,
+    unfiltered_call_stack: LogicalStackTrace,
+    scope_stack: &ScopeStack,
+) {
+    let (final_grouping_call_stack, location) = user_stack_and_source_location(
+        source_locations,
+        group_by_scope,
+        user_package_ids,
+        unfiltered_call_stack,
+    );
+
+    if let Some(location) = location {
+        op.set_location(location);
+    }
+
+    // TODO: I'm pretty sure this is wrong if we have a NO call stack operation
+    // in between call-stacked operations. We should probably unscope those. Add tests.
+
+    add_scoped_op(operations, scope_stack, op, &final_grouping_call_stack);
+}
+
+fn user_stack_and_source_location(
+    source_locations: bool,
+    group_by_scope: bool,
+    user_package_ids: &[PackageId],
+    unfiltered_call_stack: Vec<LocationMetadata>,
+) -> (Vec<LocationMetadata>, Option<PackageOffset>) {
+    let op_call_stack = if group_by_scope || source_locations {
+        retain_user_frames(user_package_ids, unfiltered_call_stack)
+    } else {
+        vec![]
+    };
+
+    let final_grouping_call_stack = if group_by_scope {
+        op_call_stack.clone()
+    } else {
+        vec![]
+    };
+
+    let location = if source_locations && let Some(called_at) = op_call_stack.last() {
+        Some(called_at.source_location())
+    } else {
+        None
+    };
+    (final_grouping_call_stack, location)
 }
 
 // TODO: this could be represented by a circuit block, maybe. Consider.
 struct ExpandedBranchBlock {
-    grouped_operation: OperationOrGroup, // TODO: Can only be group
+    grouped_operation: OperationOrConditional,
     unconditional_successor: BlockId,
 }
 
@@ -555,7 +886,13 @@ fn expand_branch(
         .iter()
         .map(|r| register_map.result_wire(*r))
         .collect::<Vec<_>>();
-    let true_container = make_group_op("true", &true_operations, &true_targets, &control_results);
+    let true_container = make_group_op(
+        "true",
+        branch.cond_expr_instruction_metadata,
+        &true_operations,
+        &true_targets,
+        &control_results,
+    );
 
     let false_container = branch_block.false_block.map(
         |ConditionalBlock {
@@ -563,7 +900,13 @@ fn expand_branch(
              targets: false_targets,
          }| {
             (
-                make_group_op("false", &false_operations, &false_targets, &control_results),
+                make_group_op(
+                    "false",
+                    branch.cond_expr_instruction_metadata,
+                    &false_operations,
+                    &false_targets,
+                    &control_results,
+                ),
                 false_targets,
             )
         },
@@ -601,19 +944,20 @@ fn expand_branch(
     // TODO: target results for container? measurements in branches?
 
     let _args = [branch_block.cond_expr.to_string().clone()];
-    let label = "check ".to_string();
+    let label = format!("check: {}", branch_block.cond_expr);
 
     let _location = branch
         .cond_expr_instruction_metadata
         .as_ref()
         .and_then(|md| md.dbg_location);
 
-    let grouped_operation = OperationOrGroup::new_conditional_group(
+    let grouped_operation = OperationOrConditional::new_conditional_group(
         label,
         branch.metadata,
         children,
         control_results,
         target_qubits,
+        branch.cond_expr_instruction_metadata,
     );
 
     Ok(ExpandedBranchBlock {
@@ -625,8 +969,7 @@ fn expand_branch(
 #[derive(Clone, Debug)]
 struct CircuitBlock {
     phis: Vec<(Variable, Vec<(Expr, BlockId)>)>,
-    // This has to be Op since it may contain logical stacks from dbg metadata
-    operations: Vec<(OperationOrGroup, Vec<LocationMetadata>)>, // unfiltered_call_stack
+    operations: Vec<OperationOrConditional>,
     terminator: Option<Terminator>,
 }
 
@@ -696,8 +1039,18 @@ pub(crate) struct DbgStuff<'a> {
 }
 
 impl DbgStuff<'_> {
+    fn map_instruction_logical_stack(
+        &self,
+        metadata: Option<InstructionMetadata>,
+    ) -> Vec<LocationMetadata> {
+        metadata
+            .and_then(|md| md.dbg_location)
+            .map(|dbg_location| self.instruction_logical_stack(dbg_location))
+            .unwrap_or_default()
+    }
+
     /// Returns oldest->youngest
-    fn instruction_logical_stack(&self, dbg_location_idx: DbgLocationId) -> Vec<LocationMetadata> {
+    fn instruction_logical_stack(&self, dbg_location_idx: DbgLocationId) -> LogicalStackTrace {
         let mut location_stack = vec![];
         let mut current_location_idx = Some(dbg_location_idx);
 
@@ -888,10 +1241,9 @@ fn get_operations_for_instruction(
             trace_call(
                 state,
                 &mut builder_ctx,
-                dbg_stuff,
                 callables.get(*callable_id).expect("callable should exist"),
                 operands,
-                instruction.metadata.as_ref(),
+                instruction.metadata,
             )?;
         }
         Instruction::Fcmp(condition_code, operand, operand1, variable) => {
@@ -1032,7 +1384,7 @@ fn extend_block_with_branch_instruction_vars_only(
     block_id_1: BlockId,
     block_id_2: BlockId,
 ) -> Result<(), Error> {
-    let instruction_metadata = instruction.metadata.clone();
+    let instruction_metadata = instruction.metadata;
     let metadata = instruction_metadata
         .as_ref()
         .and_then(|md| md.dbg_location)
@@ -1065,7 +1417,7 @@ fn extend_block_with_branch_instruction(
     block_id_1: BlockId,
     block_id_2: BlockId,
 ) -> Result<(), Error> {
-    let instruction_metadata = instruction.metadata.clone();
+    let instruction_metadata = instruction.metadata;
     let metadata = instruction_metadata
         .as_ref()
         .and_then(|md| md.dbg_location)
@@ -1157,7 +1509,7 @@ fn eq_expr(expr_left: Expr, expr_right: Expr) -> Result<BoolExpr, Error> {
 
 #[derive(Clone, Debug)]
 struct ConditionalBlock {
-    operations: Vec<(OperationOrGroup, Vec<LocationMetadata>)>, // unfiltered_call_stack
+    operations: Vec<OperationOrConditional>,
     targets: Vec<QubitWire>,
 }
 
@@ -1278,12 +1630,12 @@ fn make_simple_branch_block(
 }
 
 fn expand_real_branch_block(
-    operations: &Vec<(OperationOrGroup, Vec<LocationMetadata>)>,
+    operations: &Vec<OperationOrConditional>,
 ) -> Result<ConditionalBlock, Error> {
     let mut seen = FxHashSet::default();
     let mut real_ops = vec![];
-    for (op, unfiltered_call_stack) in operations {
-        real_ops.push((op.clone(), unfiltered_call_stack.clone()));
+    for op in operations {
+        real_ops.push(op.clone());
         for q in op.all_qubits() {
             seen.insert((q.0, None));
         }
@@ -1619,21 +1971,14 @@ fn process_callable_variables(
 fn trace_call(
     state: &mut ProgramMap,
     builder_ctx: &mut BuilderWithRegisterMap,
-    dbg_stuff: &DbgStuff,
     callable: &Callable,
     operands: &[Operand],
-    metadata: Option<&InstructionMetadata>,
+    metadata: Option<InstructionMetadata>,
 ) -> Result<(), Error> {
     match callable.call_type {
-        CallableType::Measurement => {
-            trace_measurement(builder_ctx, dbg_stuff, callable, operands, metadata)
-        }
-        CallableType::Reset => {
-            trace_reset(state, builder_ctx, dbg_stuff, callable, operands, metadata)
-        }
-        CallableType::Regular => {
-            trace_gate(state, builder_ctx, dbg_stuff, callable, operands, metadata)
-        }
+        CallableType::Measurement => trace_measurement(builder_ctx, callable, operands, metadata),
+        CallableType::Reset => trace_reset(state, builder_ctx, callable, operands, metadata),
+        CallableType::Regular => trace_gate(state, builder_ctx, callable, operands, metadata),
         CallableType::Readout | CallableType::OutputRecording | CallableType::Initialize => Ok(()),
     }
 }
@@ -1641,10 +1986,9 @@ fn trace_call(
 fn trace_gate(
     state: &mut ProgramMap,
     builder_ctx: &mut BuilderWithRegisterMap,
-    dbg_stuff: &DbgStuff,
     callable: &Callable,
     operands: &[Operand],
-    metadata: Option<&InstructionMetadata>,
+    metadata: Option<InstructionMetadata>,
 ) -> Result<(), Error> {
     let GateSpec {
         name,
@@ -1660,13 +2004,7 @@ fn trace_gate(
         // Alternative might be to include these anyway, across the entire state,
         // or annotated in the circuit in some way.
     } else {
-        let op_call_stack = metadata
-            .and_then(|md| md.dbg_location)
-            .map(|dbg_location| dbg_stuff.instruction_logical_stack(dbg_location))
-            .unwrap_or_default();
-
         builder_ctx.builder.gate(
-            dbg_stuff,
             builder_ctx.register_map,
             name,
             is_adjoint,
@@ -1676,7 +2014,7 @@ fn trace_gate(
                 control_results: &control_results,
             },
             args,
-            &op_call_stack,
+            metadata,
         );
     }
     Ok(())
@@ -1685,10 +2023,9 @@ fn trace_gate(
 fn trace_reset(
     state: &mut ProgramMap,
     builder_ctx: &mut BuilderWithRegisterMap,
-    dbg_stuff: &DbgStuff,
     callable: &Callable,
     operands: &[Operand],
-    metadata: Option<&InstructionMetadata>,
+    metadata: Option<InstructionMetadata>,
 ) -> Result<(), Error> {
     match callable.name.as_str() {
         "__quantum__qis__reset__body" => {
@@ -1708,14 +2045,9 @@ fn trace_reset(
             );
 
             let qubit = target_qubits[0];
-
-            let op_call_stack = metadata
-                .and_then(|md| md.dbg_location)
-                .map(|dbg_location| dbg_stuff.instruction_logical_stack(dbg_location))
-                .unwrap_or_default();
             builder_ctx
                 .builder
-                .reset(dbg_stuff, builder_ctx.register_map, qubit, &op_call_stack);
+                .reset(builder_ctx.register_map, qubit, metadata);
         }
         name => {
             return Err(Error::UnsupportedFeature(format!(
@@ -1728,36 +2060,22 @@ fn trace_reset(
 
 fn trace_measurement(
     builder_ctx: &mut BuilderWithRegisterMap,
-    dbg_stuff: &DbgStuff,
     callable: &Callable,
     operands: &[Operand],
-    metadata: Option<&InstructionMetadata>,
+    metadata: Option<InstructionMetadata>,
 ) -> Result<(), Error> {
     let (qubit, result) = gather_measurement_operands_inner(operands)?;
 
-    let op_call_stack = metadata
-        .and_then(|md| md.dbg_location)
-        .map(|dbg_location| dbg_stuff.instruction_logical_stack(dbg_location))
-        .unwrap_or_default();
-
     match callable.name.as_str() {
         "__quantum__qis__mresetz__body" => {
-            builder_ctx.builder.mresetz(
-                dbg_stuff,
-                builder_ctx.register_map,
-                qubit,
-                result,
-                &op_call_stack,
-            );
+            builder_ctx
+                .builder
+                .mresetz(builder_ctx.register_map, qubit, result, metadata);
         }
         "__quantum__qis__m__body" => {
-            builder_ctx.builder.m(
-                dbg_stuff,
-                builder_ctx.register_map,
-                qubit,
-                result,
-                &op_call_stack,
-            );
+            builder_ctx
+                .builder
+                .m(builder_ctx.register_map, qubit, result, metadata);
         }
         name => panic!("unknown measurement callable: {name}"),
     }
@@ -2027,7 +2345,7 @@ fn match_operands(
 struct OpListBuilder {
     max_ops: usize,
     max_ops_exceeded: bool,
-    operations: Vec<(OperationOrGroup, Vec<LocationMetadata>)>,
+    operations: Vec<OperationOrConditional>,
     _source_locations: bool,
     _group_scopes: bool,
     _user_package_ids: Vec<PackageId>,
@@ -2050,12 +2368,7 @@ impl OpListBuilder {
         }
     }
 
-    fn push_op(
-        &mut self,
-        _dbg_stuff: &DbgStuff,
-        op: OperationOrGroup,
-        unfiltered_call_stack: Vec<LocationMetadata>,
-    ) {
+    fn push_op(&mut self, op: OperationOrConditional) {
         if self.max_ops_exceeded || self.operations.len() >= self.max_ops {
             // Stop adding gates and leave the circuit as is
             self.max_ops_exceeded = true;
@@ -2063,78 +2376,73 @@ impl OpListBuilder {
         }
 
         // TODO: how do we do scope grouping within branches
-        self.operations.push((op, unfiltered_call_stack));
+        self.operations.push(op);
     }
 
-    pub fn into_operations(self) -> Vec<(OperationOrGroup, Vec<LocationMetadata>)> {
+    pub fn into_operations(self) -> Vec<OperationOrConditional> {
         self.operations
     }
 
     #[allow(clippy::too_many_arguments)]
     fn gate(
         &mut self,
-        dbg_stuff: &DbgStuff,
         wire_map: &WireMap,
         name: &str,
         is_adjoint: bool,
         inputs: &GateInputs,
         args: Vec<String>,
-        call_stack: &[LocationMetadata],
+        instruction_metadata: Option<InstructionMetadata>,
     ) {
-        self.push_op(
-            dbg_stuff,
-            Self::new_unitary(wire_map, name, is_adjoint, inputs, args),
-            call_stack.to_vec(),
-        );
+        self.push_op(Self::new_unitary(
+            wire_map,
+            name,
+            is_adjoint,
+            inputs,
+            args,
+            instruction_metadata,
+        ));
     }
 
     fn m(
         &mut self,
-        dbg_stuff: &DbgStuff,
         wire_map: &WireMap,
         qubit: usize,
         result: usize,
-        call_stack: &[LocationMetadata],
+        instruction_metadata: Option<InstructionMetadata>,
     ) {
-        self.push_op(
-            dbg_stuff,
-            Self::new_measurement("M", wire_map, qubit, result),
-            call_stack.to_vec(),
-        );
+        self.push_op(Self::new_measurement(
+            "M",
+            wire_map,
+            qubit,
+            result,
+            instruction_metadata,
+        ));
     }
 
     fn mresetz(
         &mut self,
-        dbg_stuff: &DbgStuff,
         wire_map: &WireMap,
         qubit: usize,
         result: usize,
-        call_stack: &[LocationMetadata],
+        instruction_metadata: Option<InstructionMetadata>,
     ) {
-        self.push_op(
-            dbg_stuff,
-            Self::new_measurement("MResetZ", wire_map, qubit, result),
-            call_stack.to_vec(),
-        );
-        self.push_op(
-            dbg_stuff,
-            Self::new_ket(wire_map, qubit),
-            call_stack.to_vec(),
-        );
+        self.push_op(Self::new_measurement(
+            "MResetZ",
+            wire_map,
+            qubit,
+            result,
+            instruction_metadata,
+        ));
+        self.push_op(Self::new_ket(wire_map, qubit, instruction_metadata));
     }
 
     fn reset(
         &mut self,
-        dbg_stuff: &DbgStuff,
         wire_map: &WireMap,
         qubit: usize,
-        call_stack: &[LocationMetadata],
+        instruction_metadata: Option<InstructionMetadata>,
     ) {
-        self.push_op(
-            dbg_stuff,
-            Self::new_ket(wire_map, qubit),
-            call_stack.to_vec(),
-        );
+        self.push_op(Self::new_ket(wire_map, qubit, instruction_metadata));
     }
 
     fn new_unitary(
@@ -2143,7 +2451,8 @@ impl OpListBuilder {
         is_adjoint: bool,
         inputs: &GateInputs<'_>,
         args: Vec<String>,
-    ) -> OperationOrGroup {
+        instruction_metadata: Option<InstructionMetadata>,
+    ) -> OperationOrConditional {
         let control_qubits = inputs
             .control_qubits
             .iter()
@@ -2160,13 +2469,14 @@ impl OpListBuilder {
             .map(|q| wire_map.qubit_wire(*q))
             .collect::<Vec<_>>();
 
-        OperationOrGroup::new_unitary(
+        OperationOrConditional::new_unitary(
             name,
             is_adjoint,
             &target_qubits,
             &control_qubits,
             &control_results,
             args,
+            instruction_metadata,
         )
     }
 
@@ -2175,17 +2485,23 @@ impl OpListBuilder {
         wire_map: &WireMap,
         qubit: usize,
         result: usize,
-    ) -> OperationOrGroup {
-        OperationOrGroup::new_measurement(
+        instruction_metadata: Option<InstructionMetadata>,
+    ) -> OperationOrConditional {
+        OperationOrConditional::new_measurement(
             label,
             wire_map.qubit_wire(qubit),
             wire_map.result_wire(result),
+            instruction_metadata,
         )
     }
 
-    fn new_ket(wire_map: &WireMap, qubit: usize) -> OperationOrGroup {
+    fn new_ket(
+        wire_map: &WireMap,
+        qubit: usize,
+        instruction_metadata: Option<InstructionMetadata>,
+    ) -> OperationOrConditional {
         let qubit = wire_map.qubit_wire(qubit);
 
-        OperationOrGroup::new_ket(qubit)
+        OperationOrConditional::new_ket(qubit, instruction_metadata)
     }
 }

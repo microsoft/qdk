@@ -34,6 +34,9 @@ use std::{
     rc::Rc,
 };
 
+pub(crate) type LogicalStackTrace = Vec<LocationMetadata>;
+pub(crate) type LogicalStackTraceRef<'a> = &'a [LocationMetadata];
+
 /// Circuit builder that implements the `Tracer` trait to build a circuit
 /// while tracing execution.
 pub struct CircuitTracer {
@@ -843,14 +846,13 @@ impl WireMapBuilder {
         self.wire_map.qubits.insert(q1, q0_mapped);
     }
 }
-
 #[derive(Clone, Debug)]
 pub(crate) struct OperationOrGroup {
     kind: OperationOrGroupKind,
     op: Operation,
 }
 
-fn map_stack_frames_to_locations(stack: &[Frame]) -> Vec<LocationMetadata> {
+fn map_stack_frames_to_locations(stack: &[Frame]) -> LogicalStackTrace {
     stack
         .iter()
         .map(|frame| {
@@ -868,7 +870,6 @@ fn map_stack_frames_to_locations(stack: &[Frame]) -> Vec<LocationMetadata> {
 #[derive(Clone, Debug)]
 pub(crate) enum OperationOrGroupKind {
     Single,
-    /// Formerly known as `Group`
     ScopeGroup {
         scope_stack: ScopeStack,
         children: Vec<OperationOrGroup>,
@@ -881,7 +882,7 @@ pub(crate) enum OperationOrGroupKind {
 }
 
 impl OperationOrGroup {
-    fn new_single(op: Operation) -> Self {
+    pub(crate) fn new_single(op: Operation) -> Self {
         Self {
             kind: OperationOrGroupKind::Single,
             op,
@@ -1002,7 +1003,7 @@ impl OperationOrGroup {
         }
     }
 
-    fn new_scope_group(scope_stack: ScopeStack, children: Vec<Self>) -> Self {
+    pub(crate) fn new_scope_group(scope_stack: ScopeStack, children: Vec<Self>) -> Self {
         let all_qubits = children
             .iter()
             .flat_map(OperationOrGroup::all_qubits)
@@ -1140,25 +1141,6 @@ impl OperationOrGroup {
         }
     }
 
-    pub(crate) fn extend_control_results(&mut self, control_results: &[ResultWire]) {
-        match &mut self.op {
-            // TODO: support control results on measurements?
-            Operation::Unitary(unitary) => {
-                unitary
-                    .controls
-                    .extend(control_results.iter().map(|r| Register {
-                        qubit: r.0,
-                        result: Some(r.1),
-                    }));
-                unitary
-                    .controls
-                    .sort_unstable_by_key(|r| (r.qubit, r.result));
-                unitary.controls.dedup();
-            }
-            Operation::Measurement(_) | Operation::Ket(_) => {} // TODO: support control results on kets?
-        }
-    }
-
     pub(crate) fn scope_stack_if_group(&self) -> Option<&ScopeStack> {
         if let OperationOrGroupKind::ScopeGroup { scope_stack, .. } = &self.kind {
             Some(scope_stack)
@@ -1167,7 +1149,7 @@ impl OperationOrGroup {
         }
     }
 
-    fn set_location(&mut self, location: PackageOffset) {
+    pub(crate) fn set_location(&mut self, location: PackageOffset) {
         self.op
             .source_location_mut()
             .replace(SourceLocation::Unresolved(location));
@@ -1237,14 +1219,6 @@ impl OperationOrGroup {
             }
         }
     }
-
-    pub(crate) fn conditional_group_has_children(&self) -> bool {
-        if let OperationOrGroupKind::ConditionalGroup { children, .. } = &self.kind {
-            !children.is_empty()
-        } else {
-            false
-        }
-    }
 }
 
 /// Builds a list of circuit operations with a maximum operation limit.
@@ -1281,7 +1255,7 @@ impl OperationListBuilder {
     pub(crate) fn push_op(
         &mut self,
         mut op: OperationOrGroup,
-        unfiltered_call_stack: Vec<LocationMetadata>,
+        unfiltered_call_stack: LogicalStackTrace,
     ) {
         if self.max_ops_exceeded || self.operations.len() >= self.max_ops {
             // Stop adding gates and leave the circuit as is
@@ -1328,7 +1302,7 @@ impl OperationListBuilder {
         is_adjoint: bool,
         inputs: &GateInputs,
         args: Vec<String>,
-        call_stack: Vec<LocationMetadata>,
+        call_stack: LogicalStackTrace,
     ) {
         let targets = inputs
             .targets
@@ -1351,7 +1325,7 @@ impl OperationListBuilder {
         wire_map: &WireMap,
         qubit: usize,
         result: usize,
-        call_stack: Vec<LocationMetadata>,
+        call_stack: LogicalStackTrace,
     ) {
         let qubit = wire_map.qubit_wire(qubit);
         let result = wire_map.result_wire(result);
@@ -1366,7 +1340,7 @@ impl OperationListBuilder {
         wire_map: &WireMap,
         qubit: usize,
         result: usize,
-        call_stack: Vec<LocationMetadata>,
+        call_stack: LogicalStackTrace,
     ) {
         let qubit = wire_map.qubit_wire(qubit);
         let result = wire_map.result_wire(result);
@@ -1377,7 +1351,7 @@ impl OperationListBuilder {
         self.push_op(OperationOrGroup::new_ket(qubit), call_stack);
     }
 
-    fn reset(&mut self, wire_map: &WireMap, qubit: usize, call_stack: Vec<LocationMetadata>) {
+    fn reset(&mut self, wire_map: &WireMap, qubit: usize, call_stack: LogicalStackTrace) {
         let qubit = wire_map.qubit_wire(qubit);
         self.push_op(OperationOrGroup::new_ket(qubit), call_stack);
     }
@@ -1433,36 +1407,6 @@ pub(crate) struct GateInputs<'a> {
 //         }
 //     }
 // }
-
-pub(crate) fn add_op_with_grouping(
-    source_locations: bool,
-    group_by_scope: bool,
-    user_package_ids: &[PackageId],
-    operations: &mut Vec<OperationOrGroup>,
-    mut op: OperationOrGroup,
-    unfiltered_call_stack: Vec<LocationMetadata>,
-) {
-    let op_call_stack = if group_by_scope || source_locations {
-        retain_user_frames(user_package_ids, unfiltered_call_stack)
-    } else {
-        vec![]
-    };
-
-    if source_locations && let Some(called_at) = op_call_stack.last() {
-        op.set_location(called_at.source_location());
-    }
-
-    let op_call_stack = if group_by_scope {
-        op_call_stack
-    } else {
-        vec![]
-    };
-
-    // TODO: I'm pretty sure this is wrong if we have a NO call stack operation
-    // in between call-stacked operations. We should probably unscope those. Add tests.
-
-    add_scoped_op(operations, &ScopeStack::top(), op, &op_call_stack);
-}
 
 #[derive(Clone, Debug, PartialEq, Eq, Copy)]
 pub struct ScopeId(pub(crate) StoreItemId, pub(crate) FunctorApp);
@@ -1541,7 +1485,7 @@ impl LexicalScope {
 /// would collapse a series of call stacks into a call hierarchy.
 ///
 /// This allows circuit visualizations to show operations grouped by their calling context.
-fn add_scoped_op(
+pub(crate) fn add_scoped_op(
     current_container: &mut Vec<OperationOrGroup>,
     current_scope_stack: &ScopeStack,
     op: OperationOrGroup,
@@ -1592,10 +1536,10 @@ fn add_scoped_op(
     current_container.push(op);
 }
 
-fn retain_user_frames(
+pub(crate) fn retain_user_frames(
     user_package_ids: &[PackageId],
-    mut location_stack: Vec<LocationMetadata>,
-) -> Vec<LocationMetadata> {
+    mut location_stack: LogicalStackTrace,
+) -> LogicalStackTrace {
     location_stack.retain(|location| {
         let package_id = location.package_id();
         user_package_ids.is_empty() || user_package_ids.contains(&package_id)
@@ -1624,7 +1568,7 @@ impl LocationMetadata {
         self.location.package_id
     }
 
-    fn source_location(&self) -> PackageOffset {
+    pub(crate) fn source_location(&self) -> PackageOffset {
         self.location
     }
 }
@@ -1632,7 +1576,7 @@ impl LocationMetadata {
 /// Represents a scope in the call stack, tracking the caller chain and current scope identifier.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ScopeStack {
-    caller: Vec<LocationMetadata>,
+    caller: LogicalStackTrace,
     scope: ScopeId,
 }
 
@@ -1650,7 +1594,7 @@ impl ScopeStack {
         self.caller.is_empty() && self.scope == ScopeId::default()
     }
 
-    fn top() -> Self {
+    pub(crate) fn top() -> Self {
         ScopeStack {
             caller: Vec::new(),
             scope: ScopeId::default(),
@@ -1676,10 +1620,10 @@ impl ScopeStack {
 /// If it is a prefix, this function returns the remainder of `full_call_stack` after removing
 /// the prefix, starting from the first location in the call stack that is in the scope of
 /// `prefix_scope_stack.scope`.
-fn strip_scope_stack_prefix(
+pub(crate) fn strip_scope_stack_prefix(
     full_call_stack: &[LocationMetadata],
     prefix_scope_stack: &ScopeStack,
-) -> Option<Vec<LocationMetadata>> {
+) -> Option<LogicalStackTrace> {
     if prefix_scope_stack.is_top() {
         return Some(full_call_stack.to_vec());
     }
@@ -1694,7 +1638,7 @@ fn strip_scope_stack_prefix(
     None
 }
 
-fn scope_stack(instruction_stack: &[LocationMetadata]) -> ScopeStack {
+pub(crate) fn scope_stack(instruction_stack: LogicalStackTraceRef) -> ScopeStack {
     instruction_stack
         .split_last()
         .map_or(ScopeStack::top(), |(youngest, prefix)| ScopeStack {

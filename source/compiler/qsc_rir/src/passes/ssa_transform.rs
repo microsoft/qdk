@@ -107,7 +107,7 @@ pub fn transform_to_ssa(program: &mut Program, preds: &IndexMap<BlockId, Vec<Blo
                         ty: operand.get_type(),
                     };
                     let phi_node = Instruction::Phi(args, new_var);
-                    let metadata = block.0.first().and_then(|instr| instr.metadata.clone());
+                    let metadata = block.0.first().and_then(|instr| instr.metadata);
                     block.0.insert(0, phi_node.with_metadata(metadata));
                     var_map_updates.insert(variable_id, Operand::Variable(new_var));
                     next_var_id = next_var_id.successor();

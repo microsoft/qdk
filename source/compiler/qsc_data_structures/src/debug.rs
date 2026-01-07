@@ -89,7 +89,7 @@ impl Display for DbgMetadataScope {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Copy)]
 pub struct InstructionMetadata {
     /// Index into the `dbg_locations` vector in the `Program`.
     pub dbg_location: Option<DbgLocationId>,

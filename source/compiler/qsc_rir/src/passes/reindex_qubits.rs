@@ -214,7 +214,7 @@ impl ReindexQubitPass {
                                     ],
                                     None,
                                 )
-                                .with_metadata(instr.metadata.clone()),
+                                .with_metadata(instr.metadata),
                             );
                             self.highest_used_id =
                                 self.highest_used_id.max(qubit_map.next_qubit_id);
@@ -224,7 +224,7 @@ impl ReindexQubitPass {
                             // the rest of the logic.
                             block.0.push(
                                 Instruction::Call(*call_id, new_args, None)
-                                    .with_metadata(instr.metadata.clone()),
+                                    .with_metadata(instr.metadata),
                             );
                             continue;
                         }
@@ -239,8 +239,7 @@ impl ReindexQubitPass {
                     };
 
                     block.0.push(
-                        Instruction::Call(call_id, new_args, None)
-                            .with_metadata(instr.metadata.clone()),
+                        Instruction::Call(call_id, new_args, None).with_metadata(instr.metadata),
                     );
 
                     if program.get_callable(call_id).call_type == CallableType::Measurement {

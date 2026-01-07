@@ -454,7 +454,7 @@ impl<'a> PartialEvaluator<'a> {
         current_block.0.extend(
             output_recording
                 .into_iter()
-                .map(|instr| instr.with_metadata(dbg_metadata.clone())),
+                .map(|instr| instr.with_metadata(dbg_metadata)),
         );
         current_block
             .0
@@ -962,11 +962,11 @@ impl<'a> PartialEvaluator<'a> {
         let dbg_metadata = self.dbg_metadata();
         self.get_current_rir_block_mut()
             .0
-            .push(store_ins.with_metadata(dbg_metadata.clone()));
+            .push(store_ins.with_metadata(dbg_metadata));
         let jump_ins = Instruction::Jump(continuation_block_id);
         self.get_current_rir_block_mut()
             .0
-            .push(jump_ins.with_metadata(dbg_metadata.clone()));
+            .push(jump_ins.with_metadata(dbg_metadata));
         let _ = self.eval_context.pop_block_node();
 
         // Now that we have constructed both the conditional and continuation blocks, insert the jump instruction and
@@ -1987,7 +1987,7 @@ impl<'a> PartialEvaluator<'a> {
             let store_ins = Instruction::Store(body_operand, if_expr_var);
             self.get_current_rir_block_mut()
                 .0
-                .push(store_ins.with_metadata(dbg_metadata.clone()));
+                .push(store_ins.with_metadata(dbg_metadata));
         }
 
         // Finally, jump to the continuation block and pop the current block node.
@@ -2608,7 +2608,7 @@ impl<'a> PartialEvaluator<'a> {
                     Instruction::Store(Operand::Literal(Literal::Integer(1)), current_rir_variable);
                 self.get_current_rir_block_mut()
                     .0
-                    .push(init_ins.with_metadata(dbg_metadata.clone()));
+                    .push(init_ins.with_metadata(dbg_metadata));
                 for _ in 0..exponent {
                     let mult_variable =
                         rir::Variable::new_integer(self.resource_manager.next_var());
@@ -2619,7 +2619,7 @@ impl<'a> PartialEvaluator<'a> {
                     );
                     self.get_current_rir_block_mut()
                         .0
-                        .push(mult_ins.with_metadata(dbg_metadata.clone()));
+                        .push(mult_ins.with_metadata(dbg_metadata));
                     current_rir_variable = mult_variable;
                 }
                 current_rir_variable

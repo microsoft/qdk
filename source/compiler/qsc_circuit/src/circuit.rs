@@ -1148,44 +1148,21 @@ fn add_operation_to_rows(
                 .remove(&0);
             if let Some(existing) = existing {
                 // TODO: this definitely doesn't work
-                match existing {
-                    CircuitObject::Object(o) => {
-                        eprintln!(
-                            "adding vertical line at column {column} row {i} crossing object: {o:?}"
-                        );
-                        if i == begin {
-                            eprintln!(
-                                "adding vertical to subrows below axis at column {column} row {i}"
-                            );
-                            for sr in 1..=row.current_bottom_offset {
-                                eprintln!(
-                                    "adding vertical to subrows below axis at column {column} row {i}"
-                                );
-                                // add vertical to subrows below axis
-                                let row_row = row.objects.entry(column).or_default();
-                                row_row.insert(-i16::from(sr), CircuitObject::Vertical);
-                            }
-                        } else if i == end - 1 {
-                            eprintln!(
-                                "adding vertical to subrows above axis at column {column} row {i}"
-                            );
-                            for sr in 1..=row.current_top_offset {
-                                eprintln!(
-                                    "adding vertical to subrows above axis at column {column} row {i}"
-                                );
-                                // add vertical to subrows above axis
-                                let row_row = row.objects.entry(column).or_default();
-                                row_row.insert(i16::from(sr), CircuitObject::Vertical);
-                            }
-                        } else {
-                            // crossing wire, leave as is
-                            eprintln!("leaving crossing wire at column {column} row {i}: {o:?}");
+                if let CircuitObject::Object(_) = existing {
+                    if i == begin {
+                        for sr in 1..=row.current_bottom_offset {
+                            // add vertical to subrows below axis
+                            let row_row = row.objects.entry(column).or_default();
+                            row_row.insert(-i16::from(sr), CircuitObject::Vertical);
                         }
-                    }
-                    _ => {
-                        eprintln!(
-                            "adding vertical line at column {column} row {i} crossing object: {existing:?}"
-                        );
+                    } else if i == end - 1 {
+                        for sr in 1..=row.current_top_offset {
+                            // add vertical to subrows above axis
+                            let row_row = row.objects.entry(column).or_default();
+                            row_row.insert(i16::from(sr), CircuitObject::Vertical);
+                        }
+                    } else {
+                        // crossing wire, leave as is
                     }
                 }
             } else {
