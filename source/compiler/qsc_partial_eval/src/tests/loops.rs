@@ -554,7 +554,7 @@ fn result_array_index_range_in_for_loop() {
                     Variable(2, Integer) = Store Variable(8, Integer) !dbg dbg_location=8
                     Jump(3) !dbg dbg_location=8
             config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs)
             num_qubits: 2
             num_results: 2
             dbg_metadata_scopes:

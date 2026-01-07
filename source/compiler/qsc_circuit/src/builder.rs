@@ -1252,11 +1252,7 @@ impl OperationListBuilder {
         }
     }
 
-    pub(crate) fn push_op(
-        &mut self,
-        mut op: OperationOrGroup,
-        unfiltered_call_stack: LogicalStackTrace,
-    ) {
+    fn push_op(&mut self, mut op: OperationOrGroup, unfiltered_call_stack: LogicalStackTrace) {
         if self.max_ops_exceeded || self.operations.len() >= self.max_ops {
             // Stop adding gates and leave the circuit as is
             self.max_ops_exceeded = true;
@@ -1269,21 +1265,13 @@ impl OperationListBuilder {
             vec![]
         };
 
-        if self.source_locations
-            && let Some(called_at) = op_call_stack.last()
-        {
-            op.set_location(called_at.source_location());
-        }
-
         add_scoped_op(
             &mut self.operations,
             &ScopeStack::top(),
             op,
-            if self.group_by_scope {
-                &op_call_stack
-            } else {
-                &[]
-            },
+            &op_call_stack,
+            self.group_by_scope,
+            self.source_locations,
         );
     }
 
@@ -1488,9 +1476,17 @@ impl LexicalScope {
 pub(crate) fn add_scoped_op(
     current_container: &mut Vec<OperationOrGroup>,
     current_scope_stack: &ScopeStack,
-    op: OperationOrGroup,
+    mut op: OperationOrGroup,
     op_call_stack: &[LocationMetadata],
+    group_by_scope: bool,
+    set_source_location: bool,
 ) {
+    if set_source_location && let Some(called_at) = op_call_stack.last() {
+        op.set_location(called_at.source_location());
+    }
+
+    let op_call_stack = if group_by_scope { op_call_stack } else { &[] };
+
     let relative_stack = strip_scope_stack_prefix(
         op_call_stack,
         current_scope_stack,
@@ -1510,7 +1506,14 @@ pub(crate) fn add_scoped_op(
                 let last_op_children = last_op.children_mut().expect("operation should be a group");
 
                 // Recursively add to the children
-                add_scoped_op(last_op_children, &last_scope_stack, op, op_call_stack);
+                add_scoped_op(
+                    last_op_children,
+                    &last_scope_stack,
+                    op,
+                    op_call_stack,
+                    group_by_scope,
+                    set_source_location,
+                );
 
                 return;
             }
@@ -1527,7 +1530,14 @@ pub(crate) fn add_scoped_op(
                 .1
                 .to_vec();
             // Recursively add the new scope group to the current container
-            add_scoped_op(current_container, current_scope_stack, scope_group, &parent);
+            add_scoped_op(
+                current_container,
+                current_scope_stack,
+                scope_group,
+                &parent,
+                group_by_scope,
+                set_source_location,
+            );
 
             return;
         }

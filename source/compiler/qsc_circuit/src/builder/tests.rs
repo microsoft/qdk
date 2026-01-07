@@ -501,3 +501,35 @@ fn measurement_target_propagated_to_group() {
         .find(|reg| *reg == &measurement_op.results[0])
         .expect("expected measurement result in group operation's targets");
 }
+
+#[test]
+fn source_locations_for_groups() {
+    let mut c = FakeCompilation::default();
+    let mut builder = CircuitTracer::new(
+        TracerConfig {
+            max_operations: 10,
+            source_locations: true,
+            group_by_scope: true,
+            prune_classical_qubits: false,
+        },
+        &FakeCompilation::user_package_ids(),
+    );
+
+    builder.qubit_allocate(&[], 0);
+
+    builder.gate(
+        &[c.user_code_frame("Main", 10), c.user_code_frame("Foo", 10)],
+        "X",
+        false,
+        &[0],
+        &[],
+        None,
+    );
+
+    let circuit = builder.finish(&c);
+
+    expect![[r#"
+        q_0    ─ [ [Main] ─── [ [Foo@user_code.qs:0:10] ── X@user_code.qs:0:10 ─── ] ──── ] ──
+    "#]]
+    .assert_eq(&circuit.display_with_groups().to_string());
+}

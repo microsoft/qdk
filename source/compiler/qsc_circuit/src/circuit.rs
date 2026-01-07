@@ -348,6 +348,7 @@ pub struct Qubit {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
 /// The schema of `Metadata` may change and its contents
 /// are never meant to be persisted in a .qsc file.
 pub struct Metadata {
@@ -460,27 +461,26 @@ impl RowBuilder {
         self.add_to_row_wire(column, CircuitObject::Object(gate_label.clone()));
     }
 
-    fn add_gate(
-        &mut self,
-        column: usize,
-        gate: &str,
-        args: &[String],
-        is_adjoint: bool,
-        source: Option<&SourceLocation>,
-    ) {
+    fn add_gate(&mut self, column: usize, operation: &Operation) {
+        let gate_label = self.operation_label(operation);
+
+        self.add_object(column, gate_label.as_str());
+    }
+
+    fn operation_label(&self, operation: &Operation) -> String {
         let mut gate_label = String::new();
-        gate_label.push_str(gate);
-        if is_adjoint {
+        gate_label.push_str(&operation.gate());
+        if operation.is_adjoint() {
             gate_label.push('\'');
         }
 
-        if !args.is_empty() {
-            let args = args.join(", ");
+        if !operation.args().is_empty() {
+            let args = operation.args().join(", ");
             let _ = write!(&mut gate_label, "({args})");
         }
 
         if self.render_locations
-            && let Some(SourceLocation::Resolved(loc)) = source
+            && let Some(SourceLocation::Resolved(loc)) = operation.source_location()
         {
             let _ = write!(&mut gate_label, "@{}:{}:{}", loc.file, loc.line, loc.column);
         }
@@ -1113,13 +1113,7 @@ fn add_operation_to_rows(
         {
             row.start_classical(column);
         } else {
-            row.add_gate(
-                column,
-                &operation.gate(),
-                &operation.args(),
-                operation.is_adjoint(),
-                operation.source_location(),
-            );
+            row.add_gate(column, operation);
         }
     }
 

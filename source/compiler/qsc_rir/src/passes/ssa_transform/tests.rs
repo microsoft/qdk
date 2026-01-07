@@ -146,7 +146,7 @@ fn ssa_transform_removes_store_in_single_block_program() {
                     Variable(2, Boolean) = LogicalNot Variable(0, Boolean)
                     Return
             config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs)
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
@@ -310,7 +310,7 @@ fn ssa_transform_removes_multiple_stores_in_single_block_program() {
                     Variable(4, Boolean) = LogicalNot Variable(3, Boolean)
                     Return
             config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs)
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
@@ -489,7 +489,7 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks() {
                     Variable(4, Boolean) = LogicalNot Variable(0, Boolean)
                     Return
             config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs)
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
@@ -639,7 +639,7 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks_without_i
                     Variable(4, Boolean) = LogicalNot Variable(0, Boolean)
                     Return
             config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs)
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
@@ -841,7 +841,7 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage() {
                     Variable(4, Boolean) = LogicalNot Variable(5, Boolean)
                     Return
             config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs)
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
@@ -1016,7 +1016,7 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage_in_one_branch() {
                     Variable(4, Boolean) = LogicalNot Variable(5, Boolean)
                     Return
             config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs)
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
@@ -1285,7 +1285,7 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
                     Variable(5, Boolean) = LogicalNot Variable(6, Boolean)
                     Return
             config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs)
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
@@ -1510,7 +1510,7 @@ fn ssa_transform_inserts_phi_for_multiple_stored_values() {
                     Variable(6, Boolean) = LogicalNot Variable(8, Boolean)
                     Return
             config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs)
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
@@ -1849,7 +1849,7 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
                     Variable(8, Boolean) = LogicalNot Variable(10, Boolean)
                     Return
             config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs)
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
@@ -2146,7 +2146,7 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
                     Variable(4, Boolean) = LogicalNot Variable(9, Boolean)
                     Return
             config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs)
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
@@ -2322,7 +2322,7 @@ fn ssa_transform_propagates_updates_from_multiple_predecessors_to_later_single_s
                 Block 4: Block:
                     Return
             config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs)
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
@@ -2450,7 +2450,7 @@ fn ssa_transform_maps_store_instrs_that_use_values_from_other_store_instrs() {
                     Variable(3, Boolean) = LogicalNot Variable(0, Boolean)
                     Return
             config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs)
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
@@ -2614,7 +2614,7 @@ fn ssa_transform_maps_store_with_variable_from_store_in_conditional_to_phi_node(
                     Variable(3, Boolean) = LogicalNot Variable(4, Boolean)
                     Return
             config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs)
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
@@ -2777,7 +2777,7 @@ fn ssa_transform_allows_point_in_time_copy_of_dynamic_variable() {
                     Variable(5, Boolean) = LogicalNot Variable(3, Boolean)
                     Return
             config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs)
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
@@ -3004,7 +3004,7 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
                     Call id(2), args( Variable(4, Boolean), )
                     Return
             config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs)
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:

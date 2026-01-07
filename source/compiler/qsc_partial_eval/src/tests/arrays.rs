@@ -1102,7 +1102,7 @@ fn result_array_index_range_returns_length_as_end() {
                     Call id(3), args( Integer(1), Tag(0, 3), ) !dbg
                     Return !dbg
             config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs)
             num_qubits: 2
             num_results: 2
             dbg_metadata_scopes:

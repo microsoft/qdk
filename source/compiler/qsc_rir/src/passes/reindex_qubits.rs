@@ -4,32 +4,21 @@
 #[cfg(test)]
 mod tests;
 
-use std::{collections::hash_map::Entry, ops::Sub};
+use std::ops::Sub;
 
-use qsc_data_structures::index_map::IndexMap;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
     builder,
-    rir::{
-        BlockId, BlockWithMetadata, CallableId, CallableType, Instruction, Literal, Operand,
-        Program,
-    },
-    utils::build_predecessors_map,
+    rir::{BlockWithMetadata, CallableId, CallableType, Instruction, Literal, Operand, Program},
 };
-
-#[derive(Clone)]
-struct BlockQubitMap {
-    map: FxHashMap<u32, u32>,
-    next_qubit_id: u32,
-}
 
 /// Reindexes qubits after they have been measured or reset. This ensures there is no qubit reuse in
 /// the program. As part of the pass, reset callables are removed and mresetz calls are replaced with
 /// mz calls.
 /// Note that this pass has several assumptions:
 /// 1. Only one callable has a body, which is the entry point callable.
-/// 2. The entry point callable is a directed acyclic graph where block ids have topological ordering.
+/// 2. The entry point callable is a single block.
 /// 3. No dynamic qubits are used.
 ///
 /// The pass will panic if the input program violates any of these assumptions.
@@ -58,72 +47,12 @@ pub fn reindex_qubits(program: &mut Program) {
         highest_used_id: program.num_qubits.max(1).sub(1),
     };
 
-    let pred_map = build_predecessors_map(program);
-
-    let mut block_maps = IndexMap::new();
-    block_maps.insert(
-        BlockId(0),
-        BlockQubitMap {
-            map: FxHashMap::default(),
-            next_qubit_id: program.num_qubits,
-        },
-    );
-
-    let mut all_blocks = program.blocks.drain().collect::<Vec<_>>();
-    let (entry_block, rest_blocks) = all_blocks
-        .split_first_mut()
-        .expect("program should have at least one block");
-
-    // Reindex qubits in the entry block.
-    pass.reindex_qubits_in_block(
-        program,
-        &mut entry_block.1,
-        block_maps
-            .get_mut(entry_block.0)
-            .expect("entry block with id 0 should be in block_maps"),
-    );
-
-    for (block_id, block) in rest_blocks {
-        // Use the predecessors to build the block's initial, inherited qubit map.
-        let pred_ids = pred_map
-            .get(*block_id)
-            .expect("block should have predecessors");
-
-        // Start from an empty map with the program's initial qubit ids.
-        let mut new_block_map = BlockQubitMap {
-            map: FxHashMap::default(),
-            next_qubit_id: program.num_qubits,
-        };
-
-        for pred_id in pred_ids {
-            let pred_qubit_map = block_maps
-                .get(*pred_id)
-                .expect("predecessor should be in block_maps");
-
-            // Across each predecessor, ensure that any mapped ids are same, otherwise
-            // panic because we can't know which id to use.
-            for (qubit_id, new_qubit_id) in &pred_qubit_map.map {
-                match new_block_map.map.entry(*qubit_id) {
-                    Entry::Occupied(entry) if *entry.get() == *new_qubit_id => {}
-                    Entry::Occupied(_) => {
-                        panic!("Qubit id {qubit_id} has multiple mappings across predecessors");
-                    }
-                    Entry::Vacant(entry) => {
-                        entry.insert(*new_qubit_id);
-                    }
-                }
-            }
-            new_block_map.next_qubit_id = new_block_map
-                .next_qubit_id
-                .max(pred_qubit_map.next_qubit_id);
-        }
-
-        pass.reindex_qubits_in_block(program, block, &mut new_block_map);
-
-        block_maps.insert(*block_id, new_block_map);
-    }
-
-    program.blocks = all_blocks.into_iter().collect();
+    // Perform the reindexing on the single entry block.
+    let Some((block_id, mut block)) = program.blocks.drain().next() else {
+        panic!("program should have at least one block");
+    };
+    pass.reindex_qubits_in_block(program, &mut block);
+    program.blocks.insert(block_id, block);
     program.num_qubits = pass.highest_used_id + 1;
 
     // All reset function calls should be removed, so remove them from the callables.
@@ -150,12 +79,10 @@ struct ReindexQubitPass {
 }
 
 impl ReindexQubitPass {
-    fn reindex_qubits_in_block(
-        &mut self,
-        program: &Program,
-        block: &mut BlockWithMetadata,
-        qubit_map: &mut BlockQubitMap,
-    ) {
+    fn reindex_qubits_in_block(&mut self, program: &Program, block: &mut BlockWithMetadata) {
+        let mut map = FxHashMap::default();
+        let mut used_qubits: FxHashSet<u32> = FxHashSet::default();
+        let mut next_qubit_id = self.highest_used_id + 1;
         let instrs = std::mem::take(&mut block.0);
         for i in 0..instrs.len() {
             // Assume qubits only appear in void call instructions.
@@ -166,9 +93,11 @@ impl ReindexQubitPass {
                 {
                     // Generate any new qubit ids and skip adding the instruction.
                     for arg in args {
-                        if let Operand::Literal(Literal::Qubit(qubit_id)) = arg {
-                            qubit_map.map.insert(*qubit_id, qubit_map.next_qubit_id);
-                            qubit_map.next_qubit_id += 1;
+                        if let Operand::Literal(Literal::Qubit(qubit_id)) = arg
+                            && used_qubits.contains(qubit_id)
+                        {
+                            map.insert(*qubit_id, next_qubit_id);
+                            next_qubit_id += 1;
                         }
                     }
                 }
@@ -181,7 +110,7 @@ impl ReindexQubitPass {
                         .map(|arg| match arg {
                             Operand::Literal(Literal::Qubit(qubit_id)) => {
                                 ids_used.push(*qubit_id);
-                                match qubit_map.map.get(qubit_id) {
+                                match map.get(qubit_id) {
                                     Some(mapped_id) => {
                                         // If the qubit has already been mapped, use the mapped id.
                                         self.highest_used_id = self.highest_used_id.max(*mapped_id);
@@ -193,6 +122,8 @@ impl ReindexQubitPass {
                             _ => *arg,
                         })
                         .collect::<Vec<_>>();
+
+                    used_qubits.extend(ids_used.iter());
 
                     if *call_id == self.m_id {
                         if qubit_used_in_instrs(
@@ -210,14 +141,13 @@ impl ReindexQubitPass {
                                     self.cx_id,
                                     vec![
                                         new_args[0],
-                                        Operand::Literal(Literal::Qubit(qubit_map.next_qubit_id)),
+                                        Operand::Literal(Literal::Qubit(next_qubit_id)),
                                     ],
                                     None,
                                 )
                                 .with_metadata(instr.metadata),
                             );
-                            self.highest_used_id =
-                                self.highest_used_id.max(qubit_map.next_qubit_id);
+                            self.highest_used_id = self.highest_used_id.max(next_qubit_id);
                         } else {
                             // The call was to mz and the qubit is not reused later in the block, so
                             // there is no need to remap it at all as this is the last operation. Skip
@@ -246,8 +176,8 @@ impl ReindexQubitPass {
                         // Generate any new qubit ids after a measurement.
                         for arg in args {
                             if let Operand::Literal(Literal::Qubit(qubit_id)) = arg {
-                                qubit_map.map.insert(*qubit_id, qubit_map.next_qubit_id);
-                                qubit_map.next_qubit_id += 1;
+                                map.insert(*qubit_id, next_qubit_id);
+                                next_qubit_id += 1;
                             }
                         }
                     }

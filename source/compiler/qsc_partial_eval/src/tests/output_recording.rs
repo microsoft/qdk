@@ -88,7 +88,7 @@ fn output_recording_for_tuple_of_different_types() {
                     Call id(6), args( Variable(1, Boolean), Tag(1, 5), ) !dbg
                     Return !dbg
             config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs)
             num_qubits: 1
             num_results: 1
             dbg_metadata_scopes:
@@ -193,7 +193,7 @@ fn output_recording_for_nested_tuples() {
                     Call id(6), args( Variable(3, Boolean), Tag(3, 7), ) !dbg
                     Return !dbg
             config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs)
             num_qubits: 1
             num_results: 1
             dbg_metadata_scopes:
@@ -308,7 +308,7 @@ fn output_recording_for_tuple_of_arrays() {
                     Call id(7), args( Variable(3, Boolean), Tag(2, 7), ) !dbg
                     Return !dbg
             config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs)
             num_qubits: 1
             num_results: 1
             dbg_metadata_scopes:
@@ -422,7 +422,7 @@ fn output_recording_for_array_of_tuples() {
                     Call id(7), args( Variable(3, Boolean), Tag(3, 7), ) !dbg
                     Return !dbg
             config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs)
             num_qubits: 1
             num_results: 1
             dbg_metadata_scopes:
@@ -485,7 +485,7 @@ fn output_recording_for_literal_bool() {
                     Call id(2), args( Bool(true), Tag(0, 3), ) !dbg
                     Return !dbg
             config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs)
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
@@ -541,7 +541,7 @@ fn output_recording_for_literal_double() {
                     Call id(2), args( Double(42.1), Tag(0, 3), ) !dbg
                     Return !dbg
             config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs)
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
@@ -597,7 +597,7 @@ fn output_recording_for_literal_int() {
                     Call id(2), args( Integer(42), Tag(0, 3), ) !dbg
                     Return !dbg
             config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs)
             num_qubits: 0
             num_results: 0
             dbg_metadata_scopes:
@@ -682,7 +682,7 @@ fn output_recording_for_mix_of_literal_and_variable() {
                     Call id(5), args( Bool(true), Tag(1, 5), ) !dbg
                     Return !dbg
             config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs)
             num_qubits: 1
             num_results: 1
             dbg_metadata_scopes:
