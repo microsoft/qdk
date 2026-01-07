@@ -16,12 +16,10 @@ fn check_rca_for_classical_int_assign_to_local() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Classical
-                dynamic_param_applications: <empty>"#
-        ],
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -38,14 +36,12 @@ fn check_rca_for_dynamic_result_assign_to_local() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(0x0)
-                    value_kind: Element(Dynamic)
-                dynamic_param_applications: <empty>"#
-        ],
+                    runtime_kind: Dynamic
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -63,14 +59,12 @@ fn check_rca_for_dynamic_bool_assign_to_local() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
-                    value_kind: Element(Dynamic)
-                dynamic_param_applications: <empty>"#
-        ],
+                    runtime_kind: Dynamic
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -90,14 +84,12 @@ fn check_rca_for_dynamic_int_assign_to_local() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
-                    value_kind: Element(Dynamic)
-                dynamic_param_applications: <empty>"#
-        ],
+                    runtime_kind: Dynamic
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -118,14 +110,12 @@ fn check_rca_for_dynamic_double_assign_to_local() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicDouble)
-                    value_kind: Element(Dynamic)
-                dynamic_param_applications: <empty>"#
-        ],
+                    runtime_kind: Dynamic
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -254,7 +244,7 @@ fn check_rca_for_assign_dynamic_call_result_to_tuple_of_vars() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
-                    value_kind: Element(Dynamic)
+                    runtime_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
     compilation_context.update(
@@ -268,7 +258,7 @@ fn check_rca_for_assign_dynamic_call_result_to_tuple_of_vars() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
-                    value_kind: Element(Dynamic)
+                    runtime_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -293,7 +283,7 @@ fn check_rca_for_assign_dynamic_static_mix_call_result_to_tuple_of_vars() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicInt)
-                    value_kind: Array(Content: Dynamic, Size: Static)
+                    runtime_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
     compilation_context.update(
@@ -307,7 +297,7 @@ fn check_rca_for_assign_dynamic_static_mix_call_result_to_tuple_of_vars() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicInt)
-                    value_kind: Array(Content: Dynamic, Size: Static)
+                    runtime_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -355,7 +345,7 @@ fn check_rca_for_mutable_classical_integer_assigned_updated_with_dynamic_integer
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
-                    value_kind: Element(Dynamic)
+                    runtime_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -380,7 +370,7 @@ fn check_rca_for_mutable_dynamic_integer_assigned_updated_with_classical_integer
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
-                    value_kind: Element(Dynamic)
+                    runtime_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -405,7 +395,7 @@ fn check_rca_for_mutable_dynamic_integer_assigned_updated_with_dynamic_integer()
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
-                    value_kind: Element(Dynamic)
+                    runtime_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -431,7 +421,7 @@ fn check_rca_for_mutable_dynamic_result_assigned_updated_in_dynamic_context() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicResult)
-                    value_kind: Element(Dynamic)
+                    runtime_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -453,7 +443,7 @@ fn check_rca_for_immutable_dynamic_result_bound_to_dynamic_result() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicResult)
-                    value_kind: Element(Dynamic)
+                    runtime_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -480,7 +470,7 @@ fn check_rca_for_immutable_dynamic_result_bound_to_result_from_classical_conditi
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(0x0)
-                    value_kind: Element(Dynamic)
+                    runtime_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -509,7 +499,7 @@ fn check_rca_for_immutable_dynamic_result_bound_to_call_with_dynamic_args() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicResult)
-                    value_kind: Element(Dynamic)
+                    runtime_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -557,7 +547,7 @@ fn check_rca_for_mutable_tuple_assigned_updated_in_dynamic_context() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicInt | UseOfDynamicTuple)
-                    value_kind: Element(Dynamic)
+                    runtime_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -579,7 +569,7 @@ fn check_rca_for_immutable_tuple_bound_to_dynamic_tuple() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicTuple)
-                    value_kind: Element(Dynamic)
+                    runtime_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }

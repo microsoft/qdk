@@ -22,16 +22,14 @@ fn check_rca_for_if_stmt_with_classic_condition_and_classic_if_true_block() {
         &compilation_context.fir_store,
         compilation_context.get_compute_properties(),
         "Foo",
-        &expect![
-            r#"
+        &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
                     inherent: Classical
                     dynamic_param_applications: <empty>
                 adj: <none>
                 ctl: <none>
-                ctl-adj: <none>"#
-        ],
+                ctl-adj: <none>"#]],
     );
 }
 
@@ -52,18 +50,16 @@ fn check_rca_for_if_stmt_with_dynamic_condition_and_classic_if_true_block() {
         &compilation_context.fir_store,
         compilation_context.get_compute_properties(),
         "Foo",
-        &expect![
-            r#"
+        &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
-                        value_kind: Element(Static)
+                        runtime_kind: Static
                     dynamic_param_applications: <empty>
                 adj: <none>
                 ctl: <none>
-                ctl-adj: <none>"#
-        ],
+                ctl-adj: <none>"#]],
     );
 }
 
@@ -82,12 +78,10 @@ fn check_rca_for_if_else_expr_with_classic_condition_and_classic_branch_blocks()
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Classical
-                dynamic_param_applications: <empty>"#
-        ],
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -107,13 +101,11 @@ fn check_rca_for_if_else_expr_with_dynamic_condition_and_classic_branch_blocks()
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
-                    value_kind: Element(Dynamic)
-                dynamic_param_applications: <empty>"#
-        ],
+                    runtime_kind: Dynamic
+                dynamic_param_applications: <empty>"#]],
     );
 }
