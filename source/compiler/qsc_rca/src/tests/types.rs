@@ -11,12 +11,10 @@ fn check_rca_for_classical_result() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Classical
-                dynamic_param_applications: <empty>"#
-        ],
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -31,14 +29,12 @@ fn check_rca_for_dynamic_result() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(0x0)
-                    value_kind: Element(Dynamic)
-                dynamic_param_applications: <empty>"#
-        ],
+                    runtime_kind: Dynamic
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -49,12 +45,10 @@ fn check_rca_for_classical_bool() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Classical
-                dynamic_param_applications: <empty>"#
-        ],
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -70,14 +64,12 @@ fn check_rca_for_dynamic_bool() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
-                    value_kind: Element(Dynamic)
-                dynamic_param_applications: <empty>"#
-        ],
+                    runtime_kind: Dynamic
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -88,12 +80,10 @@ fn check_rca_for_classical_int() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Classical
-                dynamic_param_applications: <empty>"#
-        ],
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -111,14 +101,12 @@ fn check_rca_for_dynamic_int() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
-                    value_kind: Element(Dynamic)
-                dynamic_param_applications: <empty>"#
-        ],
+                    runtime_kind: Dynamic
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -129,12 +117,10 @@ fn check_rca_for_classical_pauli() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Classical
-                dynamic_param_applications: <empty>"#
-        ],
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -149,14 +135,12 @@ fn check_rca_for_dynamic_pauli() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicPauli)
-                    value_kind: Element(Dynamic)
-                dynamic_param_applications: <empty>"#
-        ],
+                    runtime_kind: Dynamic
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -167,12 +151,10 @@ fn check_rca_for_classical_range() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Classical
-                dynamic_param_applications: <empty>"#
-        ],
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -188,14 +170,12 @@ fn check_rca_for_dynamic_range() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicRange)
-                    value_kind: Element(Dynamic)
-                dynamic_param_applications: <empty>"#
-        ],
+                    runtime_kind: Dynamic
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -206,12 +186,10 @@ fn check_rca_for_classical_double() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Classical
-                dynamic_param_applications: <empty>"#
-        ],
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -230,14 +208,12 @@ fn check_rca_for_dynamic_double() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicDouble)
-                    value_kind: Element(Dynamic)
-                dynamic_param_applications: <empty>"#
-        ],
+                    runtime_kind: Dynamic
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -248,12 +224,10 @@ fn check_rca_for_classical_big_int() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Classical
-                dynamic_param_applications: <empty>"#
-        ],
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -268,13 +242,11 @@ fn check_rca_for_dynamic_big_int() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicBigInt)
-                    value_kind: Element(Dynamic)
-                dynamic_param_applications: <empty>"#
-        ],
+                    runtime_kind: Dynamic
+                dynamic_param_applications: <empty>"#]],
     );
 }

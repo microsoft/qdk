@@ -11,12 +11,10 @@ fn check_rca_for_classical_string() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Classical
-                dynamic_param_applications: <empty>"#
-        ],
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -31,14 +29,12 @@ fn check_rca_for_dynamic_string() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicString)
-                    value_kind: Element(Dynamic)
-                dynamic_param_applications: <empty>"#
-        ],
+                    runtime_kind: Dynamic
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -49,12 +45,10 @@ fn check_rca_for_classical_interpolated_string() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Classical
-                dynamic_param_applications: <empty>"#
-        ],
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -69,14 +63,12 @@ fn check_rca_for_dynamic_interpolated_string() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicString)
-                    value_kind: Element(Dynamic)
-                dynamic_param_applications: <empty>"#
-        ],
+                    runtime_kind: Dynamic
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -87,12 +79,10 @@ fn check_rca_for_classical_nested_interpolated_string() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Classical
-                dynamic_param_applications: <empty>"#
-        ],
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -107,14 +97,12 @@ fn check_rca_for_dynamic_nested_interpolated_string() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicString)
-                    value_kind: Element(Dynamic)
-                dynamic_param_applications: <empty>"#
-        ],
+                    runtime_kind: Dynamic
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -125,12 +113,10 @@ fn check_rca_for_classical_concatenated_string() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Classical
-                dynamic_param_applications: <empty>"#
-        ],
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -146,14 +132,12 @@ fn check_rca_for_dynamic_concatenated_string() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicString)
-                    value_kind: Element(Dynamic)
-                dynamic_param_applications: <empty>"#
-        ],
+                    runtime_kind: Dynamic
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -164,12 +148,10 @@ fn check_rca_for_classical_string_comparison() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Classical
-                dynamic_param_applications: <empty>"#
-        ],
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -184,13 +166,11 @@ fn check_rca_for_dynamic_string_comparison() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicString)
-                    value_kind: Element(Dynamic)
-                dynamic_param_applications: <empty>"#
-        ],
+                    runtime_kind: Dynamic
+                dynamic_param_applications: <empty>"#]],
     );
 }
