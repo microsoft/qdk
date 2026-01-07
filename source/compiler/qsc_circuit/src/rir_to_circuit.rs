@@ -747,7 +747,7 @@ fn extend_with_block(
                 let cond_expr_logical_stack =
                     dbg_stuff.map_instruction_logical_stack(op.instruction_metadata);
 
-                let (cond_expr_logical_stack, _) = user_stack_and_source_location(
+                let cond_expr_logical_stack = user_stack_and_source_location(
                     source_locations,
                     group_by_scope,
                     user_package_ids,
@@ -794,25 +794,28 @@ fn add_op_with_grouping(
     group_by_scope: bool,
     user_package_ids: &[PackageId],
     operations: &mut Vec<OperationOrGroup>,
-    mut op: OperationOrGroup,
+    op: OperationOrGroup,
     unfiltered_call_stack: LogicalStackTrace,
     scope_stack: &ScopeStack,
 ) {
-    let (final_grouping_call_stack, location) = user_stack_and_source_location(
+    let final_grouping_call_stack = user_stack_and_source_location(
         source_locations,
         group_by_scope,
         user_package_ids,
         unfiltered_call_stack,
     );
 
-    if let Some(location) = location {
-        op.set_location(location);
-    }
-
     // TODO: I'm pretty sure this is wrong if we have a NO call stack operation
     // in between call-stacked operations. We should probably unscope those. Add tests.
 
-    add_scoped_op(operations, scope_stack, op, &final_grouping_call_stack);
+    add_scoped_op(
+        operations,
+        scope_stack,
+        op,
+        &final_grouping_call_stack,
+        group_by_scope,
+        source_locations,
+    );
 }
 
 fn user_stack_and_source_location(
@@ -820,25 +823,12 @@ fn user_stack_and_source_location(
     group_by_scope: bool,
     user_package_ids: &[PackageId],
     unfiltered_call_stack: Vec<LocationMetadata>,
-) -> (Vec<LocationMetadata>, Option<PackageOffset>) {
-    let op_call_stack = if group_by_scope || source_locations {
+) -> LogicalStackTrace {
+    if group_by_scope || source_locations {
         retain_user_frames(user_package_ids, unfiltered_call_stack)
     } else {
         vec![]
-    };
-
-    let final_grouping_call_stack = if group_by_scope {
-        op_call_stack.clone()
-    } else {
-        vec![]
-    };
-
-    let location = if source_locations && let Some(called_at) = op_call_stack.last() {
-        Some(called_at.source_location())
-    } else {
-        None
-    };
-    (final_grouping_call_stack, location)
+    }
 }
 
 // TODO: this could be represented by a circuit block, maybe. Consider.

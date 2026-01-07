@@ -511,6 +511,7 @@ fn source_locations_for_groups() {
             source_locations: true,
             group_by_scope: true,
             prune_classical_qubits: false,
+            ..Default::default()
         },
         &FakeCompilation::user_package_ids(),
     );

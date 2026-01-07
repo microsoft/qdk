@@ -52,7 +52,7 @@ pub fn reindex_qubits(program: &mut Program) {
         panic!("program should have at least one block");
     };
     pass.reindex_qubits_in_block(program, &mut block);
-    program.blocks.insert(block_id, block);
+    program.blocks.insert_with_metadata(block_id, block);
     program.num_qubits = pass.highest_used_id + 1;
 
     // All reset function calls should be removed, so remove them from the callables.

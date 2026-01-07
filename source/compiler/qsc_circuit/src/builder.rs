@@ -1252,7 +1252,7 @@ impl OperationListBuilder {
         }
     }
 
-    fn push_op(&mut self, mut op: OperationOrGroup, unfiltered_call_stack: LogicalStackTrace) {
+    fn push_op(&mut self, op: OperationOrGroup, unfiltered_call_stack: LogicalStackTrace) {
         if self.max_ops_exceeded || self.operations.len() >= self.max_ops {
             // Stop adding gates and leave the circuit as is
             self.max_ops_exceeded = true;

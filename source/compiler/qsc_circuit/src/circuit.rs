@@ -467,6 +467,10 @@ impl RowBuilder {
         self.add_object(column, gate_label.as_str());
     }
 
+    fn add_object(&mut self, column: usize, object: &str) {
+        self.add_to_row_wire(column, CircuitObject::Object(object.to_string()));
+    }
+
     fn operation_label(&self, operation: &Operation) -> String {
         let mut gate_label = String::new();
         gate_label.push_str(&operation.gate());
@@ -485,7 +489,7 @@ impl RowBuilder {
             let _ = write!(&mut gate_label, "@{}:{}:{}", loc.file, loc.line, loc.column);
         }
 
-        self.add_object_to_row_wire(column, gate_label.as_str());
+        gate_label
     }
 
     fn start_classical(&mut self, column: usize) {
