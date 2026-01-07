@@ -359,7 +359,7 @@ suite("OpenQASM Debugger Tests", function suite() {
 
     // Should hit the breakpoint set above.
     await waitUntilPausedAndAssertVariables([
-      { name: "b", type: undefined, value: "3", variablesReference: 0 },
+      { name: "b", type: "Int", value: "3", variablesReference: 0 },
     ]);
 
     // Step over to prepare the tracker to detect a new variable.
@@ -367,8 +367,8 @@ suite("OpenQASM Debugger Tests", function suite() {
 
     // Wait until paused. A new variable should be in the locals.
     await waitUntilPausedAndAssertVariables([
-      { name: "b", type: undefined, value: "3", variablesReference: 0 },
-      { name: "c", type: undefined, value: "4", variablesReference: 0 },
+      { name: "b", type: "Int", value: "3", variablesReference: 0 },
+      { name: "c", type: "Int", value: "4", variablesReference: 0 },
     ]);
 
     // Request scopes for the frame with frameId 1 (g's frame).
@@ -400,7 +400,7 @@ suite("OpenQASM Debugger Tests", function suite() {
     assert.deepEqual(variables.body.variables, [
       {
         name: "a",
-        type: undefined,
+        type: "Int",
         value: "2",
         variablesReference: 0,
       },
