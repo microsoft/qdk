@@ -224,7 +224,7 @@ fn grouping_nested_callables() {
 }
 
 #[test]
-fn for_loop_is_grouped() {
+fn classical_for_loop_is_grouped() {
     let circ = circuit_with_options(
         r"
             namespace Test {
@@ -258,6 +258,44 @@ fn for_loop_is_grouped() {
 
     expect![[r#"
         q_0@test.qs:4:20 ─ [ [Main] ─── [ [loop: 0..2@test.qs:5:20] ── [ [(1)@test.qs:5:34] ─── [ [Foo@test.qs:6:24] ─── X@test.qs:11:20 ── Y@test.qs:12:20 ─── ] ──── ] ─── [ [(2)@test.qs:5:34] ─── [ [Foo@test.qs:6:24] ─── X@test.qs:11:20 ── Y@test.qs:12:20 ─── ] ──── ] ─── [ [(3)@test.qs:5:34] ─── [ [Foo@test.qs:6:24] ─── X@test.qs:11:20 ── Y@test.qs:12:20 ─── ] ──── ] ──── ] ──── ] ──
+    "#]]
+    .assert_eq(&circ);
+}
+
+#[test]
+fn dynamic_for_loop_is_grouped() {
+    let circ = circuit_with_options(
+        r"
+            operation Main() : Unit {
+               use qubit = Qubit();
+                repeat {
+                    H(qubit);
+                } until M(qubit) == Zero
+                fixup {
+                    Reset(qubit);
+                }
+            }
+        ",
+        Profile::Unrestricted,
+        CircuitEntryPoint::EntryPoint,
+        CircuitGenerationMethod::Simulate,
+        TracerConfig {
+            max_operations: 1000,
+            source_locations: true,
+            group_by_scope: true,
+            prune_classical_qubits: false,
+        },
+    )
+    .expect("circuit generation should succeed");
+
+    let circ = circ.display_with_groups().to_string();
+
+    expect![[r#"
+        q_0@test.qs:2:15 ─ [ [Main] ─── [ [loop: M(qubit) == Zero@test.qs:3:16] ── [ [(1)@test.qs:3:23] ─── H@test.qs:4:20 ─── M@test.qs:5:24 ──── |0〉@test.qs:7:20 ───── ] ─── [ [(2)@test.qs:3:23] ─── H@test.qs:4:20 ─── M@test.qs:5:24 ──── |0〉@test.qs:7:20 ───── ] ─── [ [(3)@test.qs:3:23] ─── H@test.qs:4:20 ─── M@test.qs:5:24 ──── |0〉@test.qs:7:20 ───── ] ─── [ [(4)@test.qs:3:23] ─── H@test.qs:4:20 ─── M@test.qs:5:24 ──── ] ──── ] ──── ] ──
+                               [                           [                                 [                                        ╘══════════════════════════════════ ] ═══════════════════════════════════════════════════════╪════════════════════════════════════════════════════════════════════════════════════════════╪════════════════════════════════════════════════════════════════════════════════════════════╪══════════════════ ] ════ ] ══
+                               [                           [                                                                                                                              [                                        ╘══════════════════════════════════ ] ═══════════════════════════════════════════════════════╪════════════════════════════════════════════════════════════════════════════════════════════╪══════════════════ ] ════ ] ══
+                               [                           [                                                                                                                                                                                                                           [                                        ╘══════════════════════════════════ ] ═══════════════════════════════════════════════════════╪══════════════════ ] ════ ] ══
+                               [                           [                                                                                                                                                                                                                                                                                                                        [                                        ╘═══════════ ] ════ ] ════ ] ══
     "#]]
     .assert_eq(&circ);
 }
