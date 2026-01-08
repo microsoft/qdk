@@ -379,7 +379,6 @@ impl CircuitTracer {
                 .0
                 .last()
                 .map(|l| {
-                    // TODO: I think this is wrong.
                     let LogicalStackEntryLocation::Call(location) = *l.location() else {
                         panic!("last frame in stack trace should be a call to an intrinsic")
                     };
@@ -498,9 +497,9 @@ impl CircuitTracer {
     }
 }
 
-/// Removes any loop scopes that are unnecessary.
-/// An unnecessary loop scope is one that either has a single child operation/group,
-/// or has multiple children that each operate on distinct sets of qubits (a "vertical" loop).
+/// Removes any loop scopes that are unnecessary and replaces them with their children operations.
+/// An unnecessary loop scope is one that either has a single child iteration,
+/// or has multiple iterations that each operate on distinct sets of qubits (i.e. a "vertical" loop).
 fn collapse_unnecessary_loop_scopes(operations: &mut Vec<OperationOrGroup>) {
     let mut ops = vec![];
     for mut op in operations.drain(..) {
