@@ -8,6 +8,7 @@ export Select.Select;
 // Options and available algorithms.
 
 export Select.SelectOptions;
+export Select.DefaultSelectOptions;
 
 export Select.SelectViaStd;
 export Select.SelectViaMCX;
@@ -31,3 +32,24 @@ export Multicontrolled.PhaseLookupViaMCX;
 
 export RecursiveSelect.RecursiveLookup;
 export RecursiveSelect.RecursiveLookupOpt;
+export RecursiveSelect.ControlledRecursiveSelect;
+export RecursiveSelect.ControlledRecursiveSelectOpt;
+
+// Lookup implementations via power products.
+
+export PowerProducts.GetAuxCountForPP;
+export PowerProducts.ConstructPowerProducts;
+export PowerProducts.DestructPowerProducts;
+
+export LookupViaPP.LookupViaPP;
+export LookupViaPP.LookupViaSplitPP;
+export PhaseLookup.PhaseLookupViaPP;
+export PhaseLookup.PhaseLookupViaSplitPP;
+
+// Utility functions.
+
+export Utils.FastMobiusTransform;
+export Utils.MeasureAndComputePhaseData;
+export Utils.BinaryInnerProduct;
+export Utils.GetCombinedControl;
+export Utils.CombineControls;

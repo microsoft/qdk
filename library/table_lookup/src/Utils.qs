@@ -160,6 +160,18 @@ operation CombineControls(controls : Qubit[], aux : Qubit[]) : Unit is Adj {
     }
 }
 
+/// # Summary
+/// Retrieves the combined control qubit after CombineControls operation.
+function GetCombinedControl(controls : Qubit[], aux : Qubit[]) : Qubit {
+    Fact(Length(controls) >= 1, "GetCombinedControl: controls must not be empty.");
+    Fact(Length(controls) == Length(aux) + 1, "GetCombinedControl: control and aux length mismatch.");
+    if Length(controls) == 1 {
+        return Head(controls);
+    } else {
+        return Tail(aux);
+    }
+}
+
 // =============================
 // Tests
 
@@ -188,4 +200,43 @@ function TestFastMobiusTransform() : Unit {
         let roundTrip = FastMobiusTransform(output);
         Fact(roundTrip == input, $"FastMobiusTransform(FastMobiusTransform({input})) should be {input}, got {roundTrip}");
     }
+}
+
+internal operation TestCombineControlsForN(n: Int) : Unit {
+    let all_ones = 2^n - 1;
+    use controls = Qubit[n];
+    use aux = Qubit[n - 1];
+
+    // Test all combinations of control qubits
+    for i in 0..all_ones {
+        ApplyXorInPlace(i, controls);
+
+        // Combine controls
+        within {
+            CombineControls(controls, aux);
+        } apply {
+            let combined = GetCombinedControl(controls, aux);
+            // Check that combined control is |1> iff all controls are |1>
+            if i == all_ones {
+                within {
+                    // Ensure combined control is |1>
+                    X(combined);
+                } apply {
+                    Fact(CheckZero(combined), $"Combined control should be |1> when all {n} controls are |1>.");
+                }
+            } else {
+                Fact(CheckZero(combined), $"Combined control should be |0> when some of {n} controls are |0>.");
+            }
+
+        }
+        ApplyXorInPlace(i, controls);
+        // Check that all qubits are reset to |0>
+        Fact(CheckAllZero(controls + aux), "All qubits should be reset to |0> after CombineControls adjoint.");
+    }
+}
+
+@Test()
+operation TestCombineControls() : Unit {
+    TestCombineControlsForN(1);
+    TestCombineControlsForN(4);
 }

@@ -14,27 +14,27 @@ import PhaseLookup.*;
 
 // Use select algorithm defined in the standard library.
 function SelectViaStd() : Int {
-    return 0;
+    0
 }
 
 // Use basic select algorithm via multicontrolled X gates.
 function SelectViaMCX() : Int {
-    return 1;
+    1
 }
 
 // Use select algorithm via recursion.
 function SelectViaRecursion() : Int {
-    return 2;
+    2
 }
 
 // Use select algorithm via power products without address split.
 function SelectViaPP() : Int {
-    return 3;
+    3
 }
 
 // Use select algorithm via power products with address split.
 function SelectViaSplitPP() : Int {
-    return 4;
+    4
 }
 
 // ----------------------------------------------
@@ -42,30 +42,30 @@ function SelectViaSplitPP() : Int {
 
 // Use unselect algorithm defined in the standard library.
 function UnselectViaStd() : Int {
-    return 0;
+    0
 }
 
 // Perform unselect via same algorithm as select as it is self-adjoint.
 function UnselectViaSelect() : Int {
-    return 1;
+    1
 }
 
 // Perform unselect via multicontrolled X gates.
 // This options is measurement based and returns target to zero state.
 function UnselectViaMCX() : Int {
-    return 2;
+    2
 }
 
 // Perform unselect via power products without address split (Phase lookup).
 // This options is measurement based and returns target to zero state.
 function UnselectViaPP() : Int {
-    return 3;
+    3
 }
 
 // Perform unselect via power products with address split (Phase lookup).
 // This options is measurement based and returns target to zero state.
 function UnselectViaSplitPP() : Int {
-    return 4;
+    4
 }
 
 struct SelectOptions {
@@ -87,8 +87,8 @@ struct SelectOptions {
 
     // If `true`, all address qubits are respected and used.
     // Addressing beyond data length yields the same result as if the data was padded with `false` values.
-    // If `false`, address qubits that aren't necessary for addressing data are ignored.
-    // Addressing beyond data length yields undefined results.
+    // If `false`, addressing beyond data length yields undefined results.
+    // As one consequence, when data is shorter than addressable space, higher address qubits are ignored.
     respectExcessiveAddress : Bool,
 }
 
@@ -173,11 +173,7 @@ operation Select(
         within {
             CombineControls(controls, aux);
         } apply {
-            let single_control = if control_size == 1 {
-                Head(controls)
-            } else {
-                Tail(aux)
-            };
+            let single_control = GetCombinedControl(controls, aux);
 
             if options.selectAlgorithm == SelectViaRecursion() {
                 // Recursive select implementation.
@@ -186,34 +182,24 @@ operation Select(
                 } else {
                     ControlledRecursiveSelectOpt(single_control, input.fitData, input.fitAddress, target);
                 }
-                return ();
-            }
-
-            // To use control qubit as an extra address qubit we need to respect entire address.
-            let options_a = new SelectOptions {
-                selectAlgorithm = options.selectAlgorithm,
-                unselectAlgorithm = options.unselectAlgorithm,
-                failOnLongData = options.failOnLongData,
-                failOnShortData = options.failOnShortData,
-                respectExcessiveAddress = true,
-            };
-
-            within {
-                // Invert control so that data is selected when control is |1>
-                X(single_control);
-            } apply {
-                // Add control as the most significant address qubit.
-                if options.selectAlgorithm == SelectViaPP() {
-                    LookupViaPP(input.fitData, input.fitAddress + [single_control], target);
-                    return ();
+            } else {
+                // To use control qubit as an extra address qubit we need to respect entire address.
+                // Power products implementation does that.
+                within {
+                    // Invert control so that data is selected when control is |1>
+                    X(single_control);
+                } apply {
+                    // Add control as the most significant address qubit.
+                    if options.selectAlgorithm == SelectViaPP() {
+                        LookupViaPP(input.fitData, input.fitAddress + [single_control], target);
+                        return ();
+                    } elif options.selectAlgorithm == SelectViaSplitPP() {
+                        LookupViaSplitPP(input.fitData, input.fitAddress + [single_control], target);
+                        return ();
+                    } else {
+                        fail "Unknown select algorithm specified.";
+                    }
                 }
-
-                if options.selectAlgorithm == SelectViaSplitPP() {
-                    LookupViaSplitPP(input.fitData, input.fitAddress + [single_control], target);
-                    return ();
-                }
-
-                fail "Unknown select algorithm specified.";
             }
         }
     }
@@ -255,12 +241,6 @@ operation Select(
     }
 
     controlled adjoint (controls, ...) {
-        let control_size = Length(controls);
-        if control_size == 0 {
-            Adjoint Select(options, data, address, target);
-            return ();
-        }
-
         if options.unselectAlgorithm == UnselectViaStd() {
             // Don't do anthing beyond standard library select.
             Controlled Adjoint Std.TableLookup.Select(controls, (data, address, target));

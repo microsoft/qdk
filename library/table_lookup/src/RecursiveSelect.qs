@@ -321,9 +321,6 @@ operation TestRecursiveLookupMatchesStd() : Unit {
     let width = 4;
     let data = [[true, false, false, false], [false, true, false, false], [false, false, true, false], [false, false, false, false], [true, true, false, false], [false, true, true, false], [true, false, true, true], [true, true, true, true]];
 
-    use addr = Qubit[n];
-    use target = Qubit[width];
-
     // Use adjoint Std.TableLookup.Select because this check takes adjoint of that.
     let equal = CheckOperationsAreEqual(
         n + width,
@@ -338,9 +335,6 @@ operation TestRecursiveLookupMatchesStdOpt() : Unit {
     let n = 3;
     let width = 4;
     let data = [[true, false, false, false], [false, true, false, false], [false, false, true, false], [false, false, false, false], [true, true, false, false], [false, true, true, false], [true, false, true, true], [true, true, true, true]];
-
-    use addr = Qubit[n];
-    use target = Qubit[width];
 
     // Use adjoint Std.TableLookup.Select because this check takes adjoint of that.
     let equal = CheckOperationsAreEqual(

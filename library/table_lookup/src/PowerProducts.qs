@@ -95,13 +95,13 @@ function GetAuxCountForPP(nQubits : Int) : Int {
     // Number of power products is 2^n - 1 (this excludes the empty product).
     // Number of original qubits is n.
     // Aux qubits needed is (2^n - 1) - n = 2^n - n - 1.
-    return (1 <<< nQubits) - nQubits - 1;
+    (1 <<< nQubits) - nQubits - 1
 }
 
 // =============================
 // Tests
 
-operation ConstructDestructPowerProducts(qs : Qubit[]) : Unit {
+internal operation ConstructDestructPowerProducts(qs : Qubit[]) : Unit {
     // For monomials with more than one variable we need auxilliary qubits
     use aux_qubits = Qubit[GetAuxCountForPP(Length(qs))];
 
@@ -109,7 +109,6 @@ operation ConstructDestructPowerProducts(qs : Qubit[]) : Unit {
     let products = ConstructPowerProducts(qs, aux_qubits);
     DestructPowerProducts(products);
 }
-
 
 @Test()
 operation TestCreateDestructPowerProducts() : Unit {
@@ -124,7 +123,7 @@ operation TestCreateDestructPowerProducts() : Unit {
     }
 }
 
-operation CheckPowerProducts(nQubits : Int, address_value : Int) : Unit {
+internal operation CheckPowerProducts(nQubits : Int, address_value : Int) : Unit {
     // Prepare qubit register.
     Fact(nQubits >= 0, "Number of qubits must be non-negative.");
     use qs = Qubit[nQubits];
