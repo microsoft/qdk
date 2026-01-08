@@ -29,6 +29,33 @@ pub fn map_hir_local_item_to_fir(local_item: hir::LocalItemId) -> fir::LocalItem
     fir::LocalItemId::from(Into::<usize>::into(local_item))
 }
 
+// TODO: this is a bug.
+// Check this out.
+
+// import Std.Math.PI;
+
+// @EntryPoint(Adaptive_RIF)
+// operation Main() : Unit {
+//     Foo()
+// }
+
+// operation Foo() : Unit {
+//     use ancilla = Qubit();
+//     use system = Qubit[2];
+//     CtlExp(ancilla, system);
+// }
+
+// // The presence of this definition somehow changes the circuit diagram!?
+// operation Bar(
+//     ancilla : Qubit,
+//     system : Qubit[]
+// ) : Unit {
+//     CtlExp(ancilla, system);
+// }
+
+// operation CtlExp(control : Qubit, system : Qubit[]) : Unit {
+//     Controlled Exp([control], ([PauliX, PauliX], PI() / -2.0, system));
+// }
 #[must_use]
 pub fn map_fir_local_item_to_hir(local_item: fir::LocalItemId) -> hir::LocalItemId {
     hir::LocalItemId::from(Into::<usize>::into(local_item))
