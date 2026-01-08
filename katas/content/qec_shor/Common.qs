@@ -30,13 +30,13 @@ namespace Kata.Verification {
                         Message("Incorrect.");
                         let actual = err_ind == -1 ? "No error happened" | $"Error happened on qubit {err_ind}";
                         Message($"{actual}, but solution returned {detected}");
-                        ResetAll(qs);
                         false
                     } else {
                         true
                     }
                 };
                 if not correct {
+                    ResetAll(qs);
                     return false;
                 }
                 // Check that the state was not modified by the solution
