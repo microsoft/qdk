@@ -37,6 +37,7 @@ import Std.Convert.*;
 /// 2. [arXiv:2211.01133](https://arxiv.org/abs/2211.01133)
 ///    "Space-time optimized table lookup"
 operation RecursiveLookup(
+    useAnd : Bool,
     data : Bool[][],
     address : Qubit[],
     target : Qubit[]
@@ -60,12 +61,13 @@ operation RecursiveLookup(
     within {
         X(highest_address_qubit);
     } apply {
-        ControlledRecursiveSelect(highest_address_qubit, parts[0], lower_address_qubits, target);
+        ControlledRecursiveSelect(useAnd, highest_address_qubit, parts[0], lower_address_qubits, target);
     }
-    ControlledRecursiveSelect(highest_address_qubit, parts[1], lower_address_qubits, target);
+    ControlledRecursiveSelect(useAnd, highest_address_qubit, parts[1], lower_address_qubits, target);
 }
 
 operation RecursiveLookupOpt(
+    useAnd : Bool,
     data : Bool[][],
     address : Qubit[],
     target : Qubit[]
@@ -92,9 +94,9 @@ operation RecursiveLookupOpt(
     within {
         X(highest_address_qubit);
     } apply {
-        ControlledRecursiveSelectOpt(highest_address_qubit, parts[0], lower_address_qubits, target);
+        ControlledRecursiveSelectOpt(useAnd, highest_address_qubit, parts[0], lower_address_qubits, target);
     }
-    ControlledRecursiveSelectOpt(highest_address_qubit, parts[1], lower_address_qubits, target);
+    ControlledRecursiveSelectOpt(useAnd, highest_address_qubit, parts[1], lower_address_qubits, target);
 }
 
 // Complete version of recursive select network that ignores address values
@@ -102,6 +104,7 @@ operation RecursiveLookupOpt(
 // to cover entire addressable space.
 // If data length is 1, single data value is used only if address is zero.
 operation ControlledRecursiveSelect(
+    useAnd : Bool,
     control : Qubit,
     data : Bool[][],
     address : Qubit[],
@@ -132,18 +135,27 @@ operation ControlledRecursiveSelect(
     within {
         X(highest_address_qubit);
     } apply {
-        AND(control, highest_address_qubit, aux);
+        if useAnd {
+            AND(control, highest_address_qubit, aux);
+        } else {
+            CCNOT(control, highest_address_qubit, aux);
+        }
     }
-    ControlledRecursiveSelect(aux, data_parts[0], lower_address_qubits, target);
+    ControlledRecursiveSelect(useAnd, aux, data_parts[0], lower_address_qubits, target);
     CNOT(control, aux);
-    ControlledRecursiveSelect(aux, data_parts[1], lower_address_qubits, target);
-    Adjoint AND(control, highest_address_qubit, aux);
+    ControlledRecursiveSelect(useAnd, aux, data_parts[1], lower_address_qubits, target);
+    if useAnd {
+        Adjoint AND(control, highest_address_qubit, aux);
+    } else {
+        Adjoint CCNOT(control, highest_address_qubit, aux);
+    }
 }
 
 // Optimized version of recursive select network that expects all address values
 // to be within data length. If address value exceeds data length, behavior is undefined.
 // If data length is 1, single data value is always used.
 operation ControlledRecursiveSelectOpt(
+    useAnd : Bool,
     control : Qubit,
     data : Bool[][],
     address : Qubit[],
@@ -168,16 +180,22 @@ operation ControlledRecursiveSelectOpt(
         within {
             X(highest_address_qubit);
         } apply {
-            AND(control, highest_address_qubit, helper);
+            if useAnd {
+                AND(control, highest_address_qubit, helper);
+            } else {
+                CCNOT(control, highest_address_qubit, helper);
+            }
         }
-        ControlledRecursiveSelectOpt(helper, parts[0], lower_address_qubits, target);
+        ControlledRecursiveSelectOpt(useAnd, helper, parts[0], lower_address_qubits, target);
         CNOT(control, helper);
-        ControlledRecursiveSelectOpt(helper, parts[1], lower_address_qubits, target);
-        Adjoint AND(control, highest_address_qubit, helper);
+        ControlledRecursiveSelectOpt(useAnd, helper, parts[1], lower_address_qubits, target);
+        if useAnd {
+            Adjoint AND(control, highest_address_qubit, helper);
+        } else {
+            Adjoint CCNOT(control, highest_address_qubit, helper);
+        }
     }
-
 }
-
 
 // =============================
 // Tests
@@ -193,7 +211,7 @@ operation CheckRecursiveLookup() : Unit {
     // Check that data at all indices is looked up correctly.
     for i in 0..Length(data)-1 {
         ApplyXorInPlace(i, addr);
-        RecursiveLookup(data, addr, target);
+        RecursiveLookup(true, data, addr, target);
 
         ApplyPauliFromBitString(PauliX, true, data[i], target);
         let zero = CheckAllZero(target);
@@ -213,7 +231,7 @@ operation CheckRecursiveLookupOpt() : Unit {
     // Check that data at all indices is looked up correctly.
     for i in 0..Length(data)-1 {
         ApplyXorInPlace(i, addr);
-        RecursiveLookupOpt(data, addr, target);
+        RecursiveLookupOpt(true, data, addr, target);
 
         ApplyPauliFromBitString(PauliX, true, data[i], target);
         let zero = CheckAllZero(target);
@@ -235,7 +253,7 @@ operation CheckRecursiveLookupShorterData() : Unit {
     // This works for all addresses even beyond data length.
     for i in 0..2^n-1 {
         ApplyXorInPlace(i, addr);
-        RecursiveLookup(data, addr, target);
+        RecursiveLookup(true, data, addr, target);
 
         mutable expected_data = [false, false, false];
         if i < Length(data) {
@@ -263,7 +281,7 @@ operation CheckRecursiveLookupShorterDataOpt() : Unit {
     // This only works up to data length.
     for i in 0..Length(data)-1 {
         ApplyXorInPlace(i, addr);
-        RecursiveLookupOpt(data, addr, target);
+        RecursiveLookupOpt(true, data, addr, target);
 
         ApplyPauliFromBitString(PauliX, true, data[i], target);
         let expected_data = data[i];
@@ -285,7 +303,7 @@ operation CheckRecursiveLookupLongerData() : Unit {
     // Check that longer data at all available indices is looked up correctly.
     for i in 0..2^n-1 {
         ApplyXorInPlace(i, addr);
-        RecursiveLookup(data, addr, target);
+        RecursiveLookup(true, data, addr, target);
 
         ApplyPauliFromBitString(PauliX, true, data[i], target);
         let zero = CheckAllZero(target);
@@ -306,7 +324,7 @@ operation CheckRecursiveLookupLongerDataOpt() : Unit {
     // Check that longer data at all available indices is looked up correctly.
     for i in 0..2^n-1 {
         ApplyXorInPlace(i, addr);
-        RecursiveLookupOpt(data, addr, target);
+        RecursiveLookupOpt(true, data, addr, target);
 
         ApplyPauliFromBitString(PauliX, true, data[i], target);
         let zero = CheckAllZero(target);
@@ -324,7 +342,7 @@ operation TestRecursiveLookupMatchesStd() : Unit {
     // Use adjoint Std.TableLookup.Select because this check takes adjoint of that.
     let equal = CheckOperationsAreEqual(
         n + width,
-        qs => RecursiveLookup(data, qs[0..n-1], qs[n...]),
+        qs => RecursiveLookup(true, data, qs[0..n-1], qs[n...]),
         qs => Adjoint Std.TableLookup.Select(data, qs[0..n-1], qs[n...])
     );
     Fact(equal, "RecursiveLookup should match Std.TableLookup.Select.");
@@ -339,7 +357,7 @@ operation TestRecursiveLookupMatchesStdOpt() : Unit {
     // Use adjoint Std.TableLookup.Select because this check takes adjoint of that.
     let equal = CheckOperationsAreEqual(
         n + width,
-        qs => RecursiveLookupOpt(data, qs[0..n-1], qs[n...]),
+        qs => RecursiveLookupOpt(true, data, qs[0..n-1], qs[n...]),
         qs => Adjoint Std.TableLookup.Select(data, qs[0..n-1], qs[n...])
     );
     Fact(equal, "RecursiveLookupOpt should match Std.TableLookup.Select.");

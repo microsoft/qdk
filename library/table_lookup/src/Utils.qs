@@ -202,7 +202,7 @@ function TestFastMobiusTransform() : Unit {
     }
 }
 
-internal operation TestCombineControlsForN(n: Int) : Unit {
+internal operation TestCombineControlsForN(n : Int) : Unit {
     let all_ones = 2^n - 1;
     use controls = Qubit[n];
     use aux = Qubit[n - 1];

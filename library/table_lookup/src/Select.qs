@@ -12,27 +12,27 @@ import PhaseLookup.*;
 // ----------------------------------------------
 // Select algorithm options.
 
-// Use select algorithm defined in the standard library.
+/// Use select algorithm defined in the standard library.
 function SelectViaStd() : Int {
     0
 }
 
-// Use basic select algorithm via multicontrolled X gates.
+/// Use basic select algorithm with multicontrolled X gates.
 function SelectViaMCX() : Int {
     1
 }
 
-// Use select algorithm via recursion.
+/// Use recursive SELECT network as select algorithm.
 function SelectViaRecursion() : Int {
     2
 }
 
-// Use select algorithm via power products without address split.
+/// Use select algorithm via power products without address split.
 function SelectViaPP() : Int {
     3
 }
 
-// Use select algorithm via power products with address split.
+/// Use select algorithm via power products with address split.
 function SelectViaSplitPP() : Int {
     4
 }
@@ -40,30 +40,30 @@ function SelectViaSplitPP() : Int {
 // ----------------------------------------------
 // Unselect algorithm options.
 
-// Use unselect algorithm defined in the standard library.
+/// Use unselect algorithm defined in the standard library.
 function UnselectViaStd() : Int {
     0
 }
 
-// Perform unselect via same algorithm as select as it is self-adjoint.
+/// Use the same unselect algorithm. (Note, that select is self-adjoint.)
 function UnselectViaSelect() : Int {
     1
 }
 
-// Perform unselect via multicontrolled X gates.
-// This options is measurement based and returns target to zero state.
+/// Use unselect algorithm with multicontrolled X gates.
+/// This options is measurement based and returns target to zero state.
 function UnselectViaMCX() : Int {
     2
 }
 
-// Perform unselect via power products without address split (Phase lookup).
-// This options is measurement based and returns target to zero state.
+/// Use unselect algorithm via power products without address split (Phase lookup).
+/// This options is measurement based and returns target to zero state.
 function UnselectViaPP() : Int {
     3
 }
 
-// Perform unselect via power products with address split (Phase lookup).
-// This options is measurement based and returns target to zero state.
+/// Use unselect algorithm via power products with address split (Phase lookup).
+/// This options is measurement based and returns target to zero state.
 function UnselectViaSplitPP() : Int {
     4
 }
@@ -76,6 +76,12 @@ struct SelectOptions {
     // Specifies unselect algorithm. Options:
     // `UnselectViaStd`, `UnselectViaSelect`, `UnselectViaMCX`, `UnselectViaPP`, `UnselectViaSplitPP`.
     unselectAlgorithm : Int,
+
+    // Suggests using measurement-based uncomputation where applicable.
+    // Some algorithms are measurement-based by design.
+    // If `true`, use measurement-based uncomputations. Example: prefer adjoint AND.
+    // If `false`, avoid measurement-based uncomputations. Example: prefer adjoint CCNOT.
+    preferMeasurementBasedUncomputation : Bool,
 
     // If `true`, an error is raised if data is longer than addressable space.
     // If `false`, longer data beyond addressable space is ignored.
@@ -99,6 +105,7 @@ function DefaultSelectOptions() : SelectOptions {
         failOnLongData = false,
         failOnShortData = false,
         respectExcessiveAddress = false,
+        preferMeasurementBasedUncomputation = true,
     }
 }
 
@@ -126,9 +133,9 @@ operation Select(
         if options.selectAlgorithm == SelectViaRecursion() {
             // Recursive select implementation.
             if (options.respectExcessiveAddress) {
-                RecursiveLookup(input.fitData, input.fitAddress, target);
+                RecursiveLookup(options.preferMeasurementBasedUncomputation, input.fitData, input.fitAddress, target);
             } else {
-                RecursiveLookupOpt(input.fitData, input.fitAddress, target);
+                RecursiveLookupOpt(options.preferMeasurementBasedUncomputation, input.fitData, input.fitAddress, target);
             }
             return ();
         }
@@ -178,9 +185,21 @@ operation Select(
             if options.selectAlgorithm == SelectViaRecursion() {
                 // Recursive select implementation.
                 if (options.respectExcessiveAddress) {
-                    ControlledRecursiveSelect(single_control, input.fitData, input.fitAddress, target);
+                    ControlledRecursiveSelect(
+                        options.preferMeasurementBasedUncomputation,
+                        single_control,
+                        input.fitData,
+                        input.fitAddress,
+                        target
+                    );
                 } else {
-                    ControlledRecursiveSelectOpt(single_control, input.fitData, input.fitAddress, target);
+                    ControlledRecursiveSelectOpt(
+                        options.preferMeasurementBasedUncomputation,
+                        single_control,
+                        input.fitData,
+                        input.fitAddress,
+                        target
+                    );
                 }
             } else {
                 // To use control qubit as an extra address qubit we need to respect entire address.

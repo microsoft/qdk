@@ -21,13 +21,14 @@ internal operation MatchSelectToStd(
     Fact(equal, "Select should match Std.TableLookup.Select.");
 }
 
-internal function GetSelectOptions(algorithm: Int) : SelectOptions {
+internal function GetSelectOptions(algorithm : Int) : SelectOptions {
     return new SelectOptions {
         selectAlgorithm = algorithm,
         unselectAlgorithm = UnselectViaSelect(),
         failOnLongData = false,
         failOnShortData = false,
         respectExcessiveAddress = false,
+        preferMeasurementBasedUncomputation = true,
     };
 }
 
