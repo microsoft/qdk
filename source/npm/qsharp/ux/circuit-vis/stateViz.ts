@@ -19,42 +19,775 @@ export type RenderOptions = {
   minProbThreshold?: number;
 };
 
-const _defaultPhaseColor = (phi: number) => {
-  const hue = ((phi + Math.PI) / (2 * Math.PI)) * 360;
-  return `hsl(${hue},70%,50%)`;
+// Entry Points
+
+// Adapter: render from a map of named states to complex amplitudes.
+export const updateStatePanelFromMap = (
+  panel: HTMLElement,
+  ampMap: AmpMap,
+  opts: RenderOptions & { nQubits?: number } = {},
+): void => {
+  const entries = Object.entries(ampMap);
+  if (entries.length === 0) {
+    const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
+    if (svg) while (svg.firstChild) svg.removeChild(svg.firstChild);
+    return;
+  }
+
+  const guessN =
+    opts.nQubits ?? entries.reduce((m, [k]) => Math.max(m, k.length), 0);
+
+  // Handle zero-qubit map by showing the empty-state message and hiding SVG
+  if (!guessN || guessN <= 0) {
+    _showEmptyState(panel);
+    return;
+  }
+
+  // Ensure SVG is visible and remove any empty-state message when rendering data
+  _showContentState(panel);
+  const raw = entries.map(([label, a]) => {
+    const { prob, phase } = _toPolar(a);
+    return { label, prob, phase } as ColumnDatum;
+  });
+  const doNormalize = opts.normalize ?? true;
+  const mass = raw.reduce((total, r) => total + r.prob, 0);
+  const states =
+    doNormalize && mass > 0
+      ? raw.map((r) => ({ ...r, prob: r.prob / mass }))
+      : raw;
+
+  const numericRegex = /^[+-]?\d+(?:\.\d+)?$/;
+  const asNumber = (s: string) => (numericRegex.test(s) ? parseFloat(s) : NaN);
+  const isNumeric = (s: string) => numericRegex.test(s);
+  const labelCmp = (a: string, b: string) => a.localeCompare(b);
+
+  const maxBars = opts.maxBars ?? 16;
+  // Helper comparator for usual label ordering (numeric labels first, then lexical)
+  const labelOrderCmp = (a: { label: string }, b: { label: string }) => {
+    const an = isNumeric(a.label);
+    const bn = isNumeric(b.label);
+    if (an && bn) {
+      const av = asNumber(a.label);
+      const bv = asNumber(b.label);
+      return av - bv;
+    }
+    if (an !== bn) return an ? -1 : 1;
+    return labelCmp(a.label, b.label);
+  };
+  const sortedByLabel = states.slice().sort(labelOrderCmp);
+  let columns: ColumnDatum[] = [];
+  const minThresh = Math.max(
+    0,
+    Math.min(
+      1,
+      typeof opts.minProbThreshold === "number" ? opts.minProbThreshold : 0.001,
+    ),
+  );
+  // Apply threshold against normalized mass so the value represents a percentage of total
+  const probForThresh = (r: { prob: number }) =>
+    doNormalize || mass <= 0 ? (r.prob ?? 0) : (r.prob ?? 0) / mass;
+  const smallStates =
+    minThresh > 0 ? states.filter((r) => probForThresh(r) < minThresh) : [];
+  const sigStates =
+    minThresh > 0
+      ? states.filter((r) => probForThresh(r) >= minThresh)
+      : states.slice();
+  const needOthers = smallStates.length > 0 || sortedByLabel.length > maxBars;
+  if (!needOthers) {
+    // No need to aggregate; everything fits and no thresholded states
+    columns = sortedByLabel;
+  } else {
+    const reserveOthers = 1; // keep one column for Others when needed
+    const capacity = Math.max(0, (opts.maxBars ?? 16) - reserveOthers);
+    // Choose by probability first from significant states (those above threshold)
+    const chosenByProb = sigStates
+      .slice()
+      .sort((a, b) => (b.prob ?? 0) - (a.prob ?? 0))
+      .slice(0, capacity);
+    const chosenOrdered = chosenByProb.slice().sort(labelOrderCmp);
+    const chosenSet = new Set(chosenByProb.map((r) => r.label));
+    const tail = states.filter((r) => !chosenSet.has(r.label));
+    const othersProb = tail.reduce((s, r) => s + (r.prob ?? 0), 0);
+    const othersCount = tail.length;
+    if (chosenOrdered.length === 0) {
+      // Edge case: threshold or capacity leaves no explicit states; only Others
+      columns = [
+        {
+          label: OTHERS_KEY,
+          prob: othersProb,
+          phase: 0,
+          isOthers: true,
+          othersCount,
+        },
+      ];
+    } else {
+      columns = [
+        ...chosenOrdered,
+        {
+          label: OTHERS_KEY,
+          prob: othersProb,
+          phase: 0,
+          isOthers: true,
+          othersCount,
+        },
+      ];
+    }
+  }
+  renderStatePanel(panel, columns, opts);
 };
 
-// Format phase in multiples of π, e.g., -0.5, +0.2
-const _formatPhasePi = (phi: number): string => {
-  const k = phi / Math.PI;
-  const sign = k >= 0 ? "+" : "";
-  return `${sign}${k.toFixed(1)}`;
+// Render a default state in the visualization panel.
+// - If nQubits <= 0: hide the SVG and show a friendly message.
+// - If nQubits > 0: show the SVG and render a zero-phase |0…0⟩ state immediately.
+export const renderDefaultStatePanel = (
+  panel: HTMLElement,
+  nQubits: number,
+): void => {
+  const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
+  if (!svg) return;
+
+  if (!nQubits || nQubits <= 0) {
+    // Hide SVG graphics and show message
+    // Reset any stale height to avoid carrying over large values
+    _showEmptyState(panel);
+  } else {
+    // Remove message and render the deterministic zero-state
+    _showContentState(panel);
+    const zeros = "0".repeat(nQubits);
+    updateStatePanelFromMap(
+      panel,
+      { [zeros]: { re: 1, im: 0 } },
+      { normalize: true, nQubits },
+    );
+  }
 };
 
-// Format phase for tooltips, e.g., -0.50π, +0.25π
-const _formatPhasePiTip = (phi: number): string => {
-  const k = phi / Math.PI;
-  const sign = k >= 0 ? "+" : "";
-  return `${sign}${k.toFixed(2)}π`;
+export const createStatePanel = (): HTMLElement => {
+  const panel = document.createElement("div");
+  panel.className = "state-panel";
+
+  const edge = document.createElement("div");
+  edge.className = "state-edge";
+  edge.setAttribute("role", "button");
+  edge.setAttribute("tabindex", "0");
+  edge.setAttribute("aria-label", "Toggle state panel");
+  edge.setAttribute("aria-expanded", "true");
+  const edgeText = document.createElement("span");
+  edgeText.className = "state-edge-text";
+  edgeText.textContent = "State Vizualization";
+  edge.appendChild(edgeText);
+
+  const mkEdgeIcon = (cls: string): SVGSVGElement => {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 14 14");
+    svg.setAttribute("aria-hidden", "true");
+    svg.classList.add("edge-icon", cls);
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", "M 4.25 11 L 11 7 L 4.25 3 Z");
+    svg.appendChild(path);
+    return svg as SVGSVGElement;
+  };
+
+  const iconTop = mkEdgeIcon("edge-icon-top");
+  const iconBottom = mkEdgeIcon("edge-icon-bottom");
+  edge.appendChild(iconTop);
+  edge.appendChild(iconBottom);
+
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.classList.add("state-svg");
+  svg.setAttribute("width", "100%");
+  svg.setAttribute("height", "100%");
+
+  panel.appendChild(edge);
+  panel.appendChild(svg);
+
+  const toggleCollapsed = () => {
+    const collapsed = panel.classList.toggle("collapsed");
+    edge.setAttribute("aria-expanded", (!collapsed).toString());
+  };
+  edge.addEventListener("click", toggleCollapsed);
+  edge.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter" || ev.key === " ") {
+      ev.preventDefault();
+      toggleCollapsed();
+    }
+  });
+  return panel;
 };
 
-// Simplified input: map of state name -> amplitude.
+// Data Preparation
+
+const OTHERS_KEY = "__OTHERS__";
+
 export type AmpComplex = { re: number; im: number };
 export type AmpPolar = { prob?: number; phase?: number };
 export type AmpLike = AmpComplex | AmpPolar;
 export type AmpMap = Record<string, AmpLike>;
 
-const OTHERS_KEY = "__OTHERS__";
-
-// Helpers to manage empty/content states without inline styles duplication
-const _ensureEmptyMessage = (panel: HTMLElement, text: string): void => {
-  let msg = panel.querySelector(".state-empty-message") as HTMLElement | null;
-  if (!msg) {
-    msg = document.createElement("div");
-    msg.className = "state-empty-message";
-    panel.appendChild(msg);
+// Convert amplitude to polar `{ prob, phase }`.
+const _toPolar = (a: AmpLike): { prob: number; phase: number } => {
+  const maybe = a as Partial<AmpComplex & AmpPolar>;
+  const hasPolar =
+    typeof maybe.prob === "number" || typeof maybe.phase === "number";
+  if (hasPolar) {
+    const prob = typeof maybe.prob === "number" ? maybe.prob : 0;
+    const phase = typeof maybe.phase === "number" ? maybe.phase : 0;
+    return { prob, phase };
   }
-  msg.textContent = text;
+  const re = typeof maybe.re === "number" ? maybe.re : 0;
+  const im = typeof maybe.im === "number" ? maybe.im : 0;
+  return { prob: re * re + im * im, phase: Math.atan2(im, re) };
+};
+
+// ToDo: not used anywhere yet
+// Create an AmpMap from polar entries
+export const toAmpMapPolar = (
+  items: Array<{ bit: string; prob?: number; phase?: number }>,
+): AmpMap => {
+  const m: AmpMap = {};
+  for (const it of items) {
+    m[it.bit] = { prob: it.prob ?? 0, phase: it.phase ?? 0 };
+  }
+  return m;
+};
+
+// Layout Computation
+
+// Render helper that draws the state panel directly from column data
+type ColumnDatum = {
+  label: string;
+  prob: number;
+  phase: number;
+  isOthers?: boolean;
+  othersCount?: number;
+};
+
+// Layout metrics used to organize rendering logic
+type LayoutMetrics = {
+  uiScale: number;
+
+  baseHeightPx: number;
+  margin: { top: number; right: number; bottom: number; left: number };
+  panelWidthPx: number;
+  contentWidthPx: number;
+
+  columnWidthPx: number;
+  columnSpacingPx: number;
+  columnHeaderPaddingPx: number;
+  columnAreaHeightPx: number;
+  columnCount: number;
+  maxColumns: number;
+  minColumnWidthPx: number;
+
+  percentLabelPaddingPx: number;
+  maxProb: number;
+
+  phaseHeaderPaddingPx: number;
+  phaseSectionTopY: number;
+  phaseCircleRadiusPx: number;
+  phaseLabelPaddingPx: number;
+
+  stateHeaderPaddingPx: number;
+  stateSectionTopY: number;
+  verticalLabels: boolean;
+
+  animationMs: number;
+  scaleY: (p: number) => number;
+  clampProb: (p: number) => number;
+  displayLabel: (b: ColumnDatum) => string;
+  phaseColor: (phi: number) => string;
+};
+
+const getScaleAndAnimation = (
+  panel: HTMLElement,
+  opts: RenderOptions,
+): { uiScale: number; animationMs: number } => {
+  let uiScale = 1;
+  try {
+    const v = getComputedStyle(panel).getPropertyValue("--stateScale").trim();
+    if (v) {
+      const parsed = parseFloat(v);
+      if (!isNaN(parsed) && isFinite(parsed)) uiScale = parsed;
+    }
+  } catch {
+    void 0;
+  }
+  if (opts.uiScale && isFinite(opts.uiScale)) uiScale = opts.uiScale;
+
+  let animationMs = 200;
+  try {
+    const cssDur = getComputedStyle(panel)
+      .getPropertyValue("--stateAnimMs")
+      .trim();
+    const parsed = _parseDurationMs(cssDur);
+    if (!isNaN(parsed) && parsed > 0) animationMs = parsed;
+  } catch {
+    void 0;
+  }
+  if (
+    typeof opts.animationMs === "number" &&
+    isFinite(opts.animationMs) &&
+    opts.animationMs > 0
+  ) {
+    animationMs = Math.round(opts.animationMs);
+  }
+  return { uiScale, animationMs };
+};
+
+const computeLayoutMetrics = (
+  panel: HTMLElement,
+  barsData: ColumnDatum[],
+  opts: RenderOptions,
+): LayoutMetrics => {
+  const { uiScale, animationMs } = getScaleAndAnimation(panel, opts);
+  const baseHeightPx = opts.heightPx
+    ? Math.round(opts.heightPx * uiScale)
+    : Math.round(80 * uiScale);
+  const margin = {
+    top: 0,
+    right: Math.round(36 * uiScale),
+    bottom: Math.round(62 * uiScale),
+    left: Math.round(36 * uiScale),
+  };
+
+  const columnCount = barsData.length;
+  const columnSpacingPx = Math.max(
+    1,
+    Math.floor((opts.barSpacingPx ?? 4) * uiScale),
+  );
+  const baseMinBar = opts.minBarWidth ?? 36;
+  const minColumnWidthPx = Math.max(
+    Math.floor(16 * uiScale),
+    Math.floor(baseMinBar * uiScale),
+  );
+  const maxColumns = Math.max(4, opts.maxBars ?? 16);
+  const defaultMinPanelWidthPx = Math.floor(190 * uiScale);
+  const defaultMaxPanelWidthPx =
+    margin.left +
+    margin.right +
+    maxColumns * (minColumnWidthPx + columnSpacingPx);
+
+  const minWidthPx = Math.max(
+    80,
+    opts.minPanelWidthPx ?? defaultMinPanelWidthPx,
+  );
+  const maxWidthPx = Math.max(
+    minWidthPx,
+    opts.maxPanelWidthPx ?? defaultMaxPanelWidthPx,
+  );
+  const growthFactor = Math.min(
+    1,
+    Math.max(0, (columnCount - 1) / (maxColumns - 1)),
+  );
+  const panelWidthPx = Math.round(
+    minWidthPx + growthFactor * (maxWidthPx - minWidthPx),
+  );
+  const contentWidthPx = panelWidthPx - margin.left - margin.right;
+  const columnWidthPx = Math.max(
+    2,
+    Math.floor(contentWidthPx / Math.max(1, columnCount)) - columnSpacingPx,
+  );
+  const phaseCircleRadiusPx = Math.max(
+    Math.round(12 * uiScale),
+    Math.floor(columnWidthPx / 2) - 1,
+  );
+  const displayLabel = (b: ColumnDatum) =>
+    b.label === OTHERS_KEY ? `Others (${b.othersCount ?? 0})` : b.label;
+  const maxLabelLen = barsData.reduce(
+    (m, b) => Math.max(m, (displayLabel(b) || "").length),
+    0,
+  );
+  const verticalLabels = maxLabelLen > 4;
+  const extraForBits =
+    columnCount <= 16
+      ? verticalLabels
+        ? Math.round((maxLabelLen * 14 + 12) * uiScale)
+        : Math.round(24 * uiScale)
+      : 0;
+  const columnHeaderPaddingPx = Math.round(36 * uiScale);
+  const phaseHeaderPaddingPx = Math.round(26 * uiScale);
+  const stateHeaderPaddingPx = Math.round(26 * uiScale);
+  const percentLabelPaddingPx = Math.round(29 * uiScale);
+  const phaseLabelPaddingPx = Math.round(39 * uiScale);
+  margin.bottom = Math.max(
+    48,
+    phaseHeaderPaddingPx +
+      phaseCircleRadiusPx * 2 +
+      phaseLabelPaddingPx +
+      stateHeaderPaddingPx +
+      extraForBits +
+      24,
+  );
+
+  const maxProb = Math.max(
+    1e-12,
+    Math.max(...barsData.map((b) => b.prob ?? 0)),
+  );
+  const columnAreaHeightPx = Math.round(234 * uiScale);
+  const scaleY = (p: number) => (p / maxProb) * columnAreaHeightPx;
+  const clampProb = (p: number) => Math.max(0, Math.min(p, maxProb));
+  const phaseColor = opts.phaseColorMap ?? _defaultPhaseColor;
+
+  const phaseSectionTopY =
+    columnHeaderPaddingPx + columnAreaHeightPx + percentLabelPaddingPx;
+  const stateSectionTopY =
+    phaseSectionTopY +
+    phaseHeaderPaddingPx +
+    2 * phaseCircleRadiusPx +
+    phaseLabelPaddingPx;
+
+  return {
+    uiScale,
+    baseHeightPx,
+    margin,
+    panelWidthPx,
+    contentWidthPx,
+    columnWidthPx,
+    columnSpacingPx,
+    columnHeaderPaddingPx,
+    columnAreaHeightPx,
+    columnCount,
+    maxColumns,
+    minColumnWidthPx,
+    percentLabelPaddingPx,
+    maxProb,
+    phaseHeaderPaddingPx,
+    phaseSectionTopY,
+    phaseCircleRadiusPx,
+    phaseLabelPaddingPx,
+    stateHeaderPaddingPx,
+    stateSectionTopY,
+    verticalLabels,
+    animationMs,
+    scaleY,
+    clampProb,
+    displayLabel,
+    phaseColor,
+  };
+};
+
+// Rendering functions
+
+const renderStatePanel = (
+  panel: HTMLElement,
+  columnData: ColumnDatum[],
+  opts: RenderOptions = {},
+): void => {
+  const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
+  if (!svg) return;
+  const prev: Record<string, { prob: number; phase: number }> =
+    (panel as any)._stateVizPrev ?? {};
+
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+  const layout = computeLayoutMetrics(panel, columnData, opts);
+
+  const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  g.setAttribute(
+    "transform",
+    `translate(${layout.margin.left},${layout.margin.top})`,
+  );
+  svg.appendChild(g);
+
+  renderSectionHeaders(g, layout);
+
+  columnData.forEach((col, i) => renderColumn(g, col, i, prev, layout));
+
+  finalizeSvgAndFlex(svg, panel, g, layout);
+  savePreviousValues(panel, columnData);
+};
+
+// Render a full column (percentage bar + phase + label)
+const renderColumn = (
+  g: SVGGElement,
+  column: ColumnDatum,
+  i: number,
+  prev: Record<string, { prob: number; phase: number }>,
+  layout: LayoutMetrics,
+) => {
+  const {
+    uiScale,
+    columnWidthPx,
+    columnSpacingPx,
+    columnHeaderPaddingPx,
+    columnAreaHeightPx,
+    columnCount,
+    phaseSectionTopY,
+    phaseHeaderPaddingPx,
+    phaseCircleRadiusPx,
+    stateSectionTopY,
+    stateHeaderPaddingPx,
+    verticalLabels,
+    animationMs,
+    scaleY,
+    clampProb,
+    displayLabel,
+    phaseColor,
+  } = layout;
+  const x = i * (columnWidthPx + columnSpacingPx);
+  const bar = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+  bar.setAttribute("x", `${x}`);
+  bar.setAttribute("width", `${columnWidthPx}`);
+  bar.setAttribute(
+    "fill",
+    column.isOthers ? "#a6a6a6" : phaseColor(column.phase),
+  );
+  bar.setAttribute("class", "state-bar");
+  const tip = document.createElementNS("http://www.w3.org/2000/svg", "title");
+  const pctTipTarget = (column.prob ?? 0) * 100;
+  tip.textContent = column.isOthers
+    ? `${pctTipTarget.toFixed(1)}% • Others (${column.othersCount ?? 0} states)`
+    : `${pctTipTarget.toFixed(1)}% • φ=${_formatPhasePiTip(column.phase)}`;
+  bar.appendChild(tip);
+  g.appendChild(bar);
+
+  const prevProb = prev[column.label]?.prob ?? 0;
+  const fromH = scaleY(clampProb(prevProb));
+  const baseY = columnHeaderPaddingPx + columnAreaHeightPx;
+  bar.setAttribute("y", `${baseY - fromH}`);
+  bar.setAttribute("height", `${fromH}`);
+  _animate(prevProb, column.prob, animationMs, (pv) => {
+    const h = scaleY(clampProb(pv));
+    bar.setAttribute("y", `${baseY - h}`);
+    bar.setAttribute("height", `${h}`);
+  });
+
+  if (columnWidthPx >= 4) {
+    const label = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "text",
+    );
+    label.setAttribute("x", `${x + columnWidthPx / 2}`);
+    const labelY =
+      columnHeaderPaddingPx + columnAreaHeightPx + Math.round(8 * uiScale);
+    label.setAttribute("y", `${labelY}`);
+    label.setAttribute("class", "state-bar-label");
+    _animate(prevProb, column.prob, animationMs, (pv) => {
+      const pct = (pv ?? 0) * 100;
+      label.textContent =
+        pct >= 1 ? `${pct.toFixed(0)}%` : `${pct.toFixed(1)}%`;
+    });
+    g.appendChild(label);
+  }
+
+  const cx = x + columnWidthPx / 2;
+  if (!column.isOthers) {
+    const DOT_FRAC = 0.25;
+    const padX = Math.max(2, Math.round(2 * uiScale));
+    let r = phaseCircleRadiusPx;
+    if (r >= 7.5) {
+      const maxR = Math.floor((columnWidthPx / 2 - padX) / (1 + DOT_FRAC));
+      r = Math.min(r, Math.max(2, maxR));
+    } else {
+      const maxR = Math.floor(columnWidthPx / 2 - padX - 1.5);
+      r = Math.min(r, Math.max(2, maxR));
+    }
+    const phaseContentYBase = phaseSectionTopY + phaseHeaderPaddingPx;
+    const cy = phaseContentYBase + r + Math.round(10 * uiScale);
+    const sx = cx + r;
+    const sy = cy;
+    const ex = cx + r * Math.cos(column.phase);
+    const ey = cy - r * Math.sin(column.phase);
+    const largeArc = Math.abs(column.phase) > Math.PI ? 1 : 0;
+    const sweep = column.phase < 0 ? 1 : 0;
+    const wedge = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "path",
+    );
+    const dTarget = `M ${cx} ${cy} L ${sx} ${sy} A ${r} ${r} 0 ${largeArc} ${sweep} ${ex} ${ey} Z`;
+    wedge.setAttribute("d", dTarget);
+    wedge.setAttribute("class", "state-phase-wedge");
+    wedge.setAttribute("fill", phaseColor(column.phase));
+    g.appendChild(wedge);
+
+    const circle = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "circle",
+    );
+    circle.setAttribute("cx", `${cx}`);
+    circle.setAttribute("cy", `${cy}`);
+    circle.setAttribute("r", `${r}`);
+    circle.setAttribute("class", "state-phase-circle");
+    const tipPhase = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "title",
+    );
+    tipPhase.textContent = `φ=${_formatPhasePiTip(column.phase)}`;
+    circle.appendChild(tipPhase);
+    g.appendChild(circle);
+
+    const phaseText = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "text",
+    );
+    phaseText.setAttribute("x", `${cx}`);
+    const dotRadius = Math.max(1.5, r * DOT_FRAC);
+    const yTop = cy + r + dotRadius;
+    const yBottom = stateSectionTopY - Math.round(6 * uiScale);
+    const textH = Math.round(14 * uiScale);
+    let yTextTop = Math.round((yTop + yBottom) / 2 - textH / 2);
+    yTextTop = Math.max(yTop, Math.min(yTextTop, yBottom - textH));
+    phaseText.setAttribute("y", `${yTextTop}`);
+    phaseText.setAttribute("class", "state-phase-text");
+    const prevPhase = prev[column.label]?.phase ?? 0;
+    _animate(prevPhase, column.phase, animationMs, (pv) => {
+      phaseText.textContent = _formatPhasePi(pv);
+    });
+    g.appendChild(phaseText);
+
+    const prevDx = r * Math.cos(prev[column.label]?.phase ?? 0);
+    const prevDy = r * Math.sin(prev[column.label]?.phase ?? 0);
+    const dot = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "circle",
+    );
+    dot.setAttribute("cx", `${cx + prevDx}`);
+    dot.setAttribute("cy", `${cy - prevDy}`);
+    dot.setAttribute("r", `${Math.max(1.5, r * DOT_FRAC)}`);
+    dot.setAttribute("fill", phaseColor(column.phase));
+    dot.setAttribute("class", "state-phase-dot");
+    g.appendChild(dot);
+
+    _animate(
+      prev[column.label]?.phase ?? 0,
+      column.phase,
+      animationMs,
+      (pv) => {
+        const dx = r * Math.cos(pv);
+        const dy = r * Math.sin(pv);
+        dot.setAttribute("cx", `${cx + dx}`);
+        dot.setAttribute("cy", `${cy - dy}`);
+        const fillColor = phaseColor(pv);
+        wedge.setAttribute("fill", fillColor);
+        dot.setAttribute("fill", fillColor);
+        bar.setAttribute("fill", fillColor);
+        const exA = cx + r * Math.cos(pv);
+        const eyA = cy - r * Math.sin(pv);
+        const largeArcA = Math.abs(pv) > Math.PI ? 1 : 0;
+        const sweepA = pv < 0 ? 1 : 0;
+        const dA = `M ${cx} ${cy} L ${sx} ${sy} A ${r} ${r} 0 ${largeArcA} ${sweepA} ${exA} ${eyA} Z`;
+        wedge.setAttribute("d", dA);
+      },
+    );
+  }
+
+  if (columnCount <= 16) {
+    const stateContentYBase = stateSectionTopY + stateHeaderPaddingPx;
+    const labelX = x + columnWidthPx / 2;
+    const labelY = verticalLabels
+      ? stateContentYBase + Math.round(4 * uiScale)
+      : stateContentYBase + Math.round(16 * uiScale);
+
+    if (verticalLabels) {
+      const lineH = Math.round(14 * uiScale);
+      const labelText = displayLabel(column);
+      const labelH = lineH * Math.max(1, (labelText || "").length);
+      const fo = document.createElementNS(
+        "http://www.w3.org/2000/svg",
+        "foreignObject",
+      );
+      fo.setAttribute("x", `${x}`);
+      fo.setAttribute("y", `${labelY}`);
+      fo.setAttribute("width", `${columnWidthPx}`);
+      fo.setAttribute("height", `${labelH}`);
+      const div = document.createElementNS(
+        "http://www.w3.org/1999/xhtml",
+        "div",
+      );
+      div.setAttribute("class", "state-bitstring-fo");
+      div.textContent = labelText;
+      fo.appendChild(div);
+      g.appendChild(fo);
+    } else {
+      const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      t.setAttribute("x", `${labelX}`);
+      t.setAttribute("y", `${labelY}`);
+      t.setAttribute("class", "state-bitstring");
+      t.textContent = displayLabel(column);
+      g.appendChild(t);
+    }
+  }
+};
+
+const renderSectionHeaders = (g: SVGGElement, layout: LayoutMetrics) => {
+  const mkLabel = (text: string, x: number, y: number) => {
+    const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    t.setAttribute("x", `${x}`);
+    t.setAttribute("y", `${y}`);
+    t.setAttribute("class", "state-header");
+    t.textContent = text;
+    return t;
+  };
+  const mkSep = (y: number) => {
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    line.setAttribute("x1", "0");
+    line.setAttribute("y1", `${y}`);
+    line.setAttribute("x2", `${layout.contentWidthPx}`);
+    line.setAttribute("y2", `${y}`);
+    line.setAttribute("class", "state-separator");
+    return line;
+  };
+  const sepBarY = 0;
+  g.appendChild(mkLabel("Probability Density", -8, sepBarY + 9));
+  g.appendChild(mkSep(layout.phaseSectionTopY));
+  g.appendChild(mkLabel("Phase", -8, layout.phaseSectionTopY + 9));
+  g.appendChild(mkSep(layout.stateSectionTopY));
+  g.appendChild(mkLabel("State", -8, layout.stateSectionTopY + 9));
+};
+
+const finalizeSvgAndFlex = (
+  svg: SVGSVGElement,
+  panel: HTMLElement,
+  g: SVGGElement,
+  layout: LayoutMetrics,
+) => {
+  try {
+    const bbox = g.getBBox();
+    const contentHeight = Math.ceil(
+      bbox.height + layout.margin.top + Math.round(10 * layout.uiScale),
+    );
+    const svgHeight = Math.max(layout.baseHeightPx, contentHeight);
+    svg.setAttribute("height", svgHeight.toString());
+    svg.setAttribute("width", layout.panelWidthPx.toString());
+    const edgePad = Math.round(36 * layout.uiScale);
+    panel.style.flexBasis = `${Math.ceil(layout.panelWidthPx + edgePad)}px`;
+  } catch {
+    void 0;
+  }
+};
+
+const savePreviousValues = (panel: HTMLElement, columnData: ColumnDatum[]) => {
+  try {
+    const store: Record<string, { prob: number; phase: number }> = {};
+    for (const col of columnData)
+      store[col.label] = { prob: col.prob, phase: col.phase };
+    (panel as any)._stateVizPrev = store;
+  } catch {
+    void 0;
+  }
+};
+
+// Simple animation helper for numeric interpolation
+const _animate = (
+  from: number,
+  to: number,
+  durationMs: number,
+  onUpdate: (v: number) => void,
+  onDone?: () => void,
+) => {
+  const start = performance.now();
+  const tick = (now: number) => {
+    const t = Math.min(1, (now - start) / durationMs);
+    const v = from + (to - from) * t;
+    try {
+      onUpdate(v);
+    } catch {
+      void 0;
+    }
+    if (t < 1) requestAnimationFrame(tick);
+    else if (onDone) onDone();
+  };
+  requestAnimationFrame(tick);
 };
 
 const _showEmptyState = (panel: HTMLElement): void => {
@@ -90,42 +823,35 @@ const _showContentState = (panel: HTMLElement): void => {
   if (emptyMsg) emptyMsg.remove();
 };
 
-// Convert amplitude to polar `{ prob, phase }`.
-const _toPolar = (a: AmpLike): { prob: number; phase: number } => {
-  const maybe = a as Partial<AmpComplex & AmpPolar>;
-  const hasPolar =
-    typeof maybe.prob === "number" || typeof maybe.phase === "number";
-  if (hasPolar) {
-    const prob = typeof maybe.prob === "number" ? maybe.prob : 0;
-    const phase = typeof maybe.phase === "number" ? maybe.phase : 0;
-    return { prob, phase };
-  }
-  const re = typeof maybe.re === "number" ? maybe.re : 0;
-  const im = typeof maybe.im === "number" ? maybe.im : 0;
-  return { prob: re * re + im * im, phase: Math.atan2(im, re) };
+// Utilities (formatting, colors, CSS parsing)
+const _defaultPhaseColor = (phi: number) => {
+  const hue = ((phi + Math.PI) / (2 * Math.PI)) * 360;
+  return `hsl(${hue},70%,50%)`;
 };
 
-// Simple animation helper for numeric interpolation
-const _animate = (
-  from: number,
-  to: number,
-  durationMs: number,
-  onUpdate: (v: number) => void,
-  onDone?: () => void,
-) => {
-  const start = performance.now();
-  const tick = (now: number) => {
-    const t = Math.min(1, (now - start) / durationMs);
-    const v = from + (to - from) * t;
-    try {
-      onUpdate(v);
-    } catch {
-      void 0;
-    }
-    if (t < 1) requestAnimationFrame(tick);
-    else if (onDone) onDone();
-  };
-  requestAnimationFrame(tick);
+// Format phase in multiples of π, e.g., -0.5, +0.2
+const _formatPhasePi = (phi: number): string => {
+  const k = phi / Math.PI;
+  const sign = k >= 0 ? "+" : "";
+  return `${sign}${k.toFixed(1)}`;
+};
+
+// Format phase for tooltips, e.g., -0.50π, +0.25π
+const _formatPhasePiTip = (phi: number): string => {
+  const k = phi / Math.PI;
+  const sign = k >= 0 ? "+" : "";
+  return `${sign}${k.toFixed(2)}π`;
+};
+
+// Helpers to manage empty/content states without inline styles duplication
+const _ensureEmptyMessage = (panel: HTMLElement, text: string): void => {
+  let msg = panel.querySelector(".state-empty-message") as HTMLElement | null;
+  if (!msg) {
+    msg = document.createElement("div");
+    msg.className = "state-empty-message";
+    panel.appendChild(msg);
+  }
+  msg.textContent = text;
 };
 
 // Parse CSS duration strings (e.g., "200ms" or "0.2s") into milliseconds
@@ -144,16 +870,7 @@ const _parseDurationMs = (val: string): number => {
   return isFinite(v) ? v : NaN;
 };
 
-// Helper: create an AmpMap from polar entries
-export const toAmpMapPolar = (
-  items: Array<{ bit: string; prob?: number; phase?: number }>,
-): AmpMap => {
-  const m: AmpMap = {};
-  for (const it of items) {
-    m[it.bit] = { prob: it.prob ?? 0, phase: it.phase ?? 0 };
-  }
-  return m;
-};
+// Mock data sets for testing
 
 // Static mock map with a few non-zero amplitudes; other states are implicitly zero.
 export const getStaticMockAmpMap = (setNum: number): AmpMap => {
@@ -244,574 +961,4 @@ const staticMockAmp4 = (): AmpMap => {
     S: { prob: 0.65, phase: 0 },
     T: { prob: 0.6, phase: 0 },
   };
-};
-
-// Adapter: render from a map of named states to complex amplitudes.
-export const updateStatePanelFromMap = (
-  panel: HTMLElement,
-  ampMap: AmpMap,
-  opts: RenderOptions & { nQubits?: number } = {},
-): void => {
-  const entries = Object.entries(ampMap);
-  if (entries.length === 0) {
-    const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
-    if (svg) while (svg.firstChild) svg.removeChild(svg.firstChild);
-    return;
-  }
-
-  const guessN =
-    opts.nQubits ?? entries.reduce((m, [k]) => Math.max(m, k.length), 0);
-
-  // Handle zero-qubit map by showing the empty-state message and hiding SVG
-  if (!guessN || guessN <= 0) {
-    _showEmptyState(panel);
-    return;
-  }
-
-  // Ensure SVG is visible and remove any empty-state message when rendering data
-  _showContentState(panel);
-  const raw = entries.map(([bit, a]) => {
-    const { prob, phase } = _toPolar(a);
-    return { bit, prob, phase };
-  });
-  const doNormalize = opts.normalize ?? true;
-  const mass = raw.reduce((s, r) => s + r.prob, 0);
-  const states =
-    doNormalize && mass > 0
-      ? raw.map((r) => ({ ...r, prob: r.prob / mass }))
-      : raw;
-
-  const numericRegex = /^[+-]?\d+(?:\.\d+)?$/;
-  const asNumber = (s: string) => (numericRegex.test(s) ? parseFloat(s) : NaN);
-  const isNumeric = (s: string) => numericRegex.test(s);
-  const labelCmp = (a: string, b: string) => a.localeCompare(b);
-
-  const maxBars = opts.maxBars ?? 16;
-  // Helper comparator for usual label ordering (numeric labels first, then lexical)
-  const labelOrderCmp = (a: { bit: string }, b: { bit: string }) => {
-    const an = isNumeric(a.bit);
-    const bn = isNumeric(b.bit);
-    if (an && bn) {
-      const av = asNumber(a.bit);
-      const bv = asNumber(b.bit);
-      return av - bv;
-    }
-    if (an !== bn) return an ? -1 : 1;
-    return labelCmp(a.bit, b.bit);
-  };
-  const sortedByLabel = states.slice().sort(labelOrderCmp);
-  let bars: Array<{
-    bit: string;
-    prob: number;
-    phase: number;
-    isOthers?: boolean;
-    othersCount?: number;
-  }> = [];
-  const minThresh = Math.max(
-    0,
-    Math.min(
-      1,
-      Math.min(
-        1,
-        typeof opts.minProbThreshold === "number"
-          ? opts.minProbThreshold
-          : 0.001,
-      ),
-    ),
-  );
-  // Apply threshold against normalized mass so the value represents a percentage of total
-  const probForThresh = (r: { prob: number }) =>
-    doNormalize || mass <= 0 ? (r.prob ?? 0) : (r.prob ?? 0) / mass;
-  const smallStates =
-    minThresh > 0 ? states.filter((r) => probForThresh(r) < minThresh) : [];
-  const sigStates =
-    minThresh > 0
-      ? states.filter((r) => probForThresh(r) >= minThresh)
-      : states.slice();
-  const needOthers = smallStates.length > 0 || sortedByLabel.length > maxBars;
-  if (!needOthers) {
-    // No need to aggregate; everything fits and no thresholded states
-    bars = sortedByLabel;
-  } else {
-    const reserveOthers = 1; // keep one column for Others when needed
-    const capacity = Math.max(0, (opts.maxBars ?? 16) - reserveOthers);
-    // Choose by probability first from significant states (those above threshold)
-    const chosenByProb = sigStates
-      .slice()
-      .sort((a, b) => (b.prob ?? 0) - (a.prob ?? 0))
-      .slice(0, capacity);
-    const chosenOrdered = chosenByProb.slice().sort(labelOrderCmp);
-    const chosenSet = new Set(chosenByProb.map((r) => r.bit));
-    const tail = states.filter((r) => !chosenSet.has(r.bit));
-    const othersProb = tail.reduce((s, r) => s + (r.prob ?? 0), 0);
-    const othersCount = tail.length;
-    if (chosenOrdered.length === 0) {
-      // Edge case: threshold or capacity leaves no explicit states; only Others
-      bars = [
-        {
-          bit: OTHERS_KEY,
-          prob: othersProb,
-          phase: 0,
-          isOthers: true,
-          othersCount,
-        },
-      ];
-    } else {
-      bars = [
-        ...chosenOrdered,
-        {
-          bit: OTHERS_KEY,
-          prob: othersProb,
-          phase: 0,
-          isOthers: true,
-          othersCount,
-        },
-      ];
-    }
-  }
-  renderStatePanelBars(panel, bars as any, { ...opts, nQubits: guessN });
-};
-
-// Render a default state in the visualization panel.
-// - If nQubits <= 0: hide the SVG and show a friendly message.
-// - If nQubits > 0: show the SVG and render a zero-phase |0…0⟩ state immediately.
-export const renderDefaultStatePanel = (
-  panel: HTMLElement,
-  nQubits: number,
-): void => {
-  const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
-  if (!svg) return;
-
-  if (!nQubits || nQubits <= 0) {
-    // Hide SVG graphics and show message
-    // Reset any stale height to avoid carrying over large values
-    _showEmptyState(panel);
-  } else {
-    // Remove message and render the deterministic zero-state
-    _showContentState(panel);
-    const zeros = "0".repeat(nQubits);
-    updateStatePanelFromMap(
-      panel,
-      { [zeros]: { re: 1, im: 0 } },
-      { normalize: true, nQubits },
-    );
-  }
-};
-
-// Render helper that draws the state panel directly from bar data
-type BarDatum = {
-  bit: string;
-  prob: number;
-  phase: number;
-  isOthers?: boolean;
-  othersCount?: number;
-};
-
-const renderStatePanelBars = (
-  panel: HTMLElement,
-  barsData: BarDatum[],
-  opts: RenderOptions & { nQubits?: number } = {},
-): void => {
-  const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
-  if (!svg) return;
-  const prev: Record<string, { prob: number; phase: number }> =
-    (panel as any)._stateVizPrev ?? {};
-  let s = 1;
-  try {
-    const v = getComputedStyle(panel).getPropertyValue("--stateScale").trim();
-    if (v) {
-      const parsed = parseFloat(v);
-      if (!isNaN(parsed) && isFinite(parsed)) s = parsed;
-    }
-  } catch {
-    void 0;
-  }
-  if (opts.uiScale && isFinite(opts.uiScale)) s = opts.uiScale;
-
-  // Resolve global animation duration (opts overrides CSS variable; defaults to 200ms)
-  let animMs = 200;
-  try {
-    const cssDur = getComputedStyle(panel)
-      .getPropertyValue("--stateAnimMs")
-      .trim();
-    const parsed = _parseDurationMs(cssDur);
-    if (!isNaN(parsed) && parsed > 0) animMs = parsed;
-  } catch {
-    void 0;
-  }
-  if (
-    typeof opts.animationMs === "number" &&
-    isFinite(opts.animationMs) &&
-    opts.animationMs > 0
-  ) {
-    animMs = Math.round(opts.animationMs);
-  }
-  // Deterministic base height: avoid relying on svg.clientHeight (causes flicker)
-  const baseHeight = opts.heightPx
-    ? Math.round(opts.heightPx * s)
-    : Math.round(80 * s);
-  const margin = {
-    top: 0,
-    right: Math.round(36 * s),
-    bottom: Math.round(62 * s),
-    left: Math.round(36 * s),
-  };
-
-  while (svg.firstChild) svg.removeChild(svg.firstChild);
-
-  const n = barsData.length;
-  const spacing = Math.max(1, Math.floor((opts.barSpacingPx ?? 4) * s));
-  const baseMinBar = opts.minBarWidth ?? 36;
-  const minBarWidth = Math.max(Math.floor(16 * s), Math.floor(baseMinBar * s));
-  const maxCols = Math.max(4, opts.maxBars ?? 16);
-  const defaultMinWidth = Math.floor(190 * s);
-  const defaultMaxWidth =
-    margin.left + margin.right + maxCols * (minBarWidth + spacing);
-
-  const minWidthPx = Math.max(80, opts.minPanelWidthPx ?? defaultMinWidth);
-  const maxWidthPx = Math.max(
-    minWidthPx,
-    opts.maxPanelWidthPx ?? defaultMaxWidth,
-  );
-  const growthFactor = Math.min(1, Math.max(0, (n - 1) / (maxCols - 1)));
-  const width = Math.round(
-    minWidthPx + growthFactor * (maxWidthPx - minWidthPx),
-  );
-  const wTemp = width - margin.left - margin.right;
-  const bw = Math.max(2, Math.floor(wTemp / Math.max(1, n)) - spacing);
-  const rCol = Math.max(Math.round(12 * s), Math.floor(bw / 2) - 1);
-  const displayLabel = (b: BarDatum) =>
-    b.bit === OTHERS_KEY ? `Others (${b.othersCount ?? 0})` : b.bit;
-  // Determine label orientation: if any label is longer than 4 chars,
-  // switch all state labels to vertical to avoid collisions.
-  const maxLabelLen = barsData.reduce(
-    (m, b) => Math.max(m, (displayLabel(b) || "").length),
-    0,
-  );
-  const verticalLabels = maxLabelLen > 4;
-  // Reserve extra bottom margin depending on orientation.
-  // Horizontal labels need a small buffer; vertical labels need
-  // space proportional to the longest label length.
-  const extraForBits =
-    n <= 16
-      ? verticalLabels
-        ? Math.round((maxLabelLen * 14 + 12) * s) // 14px font-size per char + padding
-        : Math.round(24 * s)
-      : 0;
-  const barHeaderSpace = Math.round(36 * s);
-  const phaseHeaderSpace = Math.round(26 * s);
-  const stateHeaderSpace = Math.round(26 * s);
-  const barLabelSpace = Math.round(29 * s);
-  const phaseLabelSpace = Math.round(39 * s);
-  margin.bottom = Math.max(
-    48,
-    phaseHeaderSpace +
-      rCol * 2 +
-      phaseLabelSpace +
-      stateHeaderSpace +
-      extraForBits +
-      24,
-  );
-
-  const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
-  g.setAttribute("transform", `translate(${margin.left},${margin.top})`);
-  svg.appendChild(g);
-  const phaseColor = opts.phaseColorMap ?? _defaultPhaseColor;
-
-  const maxProb = Math.max(
-    1e-12,
-    Math.max(...barsData.map((b) => b.prob ?? 0)),
-  );
-  const hBars = Math.round(234 * s);
-  const scaleY = (p: number) => (p / maxProb) * hBars;
-  const clampProb = (p: number) => Math.max(0, Math.min(p, maxProb));
-  const DOT_FRAC = 0.25; // dot radius as a fraction of phase circle radius
-
-  const mkLabel = (text: string, x: number, y: number) => {
-    const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
-    t.setAttribute("x", `${x}`);
-    t.setAttribute("y", `${y}`);
-    t.setAttribute("class", "state-header");
-    t.textContent = text;
-    return t;
-  };
-  const mkSep = (y: number) => {
-    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-    line.setAttribute("x1", "0");
-    line.setAttribute("y1", `${y}`);
-    line.setAttribute("x2", `${wTemp}`);
-    line.setAttribute("y2", `${y}`);
-    line.setAttribute("class", "state-separator");
-    return line;
-  };
-
-  const sepBarY = 0;
-  g.appendChild(mkLabel("Probability Density", -8, sepBarY + 9));
-  const sepPhaseY = barHeaderSpace + hBars + barLabelSpace;
-  g.appendChild(mkSep(sepPhaseY));
-  g.appendChild(mkLabel("Phase", -8, sepPhaseY + 9));
-  const sepStateY = sepPhaseY + phaseHeaderSpace + 2 * rCol + phaseLabelSpace;
-  g.appendChild(mkSep(sepStateY));
-  g.appendChild(mkLabel("State", -8, sepStateY + 9));
-
-  barsData.forEach((b, i) => {
-    const x = i * (bw + spacing);
-    const bar = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-    bar.setAttribute("x", `${x}`);
-    bar.setAttribute("width", `${bw}`);
-    bar.setAttribute("fill", b.isOthers ? "#a6a6a6" : phaseColor(b.phase));
-    bar.setAttribute("class", "state-bar");
-    const tip = document.createElementNS("http://www.w3.org/2000/svg", "title");
-    const pctTipTarget = (b.prob ?? 0) * 100;
-    tip.textContent = b.isOthers
-      ? `${pctTipTarget.toFixed(1)}% • Others (${b.othersCount ?? 0} states)`
-      : `${pctTipTarget.toFixed(1)}% • φ=${_formatPhasePiTip(b.phase)}`;
-    bar.appendChild(tip);
-    g.appendChild(bar);
-
-    // Animate probability bar from previous prob to new prob
-    const prevProb = prev[b.bit]?.prob ?? 0;
-    const fromH = scaleY(clampProb(prevProb));
-    const baseY = barHeaderSpace + hBars;
-    bar.setAttribute("y", `${baseY - fromH}`);
-    bar.setAttribute("height", `${fromH}`);
-    _animate(prevProb, b.prob, animMs, (pv) => {
-      const h = scaleY(clampProb(pv));
-      bar.setAttribute("y", `${baseY - h}`);
-      bar.setAttribute("height", `${h}`);
-    });
-
-    if (bw >= 4) {
-      const label = document.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "text",
-      );
-      label.setAttribute("x", `${x + bw / 2}`);
-      const labelY = barHeaderSpace + hBars + Math.round(8 * s);
-      label.setAttribute("y", `${labelY}`);
-      label.setAttribute("class", "state-bar-label");
-      // Animate percentage text along with bar height
-      _animate(prevProb, b.prob, animMs, (pv) => {
-        const pct = (pv ?? 0) * 100;
-        label.textContent =
-          pct >= 1 ? `${pct.toFixed(0)}%` : `${pct.toFixed(1)}%`;
-      });
-      g.appendChild(label);
-    }
-
-    const cx = x + bw / 2;
-    if (!b.isOthers) {
-      const padX = Math.max(2, Math.round(2 * s));
-      let r = rCol;
-      if (r >= 7.5) {
-        const maxR = Math.floor((bw / 2 - padX) / (1 + DOT_FRAC));
-        r = Math.min(r, Math.max(2, maxR));
-      } else {
-        const maxR = Math.floor(bw / 2 - padX - 1.5);
-        r = Math.min(r, Math.max(2, maxR));
-      }
-      const phaseContentYBase = sepPhaseY + phaseHeaderSpace;
-      const cy = phaseContentYBase + r + Math.round(10 * s);
-      const sx = cx + r;
-      const sy = cy;
-      const ex = cx + r * Math.cos(b.phase);
-      const ey = cy - r * Math.sin(b.phase);
-      const largeArc = Math.abs(b.phase) > Math.PI ? 1 : 0;
-      const sweep = b.phase < 0 ? 1 : 0;
-      const wedge = document.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "path",
-      );
-      const dTarget = `M ${cx} ${cy} L ${sx} ${sy} A ${r} ${r} 0 ${largeArc} ${sweep} ${ex} ${ey} Z`;
-      wedge.setAttribute("d", dTarget);
-      wedge.setAttribute("class", "state-phase-wedge");
-      wedge.setAttribute("fill", phaseColor(b.phase));
-      g.appendChild(wedge);
-
-      const circle = document.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "circle",
-      );
-      circle.setAttribute("cx", `${cx}`);
-      circle.setAttribute("cy", `${cy}`);
-      circle.setAttribute("r", `${r}`);
-      circle.setAttribute("class", "state-phase-circle");
-      const tipPhase = document.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "title",
-      );
-      tipPhase.textContent = `φ=${_formatPhasePiTip(b.phase)}`;
-      circle.appendChild(tipPhase);
-      g.appendChild(circle);
-
-      const phaseText = document.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "text",
-      );
-      phaseText.setAttribute("x", `${cx}`);
-      const dotRadius = Math.max(1.5, r * DOT_FRAC);
-      const yTop = cy + r + dotRadius;
-      const yBottom = sepStateY - Math.round(6 * s);
-      const textH = Math.round(14 * s);
-      let yTextTop = Math.round((yTop + yBottom) / 2 - textH / 2);
-      yTextTop = Math.max(yTop, Math.min(yTextTop, yBottom - textH));
-      phaseText.setAttribute("y", `${yTextTop}`);
-      phaseText.setAttribute("class", "state-phase-text");
-      const prevPhase = prev[b.bit]?.phase ?? 0;
-      _animate(prevPhase, b.phase, animMs, (pv) => {
-        phaseText.textContent = _formatPhasePi(pv);
-      });
-      g.appendChild(phaseText);
-
-      const prevDx = r * Math.cos(prev[b.bit]?.phase ?? 0);
-      const prevDy = r * Math.sin(prev[b.bit]?.phase ?? 0);
-      const dot = document.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "circle",
-      );
-      dot.setAttribute("cx", `${cx + prevDx}`);
-      dot.setAttribute("cy", `${cy - prevDy}`);
-      dot.setAttribute("r", `${Math.max(1.5, r * DOT_FRAC)}`);
-      dot.setAttribute("fill", phaseColor(b.phase));
-      dot.setAttribute("class", "state-phase-dot");
-      g.appendChild(dot);
-
-      _animate(prev[b.bit]?.phase ?? 0, b.phase, animMs, (pv) => {
-        const dx = r * Math.cos(pv);
-        const dy = r * Math.sin(pv);
-        dot.setAttribute("cx", `${cx + dx}`);
-        dot.setAttribute("cy", `${cy - dy}`);
-        const fillColor = phaseColor(pv);
-        wedge.setAttribute("fill", fillColor);
-        dot.setAttribute("fill", fillColor);
-        bar.setAttribute("fill", fillColor);
-        const exA = cx + r * Math.cos(pv);
-        const eyA = cy - r * Math.sin(pv);
-        const largeArcA = Math.abs(pv) > Math.PI ? 1 : 0;
-        const sweepA = pv < 0 ? 1 : 0;
-        const dA = `M ${cx} ${cy} L ${sx} ${sy} A ${r} ${r} 0 ${largeArcA} ${sweepA} ${exA} ${eyA} Z`;
-        wedge.setAttribute("d", dA);
-      });
-    }
-
-    if (n <= 16) {
-      const stateContentYBase = sepStateY + stateHeaderSpace;
-      const labelX = x + bw / 2;
-      const labelY = verticalLabels
-        ? stateContentYBase + Math.round(4 * s)
-        : stateContentYBase + Math.round(16 * s);
-
-      if (verticalLabels) {
-        // Use foreignObject with HTML vertical writing-mode for clean vertical text
-        const lineH = Math.round(14 * s);
-        const labelText = displayLabel(b);
-        const labelH = lineH * Math.max(1, (labelText || "").length);
-        const fo = document.createElementNS(
-          "http://www.w3.org/2000/svg",
-          "foreignObject",
-        );
-        fo.setAttribute("x", `${x}`);
-        fo.setAttribute("y", `${labelY}`);
-        fo.setAttribute("width", `${bw}`);
-        fo.setAttribute("height", `${labelH}`);
-        const div = document.createElementNS(
-          "http://www.w3.org/1999/xhtml",
-          "div",
-        );
-        div.setAttribute("class", "state-bitstring-fo");
-        div.textContent = labelText;
-        fo.appendChild(div);
-        g.appendChild(fo);
-      } else {
-        const t = document.createElementNS(
-          "http://www.w3.org/2000/svg",
-          "text",
-        );
-        t.setAttribute("x", `${labelX}`);
-        t.setAttribute("y", `${labelY}`);
-        t.setAttribute("class", "state-bitstring");
-        t.textContent = displayLabel(b);
-        g.appendChild(t);
-      }
-    }
-  });
-
-  try {
-    const bbox = g.getBBox();
-    // Compute content-driven height deterministically from geometry
-    const contentHeight = Math.ceil(
-      bbox.height + margin.top + Math.round(10 * s),
-    );
-    const svgHeight = Math.max(baseHeight, contentHeight);
-    svg.setAttribute("height", svgHeight.toString());
-    svg.setAttribute("width", width.toString());
-    const edgePad = Math.round(36 * s);
-    // Always update flex-basis so that when the panel is expanded later,
-    // it immediately uses the correct width computed from current content.
-    panel.style.flexBasis = `${Math.ceil(width + edgePad)}px`;
-  } catch {
-    void 0;
-  }
-
-  // Save current values for smooth animation on next update
-  try {
-    const store: Record<string, { prob: number; phase: number }> = {};
-    for (const b of barsData) store[b.bit] = { prob: b.prob, phase: b.phase };
-    (panel as any)._stateVizPrev = store;
-  } catch {
-    void 0;
-  }
-};
-
-export const createStatePanel = (): HTMLElement => {
-  const panel = document.createElement("div");
-  panel.className = "state-panel";
-
-  const edge = document.createElement("div");
-  edge.className = "state-edge";
-  edge.setAttribute("role", "button");
-  edge.setAttribute("tabindex", "0");
-  edge.setAttribute("aria-label", "Toggle state panel");
-  edge.setAttribute("aria-expanded", "true");
-  const edgeText = document.createElement("span");
-  edgeText.className = "state-edge-text";
-  edgeText.textContent = "State Vizualization";
-  edge.appendChild(edgeText);
-
-  const mkEdgeIcon = (cls: string): SVGSVGElement => {
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", "0 0 14 14");
-    svg.setAttribute("aria-hidden", "true");
-    svg.classList.add("edge-icon", cls);
-    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.setAttribute("d", "M 4.25 11 L 11 7 L 4.25 3 Z");
-    svg.appendChild(path);
-    return svg as SVGSVGElement;
-  };
-
-  const iconTop = mkEdgeIcon("edge-icon-top");
-  const iconBottom = mkEdgeIcon("edge-icon-bottom");
-  edge.appendChild(iconTop);
-  edge.appendChild(iconBottom);
-
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.classList.add("state-svg");
-  svg.setAttribute("width", "100%");
-  svg.setAttribute("height", "100%");
-
-  panel.appendChild(edge);
-  panel.appendChild(svg);
-
-  const toggleCollapsed = () => {
-    const collapsed = panel.classList.toggle("collapsed");
-    edge.setAttribute("aria-expanded", (!collapsed).toString());
-  };
-  edge.addEventListener("click", toggleCollapsed);
-  edge.addEventListener("keydown", (ev) => {
-    if (ev.key === "Enter" || ev.key === " ") {
-      ev.preventDefault();
-      toggleCollapsed();
-    }
-  });
-  return panel;
 };
