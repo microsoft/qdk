@@ -99,7 +99,7 @@ pub enum Error {
     UnexpectedDynamicValue(#[label] PackageSpan),
 
     #[error("cannot use a dynamic value of type `{0}` used in intrinsic callable signature")]
-    #[diagnostic(code("Qsc.PartialEval.UnexpectedDynamicIntrsinicType"))]
+    #[diagnostic(code("Qsc.PartialEval.UnexpectedDynamicIntrinsicType"))]
     UnexpectedDynamicIntrinsicType(String, #[label] PackageSpan),
 
     #[error("partial evaluation failed with error: {0}")]
