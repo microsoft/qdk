@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+mod functor_constraints;
+
 use crate::tests::{compile_qasm_to_qir, compile_qasm_to_qsharp};
 use expect_test::expect;
 use miette::Report;

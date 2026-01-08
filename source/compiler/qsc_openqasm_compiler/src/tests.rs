@@ -338,6 +338,22 @@ pub fn check_qasm_to_qsharp<S: Into<Arc<str>>>(source: S, expect: &Expect) {
     }
 }
 
+pub fn check_qasm_to_qir(source: &str, expect: &Expect) {
+    match compile_qasm_to_qir(source) {
+        Ok(qsharp) => {
+            expect.assert_eq(&qsharp);
+        }
+        Err(errors) => {
+            let buffer = errors
+                .iter()
+                .map(|e| format!("{e:?}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            expect.assert_eq(&buffer);
+        }
+    }
+}
+
 pub fn compile_qasm_to_qsharp_with_semantics<S: Into<Arc<str>>>(
     source: S,
     qubit_semantics: QubitSemantics,
