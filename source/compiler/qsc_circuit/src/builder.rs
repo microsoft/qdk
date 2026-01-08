@@ -178,6 +178,7 @@ impl CircuitTracer {
                 user_package_ids.to_vec(),
                 config.group_by_scope,
                 config.source_locations,
+                config.user_code_only,
             ),
             next_result_id: 0,
             user_package_ids: user_package_ids.to_vec(),
@@ -219,6 +220,7 @@ impl CircuitTracer {
                 user_package_ids.to_vec(),
                 config.group_by_scope,
                 config.source_locations,
+                config.user_code_only,
             ),
             next_result_id: 0,
             user_package_ids: user_package_ids.to_vec(),
@@ -241,6 +243,7 @@ impl CircuitTracer {
                 self.user_package_ids.clone(),
                 self.config.group_by_scope,
                 self.config.source_locations,
+                self.config.user_code_only,
             ),
         )
         .into_operations();
@@ -674,6 +677,8 @@ pub struct TracerConfig {
     pub collapse_qubit_registers: bool,
     /// Prune purely classical or unused qubits
     pub prune_classical_qubits: bool,
+    /// Filter to user code only when capturing source locations and grouping by scope
+    pub user_code_only: bool,
 }
 
 impl TracerConfig {
@@ -695,6 +700,7 @@ impl Default for TracerConfig {
             group_by_scope: true,
             collapse_qubit_registers: false,
             prune_classical_qubits: false,
+            user_code_only: true,
         }
     }
 }
@@ -1230,9 +1236,15 @@ pub(crate) struct OperationListBuilder {
     max_ops: usize,
     max_ops_exceeded: bool,
     operations: Vec<OperationOrGroup>,
-    source_locations: bool,
     user_package_ids: Vec<PackageId>,
-    group_by_scope: bool,
+    grouping_config: GroupingConfig,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct GroupingConfig {
+    pub(crate) user_code_only: bool,
+    pub(crate) source_locations: bool,
+    pub(crate) group_by_scope: bool,
 }
 
 impl OperationListBuilder {
@@ -1241,14 +1253,18 @@ impl OperationListBuilder {
         user_package_ids: Vec<PackageId>,
         group_by_scope: bool,
         source_locations: bool,
+        user_code_only: bool,
     ) -> Self {
         Self {
             max_ops: max_operations,
             max_ops_exceeded: false,
             operations: vec![],
-            source_locations,
+            grouping_config: GroupingConfig {
+                user_code_only,
+                source_locations,
+                group_by_scope,
+            },
             user_package_ids,
-            group_by_scope,
         }
     }
 
@@ -1259,19 +1275,24 @@ impl OperationListBuilder {
             return;
         }
 
-        let op_call_stack = if self.group_by_scope || self.source_locations {
-            retain_user_frames(&self.user_package_ids, unfiltered_call_stack)
-        } else {
-            vec![]
-        };
+        let op_call_stack =
+            if self.grouping_config.group_by_scope || self.grouping_config.source_locations {
+                retain_user_frames(
+                    self.grouping_config.user_code_only,
+                    &self.user_package_ids,
+                    unfiltered_call_stack,
+                )
+            } else {
+                vec![]
+            };
 
         add_scoped_op(
             &mut self.operations,
             &ScopeStack::top(),
             op,
             &op_call_stack,
-            self.group_by_scope,
-            self.source_locations,
+            self.grouping_config.group_by_scope,
+            self.grouping_config.source_locations,
         );
     }
 
@@ -1547,12 +1568,13 @@ pub(crate) fn add_scoped_op(
 }
 
 pub(crate) fn retain_user_frames(
+    user_code_only: bool,
     user_package_ids: &[PackageId],
     mut location_stack: LogicalStackTrace,
 ) -> LogicalStackTrace {
     location_stack.retain(|location| {
         let package_id = location.package_id();
-        user_package_ids.is_empty() || user_package_ids.contains(&package_id)
+        !user_code_only || user_package_ids.is_empty() || user_package_ids.contains(&package_id)
     });
 
     location_stack

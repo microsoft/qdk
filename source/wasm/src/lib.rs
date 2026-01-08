@@ -150,6 +150,7 @@ serializable_type! {
         max_operations: usize,
         loop_detection: bool,
         group_by_scope: bool,
+        user_code_only: bool,
         collapse_qubit_registers: bool,
         source_locations: bool,
     },
@@ -158,6 +159,7 @@ serializable_type! {
         maxOperations: number;
         loopDetection: boolean;
         groupByScope: boolean;
+        userCodeOnly: boolean;
         collapseQubitRegisters: boolean;
         sourceLocations: boolean;
     }"#,
@@ -187,6 +189,7 @@ pub fn get_circuit(
         max_operations: config.max_operations,
         loop_detection: config.loop_detection,
         group_by_scope: config.group_by_scope,
+        user_code_only: config.user_code_only,
         collapse_qubit_registers: config.collapse_qubit_registers,
         prune_classical_qubits: false,
     };

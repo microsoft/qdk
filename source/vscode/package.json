@@ -104,6 +104,7 @@
             "maxOperations": 10001,
             "loopDetection": false,
             "groupByScope": true,
+            "userCodeOnly": true,
             "generationMethod": "static",
             "collapseQubitRegisters": false,
             "sourceLocations": true
@@ -124,6 +125,11 @@
               "type": "boolean",
               "default": true,
               "description": "Whether to group operations into scopes based on the original source code."
+            },
+            "userCodeOnly": {
+              "type": "boolean",
+              "default": true,
+              "description": "Whether to include only user code operations in the groups, excluding operations from standard / core libraries."
             },
             "generationMethod": {
               "type": "string",

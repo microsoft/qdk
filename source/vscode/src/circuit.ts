@@ -316,6 +316,7 @@ export function getConfig(prerelease: boolean) {
     maxOperations: 10001,
     loopDetection: false,
     groupByScope: prerelease,
+    userCodeOnly: true,
     generationMethod: "static" as const,
     collapseQubitRegisters: false,
     sourceLocations: true,
@@ -338,6 +339,10 @@ export function getConfig(prerelease: boolean) {
       "groupByScope" in config && typeof config.groupByScope === "boolean"
         ? config.groupByScope
         : defaultConfig.groupByScope,
+    userCodeOnly:
+      "userCodeOnly" in config && typeof config.userCodeOnly === "boolean"
+        ? config.userCodeOnly
+        : defaultConfig.userCodeOnly,
     generationMethod:
       "generationMethod" in config &&
       typeof config.generationMethod === "string" &&

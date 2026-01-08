@@ -530,7 +530,11 @@ fn source_locations_for_groups() {
     let circuit = builder.finish(&c);
 
     expect![[r#"
-        q_0    ─ [ [Main] ─── [ [Foo@user_code.qs:0:10] ── X@user_code.qs:0:10 ─── ] ──── ] ──
+                  ┌──── [Main] ───────────────────────────────────────┐
+                  │        ┌────── [Foo@user_code.qs:0:10] ────┐      │
+        q_0    ───┼────────┼──────── X@user_code.qs:0:10 ──────┼──────┼───
+                  │        └───────────────────────────────────┘      │
+                  └───────────────────────────────────────────────────┘
     "#]]
     .assert_eq(&circuit.display_with_groups().to_string());
 }

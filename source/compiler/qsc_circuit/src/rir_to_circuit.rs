@@ -9,9 +9,9 @@ use std::{fmt::Display, vec};
 use crate::{
     Circuit, Error, Ket, Measurement, Operation, Register, TracerConfig, Unitary,
     builder::{
-        GateInputs, LocationMetadata, LogicalStackTrace, OperationOrGroup, QubitWire, ResultWire,
-        ScopeId, ScopeStack, WireMap, add_scoped_op, finish_circuit, retain_user_frames,
-        scope_stack,
+        GateInputs, GroupingConfig, LocationMetadata, LogicalStackTrace, OperationOrGroup,
+        QubitWire, ResultWire, ScopeId, ScopeStack, WireMap, add_scoped_op, finish_circuit,
+        retain_user_frames, scope_stack,
     },
     circuit::{Metadata, PackageOffset},
     rir_to_circuit::tracer::FixedQubitRegisterMapBuilder,
@@ -693,7 +693,7 @@ fn extend_with_successors(
     dbg_stuff: &DbgStuff,
     state: &ProgramMap,
     entry_block: &CircuitBlock,
-    _config: TracerConfig,
+    config: TracerConfig,
 ) -> Vec<OperationOrGroup> {
     let mut all_operations = vec![];
     let mut block_stack = vec![entry_block.clone()];
@@ -715,6 +715,7 @@ fn extend_with_successors(
             user_package_ids,
             block.operations,
             &ScopeStack::top(),
+            config,
         );
     }
     all_operations
@@ -726,11 +727,8 @@ fn extend_with_block(
     user_package_ids: &[PackageId],
     block_operations: Vec<OperationOrConditional>,
     curr_scope_stack: &ScopeStack,
+    config: TracerConfig,
 ) {
-    // TODO: configure
-    let source_locations = true;
-    let group_by_scope = true;
-
     for op in block_operations {
         let (op, stack) = match op.kind {
             OperationOrConditionalGroupKind::Single => (
@@ -748,8 +746,9 @@ fn extend_with_block(
                     dbg_stuff.map_instruction_logical_stack(op.instruction_metadata);
 
                 let cond_expr_logical_stack = user_stack_and_source_location(
-                    source_locations,
-                    group_by_scope,
+                    config.user_code_only,
+                    config.source_locations,
+                    config.group_by_scope,
                     user_package_ids,
                     cond_expr_logical_stack,
                 );
@@ -763,6 +762,7 @@ fn extend_with_block(
                     user_package_ids,
                     children,
                     &cond_expr_scope_stack,
+                    config,
                 );
 
                 (
@@ -778,8 +778,11 @@ fn extend_with_block(
             }
         };
         add_op_with_grouping(
-            source_locations,
-            group_by_scope,
+            GroupingConfig {
+                user_code_only: config.user_code_only,
+                source_locations: config.source_locations,
+                group_by_scope: config.group_by_scope,
+            },
             user_package_ids,
             all_operations,
             op,
@@ -790,8 +793,7 @@ fn extend_with_block(
 }
 
 fn add_op_with_grouping(
-    source_locations: bool,
-    group_by_scope: bool,
+    config: GroupingConfig,
     user_package_ids: &[PackageId],
     operations: &mut Vec<OperationOrGroup>,
     op: OperationOrGroup,
@@ -799,33 +801,34 @@ fn add_op_with_grouping(
     scope_stack: &ScopeStack,
 ) {
     let final_grouping_call_stack = user_stack_and_source_location(
-        source_locations,
-        group_by_scope,
+        config.user_code_only,
+        config.source_locations,
+        config.group_by_scope,
         user_package_ids,
         unfiltered_call_stack,
     );
 
     // TODO: I'm pretty sure this is wrong if we have a NO call stack operation
     // in between call-stacked operations. We should probably unscope those. Add tests.
-
     add_scoped_op(
         operations,
         scope_stack,
         op,
         &final_grouping_call_stack,
-        group_by_scope,
-        source_locations,
+        config.group_by_scope,
+        config.source_locations,
     );
 }
 
 fn user_stack_and_source_location(
+    user_code_only: bool,
     source_locations: bool,
     group_by_scope: bool,
     user_package_ids: &[PackageId],
     unfiltered_call_stack: Vec<LocationMetadata>,
 ) -> LogicalStackTrace {
     if group_by_scope || source_locations {
-        retain_user_frames(user_package_ids, unfiltered_call_stack)
+        retain_user_frames(user_code_only, user_package_ids, unfiltered_call_stack)
     } else {
         vec![]
     }
