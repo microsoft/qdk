@@ -98,9 +98,12 @@ pub enum Error {
     #[diagnostic(help("try invoking the desired callable directly"))]
     UnexpectedDynamicValue(#[label] PackageSpan),
 
-    #[error("cannot use a dynamic value of type `{0}` used in intrinsic callable signature")]
-    #[diagnostic(code("Qsc.PartialEval.UnexpectedDynamicIntrinsicType"))]
-    UnexpectedDynamicIntrinsicType(String, #[label] PackageSpan),
+    #[error("unsupported type `{0}` in custom intrinsic callable")]
+    #[diagnostic(help(
+        "variables of type `{0}` cannot be emitted into QIR and should not appear in custom intrinsic callable signatures"
+    ))]
+    #[diagnostic(code("Qsc.PartialEval.UnsupportedType"))]
+    UnsupportedCustomIntrinsicType(String, #[label] PackageSpan),
 
     #[error("partial evaluation failed with error: {0}")]
     #[diagnostic(code("Qsc.PartialEval.EvaluationFailed"))]
@@ -148,7 +151,7 @@ impl Error {
         match self {
             Self::CapabilityError(_) => None,
             Self::UnexpectedDynamicValue(span)
-            | Self::UnexpectedDynamicIntrinsicType(_, span)
+            | Self::UnsupportedCustomIntrinsicType(_, span)
             | Self::EvaluationFailed(_, span)
             | Self::OutputResultLiteral(span)
             | Self::Unexpected(_, span)
@@ -364,7 +367,7 @@ impl<'a> PartialEvaluator<'a> {
         let mut input_type: Vec<rir::Ty> = Vec::new();
         for input_param in &callable_package.derive_callable_input_params(callable_decl) {
             input_type.push(map_fir_type_to_rir_type(&input_param.ty).map_err(|msg| {
-                Error::UnexpectedDynamicIntrinsicType(
+                Error::UnsupportedCustomIntrinsicType(
                     msg,
                     PackageSpan {
                         package: map_fir_package_to_hir(store_item_id.package),
@@ -381,7 +384,7 @@ impl<'a> PartialEvaluator<'a> {
         } else {
             Some(
                 map_fir_type_to_rir_type(&callable_decl.output).map_err(|msg| {
-                    Error::UnexpectedDynamicIntrinsicType(
+                    Error::UnsupportedCustomIntrinsicType(
                         msg,
                         PackageSpan {
                             package: map_fir_package_to_hir(self.get_current_package_id()),
@@ -1766,7 +1769,7 @@ impl<'a> PartialEvaluator<'a> {
             None => Value::unit(),
             Some(output_var) => {
                 let rir_var = map_rir_var_to_eval_var(output_var).map_err(|()| {
-                    Error::UnexpectedDynamicIntrinsicType(
+                    Error::UnsupportedCustomIntrinsicType(
                         callable_decl.output.to_string(),
                         callee_expr_span,
                     )
@@ -1848,7 +1851,10 @@ impl<'a> PartialEvaluator<'a> {
         } else {
             let variable_id = self.resource_manager.next_var();
             let variable_ty = map_fir_type_to_rir_type(&if_expr.ty).map_err(|msg| {
-                Error::UnexpectedDynamicIntrinsicType(msg, self.get_expr_package_span(if_expr_id))
+                Error::Unexpected(
+                    format!("unsupported if-expression output type `{msg}`"),
+                    self.get_expr_package_span(if_expr_id),
+                )
             })?;
             Some(rir::Variable {
                 variable_id,
