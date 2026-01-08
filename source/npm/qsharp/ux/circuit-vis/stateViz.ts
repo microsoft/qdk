@@ -2,13 +2,13 @@
 // Licensed under the MIT license.
 
 export type RenderOptions = {
-  maxBars?: number;
+  maxColumns?: number;
   heightPx?: number;
   widthPx?: number;
   phaseColorMap?: (phaseRad: number) => string;
   normalize?: boolean; // normalize probabilities to unit mass (default true)
-  minBarWidth?: number; // minimum width per bar to avoid label collisions
-  barSpacingPx?: number; // horizontal spacing between bars (default 3)
+  minColumnWidth?: number; // minimum width per column to avoid label collisions
+  columnSpacingPx?: number; // horizontal spacing between columns (default 3)
   minPanelWidthPx?: number; // prescribed minimum panel width in pixels
   maxPanelWidthPx?: number; // prescribed maximum panel width in pixels
   uiScale?: number; // global UI scale multiplier (default 1)
@@ -17,6 +17,51 @@ export type RenderOptions = {
   // States below this threshold will be aggregated into the Others bucket.
   // Default: 0 (thresholding off)
   minProbThreshold?: number;
+};
+
+// Visualization config constants (tweakable defaults)
+const VIZ = {
+  defaultUiScale: 1,
+  defaultAnimationMs: 200,
+  baseHeightUnscaled: 80,
+  marginLeftUnscaled: 36,
+  marginRightUnscaled: 36,
+  marginBottomUnscaled: 62,
+  minPanelWidthPx: 80,
+  defaultMinPanelWidthUnscaled: 190,
+  defaultBarSpacingUnscaled: 4,
+  minColumnWidthFloorUnscaled: 16,
+  defaultMinColumnWidthUnscaled: 36,
+  minMaxColumns: 4,
+  defaultMaxColumns: 16,
+  labelLongThresholdChars: 4,
+  maxColumnsWithLabels: 16,
+  barHeaderPaddingUnscaled: 36,
+  phaseHeaderPaddingUnscaled: 26,
+  stateHeaderPaddingUnscaled: 26,
+  percentLabelPaddingUnscaled: 29,
+  phaseLabelPaddingUnscaled: 39,
+  marginBottomMinPx: 48,
+  extraBottomPaddingPx: 24,
+  columnAreaHeightUnscaled: 234,
+  minProbEpsilon: 1e-12,
+  headerLabelXOffset: -8,
+  headerLabelYOffset: 9,
+  percentLabelOffsetUnscaled: 8,
+  phaseRadiusBaseUnscaled: 12,
+  phaseRadiusThreshold: 7.5,
+  padXUnscaled: 2,
+  phaseDotFrac: 0.25,
+  phaseDotRadiusMinPx: 1.5,
+  phaseTextBottomPadUnscaled: 6,
+  phaseContentExtraYUnscaled: 10,
+  verticalLabelLineHeightUnscaled: 14,
+  verticalLabelExtraBaseUnscaled: 12,
+  stateLabelVerticalOffsetUnscaled: 4,
+  stateLabelHorizontalOffsetUnscaled: 16,
+  contentHeightExtraUnscaled: 10,
+  edgePadUnscaled: 36,
+  emptyStateFlexBasisPx: 360,
 };
 
 // Entry Points
@@ -61,7 +106,7 @@ export const updateStatePanelFromMap = (
   const isNumeric = (s: string) => numericRegex.test(s);
   const labelCmp = (a: string, b: string) => a.localeCompare(b);
 
-  const maxBars = opts.maxBars ?? 16;
+  const maxColumns = opts.maxColumns ?? 16;
   // Helper comparator for usual label ordering (numeric labels first, then lexical)
   const labelOrderCmp = (a: { label: string }, b: { label: string }) => {
     const an = isNumeric(a.label);
@@ -92,13 +137,14 @@ export const updateStatePanelFromMap = (
     minThresh > 0
       ? states.filter((r) => probForThresh(r) >= minThresh)
       : states.slice();
-  const needOthers = smallStates.length > 0 || sortedByLabel.length > maxBars;
+  const needOthers =
+    smallStates.length > 0 || sortedByLabel.length > maxColumns;
   if (!needOthers) {
     // No need to aggregate; everything fits and no thresholded states
     columns = sortedByLabel;
   } else {
     const reserveOthers = 1; // keep one column for Others when needed
-    const capacity = Math.max(0, (opts.maxBars ?? 16) - reserveOthers);
+    const capacity = Math.max(0, (opts.maxColumns ?? 16) - reserveOthers);
     // Choose by probability first from significant states (those above threshold)
     const chosenByProb = sigStates
       .slice()
@@ -275,8 +321,8 @@ type LayoutMetrics = {
 
   columnWidthPx: number;
   columnSpacingPx: number;
-  columnHeaderPaddingPx: number;
-  columnAreaHeightPx: number;
+  barHeaderPaddingPx: number;
+  barAreaHeightPx: number;
   columnCount: number;
   maxColumns: number;
   minColumnWidthPx: number;
@@ -304,7 +350,7 @@ const getScaleAndAnimation = (
   panel: HTMLElement,
   opts: RenderOptions,
 ): { uiScale: number; animationMs: number } => {
-  let uiScale = 1;
+  let uiScale = VIZ.defaultUiScale;
   try {
     const v = getComputedStyle(panel).getPropertyValue("--stateScale").trim();
     if (v) {
@@ -316,7 +362,7 @@ const getScaleAndAnimation = (
   }
   if (opts.uiScale && isFinite(opts.uiScale)) uiScale = opts.uiScale;
 
-  let animationMs = 200;
+  let animationMs = VIZ.defaultAnimationMs;
   try {
     const cssDur = getComputedStyle(panel)
       .getPropertyValue("--stateAnimMs")
@@ -338,39 +384,46 @@ const getScaleAndAnimation = (
 
 const computeLayoutMetrics = (
   panel: HTMLElement,
-  barsData: ColumnDatum[],
+  columnsData: ColumnDatum[],
   opts: RenderOptions,
 ): LayoutMetrics => {
   const { uiScale, animationMs } = getScaleAndAnimation(panel, opts);
   const baseHeightPx = opts.heightPx
     ? Math.round(opts.heightPx * uiScale)
-    : Math.round(80 * uiScale);
+    : Math.round(VIZ.baseHeightUnscaled * uiScale);
   const margin = {
     top: 0,
-    right: Math.round(36 * uiScale),
-    bottom: Math.round(62 * uiScale),
-    left: Math.round(36 * uiScale),
+    right: Math.round(VIZ.marginRightUnscaled * uiScale),
+    bottom: Math.round(VIZ.marginBottomUnscaled * uiScale),
+    left: Math.round(VIZ.marginLeftUnscaled * uiScale),
   };
 
-  const columnCount = barsData.length;
+  const columnCount = columnsData.length;
   const columnSpacingPx = Math.max(
     1,
-    Math.floor((opts.barSpacingPx ?? 4) * uiScale),
+    Math.floor(
+      (opts.columnSpacingPx ?? VIZ.defaultBarSpacingUnscaled) * uiScale,
+    ),
   );
-  const baseMinBar = opts.minBarWidth ?? 36;
+  const baseMinBar = opts.minColumnWidth ?? VIZ.defaultMinColumnWidthUnscaled;
   const minColumnWidthPx = Math.max(
-    Math.floor(16 * uiScale),
+    Math.floor(VIZ.minColumnWidthFloorUnscaled * uiScale),
     Math.floor(baseMinBar * uiScale),
   );
-  const maxColumns = Math.max(4, opts.maxBars ?? 16);
-  const defaultMinPanelWidthPx = Math.floor(190 * uiScale);
+  const maxColumns = Math.max(
+    VIZ.minMaxColumns,
+    opts.maxColumns ?? VIZ.defaultMaxColumns,
+  );
+  const defaultMinPanelWidthPx = Math.floor(
+    VIZ.defaultMinPanelWidthUnscaled * uiScale,
+  );
   const defaultMaxPanelWidthPx =
     margin.left +
     margin.right +
     maxColumns * (minColumnWidthPx + columnSpacingPx);
 
   const minWidthPx = Math.max(
-    80,
+    VIZ.minPanelWidthPx,
     opts.minPanelWidthPx ?? defaultMinPanelWidthPx,
   );
   const maxWidthPx = Math.max(
@@ -390,48 +443,60 @@ const computeLayoutMetrics = (
     Math.floor(contentWidthPx / Math.max(1, columnCount)) - columnSpacingPx,
   );
   const phaseCircleRadiusPx = Math.max(
-    Math.round(12 * uiScale),
+    Math.round(VIZ.phaseRadiusBaseUnscaled * uiScale),
     Math.floor(columnWidthPx / 2) - 1,
   );
   const displayLabel = (b: ColumnDatum) =>
     b.label === OTHERS_KEY ? `Others (${b.othersCount ?? 0})` : b.label;
-  const maxLabelLen = barsData.reduce(
+  const maxLabelLen = columnsData.reduce(
     (m, b) => Math.max(m, (displayLabel(b) || "").length),
     0,
   );
-  const verticalLabels = maxLabelLen > 4;
+  const verticalLabels = maxLabelLen > VIZ.labelLongThresholdChars;
   const extraForBits =
-    columnCount <= 16
+    columnCount <= VIZ.maxColumnsWithLabels
       ? verticalLabels
-        ? Math.round((maxLabelLen * 14 + 12) * uiScale)
+        ? Math.round(
+            (maxLabelLen * VIZ.verticalLabelLineHeightUnscaled +
+              VIZ.verticalLabelExtraBaseUnscaled) *
+              uiScale,
+          )
         : Math.round(24 * uiScale)
       : 0;
-  const columnHeaderPaddingPx = Math.round(36 * uiScale);
-  const phaseHeaderPaddingPx = Math.round(26 * uiScale);
-  const stateHeaderPaddingPx = Math.round(26 * uiScale);
-  const percentLabelPaddingPx = Math.round(29 * uiScale);
-  const phaseLabelPaddingPx = Math.round(39 * uiScale);
+  const barHeaderPaddingPx = Math.round(VIZ.barHeaderPaddingUnscaled * uiScale);
+  const phaseHeaderPaddingPx = Math.round(
+    VIZ.phaseHeaderPaddingUnscaled * uiScale,
+  );
+  const stateHeaderPaddingPx = Math.round(
+    VIZ.stateHeaderPaddingUnscaled * uiScale,
+  );
+  const percentLabelPaddingPx = Math.round(
+    VIZ.percentLabelPaddingUnscaled * uiScale,
+  );
+  const phaseLabelPaddingPx = Math.round(
+    VIZ.phaseLabelPaddingUnscaled * uiScale,
+  );
   margin.bottom = Math.max(
-    48,
+    VIZ.marginBottomMinPx,
     phaseHeaderPaddingPx +
       phaseCircleRadiusPx * 2 +
       phaseLabelPaddingPx +
       stateHeaderPaddingPx +
       extraForBits +
-      24,
+      VIZ.extraBottomPaddingPx,
   );
 
   const maxProb = Math.max(
-    1e-12,
-    Math.max(...barsData.map((b) => b.prob ?? 0)),
+    VIZ.minProbEpsilon,
+    Math.max(...columnsData.map((b) => b.prob ?? 0)),
   );
-  const columnAreaHeightPx = Math.round(234 * uiScale);
-  const scaleY = (p: number) => (p / maxProb) * columnAreaHeightPx;
+  const barAreaHeightPx = Math.round(VIZ.columnAreaHeightUnscaled * uiScale);
+  const scaleY = (p: number) => (p / maxProb) * barAreaHeightPx;
   const clampProb = (p: number) => Math.max(0, Math.min(p, maxProb));
   const phaseColor = opts.phaseColorMap ?? _defaultPhaseColor;
 
   const phaseSectionTopY =
-    columnHeaderPaddingPx + columnAreaHeightPx + percentLabelPaddingPx;
+    barHeaderPaddingPx + barAreaHeightPx + percentLabelPaddingPx;
   const stateSectionTopY =
     phaseSectionTopY +
     phaseHeaderPaddingPx +
@@ -446,8 +511,8 @@ const computeLayoutMetrics = (
     contentWidthPx,
     columnWidthPx,
     columnSpacingPx,
-    columnHeaderPaddingPx,
-    columnAreaHeightPx,
+    barHeaderPaddingPx,
+    barAreaHeightPx,
     columnCount,
     maxColumns,
     minColumnWidthPx,
@@ -511,8 +576,8 @@ const renderColumn = (
     uiScale,
     columnWidthPx,
     columnSpacingPx,
-    columnHeaderPaddingPx,
-    columnAreaHeightPx,
+    barHeaderPaddingPx,
+    barAreaHeightPx,
     columnCount,
     phaseSectionTopY,
     phaseHeaderPaddingPx,
@@ -545,7 +610,7 @@ const renderColumn = (
 
   const prevProb = prev[column.label]?.prob ?? 0;
   const fromH = scaleY(clampProb(prevProb));
-  const baseY = columnHeaderPaddingPx + columnAreaHeightPx;
+  const baseY = barHeaderPaddingPx + barAreaHeightPx;
   bar.setAttribute("y", `${baseY - fromH}`);
   bar.setAttribute("height", `${fromH}`);
   _animate(prevProb, column.prob, animationMs, (pv) => {
@@ -561,7 +626,9 @@ const renderColumn = (
     );
     label.setAttribute("x", `${x + columnWidthPx / 2}`);
     const labelY =
-      columnHeaderPaddingPx + columnAreaHeightPx + Math.round(8 * uiScale);
+      barHeaderPaddingPx +
+      barAreaHeightPx +
+      Math.round(VIZ.percentLabelOffsetUnscaled * uiScale);
     label.setAttribute("y", `${labelY}`);
     label.setAttribute("class", "state-bar-label");
     _animate(prevProb, column.prob, animationMs, (pv) => {
@@ -574,10 +641,13 @@ const renderColumn = (
 
   const cx = x + columnWidthPx / 2;
   if (!column.isOthers) {
-    const DOT_FRAC = 0.25;
-    const padX = Math.max(2, Math.round(2 * uiScale));
+    const DOT_FRAC = VIZ.phaseDotFrac;
+    const padX = Math.max(
+      VIZ.padXUnscaled,
+      Math.round(VIZ.padXUnscaled * uiScale),
+    );
     let r = phaseCircleRadiusPx;
-    if (r >= 7.5) {
+    if (r >= VIZ.phaseRadiusThreshold) {
       const maxR = Math.floor((columnWidthPx / 2 - padX) / (1 + DOT_FRAC));
       r = Math.min(r, Math.max(2, maxR));
     } else {
@@ -585,7 +655,10 @@ const renderColumn = (
       r = Math.min(r, Math.max(2, maxR));
     }
     const phaseContentYBase = phaseSectionTopY + phaseHeaderPaddingPx;
-    const cy = phaseContentYBase + r + Math.round(10 * uiScale);
+    const cy =
+      phaseContentYBase +
+      r +
+      Math.round(VIZ.phaseContentExtraYUnscaled * uiScale);
     const sx = cx + r;
     const sy = cy;
     const ex = cx + r * Math.cos(column.phase);
@@ -623,10 +696,11 @@ const renderColumn = (
       "text",
     );
     phaseText.setAttribute("x", `${cx}`);
-    const dotRadius = Math.max(1.5, r * DOT_FRAC);
+    const dotRadius = Math.max(VIZ.phaseDotRadiusMinPx, r * DOT_FRAC);
     const yTop = cy + r + dotRadius;
-    const yBottom = stateSectionTopY - Math.round(6 * uiScale);
-    const textH = Math.round(14 * uiScale);
+    const yBottom =
+      stateSectionTopY - Math.round(VIZ.phaseTextBottomPadUnscaled * uiScale);
+    const textH = Math.round(VIZ.verticalLabelLineHeightUnscaled * uiScale);
     let yTextTop = Math.round((yTop + yBottom) / 2 - textH / 2);
     yTextTop = Math.max(yTop, Math.min(yTextTop, yBottom - textH));
     phaseText.setAttribute("y", `${yTextTop}`);
@@ -645,7 +719,7 @@ const renderColumn = (
     );
     dot.setAttribute("cx", `${cx + prevDx}`);
     dot.setAttribute("cy", `${cy - prevDy}`);
-    dot.setAttribute("r", `${Math.max(1.5, r * DOT_FRAC)}`);
+    dot.setAttribute("r", `${Math.max(VIZ.phaseDotRadiusMinPx, r * DOT_FRAC)}`);
     dot.setAttribute("fill", phaseColor(column.phase));
     dot.setAttribute("class", "state-phase-dot");
     g.appendChild(dot);
@@ -673,15 +747,17 @@ const renderColumn = (
     );
   }
 
-  if (columnCount <= 16) {
+  if (columnCount <= VIZ.maxColumnsWithLabels) {
     const stateContentYBase = stateSectionTopY + stateHeaderPaddingPx;
     const labelX = x + columnWidthPx / 2;
     const labelY = verticalLabels
-      ? stateContentYBase + Math.round(4 * uiScale)
-      : stateContentYBase + Math.round(16 * uiScale);
+      ? stateContentYBase +
+        Math.round(VIZ.stateLabelVerticalOffsetUnscaled * uiScale)
+      : stateContentYBase +
+        Math.round(VIZ.stateLabelHorizontalOffsetUnscaled * uiScale);
 
     if (verticalLabels) {
-      const lineH = Math.round(14 * uiScale);
+      const lineH = Math.round(VIZ.verticalLabelLineHeightUnscaled * uiScale);
       const labelText = displayLabel(column);
       const labelH = lineH * Math.max(1, (labelText || "").length);
       const fo = document.createElementNS(
@@ -730,11 +806,29 @@ const renderSectionHeaders = (g: SVGGElement, layout: LayoutMetrics) => {
     return line;
   };
   const sepBarY = 0;
-  g.appendChild(mkLabel("Probability Density", -8, sepBarY + 9));
+  g.appendChild(
+    mkLabel(
+      "Probability Density",
+      VIZ.headerLabelXOffset,
+      sepBarY + VIZ.headerLabelYOffset,
+    ),
+  );
   g.appendChild(mkSep(layout.phaseSectionTopY));
-  g.appendChild(mkLabel("Phase", -8, layout.phaseSectionTopY + 9));
+  g.appendChild(
+    mkLabel(
+      "Phase",
+      VIZ.headerLabelXOffset,
+      layout.phaseSectionTopY + VIZ.headerLabelYOffset,
+    ),
+  );
   g.appendChild(mkSep(layout.stateSectionTopY));
-  g.appendChild(mkLabel("State", -8, layout.stateSectionTopY + 9));
+  g.appendChild(
+    mkLabel(
+      "State",
+      VIZ.headerLabelXOffset,
+      layout.stateSectionTopY + VIZ.headerLabelYOffset,
+    ),
+  );
 };
 
 const finalizeSvgAndFlex = (
@@ -746,12 +840,14 @@ const finalizeSvgAndFlex = (
   try {
     const bbox = g.getBBox();
     const contentHeight = Math.ceil(
-      bbox.height + layout.margin.top + Math.round(10 * layout.uiScale),
+      bbox.height +
+        layout.margin.top +
+        Math.round(VIZ.contentHeightExtraUnscaled * layout.uiScale),
     );
     const svgHeight = Math.max(layout.baseHeightPx, contentHeight);
     svg.setAttribute("height", svgHeight.toString());
     svg.setAttribute("width", layout.panelWidthPx.toString());
-    const edgePad = Math.round(36 * layout.uiScale);
+    const edgePad = Math.round(VIZ.edgePadUnscaled * layout.uiScale);
     panel.style.flexBasis = `${Math.ceil(layout.panelWidthPx + edgePad)}px`;
   } catch {
     void 0;
@@ -809,7 +905,7 @@ const _showEmptyState = (panel: HTMLElement): void => {
   _ensureEmptyMessage(panel, "The circuit is empty.");
   try {
     if (!panel.classList.contains("collapsed")) {
-      panel.style.flexBasis = "360px";
+      panel.style.flexBasis = `${VIZ.emptyStateFlexBasisPx}px`;
     }
   } catch {
     void 0;
