@@ -328,6 +328,7 @@ async function generateAndDrawCircuit(
         loopDetection: false,
         maxOperations: 100,
         sourceLocations: true,
+        userCodeOnly: true,
       },
       undefined,
     );
