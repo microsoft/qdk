@@ -125,21 +125,7 @@ export class Sqore {
     this.expandUntilDepth(grid, this.renderDepth);
 
     // If only one top-level operation, expand automatically:
-    if (
-      _circuit.componentGrid.length == 1 &&
-      _circuit.componentGrid[0].components.length == 1 &&
-      _circuit.componentGrid[0].components[0].dataAttributes != null &&
-      Object.prototype.hasOwnProperty.call(
-        _circuit.componentGrid[0].components[0].dataAttributes,
-        "location",
-      ) &&
-      _circuit.componentGrid[0].components[0].dataAttributes["expanded"] !==
-        "false"
-    ) {
-      const location: string =
-        _circuit.componentGrid[0].components[0].dataAttributes["location"];
-      this.expandOperation(_circuit.componentGrid, location);
-    }
+    this.expandIfSingleOperation(_circuit.componentGrid);
 
     // Create visualization components
     const composedSqore: ComposedSqore = this.compose(_circuit);
@@ -191,6 +177,24 @@ export class Sqore {
 
           this.expandUntilDepth(op.children, depth - 1);
         }
+      }
+    }
+  }
+  private expandIfSingleOperation(grid: ComponentGrid) {
+    if (grid.length == 1 && grid[0].components.length == 1) {
+      const onlyComponent = grid[0].components[0];
+      if (
+        onlyComponent.dataAttributes != null &&
+        Object.prototype.hasOwnProperty.call(
+          onlyComponent.dataAttributes,
+          "location",
+        ) &&
+        onlyComponent.dataAttributes["expanded"] !== "false"
+      ) {
+        const location: string = onlyComponent.dataAttributes["location"];
+        this.expandOperation(grid, location);
+        // Recursively expand if the only child is also a single operation
+        this.expandIfSingleOperation(onlyComponent.children || []);
       }
     }
   }

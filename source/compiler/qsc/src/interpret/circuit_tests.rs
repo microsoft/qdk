@@ -327,9 +327,7 @@ fn grouping_nested_callables() {
                 @EntryPoint()
                 operation Main() : Unit {
                     use q = Qubit();
-                    for i in 0..5 {
-                        Foo(q);
-                    }
+                    Foo(q);
                     MResetZ(q);
                 }
 
@@ -369,12 +367,18 @@ fn classical_for_loop() {
                 @EntryPoint()
                 operation Main() : Unit {
                     use q = Qubit();
-                    for i in 0..5 {
-                        X(q);
+                    for i in 0..2 {
+                        Foo(q);
                     }
+                }
+
+                operation Foo(q: Qubit) : Unit {
+                    X(q);
+                    Y(q);
                 }
             }
         ",
+        Profile::Unrestricted,
         CircuitEntryPoint::EntryPoint,
         TracerConfig {
             loop_detection: true,

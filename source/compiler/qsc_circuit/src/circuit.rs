@@ -361,27 +361,13 @@ pub struct Metadata {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
-#[serde(untagged)]
-pub enum SourceLocation {
-    Resolved(ResolvedSourceLocation),
-    #[serde(skip)]
-    Unresolved(PackageOffset),
-}
-
-#[derive(Clone, Debug, Copy, PartialEq, Eq)]
-pub struct PackageOffset {
-    pub package_id: PackageId,
-    pub offset: u32,
-}
-
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct ResolvedSourceLocation {
+pub struct SourceLocation {
     pub file: String,
     pub line: u32,
     pub column: u32,
 }
 
-impl Display for ResolvedSourceLocation {
+impl Display for SourceLocation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}:{}:{}", self.file, self.line, self.column)
     }
@@ -454,7 +440,7 @@ impl RowBuilder {
     fn add_measurement(&mut self, column: usize, source: Option<&SourceLocation>) {
         let mut gate_label = String::from("M");
         if self.render_locations
-            && let Some(SourceLocation::Resolved(loc)) = source
+            && let Some(loc) = source
         {
             let _ = write!(&mut gate_label, "@{loc}");
         }
@@ -484,9 +470,9 @@ impl RowBuilder {
         }
 
         if self.render_locations
-            && let Some(SourceLocation::Resolved(loc)) = operation.source_location()
+            && let Some(loc) = operation.source_location()
         {
-            let _ = write!(&mut gate_label, "@{}:{}:{}", loc.file, loc.line, loc.column);
+            let _ = write!(&mut gate_label, "@{loc}");
         }
 
         gate_label
@@ -923,15 +909,13 @@ impl CircuitDisplay<'_> {
             if self.render_locations {
                 let mut first = true;
                 for loc in &q.declarations {
-                    if let SourceLocation::Resolved(loc) = loc {
-                        if first {
-                            label.push('@');
-                            first = false;
-                        } else {
-                            label.push_str(", ");
-                        }
-                        let _ = write!(&mut label, "{loc}");
+                    if first {
+                        label.push('@');
+                        first = false;
+                    } else {
+                        label.push_str(", ");
                     }
+                    let _ = write!(&mut label, "{loc}");
                 }
             }
 
