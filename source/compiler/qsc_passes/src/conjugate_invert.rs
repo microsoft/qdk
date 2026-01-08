@@ -240,6 +240,8 @@ impl<'a> Visitor<'a> for ReturnCheck {
     fn visit_expr(&mut self, expr: &'a Expr) {
         if matches!(&expr.kind, ExprKind::Return(..)) {
             self.errors.push(Error::ReturnForbidden(expr.span));
+        } else {
+            visit::walk_expr(self, expr);
         }
     }
 }
