@@ -250,79 +250,85 @@ function Min(values : Int[]) : Int {
 
 /// # Summary
 /// Returns the angle whose cosine is the specified number.
+/// Returned value is expressed in radians.
 function ArcCos(x : Double) : Double {
     body intrinsic;
 }
 
 /// # Summary
 /// Returns the angle whose sine is the specified number.
+/// Returned value is expressed in radians.
 function ArcSin(y : Double) : Double {
     body intrinsic;
 }
 
 /// # Summary
 /// Returns the angle whose tangent is the specified number.
+/// Returned value is expressed in radians.
 function ArcTan(d : Double) : Double {
     body intrinsic;
 }
 
 /// # Summary
 /// Returns the angle whose tangent is the quotient of two specified numbers.
+/// Returned value is expressed in radians.
 function ArcTan2(y : Double, x : Double) : Double {
     body intrinsic;
 }
 
 /// # Summary
 /// Returns the cosine of the specified angle.
+/// Angle is specified in radians.
 function Cos(theta : Double) : Double {
     body intrinsic;
 }
 
 /// # Summary
-/// Returns the hyperbolic cosine of the specified angle.
+/// Returns the hyperbolic cosine of the specified number.
 function Cosh(d : Double) : Double {
     body intrinsic;
 }
 
 /// # Summary
 /// Returns the sine of the specified angle.
+/// Angle is specified in radians.
 function Sin(theta : Double) : Double {
     body intrinsic;
 }
 
 /// # Summary
-/// Returns the hyperbolic sine of the specified angle.
+/// Returns the hyperbolic sine of the specified number.
 function Sinh(d : Double) : Double {
     body intrinsic;
 }
 
 /// # Summary
 /// Returns the tangent of the specified angle.
+/// Angle is specified in radians.
 function Tan(d : Double) : Double {
     body intrinsic;
 }
 
 /// # Summary
-/// Returns the hyperbolic tangent of the specified angle.
+/// Returns the hyperbolic tangent of the specified number.
 function Tanh(d : Double) : Double {
     body intrinsic;
 }
 
 /// # Summary
-/// Computes the inverse hyperbolic cosine of a number.
+/// Returns the inverse hyperbolic cosine of a number.
 function ArcCosh(x : Double) : Double {
     Log(x + Sqrt(x * x - 1.0))
 }
 
 /// # Summary
-/// Computes the inverse hyperbolic sine of a number.
+/// Returns the inverse hyperbolic sine of a number.
 function ArcSinh(x : Double) : Double {
     Log(x + Sqrt(x * x + 1.0))
 }
 
-
 /// # Summary
-/// Computes the inverse hyperbolic tangent of a number.
+/// Returns the inverse hyperbolic tangent of a number.
 function ArcTanh(x : Double) : Double {
     Log((1.0 + x) / (1.0 - x)) * 0.5
 }
