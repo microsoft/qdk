@@ -257,7 +257,7 @@ fn for_loop_is_grouped() {
     let circ = circ.display_with_groups().to_string();
 
     expect![[r#"
-        q_0@test.qs:4:20 ─ [ [Main] ─── [ [loop: 0..2@test.qs:5:20] ── [ [(1)@test.qs:5:34] ─── [ [Foo@test.qs:6:24] ─── X@test.qs:11:20 ── Y@test.qs:12:20 ─── ] ──── ] ─── [ [(2)@test.qs:5:34] ─── [ [Foo@test.qs:6:24] ─── X@test.qs:11:20 ── Y@test.qs:12:20 ─── ] ──── ] ─── [ [(3)@test.qs:5:34] ─── [ [Foo@test.qs:6:24] ─── X@test.qs:11:20 ── Y@test.qs:12:20 ─── ] ──── ] ──── ] ──── ] ──
+        q_0@test.qs:4:20 ─ [ [Main] ─── [ [loop: 0..2@test.qs:5:20] ── [ [iter 1@test.qs:5:34] ── [ [Foo@test.qs:6:24] ─── X@test.qs:11:20 ── Y@test.qs:12:20 ─── ] ──── ] ─── [ [iter 2@test.qs:5:34] ── [ [Foo@test.qs:6:24] ─── X@test.qs:11:20 ── Y@test.qs:12:20 ─── ] ──── ] ─── [ [iter 3@test.qs:5:34] ── [ [Foo@test.qs:6:24] ─── X@test.qs:11:20 ── Y@test.qs:12:20 ─── ] ──── ] ──── ] ──── ] ──
     "#]]
     .assert_eq(&circ);
 }
@@ -300,7 +300,7 @@ fn repeat_until_loop_is_grouped() {
     let circ = circ.display_with_groups().to_string();
 
     expect![[r#"
-        q_0@test.qs:4:20 ─ [ [Main] ─── [ [loop: i == 2@test.qs:6:20] ── [ [(1)@test.qs:6:27] ─── [ [Foo@test.qs:7:24] ─── X@test.qs:15:20 ── Y@test.qs:16:20 ─── ] ──── ] ─── [ [(2)@test.qs:6:27] ─── [ [Foo@test.qs:7:24] ─── X@test.qs:15:20 ── Y@test.qs:16:20 ─── ] ──── ] ─── [ [(3)@test.qs:6:27] ─── [ [Foo@test.qs:7:24] ─── X@test.qs:15:20 ── Y@test.qs:16:20 ─── ] ──── ] ──── ] ──── ] ──
+        q_0@test.qs:4:20 ─ [ [Main] ─── [ [loop: i == 2@test.qs:6:20] ── [ [iter 1@test.qs:6:27] ── [ [Foo@test.qs:7:24] ─── X@test.qs:15:20 ── Y@test.qs:16:20 ─── ] ──── ] ─── [ [iter 2@test.qs:6:27] ── [ [Foo@test.qs:7:24] ─── X@test.qs:15:20 ── Y@test.qs:16:20 ─── ] ──── ] ─── [ [iter 3@test.qs:6:27] ── [ [Foo@test.qs:7:24] ─── X@test.qs:15:20 ── Y@test.qs:16:20 ─── ] ──── ] ──── ] ──── ] ──
     "#]]
     .assert_eq(&circ);
 }
@@ -341,7 +341,7 @@ fn while_loop_is_grouped() {
     let circ = circ.display_with_groups().to_string();
 
     expect![[r#"
-        q_0@test.qs:4:20 ─ [ [Main] ─── [ [loop: i < 2@test.qs:6:20] ─── [ [(1)@test.qs:6:34] ─── [ [Foo@test.qs:7:24] ─── X@test.qs:13:20 ── Y@test.qs:14:20 ─── ] ──── ] ─── [ [(2)@test.qs:6:34] ─── [ [Foo@test.qs:7:24] ─── X@test.qs:13:20 ── Y@test.qs:14:20 ─── ] ──── ] ──── ] ──── ] ──
+        q_0@test.qs:4:20 ─ [ [Main] ─── [ [loop: i < 2@test.qs:6:20] ─── [ [iter 1@test.qs:6:34] ── [ [Foo@test.qs:7:24] ─── X@test.qs:13:20 ── Y@test.qs:14:20 ─── ] ──── ] ─── [ [iter 2@test.qs:6:34] ── [ [Foo@test.qs:7:24] ─── X@test.qs:13:20 ── Y@test.qs:14:20 ─── ] ──── ] ──── ] ──── ] ──
     "#]]
     .assert_eq(&circ);
 }
@@ -463,9 +463,9 @@ fn for_loop_nested() {
     let circ = circ.display_with_groups().to_string();
 
     expect![[r#"
-        q_0@test.qs:4:20 ─ [ [Main] ─── [ [loop: 0..2@test.qs:5:20] ── [ [(1)@test.qs:5:34] ─── [ [Foo@test.qs:7:28] ─── X@test.qs:13:20 ─── ] ──── ] ─── [ [(2)@test.qs:5:34] ─── [ [Foo@test.qs:7:28] ─── X@test.qs:13:20 ─── ] ──── ] ─── [ [(3)@test.qs:5:34] ─── [ [Foo@test.qs:7:28] ─── X@test.qs:13:20 ─── ] ──── ] ──── ] ──── ] ──
-        q_1@test.qs:4:20 ───── [ ─────────────────── [ ───────────────────────── [ ──────────── [ [Foo@test.qs:7:28] ─── X@test.qs:13:20 ─── ] ──── ] ───────────── [ ──────────── [ [Foo@test.qs:7:28] ─── X@test.qs:13:20 ─── ] ──── ] ───────────── [ ──────────── [ [Foo@test.qs:7:28] ─── X@test.qs:13:20 ─── ] ──── ] ──── ] ──── ] ──
-        q_2@test.qs:4:20 ───── [ ─────────────────── [ ───────────────────────── [ ──────────── [ [Foo@test.qs:7:28] ─── X@test.qs:13:20 ─── ] ──── ] ───────────── [ ──────────── [ [Foo@test.qs:7:28] ─── X@test.qs:13:20 ─── ] ──── ] ───────────── [ ──────────── [ [Foo@test.qs:7:28] ─── X@test.qs:13:20 ─── ] ──── ] ──── ] ──── ] ──
+        q_0@test.qs:4:20 ─ [ [Main] ─── [ [loop: 0..2@test.qs:5:20] ── [ [iter 1@test.qs:5:34] ── [ [Foo@test.qs:7:28] ─── X@test.qs:13:20 ─── ] ──── ] ─── [ [iter 2@test.qs:5:34] ── [ [Foo@test.qs:7:28] ─── X@test.qs:13:20 ─── ] ──── ] ─── [ [iter 3@test.qs:5:34] ── [ [Foo@test.qs:7:28] ─── X@test.qs:13:20 ─── ] ──── ] ──── ] ──── ] ──
+        q_1@test.qs:4:20 ───── [ ─────────────────── [ ────────────────────────── [ ───────────── [ [Foo@test.qs:7:28] ─── X@test.qs:13:20 ─── ] ──── ] ────────────── [ ───────────── [ [Foo@test.qs:7:28] ─── X@test.qs:13:20 ─── ] ──── ] ────────────── [ ───────────── [ [Foo@test.qs:7:28] ─── X@test.qs:13:20 ─── ] ──── ] ──── ] ──── ] ──
+        q_2@test.qs:4:20 ───── [ ─────────────────── [ ────────────────────────── [ ───────────── [ [Foo@test.qs:7:28] ─── X@test.qs:13:20 ─── ] ──── ] ────────────── [ ───────────── [ [Foo@test.qs:7:28] ─── X@test.qs:13:20 ─── ] ──── ] ────────────── [ ───────────── [ [Foo@test.qs:7:28] ─── X@test.qs:13:20 ─── ] ──── ] ──── ] ──── ] ──
     "#]]
     .assert_eq(&circ);
 }

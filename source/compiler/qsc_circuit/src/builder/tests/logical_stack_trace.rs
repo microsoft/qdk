@@ -218,12 +218,12 @@ fn multi_qubit_alloc_debug() {
         "A.Main()",
         ExecGraphConfig::Debug,
         &expect![[r#"
-            Main@A.qs:1:4 -> AllocateQubitArray@qsharp-library-source:core/qir.qs:17:8 -> loop: 0..size - 1@qsharp-library-source:core/qir.qs:17:29[1] -> (1)@qsharp-library-source:core/qir.qs:18:23 -> qubit_allocate(q_0)
-            Main@A.qs:1:4 -> AllocateQubitArray@qsharp-library-source:core/qir.qs:17:8 -> loop: 0..size - 1@qsharp-library-source:core/qir.qs:17:29[2] -> (2)@qsharp-library-source:core/qir.qs:18:23 -> qubit_allocate(q_1)
-            Main@A.qs:1:4 -> AllocateQubitArray@qsharp-library-source:core/qir.qs:17:8 -> loop: 0..size - 1@qsharp-library-source:core/qir.qs:17:29[3] -> (3)@qsharp-library-source:core/qir.qs:18:23 -> qubit_allocate(q_2)
-            Main@A.qs:1:4 -> ReleaseQubitArray@qsharp-library-source:core/qir.qs:24:8 -> loop: qs@qsharp-library-source:core/qir.qs:24:20[1] -> (1)@qsharp-library-source:core/qir.qs:25:12 -> qubit_release(q_0)
-            Main@A.qs:1:4 -> ReleaseQubitArray@qsharp-library-source:core/qir.qs:24:8 -> loop: qs@qsharp-library-source:core/qir.qs:24:20[2] -> (2)@qsharp-library-source:core/qir.qs:25:12 -> qubit_release(q_1)
-            Main@A.qs:1:4 -> ReleaseQubitArray@qsharp-library-source:core/qir.qs:24:8 -> loop: qs@qsharp-library-source:core/qir.qs:24:20[3] -> (3)@qsharp-library-source:core/qir.qs:25:12 -> qubit_release(q_2)
+            Main@A.qs:1:4 -> AllocateQubitArray@qsharp-library-source:core/qir.qs:17:8 -> loop: 0..size - 1@qsharp-library-source:core/qir.qs:17:29[1] -> iter 1@qsharp-library-source:core/qir.qs:18:23 -> qubit_allocate(q_0)
+            Main@A.qs:1:4 -> AllocateQubitArray@qsharp-library-source:core/qir.qs:17:8 -> loop: 0..size - 1@qsharp-library-source:core/qir.qs:17:29[2] -> iter 2@qsharp-library-source:core/qir.qs:18:23 -> qubit_allocate(q_1)
+            Main@A.qs:1:4 -> AllocateQubitArray@qsharp-library-source:core/qir.qs:17:8 -> loop: 0..size - 1@qsharp-library-source:core/qir.qs:17:29[3] -> iter 3@qsharp-library-source:core/qir.qs:18:23 -> qubit_allocate(q_2)
+            Main@A.qs:1:4 -> ReleaseQubitArray@qsharp-library-source:core/qir.qs:24:8 -> loop: qs@qsharp-library-source:core/qir.qs:24:20[1] -> iter 1@qsharp-library-source:core/qir.qs:25:12 -> qubit_release(q_0)
+            Main@A.qs:1:4 -> ReleaseQubitArray@qsharp-library-source:core/qir.qs:24:8 -> loop: qs@qsharp-library-source:core/qir.qs:24:20[2] -> iter 2@qsharp-library-source:core/qir.qs:25:12 -> qubit_release(q_1)
+            Main@A.qs:1:4 -> ReleaseQubitArray@qsharp-library-source:core/qir.qs:24:8 -> loop: qs@qsharp-library-source:core/qir.qs:24:20[3] -> iter 3@qsharp-library-source:core/qir.qs:25:12 -> qubit_release(q_2)
         "#]],
     );
 }
@@ -263,12 +263,12 @@ fn qubit_alloc_in_loop() {
         "A.Main()",
         ExecGraphConfig::Debug,
         &expect![[r#"
-            Main@A.qs:1:4 -> loop: 1..2@A.qs:1:18[1] -> (1)@A.qs:2:8 -> qubit_allocate(q_0)
-            Main@A.qs:1:4 -> loop: 1..2@A.qs:1:18[1] -> (1)@A.qs:3:8 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
-            Main@A.qs:1:4 -> loop: 1..2@A.qs:1:18[1] -> (1)@A.qs:2:8 -> qubit_release(q_0)
-            Main@A.qs:1:4 -> loop: 1..2@A.qs:1:18[2] -> (2)@A.qs:2:8 -> qubit_allocate(q_0)
-            Main@A.qs:1:4 -> loop: 1..2@A.qs:1:18[2] -> (2)@A.qs:3:8 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
-            Main@A.qs:1:4 -> loop: 1..2@A.qs:1:18[2] -> (2)@A.qs:2:8 -> qubit_release(q_0)
+            Main@A.qs:1:4 -> loop: 1..2@A.qs:1:18[1] -> iter 1@A.qs:2:8 -> qubit_allocate(q_0)
+            Main@A.qs:1:4 -> loop: 1..2@A.qs:1:18[1] -> iter 1@A.qs:3:8 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
+            Main@A.qs:1:4 -> loop: 1..2@A.qs:1:18[1] -> iter 1@A.qs:2:8 -> qubit_release(q_0)
+            Main@A.qs:1:4 -> loop: 1..2@A.qs:1:18[2] -> iter 2@A.qs:2:8 -> qubit_allocate(q_0)
+            Main@A.qs:1:4 -> loop: 1..2@A.qs:1:18[2] -> iter 2@A.qs:3:8 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
+            Main@A.qs:1:4 -> loop: 1..2@A.qs:1:18[2] -> iter 2@A.qs:2:8 -> qubit_release(q_0)
         "#]],
     );
 }
@@ -314,9 +314,9 @@ fn for_loop_debug() {
         ExecGraphConfig::Debug,
         &expect![[r#"
             Main@A.qs:1:4 -> qubit_allocate(q_0)
-            Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[1] -> (1)@A.qs:3:8 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
-            Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[2] -> (2)@A.qs:3:8 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
-            Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[3] -> (3)@A.qs:3:8 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
+            Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[1] -> iter 1@A.qs:3:8 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
+            Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[2] -> iter 2@A.qs:3:8 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
+            Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[3] -> iter 3@A.qs:3:8 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
             Main@A.qs:5:4 -> MResetZ@qsharp-library-source:Std/Measurement.qs:135:4 -> measure(MResetZ, q_0, Id(0))
             Main@A.qs:1:4 -> qubit_release(q_0)
         "#]],
@@ -368,9 +368,9 @@ fn nested_callables_and_loop() {
         ExecGraphConfig::Debug,
         &expect![[r#"
             Main@A.qs:1:4 -> qubit_allocate(q_0)
-            Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[1] -> (1)@A.qs:3:8 -> Foo@A.qs:9:4 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
-            Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[2] -> (2)@A.qs:3:8 -> Foo@A.qs:9:4 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
-            Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[3] -> (3)@A.qs:3:8 -> Foo@A.qs:9:4 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
+            Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[1] -> iter 1@A.qs:3:8 -> Foo@A.qs:9:4 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
+            Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[2] -> iter 2@A.qs:3:8 -> Foo@A.qs:9:4 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
+            Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[3] -> iter 3@A.qs:3:8 -> Foo@A.qs:9:4 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
             Main@A.qs:5:4 -> MResetZ@qsharp-library-source:Std/Measurement.qs:135:4 -> measure(MResetZ, q_0, Id(0))
             Main@A.qs:1:4 -> qubit_release(q_0)
         "#]],
@@ -397,9 +397,9 @@ fn repeat_until_loop() {
         ExecGraphConfig::Debug,
         &expect![[r#"
             Main@A.qs:1:4 -> qubit_allocate(q_0)
-            Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[1] -> (1)@A.qs:3:8 -> Foo@A.qs:9:4 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
-            Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[2] -> (2)@A.qs:3:8 -> Foo@A.qs:9:4 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
-            Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[3] -> (3)@A.qs:3:8 -> Foo@A.qs:9:4 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
+            Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[1] -> iter 1@A.qs:3:8 -> Foo@A.qs:9:4 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
+            Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[2] -> iter 2@A.qs:3:8 -> Foo@A.qs:9:4 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
+            Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[3] -> iter 3@A.qs:3:8 -> Foo@A.qs:9:4 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
             Main@A.qs:5:4 -> MResetZ@qsharp-library-source:Std/Measurement.qs:135:4 -> measure(MResetZ, q_0, Id(0))
             Main@A.qs:1:4 -> qubit_release(q_0)
         "#]],
@@ -427,8 +427,8 @@ fn while_loop() {
         ExecGraphConfig::Debug,
         &expect![[r#"
             Main@A.qs:1:4 -> qubit_allocate(q_0)
-            Main@A.qs:3:4 -> loop: i < 2@A.qs:3:18[1] -> (1)@A.qs:4:8 -> Foo@A.qs:10:4 -> Y@qsharp-library-source:Std/Intrinsic.qs:1082:8 -> gate(Y, targets=(q_0), controls=())
-            Main@A.qs:3:4 -> loop: i < 2@A.qs:3:18[2] -> (2)@A.qs:4:8 -> Foo@A.qs:10:4 -> Y@qsharp-library-source:Std/Intrinsic.qs:1082:8 -> gate(Y, targets=(q_0), controls=())
+            Main@A.qs:3:4 -> loop: i < 2@A.qs:3:18[1] -> iter 1@A.qs:4:8 -> Foo@A.qs:10:4 -> Y@qsharp-library-source:Std/Intrinsic.qs:1082:8 -> gate(Y, targets=(q_0), controls=())
+            Main@A.qs:3:4 -> loop: i < 2@A.qs:3:18[2] -> iter 2@A.qs:4:8 -> Foo@A.qs:10:4 -> Y@qsharp-library-source:Std/Intrinsic.qs:1082:8 -> gate(Y, targets=(q_0), controls=())
             Main@A.qs:1:4 -> qubit_release(q_0)
         "#]],
     );
@@ -454,16 +454,16 @@ fn nested_for_loop() {
         "A.Main()",
         ExecGraphConfig::Debug,
         &expect![[r#"
-            Main@A.qs:1:4 -> AllocateQubitArray@qsharp-library-source:core/qir.qs:17:8 -> loop: 0..size - 1@qsharp-library-source:core/qir.qs:17:29[1] -> (1)@qsharp-library-source:core/qir.qs:18:23 -> qubit_allocate(q_0)
-            Main@A.qs:1:4 -> AllocateQubitArray@qsharp-library-source:core/qir.qs:17:8 -> loop: 0..size - 1@qsharp-library-source:core/qir.qs:17:29[2] -> (2)@qsharp-library-source:core/qir.qs:18:23 -> qubit_allocate(q_1)
-            Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[1] -> (1)@A.qs:3:8 -> loop: 0..1@A.qs:3:22[1] -> (1)@A.qs:4:12 -> Foo@A.qs:10:4 -> X@qsharp-library-source:Std/Intrinsic.qs:1038:8 -> gate(X, targets=(q_0), controls=())
-            Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[1] -> (1)@A.qs:3:8 -> loop: 0..1@A.qs:3:22[2] -> (2)@A.qs:4:12 -> Foo@A.qs:10:4 -> X@qsharp-library-source:Std/Intrinsic.qs:1038:8 -> gate(X, targets=(q_1), controls=())
-            Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[2] -> (2)@A.qs:3:8 -> loop: 0..1@A.qs:3:22[1] -> (1)@A.qs:4:12 -> Foo@A.qs:10:4 -> X@qsharp-library-source:Std/Intrinsic.qs:1038:8 -> gate(X, targets=(q_0), controls=())
-            Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[2] -> (2)@A.qs:3:8 -> loop: 0..1@A.qs:3:22[2] -> (2)@A.qs:4:12 -> Foo@A.qs:10:4 -> X@qsharp-library-source:Std/Intrinsic.qs:1038:8 -> gate(X, targets=(q_1), controls=())
-            Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[3] -> (3)@A.qs:3:8 -> loop: 0..1@A.qs:3:22[1] -> (1)@A.qs:4:12 -> Foo@A.qs:10:4 -> X@qsharp-library-source:Std/Intrinsic.qs:1038:8 -> gate(X, targets=(q_0), controls=())
-            Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[3] -> (3)@A.qs:3:8 -> loop: 0..1@A.qs:3:22[2] -> (2)@A.qs:4:12 -> Foo@A.qs:10:4 -> X@qsharp-library-source:Std/Intrinsic.qs:1038:8 -> gate(X, targets=(q_1), controls=())
-            Main@A.qs:1:4 -> ReleaseQubitArray@qsharp-library-source:core/qir.qs:24:8 -> loop: qs@qsharp-library-source:core/qir.qs:24:20[1] -> (1)@qsharp-library-source:core/qir.qs:25:12 -> qubit_release(q_0)
-            Main@A.qs:1:4 -> ReleaseQubitArray@qsharp-library-source:core/qir.qs:24:8 -> loop: qs@qsharp-library-source:core/qir.qs:24:20[2] -> (2)@qsharp-library-source:core/qir.qs:25:12 -> qubit_release(q_1)
+            Main@A.qs:1:4 -> AllocateQubitArray@qsharp-library-source:core/qir.qs:17:8 -> loop: 0..size - 1@qsharp-library-source:core/qir.qs:17:29[1] -> iter 1@qsharp-library-source:core/qir.qs:18:23 -> qubit_allocate(q_0)
+            Main@A.qs:1:4 -> AllocateQubitArray@qsharp-library-source:core/qir.qs:17:8 -> loop: 0..size - 1@qsharp-library-source:core/qir.qs:17:29[2] -> iter 2@qsharp-library-source:core/qir.qs:18:23 -> qubit_allocate(q_1)
+            Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[1] -> iter 1@A.qs:3:8 -> loop: 0..1@A.qs:3:22[1] -> iter 1@A.qs:4:12 -> Foo@A.qs:10:4 -> X@qsharp-library-source:Std/Intrinsic.qs:1038:8 -> gate(X, targets=(q_0), controls=())
+            Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[1] -> iter 1@A.qs:3:8 -> loop: 0..1@A.qs:3:22[2] -> iter 2@A.qs:4:12 -> Foo@A.qs:10:4 -> X@qsharp-library-source:Std/Intrinsic.qs:1038:8 -> gate(X, targets=(q_1), controls=())
+            Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[2] -> iter 2@A.qs:3:8 -> loop: 0..1@A.qs:3:22[1] -> iter 1@A.qs:4:12 -> Foo@A.qs:10:4 -> X@qsharp-library-source:Std/Intrinsic.qs:1038:8 -> gate(X, targets=(q_0), controls=())
+            Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[2] -> iter 2@A.qs:3:8 -> loop: 0..1@A.qs:3:22[2] -> iter 2@A.qs:4:12 -> Foo@A.qs:10:4 -> X@qsharp-library-source:Std/Intrinsic.qs:1038:8 -> gate(X, targets=(q_1), controls=())
+            Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[3] -> iter 3@A.qs:3:8 -> loop: 0..1@A.qs:3:22[1] -> iter 1@A.qs:4:12 -> Foo@A.qs:10:4 -> X@qsharp-library-source:Std/Intrinsic.qs:1038:8 -> gate(X, targets=(q_0), controls=())
+            Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[3] -> iter 3@A.qs:3:8 -> loop: 0..1@A.qs:3:22[2] -> iter 2@A.qs:4:12 -> Foo@A.qs:10:4 -> X@qsharp-library-source:Std/Intrinsic.qs:1038:8 -> gate(X, targets=(q_1), controls=())
+            Main@A.qs:1:4 -> ReleaseQubitArray@qsharp-library-source:core/qir.qs:24:8 -> loop: qs@qsharp-library-source:core/qir.qs:24:20[1] -> iter 1@qsharp-library-source:core/qir.qs:25:12 -> qubit_release(q_0)
+            Main@A.qs:1:4 -> ReleaseQubitArray@qsharp-library-source:core/qir.qs:24:8 -> loop: qs@qsharp-library-source:core/qir.qs:24:20[2] -> iter 2@qsharp-library-source:core/qir.qs:25:12 -> qubit_release(q_1)
         "#]],
     );
 }
@@ -544,12 +544,12 @@ fn entry_expr_allocates_qubits() {
         }"},
         ExecGraphConfig::Debug,
         &expect![[r#"
-            AllocateQubitArray@qsharp-library-source:core/qir.qs:17:8 -> loop: 0..size - 1@qsharp-library-source:core/qir.qs:17:29[1] -> (1)@qsharp-library-source:core/qir.qs:18:23 -> qubit_allocate(q_0)
-            AllocateQubitArray@qsharp-library-source:core/qir.qs:17:8 -> loop: 0..size - 1@qsharp-library-source:core/qir.qs:17:29[2] -> (2)@qsharp-library-source:core/qir.qs:18:23 -> qubit_allocate(q_1)
+            AllocateQubitArray@qsharp-library-source:core/qir.qs:17:8 -> loop: 0..size - 1@qsharp-library-source:core/qir.qs:17:29[1] -> iter 1@qsharp-library-source:core/qir.qs:18:23 -> qubit_allocate(q_0)
+            AllocateQubitArray@qsharp-library-source:core/qir.qs:17:8 -> loop: 0..size - 1@qsharp-library-source:core/qir.qs:17:29[2] -> iter 2@qsharp-library-source:core/qir.qs:18:23 -> qubit_allocate(q_1)
             Test@A.qs:1:5 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> Measure@qsharp-library-source:Std/Intrinsic.qs:304:12 -> measure(M, q_0, Id(0))
             Test@A.qs:1:12 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> Measure@qsharp-library-source:Std/Intrinsic.qs:304:12 -> measure(M, q_1, Id(1))
-            ReleaseQubitArray@qsharp-library-source:core/qir.qs:24:8 -> loop: qs@qsharp-library-source:core/qir.qs:24:20[1] -> (1)@qsharp-library-source:core/qir.qs:25:12 -> qubit_release(q_0)
-            ReleaseQubitArray@qsharp-library-source:core/qir.qs:24:8 -> loop: qs@qsharp-library-source:core/qir.qs:24:20[2] -> (2)@qsharp-library-source:core/qir.qs:25:12 -> qubit_release(q_1)
+            ReleaseQubitArray@qsharp-library-source:core/qir.qs:24:8 -> loop: qs@qsharp-library-source:core/qir.qs:24:20[1] -> iter 1@qsharp-library-source:core/qir.qs:25:12 -> qubit_release(q_0)
+            ReleaseQubitArray@qsharp-library-source:core/qir.qs:24:8 -> loop: qs@qsharp-library-source:core/qir.qs:24:20[2] -> iter 2@qsharp-library-source:core/qir.qs:25:12 -> qubit_release(q_1)
         "#]],
     );
 }
@@ -582,9 +582,9 @@ fn adjoint_operation_in_entry_expr() {
         }"},
         ExecGraphConfig::Debug,
         &expect![[r#"
-            AllocateQubitArray@qsharp-library-source:core/qir.qs:17:8 -> loop: 0..size - 1@qsharp-library-source:core/qir.qs:17:29[1] -> (1)@qsharp-library-source:core/qir.qs:18:23 -> qubit_allocate(q_0)
+            AllocateQubitArray@qsharp-library-source:core/qir.qs:17:8 -> loop: 0..size - 1@qsharp-library-source:core/qir.qs:17:29[1] -> iter 1@qsharp-library-source:core/qir.qs:18:23 -> qubit_allocate(q_0)
             Foo†@A.qs:8:8 -> Y@qsharp-library-source:Std/Intrinsic.qs:1082:8 -> gate(Y, targets=(q_0), controls=())
-            ReleaseQubitArray@qsharp-library-source:core/qir.qs:24:8 -> loop: qs@qsharp-library-source:core/qir.qs:24:20[1] -> (1)@qsharp-library-source:core/qir.qs:25:12 -> qubit_release(q_0)
+            ReleaseQubitArray@qsharp-library-source:core/qir.qs:24:8 -> loop: qs@qsharp-library-source:core/qir.qs:24:20[1] -> iter 1@qsharp-library-source:core/qir.qs:25:12 -> qubit_release(q_0)
         "#]],
     );
 }
@@ -603,9 +603,9 @@ fn lambda_in_entry_expr() {
         }"},
         ExecGraphConfig::Debug,
         &expect![[r#"
-            AllocateQubitArray@qsharp-library-source:core/qir.qs:17:8 -> loop: 0..size - 1@qsharp-library-source:core/qir.qs:17:29[1] -> (1)@qsharp-library-source:core/qir.qs:18:23 -> qubit_allocate(q_0)
+            AllocateQubitArray@qsharp-library-source:core/qir.qs:17:8 -> loop: 0..size - 1@qsharp-library-source:core/qir.qs:17:29[1] -> iter 1@qsharp-library-source:core/qir.qs:18:23 -> qubit_allocate(q_0)
             <lambda>@<entry>:2:10 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
-            ReleaseQubitArray@qsharp-library-source:core/qir.qs:24:8 -> loop: qs@qsharp-library-source:core/qir.qs:24:20[1] -> (1)@qsharp-library-source:core/qir.qs:25:12 -> qubit_release(q_0)
+            ReleaseQubitArray@qsharp-library-source:core/qir.qs:24:8 -> loop: qs@qsharp-library-source:core/qir.qs:24:20[1] -> iter 1@qsharp-library-source:core/qir.qs:25:12 -> qubit_release(q_0)
         "#]],
     );
 }
