@@ -15,7 +15,7 @@ export type RenderOptions = {
   animationMs?: number; // global animation duration in ms (default 200ms)
   // Minimum probability (0..1) for a state to be shown as its own column.
   // States below this threshold will be aggregated into the Others bucket.
-  // Default: 0.001 (0.1%)
+  // Default: 0 (thresholding off)
   minProbThreshold?: number;
 };
 
@@ -80,7 +80,7 @@ export const updateStatePanelFromMap = (
     0,
     Math.min(
       1,
-      typeof opts.minProbThreshold === "number" ? opts.minProbThreshold : 0.001,
+      typeof opts.minProbThreshold === "number" ? opts.minProbThreshold : 0.0,
     ),
   );
   // Apply threshold against normalized mass so the value represents a percentage of total
@@ -165,13 +165,15 @@ export const renderDefaultStatePanel = (
 export const createStatePanel = (): HTMLElement => {
   const panel = document.createElement("div");
   panel.className = "state-panel";
+  // Start collapsed by default
+  panel.classList.add("collapsed");
 
   const edge = document.createElement("div");
   edge.className = "state-edge";
   edge.setAttribute("role", "button");
   edge.setAttribute("tabindex", "0");
   edge.setAttribute("aria-label", "Toggle state panel");
-  edge.setAttribute("aria-expanded", "true");
+  edge.setAttribute("aria-expanded", "false");
   const edgeText = document.createElement("span");
   edgeText.className = "state-edge-text";
   edgeText.textContent = "State Vizualization";

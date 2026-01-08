@@ -23,7 +23,7 @@ let vizEndianness: Endianness = "big";
 type DataMode = "live" | "mock";
 let vizDataMode: DataMode = "live";
 let vizMockSet = 0;
-let vizMinProbThreshold = 0.001; // 0..1 default 0.1%
+let vizMinProbThreshold = 0.0; // 0..1 default 0 (thresholding off)
 // Toggle to show/hide the developer toolbar for the state panel
 const SHOW_STATE_DEV_TOOLBAR = true;
 
@@ -182,7 +182,7 @@ const createPanel = (container: HTMLElement): void => {
       inputThresh.min = "0";
       inputThresh.max = "100";
       inputThresh.step = "0.1";
-      inputThresh.value = "0.1";
+      inputThresh.value = "0.0";
       inputThresh.title =
         "States below this percentage are aggregated into Others";
       inputThresh.addEventListener("change", () => {
