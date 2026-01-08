@@ -5,7 +5,7 @@ import Std.Arrays.*;
 
 import Utils.*;
 import Multicontrolled.*;
-import SelectRecursive.*;
+import RecursiveSelect.*;
 import LookupViaPP.*;
 import PhaseLookup.*;
 
@@ -71,33 +71,29 @@ function UnselectViaSplitPP() : Int {
 struct SelectOptions {
     // Specifies select algorithm. Options:
     // `SelectViaStd`, `SelectViaMCX`, `SelectViaRecursion`, `SelectViaPP`, `SelectViaSplitPP`.
-    selectAlgorithm: Int,
+    selectAlgorithm : Int,
 
     // Specifies unselect algorithm. Options:
     // `UnselectViaStd`, `UnselectViaSelect`, `UnselectViaMCX`, `UnselectViaPP`, `UnselectViaSplitPP`.
-    unselectAlgorithm: Int,
+    unselectAlgorithm : Int,
 
     // If `true`, an error is raised if data is longer than addressable space.
     // If `false`, longer data beyond addressable space is ignored.
-    failOnLongData: Bool,
+    failOnLongData : Bool,
 
     // If `true`, an error is raised if data is shorter than addressable space.
     // If `false`, shorter data is tolerated according to respectExcessiveAddress.
-    failOnShortData: Bool,
+    failOnShortData : Bool,
 
     // If `true`, all address qubits are respected and used.
     // Addressing beyond data length yields the same result as if the data was padded with `false` values.
     // If `false`, address qubits that aren't necessary for addressing data are ignored.
     // Addressing beyond data length yields undefined results.
-    respectExcessiveAddress: Bool,
-
-    // useMeasurementUncomputation: Bool,
-    // usePowerProductUncomputation: Bool,
-    // addressSplitPoint: Double,
+    respectExcessiveAddress : Bool,
 }
 
 function DefaultSelectOptions() : SelectOptions {
-     new SelectOptions {
+    new SelectOptions {
         selectAlgorithm = SelectViaSplitPP(),
         unselectAlgorithm = UnselectViaSplitPP(),
         failOnLongData = false,
@@ -107,10 +103,10 @@ function DefaultSelectOptions() : SelectOptions {
 }
 
 operation Select(
-    options: SelectOptions,
-    data: Bool[][],
-    address: Qubit[],
-    target: Qubit[]
+    options : SelectOptions,
+    data : Bool[][],
+    address : Qubit[],
+    target : Qubit[]
 ) : Unit is Adj + Ctl {
     body (...) {
         if (options.selectAlgorithm == SelectViaStd()) {
@@ -129,7 +125,11 @@ operation Select(
 
         if options.selectAlgorithm == SelectViaRecursion() {
             // Recursive select implementation.
-            LookupViaRecursion(input.fitData, input.fitAddress, target);
+            if (options.respectExcessiveAddress) {
+                RecursiveLookup(input.fitData, input.fitAddress, target);
+            } else {
+                RecursiveLookupOpt(input.fitData, input.fitAddress, target);
+            }
             return ();
         }
 
@@ -160,6 +160,8 @@ operation Select(
             return ();
         }
 
+        let input = PrepareAddressAndData(options, address, data);
+
         if options.selectAlgorithm == SelectViaMCX() {
             // This is already a multicontrolled approach. Just add more controls.
             Controlled LookupViaMCX(controls, (data, address, target));
@@ -177,14 +179,16 @@ operation Select(
                 Tail(aux)
             };
 
-            let input = PrepareAddressAndData(options, address, data);
-
             if options.selectAlgorithm == SelectViaRecursion() {
                 // Recursive select implementation.
-                ControlledRecursiveLookup(single_control, input.fitData, input.fitAddress, target);
+                if (options.respectExcessiveAddress) {
+                    ControlledRecursiveSelect(single_control, input.fitData, input.fitAddress, target);
+                } else {
+                    ControlledRecursiveSelectOpt(single_control, input.fitData, input.fitAddress, target);
+                }
                 return ();
             }
-            
+
             // To use control qubit as an extra address qubit we need to respect entire address.
             let options_a = new SelectOptions {
                 selectAlgorithm = options.selectAlgorithm,

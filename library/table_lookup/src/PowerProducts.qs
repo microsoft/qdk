@@ -41,8 +41,7 @@ operation ConstructPowerProducts(qubits : Qubit[], aux_qubits : Qubit[]) : Qubit
             power_products += [next_power_product];
         }
     }
-    Fact(next_available == Length(aux_qubits),
-        "ConstructPowerProducts: All auxilliary qubits should be used.");
+    Fact(next_available == Length(aux_qubits), "ConstructPowerProducts: All auxilliary qubits should be used.");
     return power_products;
 }
 
@@ -67,8 +66,7 @@ operation DestructPowerProducts(products : Qubit[]) : Unit {
     }
     // For no-dummy version, length is 2^n - 1, so we need to work with 2^n
     let extended_len = len + 1;
-    Fact((extended_len &&& (extended_len-1)) == 0,
-        "DestructPowerProducts: Length + 1 of a qubit register should be a power of 2");
+    Fact((extended_len &&& (extended_len-1)) == 0, "DestructPowerProducts: Length + 1 of a qubit register should be a power of 2");
 
     // At index h-1 a source qubit is located (shifted by 1 compared to original version).
     // To the right are all power products ending in it.
@@ -126,7 +124,7 @@ operation TestCreateDestructPowerProducts() : Unit {
     }
 }
 
-operation CheckPowerProducts(nQubits : Int, address_value: Int) : Unit {
+operation CheckPowerProducts(nQubits : Int, address_value : Int) : Unit {
     // Prepare qubit register.
     Fact(nQubits >= 0, "Number of qubits must be non-negative.");
     use qs = Qubit[nQubits];
@@ -159,8 +157,7 @@ operation CheckPowerProducts(nQubits : Int, address_value: Int) : Unit {
                 X(products[index]);
             }
         } apply {
-            Fact(CheckZero(products[index]),
-                $"Power product at index {index} should match expected value {expected_value}.");
+            Fact(CheckZero(products[index]), $"Power product at index {index} should match expected value {expected_value}.");
         }
     }
 

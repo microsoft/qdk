@@ -10,15 +10,15 @@ import Select.*;
 
 struct AddressAndData {
     // Lower part of the address needed to index into data.
-    fitAddress: Qubit[],
+    fitAddress : Qubit[],
     // Data padded or trimmed to fit needed address space.
-    fitData: Bool[][],
+    fitData : Bool[][],
 }
 
 function PrepareAddressAndData(
-    options: SelectOptions,
-    address: Qubit[],
-    data: Bool[][]
+    options : SelectOptions,
+    address : Qubit[],
+    data : Bool[][]
 ) : AddressAndData {
     let address_size = Length(address);
     let address_space = 1 <<< address_size;
@@ -33,7 +33,7 @@ function PrepareAddressAndData(
     }
 
     if (data_length > address_space) {
-         // Truncate longer data if needed.
+        // Truncate longer data if needed.
         if options.failOnLongData {
             fail $"Data length {data_length} exceeds address space {address_space}.";
         }
@@ -46,7 +46,7 @@ function PrepareAddressAndData(
     // Data is shorter than addressable space. Truncate excessive address if needed.
 
     if (not options.failOnShortData) {
-         fail $"Data length {data_length} is shorter than address space {address_space}.";
+        fail $"Data length {data_length} is shorter than address space {address_space}.";
     }
 
     if (options.respectExcessiveAddress) {
@@ -66,12 +66,10 @@ function PrepareAddressAndData(
     }
 
     let address_size_needed = BitSizeI(data_length - 1);
-    Fact(address_size_needed <= address_size,
-        "Internal error: address_size_needed should be at most address_size.");
+    Fact(address_size_needed <= address_size, "Internal error: address_size_needed should be at most address_size.");
 
     let address_space_needed = 1 <<< address_size_needed;
-    Fact(address_space_needed >= data_length,
-        "Internal error: address_space_needed should be at least data_length.");
+    Fact(address_space_needed >= data_length, "Internal error: address_space_needed should be at least data_length.");
 
     return new AddressAndData {
         // Trim address qubits to needed size.
@@ -152,13 +150,13 @@ function BinaryInnerProduct(data : Bool[], measurements : Bool[]) : Bool {
 /// # Summary
 /// Combines multiple control qubits into a single control qubit using auxiliary qubits.
 /// Logarithmic depth and linear number of auxiliary qubits are used.
-operation CombineControls(controls: Qubit[], aux: Qubit[]) : Unit is Adj {
+operation CombineControls(controls : Qubit[], aux : Qubit[]) : Unit is Adj {
     Fact(Length(controls) >= 1, "CombineControls: controls must not be empty.");
     Fact(Length(controls) == Length(aux) + 1, "CombineControls: control and aux length mismatch.");
     let combined = controls + aux;
     let aux_offset = Length(controls);
     for i in 0..aux_offset-2 {
-        AND(combined[i*2], combined[i*2+1], combined[aux_offset + i]);
+        AND(combined[i * 2], combined[i * 2 + 1], combined[aux_offset + i]);
     }
 }
 

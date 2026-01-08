@@ -11,7 +11,7 @@ import Utils.*;
 
 /// # Summary
 /// Implements phaseup operation using power products without address split.
-operation PhaseLookupViaPP(address: Qubit[], data: Bool[]): Unit {
+operation PhaseLookupViaPP(address : Qubit[], data : Bool[]) : Unit {
     let data_length = Length(data);
     let address_size = Length(address);
     let addressable_space = 1 <<< address_size;
@@ -22,7 +22,7 @@ operation PhaseLookupViaPP(address: Qubit[], data: Bool[]): Unit {
     } else {
         data
     };
-    use aux_qubits = Qubit[ GetAuxCountForPP(address_size) ];
+    use aux_qubits = Qubit[GetAuxCountForPP(address_size)];
     // Transform data from minterm coefficients to polynomial coefficients.
     let corrections = FastMobiusTransform(data);
     let products = ConstructPowerProducts(address, aux_qubits);
@@ -30,7 +30,7 @@ operation PhaseLookupViaPP(address: Qubit[], data: Bool[]): Unit {
     DestructPowerProducts(products);
 }
 
-operation ApplyPhasingViaZ(qs: Qubit[], mask: Bool[]) : Unit {
+operation ApplyPhasingViaZ(qs : Qubit[], mask : Bool[]) : Unit {
     // Ignore the first element of mask, it affects the global phase.
     ApplyPauliFromBitString(PauliZ, true, Std.Arrays.Rest(mask), qs);
 
@@ -201,7 +201,7 @@ operation UnlookupViaPhaseup(
         Fact(
             Length(data[0]) == Length(target),
             "Number of data bits must equal number of target qubits"
-        );        
+        );
         ApplyPauliFromBitString(PauliX, true, data[0], target);
     } else {
         // Check that address size is enough to address all data entries
@@ -226,7 +226,7 @@ operation UnlookupViaPhaseup(
 // Tests
 
 @Test()
-operation TestPhaseLookupViaPPandZ(): Unit {
+operation TestPhaseLookupViaPPandZ() : Unit {
     let address_size = 3;
     let data_length = 2^address_size;
     let data_value_count = 2^data_length;
@@ -243,7 +243,7 @@ operation TestPhaseLookupViaPPandZ(): Unit {
 }
 
 @Test()
-operation TestPhaseLookupViaPPandCZ(): Unit {
+operation TestPhaseLookupViaPPandCZ() : Unit {
     let address_size = 3;
     let data_length = 2^address_size;
     let data_value_count = 2^data_length;

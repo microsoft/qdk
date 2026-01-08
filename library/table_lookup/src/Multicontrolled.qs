@@ -3,7 +3,8 @@
 
 // Simple implementations of lookup operations using multicontrolled X gates.
 // Data shorter or longer than addressable space is allowed:
-// Longer data is ignored.
+// * Longer data is ignored.
+// * Shorter data is treated as if it is padded with false values.
 // Little-endian format is used throughout.
 
 import Std.Diagnostics.*;
@@ -12,13 +13,13 @@ import Std.Math.*;
 // Lookup of a single bit using multicontrolled X gates.
 operation BitLookupViaMCX(data : Bool[], address : Qubit[], target : Qubit) : Unit is Adj + Ctl {
     let address_size = Length(address);
-    let address_space = 2^address_size;
+    let addressable_space = 2^address_size;
     let data_length = Length(data);
-    for basis_vector in 0..MinI(data_length, address_space)-1 {
+    for basis_vector in 0..MinI(data_length, addressable_space)-1 {
         if data[basis_vector] {
             within {
                 // Invert address qubits for 0-es in basis_vector
-                ApplyXorInPlace(address_space-1-basis_vector, address)
+                ApplyXorInPlace(addressable_space-1-basis_vector, address)
             } apply {
                 Controlled X(address, target);
             }
@@ -40,15 +41,15 @@ operation PhaseLookupViaMCX(data : Bool[], address : Qubit[]) : Unit is Adj + Ct
 // Lookup of mult-bit register using multicontrolled X gates.
 operation LookupViaMCX(data : Bool[][], address : Qubit[], target : Qubit[]) : Unit is Adj + Ctl {
     let address_size = Length(address);
-    let address_space = 2^address_size;
+    let addressable_space = 2^address_size;
     let data_length = Length(data);
     let target_size = Length(target);
-    for basis_vector in 0..MinI(data_length, address_space)-1 {
+    for basis_vector in 0..MinI(data_length, addressable_space)-1 {
         let data_vector = data[basis_vector];
         Fact(Length(data_vector) == target_size, $"Data vector length {Length(data_vector)} must match target size {target_size}.");
         within {
             // Invert address qubits for 0-es in basis_vector
-            ApplyXorInPlace(address_space-1-basis_vector, address)
+            ApplyXorInPlace(addressable_space-1-basis_vector, address)
         } apply {
             Controlled ApplyPauliFromBitString(address, (PauliX, true, data_vector, target));
         }
@@ -61,15 +62,7 @@ operation LookupViaMCX(data : Bool[][], address : Qubit[], target : Qubit[]) : U
 @Test()
 operation CheckLookupViaMCX() : Unit {
     let n = 3;
-    let data =
-        [[true, false, false],
-        [false, true, false],
-        [false, false, true],
-        [false, false, false],
-        [true, true, false],
-        [false, true, true],
-        [true, false, true],
-        [true, true, true]];
+    let data = [[true, false, false], [false, true, false], [false, false, true], [false, false, false], [true, true, false], [false, true, true], [true, false, true], [true, true, true]];
 
     use addr = Qubit[n];
     use target = Qubit[3];
@@ -90,10 +83,7 @@ operation CheckLookupViaMCX() : Unit {
 operation CheckLookupViaMCXShorterData() : Unit {
     let n = 3;
     let width = 3;
-    let data =
-        [[true, false, false],
-        [false, true, false],
-        [false, false, true]];
+    let data = [[true, false, false], [false, true, false], [false, false, true]];
 
     use addr = Qubit[n];
     use target = Qubit[width];
@@ -111,7 +101,7 @@ operation CheckLookupViaMCXShorterData() : Unit {
             // For out-of-bounds indices, target should remain |0...0>
         }
         let zero = CheckAllZero(target);
-        Fact(zero, $"Target should match { expected_data } at index {i}.");
+        Fact(zero, $"Target should match {expected_data} at index {i}.");
         ResetAll(addr);
     }
 }
@@ -120,14 +110,7 @@ operation CheckLookupViaMCXShorterData() : Unit {
 operation CheckLookupViaMCXLongerData() : Unit {
     let n = 2;
     let width = 3;
-    let data =
-        [[true, false, false],
-        [false, true, false],
-        [false, false, true],
-        [false, false, false],
-        [true, true, false],
-        [false, true, true],
-        [true, true, true]];
+    let data = [[true, false, false], [false, true, false], [false, false, true], [false, false, false], [true, true, false], [false, true, true], [true, true, true]];
 
     use addr = Qubit[n];
     use target = Qubit[width];
@@ -147,11 +130,7 @@ operation CheckLookupViaMCXLongerData() : Unit {
 @Test()
 operation CheckBitLookupViaMCX() : Unit {
     let n = 4;
-    let data =
-        [true, false, true, false,
-        false, false, false, false,
-        false, false, false, false,
-        false, false, true, true];
+    let data = [true, false, true, false, false, false, false, false, false, false, false, false, false, false, true, true];
 
     use addr = Qubit[n];
     use target = Qubit();
@@ -171,16 +150,8 @@ operation CheckBitLookupViaMCX() : Unit {
 @Test()
 operation TestPhaseLookupViaMCX() : Unit {
     let n = 4;
-    let data =
-        [true, false, true, false,
-        false, false, false, false,
-        false, false, false, false,
-        false, false, true, true];
-    let coeffs =
-        [-0.25, 0.25, -0.25, 0.25,
-        0.25, 0.25, 0.25, 0.25,
-        0.25, 0.25, 0.25, 0.25,
-        0.25, 0.25, -0.25, -0.25];
+    let data = [true, false, true, false, false, false, false, false, false, false, false, false, false, false, true, true];
+    let coeffs = [-0.25, 0.25, -0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, -0.25, -0.25];
 
     use qs = Qubit[n];
     ApplyToEach(H, qs);
@@ -193,18 +164,14 @@ operation TestPhaseLookupViaMCX() : Unit {
 }
 
 @Test()
-operation TestBitLookupViaMCXMatchesStd(): Unit {
+operation TestBitLookupViaMCXMatchesStd() : Unit {
     let n = 4;
-    let data =
-        [true, false, true, false,
-        false, false, false, false,
-        true, false, false, true,
-        false, false, true, true];
+    let data = [true, false, true, false, false, false, false, false, true, false, false, true, false, false, true, true];
     let select_data = Std.Arrays.Mapped(x -> [x], data);
 
     // Use adjoint Std.TableLookup.Select because this check takes adjoint of that.
     let equal = CheckOperationsAreEqual(
-        n+1,
+        n + 1,
         qs => BitLookupViaMCX(data, qs[0..n-1], qs[n]),
         qs => Adjoint Std.TableLookup.Select(select_data, qs[0..n-1], qs[n..n])
     );
@@ -212,18 +179,10 @@ operation TestBitLookupViaMCXMatchesStd(): Unit {
 }
 
 @Test()
-operation TestLookupViaMCXMatchesStd(): Unit {
+operation TestLookupViaMCXMatchesStd() : Unit {
     let n = 3;
     let width = 4;
-    let data =
-        [[true, false, false, false],
-        [false, true, false, false],
-        [false, false, true, false],
-        [false, false, false, false],
-        [true, true, false, false],
-        [false, true, true, false],
-        [true, false, true, true],
-        [true, true, true, true]];
+    let data = [[true, false, false, false], [false, true, false, false], [false, false, true, false], [false, false, false, false], [true, true, false, false], [false, true, true, false], [true, false, true, true], [true, true, true, true]];
 
     use addr = Qubit[n];
     use target = Qubit[width];

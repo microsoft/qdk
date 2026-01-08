@@ -103,20 +103,20 @@ operation ApplyFlips(
         }
 
         for row in 0..m2-2 {
-            if (mask_as_matrix[row+1][0]) {
+            if (mask_as_matrix[row + 1][0]) {
                 CNOT(products2[row], target[bit_index]);
             }
         }
 
         for col in 0..m1-2 {
-            if (mask_as_matrix[0][col+1]) {
+            if (mask_as_matrix[0][col + 1]) {
                 CNOT(products1[col], target[bit_index]);
             }
         }
 
         for row in 0..m2-2 {
             for col in 0..m1-2 {
-                if mask_as_matrix[row+1][col+1] {
+                if mask_as_matrix[row + 1][col + 1] {
                     CCNOT(products2[row], products1[col], target[bit_index]);
                 }
             }
@@ -131,15 +131,7 @@ operation ApplyFlips(
 @Test()
 operation CheckLookupViaPP() : Unit {
     let n = 3;
-    let data =
-        [[true, false, false],
-        [false, true, false],
-        [false, false, true],
-        [false, false, false],
-        [true, true, false],
-        [false, true, true],
-        [true, false, true],
-        [true, true, true]];
+    let data = [[true, false, false], [false, true, false], [false, false, true], [false, false, false], [true, true, false], [false, true, true], [true, false, true], [true, true, true]];
 
     use addr = Qubit[n];
     use target = Qubit[3];
@@ -160,10 +152,7 @@ operation CheckLookupViaPP() : Unit {
 operation CheckLookupViaPPShorterData() : Unit {
     let n = 3;
     let width = 3;
-    let data =
-        [[true, false, false],
-        [false, true, false],
-        [false, false, true]];
+    let data = [[true, false, false], [false, true, false], [false, false, true]];
 
     use addr = Qubit[n];
     use target = Qubit[width];
@@ -181,7 +170,7 @@ operation CheckLookupViaPPShorterData() : Unit {
             // For out-of-bounds indices, target should remain |0...0>
         }
         let zero = CheckAllZero(target);
-        Fact(zero, $"Target should match { expected_data } at index {i}.");
+        Fact(zero, $"Target should match {expected_data} at index {i}.");
         ResetAll(addr);
     }
 }
@@ -190,14 +179,7 @@ operation CheckLookupViaPPShorterData() : Unit {
 operation CheckLookupViaPPLongerData() : Unit {
     let n = 2;
     let width = 3;
-    let data =
-        [[true, false, false],
-        [false, true, false],
-        [false, false, true],
-        [false, false, false],
-        [true, true, false],
-        [false, true, true],
-        [true, true, true]];
+    let data = [[true, false, false], [false, true, false], [false, false, true], [false, false, false], [true, true, false], [false, true, true], [true, true, true]];
 
     use addr = Qubit[n];
     use target = Qubit[width];
@@ -215,18 +197,10 @@ operation CheckLookupViaPPLongerData() : Unit {
 }
 
 @Test()
-operation TestLookupViaPPMatchesStd(): Unit {
+operation TestLookupViaPPMatchesStd() : Unit {
     let n = 3;
     let width = 4;
-    let data =
-        [[true, false, false, false],
-        [false, true, false, false],
-        [false, false, true, false],
-        [false, false, false, false],
-        [true, true, false, false],
-        [false, true, true, false],
-        [true, false, true, true],
-        [true, true, true, true]];
+    let data = [[true, false, false, false], [false, true, false, false], [false, false, true, false], [false, false, false, false], [true, true, false, false], [false, true, true, false], [true, false, true, true], [true, true, true, true]];
 
     use addr = Qubit[n];
     use target = Qubit[width];
@@ -243,15 +217,7 @@ operation TestLookupViaPPMatchesStd(): Unit {
 @Test()
 operation CheckLookupViaSplitPP() : Unit {
     let n = 3;
-    let data =
-        [[true, false, false],
-        [false, true, false],
-        [false, false, true],
-        [false, false, false],
-        [true, true, false],
-        [false, true, true],
-        [true, false, true],
-        [true, true, true]];
+    let data = [[true, false, false], [false, true, false], [false, false, true], [false, false, false], [true, true, false], [false, true, true], [true, false, true], [true, true, true]];
 
     use addr = Qubit[n];
     use target = Qubit[3];
@@ -272,10 +238,7 @@ operation CheckLookupViaSplitPP() : Unit {
 operation CheckLookupViaSplitPPShorterData() : Unit {
     let n = 3;
     let width = 3;
-    let data =
-        [[true, false, false],
-        [false, true, false],
-        [false, false, true]];
+    let data = [[true, false, false], [false, true, false], [false, false, true]];
 
     use addr = Qubit[n];
     use target = Qubit[width];
@@ -293,7 +256,7 @@ operation CheckLookupViaSplitPPShorterData() : Unit {
             // For out-of-bounds indices, target should remain |0...0>
         }
         let zero = CheckAllZero(target);
-        Fact(zero, $"Target should match { expected_data } at index {i}.");
+        Fact(zero, $"Target should match {expected_data} at index {i}.");
         ResetAll(addr);
     }
 }
@@ -302,14 +265,7 @@ operation CheckLookupViaSplitPPShorterData() : Unit {
 operation CheckLookupViaSplitPPLongerData() : Unit {
     let n = 2;
     let width = 3;
-    let data =
-        [[true, false, false],
-        [false, true, false],
-        [false, false, true],
-        [false, false, false],
-        [true, true, false],
-        [false, true, true],
-        [true, true, true]];
+    let data = [[true, false, false], [false, true, false], [false, false, true], [false, false, false], [true, true, false], [false, true, true], [true, true, true]];
 
     use addr = Qubit[n];
     use target = Qubit[width];
@@ -327,18 +283,10 @@ operation CheckLookupViaSplitPPLongerData() : Unit {
 }
 
 @Test()
-operation TestLookupViaSplitPPMatchesStd(): Unit {
+operation TestLookupViaSplitPPMatchesStd() : Unit {
     let n = 3;
     let width = 4;
-    let data =
-        [[true, false, false, false],
-        [false, true, false, false],
-        [false, false, true, false],
-        [false, false, false, false],
-        [true, true, false, false],
-        [false, true, true, false],
-        [true, false, true, true],
-        [true, true, true, true]];
+    let data = [[true, false, false, false], [false, true, false, false], [false, false, true, false], [false, false, false, false], [true, true, false, false], [false, true, true, false], [true, false, true, true], [true, true, true, true]];
 
     use addr = Qubit[n];
     use target = Qubit[width];
