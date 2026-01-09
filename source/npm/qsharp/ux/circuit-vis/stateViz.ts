@@ -3,15 +3,11 @@
 
 export type RenderOptions = {
   maxColumns?: number;
-  heightPx?: number;
-  widthPx?: number;
   phaseColorMap?: (phaseRad: number) => string;
   normalize?: boolean; // normalize probabilities to unit mass (default true)
   minColumnWidth?: number; // minimum width per column to avoid label collisions
-  columnSpacingPx?: number; // horizontal spacing between columns (default 3)
   minPanelWidthPx?: number; // prescribed minimum panel width in pixels
   maxPanelWidthPx?: number; // prescribed maximum panel width in pixels
-  uiScale?: number; // global UI scale multiplier (default 1)
   animationMs?: number; // global animation duration in ms (default 200ms)
   // Minimum probability (0..1) for a state to be shown as its own column.
   // States below this threshold will be aggregated into the Others bucket.
@@ -19,49 +15,49 @@ export type RenderOptions = {
   minProbThreshold?: number;
 };
 
-// Visualization config constants (tweakable defaults)
+// Visualization config constants
 const VIZ = {
-  defaultUiScale: 1,
   defaultAnimationMs: 200,
-  baseHeightUnscaled: 80,
-  marginLeftUnscaled: 36,
-  marginRightUnscaled: 36,
-  marginBottomUnscaled: 62,
+  baseHeight: 80,
+  marginLeft: 36,
+  marginRight: 36,
+  marginBottom: 62,
   minPanelWidthPx: 80,
-  defaultMinPanelWidthUnscaled: 190,
-  defaultBarSpacingUnscaled: 4,
-  minColumnWidthFloorUnscaled: 16,
-  defaultMinColumnWidthUnscaled: 36,
+  defaultMinPanelWidth: 190,
+  columnSpacing: 4,
+  minColumnWidthFloor: 16,
+  defaultMinColumnWidth: 36,
   minMaxColumns: 4,
   defaultMaxColumns: 16,
   labelLongThresholdChars: 4,
   maxColumnsWithLabels: 16,
-  barHeaderPaddingUnscaled: 36,
-  phaseHeaderPaddingUnscaled: 26,
-  stateHeaderPaddingUnscaled: 26,
-  percentLabelPaddingUnscaled: 29,
-  phaseLabelPaddingUnscaled: 39,
+  barHeaderPadding: 36,
+  phaseHeaderPadding: 26,
+  stateHeaderPadding: 26,
+  percentLabelPadding: 29,
+  phaseLabelPadding: 39,
   marginBottomMinPx: 48,
   extraBottomPaddingPx: 24,
-  columnAreaHeightUnscaled: 234,
+  columnAreaHeight: 234,
   minProbEpsilon: 1e-12,
   headerLabelXOffset: -8,
   headerLabelYOffset: 9,
-  percentLabelOffsetUnscaled: 8,
-  phaseRadiusBaseUnscaled: 12,
+  percentLabelOffset: 8,
+  phaseRadiusBase: 12,
   phaseRadiusThreshold: 7.5,
-  padXUnscaled: 2,
+  padX: 2,
   phaseDotFrac: 0.25,
   phaseDotRadiusMinPx: 1.5,
-  phaseTextBottomPadUnscaled: 6,
-  phaseContentExtraYUnscaled: 10,
-  verticalLabelLineHeightUnscaled: 14,
-  verticalLabelExtraBaseUnscaled: 12,
-  stateLabelVerticalOffsetUnscaled: 4,
-  stateLabelHorizontalOffsetUnscaled: 16,
-  contentHeightExtraUnscaled: 10,
-  edgePadUnscaled: 36,
+  phaseTextBottomPad: 6,
+  phaseContentExtraY: 10,
+  verticalLabelLineHeight: 14,
+  verticalLabelExtraBase: 12,
+  stateLabelVerticalOffset: 4,
+  stateLabelHorizontalOffset: 16,
+  contentHeightExtra: 10,
+  edgePad: 36,
   emptyStateFlexBasisPx: 360,
+  rowLabelFallbackPx: 24,
 };
 
 // Entry Points
@@ -84,14 +80,14 @@ export const updateStatePanelFromMap = (
 
   // Handle zero-qubit map by showing the empty-state message and hiding SVG
   if (!guessN || guessN <= 0) {
-    _showEmptyState(panel);
+    showEmptyState(panel);
     return;
   }
 
   // Ensure SVG is visible and remove any empty-state message when rendering data
-  _showContentState(panel);
+  showContentState(panel);
   const raw = entries.map(([label, a]) => {
-    const { prob, phase } = _toPolar(a);
+    const { prob, phase } = toPolar(a);
     return { label, prob, phase } as ColumnDatum;
   });
   const doNormalize = opts.normalize ?? true;
@@ -195,10 +191,10 @@ export const renderDefaultStatePanel = (
   if (!nQubits || nQubits <= 0) {
     // Hide SVG graphics and show message
     // Reset any stale height to avoid carrying over large values
-    _showEmptyState(panel);
+    showEmptyState(panel);
   } else {
     // Remove message and render the deterministic zero-state
-    _showContentState(panel);
+    showContentState(panel);
     const zeros = "0".repeat(nQubits);
     updateStatePanelFromMap(
       panel,
@@ -273,7 +269,7 @@ export type AmpLike = AmpComplex | AmpPolar;
 export type AmpMap = Record<string, AmpLike>;
 
 // Convert amplitude to polar `{ prob, phase }`.
-const _toPolar = (a: AmpLike): { prob: number; phase: number } => {
+const toPolar = (a: AmpLike): { prob: number; phase: number } => {
   const maybe = a as Partial<AmpComplex & AmpPolar>;
   const hasPolar =
     typeof maybe.prob === "number" || typeof maybe.phase === "number";
@@ -285,18 +281,6 @@ const _toPolar = (a: AmpLike): { prob: number; phase: number } => {
   const re = typeof maybe.re === "number" ? maybe.re : 0;
   const im = typeof maybe.im === "number" ? maybe.im : 0;
   return { prob: re * re + im * im, phase: Math.atan2(im, re) };
-};
-
-// ToDo: not used anywhere yet
-// Create an AmpMap from polar entries
-export const toAmpMapPolar = (
-  items: Array<{ bit: string; prob?: number; phase?: number }>,
-): AmpMap => {
-  const m: AmpMap = {};
-  for (const it of items) {
-    m[it.bit] = { prob: it.prob ?? 0, phase: it.phase ?? 0 };
-  }
-  return m;
 };
 
 // Layout Computation
@@ -312,30 +296,19 @@ type ColumnDatum = {
 
 // Layout metrics used to organize rendering logic
 type LayoutMetrics = {
-  uiScale: number;
-
-  baseHeightPx: number;
-  margin: { top: number; right: number; bottom: number; left: number };
   panelWidthPx: number;
   contentWidthPx: number;
 
   columnWidthPx: number;
-  columnSpacingPx: number;
-  barHeaderPaddingPx: number;
-  barAreaHeightPx: number;
   columnCount: number;
   maxColumns: number;
   minColumnWidthPx: number;
 
-  percentLabelPaddingPx: number;
   maxProb: number;
 
-  phaseHeaderPaddingPx: number;
   phaseSectionTopY: number;
   phaseCircleRadiusPx: number;
-  phaseLabelPaddingPx: number;
 
-  stateHeaderPaddingPx: number;
   stateSectionTopY: number;
   verticalLabels: boolean;
 
@@ -346,28 +319,13 @@ type LayoutMetrics = {
   phaseColor: (phi: number) => string;
 };
 
-const getScaleAndAnimation = (
-  panel: HTMLElement,
-  opts: RenderOptions,
-): { uiScale: number; animationMs: number } => {
-  let uiScale = VIZ.defaultUiScale;
-  try {
-    const v = getComputedStyle(panel).getPropertyValue("--stateScale").trim();
-    if (v) {
-      const parsed = parseFloat(v);
-      if (!isNaN(parsed) && isFinite(parsed)) uiScale = parsed;
-    }
-  } catch {
-    void 0;
-  }
-  if (opts.uiScale && isFinite(opts.uiScale)) uiScale = opts.uiScale;
-
+const getAnimationMs = (panel: HTMLElement, opts: RenderOptions): number => {
   let animationMs = VIZ.defaultAnimationMs;
   try {
     const cssDur = getComputedStyle(panel)
       .getPropertyValue("--stateAnimMs")
       .trim();
-    const parsed = _parseDurationMs(cssDur);
+    const parsed = parseDurationMs(cssDur);
     if (!isNaN(parsed) && parsed > 0) animationMs = parsed;
   } catch {
     void 0;
@@ -379,7 +337,7 @@ const getScaleAndAnimation = (
   ) {
     animationMs = Math.round(opts.animationMs);
   }
-  return { uiScale, animationMs };
+  return animationMs;
 };
 
 const computeLayoutMetrics = (
@@ -387,40 +345,24 @@ const computeLayoutMetrics = (
   columnsData: ColumnDatum[],
   opts: RenderOptions,
 ): LayoutMetrics => {
-  const { uiScale, animationMs } = getScaleAndAnimation(panel, opts);
-  const baseHeightPx = opts.heightPx
-    ? Math.round(opts.heightPx * uiScale)
-    : Math.round(VIZ.baseHeightUnscaled * uiScale);
-  const margin = {
-    top: 0,
-    right: Math.round(VIZ.marginRightUnscaled * uiScale),
-    bottom: Math.round(VIZ.marginBottomUnscaled * uiScale),
-    left: Math.round(VIZ.marginLeftUnscaled * uiScale),
-  };
+  const animationMs = getAnimationMs(panel, opts);
 
   const columnCount = columnsData.length;
-  const columnSpacingPx = Math.max(
-    1,
-    Math.floor(
-      (opts.columnSpacingPx ?? VIZ.defaultBarSpacingUnscaled) * uiScale,
-    ),
-  );
-  const baseMinBar = opts.minColumnWidth ?? VIZ.defaultMinColumnWidthUnscaled;
   const minColumnWidthPx = Math.max(
-    Math.floor(VIZ.minColumnWidthFloorUnscaled * uiScale),
-    Math.floor(baseMinBar * uiScale),
+    VIZ.minColumnWidthFloor,
+    typeof opts.minColumnWidth === "number"
+      ? Math.floor(opts.minColumnWidth)
+      : VIZ.defaultMinColumnWidth,
   );
   const maxColumns = Math.max(
     VIZ.minMaxColumns,
     opts.maxColumns ?? VIZ.defaultMaxColumns,
   );
-  const defaultMinPanelWidthPx = Math.floor(
-    VIZ.defaultMinPanelWidthUnscaled * uiScale,
-  );
+  const defaultMinPanelWidthPx = VIZ.defaultMinPanelWidth;
   const defaultMaxPanelWidthPx =
-    margin.left +
-    margin.right +
-    maxColumns * (minColumnWidthPx + columnSpacingPx);
+    VIZ.marginLeft +
+    VIZ.marginRight +
+    maxColumns * (minColumnWidthPx + VIZ.columnSpacing);
 
   const minWidthPx = Math.max(
     VIZ.minPanelWidthPx,
@@ -437,13 +379,13 @@ const computeLayoutMetrics = (
   const panelWidthPx = Math.round(
     minWidthPx + growthFactor * (maxWidthPx - minWidthPx),
   );
-  const contentWidthPx = panelWidthPx - margin.left - margin.right;
+  const contentWidthPx = panelWidthPx - VIZ.marginLeft - VIZ.marginRight;
   const columnWidthPx = Math.max(
     2,
-    Math.floor(contentWidthPx / Math.max(1, columnCount)) - columnSpacingPx,
+    Math.floor(contentWidthPx / Math.max(1, columnCount)) - VIZ.columnSpacing,
   );
   const phaseCircleRadiusPx = Math.max(
-    Math.round(VIZ.phaseRadiusBaseUnscaled * uiScale),
+    VIZ.phaseRadiusBase,
     Math.floor(columnWidthPx / 2) - 1,
   );
   const displayLabel = (b: ColumnDatum) =>
@@ -453,47 +395,19 @@ const computeLayoutMetrics = (
     0,
   );
   const verticalLabels = maxLabelLen > VIZ.labelLongThresholdChars;
-  const extraForBits =
-    columnCount <= VIZ.maxColumnsWithLabels
-      ? verticalLabels
-        ? Math.round(
-            (maxLabelLen * VIZ.verticalLabelLineHeightUnscaled +
-              VIZ.verticalLabelExtraBaseUnscaled) *
-              uiScale,
-          )
-        : Math.round(24 * uiScale)
-      : 0;
-  const barHeaderPaddingPx = Math.round(VIZ.barHeaderPaddingUnscaled * uiScale);
-  const phaseHeaderPaddingPx = Math.round(
-    VIZ.phaseHeaderPaddingUnscaled * uiScale,
-  );
-  const stateHeaderPaddingPx = Math.round(
-    VIZ.stateHeaderPaddingUnscaled * uiScale,
-  );
-  const percentLabelPaddingPx = Math.round(
-    VIZ.percentLabelPaddingUnscaled * uiScale,
-  );
-  const phaseLabelPaddingPx = Math.round(
-    VIZ.phaseLabelPaddingUnscaled * uiScale,
-  );
-  margin.bottom = Math.max(
-    VIZ.marginBottomMinPx,
-    phaseHeaderPaddingPx +
-      phaseCircleRadiusPx * 2 +
-      phaseLabelPaddingPx +
-      stateHeaderPaddingPx +
-      extraForBits +
-      VIZ.extraBottomPaddingPx,
-  );
+  const barHeaderPaddingPx = VIZ.barHeaderPadding;
+  const phaseHeaderPaddingPx = VIZ.phaseHeaderPadding;
+  const percentLabelPaddingPx = VIZ.percentLabelPadding;
+  const phaseLabelPaddingPx = VIZ.phaseLabelPadding;
 
   const maxProb = Math.max(
     VIZ.minProbEpsilon,
     Math.max(...columnsData.map((b) => b.prob ?? 0)),
   );
-  const barAreaHeightPx = Math.round(VIZ.columnAreaHeightUnscaled * uiScale);
+  const barAreaHeightPx = VIZ.columnAreaHeight;
   const scaleY = (p: number) => (p / maxProb) * barAreaHeightPx;
   const clampProb = (p: number) => Math.max(0, Math.min(p, maxProb));
-  const phaseColor = opts.phaseColorMap ?? _defaultPhaseColor;
+  const phaseColor = opts.phaseColorMap ?? defaultPhaseColor;
 
   const phaseSectionTopY =
     barHeaderPaddingPx + barAreaHeightPx + percentLabelPaddingPx;
@@ -504,25 +418,15 @@ const computeLayoutMetrics = (
     phaseLabelPaddingPx;
 
   return {
-    uiScale,
-    baseHeightPx,
-    margin,
     panelWidthPx,
     contentWidthPx,
     columnWidthPx,
-    columnSpacingPx,
-    barHeaderPaddingPx,
-    barAreaHeightPx,
     columnCount,
     maxColumns,
     minColumnWidthPx,
-    percentLabelPaddingPx,
     maxProb,
-    phaseHeaderPaddingPx,
     phaseSectionTopY,
     phaseCircleRadiusPx,
-    phaseLabelPaddingPx,
-    stateHeaderPaddingPx,
     stateSectionTopY,
     verticalLabels,
     animationMs,
@@ -550,10 +454,7 @@ const renderStatePanel = (
   const layout = computeLayoutMetrics(panel, columnData, opts);
 
   const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
-  g.setAttribute(
-    "transform",
-    `translate(${layout.margin.left},${layout.margin.top})`,
-  );
+  g.setAttribute("transform", `translate(${VIZ.marginLeft},${0})`);
   svg.appendChild(g);
 
   renderSectionHeaders(g, layout);
@@ -573,17 +474,11 @@ const renderColumn = (
   layout: LayoutMetrics,
 ) => {
   const {
-    uiScale,
     columnWidthPx,
-    columnSpacingPx,
-    barHeaderPaddingPx,
-    barAreaHeightPx,
     columnCount,
     phaseSectionTopY,
-    phaseHeaderPaddingPx,
     phaseCircleRadiusPx,
     stateSectionTopY,
-    stateHeaderPaddingPx,
     verticalLabels,
     animationMs,
     scaleY,
@@ -591,7 +486,7 @@ const renderColumn = (
     displayLabel,
     phaseColor,
   } = layout;
-  const x = i * (columnWidthPx + columnSpacingPx);
+  const x = i * (columnWidthPx + VIZ.columnSpacing);
   const bar = document.createElementNS("http://www.w3.org/2000/svg", "rect");
   bar.setAttribute("x", `${x}`);
   bar.setAttribute("width", `${columnWidthPx}`);
@@ -604,16 +499,16 @@ const renderColumn = (
   const pctTipTarget = (column.prob ?? 0) * 100;
   tip.textContent = column.isOthers
     ? `${pctTipTarget.toFixed(1)}% • Others (${column.othersCount ?? 0} states)`
-    : `${pctTipTarget.toFixed(1)}% • φ=${_formatPhasePiTip(column.phase)}`;
+    : `${pctTipTarget.toFixed(1)}% • φ=${formatPhasePiTip(column.phase)}`;
   bar.appendChild(tip);
   g.appendChild(bar);
 
   const prevProb = prev[column.label]?.prob ?? 0;
   const fromH = scaleY(clampProb(prevProb));
-  const baseY = barHeaderPaddingPx + barAreaHeightPx;
+  const baseY = VIZ.barHeaderPadding + VIZ.columnAreaHeight;
   bar.setAttribute("y", `${baseY - fromH}`);
   bar.setAttribute("height", `${fromH}`);
-  _animate(prevProb, column.prob, animationMs, (pv) => {
+  animate(prevProb, column.prob, animationMs, (pv) => {
     const h = scaleY(clampProb(pv));
     bar.setAttribute("y", `${baseY - h}`);
     bar.setAttribute("height", `${h}`);
@@ -626,12 +521,10 @@ const renderColumn = (
     );
     label.setAttribute("x", `${x + columnWidthPx / 2}`);
     const labelY =
-      barHeaderPaddingPx +
-      barAreaHeightPx +
-      Math.round(VIZ.percentLabelOffsetUnscaled * uiScale);
+      VIZ.barHeaderPadding + VIZ.columnAreaHeight + VIZ.percentLabelOffset;
     label.setAttribute("y", `${labelY}`);
     label.setAttribute("class", "state-bar-label");
-    _animate(prevProb, column.prob, animationMs, (pv) => {
+    animate(prevProb, column.prob, animationMs, (pv) => {
       const pct = (pv ?? 0) * 100;
       label.textContent =
         pct >= 1 ? `${pct.toFixed(0)}%` : `${pct.toFixed(1)}%`;
@@ -642,23 +535,16 @@ const renderColumn = (
   const cx = x + columnWidthPx / 2;
   if (!column.isOthers) {
     const DOT_FRAC = VIZ.phaseDotFrac;
-    const padX = Math.max(
-      VIZ.padXUnscaled,
-      Math.round(VIZ.padXUnscaled * uiScale),
-    );
     let r = phaseCircleRadiusPx;
     if (r >= VIZ.phaseRadiusThreshold) {
-      const maxR = Math.floor((columnWidthPx / 2 - padX) / (1 + DOT_FRAC));
+      const maxR = Math.floor((columnWidthPx / 2 - VIZ.padX) / (1 + DOT_FRAC));
       r = Math.min(r, Math.max(2, maxR));
     } else {
-      const maxR = Math.floor(columnWidthPx / 2 - padX - 1.5);
+      const maxR = Math.floor(columnWidthPx / 2 - VIZ.padX - 1.5);
       r = Math.min(r, Math.max(2, maxR));
     }
-    const phaseContentYBase = phaseSectionTopY + phaseHeaderPaddingPx;
-    const cy =
-      phaseContentYBase +
-      r +
-      Math.round(VIZ.phaseContentExtraYUnscaled * uiScale);
+    const phaseContentYBase = phaseSectionTopY + VIZ.phaseHeaderPadding;
+    const cy = phaseContentYBase + r + VIZ.phaseContentExtraY;
     const sx = cx + r;
     const sy = cy;
     const ex = cx + r * Math.cos(column.phase);
@@ -687,7 +573,7 @@ const renderColumn = (
       "http://www.w3.org/2000/svg",
       "title",
     );
-    tipPhase.textContent = `φ=${_formatPhasePiTip(column.phase)}`;
+    tipPhase.textContent = `φ=${formatPhasePiTip(column.phase)}`;
     circle.appendChild(tipPhase);
     g.appendChild(circle);
 
@@ -698,16 +584,15 @@ const renderColumn = (
     phaseText.setAttribute("x", `${cx}`);
     const dotRadius = Math.max(VIZ.phaseDotRadiusMinPx, r * DOT_FRAC);
     const yTop = cy + r + dotRadius;
-    const yBottom =
-      stateSectionTopY - Math.round(VIZ.phaseTextBottomPadUnscaled * uiScale);
-    const textH = Math.round(VIZ.verticalLabelLineHeightUnscaled * uiScale);
+    const yBottom = stateSectionTopY - VIZ.phaseTextBottomPad;
+    const textH = VIZ.verticalLabelLineHeight;
     let yTextTop = Math.round((yTop + yBottom) / 2 - textH / 2);
     yTextTop = Math.max(yTop, Math.min(yTextTop, yBottom - textH));
     phaseText.setAttribute("y", `${yTextTop}`);
     phaseText.setAttribute("class", "state-phase-text");
     const prevPhase = prev[column.label]?.phase ?? 0;
-    _animate(prevPhase, column.phase, animationMs, (pv) => {
-      phaseText.textContent = _formatPhasePi(pv);
+    animate(prevPhase, column.phase, animationMs, (pv) => {
+      phaseText.textContent = formatPhasePi(pv);
     });
     g.appendChild(phaseText);
 
@@ -724,40 +609,33 @@ const renderColumn = (
     dot.setAttribute("class", "state-phase-dot");
     g.appendChild(dot);
 
-    _animate(
-      prev[column.label]?.phase ?? 0,
-      column.phase,
-      animationMs,
-      (pv) => {
-        const dx = r * Math.cos(pv);
-        const dy = r * Math.sin(pv);
-        dot.setAttribute("cx", `${cx + dx}`);
-        dot.setAttribute("cy", `${cy - dy}`);
-        const fillColor = phaseColor(pv);
-        wedge.setAttribute("fill", fillColor);
-        dot.setAttribute("fill", fillColor);
-        bar.setAttribute("fill", fillColor);
-        const exA = cx + r * Math.cos(pv);
-        const eyA = cy - r * Math.sin(pv);
-        const largeArcA = Math.abs(pv) > Math.PI ? 1 : 0;
-        const sweepA = pv < 0 ? 1 : 0;
-        const dA = `M ${cx} ${cy} L ${sx} ${sy} A ${r} ${r} 0 ${largeArcA} ${sweepA} ${exA} ${eyA} Z`;
-        wedge.setAttribute("d", dA);
-      },
-    );
+    animate(prev[column.label]?.phase ?? 0, column.phase, animationMs, (pv) => {
+      const dx = r * Math.cos(pv);
+      const dy = r * Math.sin(pv);
+      dot.setAttribute("cx", `${cx + dx}`);
+      dot.setAttribute("cy", `${cy - dy}`);
+      const fillColor = phaseColor(pv);
+      wedge.setAttribute("fill", fillColor);
+      dot.setAttribute("fill", fillColor);
+      bar.setAttribute("fill", fillColor);
+      const exA = cx + r * Math.cos(pv);
+      const eyA = cy - r * Math.sin(pv);
+      const largeArcA = Math.abs(pv) > Math.PI ? 1 : 0;
+      const sweepA = pv < 0 ? 1 : 0;
+      const dA = `M ${cx} ${cy} L ${sx} ${sy} A ${r} ${r} 0 ${largeArcA} ${sweepA} ${exA} ${eyA} Z`;
+      wedge.setAttribute("d", dA);
+    });
   }
 
   if (columnCount <= VIZ.maxColumnsWithLabels) {
-    const stateContentYBase = stateSectionTopY + stateHeaderPaddingPx;
+    const stateContentYBase = stateSectionTopY + VIZ.stateHeaderPadding;
     const labelX = x + columnWidthPx / 2;
     const labelY = verticalLabels
-      ? stateContentYBase +
-        Math.round(VIZ.stateLabelVerticalOffsetUnscaled * uiScale)
-      : stateContentYBase +
-        Math.round(VIZ.stateLabelHorizontalOffsetUnscaled * uiScale);
+      ? stateContentYBase + VIZ.stateLabelVerticalOffset
+      : stateContentYBase + VIZ.stateLabelHorizontalOffset;
 
     if (verticalLabels) {
-      const lineH = Math.round(VIZ.verticalLabelLineHeightUnscaled * uiScale);
+      const lineH = VIZ.verticalLabelLineHeight;
       const labelText = displayLabel(column);
       const labelH = lineH * Math.max(1, (labelText || "").length);
       const fo = document.createElementNS(
@@ -839,15 +717,11 @@ const finalizeSvgAndFlex = (
 ) => {
   try {
     const bbox = g.getBBox();
-    const contentHeight = Math.ceil(
-      bbox.height +
-        layout.margin.top +
-        Math.round(VIZ.contentHeightExtraUnscaled * layout.uiScale),
-    );
-    const svgHeight = Math.max(layout.baseHeightPx, contentHeight);
+    const contentHeight = Math.ceil(bbox.height + VIZ.contentHeightExtra);
+    const svgHeight = Math.max(VIZ.baseHeight, contentHeight);
     svg.setAttribute("height", svgHeight.toString());
     svg.setAttribute("width", layout.panelWidthPx.toString());
-    const edgePad = Math.round(VIZ.edgePadUnscaled * layout.uiScale);
+    const edgePad = VIZ.edgePad;
     panel.style.flexBasis = `${Math.ceil(layout.panelWidthPx + edgePad)}px`;
   } catch {
     void 0;
@@ -866,7 +740,7 @@ const savePreviousValues = (panel: HTMLElement, columnData: ColumnDatum[]) => {
 };
 
 // Simple animation helper for numeric interpolation
-const _animate = (
+const animate = (
   from: number,
   to: number,
   durationMs: number,
@@ -888,7 +762,7 @@ const _animate = (
   requestAnimationFrame(tick);
 };
 
-const _showEmptyState = (panel: HTMLElement): void => {
+const showEmptyState = (panel: HTMLElement): void => {
   const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
   if (svg) {
     while (svg.firstChild) svg.removeChild(svg.firstChild);
@@ -902,7 +776,7 @@ const _showEmptyState = (panel: HTMLElement): void => {
   }
   const toolbar = panel.querySelector(".dev-toolbar") as HTMLElement | null;
   if (toolbar) toolbar.style.display = "none";
-  _ensureEmptyMessage(panel, "The circuit is empty.");
+  ensureEmptyMessage(panel, "The circuit is empty.");
   try {
     if (!panel.classList.contains("collapsed")) {
       panel.style.flexBasis = `${VIZ.emptyStateFlexBasisPx}px`;
@@ -912,7 +786,7 @@ const _showEmptyState = (panel: HTMLElement): void => {
   }
 };
 
-const _showContentState = (panel: HTMLElement): void => {
+const showContentState = (panel: HTMLElement): void => {
   const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
   if (svg) svg.style.display = "";
   const toolbar = panel.querySelector(".dev-toolbar") as HTMLElement | null;
@@ -922,27 +796,27 @@ const _showContentState = (panel: HTMLElement): void => {
 };
 
 // Utilities (formatting, colors, CSS parsing)
-const _defaultPhaseColor = (phi: number) => {
+const defaultPhaseColor = (phi: number) => {
   const hue = ((phi + Math.PI) / (2 * Math.PI)) * 360;
   return `hsl(${hue},70%,50%)`;
 };
 
 // Format phase in multiples of π, e.g., -0.5, +0.2
-const _formatPhasePi = (phi: number): string => {
+const formatPhasePi = (phi: number): string => {
   const k = phi / Math.PI;
   const sign = k >= 0 ? "+" : "";
   return `${sign}${k.toFixed(1)}`;
 };
 
 // Format phase for tooltips, e.g., -0.50π, +0.25π
-const _formatPhasePiTip = (phi: number): string => {
+const formatPhasePiTip = (phi: number): string => {
   const k = phi / Math.PI;
   const sign = k >= 0 ? "+" : "";
   return `${sign}${k.toFixed(2)}π`;
 };
 
 // Helpers to manage empty/content states without inline styles duplication
-const _ensureEmptyMessage = (panel: HTMLElement, text: string): void => {
+const ensureEmptyMessage = (panel: HTMLElement, text: string): void => {
   let msg = panel.querySelector(".state-empty-message") as HTMLElement | null;
   if (!msg) {
     msg = document.createElement("div");
@@ -953,7 +827,7 @@ const _ensureEmptyMessage = (panel: HTMLElement, text: string): void => {
 };
 
 // Parse CSS duration strings (e.g., "200ms" or "0.2s") into milliseconds
-const _parseDurationMs = (val: string): number => {
+const parseDurationMs = (val: string): number => {
   const s = (val || "").trim();
   if (!s) return NaN;
   if (s.endsWith("ms")) {
