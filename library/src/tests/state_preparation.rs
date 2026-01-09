@@ -307,3 +307,22 @@ fn check_uniform_superposition_invalid_state_count() {
 
     expect!["program failed: Number of basis states must be positive."].assert_eq(&out);
 }
+
+#[test]
+fn check_controlled_state_preparation() {
+    let out = test_expression_with_lib(
+        "Test.TestControlledPreparation()",
+        STATE_PREPARATION_TEST_LIB,
+        &Value::Tuple(vec![].into(), None),
+    );
+
+    expect![[r#"
+        STATE:
+        |000⟩: 0.7071+0.0000𝑖
+        |001⟩: 0.3536+0.0000𝑖
+        |011⟩: 0.3536+0.0000𝑖
+        |101⟩: 0.3536+0.0000𝑖
+        |111⟩: 0.3536+0.0000𝑖
+    "#]]
+    .assert_eq(&out);
+}
