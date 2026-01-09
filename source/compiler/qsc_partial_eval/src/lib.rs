@@ -98,9 +98,12 @@ pub enum Error {
     #[diagnostic(help("try invoking the desired callable directly"))]
     UnexpectedDynamicValue(#[label] PackageSpan),
 
-    #[error("cannot use a dynamic value of type `{0}` returned from intrinsic callable")]
-    #[diagnostic(code("Qsc.PartialEval.UnexpectedDynamicIntrsinicReturnType"))]
-    UnexpectedDynamicIntrinsicReturnType(String, #[label] PackageSpan),
+    #[error("unsupported type `{0}` in custom intrinsic callable")]
+    #[diagnostic(help(
+        "variables of type `{0}` cannot be emitted into QIR and should not appear in custom intrinsic callable signatures"
+    ))]
+    #[diagnostic(code("Qsc.PartialEval.UnsupportedType"))]
+    UnsupportedCustomIntrinsicType(String, #[label] PackageSpan),
 
     #[error("partial evaluation failed with error: {0}")]
     #[diagnostic(code("Qsc.PartialEval.EvaluationFailed"))]
@@ -148,7 +151,7 @@ impl Error {
         match self {
             Self::CapabilityError(_) => None,
             Self::UnexpectedDynamicValue(span)
-            | Self::UnexpectedDynamicIntrinsicReturnType(_, span)
+            | Self::UnsupportedCustomIntrinsicType(_, span)
             | Self::EvaluationFailed(_, span)
             | Self::OutputResultLiteral(span)
             | Self::Unexpected(_, span)
@@ -358,18 +361,38 @@ impl<'a> PartialEvaluator<'a> {
         store_item_id: StoreItemId,
         callable_decl: &CallableDecl,
         call_type: CallableType,
-    ) -> Callable {
+    ) -> Result<Callable, Error> {
         let callable_package = self.package_store.get(store_item_id.package);
         let name = callable_decl.name.name.to_string();
-        let input_type: Vec<rir::Ty> = callable_package
-            .derive_callable_input_params(callable_decl)
-            .iter()
-            .map(|input_param| map_fir_type_to_rir_type(&input_param.ty))
-            .collect();
+        let mut input_type: Vec<rir::Ty> = Vec::new();
+        for input_param in &callable_package.derive_callable_input_params(callable_decl) {
+            input_type.push(map_fir_type_to_rir_type(&input_param.ty).map_err(|msg| {
+                Error::UnsupportedCustomIntrinsicType(
+                    msg,
+                    PackageSpan {
+                        package: map_fir_package_to_hir(store_item_id.package),
+                        span: self
+                            .package_store
+                            .get_pat((store_item_id.package, input_param.pat).into())
+                            .span,
+                    },
+                )
+            })?);
+        }
         let output_type = if callable_decl.output == Ty::UNIT {
             None
         } else {
-            Some(map_fir_type_to_rir_type(&callable_decl.output))
+            Some(
+                map_fir_type_to_rir_type(&callable_decl.output).map_err(|msg| {
+                    Error::UnsupportedCustomIntrinsicType(
+                        msg,
+                        PackageSpan {
+                            package: map_fir_package_to_hir(self.get_current_package_id()),
+                            span: callable_decl.span,
+                        },
+                    )
+                })?,
+            )
         };
         let body = None;
         let call_type = if name.eq("__quantum__qis__reset__body") {
@@ -377,13 +400,13 @@ impl<'a> PartialEvaluator<'a> {
         } else {
             call_type
         };
-        Callable {
+        Ok(Callable {
             name,
             input_type,
             output_type,
             body,
             call_type,
-        }
+        })
     }
 
     fn create_program_block(&mut self) -> rir::BlockId {
@@ -1709,7 +1732,7 @@ impl<'a> PartialEvaluator<'a> {
         call_type: CallableType,
     ) -> Result<Value, Error> {
         // Check if the callable is already in the program, and if not add it.
-        let callable = self.create_intrinsic_callable(store_item_id, callable_decl, call_type);
+        let callable = self.create_intrinsic_callable(store_item_id, callable_decl, call_type)?;
         let output_var = callable.output_type.map(|output_ty| {
             let variable_id = self.resource_manager.next_var();
             rir::Variable {
@@ -1746,7 +1769,7 @@ impl<'a> PartialEvaluator<'a> {
             None => Value::unit(),
             Some(output_var) => {
                 let rir_var = map_rir_var_to_eval_var(output_var).map_err(|()| {
-                    Error::UnexpectedDynamicIntrinsicReturnType(
+                    Error::UnsupportedCustomIntrinsicType(
                         callable_decl.output.to_string(),
                         callee_expr_span,
                     )
@@ -1827,7 +1850,12 @@ impl<'a> PartialEvaluator<'a> {
             None
         } else {
             let variable_id = self.resource_manager.next_var();
-            let variable_ty = map_fir_type_to_rir_type(&if_expr.ty);
+            let variable_ty = map_fir_type_to_rir_type(&if_expr.ty).map_err(|msg| {
+                Error::Unexpected(
+                    format!("unsupported if-expression output type `{msg}`"),
+                    self.get_expr_package_span(if_expr_id),
+                )
+            })?;
             Some(rir::Variable {
                 variable_id,
                 ty: variable_ty,
@@ -3666,24 +3694,14 @@ fn map_eval_var_type_to_rir_type(var_ty: VarTy) -> rir::Ty {
     }
 }
 
-fn map_fir_type_to_rir_type(ty: &Ty) -> rir::Ty {
-    let Ty::Prim(prim) = ty else {
-        panic!("only some primitive types are supported");
-    };
-
-    match prim {
-        Prim::BigInt
-        | Prim::Pauli
-        | Prim::Range
-        | Prim::RangeFrom
-        | Prim::RangeFull
-        | Prim::RangeTo
-        | Prim::String => panic!("{prim:?} is not a supported primitive type"),
-        Prim::Bool => rir::Ty::Boolean,
-        Prim::Double => rir::Ty::Double,
-        Prim::Int => rir::Ty::Integer,
-        Prim::Qubit => rir::Ty::Qubit,
-        Prim::Result => rir::Ty::Result,
+fn map_fir_type_to_rir_type(ty: &Ty) -> Result<rir::Ty, String> {
+    match ty {
+        Ty::Prim(Prim::Bool) => Ok(rir::Ty::Boolean),
+        Ty::Prim(Prim::Double) => Ok(rir::Ty::Double),
+        Ty::Prim(Prim::Int) => Ok(rir::Ty::Integer),
+        Ty::Prim(Prim::Qubit) => Ok(rir::Ty::Qubit),
+        Ty::Prim(Prim::Result) => Ok(rir::Ty::Result),
+        _ => Err(format!("{ty}")),
     }
 }
 
