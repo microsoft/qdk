@@ -9,11 +9,11 @@ use std::{fmt::Display, vec};
 use crate::{
     Circuit, Error, Ket, Measurement, Operation, Register, TracerConfig, Unitary,
     builder::{
-        GateInputs, GroupingConfig, LocationMetadata, LogicalStackTrace, OperationOrGroup,
-        QubitWire, ResultWire, ScopeId, ScopeStack, WireMap, add_scoped_op, finish_circuit,
-        retain_user_frames, scope_stack,
+        GateInputs, GroupingConfig, LogicalStack, LogicalStackEntry, OperationOrGroup,
+        PackageOffset, QubitWire, ResultWire, Scope, ScopeStack, SourceLookup, WireMap,
+        add_scoped_op, finish_circuit, retain_user_frames, scope_stack,
     },
-    circuit::{Metadata, PackageOffset},
+    circuit::Metadata,
     rir_to_circuit::tracer::FixedQubitRegisterMapBuilder,
 };
 use log::{debug, warn};
@@ -250,9 +250,10 @@ impl OperationOrConditional {
 
 pub fn make_circuit(
     program_rir: &Program,
-    package_store: &PackageStore,
+    _package_store: &PackageStore,
     config: TracerConfig,
     user_package_ids: &[PackageId],
+    source_lookup: &impl SourceLookup,
 ) -> std::result::Result<Circuit, Error> {
     let (mut program_map, wire_map) = build_blocks(program_rir, config, user_package_ids)?;
 
@@ -281,16 +282,11 @@ pub fn make_circuit(
         config,
     );
 
-    let qubits = wire_map.to_qubits();
-    let num_qubits = qubits.len();
+    let qubits = wire_map.to_qubits(source_lookup);
     let circuit = finish_circuit(
+        source_lookup,
+        operations,
         qubits,
-        operations
-            .into_iter()
-            .map(|o| o.into_operation(package_store))
-            .collect(),
-        num_qubits,
-        package_store,
         config.loop_detection,
         config.collapse_qubit_registers,
     );
@@ -797,7 +793,7 @@ fn add_op_with_grouping(
     user_package_ids: &[PackageId],
     operations: &mut Vec<OperationOrGroup>,
     op: OperationOrGroup,
-    unfiltered_call_stack: LogicalStackTrace,
+    unfiltered_call_stack: LogicalStack,
     scope_stack: &ScopeStack,
 ) {
     let final_grouping_call_stack = user_stack_and_source_location(
@@ -825,12 +821,12 @@ fn user_stack_and_source_location(
     source_locations: bool,
     group_by_scope: bool,
     user_package_ids: &[PackageId],
-    unfiltered_call_stack: Vec<LocationMetadata>,
-) -> LogicalStackTrace {
+    unfiltered_call_stack: LogicalStack,
+) -> LogicalStack {
     if group_by_scope || source_locations {
         retain_user_frames(user_code_only, user_package_ids, unfiltered_call_stack)
     } else {
-        vec![]
+        LogicalStack::default()
     }
 }
 
@@ -1032,69 +1028,44 @@ pub(crate) struct DbgStuff<'a> {
 }
 
 impl DbgStuff<'_> {
-    fn map_instruction_logical_stack(
-        &self,
-        metadata: Option<InstructionMetadata>,
-    ) -> Vec<LocationMetadata> {
+    fn map_instruction_logical_stack(&self, metadata: Option<InstructionMetadata>) -> LogicalStack {
         metadata
             .and_then(|md| md.dbg_location)
             .map(|dbg_location| self.instruction_logical_stack(dbg_location))
             .unwrap_or_default()
     }
 
-    /// Returns oldest->youngest
-    fn instruction_logical_stack(&self, dbg_location_idx: DbgLocationId) -> LogicalStackTrace {
+    /// Returns oldest->newest
+    fn instruction_logical_stack(&self, dbg_location_idx: DbgLocationId) -> LogicalStack {
         let mut location_stack = vec![];
         let mut current_location_idx = Some(dbg_location_idx);
 
         while let Some(location_idx) = current_location_idx {
-            let source_location_metadata = LocationMetadata::new(
+            let scope_id = self.lexical_scope(location_idx);
+            let source_location_metadata = LogicalStackEntry::new_call_site(
                 self.source_location(location_idx),
-                self.dbg_info
-                    .resolve_scope(&self.lexical_scope(location_idx)),
+                match &self.dbg_info.get_scope(scope_id) {
+                    DbgMetadataScope::SubProgram {
+                        name: _,
+                        location: _,
+                        item_id,
+                    } => Scope::Callable(
+                        StoreItemId {
+                            package: item_id.0.into(),
+                            item: item_id.1.into(),
+                        },
+                        FunctorApp::default(), // TODO: is this the right functor app?
+                    ),
+                },
             );
             location_stack.push(source_location_metadata);
             let location = self.dbg_info.get_location(location_idx);
             current_location_idx = location.inlined_at;
         }
         location_stack.reverse();
-        location_stack
+        LogicalStack(location_stack)
     }
 }
-
-pub(crate) trait ScopeResolver {
-    type ScopeId;
-    fn resolve_scope(&self, scope: &Self::ScopeId) -> ScopeId;
-}
-
-impl ScopeResolver for DbgInfo {
-    type ScopeId = DbgScopeId;
-
-    fn resolve_scope(&self, scope_id: &Self::ScopeId) -> ScopeId {
-        match &self.get_scope(*scope_id) {
-            DbgMetadataScope::SubProgram {
-                name: _,
-                location: _,
-                item_id,
-            } => ScopeId(
-                StoreItemId {
-                    package: item_id.0.into(),
-                    item: item_id.1.into(),
-                },
-                FunctorApp::default(), // TODO: is this the right functor app?
-            ),
-        }
-    }
-}
-
-// pub(crate) trait DbgStuffExt {
-//     type SourceLocation: PartialEq + Sized + Clone + PartialEq;
-//     type Scope: std::fmt::Debug + std::fmt::Display + Default + PartialEq;
-
-//     fn package_id(&self, location: &Self::SourceLocation) -> PackageId;
-//     fn lexical_scope(&self, location: &Self::SourceLocation) -> Self::Scope;
-//     fn source_location(&self, location: &Self::SourceLocation) -> PackageOffset;
-// }
 
 impl DbgStuff<'_> {
     fn lexical_scope(&self, location: DbgLocationId) -> DbgScopeId {

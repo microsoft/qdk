@@ -6,8 +6,8 @@ pub(crate) mod tests;
 
 use crate::{
     circuit::{
-        Circuit, ComponentColumn, Ket, Measurement, Metadata, Operation, PackageOffset, Qubit,
-        Register, ResolvedSourceLocation, SourceLocation, Unitary, operation_list_to_grid,
+        Circuit, ComponentColumn, Ket, Measurement, Metadata, Operation, Qubit, Register,
+        SourceLocation, Unitary, operation_list_to_grid,
     },
     group_qubits,
     operations::QubitParam,
@@ -33,9 +33,6 @@ use std::{
     mem::{replace, take},
     rc::Rc,
 };
-
-pub(crate) type LogicalStackTrace = Vec<LocationMetadata>;
-pub(crate) type LogicalStackTraceRef<'a> = &'a [LocationMetadata];
 
 /// Circuit builder that implements the `Tracer` trait to build a circuit
 /// while tracing execution.
@@ -251,7 +248,7 @@ impl CircuitTracer {
         let mut operations = operations.to_vec();
         let mut qubits = self.wire_map_builder.wire_map.to_qubits(source_lookup);
         // We need to pass the original number of qubits, before any trimming, to finish the circuit below.
-        let num_qubits = qubits.len();
+        // let num_qubits = qubits.len();
 
         if self.config.prune_classical_qubits {
             // Remove qubits that are always classical.
@@ -266,23 +263,13 @@ impl CircuitTracer {
             collapse_unnecessary_loop_scopes(&mut operations);
         }
 
-        let operations = operations
-            .into_iter()
-            .map(|o| o.into_operation(source_lookup))
-            .collect();
-
-        let (operations, qubits) = if collapse_qubit_registers && qubits.len() > 2 {
-            // TODO: dummy values for now
-            group_qubits(operations, qubits, &[0, 1])
-        } else {
-            (operations, qubits)
-        };
-
-        let component_grid = operation_list_to_grid(operations, num_qubits);
-        Circuit {
+        finish_circuit(
+            source_lookup,
+            operations,
             qubits,
-            component_grid,
-        }
+            self.config.collapse_qubit_registers,
+            self.config.loop_detection,
+        )
     }
 
     fn should_keep_operation_mut(&self, op: &mut OperationOrGroup) -> bool {
@@ -393,15 +380,19 @@ impl CircuitTracer {
     fn user_code_call_location(&self, stack: &StackTrace) -> Option<PackageOffset> {
         if self.config.source_locations {
             let logical_stack = LogicalStack::from_evaluator_trace(stack);
-            retain_user_frames(&self.user_package_ids, logical_stack)
-                .0
-                .last()
-                .map(|l| {
-                    let LogicalStackEntryLocation::Call(location) = *l.location() else {
-                        panic!("last frame in stack trace should be a call to an intrinsic")
-                    };
-                    location
-                })
+            retain_user_frames(
+                self.config.user_code_only,
+                &self.user_package_ids,
+                logical_stack,
+            )
+            .0
+            .last()
+            .map(|l| {
+                let LogicalStackEntryLocation::Call(location) = *l.location() else {
+                    panic!("last frame in stack trace should be a call to an intrinsic")
+                };
+                location
+            })
         } else {
             None
         }
@@ -515,6 +506,32 @@ impl CircuitTracer {
     }
 }
 
+pub(crate) fn finish_circuit(
+    source_lookup: &impl SourceLookup,
+    operations: Vec<OperationOrGroup>,
+    qubits: Vec<Qubit>,
+    loop_detection: bool,
+    collapse_qubit_registers: bool,
+) -> Circuit {
+    let operations = operations
+        .into_iter()
+        .map(|o| o.into_operation(source_lookup))
+        .collect();
+
+    let (operations, qubits) = if collapse_qubit_registers && qubits.len() > 2 {
+        // TODO: dummy values for now
+        group_qubits(operations, qubits, &[0, 1])
+    } else {
+        (operations, qubits)
+    };
+
+    let component_grid = operation_list_to_grid(operations, &qubits, loop_detection);
+    Circuit {
+        qubits,
+        component_grid,
+    }
+}
+
 /// Removes any loop scopes that are unnecessary and replaces them with their children operations.
 /// An unnecessary loop scope is one that either has a single child iteration,
 /// or has multiple iterations that each operate on distinct sets of qubits (i.e. a "vertical" loop).
@@ -523,7 +540,8 @@ fn collapse_unnecessary_loop_scopes(operations: &mut Vec<OperationOrGroup>) {
     for mut op in operations.drain(..) {
         match &mut op.kind {
             OperationOrGroupKind::Single => {}
-            OperationOrGroupKind::Group { children, .. } => {
+            OperationOrGroupKind::ScopeGroup { children, .. }
+            | OperationOrGroupKind::ConditionalGroup { children, .. } => {
                 collapse_unnecessary_loop_scopes(children);
             }
         }
@@ -540,7 +558,7 @@ fn collapse_unnecessary_loop_scopes(operations: &mut Vec<OperationOrGroup>) {
 /// If the given operation or group is an outer loop scope that can be collapsed,
 /// returns its children operations or groups.
 fn collapse_if_unnecessary(op: &mut OperationOrGroup) -> Option<Vec<OperationOrGroup>> {
-    if let OperationOrGroupKind::Group {
+    if let OperationOrGroupKind::ScopeGroup {
         scope_stack,
         children,
     } = &mut op.kind
@@ -549,7 +567,7 @@ fn collapse_if_unnecessary(op: &mut OperationOrGroup) -> Option<Vec<OperationOrG
         if children.len() == 1 {
             // remove the loop scope
             let mut only_child = children.remove(0);
-            let OperationOrGroupKind::Group { children, .. } = &mut only_child.kind else {
+            let OperationOrGroupKind::ScopeGroup { children, .. } = &mut only_child.kind else {
                 panic!("only child of an outer loop scope should be a group");
             };
             return Some(take(children));
@@ -566,7 +584,7 @@ fn collapse_if_unnecessary(op: &mut OperationOrGroup) -> Option<Vec<OperationOrG
         }
         let mut all_children = vec![];
         for mut child_op in children.drain(..) {
-            let OperationOrGroupKind::Group { children, .. } = &mut child_op.kind else {
+            let OperationOrGroupKind::ScopeGroup { children, .. } = &mut child_op.kind else {
                 panic!("only child of an outer loop scope should be a group");
             };
             all_children.extend(take(children));
@@ -935,7 +953,7 @@ pub(crate) struct OperationOrGroup {
     op: Operation,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum OperationOrGroupKind {
     Single,
     ScopeGroup {
@@ -1111,6 +1129,7 @@ impl OperationOrGroup {
                 is_adjoint: false,
                 metadata: None,
             }),
+            location: None,
         }
     }
 
@@ -1254,7 +1273,7 @@ impl OperationOrGroup {
                 u.children = vec![ComponentColumn {
                     components: children
                         .into_iter()
-                        .map(|o| o.into_operation(scope_resolver))
+                        .map(|o| o.into_operation(source_lookup))
                         .collect(),
                 }];
                 self.op
@@ -1268,17 +1287,15 @@ impl OperationOrGroup {
                     panic!("group operation should be a unitary")
                 };
                 u.gate = label;
-                if let Some(location) = scope_location {
-                    if u.metadata.is_none() {
-                        u.metadata = Some(Metadata {
-                            source: None,
-                            scope_location: None,
-                        });
-                    }
-                    u.metadata
-                        .as_mut()
-                        .expect("metadata should be set")
-                        .scope_location = Some(SourceLocation::Unresolved(location));
+                let scope_location =
+                    scope_location.map(|loc| source_lookup.resolve_package_offset(&loc));
+                if let Some(metadata) = &mut u.metadata {
+                    metadata.scope_location = scope_location;
+                } else {
+                    u.metadata = Some(Metadata {
+                        source: None,
+                        scope_location,
+                    });
                 }
                 u.children = vec![ComponentColumn {
                     components: children
@@ -1340,11 +1357,16 @@ impl OperationListBuilder {
             return;
         }
 
-        let op_call_stack = if self.group_by_scope || self.source_locations {
-            retain_user_frames(&self.user_package_ids, unfiltered_call_stack)
-        } else {
-            LogicalStack::default()
-        };
+        let op_call_stack =
+            if self.grouping_config.group_by_scope || self.grouping_config.source_locations {
+                retain_user_frames(
+                    self.grouping_config.user_code_only,
+                    &self.user_package_ids,
+                    unfiltered_call_stack,
+                )
+            } else {
+                LogicalStack::default()
+            };
 
         add_scoped_op(
             &mut self.operations,
@@ -1436,7 +1458,7 @@ pub struct LexicalScope {
     is_adjoint: bool,
 }
 
-fn add_scoped_op(
+pub(crate) fn add_scoped_op(
     current_container: &mut Vec<OperationOrGroup>,
     current_scope_stack: &ScopeStack,
     mut op: OperationOrGroup,
@@ -1487,7 +1509,7 @@ fn add_scoped_op(
             }
         }
 
-        let op_scope_stack = scope_stack(&op_call_stack.0);
+        let op_scope_stack = scope_stack(op_call_stack);
         if *current_scope_stack != op_scope_stack {
             // Need to create a new scope group
             let scope_group = OperationOrGroup::new_scope_group(op_scope_stack, vec![op]);
@@ -1531,8 +1553,8 @@ pub(crate) fn retain_user_frames(
 }
 
 /// Represents a scope in the call stack, tracking the caller chain and current scope identifier.
-#[derive(Clone, PartialEq)]
-struct ScopeStack {
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ScopeStack {
     caller: LogicalStack,
     scope: Scope,
 }
@@ -1591,8 +1613,9 @@ pub(crate) fn strip_scope_stack_prefix(
     None
 }
 
-pub(crate) fn scope_stack(instruction_stack: &[LogicalStackEntry]) -> ScopeStack {
+pub(crate) fn scope_stack(instruction_stack: &LogicalStack) -> ScopeStack {
     instruction_stack
+        .0
         .split_last()
         .map_or(ScopeStack::top(), |(youngest, prefix)| ScopeStack {
             caller: LogicalStack(prefix.to_vec()),
@@ -1600,7 +1623,7 @@ pub(crate) fn scope_stack(instruction_stack: &[LogicalStackEntry]) -> ScopeStack
         })
 }
 
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 /// A "logical" stack trace. This is a processed version of a raw stack trace
 /// captured from the evaluator.
 /// This stack trace doesn't only contain calls to callables, but also entries into scopes
@@ -1706,7 +1729,7 @@ impl LogicalStackEntry {
         }
     }
 
-    fn new_call_site(package_offset: PackageOffset, scope: Scope) -> Self {
+    pub(crate) fn new_call_site(package_offset: PackageOffset, scope: Scope) -> Self {
         Self {
             location: LogicalStackEntryLocation::Call(package_offset),
             scope,

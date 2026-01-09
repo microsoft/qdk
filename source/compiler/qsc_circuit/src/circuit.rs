@@ -6,7 +6,6 @@ mod tests;
 
 use core::panic;
 use log::warn;
-use qsc_fir::fir::PackageId;
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 use std::slice::from_ref;
@@ -1286,7 +1285,7 @@ fn group_label(operation: &Operation) -> String {
         let _ = write!(&mut gate_label, "({args})");
     }
 
-    if let Some(SourceLocation::Resolved(loc)) = operation.source_location() {
+    if let Some(loc) = operation.source_location() {
         let _ = write!(&mut gate_label, "@{loc}");
     }
 

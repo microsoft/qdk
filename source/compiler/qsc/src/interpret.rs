@@ -1065,6 +1065,7 @@ impl Interpreter {
             self.compiler.package_store(),
             tracer_config,
             &[self.package, self.source_package],
+            &(self.compiler.package_store(), &self.fir_store),
         )
         .map_err(|e| vec![e.into()])
     }
