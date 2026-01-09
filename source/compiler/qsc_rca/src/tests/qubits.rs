@@ -21,7 +21,7 @@ fn check_rca_for_static_single_qubit_allcation() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(0x0)
-                    runtime_kind: Static
+                    value_kind: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -51,7 +51,7 @@ fn check_rca_for_dynamic_single_qubit_allcation() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicQubit)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications: <empty>
                 adj: <none>
                 ctl: <none>
@@ -74,7 +74,7 @@ fn check_rca_for_static_multi_qubit_allcation() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(0x0)
-                    runtime_kind: Static
+                    value_kind: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -96,7 +96,7 @@ fn check_rca_for_dynamic_multi_qubit_allcation() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicRange | UseOfDynamicQubit | UseOfDynamicallySizedArray | LoopWithDynamicCondition)
-                    runtime_kind: Dynamic
+                    value_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }

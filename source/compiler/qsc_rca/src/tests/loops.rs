@@ -41,7 +41,7 @@ fn check_rca_for_dynamic_for_loop() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicRange | LoopWithDynamicCondition)
-                    runtime_kind: Static
+                    value_kind: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -85,7 +85,7 @@ fn check_rca_for_dynamic_repeat_until_loop_with_initial_dynamic_condition() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | LoopWithDynamicCondition)
-                    runtime_kind: Static
+                    value_kind: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -112,7 +112,7 @@ fn check_rca_for_dynamic_repeat_until_loop_with_initial_classical_condition_and_
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | MeasurementWithinDynamicScope | LoopWithDynamicCondition | UseOfDynamicResult)
-                    runtime_kind: Static
+                    value_kind: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -135,7 +135,7 @@ fn check_rca_for_dynamic_repeat_until_loop_with_measurement_in_condition() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | MeasurementWithinDynamicScope | LoopWithDynamicCondition)
-                    runtime_kind: Static
+                    value_kind: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -163,7 +163,7 @@ fn check_rca_for_dynamic_repeat_until_loop_with_initial_classical_condition_and_
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | MeasurementWithinDynamicScope | LoopWithDynamicCondition | UseOfDynamicResult)
-                    runtime_kind: Static
+                    value_kind: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -205,7 +205,7 @@ fn check_rca_for_dynamic_while_loop_with_initial_dynamic_condition() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | LoopWithDynamicCondition)
-                    runtime_kind: Static
+                    value_kind: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -231,7 +231,7 @@ fn check_rca_for_dynamic_while_loop_with_initial_classical_condition_and_measure
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | MeasurementWithinDynamicScope | LoopWithDynamicCondition | UseOfDynamicResult)
-                    runtime_kind: Static
+                    value_kind: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -253,7 +253,7 @@ fn check_rca_for_dynamic_while_loop_with_measurement_in_condition() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | MeasurementWithinDynamicScope | LoopWithDynamicCondition)
-                    runtime_kind: Static
+                    value_kind: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -282,7 +282,7 @@ fn check_rca_for_dynamic_while_loop_with_initial_classical_condition_and_dynamic
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | MeasurementWithinDynamicScope | LoopWithDynamicCondition | UseOfDynamicResult)
-                    runtime_kind: Static
+                    value_kind: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -310,7 +310,7 @@ fn check_rca_for_dynamic_while_loop_with_assignments_in_both_the_condition_and_t
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | MeasurementWithinDynamicScope | LoopWithDynamicCondition | UseOfDynamicResult)
-                    runtime_kind: Static
+                    value_kind: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }

@@ -25,7 +25,7 @@ fn check_rca_for_one_function_cycle() {
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CallToCyclicFunctionWithDynamicArg)
-                            runtime_kind: Dynamic
+                            value_kind: Dynamic
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -56,7 +56,7 @@ fn check_rca_for_two_functions_cycle() {
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CallToCyclicFunctionWithDynamicArg)
-                            runtime_kind: Dynamic
+                            value_kind: Dynamic
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -73,7 +73,7 @@ fn check_rca_for_two_functions_cycle() {
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CallToCyclicFunctionWithDynamicArg)
-                            runtime_kind: Dynamic
+                            value_kind: Dynamic
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -106,7 +106,7 @@ fn check_rca_for_three_functions_cycle() {
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CallToCyclicFunctionWithDynamicArg)
-                            runtime_kind: Dynamic
+                            value_kind: Dynamic
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -122,7 +122,7 @@ fn check_rca_for_three_functions_cycle() {
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CallToCyclicFunctionWithDynamicArg)
-                            runtime_kind: Dynamic
+                            value_kind: Dynamic
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -138,7 +138,7 @@ fn check_rca_for_three_functions_cycle() {
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CallToCyclicFunctionWithDynamicArg)
-                            runtime_kind: Dynamic
+                            value_kind: Dynamic
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -166,7 +166,7 @@ fn check_rca_for_indirect_function_cycle() {
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CallToCyclicFunctionWithDynamicArg)
-                            runtime_kind: Dynamic
+                            value_kind: Dynamic
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -196,7 +196,7 @@ fn check_rca_for_indirect_chain_function_cycle() {
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CallToCyclicFunctionWithDynamicArg)
-                            runtime_kind: Dynamic
+                            value_kind: Dynamic
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -224,7 +224,7 @@ fn check_rca_for_indirect_tuple_function_cycle() {
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CallToCyclicFunctionWithDynamicArg)
-                            runtime_kind: Dynamic
+                            value_kind: Dynamic
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -252,7 +252,7 @@ fn check_rca_for_function_cycle_within_binding() {
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CallToCyclicFunctionWithDynamicArg)
-                            runtime_kind: Dynamic
+                            value_kind: Dynamic
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -281,7 +281,7 @@ fn check_rca_for_function_cycle_within_assignment() {
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CallToCyclicFunctionWithDynamicArg)
-                            runtime_kind: Dynamic
+                            value_kind: Dynamic
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -308,7 +308,7 @@ fn check_rca_for_function_cycle_within_return() {
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CallToCyclicFunctionWithDynamicArg)
-                            runtime_kind: Dynamic
+                            value_kind: Dynamic
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -336,7 +336,7 @@ fn check_rca_for_function_cycle_within_tuple() {
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CallToCyclicFunctionWithDynamicArg)
-                            runtime_kind: Dynamic
+                            value_kind: Dynamic
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -389,14 +389,14 @@ fn check_rca_for_function_cycle_within_call_input() {
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CallToCyclicFunctionWithDynamicArg)
-                            runtime_kind: Dynamic
+                            value_kind: Dynamic
                         [1]: [Parameter Type Array] ArrayParamApplication:
                             static_size: Quantum: QuantumProperties:
                                 runtime_features: RuntimeFeatureFlags(CallToCyclicFunctionWithDynamicArg)
-                                runtime_kind: Dynamic
+                                value_kind: Dynamic
                             dynamic_size: Quantum: QuantumProperties:
                                 runtime_features: RuntimeFeatureFlags(CallToCyclicFunctionWithDynamicArg)
-                                runtime_kind: Dynamic
+                                value_kind: Dynamic
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -427,7 +427,7 @@ fn check_rca_for_function_cycle_within_if_block() {
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CallToCyclicFunctionWithDynamicArg)
-                            runtime_kind: Dynamic
+                            value_kind: Dynamic
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -458,7 +458,7 @@ fn check_rca_for_function_cycle_within_if_condition() {
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CallToCyclicFunctionWithDynamicArg)
-                            runtime_kind: Dynamic
+                            value_kind: Dynamic
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -488,7 +488,7 @@ fn check_rca_for_function_cycle_within_for_block() {
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CallToCyclicFunctionWithDynamicArg)
-                            runtime_kind: Dynamic
+                            value_kind: Dynamic
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -518,7 +518,7 @@ fn check_rca_for_function_cycle_within_while_block() {
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CallToCyclicFunctionWithDynamicArg)
-                            runtime_kind: Dynamic
+                            value_kind: Dynamic
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -547,7 +547,7 @@ fn check_rca_for_function_cycle_within_while_condition() {
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CallToCyclicFunctionWithDynamicArg)
-                            runtime_kind: Dynamic
+                            value_kind: Dynamic
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -574,13 +574,13 @@ fn check_rca_for_multi_param_recursive_bool_function() {
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CallToCyclicFunctionWithDynamicArg)
-                            runtime_kind: Dynamic
+                            value_kind: Dynamic
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CallToCyclicFunctionWithDynamicArg)
-                            runtime_kind: Dynamic
+                            value_kind: Dynamic
                         [2]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CallToCyclicFunctionWithDynamicArg)
-                            runtime_kind: Dynamic
+                            value_kind: Dynamic
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -607,17 +607,17 @@ fn check_rca_for_multi_param_recursive_unit_function() {
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CallToCyclicFunctionWithDynamicArg)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Array] ArrayParamApplication:
                             static_size: Quantum: QuantumProperties:
                                 runtime_features: RuntimeFeatureFlags(CallToCyclicFunctionWithDynamicArg)
-                                runtime_kind: Static
+                                value_kind: Static
                             dynamic_size: Quantum: QuantumProperties:
                                 runtime_features: RuntimeFeatureFlags(CallToCyclicFunctionWithDynamicArg)
-                                runtime_kind: Static
+                                value_kind: Static
                         [2]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CallToCyclicFunctionWithDynamicArg)
-                            runtime_kind: Static
+                            value_kind: Static
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -642,11 +642,11 @@ fn check_rca_for_result_recursive_operation() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(CyclicOperationSpec)
-                        runtime_kind: Dynamic
+                        value_kind: Dynamic
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CyclicOperationSpec)
-                            runtime_kind: Dynamic
+                            value_kind: Dynamic
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -671,20 +671,20 @@ fn check_rca_for_multi_param_result_recursive_operation() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(CyclicOperationSpec)
-                        runtime_kind: Dynamic
+                        value_kind: Dynamic
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CyclicOperationSpec)
-                            runtime_kind: Dynamic
+                            value_kind: Dynamic
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CyclicOperationSpec)
-                            runtime_kind: Dynamic
+                            value_kind: Dynamic
                         [2]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CyclicOperationSpec)
-                            runtime_kind: Dynamic
+                            value_kind: Dynamic
                         [3]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CyclicOperationSpec)
-                            runtime_kind: Dynamic
+                            value_kind: Dynamic
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -709,11 +709,11 @@ fn check_rca_for_operation_body_recursion() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(CallToUnresolvedCallee)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CallToUnresolvedCallee)
-                            runtime_kind: Static
+                            value_kind: Static
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -743,19 +743,19 @@ fn check_rca_for_operation_body_adj_recursion() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(CallToUnresolvedCallee)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CallToUnresolvedCallee)
-                            runtime_kind: Static
+                            value_kind: Static
                 adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(CallToUnresolvedCallee)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CallToUnresolvedCallee)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl: <none>
                 ctl-adj: <none>"#]],
     );
@@ -784,20 +784,20 @@ fn check_rca_for_operation_body_ctl_recursion() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(CallToUnresolvedCallee)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CallToUnresolvedCallee)
-                            runtime_kind: Static
+                            value_kind: Static
                 adj: <none>
                 ctl: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(CallToUnresolvedCallee)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CallToUnresolvedCallee)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl-adj: <none>"#]],
     );
 }
@@ -825,20 +825,20 @@ fn check_rca_for_operation_multi_controlled_functor_recursion() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(CallToUnresolvedCallee)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CallToUnresolvedCallee)
-                            runtime_kind: Static
+                            value_kind: Static
                 adj: <none>
                 ctl: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(CallToUnresolvedCallee)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CallToUnresolvedCallee)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl-adj: <none>"#]],
     );
 }
@@ -861,11 +861,11 @@ fn check_rca_for_operation_body_recursion_non_unit_return() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(CyclicOperationSpec)
-                        runtime_kind: Dynamic
+                        value_kind: Dynamic
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CyclicOperationSpec)
-                            runtime_kind: Dynamic
+                            value_kind: Dynamic
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -893,11 +893,11 @@ fn check_rca_for_operation_body_recursion_preserves_inherent_capabilities() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | CallToUnresolvedCallee)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicQubit | CallToUnresolvedCallee)
-                            runtime_kind: Static
+                            value_kind: Static
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -931,11 +931,11 @@ fn check_rca_for_two_operation_cycle() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(CallToUnresolvedCallee)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CallToUnresolvedCallee)
-                            runtime_kind: Static
+                            value_kind: Static
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -950,11 +950,11 @@ fn check_rca_for_two_operation_cycle() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(CallToUnresolvedCallee)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(CallToUnresolvedCallee)
-                            runtime_kind: Static
+                            value_kind: Static
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],

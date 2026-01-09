@@ -55,7 +55,7 @@ fn check_rca_for_if_stmt_with_dynamic_condition_and_classic_if_true_block() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications: <empty>
                 adj: <none>
                 ctl: <none>
@@ -105,7 +105,7 @@ fn check_rca_for_if_else_expr_with_dynamic_condition_and_classic_branch_blocks()
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
-                    runtime_kind: Dynamic
+                    value_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }

@@ -50,7 +50,7 @@ fn check_rca_for_call_to_cyclic_function_with_dynamic_argument() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | CallToCyclicFunctionWithDynamicArg)
-                    runtime_kind: Dynamic
+                    value_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -76,7 +76,7 @@ fn check_rca_for_call_to_cyclic_operation_with_classical_argument() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicInt | CallToCyclicOperation)
-                    runtime_kind: Dynamic
+                    value_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -103,7 +103,7 @@ fn check_rca_for_call_to_cyclic_operation_with_dynamic_argument() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | CallToCyclicOperation)
-                    runtime_kind: Dynamic
+                    value_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -147,7 +147,7 @@ fn check_rca_for_call_to_dynamic_closure_function() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | LoopWithDynamicCondition)
-                    runtime_kind: Dynamic
+                    value_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -171,7 +171,7 @@ fn check_rca_for_call_to_static_closure_operation() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(0x0)
-                    runtime_kind: Static
+                    value_kind: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -195,7 +195,7 @@ fn check_rca_for_call_to_dynamic_closure_operation() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                    runtime_kind: Static
+                    value_kind: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -221,7 +221,7 @@ fn check_rca_for_call_to_operation_with_one_classical_return_and_one_dynamic_ret
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | ReturnWithinDynamicScope)
-                    runtime_kind: Dynamic
+                    value_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -249,7 +249,7 @@ fn check_rca_for_call_to_operation_with_codegen_intrinsic_override_treated_as_in
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(0x0)
-                    runtime_kind: Static
+                    value_kind: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -278,7 +278,7 @@ fn check_rca_for_call_to_operation_with_codegen_intrinsic_override_treated_as_in
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(0x0)
-                    runtime_kind: Static
+                    value_kind: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -321,7 +321,7 @@ fn check_rca_for_call_to_function_that_receives_tuple_with_a_non_tuple_dynamic_a
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
-                    runtime_kind: Dynamic
+                    value_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -344,7 +344,7 @@ fn check_rca_for_call_to_function_passed_single_tuple_variable_for_multiple_args
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
-                    runtime_kind: Dynamic
+                    value_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -367,7 +367,7 @@ fn check_rca_for_call_to_lambda_passed_single_tuple_variable_for_multiple_args()
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
-                    runtime_kind: Dynamic
+                    value_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }
