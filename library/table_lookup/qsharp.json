@@ -1,0 +1,25 @@
+{
+  "author": "Microsoft",
+  "license": "MIT",
+  "dependencies": {
+    "Qtest": {
+      "github": {
+        "owner": "Microsoft",
+        "repo": "qsharp",
+        "ref": "v1.21.0",
+        "path": "library/qtest"
+      }
+    }
+  },
+  "files": [
+    "src/LookupViaPP.qs",
+    "src/Main.qs",
+    "src/Multicontrolled.qs",
+    "src/PhaseLookup.qs",
+    "src/PowerProducts.qs",
+    "src/RecursiveSelect.qs",
+    "src/Select.qs",
+    "src/Tests.qs",
+    "src/Utils.qs"
+  ]
+}
