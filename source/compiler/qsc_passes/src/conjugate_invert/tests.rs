@@ -538,6 +538,39 @@ fn conjugate_return_in_apply_fail() {
 }
 
 #[test]
+fn conjugate_return_nested_in_apply_fail() {
+    check(
+        indoc! {"
+            namespace Test {
+                operation B(i : Int) : Unit is Adj {}
+                operation A() : Unit {
+                    mutable a = 1;
+                    within {
+                        let x = a;
+                        B(2);
+                    }
+                    apply {
+                        if true {
+                            return ();
+                        }
+                    }
+                }
+            }
+        "},
+        &expect![[r#"
+            [
+                ReturnForbidden(
+                    Span {
+                        lo: 231,
+                        hi: 240,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
 fn conjugate_mutable_correct_use_succeeds() {
     check(
         indoc! {"
