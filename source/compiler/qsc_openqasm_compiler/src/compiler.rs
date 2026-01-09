@@ -12,32 +12,31 @@ use qsc_data_structures::{error::WithSource, source::SourceMap, span::Span, targ
 use rustc_hash::FxHashMap;
 
 use crate::{
-    CompilerConfig, OperationSignature, OutputSemantics, ProgramType, QasmCompileUnit,
-    QubitSemantics,
+    CompilerConfig, FunctorConstraintSolver, FunctorConstraints, OperationSignature,
+    OutputSemantics, ProgramType, QasmCompileUnit, QubitSemantics,
     ast_builder::{
-        build_adj_plus_ctl_functor, build_angle_cast_call_by_name,
-        build_angle_convert_call_with_two_params, build_arg_pat, build_argument_validation_stmts,
-        build_array_reverse_expr, build_assignment_statement, build_attr, build_barrier_call,
-        build_binary_expr, build_call_no_params, build_call_stmt_no_params, build_call_with_param,
-        build_call_with_params, build_classical_decl, build_complex_from_expr,
-        build_convert_call_expr, build_convert_cast_call_by_name, build_end_stmt,
-        build_expr_array_expr, build_for_stmt, build_function_or_operation,
-        build_gate_call_param_expr, build_gate_call_with_params_and_callee,
-        build_if_expr_then_block, build_if_expr_then_block_else_block,
-        build_if_expr_then_block_else_expr, build_if_expr_then_expr_else_expr,
-        build_implicit_return_stmt, build_index_expr, build_lit_angle_expr, build_lit_bigint_expr,
-        build_lit_bool_expr, build_lit_complex_expr, build_lit_double_expr, build_lit_int_expr,
-        build_lit_result_array_expr, build_lit_result_expr, build_managed_qubit_alloc,
-        build_math_call_from_exprs, build_math_call_no_params, build_measure_call,
-        build_measureeachz_call, build_operation_with_stmts, build_path_ident_expr,
-        build_path_ident_ty, build_qasm_convert_call_with_one_param, build_qasm_import_decl,
-        build_qasm_import_items, build_qasmstd_convert_call_with_two_params, build_range_expr,
-        build_reset_all_call, build_reset_call, build_return_expr, build_return_unit,
-        build_stmt_semi_from_expr, build_stmt_semi_from_expr_with_span,
-        build_top_level_ns_with_items, build_tuple_expr, build_unary_op_expr,
-        build_unmanaged_qubit_alloc, build_unmanaged_qubit_alloc_array, build_while_stmt,
-        build_wrapped_block_expr, managed_qubit_alloc_array, map_qsharp_type_to_ast_ty,
-        wrap_expr_in_parens,
+        build_angle_cast_call_by_name, build_angle_convert_call_with_two_params, build_arg_pat,
+        build_argument_validation_stmts, build_array_reverse_expr, build_assignment_statement,
+        build_attr, build_barrier_call, build_binary_expr, build_call_no_params,
+        build_call_stmt_no_params, build_call_with_param, build_call_with_params,
+        build_classical_decl, build_complex_from_expr, build_convert_call_expr,
+        build_convert_cast_call_by_name, build_end_stmt, build_expr_array_expr, build_for_stmt,
+        build_function_or_operation, build_functor_from_constraints, build_gate_call_param_expr,
+        build_gate_call_with_params_and_callee, build_if_expr_then_block,
+        build_if_expr_then_block_else_block, build_if_expr_then_block_else_expr,
+        build_if_expr_then_expr_else_expr, build_implicit_return_stmt, build_index_expr,
+        build_lit_angle_expr, build_lit_bigint_expr, build_lit_bool_expr, build_lit_complex_expr,
+        build_lit_double_expr, build_lit_int_expr, build_lit_result_array_expr,
+        build_lit_result_expr, build_managed_qubit_alloc, build_math_call_from_exprs,
+        build_math_call_no_params, build_measure_call, build_measureeachz_call,
+        build_operation_with_stmts, build_path_ident_expr, build_path_ident_ty,
+        build_qasm_convert_call_with_one_param, build_qasm_import_decl, build_qasm_import_items,
+        build_qasmstd_convert_call_with_two_params, build_range_expr, build_reset_all_call,
+        build_reset_call, build_return_expr, build_return_unit, build_stmt_semi_from_expr,
+        build_stmt_semi_from_expr_with_span, build_top_level_ns_with_items, build_tuple_expr,
+        build_unary_op_expr, build_unmanaged_qubit_alloc, build_unmanaged_qubit_alloc_array,
+        build_while_stmt, build_wrapped_block_expr, managed_qubit_alloc_array,
+        map_qsharp_type_to_ast_ty, wrap_expr_in_parens,
     },
     get_semantic_errors_from_lowering_result,
 };
@@ -106,6 +105,7 @@ pub fn compile_to_qsharp_ast_with_config(
         symbols: res.symbols,
         errors,
         pragma_config: PragmaConfig::default(),
+        functor_constraints: FxHashMap::default(),
     };
 
     compiler.compile(&program)
@@ -166,6 +166,9 @@ pub struct QasmCompiler {
     pub symbols: SymbolTable,
     pub errors: Vec<WithSource<crate::Error>>,
     pub pragma_config: PragmaConfig,
+    /// Functor constraints for each gate, computed by the constraint solver pass.
+    /// Maps gate symbol IDs to their required functor support (Adj, Ctl).
+    pub functor_constraints: FxHashMap<SymbolId, FunctorConstraints>,
 }
 
 impl QasmCompiler {
@@ -174,6 +177,10 @@ impl QasmCompiler {
     /// configuration.
     #[must_use]
     pub fn compile(mut self, program: &semast::Program) -> QasmCompileUnit {
+        // Run the functor constraint solver pass to determine which functors
+        // each gate definition needs to support based on how they're called.
+        self.functor_constraints = FunctorConstraintSolver::solve(program);
+
         // in non-file mode we need the runtime imports in the body
         let program_ty = self.config.program_ty.clone();
 
@@ -1332,10 +1339,13 @@ impl QasmCompiler {
 
         let body = Some(self.compile_block(&stmt.body));
 
-        let attrs = annotations
+        // Collect attrs first to avoid borrow conflicts with functor_constraints lookup.
+        let attrs: Vec<_> = annotations
             .iter()
-            .filter_map(|annotation| self.compile_annotation(annotation));
+            .filter_map(|annotation| self.compile_annotation(annotation))
+            .collect();
 
+        // Determine which functors this gate needs based on how it's called.
         // Do not compile functors if we have the simulatable intrinsic annotation.
         let functors = if annotations
             .iter()
@@ -1343,7 +1353,16 @@ impl QasmCompiler {
         {
             None
         } else {
-            Some(build_adj_plus_ctl_functor())
+            // Use the constraint solver results to determine required functors.
+            // If the gate is called with inv @ (inverse), it needs Adj support.
+            // If the gate is called with ctrl @ or negctrl @, it needs Ctl support.
+            let constraints = self.functor_constraints.get(&stmt.symbol_id);
+            match constraints {
+                Some(c) => build_functor_from_constraints(c.requires_adj, c.requires_ctl),
+                // If no constraints were found, the gate is not called with any modifiers
+                // that require functor support, so we don't need to add any functors.
+                None => None,
+            }
         };
 
         Some(build_function_or_operation(

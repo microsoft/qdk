@@ -23,7 +23,7 @@ fn can_access_const_decls_from_global_scope() -> miette::Result<(), Vec<Report>>
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
         let i = 7;
-        operation my_h(q : Qubit) : Unit is Adj + Ctl {
+        operation my_h(q : Qubit) : Unit {
             if 7 == 0 {
                 h(q);
             };
@@ -71,10 +71,10 @@ fn gates_can_call_previously_declared_gates() -> miette::Result<(), Vec<Report>>
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        operation my_h(q : Qubit) : Unit is Adj + Ctl {
+        operation my_h(q : Qubit) : Unit {
             h(q);
         }
-        operation my_hx(q : Qubit) : Unit is Adj + Ctl {
+        operation my_hx(q : Qubit) : Unit {
             my_h(q);
             x(q);
         }
@@ -138,7 +138,7 @@ fn gate_can_call_previously_declared_def() -> miette::Result<(), Vec<Report>> {
         operation apply_h(q : Qubit) : Unit {
             h(q);
         }
-        operation my_hx(q : Qubit) : Unit is Adj + Ctl {
+        operation my_hx(q : Qubit) : Unit {
             apply_h(q);
             x(q);
         }
@@ -167,7 +167,7 @@ fn def_can_call_previously_declared_gate() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        operation my_h(q : Qubit) : Unit is Adj + Ctl {
+        operation my_h(q : Qubit) : Unit {
             h(q);
         }
         operation apply_hx(q : Qubit) : Unit {

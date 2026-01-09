@@ -107,7 +107,7 @@ fn config_can_be_applied_to_gate() -> miette::Result<(), Vec<Report>> {
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
         @Config(Base)
-        operation my_h(q : Qubit) : Unit is Adj + Ctl {
+        operation my_h(q : Qubit) : Unit {
             h(q);
         }
     "#]]
@@ -129,7 +129,7 @@ fn qdk_qir_profile_can_be_applied_to_gate() -> miette::Result<(), Vec<Report>> {
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
         @Config(Base)
-        operation my_h(q : Qubit) : Unit is Adj + Ctl {
+        operation my_h(q : Qubit) : Unit {
             h(q);
         }
     "#]]

@@ -16,7 +16,7 @@ fn single_qubit() -> miette::Result<(), Vec<Report>> {
 
     let qsharp = compile_qasm_stmt_to_qsharp(source)?;
     expect![[r#"
-        operation my_h(q : Qubit) : Unit is Adj + Ctl {
+        operation my_h(q : Qubit) : Unit {
             h(q);
         }
     "#]]
@@ -36,7 +36,7 @@ fn two_qubits() -> miette::Result<(), Vec<Report>> {
 
     let qsharp = compile_qasm_stmt_to_qsharp(source)?;
     expect![[r#"
-        operation my_h(q : Qubit, q2 : Qubit) : Unit is Adj + Ctl {
+        operation my_h(q : Qubit, q2 : Qubit) : Unit {
             h(q2);
             h(q);
         }
@@ -56,7 +56,7 @@ fn single_angle_single_qubit() -> miette::Result<(), Vec<Report>> {
 
     let qsharp = compile_qasm_stmt_to_qsharp(source)?;
     expect![[r#"
-        operation my_h(θ : Std.OpenQASM.Angle.Angle, q : Qubit) : Unit is Adj + Ctl {
+        operation my_h(θ : Std.OpenQASM.Angle.Angle, q : Qubit) : Unit {
             rx(θ, q);
         }
     "#]]
@@ -76,7 +76,7 @@ fn two_angles_two_qubits() -> miette::Result<(), Vec<Report>> {
 
     let qsharp = compile_qasm_stmt_to_qsharp(source)?;
     expect![[r#"
-        operation my_h(θ : Std.OpenQASM.Angle.Angle, φ : Std.OpenQASM.Angle.Angle, q : Qubit, q2 : Qubit) : Unit is Adj + Ctl {
+        operation my_h(θ : Std.OpenQASM.Angle.Angle, φ : Std.OpenQASM.Angle.Angle, q : Qubit, q2 : Qubit) : Unit {
             rx(θ, q2);
             ry(φ, q);
         }
@@ -98,7 +98,7 @@ fn capturing_external_variables_const_evaluate_them() -> miette::Result<(), Vec<
 
     let qsharp = compile_qasm_stmt_to_qsharp(source)?;
     expect![[r#"
-        operation my_gate(q : Qubit) : Unit is Adj + Ctl {
+        operation my_gate(q : Qubit) : Unit {
             mutable x = 6;
         }
     "#]]
