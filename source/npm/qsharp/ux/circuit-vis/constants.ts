@@ -25,6 +25,10 @@ export const registerHeight: number = gateHeight + gatePadding * 2;
 export const classicalRegHeight: number = gateHeight;
 /** Group box inner padding. */
 export const groupBoxPadding = gatePadding;
+/** Padding around group label text */
+export const groupLabelPaddingX = 2;
+/** Padding around group label text */
+export const groupLabelPaddingY = 2;
 /** Padding between nested groups. */
 export const nestedGroupPadding = 2;
 /** Additional offset for control button. */
@@ -37,6 +41,8 @@ export const labelFontSize = 14;
 export const argsFontSize = 12;
 /** Starting x coord for each register wire. */
 export const regLineStart = 40;
+/** Top padding between nested groups. */
+export const nestedGroupPaddingTop = nestedGroupPadding + labelFontSize + 12;
 
 // Toolbox
 /** Toolbox minimum height */

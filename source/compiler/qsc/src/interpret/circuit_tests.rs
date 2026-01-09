@@ -420,6 +420,129 @@ fn for_loop_in_function_call() {
                 @EntryPoint()
                 operation Main() : Unit {
                     use q = Qubit();
+                    mutable i = 0;
+                    repeat {
+                        Foo(q);
+                    } until i == 2
+                    fixup {
+                        set i += 1;
+                    }
+                }
+
+                operation Foo(q: Qubit) : Unit {
+                    X(q);
+                    Y(q);
+                }
+            }
+        ",
+        Profile::Unrestricted,
+        CircuitEntryPoint::EntryPoint,
+        CircuitGenerationMethod::ClassicalEval,
+        TracerConfig {
+            max_operations: 1000,
+            source_locations: true,
+            group_by_scope: true,
+            prune_classical_qubits: false,
+        },
+    )
+    .expect("circuit generation should succeed");
+
+    let circ = circ.display_with_groups().to_string();
+
+    expect![[r#"
+        q_0@test.qs:4:20 ─ [ [Main] ─── [ [loop: i == 2@test.qs:6:20] ── [ [iter 1@test.qs:6:27] ── [ [Foo@test.qs:7:24] ─── X@test.qs:15:20 ── Y@test.qs:16:20 ─── ] ──── ] ─── [ [iter 2@test.qs:6:27] ── [ [Foo@test.qs:7:24] ─── X@test.qs:15:20 ── Y@test.qs:16:20 ─── ] ──── ] ─── [ [iter 3@test.qs:6:27] ── [ [Foo@test.qs:7:24] ─── X@test.qs:15:20 ── Y@test.qs:16:20 ─── ] ──── ] ──── ] ──── ] ──
+    "#]]
+    .assert_eq(&circ);
+}
+
+#[test]
+fn while_loop_is_grouped() {
+    let circ = circuit_with_options(
+        r"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    use q = Qubit();
+                    mutable i = 0;
+                    while (i < 2) {
+                        Foo(q);
+                        set i += 1;
+                    }
+                }
+
+                operation Foo(q: Qubit) : Unit {
+                    X(q);
+                    Y(q);
+                }
+            }
+        ",
+        Profile::Unrestricted,
+        CircuitEntryPoint::EntryPoint,
+        CircuitGenerationMethod::ClassicalEval,
+        TracerConfig {
+            max_operations: 1000,
+            source_locations: true,
+            group_by_scope: true,
+            prune_classical_qubits: false,
+        },
+    )
+    .expect("circuit generation should succeed");
+
+    let circ = circ.display_with_groups().to_string();
+
+    expect![[r#"
+        q_0@test.qs:4:20 ─ [ [Main] ─── [ [loop: i < 2@test.qs:6:20] ─── [ [iter 1@test.qs:6:34] ── [ [Foo@test.qs:7:24] ─── X@test.qs:13:20 ── Y@test.qs:14:20 ─── ] ──── ] ─── [ [iter 2@test.qs:6:34] ── [ [Foo@test.qs:7:24] ─── X@test.qs:13:20 ── Y@test.qs:14:20 ─── ] ──── ] ──── ] ──── ] ──
+    "#]]
+    .assert_eq(&circ);
+}
+
+#[test]
+fn loop_single_iteration_is_not_grouped() {
+    let circ = circuit_with_options(
+        r"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    use q = Qubit();
+                    for i in 0..0 {
+                        Foo(q);
+                    }
+                }
+
+                operation Foo(q: Qubit) : Unit {
+                    X(q);
+                    Y(q);
+                }
+            }
+        ",
+        Profile::Unrestricted,
+        CircuitEntryPoint::EntryPoint,
+        CircuitGenerationMethod::ClassicalEval,
+        TracerConfig {
+            max_operations: 1000,
+            source_locations: true,
+            group_by_scope: true,
+            prune_classical_qubits: false,
+        },
+    )
+    .expect("circuit generation should succeed");
+
+    let circ = circ.display_with_groups().to_string();
+
+    expect![[r#"
+        q_0@test.qs:4:20 ─ [ [Main] ─── [ [Foo@test.qs:6:24] ─── X@test.qs:11:20 ── Y@test.qs:12:20 ─── ] ──── ] ──
+    "#]]
+    .assert_eq(&circ);
+}
+
+#[test]
+fn loop_vertical_is_not_grouped() {
+    let circ = circuit_with_options(
+        r"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    use qs = Qubit[6];
                     for i in 0..5 {
                         X(q);
                     }

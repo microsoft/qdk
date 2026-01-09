@@ -1,13 +1,14 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { Qubit, SourceLocation } from "../circuit.js";
+import { Column, ComponentGrid, Qubit, SourceLocation } from "../circuit.js";
 import { RegisterType, RegisterMap, RegisterRenderData } from "../register.js";
 import {
   leftPadding,
   startY,
   registerHeight,
   classicalRegHeight,
+  nestedGroupPaddingTop,
 } from "../constants.js";
 import { createSvgElement, group, text } from "./formatUtils.js";
 import { mathChars } from "../utils.js";
@@ -23,6 +24,7 @@ import { mathChars } from "../utils.js";
  */
 const formatInputs = (
   qubits: Qubit[],
+  componentGrid: ComponentGrid,
   renderLocations?: (s: SourceLocation[]) => { title: string; href: string },
 ): { qubitWires: SVGElement; registers: RegisterMap; svgHeight: number } => {
   const qubitWires: SVGElement[] = [];
@@ -30,6 +32,10 @@ const formatInputs = (
 
   let currY: number = startY;
   qubits.forEach(({ id, numResults, declarations }, wireIndex) => {
+    const topBorders = maxGroupTopBordersOnQubitRow(id, componentGrid);
+    const topY = currY;
+    currY += topBorders * nestedGroupPaddingTop;
+
     const link: { link?: { href: string; title: string } } = {};
     if (renderLocations && declarations && declarations.length > 0) {
       link.link = renderLocations(declarations);
@@ -39,7 +45,7 @@ const formatInputs = (
     qubitWires.push(qubitInput(currY, wireIndex, id.toString(), link.link));
 
     // Create qubit register
-    registers[id] = { type: RegisterType.Qubit, y: currY };
+    registers[id] = { type: RegisterType.Qubit, wireY: currY, topY };
 
     // If there are no attached classical registers, increment y by fixed register height
     if (numResults == null || numResults === 0) {
@@ -54,8 +60,8 @@ const formatInputs = (
     registers[id].children = Array.from(Array(numResults), () => {
       const clsReg: RegisterRenderData = {
         type: RegisterType.Classical,
-        y: currY,
-        ...link, // TODO: pretty sure this is unncessary
+        topY: currY - classicalRegHeight + registerHeight / 2,
+        wireY: currY,
       };
       currY += classicalRegHeight;
       return clsReg;
@@ -68,6 +74,54 @@ const formatInputs = (
     svgHeight: currY,
   };
 };
+
+function maxGroupTopBordersOnQubitRow(
+  qubitIndex: number,
+  componentGrid: ComponentGrid,
+): number {
+  let maxHeight = 0;
+  for (const col of componentGrid) {
+    maxHeight = Math.max(groupTopBordersOnQubitRow(qubitIndex, col), maxHeight);
+  }
+  return maxHeight;
+}
+
+function groupTopBordersOnQubitRow(qubitIndex: number, column: Column): number {
+  let maxHeight = 0;
+  for (const component of column.components) {
+    if (component.dataAttributes?.["expanded"] === "true") {
+      let qubits;
+      switch (component.kind) {
+        case "ket":
+          qubits = component.targets;
+          break;
+        case "measurement":
+          qubits = component.qubits;
+          break;
+        case "unitary":
+          qubits = component.targets.concat(component.controls || []);
+          break;
+      }
+
+      const minQubit = qubits
+        .map((r) => r.qubit)
+        .reduce((a, b) => Math.min(a, b));
+
+      if (minQubit === qubitIndex) {
+        const height =
+          1 +
+          maxGroupTopBordersOnQubitRow(qubitIndex, component.children || []);
+        return height;
+      } else {
+        maxHeight = Math.max(
+          maxHeight,
+          maxGroupTopBordersOnQubitRow(qubitIndex, component.children || []),
+        );
+      }
+    }
+  }
+  return maxHeight;
+}
 
 /**
  * Generate the SVG text component for the input qubit register.

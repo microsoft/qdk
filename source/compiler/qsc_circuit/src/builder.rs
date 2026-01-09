@@ -27,8 +27,10 @@ use qsc_frontend::compile::{self};
 use qsc_hir::hir;
 use qsc_lowerer::{map_fir_local_item_to_hir, map_fir_package_to_hir};
 use rustc_hash::FxHashSet;
+#[cfg(test)]
+use std::fmt::Display;
 use std::{
-    fmt::{Debug, Display, Write},
+    fmt::{Debug, Write},
     hash::Hash,
     mem::{replace, take},
     rc::Rc,
@@ -703,7 +705,7 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
                 let block = package.get_block(*body);
 
                 LexicalScope {
-                    name: format!("({i})").into(),
+                    name: format!("iter {i}").into(),
                     location: Some(PackageOffset {
                         package_id,
                         offset: block.span.lo,
@@ -1766,23 +1768,6 @@ pub enum Scope {
     /// A loop body.  The `ExprId` identifies the loop expression.
     /// The `usize` is the iteration count.
     LoopIteration(PackageId, ExprId, usize),
-}
-
-impl Display for Scope {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Scope::Top => write!(f, "top"),
-            Scope::Callable(i, _) => {
-                write!(f, "callable{}-{}", i.package, i.item)
-            }
-            Scope::LoopIteration(_, _, i) => {
-                write!(f, "loop-iter({i})")
-            }
-            Scope::Loop(..) => {
-                write!(f, "loop-container")
-            }
-        }
-    }
 }
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]

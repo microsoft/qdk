@@ -193,8 +193,12 @@ export class Sqore {
       ) {
         const location: string = onlyComponent.dataAttributes["location"];
         this.expandOperation(grid, location);
-        // Recursively expand if the only child is also a single operation
-        this.expandIfSingleOperation(onlyComponent.children || []);
+      }
+    }
+    // Recursively expand if the only child is also a single operation
+    for (const col of grid) {
+      for (const op of col.components) {
+        this.expandIfSingleOperation(op.children || []);
       }
     }
   }
@@ -240,6 +244,7 @@ export class Sqore {
     const { qubits, componentGrid } = circuit;
     const { qubitWires, registers, svgHeight } = formatInputs(
       qubits,
+      componentGrid,
       this.options.isEditable ? undefined : this.options.renderLocations,
     );
     const { renderDataArray, svgWidth } = processOperations(

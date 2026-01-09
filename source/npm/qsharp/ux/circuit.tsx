@@ -231,10 +231,11 @@ function ZoomableCircuit(props: {
     const height = svg.getAttribute("height")!;
 
     svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-    const zoom = Math.min(Math.ceil((containerWidth / width) * 100), 100);
-    // never auto-zoom lower than 70%
-    return Math.max(zoom, 70);
-    // return zoom;/
+    const zoomLevelToFit = Math.ceil((containerWidth / width) * 100);
+    const maxAutoZoom = 100;
+    const minAutoZoom = 70;
+    const zoom = Math.max(minAutoZoom, Math.min(zoomLevelToFit, maxAutoZoom));
+    return zoom;
   }
 
   function currentSvg(): SVGElement | undefined {
@@ -383,23 +384,6 @@ export function CircuitPanel(props: CircuitProps) {
         </h1>
       </div>
       {error && <div class="qs-circuit-error">{error}</div>}
-      {props.targetProfile && <p>{props.targetProfile}</p>}
-      {props.simulated && (
-        <p>
-          WARNING: This diagram shows the result of tracing a dynamic circuit,
-          and may change from run to run.
-        </p>
-      )}
-      <p>
-        Learn more at{" "}
-        {props.isEditable ? (
-          <a href="https://aka.ms/qdk.circuit-editor">
-            https://aka.ms/qdk.circuit-editor
-          </a>
-        ) : (
-          <a href="https://aka.ms/qdk.circuits">https://aka.ms/qdk.circuits</a>
-        )}
-      </p>
       {props.calculating ? (
         <div>
           <Spinner />
@@ -414,6 +398,27 @@ export function CircuitPanel(props: CircuitProps) {
           renderLocations={renderLocations}
         ></Circuit>
       ) : null}
+      <div class="qs-circuit-footer">
+        {props.targetProfile && <p>{props.targetProfile}</p>}
+        {props.simulated && (
+          <p>
+            WARNING: This diagram shows the result of tracing a dynamic circuit,
+            and may change from run to run.
+          </p>
+        )}
+        <p>
+          Learn more at{" "}
+          {props.isEditable ? (
+            <a href="https://aka.ms/qdk.circuit-editor">
+              https://aka.ms/qdk.circuit-editor
+            </a>
+          ) : (
+            <a href="https://aka.ms/qdk.circuits">
+              https://aka.ms/qdk.circuits
+            </a>
+          )}
+        </p>
+      </div>
     </div>
   );
 }

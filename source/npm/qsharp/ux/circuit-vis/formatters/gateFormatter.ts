@@ -12,6 +12,9 @@ import {
   groupBoxPadding,
   classicalRegHeight,
   nestedGroupPadding,
+  nestedGroupPaddingTop,
+  groupLabelPaddingX,
+  groupLabelPaddingY,
 } from "../constants.js";
 import {
   createSvgElement,
@@ -173,7 +176,9 @@ const _zoomButton = (
   const expanded = dataAttributes["expanded"] == "true";
 
   const x = gateBoundingBoxX + 2;
-  const y = gateBoundingBoxY + 2;
+  const y = expanded
+    ? gateBoundingBoxY + 2 + nestedGroupPaddingTop
+    : gateBoundingBoxY + 2;
   const circleBorder: SVGElement = circle(x, y, 10);
 
   if (expanded) {
@@ -213,31 +218,34 @@ const _gateBoundingBox = (
     width: widthFromRenderData,
     type,
     targetsY,
+    topY,
   } = renderData;
 
   const ys = targetsY?.flatMap((y) => y as number[]) || [];
   const maxY = Math.max(...ys);
-  const minY = Math.min(...ys);
 
   let x: number, y: number, width: number, height: number;
 
   switch (type) {
     case GateType.Group: {
-      const padding = groupBoxPadding - nestedDepth * nestedGroupPadding;
-
-      x = xFromRenderData - 2 * padding;
-      y = minY - gateHeight / 2 - padding;
-      width = widthFromRenderData + 2 * padding;
-      height = maxY - minY + gateHeight + 2 * padding;
+      const minY = topY;
+      const topPadding = groupBoxPadding - nestedDepth * nestedGroupPaddingTop;
+      const xPadding = groupBoxPadding - nestedDepth * nestedGroupPadding;
+      const bottomPadding = groupBoxPadding - nestedDepth * nestedGroupPadding;
+      x = xFromRenderData - 2 * xPadding;
+      y = minY - gateHeight / 2 - topPadding;
+      width = widthFromRenderData + 2 * xPadding;
+      height = maxY + bottomPadding + gateHeight / 2 - y;
 
       return [x, y, width, height];
     }
-
-    default:
+    default: {
+      const minY = Math.min(...ys);
       x = xFromRenderData - widthFromRenderData / 2;
       y = minY - gateHeight / 2;
       width = widthFromRenderData;
       height = maxY - minY + gateHeight;
+    }
   }
 
   return [x, y, width, height];
@@ -593,14 +601,31 @@ const _groupedOperations = (
   renderData: GateRenderData,
   nestedDepth: number,
 ): SVGElement => {
-  const { children } = renderData;
+  const { children, label } = renderData;
   const [x, y, w, h] = _gateBoundingBox(renderData, nestedDepth);
 
   // Draw dashed box around children gates
-  const box: SVGElement = dashedBox(x, y, w, h, "gate-unitary");
+  const box: SVGElement = dashedBox(
+    x,
+    y + nestedGroupPaddingTop,
+    w,
+    h - nestedGroupPaddingTop,
+    "gate-unitary",
+  );
   const elems: SVGElement[] = [box];
   if (children != null)
     elems.push(formatGates(children as GateRenderData[][], nestedDepth + 1));
+
+  const labelY = y + nestedGroupPaddingTop / 2;
+  const labelText = text(
+    label,
+    x + groupLabelPaddingX,
+    labelY + groupLabelPaddingY,
+  );
+  labelText.classList.add("qs-group-label");
+  _style_gate_text(labelText);
+  elems.push(labelText);
+
   return _createGate(elems, renderData, nestedDepth);
 };
 

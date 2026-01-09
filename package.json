@@ -56,8 +56,5 @@
     "url": "^0.11.3",
     "user-agent-data-types": "^0.4.2",
     "vscode-uri": "^3.0.8"
-  },
-  "optionalDependencies": {
-    "canvas": "^3.2.0"
   }
 }
