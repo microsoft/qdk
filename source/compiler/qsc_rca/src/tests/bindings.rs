@@ -40,7 +40,7 @@ fn check_rca_for_immutable_dynamic_result_binding() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(0x0)
-                    runtime_kind: Dynamic
+                    value_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -80,7 +80,7 @@ fn check_rca_for_mutable_dynamic_bool_binding() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
-                    runtime_kind: Dynamic
+                    value_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -122,7 +122,7 @@ fn check_rca_for_immutable_dynamic_int_binding() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
-                    runtime_kind: Dynamic
+                    value_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -165,7 +165,7 @@ fn check_rca_for_mutable_dynamic_double_binding() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicDouble)
-                    runtime_kind: Dynamic
+                    value_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }

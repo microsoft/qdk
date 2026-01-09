@@ -40,7 +40,7 @@ use qsc_fir::{
 use qsc_lowerer::map_fir_package_to_hir;
 use qsc_rca::{
     ComputeKind, ComputePropertiesLookup, ItemComputeProperties, PackageStoreComputeProperties,
-    QuantumProperties, RuntimeFeatureFlags, RuntimeKind,
+    QuantumProperties, RuntimeFeatureFlags, ValueKind,
     errors::{
         Error as CapabilityError, generate_errors_from_runtime_features,
         get_missing_runtime_features,
@@ -1505,7 +1505,7 @@ impl<'a> PartialEvaluator<'a> {
             let call_compute_kind = self.get_call_compute_kind(call_scope);
             if let ComputeKind::Quantum(QuantumProperties {
                 runtime_features,
-                runtime_kind,
+                value_kind,
             }) = call_compute_kind
             {
                 let missing_features = get_missing_runtime_features(
@@ -1526,7 +1526,7 @@ impl<'a> PartialEvaluator<'a> {
                 // If the call produces a dynamic value, we treat it as an error because we know that later
                 // analysis has not taken that dynamism into account and further partial evaluation may fail
                 // when it encounters that value.
-                if runtime_kind == RuntimeKind::Dynamic {
+                if value_kind == ValueKind::Dynamic {
                     return Err(Error::UnexpectedDynamicValue(
                         self.get_expr_package_span(call_expr_id),
                     ));
@@ -2211,14 +2211,7 @@ impl<'a> PartialEvaluator<'a> {
         // Verify assumptions: the condition expression must either classical (such that it can be fully evaluated) or
         // quantum but statically known at runtime (such that it can be partially evaluated to a known value).
         assert!(
-            matches!(
-                self.get_expr_compute_kind(condition_expr_id),
-                ComputeKind::Classical
-                    | ComputeKind::Quantum(QuantumProperties {
-                        runtime_features: _,
-                        runtime_kind: RuntimeKind::Static,
-                    })
-            ),
+            !self.get_expr_compute_kind(condition_expr_id).is_dynamic(),
             "loop conditions must be purely classical"
         );
 

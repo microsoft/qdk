@@ -21,10 +21,10 @@ fn check_rca_for_function_in_core_package() {
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(0x0)
-                            runtime_kind: Dynamic
+                            value_kind: Dynamic
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicRange | UseOfDynamicallySizedArray | LoopWithDynamicCondition)
-                            runtime_kind: Dynamic
+                            value_kind: Dynamic
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -138,7 +138,7 @@ fn check_rca_for_operation_with_one_classical_return_and_one_dynamic_return() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | ReturnWithinDynamicScope)
-                        runtime_kind: Dynamic
+                        value_kind: Dynamic
                     dynamic_param_applications: <empty>
                 adj: <none>
                 ctl: <none>
@@ -195,7 +195,7 @@ fn check_rca_for_callable_block_with_dynamic_unreachable_binding() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | ReturnWithinDynamicScope)
-                        runtime_kind: Dynamic
+                        value_kind: Dynamic
                     dynamic_param_applications: <empty>
                 adj: <none>
                 ctl: <none>
@@ -226,7 +226,7 @@ fn check_rca_for_test_callable() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Dynamic
+                        value_kind: Dynamic
                     dynamic_param_applications: <empty>
                 adj: <none>
                 ctl: <none>
@@ -246,35 +246,35 @@ fn check_rca_for_unrestricted_h() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static"#]],
+                            value_kind: Static"#]],
     );
 }
 
@@ -290,35 +290,35 @@ fn check_rca_for_base_h() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static"#]],
+                            value_kind: Static"#]],
     );
 }
 
@@ -334,47 +334,47 @@ fn check_rca_for_unrestricted_r1() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static"#]],
+                            value_kind: Static"#]],
     );
 }
 
@@ -390,47 +390,47 @@ fn check_rca_for_base_r1() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static"#]],
+                            value_kind: Static"#]],
     );
 }
 
@@ -446,47 +446,47 @@ fn check_rca_for_unrestricted_rx() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static"#]],
+                            value_kind: Static"#]],
     );
 }
 
@@ -502,47 +502,47 @@ fn check_rca_for_base_rx() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static"#]],
+                            value_kind: Static"#]],
     );
 }
 
@@ -558,59 +558,59 @@ fn check_rca_for_unrestricted_rxx() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                         [2]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                         [2]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                         [2]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                         [2]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static"#]],
+                            value_kind: Static"#]],
     );
 }
 
@@ -626,59 +626,59 @@ fn check_rca_for_base_rxx() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                         [2]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                         [2]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                         [2]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                         [2]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static"#]],
+                            value_kind: Static"#]],
     );
 }
 
@@ -694,47 +694,47 @@ fn check_rca_for_unrestricted_ry() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static"#]],
+                            value_kind: Static"#]],
     );
 }
 
@@ -750,47 +750,47 @@ fn check_rca_for_base_ry() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static"#]],
+                            value_kind: Static"#]],
     );
 }
 
@@ -806,59 +806,59 @@ fn check_rca_for_unrestricted_ryy() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                         [2]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                         [2]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                         [2]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                         [2]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static"#]],
+                            value_kind: Static"#]],
     );
 }
 
@@ -874,59 +874,59 @@ fn check_rca_for_base_ryy() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                         [2]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                         [2]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                         [2]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                         [2]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static"#]],
+                            value_kind: Static"#]],
     );
 }
 
@@ -942,47 +942,47 @@ fn check_rca_for_unrestricted_rz() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static"#]],
+                            value_kind: Static"#]],
     );
 }
 
@@ -998,47 +998,47 @@ fn check_rca_for_base_rz() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static"#]],
+                            value_kind: Static"#]],
     );
 }
 
@@ -1054,59 +1054,59 @@ fn check_rca_for_unrestricted_rzz() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                         [2]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                         [2]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                         [2]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                         [2]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static"#]],
+                            value_kind: Static"#]],
     );
 }
 
@@ -1122,59 +1122,59 @@ fn check_rca_for_base_rzz() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                         [2]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                         [2]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                         [2]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            runtime_kind: Static
+                            value_kind: Static
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                         [2]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static"#]],
+                            value_kind: Static"#]],
     );
 }
 
@@ -1190,35 +1190,35 @@ fn check_rca_for_unrestricted_s() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static"#]],
+                            value_kind: Static"#]],
     );
 }
 
@@ -1234,35 +1234,35 @@ fn check_rca_for_base_s() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static"#]],
+                            value_kind: Static"#]],
     );
 }
 
@@ -1278,35 +1278,35 @@ fn check_rca_for_unrestricted_t() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static"#]],
+                            value_kind: Static"#]],
     );
 }
 
@@ -1322,35 +1322,35 @@ fn check_rca_for_base_t() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static"#]],
+                            value_kind: Static"#]],
     );
 }
 
@@ -1366,35 +1366,35 @@ fn check_rca_for_unrestricted_x() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static"#]],
+                            value_kind: Static"#]],
     );
 }
 
@@ -1410,35 +1410,35 @@ fn check_rca_for_base_x() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static"#]],
+                            value_kind: Static"#]],
     );
 }
 
@@ -1454,35 +1454,35 @@ fn check_rca_for_unrestricted_y() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static"#]],
+                            value_kind: Static"#]],
     );
 }
 
@@ -1498,35 +1498,35 @@ fn check_rca_for_base_y() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static"#]],
+                            value_kind: Static"#]],
     );
 }
 
@@ -1542,35 +1542,35 @@ fn check_rca_for_unrestricted_z() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static"#]],
+                            value_kind: Static"#]],
     );
 }
 
@@ -1586,34 +1586,34 @@ fn check_rca_for_base_z() {
                 body: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static
+                            value_kind: Static
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Quantum: QuantumProperties:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        runtime_kind: Static
+                        value_kind: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            runtime_kind: Static"#]],
+                            value_kind: Static"#]],
     );
 }

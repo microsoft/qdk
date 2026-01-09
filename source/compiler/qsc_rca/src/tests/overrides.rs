@@ -53,7 +53,7 @@ fn check_rca_for_length_of_dynamically_sized_array_with_static_content() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicallySizedArray)
-                    runtime_kind: Dynamic
+                    value_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -76,7 +76,7 @@ fn check_rca_for_length_of_dynamically_sized_array_with_dynamic_content() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicallySizedArray)
-                    runtime_kind: Dynamic
+                    value_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }

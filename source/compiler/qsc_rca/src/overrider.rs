@@ -3,7 +3,7 @@
 
 use crate::{
     ApplicationGeneratorSet, ArrayParamApplication, ComputeKind, PackageId, ParamApplication,
-    QuantumProperties, RuntimeFeatureFlags, RuntimeKind, common::LocalSpecId,
+    QuantumProperties, RuntimeFeatureFlags, ValueKind, common::LocalSpecId,
     scaffolding::InternalPackageStoreComputeProperties,
 };
 use qsc_fir::{
@@ -46,7 +46,7 @@ impl<'a> Overrider<'a> {
                             static_size: ComputeKind::Classical,
                             dynamic_size: ComputeKind::Quantum(QuantumProperties {
                                 runtime_features: RuntimeFeatureFlags::UseOfDynamicallySizedArray,
-                                runtime_kind: RuntimeKind::Dynamic,
+                                value_kind: ValueKind::Dynamic,
                             }),
                         },
                     )],

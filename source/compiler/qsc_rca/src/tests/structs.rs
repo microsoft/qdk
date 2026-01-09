@@ -39,7 +39,7 @@ fn check_rca_for_struct_constructor_with_a_dynamic_value() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicDouble | UseOfDynamicUdt)
-                    runtime_kind: Dynamic
+                    value_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -81,7 +81,7 @@ fn check_rca_for_struct_copy_constructor_with_dynamic_value() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicDouble | UseOfDynamicUdt)
-                    runtime_kind: Dynamic
+                    value_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -104,7 +104,7 @@ fn check_rca_for_struct_dynamic_constructor_overwritten_with_classic_value() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicDouble | UseOfDynamicUdt)
-                    runtime_kind: Dynamic
+                    value_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }

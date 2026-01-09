@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 use crate::{
-    ApplicationGeneratorSet, ComputeKind, QuantumProperties, RuntimeFeatureFlags, RuntimeKind,
+    ApplicationGeneratorSet, ComputeKind, QuantumProperties, RuntimeFeatureFlags, ValueKind,
     common::{Local, LocalKind, LocalsLookup, initialize_locals_map},
     scaffolding::InternalPackageComputeProperties,
 };
@@ -47,22 +47,9 @@ impl GeneratorSetsBuilder {
         for input_param in input_params {
             let input_param_variants = match input_param.ty {
                 Ty::Array(_) => {
-                    // For parameters of type array, three dynamic variants exit. Each
-                    // - An array with static content and dynamic size.
+                    // For parameters of type array, two dynamic variants exit. Each
                     // - An array with dynamic content and static size.
                     // - An array with dynamic content and dynamic size.
-                    let static_content_dynamic_size = ApplicationInstance::new(
-                        input_params,
-                        controls,
-                        return_type,
-                        Some((
-                            input_param.index,
-                            ComputeKind::new_with_runtime_features(
-                                RuntimeFeatureFlags::UseOfDynamicallySizedArray,
-                                RuntimeKind::Dynamic,
-                            ),
-                        )),
-                    );
                     let dynamic_content_static_size = ApplicationInstance::new(
                         input_params,
                         controls,
@@ -71,7 +58,7 @@ impl GeneratorSetsBuilder {
                             input_param.index,
                             ComputeKind::new_with_runtime_features(
                                 RuntimeFeatureFlags::empty(),
-                                RuntimeKind::Dynamic,
+                                ValueKind::Dynamic,
                             ),
                         )),
                     );
@@ -83,15 +70,11 @@ impl GeneratorSetsBuilder {
                             input_param.index,
                             ComputeKind::new_with_runtime_features(
                                 RuntimeFeatureFlags::UseOfDynamicallySizedArray,
-                                RuntimeKind::Dynamic,
+                                ValueKind::Dynamic,
                             ),
                         )),
                     );
-                    vec![
-                        static_content_dynamic_size,
-                        dynamic_content_static_size,
-                        dynamic_content_dynamic_size,
-                    ]
+                    vec![dynamic_content_static_size, dynamic_content_dynamic_size]
                 }
                 _ => {
                     // For non-array params, only one dynamic variant exists.
@@ -103,7 +86,7 @@ impl GeneratorSetsBuilder {
                             input_param.index,
                             ComputeKind::new_with_runtime_features(
                                 RuntimeFeatureFlags::empty(),
-                                RuntimeKind::Dynamic,
+                                ValueKind::Dynamic,
                             ),
                         )),
                     )]
@@ -182,15 +165,14 @@ impl GeneratorSetsBuilder {
                     == dynamic_param_applications_compute_properties.len()
             );
 
-            // Update the runtime kind of the generator's inherent compute kind.
-            if let Some(inherent_value_kind) = inherent_application_compute_properties.runtime_kind
-            {
+            // Update the value kind of the generator's inherent compute kind.
+            if let Some(inherent_value_kind) = inherent_application_compute_properties.value_kind {
                 applications_generator
                     .inherent
-                    .aggregate_runtime_kind(inherent_value_kind);
+                    .aggregate_value_kind(inherent_value_kind);
             }
 
-            // Update the runtime kind of the generator's param applications.
+            // Update the value kind of the generator's param applications.
             for (param_application, compute_properties) in applications_generator
                 .dynamic_param_applications
                 .iter_mut()
@@ -220,21 +202,21 @@ impl GeneratorSetsBuilder {
                 };
                 array_compute_properties
                     .static_size
-                    .runtime_kind
+                    .value_kind
                     .iter()
-                    .for_each(|runtime_kind| {
+                    .for_each(|value_kind| {
                         array_param_application
                             .static_size
-                            .aggregate_runtime_kind(*runtime_kind);
+                            .aggregate_value_kind(*value_kind);
                     });
                 array_compute_properties
                     .dynamic_size
-                    .runtime_kind
+                    .value_kind
                     .iter()
-                    .for_each(|runtime_kind| {
+                    .for_each(|value_kind| {
                         array_param_application
                             .dynamic_size
-                            .aggregate_runtime_kind(*runtime_kind);
+                            .aggregate_value_kind(*value_kind);
                     });
             }
             crate::ParamApplication::Element(element_param_application) => {
@@ -244,10 +226,10 @@ impl GeneratorSetsBuilder {
                     panic!("expected an element param application");
                 };
                 element_compute_properties
-                    .runtime_kind
+                    .value_kind
                     .iter()
                     .for_each(|value_kind| {
-                        element_param_application.aggregate_runtime_kind(*value_kind);
+                        element_param_application.aggregate_value_kind(*value_kind);
                     });
             }
         }
@@ -264,7 +246,7 @@ impl GeneratorSetsBuilder {
 
     fn close_param(&mut self, param_index: InputParamIndex) -> ParamApplicationComputeProperties {
         const DYNAMIC_ELEMENTS_PARAM_VARIANTS: usize = 1;
-        const DYNAMIC_ARRAY_PARAM_VARIANTS: usize = 3;
+        const DYNAMIC_ARRAY_PARAM_VARIANTS: usize = 2;
 
         // We need to offset the index since the first top-level vector in application instances is reserved for the
         // inherent variant.
@@ -472,7 +454,7 @@ impl ApplicationInstance {
             // no runtime features here.
             let compute_kind = ComputeKind::Quantum(QuantumProperties {
                 runtime_features: RuntimeFeatureFlags::empty(),
-                runtime_kind: RuntimeKind::Static,
+                value_kind: ValueKind::Static,
             });
             locals_map.insert(
                 controls.var,
@@ -518,23 +500,23 @@ impl ApplicationInstance {
     }
 
     fn close(self) -> ApplicationInstanceComputeProperties {
-        // Determine the runtime kind of the application instance by going through each return expression aggregating
-        // their runtime kind (if any).
-        let mut runtime_kinds = Vec::new();
+        // Determine the value kind of the application instance by going through each return expression aggregating
+        // their value kind (if any).
+        let mut value_kinds = Vec::new();
         for (return_expr_id, returned_value_expr_id) in self.return_expressions.clone() {
             let return_expr_compute_kind = self.get_expr_compute_kind(return_expr_id);
 
-            // There are two scenarios in which a runtime kind is considered, and both of them only happen if the return
+            // There are two scenarios in which a value kind is considered, and both of them only happen if the return
             // expression is quantum.
             if let ComputeKind::Quantum(return_quantum_properties) = return_expr_compute_kind {
                 let return_value_kind = if return_quantum_properties
                     .runtime_features
                     .contains(RuntimeFeatureFlags::ReturnWithinDynamicScope)
                 {
-                    // The return expression happens within a dynamic scope so the runtime kind is dynamic.
-                    RuntimeKind::new_dynamic_from_type(&self.return_type)
+                    // The return expression happens within a dynamic scope so the value kind is dynamic.
+                    ValueKind::new_dynamic_from_type(&self.return_type)
                 } else {
-                    // What we actually want here is the runtime kind of the returned value expression.
+                    // What we actually want here is the value kind of the returned value expression.
                     let returned_value_expr_compute_kind =
                         self.get_expr_compute_kind(returned_value_expr_id);
                     let ComputeKind::Quantum(returned_value_quantum_properties) =
@@ -542,25 +524,25 @@ impl ApplicationInstance {
                     else {
                         panic!("returned value expression is expected to be quantum");
                     };
-                    returned_value_quantum_properties.runtime_kind
+                    returned_value_quantum_properties.value_kind
                 };
-                runtime_kinds.push(return_value_kind);
+                value_kinds.push(return_value_kind);
             }
         }
 
-        // An application instance does not always have a runtime kind, only when there is at least one quantum return
+        // An application instance does not always have a value kind, only when there is at least one quantum return
         // expression.
-        let runtime_kind = if runtime_kinds.is_empty() {
+        let value_kind = if value_kinds.is_empty() {
             None
         } else {
-            let initial_runtime_kind = RuntimeKind::Static;
-            let runtime_kind = runtime_kinds.iter().fold(
-                initial_runtime_kind,
-                |aggregated_runtime_kind, return_runtime_kind| {
-                    aggregated_runtime_kind.aggregate(*return_runtime_kind)
+            let initial_value_kind = ValueKind::Static;
+            let value_kind = value_kinds.iter().fold(
+                initial_value_kind,
+                |aggregated_value_kind, return_value_kind| {
+                    aggregated_value_kind.aggregate(*return_value_kind)
                 },
             );
-            Some(runtime_kind)
+            Some(value_kind)
         };
 
         ApplicationInstanceComputeProperties {
@@ -568,7 +550,7 @@ impl ApplicationInstance {
             stmts: self.stmts,
             exprs: self.exprs,
             unresolved_callee_exprs: self.unresolved_callee_exprs,
-            runtime_kind,
+            value_kind,
         }
     }
 }
@@ -642,7 +624,7 @@ struct ApplicationInstanceComputeProperties {
     blocks: FxHashMap<BlockId, ComputeKind>,
     stmts: FxHashMap<StmtId, ComputeKind>,
     exprs: FxHashMap<ExprId, ComputeKind>,
-    runtime_kind: Option<RuntimeKind>,
+    value_kind: Option<ValueKind>,
     unresolved_callee_exprs: Vec<ExprId>,
 }
 

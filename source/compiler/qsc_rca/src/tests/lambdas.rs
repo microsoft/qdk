@@ -141,7 +141,7 @@ fn check_rca_for_dynamic_lambda_two_classical_parameters_one_dynamic_capture() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                    runtime_kind: Dynamic
+                    value_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -170,7 +170,7 @@ fn check_rca_for_dynamic_lambda_two_dynamic_parameters_one_classical_capture() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicDouble)
-                    runtime_kind: Dynamic
+                    value_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -191,7 +191,7 @@ fn check_rca_for_operation_lambda_two_parameters() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(0x0)
-                    runtime_kind: Dynamic
+                    value_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -213,7 +213,7 @@ fn check_rca_for_operation_lambda_two_parameters_with_controls() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(0x0)
-                    runtime_kind: Static
+                    value_kind: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }

@@ -7,7 +7,7 @@ use qsc_eval::{
     val::{Result, Value},
 };
 use qsc_fir::fir::{LocalItemId, LocalVarId, PackageId};
-use qsc_rca::{ComputeKind, RuntimeFeatureFlags, RuntimeKind};
+use qsc_rca::{ComputeKind, RuntimeFeatureFlags, ValueKind};
 use qsc_rir::rir::{BlockId, Literal, VariableId};
 use rustc_hash::FxHashMap;
 use std::collections::hash_map::Entry;
@@ -137,7 +137,7 @@ impl Scope {
                 };
                 ComputeKind::new_with_runtime_features(
                     RuntimeFeatureFlags::empty(),
-                    map_eval_value_to_runtime_kind(value),
+                    map_eval_value_to_value_kind(value),
                 )
             })
             .collect();
@@ -288,28 +288,28 @@ impl EvalControlFlow {
     }
 }
 
-fn map_eval_value_to_runtime_kind(value: &Value) -> RuntimeKind {
+fn map_eval_value_to_value_kind(value: &Value) -> ValueKind {
     match value {
         Value::Array(elements) => {
             for element in elements.iter() {
-                let element_runtime_kind = map_eval_value_to_runtime_kind(element);
-                if element_runtime_kind == RuntimeKind::Dynamic {
-                    return RuntimeKind::Dynamic;
+                let element_runtime_kind = map_eval_value_to_value_kind(element);
+                if element_runtime_kind == ValueKind::Dynamic {
+                    return ValueKind::Dynamic;
                 }
             }
 
-            RuntimeKind::Static
+            ValueKind::Static
         }
         Value::Tuple(elements, _) => {
             for element in elements.iter() {
-                let element_runtime_kind = map_eval_value_to_runtime_kind(element);
-                if element_runtime_kind == RuntimeKind::Dynamic {
-                    return RuntimeKind::Dynamic;
+                let element_runtime_kind = map_eval_value_to_value_kind(element);
+                if element_runtime_kind == ValueKind::Dynamic {
+                    return ValueKind::Dynamic;
                 }
             }
-            RuntimeKind::Static
+            ValueKind::Static
         }
-        Value::Result(Result::Id(_) | Result::Loss) | Value::Var(_) => RuntimeKind::Dynamic,
+        Value::Result(Result::Id(_) | Result::Loss) | Value::Var(_) => ValueKind::Dynamic,
         Value::BigInt(_)
         | Value::Bool(_)
         | Value::Closure(_)
@@ -320,6 +320,6 @@ fn map_eval_value_to_runtime_kind(value: &Value) -> RuntimeKind {
         | Value::Qubit(_)
         | Value::Range(_)
         | Value::Result(Result::Val(_))
-        | Value::String(_) => RuntimeKind::Static,
+        | Value::String(_) => ValueKind::Static,
     }
 }
