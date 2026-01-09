@@ -24,14 +24,15 @@ import {
   getStaticMockAmpMap,
 } from "./devToolbar.js";
 
-// Toggle to show/hide the developer toolbar for the state panel
-const SHOW_STATE_DEV_TOOLBAR = false;
-
 /**
  * Create a panel for the circuit visualization.
- * @param container     HTML element for rendering visualization into
+ * @param container         HTML element for rendering visualization into
+ * @param showDevToolbar    Optional boolean controlling dev toolbar visibility
  */
-const createPanel = (container: HTMLElement): void => {
+const createPanel = (
+  container: HTMLElement,
+  showDevToolbar?: boolean,
+): void => {
   // Find or create the wrapper
   let wrapper: HTMLElement | null = container.querySelector(".circuit-wrapper");
   const circuit = container.querySelector("svg.qviz");
@@ -112,7 +113,7 @@ const createPanel = (container: HTMLElement): void => {
     };
 
     // Attach dev toolbar if enabled
-    if (SHOW_STATE_DEV_TOOLBAR) {
+    if (showDevToolbar) {
       attachStateDevToolbar(panelElem, state, () => renderState(panelElem));
     }
 

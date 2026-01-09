@@ -50,13 +50,17 @@ function onMessage(event: any) {
     }
     case "circuit":
       {
-        // Check if the received circuit is different from the current state
-        if (
-          state.viewType === "circuit" &&
-          JSON.stringify(state.props.circuit) ===
-            JSON.stringify(message.props.circuit)
-        ) {
-          return;
+        // Only short-circuit if both the circuit AND the dev toolbar flag are unchanged
+        if (state.viewType === "circuit") {
+          const sameCircuit =
+            JSON.stringify(state.props.circuit) ===
+            JSON.stringify(message.props.circuit);
+          const prevToolbar = (state.props as any)?.showStateDevToolbar;
+          const nextToolbar = (message.props as any)?.showStateDevToolbar;
+          const sameToolbar = prevToolbar === nextToolbar;
+          if (sameCircuit && sameToolbar) {
+            return;
+          }
         }
 
         state = {
