@@ -6,9 +6,8 @@ import {
   createStatePanel,
   updateStatePanelFromMap,
   renderDefaultStatePanel,
-  getStaticMockAmpMap,
 } from "./stateViz.js";
-import { computeAmpMapFromCurrentModel, Endianness } from "./stateCompute.js";
+import { computeAmpMapFromCurrentModel } from "./stateCompute.js";
 import {
   gateHeight,
   horizontalGap,
@@ -18,14 +17,15 @@ import {
 import { formatGate } from "./formatters/gateFormatter.js";
 import { GateType, GateRenderData } from "./gateRenderData.js";
 import { getGateWidth } from "./utils.js";
+import {
+  attachStateDevToolbar,
+  createDefaultDevToolbarState,
+  DevToolbarState,
+  getStaticMockAmpMap,
+} from "./devToolbar.js";
 
-let vizEndianness: Endianness = "big";
-type DataMode = "live" | "mock";
-let vizDataMode: DataMode = "live";
-let vizMockSet = 0;
-let vizMinProbThreshold = 0.0; // 0..1 default 0 (thresholding off)
 // Toggle to show/hide the developer toolbar for the state panel
-const SHOW_STATE_DEV_TOOLBAR = true;
+const SHOW_STATE_DEV_TOOLBAR = false;
 
 /**
  * Create a panel for the circuit visualization.
@@ -83,135 +83,22 @@ const createPanel = (container: HTMLElement): void => {
     ".state-panel",
   ) as HTMLElement | null;
   if (panelElem) {
-    // Add a simple toolbar just above the SVG
-    const svgElem = panelElem.querySelector("svg.state-svg");
-    if (
-      SHOW_STATE_DEV_TOOLBAR &&
-      svgElem &&
-      !panelElem.querySelector(".dev-toolbar")
-    ) {
-      const toolbar = document.createElement("div");
-      toolbar.className = "dev-toolbar";
-
-      // Endianness control
-      const labelEndian = document.createElement("span");
-      labelEndian.textContent = "Endianness:";
-      const selEndian = document.createElement("select");
-      selEndian.className = "endianness-select";
-      const optBig = document.createElement("option");
-      optBig.value = "big";
-      optBig.text = "Big";
-      const optLittle = document.createElement("option");
-      optLittle.value = "little";
-      optLittle.text = "Little";
-      selEndian.appendChild(optBig);
-      selEndian.appendChild(optLittle);
-      selEndian.value = vizEndianness;
-      selEndian.addEventListener("change", () => {
-        vizEndianness = (selEndian.value as Endianness) ?? "big";
-        renderState(panelElem);
-      });
-      toolbar.appendChild(labelEndian);
-      toolbar.appendChild(selEndian);
-
-      // Separator
-      const sep = document.createElement("span");
-      sep.className = "dev-toolbar-sep";
-      sep.textContent = "|";
-      toolbar.appendChild(sep);
-
-      // Data mode control
-      const labelMode = document.createElement("span");
-      labelMode.textContent = "Data:";
-      const selMode = document.createElement("select");
-      selMode.className = "data-mode-select";
-      const optLive = document.createElement("option");
-      optLive.value = "live";
-      optLive.text = "Live";
-      const optMock = document.createElement("option");
-      optMock.value = "mock";
-      optMock.text = "Mock";
-      selMode.appendChild(optLive);
-      selMode.appendChild(optMock);
-      selMode.value = vizDataMode;
-      toolbar.appendChild(labelMode);
-      toolbar.appendChild(selMode);
-
-      // Mock set selector
-      const labelMock = document.createElement("span");
-      labelMock.textContent = "Mock set:";
-      const selMock = document.createElement("select");
-      selMock.className = "mock-set-select";
-      for (let i = 0; i < 4; i++) {
-        const opt = document.createElement("option");
-        opt.value = String(i);
-        opt.text = `#${i + 1}`;
-        selMock.appendChild(opt);
-      }
-      selMock.value = String(vizMockSet);
-      const applyMockVisibility = () => {
-        const show = selMode.value === "mock";
-        labelMock.style.display = show ? "" : "none";
-        selMock.style.display = show ? "" : "none";
-        // Endianness is irrelevant to mock data, but leave enabled to avoid UI jump
-      };
-      selMode.addEventListener("change", () => {
-        vizDataMode = (selMode.value as DataMode) ?? "live";
-        applyMockVisibility();
-        renderState(panelElem);
-      });
-      selMock.addEventListener("change", () => {
-        vizMockSet = parseInt(selMock.value) || 0;
-        renderState(panelElem);
-      });
-      applyMockVisibility();
-      toolbar.appendChild(labelMock);
-      toolbar.appendChild(selMock);
-
-      // Separator
-      const sep2 = document.createElement("span");
-      sep2.className = "dev-toolbar-sep";
-      sep2.textContent = "|";
-      toolbar.appendChild(sep2);
-
-      // Minimum probability threshold control (percentage)
-      const labelThresh = document.createElement("span");
-      labelThresh.textContent = "Min %:";
-      const inputThresh = document.createElement("input");
-      inputThresh.type = "number";
-      inputThresh.min = "0";
-      inputThresh.max = "100";
-      inputThresh.step = "0.1";
-      inputThresh.value = "0.0";
-      inputThresh.title =
-        "States below this percentage are aggregated into Others";
-      inputThresh.addEventListener("change", () => {
-        const v = parseFloat(inputThresh.value);
-        const pct = isFinite(v) && v > 0 ? Math.min(100, Math.max(0, v)) : 0;
-        inputThresh.value = String(pct);
-        vizMinProbThreshold = pct / 100;
-        renderState(panelElem);
-      });
-      toolbar.appendChild(labelThresh);
-      toolbar.appendChild(inputThresh);
-
-      panelElem.insertBefore(toolbar, svgElem);
-    }
+    const state: DevToolbarState = createDefaultDevToolbarState();
 
     const renderState = (panel: HTMLElement) => {
-      if (vizDataMode === "mock") {
-        const ampMap = getStaticMockAmpMap(vizMockSet);
+      if (state.dataMode === "mock") {
+        const ampMap = getStaticMockAmpMap(state.mockSet);
         updateStatePanelFromMap(panel, ampMap, {
           normalize: false,
-          minProbThreshold: vizMinProbThreshold,
+          minProbThreshold: state.minProbThreshold,
         });
         return true;
       }
-      const ampMap = computeAmpMapFromCurrentModel(vizEndianness);
+      const ampMap = computeAmpMapFromCurrentModel(state.endianness);
       if (ampMap) {
         updateStatePanelFromMap(panel, ampMap, {
           normalize: true,
-          minProbThreshold: vizMinProbThreshold,
+          minProbThreshold: state.minProbThreshold,
         });
         return true;
       } else {
@@ -223,6 +110,11 @@ const createPanel = (container: HTMLElement): void => {
         return false;
       }
     };
+
+    // Attach dev toolbar if enabled
+    if (SHOW_STATE_DEV_TOOLBAR) {
+      attachStateDevToolbar(panelElem, state, () => renderState(panelElem));
+    }
 
     // Initial render; if the circuit model isn't ready yet, retry briefly until available
     const gotReal = renderState(panelElem);
