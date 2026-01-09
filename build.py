@@ -4,7 +4,6 @@
 # Licensed under the MIT License.
 
 import argparse
-from glob import glob
 import os
 import platform
 import sys
@@ -85,13 +84,6 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--manylinux",
-    action=argparse.BooleanOptionalAction,
-    default=False,
-    help="Run the manylinux auditwheel repair (default is --no-manylinux)",
-)
-
-parser.add_argument(
     "--gpu-tests",
     action=argparse.BooleanOptionalAction,
     default=False,
@@ -156,6 +148,7 @@ pip_src = os.path.join(qdk_src_dir, "pip")
 widgets_src = os.path.join(qdk_src_dir, "widgets")
 qdk_python_src = os.path.join(qdk_src_dir, "qdk_package")
 wheels_dir = os.path.join(root_dir, "target", "wheels")
+raw_wheels_dir = os.path.join(root_dir, "target", "raw_wheels")
 vscode_src = os.path.join(qdk_src_dir, "vscode")
 jupyterlab_src = os.path.join(qdk_src_dir, "jupyterlab")
 
@@ -186,6 +179,19 @@ def step_end():
         print(f"::endgroup::")
 
 
+def install_build_package(cwd, interpreter):
+    # Ensure that the 'build' package is installed in the given interpreter
+    command_args = [
+        interpreter,
+        "-m",
+        "pip",
+        "install",
+        "build",
+        "-v",
+    ]
+    subprocess.run(command_args, check=True, text=True, cwd=cwd)
+
+
 def use_python_env(folder):
     # Check if in a virtual environment
     if (
@@ -209,6 +215,8 @@ def use_python_env(folder):
     else:
         # Already in a virtual environment, use current Python
         python_bin = sys.executable
+
+    install_build_package(qdk_python_src, python_bin)
 
     return python_bin
 
@@ -301,39 +309,6 @@ def install_qsharp_python_package(cwd, wheelhouse, interpreter):
     subprocess.run(command_args, check=True, text=True, cwd=cwd)
 
 
-def repair_manylinux_wheels(cwd, wheelhouse, interpreter):
-    if platform.system() != "Linux":
-        print("Not on Linux, skipping manylinux repair")
-        return
-
-    command_args = [
-        interpreter,
-        "-m",
-        "pip",
-        "install",
-        "auditwheel>=6.5.0",
-        "patchelf",
-    ]
-    subprocess.run(command_args, check=True, text=True, cwd=cwd)
-
-    wheel_files = glob(wheelhouse + "/qsharp-*.whl")
-
-    for wheel in wheel_files:
-        command_args = [
-            interpreter,
-            "-m",
-            "auditwheel",
-            "repair",
-            "--wheel-dir",
-            wheelhouse,
-            wheel,
-        ]
-        subprocess.run(command_args, check=True, text=True, cwd=cwd)
-
-        if "manylinux" not in wheel:
-            subprocess.run(["rm", wheel], check=True, text=True, cwd=cwd)
-
-
 # If any package fails to install when using a requirements file, the entire
 # process will fail with unpredicatable state of installed packages. To avoid
 # this, we install each package individually from the requirements file.
@@ -366,17 +341,28 @@ def install_python_test_requirements(cwd, interpreter, check: bool = True):
         subprocess.run(command_args, check=check, text=True, cwd=cwd)
 
 
-def build_qsharp_wheel(cwd, out_dir, interpreter, pip_env_dir):
+def build_qsharp_wheel(cwd, interpreter, pip_env_dir):
     command_args = [
         interpreter,
         "-m",
-        "pip",
-        "wheel",
-        "--wheel-dir",
-        out_dir,
+        "build",
+        "--wheel",
         "-v",
-        cwd,
     ]
+
+    # On Linux, add the --compatibility flag to ensure manylinux wheels are built
+    if platform.system() == "Linux":
+        command_args.append("--config-setting=build-args='--compatibility'")
+
+    # maturin will build into this folder and copy it to target/wheels.
+    # setting out --outdir to target/wheels will cause the build to fail
+    # as the input and output path will be the same when maturin tries
+    # to copy the built wheel after processing. So we build into a raw_wheels folder
+    command_args.append("--outdir")
+    command_args.append(raw_wheels_dir)
+
+    command_args.append(cwd)
+
     subprocess.run(command_args, check=True, text=True, cwd=cwd, env=pip_env_dir)
 
 
@@ -447,7 +433,7 @@ if build_pip:
     # copy the process env vars
     pip_env: dict[str, str] = os.environ.copy()
 
-    build_qsharp_wheel(pip_src, wheels_dir, python_bin, pip_env)
+    build_qsharp_wheel(pip_src, python_bin, pip_env)
     step_end()
 
     if run_tests:
@@ -485,12 +471,6 @@ if build_pip:
 
             step_end()
 
-    if args.manylinux:
-        step_start("Repairing manylinux wheels")
-
-        repair_manylinux_wheels(pip_src, wheels_dir, python_bin)
-
-        step_end()
 
 if build_qdk:
     step_start("Building the qdk python package")
@@ -502,10 +482,10 @@ if build_qdk:
     qdk_build_args = [
         python_bin,
         "-m",
-        "pip",
-        "wheel",
-        "--no-deps",
-        "--wheel-dir",
+        "build",
+        "--wheel",
+        "-v",
+        "--outdir",
         wheels_dir,
         qdk_python_src,
     ]
@@ -540,13 +520,15 @@ if build_qdk:
 if build_widgets:
     step_start("Building the Python widgets")
 
+    python_bin = use_python_env(qdk_python_src)
+
     widgets_build_args = [
-        sys.executable,
+        python_bin,
         "-m",
-        "pip",
-        "wheel",
-        "--no-deps",
-        "--wheel-dir",
+        "build",
+        "--wheel",
+        "-v",
+        "--outdir",
         wheels_dir,
         widgets_src,
     ]
@@ -678,9 +660,10 @@ if build_jupyterlab:
     pip_build_args = [
         python_bin,
         "-m",
-        "pip",
-        "wheel",
-        "--wheel-dir",
+        "build",
+        "--wheel",
+        "-v",
+        "--outdir",
         wheels_dir,
         jupyterlab_src,
     ]
