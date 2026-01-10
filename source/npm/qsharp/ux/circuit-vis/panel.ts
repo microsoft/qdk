@@ -10,7 +10,7 @@ import {
 } from "./constants.js";
 import { formatGate } from "./formatters/gateFormatter.js";
 import { GateType, GateRenderData } from "./gateRenderData.js";
-import { getGateWidth } from "./utils.js";
+import { getMinGateWidth } from "./utils.js";
 
 /**
  * Create a panel for the circuit visualization.
@@ -248,12 +248,13 @@ const toRenderData = (
   const target = y + 1 + gateHeight / 2; // offset by 1 for top padding
   const renderData: GateRenderData = {
     type: GateType.Invalid,
-    x: x + 1 + minGateWidth / 2, // offset by 1 for left padding
+    centerX: x + 1 + minGateWidth / 2, // offset by 1 for left padding
     controlsY: [],
     targetsY: [target],
     label: "",
     width: -1,
     topY: target - gateHeight / 2,
+    bottomY: target + gateHeight / 2,
   };
 
   if (operation === undefined) return renderData;
@@ -295,8 +296,8 @@ const toRenderData = (
   if (operation.args !== undefined && operation.args.length > 0)
     renderData.displayArgs = operation.args[0];
 
-  renderData.width = getGateWidth(renderData);
-  renderData.x = x + 1 + renderData.width / 2; // offset by 1 for left padding
+  renderData.width = getMinGateWidth(renderData);
+  renderData.centerX = x + 1 + renderData.width / 2; // offset by 1 for left padding
 
   return renderData;
 };

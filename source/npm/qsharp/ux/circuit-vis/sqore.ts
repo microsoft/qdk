@@ -208,9 +208,13 @@ export class Sqore {
     };
 
     const { qubits, componentGrid } = circuit;
+
+    const rowHeights = {};
+    this.updateRowHeights(componentGrid, rowHeights);
+
     const { qubitWires, registers, svgHeight } = formatInputs(
       qubits,
-      componentGrid,
+      rowHeights,
       this.options.isEditable ? undefined : this.options.renderLocations,
     );
     const { renderDataArray, svgWidth } = processOperations(
@@ -233,6 +237,140 @@ export class Sqore {
       elements: [qubitWires, formattedRegs, formattedGates],
     };
     return composedSqore;
+  }
+
+  private getRowHeights(componentGrid: ComponentGrid): {
+    [qubitIndex: number]: {
+      currentGroupBordersAboveWire: number;
+      currentGroupBordersBelowWire: number;
+      rowHeightAboveWire: number;
+      rowHeightBelowWire: number;
+    };
+  } {
+    const rowHeights = {};
+    this.updateRowHeights(componentGrid, rowHeights);
+    return rowHeights;
+  }
+
+  private updateRowHeights(
+    componentGrid: ComponentGrid,
+    rowHeights: {
+      [qubitIndex: number]: {
+        currentGroupBordersAboveWire: number;
+        currentGroupBordersBelowWire: number;
+        rowHeightAboveWire: number;
+        rowHeightBelowWire: number;
+      };
+    },
+  ) {
+    for (const col of componentGrid) {
+      for (const component of col.components) {
+        if (component.dataAttributes?.["expanded"] === "true") {
+          const { topQubit, bottomQubit } = getTopAndBottomQubits(component);
+
+          // initialize
+          rowHeights[topQubit] = rowHeights[topQubit] ?? {
+            currentGroupBordersBelowWire: 0,
+            currentGroupBordersAboveWire: 0,
+            rowHeightBelowWire: 0,
+            rowHeightAboveWire: 0,
+          };
+
+          rowHeights[bottomQubit] = rowHeights[bottomQubit] ?? {
+            currentGroupBordersBelowWire: 0,
+            currentGroupBordersAboveWire: 0,
+            rowHeightBelowWire: 0,
+            rowHeightAboveWire: 0,
+          };
+
+          rowHeights[topQubit].currentGroupBordersAboveWire++;
+          rowHeights[topQubit].rowHeightAboveWire = Math.max(
+            rowHeights[topQubit].rowHeightAboveWire,
+            rowHeights[topQubit].currentGroupBordersAboveWire,
+          );
+
+          rowHeights[bottomQubit].currentGroupBordersBelowWire++;
+          rowHeights[bottomQubit].rowHeightBelowWire = Math.max(
+            rowHeights[bottomQubit].rowHeightBelowWire,
+            rowHeights[bottomQubit].currentGroupBordersBelowWire,
+          );
+
+          const childRowData = this.getRowHeights(component.children || []);
+          // combine the delta heights into rowHeights
+          for (const q in childRowData) {
+            const qIndex = parseInt(q);
+            rowHeights[qIndex] = rowHeights[qIndex] ?? {
+              currentGroupBordersBelowWire: 0,
+              currentGroupBordersAboveWire: 0,
+              rowHeightBelowWire: 0,
+              rowHeightAboveWire: 0,
+            };
+            rowHeights[qIndex].rowHeightAboveWire = Math.max(
+              rowHeights[qIndex].rowHeightAboveWire,
+              childRowData[qIndex].rowHeightAboveWire +
+                rowHeights[qIndex].currentGroupBordersAboveWire,
+            );
+            rowHeights[qIndex].rowHeightBelowWire = Math.max(
+              rowHeights[qIndex].rowHeightBelowWire,
+              childRowData[qIndex].rowHeightBelowWire +
+                rowHeights[qIndex].currentGroupBordersBelowWire,
+            );
+          }
+
+          component.dataAttributes = component.dataAttributes ?? {};
+
+          if (
+            childRowData[topQubit] &&
+            childRowData[topQubit].rowHeightAboveWire &&
+            childRowData[topQubit].rowHeightAboveWire.toString()
+          ) {
+            component.dataAttributes["nestedDepthTop"] =
+              childRowData[topQubit].rowHeightAboveWire.toString();
+          } else {
+            component.dataAttributes["nestedDepthTop"] = "0";
+          }
+
+          if (
+            childRowData[bottomQubit] &&
+            childRowData[bottomQubit].rowHeightBelowWire &&
+            childRowData[bottomQubit].rowHeightBelowWire.toString()
+          ) {
+            component.dataAttributes["nestedDepthBottom"] =
+              childRowData[bottomQubit].rowHeightBelowWire.toString();
+          } else {
+            component.dataAttributes["nestedDepthBottom"] = "0";
+          }
+
+          // decrement
+          rowHeights[topQubit].currentGroupBordersAboveWire--;
+          rowHeights[bottomQubit].currentGroupBordersBelowWire--;
+        }
+      }
+    }
+
+    function getTopAndBottomQubits(component: Operation) {
+      let qubits;
+      switch (component.kind) {
+        case "ket":
+          qubits = component.targets;
+          break;
+        case "measurement":
+          qubits = component.qubits;
+          break;
+        case "unitary":
+          qubits = component.targets.concat(component.controls || []);
+          break;
+      }
+
+      const minQubit = qubits
+        .map((r) => r.qubit)
+        .reduce((a, b) => Math.min(a, b));
+
+      const maxQubit = qubits
+        .map((r) => r.qubit)
+        .reduce((a, b) => Math.max(a, b));
+      return { topQubit: minQubit, bottomQubit: maxQubit };
+    }
   }
 
   /**

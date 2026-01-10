@@ -37,7 +37,7 @@ export interface GateRenderData {
   /** Gate type. */
   type: GateType;
   /** Centre x coord for gate position. */
-  x: number;
+  centerX: number;
   /** Array of y coords of control registers. */
   controlsY: number[];
   /** Array of y coords of target registers.
@@ -47,6 +47,8 @@ export interface GateRenderData {
   targetsY: (number | number[])[];
   /** y coord of top of gate row */
   topY: number;
+  /** y coord of bottom of gate row */
+  bottomY: number;
   /** Gate label. */
   label: string;
   /** Gate arguments as string. */

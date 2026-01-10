@@ -6,7 +6,7 @@ import {
   startX,
   gatePadding,
   controlBtnOffset,
-  groupBoxPadding,
+  groupBoxPaddingX,
 } from "./constants.js";
 import {
   ComponentGrid,
@@ -16,7 +16,7 @@ import {
 } from "./circuit.js";
 import { GateRenderData, GateType } from "./gateRenderData.js";
 import { Register, RegisterMap } from "./register.js";
-import { getGateWidth } from "./utils.js";
+import { getMinGateWidth } from "./utils.js";
 
 /**
  * Takes in a component grid and maps the operations to `GateRenderData` objects which
@@ -161,10 +161,11 @@ const _opToRenderData = (
 ): GateRenderData => {
   const renderData: GateRenderData = {
     type: GateType.Invalid,
-    x: 0,
+    centerX: 0,
     controlsY: [],
     targetsY: [],
     topY: 0,
+    bottomY: 0,
     label: "",
     width: -1,
   };
@@ -211,6 +212,12 @@ const _opToRenderData = (
       .reduce((a, b) => Math.min(a, b)),
   );
 
+  renderData.bottomY = Math.max(
+    targets
+      .map((reg) => _getRegY(reg, registers).bottomY)
+      .reduce((a, b) => Math.max(a, b)),
+  );
+
   if (isConditional) {
     // Classically-controlled operations
     if (children == null || children.length == 0)
@@ -253,7 +260,7 @@ const _opToRenderData = (
     renderData.type = GateType.ClassicalControlled;
     renderData.children = [zeroGates, oneGates];
     // Add additional width from control button and inner box padding for dashed box
-    renderData.width = width + controlBtnOffset + groupBoxPadding * 2;
+    renderData.width = width + controlBtnOffset + groupBoxPaddingX * 2;
 
     // Set targets to first and last quantum registers so we can render the surrounding box
     // around all quantum registers.
@@ -275,9 +282,9 @@ const _opToRenderData = (
     // _zoomButton function in gateFormatter.ts relies on
     // 'expanded' attribute to render zoom button
     renderData.dataAttributes = { expanded: "true" };
-    // Subtract startX (left-side) and add inner box padding (minus nested gate padding) for dashed box
+    // Subtract startX (left-side) and add inner box padding for dashed box
     renderData.width =
-      childrenInstrs.svgWidth - startX + (groupBoxPadding - gatePadding) * 2;
+      childrenInstrs.svgWidth - startX - gatePadding * 3 + groupBoxPaddingX * 2; // (svgWidth includes 3 extra gate paddings)
   } else if (op.kind === "measurement") {
     renderData.type = GateType.Measure;
   } else if (op.kind === "ket") {
@@ -304,8 +311,9 @@ const _opToRenderData = (
   // For now, we only display the first argument
   if (args !== undefined && args.length > 0) renderData.displayArgs = args[0];
 
-  // Set gate width
-  renderData.width = getGateWidth(renderData);
+  // Minimum width is calculated based on the label and args
+  const minWidth = getMinGateWidth(renderData);
+  renderData.width = Math.max(minWidth, renderData.width);
 
   if (op.metadata?.source && renderLocations) {
     renderData.link = renderLocations([op.metadata.source]);
@@ -332,13 +340,13 @@ const _opToRenderData = (
 const _getRegY = (
   reg: Register,
   registers: RegisterMap,
-): { wireY: number; topY: number } => {
+): { wireY: number; topY: number; bottomY: number } => {
   const { qubit: qId, result } = reg;
   if (!Object.prototype.hasOwnProperty.call(registers, qId))
     throw new Error(`ERROR: Qubit register with ID ${qId} not found.`);
-  const { wireY: y, topY, children } = registers[qId];
+  const { wireY: y, topY, bottomY, children } = registers[qId];
   if (result == null) {
-    return { wireY: y, topY };
+    return { wireY: y, topY, bottomY };
   } else {
     if (children == null)
       throw new Error(
@@ -348,7 +356,11 @@ const _getRegY = (
       throw new Error(
         `ERROR: Classical register ID ${result} invalid for qubit ID ${qId} with ${children.length} classical register(s).`,
       );
-    return { wireY: children[result].wireY, topY: children[result].topY };
+    return {
+      wireY: children[result].wireY,
+      topY: children[result].topY,
+      bottomY: children[result].bottomY,
+    };
   }
 };
 
@@ -443,21 +455,19 @@ const _fillRenderDataX = (
         case GateType.Group:
           {
             // Subtract startX offset from nested gates and add offset and padding
-            let offset: number = x - startX + groupBoxPadding;
+            let offset: number = x - startX + groupBoxPaddingX;
             if (renderData.type === GateType.ClassicalControlled)
               offset += controlBtnOffset;
 
             // Offset each x coord in children gates
             _offsetChildrenX(renderData.children, offset);
 
-            // We don't use the centre x coord because we only care about the rightmost x for
-            // rendering the box around the group of nested gates
-            renderData.x = x;
+            renderData.centerX = x + columnWidths[colIndex] / 2;
           }
           break;
 
         default:
-          renderData.x = x + columnWidths[colIndex] / 2;
+          renderData.centerX = x + columnWidths[colIndex] / 2;
           break;
       }
     }),
@@ -479,7 +489,7 @@ const _offsetChildrenX = (
   if (children == null) return;
   children.forEach((col) => {
     col.flat().forEach((child) => {
-      child.x += offset;
+      child.centerX += offset;
       _offsetChildrenX(child.children, offset);
     });
   });

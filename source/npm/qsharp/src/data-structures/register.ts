@@ -40,7 +40,9 @@ export interface RegisterRenderData {
   type: RegisterType;
   /** y coord of top of register row */
   topY: number;
-  /** y coord of register */
+  /** y coord of bottom of register row */
+  bottomY: number;
+  /** y coord of register wire */
   wireY: number;
   /** Nested classical registers attached to quantum register. */
   children?: RegisterRenderData[];

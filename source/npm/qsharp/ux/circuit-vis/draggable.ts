@@ -5,7 +5,7 @@ import { ComponentGrid, Operation } from "./circuit.js";
 import {
   gatePadding,
   minGateWidth,
-  registerHeight,
+  gateHeightWithPadding,
   regLineStart,
   startX,
 } from "./constants.js";
@@ -192,9 +192,9 @@ const createWireDropzone = (
   if (isBetween) {
     // Dropzone BETWEEN wires (including before first and after last)
     if (wireIndex === wireData.length) {
-      wireY = wireData[wireData.length - 1] + registerHeight / 2;
+      wireY = wireData[wireData.length - 1] + gateHeightWithPadding / 2;
     } else {
-      wireY = wireData[wireIndex] - registerHeight / 2;
+      wireY = wireData[wireIndex] - gateHeightWithPadding / 2;
     }
   } else {
     // Dropzone ON the wire
@@ -321,8 +321,14 @@ const _ghostQubitLayer = (context: Context) => {
   ghostLayer.appendChild(ghostWire);
   ghostLayer.appendChild(ghostLabel);
 
-  context.svg.setAttribute("height", (svgHeight + registerHeight).toString());
-  svg.setAttribute("viewBox", `0 0 ${svgWidth} ${svgHeight + registerHeight}`);
+  context.svg.setAttribute(
+    "height",
+    (svgHeight + gateHeightWithPadding).toString(),
+  );
+  svg.setAttribute(
+    "viewBox",
+    `0 0 ${svgWidth} ${svgHeight + gateHeightWithPadding}`,
+  );
 
   return ghostLayer;
 };

@@ -59,7 +59,9 @@ const formatRegisters = (
           const verticalY =
             gate.type === GateType.Measure ? gate.controlsY[0] : undefined;
 
-          classicalRegs.push(_classicalRegister(gate.x, endX, y, verticalY));
+          classicalRegs.push(
+            _classicalRegister(gate.centerX, endX, y, verticalY),
+          );
         }
       }
     }
