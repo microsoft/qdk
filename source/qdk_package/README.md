@@ -1,6 +1,6 @@
 # qdk
 
-The Quantum Development Kit (QDK) provides a single, cohesive Python entry point for compiling, simulating, and estimating resources for quantum programs (Q# and OpenQASM), with optional extras for visualization, cloud workflows, and Qiskit interoperability.
+The Quantum Development Kit (QDK) provides a single, cohesive Python entry point for compiling, simulating, and estimating resources for quantum programs (Q# and OpenQASM), with optional extras for visualization, cloud workflows, and interoperability with Qiskit and Cirq.
 
 ## Install
 
@@ -26,6 +26,12 @@ For Qiskit integration, which exposes Qiskit interop utilities in the `qdk.qiski
 
 ```bash
 pip install "qdk[qiskit]"
+```
+
+For Cirq integration, which exposes Cirq interop utilities in the `qdk.azure.cirq` submodule:
+
+```bash
+pip install "qdk[cirq]"
 ```
 
 To easily install all the above extras:
