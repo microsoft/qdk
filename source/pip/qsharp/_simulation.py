@@ -11,6 +11,7 @@ from ._native import (
     run_parallel_shots,
     run_cpu_full_state,
     NoiseConfig,
+    GpuContext,
 )
 from pyqir import (
     Function,
@@ -20,12 +21,16 @@ from pyqir import (
     Linkage,
 )
 from ._qsharp import QirInputData, Result
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # This is in the pyi file only
+    from ._native import GpuShotResults
 
 
 class AggregateGatesPass(pyqir.QirModuleVisitor):
     def __init__(self):
         super().__init__()
-        self.gates: List[QirInstruction] = []
+        self.gates: List[QirInstruction | Tuple] = []
         self.required_num_qubits = None
         self.required_num_results = None
 
@@ -36,7 +41,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
         value = value.decode("utf-8")
         return value
 
-    def run(self, mod: pyqir.Module) -> Tuple[List[QirInstruction], int, int]:
+    def run(self, mod: pyqir.Module) -> Tuple[List[QirInstruction | Tuple], int, int]:
         errors = mod.verify()
         if errors is not None:
             raise ValueError(f"Module verification failed: {errors}")
@@ -240,6 +245,27 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
             )
         else:
             pass
+
+
+class CorrelatedNoisePass(AggregateGatesPass):
+    def __init__(self, noise_table: List[Tuple[int, str, int]]):
+        super().__init__()
+        self.noise_table = dict()
+        for table_id, name, _count in noise_table:
+            self.noise_table[name] = table_id
+
+    def _on_call_instr(self, call: pyqir.Call) -> None:
+        callee_name = call.callee.name
+        if callee_name in self.noise_table:
+            self.gates.append(
+                (
+                    QirInstructionId.CorrelatedNoise,
+                    int(self.noise_table[callee_name]),  # Noise table ID
+                    [pyqir.qubit_id(qubit) for qubit in call.args],  # qubit args
+                )
+            )
+        else:
+            super()._on_call_instr(call)
 
 
 class OutputRecordingPass(pyqir.QirModuleVisitor):
@@ -476,6 +502,49 @@ def run_qir_gpu(
             ),
         )
     )
+
+
+def prepare_qir_with_correlated_noise(
+    input: Union[QirInputData, str, bytes],
+    noise_tables: List[Tuple[int, str, int]],
+) -> Tuple[List[QirInstruction], int, int]:
+    # Turn the input into a QIR module
+    (mod, _, _, _) = preprocess_simulation_input(input, None, None, None)
+
+    # Ccx is not support in the GPU simulator, decompose it
+    DecomposeCcxPass().run(mod)
+
+    # Extract the gates including correlated noise instructions
+    (gates, required_num_qubits, required_num_results) = CorrelatedNoisePass(
+        noise_tables
+    ).run(mod)
+
+    return (gates, required_num_qubits, required_num_results)
+
+
+class GpuSimulator:
+    def __init__(self):
+        self.gpu_context = GpuContext()
+
+    def load_noise_tables(
+        self,
+        noise_dir: str,
+    ):
+        self.tables = self.gpu_context.load_noise_tables(noise_dir)
+
+    def set_program(self, input: Union[QirInputData, str, bytes]):
+        (self.gates, self.required_num_qubits, self.required_num_results) = (
+            prepare_qir_with_correlated_noise(
+                input, self.tables if not self.tables is None else []
+            )
+        )
+        self.gpu_context.set_program(
+            self.gates, self.required_num_qubits, self.required_num_results
+        )
+
+    def run_shots(self, shots: int, seed: Optional[int] = None) -> "GpuShotResults":
+        seed = seed if seed is not None else random.randint(0, 2**32 - 1)
+        return self.gpu_context.run_shots(shots, seed=seed)
 
 
 def run_qir(

@@ -4,16 +4,17 @@
 // Build with: cargo build --bin gpu-runner [--release]
 
 use core::panic;
+use qdk_simulators::gpu_context::{GpuContext, RunResults};
 use qdk_simulators::noise_config::NoiseConfig;
+use qdk_simulators::run_shots_sync;
 use qdk_simulators::shader_types::{Op, ops};
-use qdk_simulators::{run_parallel_shots, run_shots_with_noise};
 use regex_lite::Regex;
 use std::time::Instant;
-use std::vec;
 
 const DEFAULT_SEED: u32 = 0xfeed_face;
 
 fn main() {
+    correlated_noise();
     two_measurements();
     just_pauli();
     simple_bell_pair();
@@ -30,17 +31,19 @@ fn main() {
     noise_config();
 }
 
-fn split_results(result_count: usize, results: &[u32]) -> (Vec<Vec<u32>>, Vec<u32>) {
-    let results_list = results
-        .chunks(result_count + 1)
-        .map(|chunk| chunk[..result_count].to_vec())
-        .collect::<Vec<Vec<u32>>>();
-    // Separate out every 3rd entry from results into 'error_codes'
-    let error_codes = results
-        .chunks(result_count + 1)
-        .map(|chunk| chunk[result_count])
-        .collect::<Vec<u32>>();
-    (results_list, error_codes)
+fn check_success(results: &RunResults) {
+    if !results.success {
+        let diag = results
+            .diagnostics
+            .as_ref()
+            .expect("GPU run failed without diagnostics");
+        panic!(
+            "GPU run failed with error codes: {:?}.
+            First failure at shot {}, op index {}, op type {}.
+            Attach a debugger to see full diagnostics structure.",
+            results.shot_result_codes, diag.shot.shot_id, diag.shot.op_idx, diag.shot.op_type
+        );
+    }
 }
 
 fn assert_ratio(results: &[Vec<u32>], expected: &[u32], expected_ratio: f64, tolerance: f64) {
@@ -51,10 +54,6 @@ fn assert_ratio(results: &[Vec<u32>], expected: &[u32], expected_ratio: f64, tol
         (expected_ratio - tolerance..=expected_ratio + tolerance).contains(&actual_ratio),
         "Expected ratio {expected_ratio:.4}, got {actual_ratio:.4} with tolerance {tolerance:.4}"
     );
-}
-
-fn has_no_errors(error_codes: &[u32]) -> bool {
-    error_codes.iter().all(|&code| code == 0)
 }
 
 fn two_measurements() {
@@ -71,21 +70,19 @@ fn two_measurements() {
         Op::new_mresetz_gate(0, 1),
     ];
     let start = Instant::now();
-    let results = run_parallel_shots(1, 2, ops, 300, DEFAULT_SEED).expect("GPU shots failed");
+    let results = run_shots_sync(1, 2, &ops, &None, 300, DEFAULT_SEED).expect("GPU shots failed");
     let elapsed = start.elapsed();
-    let (results, error_codes) = split_results(2, &results);
-    assert!(
-        has_no_errors(&error_codes),
-        "Error codes from GPU: {error_codes:?}"
-    );
-    let result_0: Vec<Vec<u32>> = results.iter().map(|r| vec![r[0]]).collect();
+    check_success(&results);
+
+    // Get a vector of only the first measurement results
+    let result_0: Vec<Vec<u32>> = results.shot_results.iter().map(|r| vec![r[0]]).collect();
     assert_ratio(&result_0, &[0], 0.333, 0.1);
     assert_ratio(&result_0, &[1], 0.333, 0.1);
     assert_ratio(&result_0, &[2], 0.333, 0.1);
 
     // All of the 2nd measurements should be 0
     assert!(
-        results.iter().all(|r| r[1] == 0),
+        results.shot_results.iter().all(|r| r[1] == 0),
         "All second measurements should be 0, but got {results:?}"
     );
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
@@ -99,15 +96,12 @@ fn just_pauli() {
         Op::new_mresetz_gate(0, 0),
     ];
     let start = Instant::now();
-    let results = run_parallel_shots(1, 1, ops, 100, DEFAULT_SEED).expect("GPU shots failed");
+    let results = run_shots_sync(1, 1, &ops, &None, 100, DEFAULT_SEED).expect("GPU shots failed");
     let elapsed = start.elapsed();
-    let (results, error_codes) = split_results(1, &results);
-    assert!(
-        has_no_errors(&error_codes),
-        "Error codes from GPU: {error_codes:?}"
-    );
+    check_success(&results);
+
     // Verify the results are 50/50
-    assert_ratio(&results, &[0], 0.5, 0.1);
+    assert_ratio(&results.shot_results, &[0], 0.5, 0.1);
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
 }
 
@@ -119,15 +113,12 @@ fn simple_bell_pair() {
         Op::new_mresetz_gate(11, 1), // 22, 11, 1
     ];
     let start = Instant::now();
-    let results = run_parallel_shots(12, 2, ops, 100, DEFAULT_SEED).expect("GPU shots failed");
+    let results = run_shots_sync(12, 2, &ops, &None, 100, DEFAULT_SEED).expect("GPU shots failed");
+    //let results = run_parallel_shots(12, 2, ops, 100, DEFAULT_SEED).expect("GPU shots failed");
     let elapsed = start.elapsed();
+    check_success(&results);
 
-    let (results, error_codes) = split_results(2, &results);
-    assert!(
-        has_no_errors(&error_codes),
-        "Error codes from GPU: {error_codes:?}"
-    );
-    assert_ratio(&results, &[0, 0], 0.5, 0.1);
+    assert_ratio(&results.shot_results, &[0, 0], 0.5, 0.1);
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
 }
 
@@ -146,22 +137,25 @@ fn test_pauli_noise() {
         Op::new_mresetz_gate(2, 2),
     ];
     let start = Instant::now();
-    let results = run_parallel_shots(3, 3, ops, 100, DEFAULT_SEED).expect("GPU shots failed");
+    let results = run_shots_sync(3, 3, &ops, &None, 100, DEFAULT_SEED).expect("GPU shots failed");
     let elapsed = start.elapsed();
+    check_success(&results);
 
-    let (results, error_codes) = split_results(3, &results);
-    assert!(
-        has_no_errors(&error_codes),
-        "Error codes from GPU: {error_codes:?}"
-    );
-
-    let num_flipped = results.iter().flatten().filter(|&&x| x == 0).count();
+    let num_flipped = results
+        .shot_results
+        .iter()
+        .flatten()
+        .filter(|&&x| x == 0)
+        .count();
     assert!(
         (140..=160).contains(&num_flipped),
         "Expected 140-160 results to be flipped to 0, got {num_flipped}"
     );
 
-    println!("[GPU Runner]: Run 100 shots of X with pauli noise of {x_noise}: {results:?}");
+    println!(
+        "[GPU Runner]: Run 100 shots of X with pauli noise of {x_noise}: {:?}",
+        results.shot_results
+    );
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
 }
 
@@ -212,17 +206,13 @@ fn scale_teleport() {
     ];
 
     let start = Instant::now();
-    let results = run_parallel_shots(3, 3, ops, 50000, DEFAULT_SEED).expect("GPU shots failed");
+    let results = run_shots_sync(3, 3, &ops, &None, 50000, DEFAULT_SEED).expect("GPU shots failed");
     let elapsed = start.elapsed();
-
-    let (results, error_codes) = split_results(3, &results);
-    assert!(
-        has_no_errors(&error_codes),
-        "Error codes from GPU: {error_codes:?}"
-    );
+    check_success(&results);
 
     // Verify that Bob's qubit (every 3rd result) is always 0
     let bob_results: Vec<u32> = results
+        .shot_results
         .iter()
         .flatten()
         .skip(2)
@@ -251,11 +241,12 @@ fn bell_at_scale() {
         Op::new_mresetz_gate(1, 1),
     ];
     let start = Instant::now();
-    let results = run_parallel_shots(2, 2, ops, 60000, DEFAULT_SEED).expect("GPU shots failed");
+    let results = run_shots_sync(2, 2, &ops, &None, 60000, DEFAULT_SEED).expect("GPU shots failed");
     let elapsed = start.elapsed();
+    check_success(&results);
     println!(
         "[GPU Runner]: 60,000 shots of Bell Pair completed, results length: {}",
-        results.len()
+        results.shot_results.len()
     );
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
 }
@@ -271,14 +262,14 @@ fn test_simple_rotation_and_entanglement() {
     ];
     // At 24 qubits, 8 shots fits into 1GB of GPU memory.
     let start = Instant::now();
-    let results = run_parallel_shots(24, 3, ops, 8, DEFAULT_SEED).expect("GPU shots failed");
+    let results = run_shots_sync(24, 3, &ops, &None, 8, DEFAULT_SEED).expect("GPU shots failed");
     let elapsed = start.elapsed();
-    let (results, error_codes) = split_results(3, &results);
-    assert!(
-        has_no_errors(&error_codes),
-        "Error codes from GPU: {error_codes:?}"
+    check_success(&results);
+
+    println!(
+        "[GPU Runner]: Results of GHZ state for 8 shots on 24 qubits: {:?}",
+        results.shot_results
     );
-    println!("[GPU Runner]: Results of GHZ state for 8 shots on 24 qubits: {results:?}");
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
 }
 
@@ -370,16 +361,16 @@ fn test_2q_pauli_noise() {
         Op::new_mresetz_gate(7, 7),
     ];
     let start = Instant::now();
-    let results = run_parallel_shots(8, 8, ops, 20, DEFAULT_SEED).expect("GPU shots failed");
+    let results = run_shots_sync(8, 8, &ops, &None, 20, DEFAULT_SEED).expect("GPU shots failed");
     let elapsed = start.elapsed();
-    let (results, error_codes) = split_results(8, &results);
-    assert!(
-        has_no_errors(&error_codes),
-        "Error codes from GPU: {error_codes:?}"
-    );
+    check_success(&results);
+
     // Check the results: The first 3 qubits should always agree, the 4th usually with the first 3,
     // and after that it gets messy.
-    println!("[GPU Runner]: Results of 2q Pauli noise: {results:?}");
+    println!(
+        "[GPU Runner]: Results of 2q Pauli noise: {:?}",
+        results.shot_results
+    );
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
 }
 
@@ -401,14 +392,14 @@ fn test_move_noise() {
     ];
     // At 24 qubits, 8 shots fits into 1GB of GPU memory.
     let start = Instant::now();
-    let results = run_parallel_shots(1, 1, ops, 100, DEFAULT_SEED).expect("GPU shots failed");
+    let results = run_shots_sync(1, 1, &ops, &None, 100, DEFAULT_SEED).expect("GPU shots failed");
     let elapsed = start.elapsed();
-    let (results, error_codes) = split_results(1, &results);
-    assert!(
-        has_no_errors(&error_codes),
-        "Error codes from GPU: {error_codes:?}"
+    check_success(&results);
+
+    println!(
+        "[GPU Runner]: Results of move op: {:?}",
+        results.shot_results
     );
-    println!("[GPU Runner]: Results of move op: {results:?}");
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
 }
 
@@ -475,18 +466,14 @@ fn test_benzene() {
         Op::new_mresetz_gate(9, 3),
     ];
     let start = Instant::now();
-    let results = run_parallel_shots(10, 4, ops, 1024, DEFAULT_SEED).expect("GPU shots failed");
+    let results = run_shots_sync(10, 4, &ops, &None, 1024, DEFAULT_SEED).expect("GPU shots failed");
     let elapsed = start.elapsed();
-    let (results, error_codes) = split_results(4, &results);
-    assert!(
-        has_no_errors(&error_codes),
-        "Error codes from GPU: {error_codes:?}"
-    );
+    check_success(&results);
     // TODO: Check that buckets for 1101 & 1110 are over 10%, but 1100 & 1111 are less than 1%
     assert!(
-        results[4] == vec![1, 1, 0, 1],
-        "Expected first result to be [0001], got {:?}",
-        results[1]
+        results.shot_results[4] == vec![1, 1, 0, 1],
+        "Expected fourth result to be [1101], got {:?}",
+        results.shot_results[4]
     );
     println!("[GPU Runner]: Benzene elapsed time for 1024 shots: {elapsed:.2?}");
 }
@@ -532,15 +519,11 @@ fn test_cx_various_state() {
     //
     // There was a bug where the offset wasn't incrementing when skipping entries, and took all this to find it :-/
     let start = Instant::now();
-    let results = run_parallel_shots(10, 3, ops, 10, DEFAULT_SEED).expect("GPU shots failed");
+    let results = run_shots_sync(10, 3, &ops, &None, 10, DEFAULT_SEED).expect("GPU shots failed");
     let elapsed = start.elapsed();
+    check_success(&results);
 
-    let (results, error_codes) = split_results(3, &results);
-    assert!(
-        has_no_errors(&error_codes),
-        "Error codes from GPU: {error_codes:?}"
-    );
-    // TODO: Check results 0 & 2 are in the 1 state, and result 1 is ~50/50
+    // TODO: Check results 0 & 2 are in the 1 state
     println!("[GPU Runner]: CX Various State on 2 qubits for 10 shots: {results:?}");
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
 }
@@ -558,15 +541,12 @@ fn scaled_ising() {
 
     let start = Instant::now();
     // Run for 10 shots, which should scale across 3 batches on the GPU (max 4 per batch)
-    let results = run_parallel_shots(25, 25, ops, 10, DEFAULT_SEED).expect("GPU shots failed");
+    let results = run_shots_sync(25, 25, &ops, &None, 10, DEFAULT_SEED).expect("GPU shots failed");
     let elapsed = start.elapsed();
-    let (results, error_codes) = split_results(25, &results);
-    assert!(
-        has_no_errors(&error_codes),
-        "Error codes from GPU: {error_codes:?}"
-    );
+    check_success(&results);
+
     println!("[GPU Runner]: Scaled Ising (5x5) results for 10 shots:");
-    for res in &results {
+    for res in &results.shot_results {
         println!("  {res:?}");
     }
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
@@ -584,21 +564,18 @@ fn scaled_grover() {
     }
 
     let start = Instant::now();
-    let results = run_parallel_shots(24, 20, ops, 4, DEFAULT_SEED).expect("GPU shots failed");
+    let results = run_shots_sync(24, 20, &ops, &None, 4, DEFAULT_SEED).expect("GPU shots failed");
     let elapsed = start.elapsed();
-    let (results, error_codes) = split_results(20, &results);
-    assert!(
-        has_no_errors(&error_codes),
-        "Error codes from GPU: {error_codes:?}"
-    );
-    for res in &results {
+    check_success(&results);
+
+    for res in &results.shot_results {
         assert!(
             res == &vec![0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0],
             "Expected result to be [01010 x4], got {res:?}",
         );
     }
     println!("[GPU Runner]: Scaled Grover (2344 ops on 24 qubits) results for 4 shots:");
-    for res in &results {
+    for res in &results.shot_results {
         println!("  {res:?}");
     }
 
@@ -620,14 +597,11 @@ fn noise_config() {
 
     let start = Instant::now();
     let results =
-        run_shots_with_noise(2, 2, ops, 500, DEFAULT_SEED, &Some(noise)).expect("GPU shots failed");
+        run_shots_sync(2, 2, &ops, &Some(noise), 500, DEFAULT_SEED).expect("GPU shots failed");
     let elapsed = start.elapsed();
+    check_success(&results);
 
-    let (results, error_codes) = split_results(2, &results);
-    assert!(
-        has_no_errors(&error_codes),
-        "Error codes from GPU: {error_codes:?}"
-    );
+    let results = results.shot_results;
     let result_0: Vec<Vec<u32>> = results.iter().map(|r| vec![r[0]]).collect();
     let result_1: Vec<Vec<u32>> = results.iter().map(|r| vec![r[1]]).collect();
     assert_ratio(&result_0, &[0], 0.333, 0.1);
@@ -638,6 +612,38 @@ fn noise_config() {
     assert_ratio(&result_1, &[2], 0.333, 0.1);
 
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
+}
+
+fn correlated_noise() {
+    let result: Result<RunResults, String> = futures::executor::block_on(async {
+        let ops: Vec<Op> = vec![
+            Op::new_x_gate(0),
+            Op::new_x_gate(1),
+            Op::new_correlated_noise_gate(0, &[0, 1]),
+            Op::new_mresetz_gate(0, 0),
+            Op::new_mresetz_gate(1, 1),
+        ];
+        let mut context = GpuContext::default();
+        context.set_program(&ops, 2, 2);
+        context.add_correlated_noise_table(
+            "my_noise",
+            "
+XX,0.25
+ZZ,0.25
+IY,0.125
+YI,0.125
+",
+        );
+        context.run_shots(1000, DEFAULT_SEED).await
+    });
+    let result = result.expect("GPU shots failed");
+    check_success(&result);
+    // Without noise would be 100& [1,1]
+    // With the noise above, should be 50% [1,1] (II), 25% [0,0] (XX), 12.5% [0,1] (YI), 12.5% [1,0] (IY)
+    assert_ratio(&result.shot_results, &[0, 0], 0.25, 0.1);
+    assert_ratio(&result.shot_results, &[1, 1], 0.50, 0.1);
+    assert_ratio(&result.shot_results, &[0, 1], 0.125, 0.1);
+    assert_ratio(&result.shot_results, &[1, 0], 0.125, 0.1);
 }
 
 #[allow(clippy::too_many_lines)]

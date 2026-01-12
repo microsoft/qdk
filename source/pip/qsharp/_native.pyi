@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 
 from enum import Enum
-from typing import Any, Callable, Optional, Dict, List, Tuple, overload
+from typing import Any, Callable, Optional, Dict, List, NotRequired, Tuple, TypedDict, overload
 
 # pylint: disable=unused-argument
 # E302 is fighting with the formatter for number of blank lines
@@ -773,7 +773,7 @@ class QirInstructionId(Enum):
     CX: QirInstructionId
     CY: QirInstructionId
     CZ: QirInstructionId
-    CXX: QirInstructionId
+    CCX: QirInstructionId
     SWAP: QirInstructionId
     RX: QirInstructionId
     RY: QirInstructionId
@@ -793,6 +793,7 @@ class QirInstructionId(Enum):
     DoubleRecordOutput: QirInstructionId
     TupleRecordOutput: QirInstructionId
     ArrayRecordOutput: QirInstructionId
+    CorrelatedNoise: QirInstructionId
 
 class QirInstruction: ...
 
@@ -909,3 +910,53 @@ def run_parallel_shots(
 ) -> List[str]:
     """ """
     ...
+
+class GpuShotResults(TypedDict):
+    """
+    Results from running shots on the GPU simulator.
+    """
+
+    shot_results: List[str]
+    """Bit strings for each shot ('0', '1', or 'L' for lost qubits)."""
+
+    shot_result_codes: List[int]
+    """Result codes for each shot."""
+
+    diagnostics: NotRequired[str]
+    """Diagnostic information if available."""
+
+class GpuContext:
+    def load_noise_tables(self, dir_path: str) -> List[Tuple[int, str, int]]:
+        """
+        Loads a noise table from the specified directory path.
+        """
+        ...
+
+    def get_noise_table_ids(self) -> List[Tuple[int, str, int]]:
+        """
+        Retrieves the currently loaded noise table as a string.
+        """
+        ...
+
+    def set_program(
+        self,
+        input: List[QirInstruction],
+        qubit_count: int,
+        result_count: int,
+    ) -> None:
+        """
+        Sets the QIR program to be executed on the GPU.
+        """
+        ...
+
+    def set_noise(self, noise: NoiseConfig) -> None:
+        """
+        Sets the noise configuration for the GPU simulation.
+        """
+        ...
+
+    def run_shots(self, shot_count: int, seed: int) -> GpuShotResults:
+        """
+        Runs the specified number of shots of the loaded program on the GPU.
+        """
+        ...

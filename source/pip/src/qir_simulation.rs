@@ -57,6 +57,7 @@ pub enum QirInstructionId {
     DoubleRecordOutput,
     TupleRecordOutput,
     ArrayRecordOutput,
+    CorrelatedNoise,
 }
 
 #[derive(Debug)]
@@ -69,6 +70,11 @@ pub enum QirInstruction {
     TwoQubitRotationGate(QirInstructionId, f64, u32, u32),
     ThreeQubitGate(QirInstructionId, u32, u32, u32),
     OutputRecording(QirInstructionId, String, String), // inst, value, tag
+    CorrelatedNoise(
+        QirInstructionId,
+        u32,      /* table id */
+        Vec<u32>, /* qubit args */
+    ),
 }
 
 #[derive(Debug)]

@@ -3,12 +3,16 @@
 
 use crate::qir_simulation::{NoiseConfig, QirInstruction, QirInstructionId, unbind_noise_config};
 use pyo3::{
-    IntoPyObjectExt,
+    IntoPyObjectExt, PyResult,
     exceptions::{PyOSError, PyRuntimeError, PyValueError},
     prelude::*,
-    types::PyList,
+    pyclass, pymethods,
+    types::{PyDict, PyList},
 };
+use qdk_simulators::gpu_context;
 use qdk_simulators::shader_types::Op;
+
+use std::sync::Mutex;
 
 /// Checks if a compatible GPU adapter is available on the system.
 ///
@@ -54,15 +58,9 @@ pub fn run_parallel_shots<'py>(
 
     let rng_seed = seed.unwrap_or(0xfeed_face);
 
-    let sim_results = qdk_simulators::run_shots_with_noise(
-        qubit_count,
-        result_count,
-        ops,
-        shots,
-        rng_seed,
-        &noise,
-    )
-    .map_err(PyRuntimeError::new_err)?;
+    let sim_results =
+        qdk_simulators::run_shots_sync(qubit_count, result_count, &ops, &noise, shots, rng_seed)
+            .map_err(PyRuntimeError::new_err)?;
 
     // Collect and format the results into a Python list of strings
     let result_count: usize = result_count
@@ -73,8 +71,8 @@ pub fn run_parallel_shots<'py>(
     // The results are a flat list of u32, with each shot's results in sequence + one error code,
     // so we need to chunk them up accordingly
     let str_results = sim_results
-        .chunks(result_count + 1)
-        .map(|chunk| &chunk[..result_count])
+        .shot_results
+        .iter()
         .map(|shot_results| {
             let mut bitstring = String::with_capacity(result_count);
             for res in shot_results {
@@ -92,6 +90,149 @@ pub fn run_parallel_shots<'py>(
     PyList::new(py, str_results)
         .map_err(|e| PyValueError::new_err(format!("failed to create Python list: {e}")))?
         .into_py_any(py)
+}
+
+type NativeGpuContext = gpu_context::GpuContext;
+#[derive(Debug)]
+#[pyclass(module = "qsharp._native")]
+pub struct GpuContext {
+    native_context: Mutex<NativeGpuContext>,
+    last_set_result_count: usize, // Needed to format results
+}
+
+#[pymethods]
+impl GpuContext {
+    #[new]
+    fn new() -> PyResult<Self> {
+        Ok(GpuContext {
+            native_context: Mutex::new(NativeGpuContext::default()),
+            last_set_result_count: 0,
+        })
+    }
+
+    fn load_noise_tables(&mut self, dir_path: &str) -> PyResult<Vec<(u32, String, u32)>> {
+        let mut gpu_context = self
+            .native_context
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Unable to obtain lock on the GPU context"))?;
+
+        gpu_context.clear_correlated_noise_tables();
+        for entry in std::fs::read_dir(dir_path)? {
+            let entry = entry?;
+            let path = entry.path();
+            let is_file = path.is_file();
+            // let ends_with_csv = path.extension().map_or(false, |ext| ext == "csv");
+            let ends_with_csv = path.extension() == Some("csv".as_ref());
+
+            if is_file && ends_with_csv {
+                let contents = std::fs::read_to_string(&path)?;
+                let filename = path
+                    .file_stem()
+                    .expect("file should have a name")
+                    .to_str()
+                    .expect("file name should be a valid unicode string");
+                gpu_context.add_correlated_noise_table(filename, &contents);
+            }
+        }
+        Ok(gpu_context.get_correlated_noise_tables())
+    }
+
+    fn get_noise_table_ids(&self) -> PyResult<Vec<(u32, String, u32)>> {
+        self.native_context
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Unable to obtain lock on the GPU context"))
+            .map(|context| Ok(context.get_correlated_noise_tables()))?
+    }
+
+    fn set_program(
+        &mut self,
+        input: &Bound<'_, PyList>,
+        qubit_count: i32,
+        result_count: i32,
+    ) -> PyResult<()> {
+        let mut ops: Vec<Op> = Vec::with_capacity(input.len());
+        for intr in input {
+            // Error if the instruction can't be converted
+            let item = <QirInstruction as FromPyObject>::extract_bound(&intr).map_err(|e| {
+                PyValueError::new_err(format!("expected QirInstruction, got {intr:?}: {e}"))
+            })?;
+            // However some ops can't be mapped (e.g. OutputRecording), so skip those
+            if let Some(op) = map_instruction(&item) {
+                ops.push(op);
+            }
+        }
+        self.native_context
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Unable to obtain lock on the GPU context"))?
+            .set_program(&ops, qubit_count, result_count);
+
+        // Save the result count for formatting later
+        self.last_set_result_count = result_count.try_into().map_err(|e| {
+            PyValueError::new_err(format!("invalid result count {result_count}: {e}"))
+        })?;
+        Ok(())
+    }
+
+    fn set_noise<'py>(
+        &mut self,
+        py: Python<'py>,
+        noise_config: &Bound<'py, NoiseConfig>,
+    ) -> PyResult<()> {
+        let noise = unbind_noise_config(py, noise_config);
+        self.native_context
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Unable to obtain lock on the GPU context"))?
+            .set_noise_config(noise);
+
+        Ok(())
+    }
+
+    fn run_shots(&self, py: Python<'_>, shot_count: i32, seed: u32) -> PyResult<PyObject> {
+        let mut gpu_context = self
+            .native_context
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Unable to obtain lock on the GPU context"))?;
+
+        let results = gpu_context
+            .run_shots_sync(shot_count, seed)
+            .map_err(|_| PyRuntimeError::new_err("Unable to obtain lock on the GPU context"))?;
+
+        let str_results = results
+            .shot_results
+            .iter()
+            .map(|shot_results| {
+                let mut bitstring = String::with_capacity(self.last_set_result_count);
+                for res in shot_results {
+                    let char = match res {
+                        0 => '0',
+                        1 => '1',
+                        _ => 'L', // lost qubit
+                    };
+                    bitstring.push(char);
+                }
+                bitstring
+            })
+            .collect::<Vec<String>>();
+
+        let dict = PyDict::new(py);
+
+        dict.set_item("shot_results", PyList::new(py, str_results)?)
+            .map_err(|e| PyValueError::new_err(format!("failed to set results in dict: {e}")))?;
+        dict.set_item(
+            "shot_result_codes",
+            PyList::new(py, results.shot_result_codes)?,
+        )
+        .map_err(|e| PyValueError::new_err(format!("failed to set result codes in dict: {e}")))?;
+
+        if let Some(diagnostics) = results.diagnostics {
+            // DiagnosticsData doesn't implement Serialize, so use Debug formatting
+            dict.set_item("diagnostics", format!("{diagnostics:?}"))
+                .map_err(|e| {
+                    PyValueError::new_err(format!("failed to set diagnostics in dict: {e}"))
+                })?;
+        }
+        dict.into_py_any(py)
+    }
 }
 
 fn map_instruction(qir_inst: &QirInstruction) -> Option<Op> {
@@ -115,10 +256,13 @@ fn map_instruction(qir_inst: &QirInstruction) -> Option<Op> {
         },
         QirInstruction::TwoQubitGate(id, control, target) => match id {
             QirInstructionId::M | QirInstructionId::MZ | QirInstructionId::MResetZ => {
+                // TODO: These should be distinct in the simulator
                 Op::new_mresetz_gate(*control, *target)
             }
-            QirInstructionId::CX => Op::new_cx_gate(*control, *target),
+            QirInstructionId::CX | QirInstructionId::CNOT => Op::new_cx_gate(*control, *target),
+            QirInstructionId::CY => Op::new_cy_gate(*control, *target),
             QirInstructionId::CZ => Op::new_cz_gate(*control, *target),
+            QirInstructionId::SWAP => Op::new_swap_gate(*control, *target),
             _ => {
                 panic!("unsupported two-qubit gate: {id:?} on qubits {control}, {target}");
             }
@@ -157,6 +301,9 @@ fn map_instruction(qir_inst: &QirInstruction) -> Option<Op> {
             return None;
         }
         QirInstruction::ThreeQubitGate(..) => panic!("unsupported instruction: {qir_inst:?}"),
+        QirInstruction::CorrelatedNoise(_, table_id, qubit_args) => {
+            Op::new_correlated_noise_gate(*table_id, qubit_args)
+        }
     };
     Some(op)
 }

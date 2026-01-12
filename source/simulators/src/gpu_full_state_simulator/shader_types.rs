@@ -1,14 +1,119 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-#![allow(unused)]
-
 use std::f32::consts::FRAC_1_SQRT_2;
 
 use bytemuck::{Pod, Zeroable};
 
-pub const MAX_QUBITS_PER_THREAD: u32 = 10;
-pub const MAX_QUBITS_PER_WORKGROUP: u32 = 12;
+// ********** Constants used by the GPU shader code and structures *********
+
+// Some of these values are to align with WebGPU default limits
+// See https://gpuweb.github.io/gpuweb/#limits
+pub const MAX_BUFFER_SIZE: usize = 1 << 30; // 1 GB limit due to some wgpu restrictions
+pub const MAX_QUBIT_COUNT: i32 = 27; // 2^27 * 8 bytes per complex32 = 1 GB buffer limit
+pub const MAX_QUBITS_PER_WORKGROUP: i32 = 18; // Max qubits to be processed by a single workgroup
+pub const THREADS_PER_WORKGROUP: i32 = 32; // 32 gives good occupancy across various GPUs
+
+// Once a shot is big enough to need multiple workgroups, what's the max number of workgroups possible
+pub const MAX_PARTITIONED_WORKGROUPS: i32 = 1 << (MAX_QUBIT_COUNT - MAX_QUBITS_PER_WORKGROUP);
+pub const MAX_SHOTS_PER_BATCH: i32 = 65535; // To align with max workgroups per dimension WebGPU default
+
+// Round up circuit qubits if smaller to enable to optimizations re unrolling, etc.
+// With min qubit count of 8, this means min 256 entries per shot. Spread across 32 threads = 8 entries per thread.
+// With each iteration in each thread processing 2 or 4 entries, that means 2 or 4 iterations per thread minimum.
+pub const MIN_QUBIT_COUNT: i32 = 8;
+pub const SIZEOF_SHOTDATA: usize = std::mem::size_of::<ShotData>(); // Size of ShotData struct on the GPU in bytes
+
+#[allow(clippy::cast_possible_truncation)]
+#[allow(clippy::cast_possible_wrap)]
+pub const MAX_CIRCUIT_OPS: i32 = (MAX_BUFFER_SIZE / std::mem::size_of::<Op>()) as i32;
+
+#[allow(clippy::cast_possible_truncation)]
+#[allow(clippy::cast_possible_wrap)]
+pub const MAX_SHOT_ENTRIES: i32 = (MAX_BUFFER_SIZE / SIZEOF_SHOTDATA) as i32;
+
+// ********* The below structure should be kept in sync with the WGSL shader code *********
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+pub struct Uniforms {
+    pub batch_start_shot_id: i32,
+    pub rng_seed: u32,
+}
+
+// The follow data is copied back from the GPU for diagnostics
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+pub struct QubitProbabilities {
+    zero: f32,
+    one: f32,
+}
+
+// Each workgroup sums the probabilities for the entries it processed for each qubit
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+pub struct WorkgroupSums {
+    qubits: [QubitProbabilities; MAX_QUBIT_COUNT as usize],
+}
+
+// Once the dispatch for the workgroup processing is done, the results from all workgroups
+// for all active shots are collated here for final processing in the next prepare_op step.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+pub struct WorkgroupCollationBuffer {
+    sums: [WorkgroupSums; MAX_PARTITIONED_WORKGROUPS as usize],
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+pub struct QubitProbabilityPerThread {
+    zero: [f32; MAX_QUBIT_COUNT as usize],
+    one: [f32; MAX_QUBIT_COUNT as usize],
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+pub struct QubitState {
+    zero_probability: f32,
+    one_probability: f32,
+    heat: f32, // -1.0 = lost
+    idle_since: f32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+pub struct ShotData {
+    pub shot_id: u32,
+    pub next_op_idx: u32,
+    pub rng_state: [u32; 6], // 6 x u32
+    pub rand_pauli: f32,
+    pub rand_damping: f32,
+    pub rand_dephase: f32,
+    pub rand_measure: f32,
+    pub rand_loss: f32,
+    pub op_type: u32,
+    pub op_idx: u32,
+    pub duration: f32,
+    pub renormalize: f32,
+    pub qubit_is_0_mask: u32,
+    pub qubit_is_1_mask: u32,
+    pub qubits_updated_last_op_mask: u32,
+    pub qubit_state: [QubitState; MAX_QUBIT_COUNT as usize],
+    pub unitary: [f32; 32],
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+pub struct DiagnosticsData {
+    pub error_code: u32,
+    pub extra1: u32,
+    pub extra2: f32,
+    pub extra3: f32,
+    pub shot: ShotData,
+    pub op: Op,
+    pub qubit_probabilities: [QubitProbabilityPerThread; THREADS_PER_WORKGROUP as usize],
+    pub collation_buffer: WorkgroupCollationBuffer,
+}
 
 #[repr(u32)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
@@ -29,6 +134,7 @@ pub enum OpID {
     Ry = 13,
     Rz = 14,
     Cx = 15,
+    // TODO: Cy
     Cz = 16,
     Rxx = 17,
     Ryy = 18,
@@ -45,6 +151,7 @@ pub enum OpID {
     PauliNoise1Q = 128,
     PauliNoise2Q = 129,
     LossNoise = 130,
+    CorrelatedNoise = 131,
 }
 
 impl OpID {
@@ -97,6 +204,7 @@ impl TryFrom<u32> for OpID {
             128 => Ok(Self::PauliNoise1Q),
             129 => Ok(Self::PauliNoise2Q),
             130 => Ok(Self::LossNoise),
+            131 => Ok(Self::CorrelatedNoise),
             invalid => Err(invalid),
         }
     }
@@ -136,6 +244,7 @@ pub mod ops {
     pub const PAULI_NOISE_1Q: u32 = super::OpID::PauliNoise1Q.as_u32();
     pub const PAULI_NOISE_2Q: u32 = super::OpID::PauliNoise2Q.as_u32();
     pub const LOSS_NOISE: u32 = super::OpID::LossNoise.as_u32();
+    pub const CORRELATED_NOISE: u32 = super::OpID::CorrelatedNoise.as_u32();
 
     #[must_use]
     pub fn is_1q_op(op_id: u32) -> bool {
@@ -165,11 +274,6 @@ pub mod ops {
     #[must_use]
     pub fn is_2q_op(op_id: u32) -> bool {
         matches!(op_id, CX | CZ | RXX | RYY | RZZ | SWAP | MATRIX_2Q)
-    }
-
-    #[must_use]
-    pub fn is_noise_op(op_id: u32) -> bool {
-        matches!(op_id, PAULI_NOISE_1Q | PAULI_NOISE_2Q | LOSS_NOISE)
     }
 }
 
@@ -640,6 +744,17 @@ impl Op {
         op
     }
 
+    #[must_use]
+    pub fn new_cy_gate(_control: u32, _target: u32) -> Self {
+        todo!("The CY enum entry still needs to be added");
+        // let mut op = Self::new_2q_gate(ops::CY, control, target);
+        // op.r00 = 1.0;
+        // op.r11 = 1.0;
+        // op.i23 = -1.0;
+        // op.i32 = 1.0;
+        // op
+    }
+
     /// CZ gate (Controlled-Z): Controlled-Z gate
     /// Matrix representation is handled in the shader for 2-qubit gates
     #[must_use]
@@ -649,6 +764,16 @@ impl Op {
         op.r11 = 1.0;
         op.r22 = 1.0;
         op.r33 = -1.0;
+        op
+    }
+
+    #[must_use]
+    pub fn new_swap_gate(a: u32, b: u32) -> Self {
+        let mut op = Self::new_2q_gate(ops::SWAP, a, b);
+        op.r00 = 1.0;
+        op.r12 = 1.0;
+        op.r21 = 1.0;
+        op.r33 = 1.0;
         op
     }
 
@@ -759,6 +884,55 @@ impl Op {
         op.r33 = 1.0;
 
         // All off-diagonal elements are 0 (already set by new_2q_gate)
+        op
+    }
+
+    #[must_use]
+    pub fn new_correlated_noise_gate(noise_table: u32, qubits: &[u32]) -> Self {
+        // Qubit count will never exceed 32
+        #[allow(clippy::cast_possible_truncation)]
+        let mut op = Self::new_2q_gate(ops::CORRELATED_NOISE, noise_table, qubits.len() as u32);
+
+        // Store qubit ids in the matrix elements
+        for (i, &q) in qubits.iter().enumerate() {
+            // The range of qubit ids is limited to 32 for now, so f32 can represent them exactly
+            #[allow(clippy::cast_precision_loss)]
+            match i {
+                0 => op.r00 = q as f32,
+                1 => op.i00 = q as f32,
+                2 => op.r01 = q as f32,
+                3 => op.i01 = q as f32,
+                4 => op.r02 = q as f32,
+                5 => op.i02 = q as f32,
+                6 => op.r03 = q as f32,
+                7 => op.i03 = q as f32,
+                8 => op.r10 = q as f32,
+                9 => op.i10 = q as f32,
+                10 => op.r11 = q as f32,
+                11 => op.i11 = q as f32,
+                12 => op.r12 = q as f32,
+                13 => op.i12 = q as f32,
+                14 => op.r13 = q as f32,
+                15 => op.i13 = q as f32,
+                16 => op.r20 = q as f32,
+                17 => op.i20 = q as f32,
+                18 => op.r21 = q as f32,
+                19 => op.i21 = q as f32,
+                20 => op.r22 = q as f32,
+                21 => op.i22 = q as f32,
+                22 => op.r23 = q as f32,
+                23 => op.i23 = q as f32,
+                24 => op.r30 = q as f32,
+                25 => op.i30 = q as f32,
+                26 => op.r31 = q as f32,
+                27 => op.i31 = q as f32,
+                28 => op.r32 = q as f32,
+                29 => op.i32 = q as f32,
+                30 => op.r33 = q as f32,
+                31 => op.i33 = q as f32,
+                _ => panic!("More than 32 qubits passed to the correlated noise operation"), // Limited to 32 qubits
+            }
+        }
         op
     }
 

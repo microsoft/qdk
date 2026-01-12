@@ -147,6 +147,11 @@ fn run_shot(
             QirInstruction::OutputRecording(_id, _s, _tag) => {
                 // Ignore for now.
             }
+            QirInstruction::CorrelatedNoise(_, _table_id, _qubit_args) => {
+                unimplemented!(
+                    "Correlated noise tables are not supported in the CPU full state simulator yet"
+                );
+            }
         }
     }
 

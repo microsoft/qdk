@@ -1,2 +1,2 @@
 from qsharp._device._atom import NeutralAtomDevice
-from qsharp._simulation import NoiseConfig, run_qir
+from qsharp._simulation import NoiseConfig, run_qir, GpuSimulator

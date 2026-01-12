@@ -26,7 +26,7 @@ use crate::{
         IdleNoiseParams, NoiseConfig, NoiseTable, QirInstruction, QirInstructionId,
         clifford::run_clifford,
         cpu_full_state::run_cpu_full_state,
-        gpu_full_state::{run_parallel_shots, try_create_gpu_adapter},
+        gpu_full_state::{GpuContext, run_parallel_shots, try_create_gpu_adapter},
     },
 };
 use miette::{Diagnostic, Report};
@@ -119,6 +119,7 @@ fn _native<'a>(py: Python<'a>, m: &Bound<'a, PyModule>) -> PyResult<()> {
     m.add_class::<UdtIR>()?;
     m.add_class::<QirInstructionId>()?;
     m.add_class::<QirInstruction>()?;
+    m.add_class::<GpuContext>()?;
     m.add_class::<NoiseConfig>()?;
     m.add_class::<NoiseTable>()?;
     m.add_class::<IdleNoiseParams>()?;

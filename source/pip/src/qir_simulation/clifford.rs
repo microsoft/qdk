@@ -121,6 +121,11 @@ fn run_clifford_shot(
                 // todo: handle output recording
                 //println!("output recording: {id:?}, {s}, {tag}");
             }
+            QirInstruction::CorrelatedNoise(_, _table_id, _qubit_args) => {
+                unimplemented!(
+                    "Correlated noise tables are not supported in the CPU full state simulator yet"
+                );
+            }
         }
     }
 
