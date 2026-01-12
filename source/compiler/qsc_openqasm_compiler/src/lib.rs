@@ -17,10 +17,13 @@
 mod ast_builder;
 pub mod compiler;
 pub mod display_utils;
+mod functor_constraints;
 mod types;
 
 #[cfg(test)]
 pub(crate) mod tests;
+
+pub use functor_constraints::{FunctorConstraintSolver, FunctorConstraints};
 
 use std::{fmt::Write, sync::Arc};
 
