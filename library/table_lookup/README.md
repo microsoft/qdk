@@ -7,7 +7,7 @@ which uses one of the approaches depending on options.
 
 `Lookup` is the main operation implementing various table lookup algorithms and options. Note, that most unlookup algorithms are measurement-based and return target register to zero state.
 
-### Options for lookup:
+### Options for lookup
 
 * `DoStdLookup` - Use lookup algorithm defined in the Q# standard library.
 * `DoMCXLookup` - Use naive lookup algorithm via multicontrolled X gates.
@@ -15,7 +15,7 @@ which uses one of the approaches depending on options.
 * `DoPPLookup` - Use lookup algorithm via power products without address split. See [arXiv:2505.15917](https://arxiv.org/abs/2505.15917)
 * `DoSplitPPLookup` - Use lookup algorithm via power products with address split. See [arXiv:2505.15917](https://arxiv.org/abs/2505.15917)
 
-### Options for unlookup:
+### Options for unlookup
 
 * `DoStdUnlookup` - Use unlookup algorithm defined in the Q# standard library.
 * `DoUnlookupViaLookup` - Perform unlookup via the same algorithm as lookup as it is self-adjoint.
