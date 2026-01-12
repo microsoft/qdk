@@ -74,9 +74,13 @@ operation RecursiveLookupOpt(
 ) : Unit {
     let data_length = Length(data);
     if data_length == 0 {
+        // If there's no data, there's nothing to apply.
         return ();
     }
     if data_length == 1 {
+        // Base case: always apply data value if data length is 1.
+        // This version doesn't support address values beyond data length and some value needs to be applied.
+        // Since this is the only data value, it is the one to be applied.
         ApplyPauliFromBitString(PauliX, true, data[0], target);
         return ();
     }

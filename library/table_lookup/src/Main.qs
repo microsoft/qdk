@@ -51,5 +51,5 @@ export PhaseLookup.PhaseLookupViaSplitPP;
 export Utils.FastMobiusTransform;
 export Utils.MeasureAndComputePhaseData;
 export Utils.BinaryInnerProduct;
-export Utils.GetCombinedControl;
 export Utils.CombineControls;
+export Utils.GetCombinedControl;

@@ -211,10 +211,8 @@ operation Select(
                     // Add control as the most significant address qubit.
                     if options.selectAlgorithm == SelectViaPP() {
                         LookupViaPP(input.fitData, input.fitAddress + [single_control], target);
-                        return ();
                     } elif options.selectAlgorithm == SelectViaSplitPP() {
                         LookupViaSplitPP(input.fitData, input.fitAddress + [single_control], target);
-                        return ();
                     } else {
                         fail "Unknown select algorithm specified.";
                     }

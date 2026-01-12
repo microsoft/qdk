@@ -3,7 +3,7 @@
 
 import Std.Diagnostics.*;
 
-import Select.*;
+import Main.*;
 
 internal operation MatchSelectToStd(
     options : SelectOptions
@@ -21,19 +21,37 @@ internal operation MatchSelectToStd(
     Fact(equal, "Select should match Std.TableLookup.Select.");
 }
 
-internal function GetSelectOptions(algorithm : Int) : SelectOptions {
-    return new SelectOptions {
-        selectAlgorithm = algorithm,
-        unselectAlgorithm = UnselectViaSelect(),
-        failOnLongData = false,
-        failOnShortData = false,
-        respectExcessiveAddress = false,
-        preferMeasurementBasedUncomputation = true,
-    };
+internal operation MatchControlledSelectToMCX(
+    options: SelectOptions
+) : Unit {
+    let n = 2;
+    let width = 3;
+    let data = [[true, false, false], [false, true, false], [false, false, true], [true, true, true]];
+
+
+    // CheckOperationsAreEqual uses adjoint variant of the reference operation (seond operation).
+    // Select from the standard library uses assumptions that the target is in zero state,
+    // so its adjoint always returns target to zero state. So it won't work for CheckOperationsAreEqual directly.
+    // Instead, we compare controlled Select to controlled LookupViaMCX, which works in all cases.
+    let equal = CheckOperationsAreEqual(
+        1 + n + width,
+        qs => Controlled Select(
+            [qs[0]],
+            (options, data,
+            qs[1..n],
+            qs[n+1...])
+        ),
+        qs => Controlled LookupViaMCX(
+            [qs[0]],
+            (data,
+            qs[1..n],
+            qs[n+1...])
+        )
+    );
+    Fact(equal, "Controlled Select should match controlled LookupViaMCX.");
 }
 
-@Test()
-operation TestSelectMatchesStd() : Unit {
+internal operation TestOnAllAlgorithms( op: SelectOptions => Unit ) : Unit {
     let algorithms = [
         SelectViaStd(),
         SelectViaMCX(),
@@ -41,8 +59,30 @@ operation TestSelectMatchesStd() : Unit {
         SelectViaPP(),
         SelectViaSplitPP()
     ];
-    MatchSelectToStd(DefaultSelectOptions());
     for algorithm in algorithms {
-        MatchSelectToStd(GetSelectOptions(algorithm));
+        let options = new SelectOptions {
+            selectAlgorithm = algorithm,
+            unselectAlgorithm = UnselectViaSelect(),
+            failOnLongData = false,
+            failOnShortData = false,
+            respectExcessiveAddress = false,
+            preferMeasurementBasedUncomputation = true,
+        };
+        op(options);
     }
+}
+
+@Test()
+operation TestDefaultSelectMatchesStd() : Unit {
+    MatchSelectToStd(DefaultSelectOptions());
+}
+
+@Test()
+operation TestSelectMatchesStd() : Unit {
+    TestOnAllAlgorithms(MatchSelectToStd);
+}
+
+@Test()
+operation TestControlledSelectMatchesMCX() : Unit {
+    TestOnAllAlgorithms(MatchControlledSelectToMCX);
 }
