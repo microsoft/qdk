@@ -5,6 +5,7 @@ import Std.Diagnostics.*;
 import Std.Math.*;
 import Std.Arrays.*;
 import Std.Convert.*;
+import Std.Logical.Xor;
 
 import Lookup.*;
 
@@ -102,12 +103,12 @@ function PrepareAddressAndData(
 /// This function is the classical preprocessing step for quantum phase lookup operations,
 /// converting phase data from standard basis coefficients to power product coefficients.
 /// The transformation is its own inverse when applied twice.
-function FastMobiusTransform(qs : Bool[]) : Bool[] {
-    let len = Length(qs);
+function FastMobiusTransform(coefficients : Bool[]) : Bool[] {
+    let len = Length(coefficients);
     Fact((len &&& (len-1)) == 0, "Length of a qubit register should be a power of 2");
     let n = BitSizeI(len)-1;
 
-    mutable result = qs;
+    mutable result = coefficients;
     // For each bit position (from least to most significant)
     for i in 0..n-1 {
         let step = 2^i;
@@ -115,7 +116,7 @@ function FastMobiusTransform(qs : Bool[]) : Bool[] {
         for j in 0..(step * 2)..len-1 {
             for k in 0..step-1 {
                 // XOR the "upper" position with the "lower" position
-                result[j + k + step] = Std.Logical.Xor(result[j + k + step], result[j + k]);
+                result[j + k + step] = Xor(result[j + k + step], result[j + k]);
             }
         }
     }
@@ -142,7 +143,7 @@ operation MeasureAndComputePhaseData(target : Qubit[], data : Bool[][], size : I
 function BinaryInnerProduct(data : Bool[], measurements : Bool[]) : Bool {
     mutable sum = false;
     for i in IndexRange(measurements) {
-        set sum = Std.Logical.Xor(sum, (data[i] and measurements[i]));
+        set sum = Xor(sum, (data[i] and measurements[i]));
     }
     sum
 }

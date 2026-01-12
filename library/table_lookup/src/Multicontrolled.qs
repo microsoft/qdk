@@ -7,6 +7,7 @@
 // * Shorter data is treated as if it is padded with false values.
 // Little-endian format is used throughout.
 
+import Std.Arrays.IndexRange;
 import Std.Diagnostics.*;
 import Std.Math.*;
 
@@ -68,7 +69,7 @@ operation CheckLookupViaMCX() : Unit {
     use target = Qubit[3];
 
     // Check that data at all indices is looked up correctly.
-    for i in 0..Length(data)-1 {
+    for i in IndexRange(data) {
         ApplyXorInPlace(i, addr);
         LookupViaMCX(data, addr, target);
 
@@ -136,7 +137,7 @@ operation CheckBitLookupViaMCX() : Unit {
     use target = Qubit();
 
     // Check that data at all indices is looked up correctly.
-    for i in 0..Length(data)-1 {
+    for i in IndexRange(data) {
         ApplyXorInPlace(i, addr);
         BitLookupViaMCX(data, addr, target);
 

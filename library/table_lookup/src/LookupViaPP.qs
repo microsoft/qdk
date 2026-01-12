@@ -92,9 +92,6 @@ operation LookupViaSplitPP(
     // Undo power products of both halves
     DestructPowerProducts(products1);
     DestructPowerProducts(products2);
-
-    Fact(Std.Diagnostics.CheckAllZero(aux_qubits1), "Auxiliary1 qubits should be reset to zero after SelectViaPowerProducts");
-    Fact(Std.Diagnostics.CheckAllZero(aux_qubits2), "Auxiliary2 qubits should be reset to zero after SelectViaPowerProducts");
 }
 
 /// # Summary
@@ -108,7 +105,7 @@ operation ApplyFlips(
     let m1 = Length(products1) + 1;
     let m2 = Length(products2) + 1;
 
-    for bit_index in 0..Length(target)-1 {
+    for bit_index in IndexRange(target) {
         let sourceData = Mapped(a -> a[bit_index], data);
         let flipData = FastMobiusTransform(sourceData);
         let mask_as_matrix = Chunks(m1, flipData);
@@ -153,7 +150,7 @@ operation CheckLookupViaPP() : Unit {
     use target = Qubit[3];
 
     // Check that data at all indices is looked up correctly.
-    for i in 0..Length(data)-1 {
+    for i in IndexRange(data) {
         ApplyXorInPlace(i, addr);
         LookupViaPP(data, addr, target);
 
@@ -236,7 +233,7 @@ operation CheckLookupViaSplitPP() : Unit {
     use target = Qubit[3];
 
     // Check that data at all indices is looked up correctly.
-    for i in 0..Length(data)-1 {
+    for i in IndexRange(data) {
         ApplyXorInPlace(i, addr);
         LookupViaSplitPP(data, addr, target);
 

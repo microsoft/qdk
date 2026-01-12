@@ -213,7 +213,7 @@ operation CheckRecursiveLookup() : Unit {
     use target = Qubit[3];
 
     // Check that data at all indices is looked up correctly.
-    for i in 0..Length(data)-1 {
+    for i in IndexRange(data) {
         ApplyXorInPlace(i, addr);
         RecursiveLookup(true, data, addr, target);
 
@@ -233,7 +233,7 @@ operation CheckRecursiveLookupOpt() : Unit {
     use target = Qubit[3];
 
     // Check that data at all indices is looked up correctly.
-    for i in 0..Length(data)-1 {
+    for i in IndexRange(data) {
         ApplyXorInPlace(i, addr);
         RecursiveLookupOpt(true, data, addr, target);
 
@@ -283,7 +283,7 @@ operation CheckRecursiveLookupShorterDataOpt() : Unit {
 
     // Check that shorter data at all indices is looked up correctly.
     // This only works up to data length.
-    for i in 0..Length(data)-1 {
+    for i in IndexRange(data) {
         ApplyXorInPlace(i, addr);
         RecursiveLookupOpt(true, data, addr, target);
 

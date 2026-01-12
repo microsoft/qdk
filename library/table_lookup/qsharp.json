@@ -1,16 +1,4 @@
 {
-  "author": "Microsoft",
-  "license": "MIT",
-  "dependencies": {
-    "Qtest": {
-      "github": {
-        "owner": "Microsoft",
-        "repo": "qsharp",
-        "ref": "v1.21.0",
-        "path": "library/qtest"
-      }
-    }
-  },
   "files": [
     "src/Lookup.qs",
     "src/LookupViaPP.qs",

@@ -31,13 +31,11 @@ operation PhaseLookupViaPP(address : Qubit[], data : Bool[]) : Unit {
 }
 
 operation ApplyPhasingViaZ(qs : Qubit[], mask : Bool[]) : Unit {
+    Fact(Length(mask) > 0, "Mask must be a non-empty array.");
+    Fact(Length(mask) == Length(qs) + 1, "Mask row count must match qs length.");
+
     // Ignore the first element of mask, it affects the global phase.
     ApplyPauliFromBitString(PauliZ, true, Std.Arrays.Rest(mask), qs);
-
-    // Add global phase if requested.
-    // if (mask[0]) {
-    //     Exp([], PI(), []);
-    // }
 }
 
 /// # Summary
@@ -149,7 +147,7 @@ operation ApplyPhasingViaZandCZ(products1 : Qubit[], products2 : Qubit[], mask :
 
     // From the second row on, take control from the first half and apply
     // masked multi-target CZ gates via Controlled ApplyPauliFromBitString.
-    for row in 0..Length(products1)-1 {
+    for row in IndexRange(products1) {
         Controlled ApplyPauliFromBitString(
             [products1[row]],
             (PauliZ, true, Rest(ColumnAt(row + 1, mask)), products2)

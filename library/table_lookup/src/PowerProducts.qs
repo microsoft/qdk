@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+import Std.Arrays.IndexRange;
 import Std.Diagnostics.*;
 
 /// # Summary
@@ -28,7 +29,7 @@ operation ConstructPowerProducts(qubits : Qubit[], aux_qubits : Qubit[]) : Qubit
     // Index to take next free qubit from aux_qubits array.
     mutable next_available = 0;
     // Consider every index in the input qubit register
-    for qubit_index in 0..Length(qubits)-1 {
+    for qubit_index in IndexRange(qubits) {
         // First, add the set that consists of only one qubit at index qubit_index.
         power_products += qubits[qubit_index..qubit_index];
         // Then, construct and add sets that include this new qubit as the last one.
