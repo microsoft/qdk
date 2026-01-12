@@ -5,8 +5,8 @@ import Std.Diagnostics.*;
 
 import Main.*;
 
-internal operation MatchSelectToStd(
-    options : SelectOptions
+internal operation MatchLookupToStd(
+    options : LookupOptions
 ) : Unit {
     let n = 3;
     let width = 4;
@@ -15,14 +15,14 @@ internal operation MatchSelectToStd(
     // Use adjoint Std.TableLookup.Select because this check takes adjoint of that.
     let equal = CheckOperationsAreEqual(
         n + width,
-        qs => Select(options, data, qs[0..n-1], qs[n...]),
+        qs => Lookup(options, data, qs[0..n-1], qs[n...]),
         qs => Adjoint Std.TableLookup.Select(data, qs[0..n-1], qs[n...])
     );
-    Fact(equal, "Select should match Std.TableLookup.Select.");
+    Fact(equal, "Lookup should match Std.TableLookup.Select.");
 }
 
-internal operation MatchControlledSelectToMCX(
-    options: SelectOptions
+internal operation MatchControlledLookupToMCX(
+    options : LookupOptions
 ) : Unit {
     let n = 2;
     let width = 3;
@@ -35,34 +35,30 @@ internal operation MatchControlledSelectToMCX(
     // Instead, we compare controlled Select to controlled LookupViaMCX, which works in all cases.
     let equal = CheckOperationsAreEqual(
         1 + n + width,
-        qs => Controlled Select(
+        qs => Controlled Lookup(
             [qs[0]],
-            (options, data,
-            qs[1..n],
-            qs[n+1...])
+            (options, data, qs[1..n], qs[n + 1...])
         ),
         qs => Controlled LookupViaMCX(
             [qs[0]],
-            (data,
-            qs[1..n],
-            qs[n+1...])
+            (data, qs[1..n], qs[n + 1...])
         )
     );
-    Fact(equal, "Controlled Select should match controlled LookupViaMCX.");
+    Fact(equal, "Controlled Lookup should match controlled LookupViaMCX.");
 }
 
-internal operation TestOnAllAlgorithms( op: SelectOptions => Unit ) : Unit {
+internal operation TestOnAllAlgorithms(op : LookupOptions => Unit) : Unit {
     let algorithms = [
-        SelectViaStd(),
-        SelectViaMCX(),
-        SelectViaRecursion(),
-        SelectViaPP(),
-        SelectViaSplitPP()
+        DoStdLookup(),
+        DoMCXLookup(),
+        DoRecursiveSelectLookup(),
+        DoPPLookup(),
+        DoSplitPPLookup()
     ];
     for algorithm in algorithms {
-        let options = new SelectOptions {
-            selectAlgorithm = algorithm,
-            unselectAlgorithm = UnselectViaSelect(),
+        let options = new LookupOptions {
+            lookupAlgorithm = algorithm,
+            unlookupAlgorithm = DoUnlookupViaLookup(),
             failOnLongData = false,
             failOnShortData = false,
             respectExcessiveAddress = false,
@@ -73,16 +69,16 @@ internal operation TestOnAllAlgorithms( op: SelectOptions => Unit ) : Unit {
 }
 
 @Test()
-operation TestDefaultSelectMatchesStd() : Unit {
-    MatchSelectToStd(DefaultSelectOptions());
+operation TestDefaultLookupMatchesStd() : Unit {
+    MatchLookupToStd(DefaultLookupOptions());
 }
 
 @Test()
-operation TestSelectMatchesStd() : Unit {
-    TestOnAllAlgorithms(MatchSelectToStd);
+operation TestLookupMatchesStd() : Unit {
+    TestOnAllAlgorithms(MatchLookupToStd);
 }
 
 @Test()
-operation TestControlledSelectMatchesMCX() : Unit {
-    TestOnAllAlgorithms(MatchControlledSelectToMCX);
+operation TestControlledLookupMatchesMCX() : Unit {
+    TestOnAllAlgorithms(MatchControlledLookupToMCX);
 }

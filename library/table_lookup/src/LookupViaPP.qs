@@ -9,6 +9,12 @@ import PowerProducts.*;
 
 /// # Summary
 /// Performs table lookup using power products without register split.
+/// # Description
+/// Table lookup is preformed using power products constructed from the address qubits.
+/// Data is processed using Fast Mobius Transform to fit power products structure.
+/// Longer data is ignored, shorter data is padded with false values.
+/// Little-endian format is used throughout.
+/// This version uses O(2^n) auxiliary qubits for n address qubits.
 operation LookupViaPP(
     data : Bool[][],
     address : Qubit[],
@@ -40,6 +46,12 @@ operation LookupViaPP(
 
 /// # Summary
 /// Performs table lookup using power products and register split.
+/// # Description
+/// Table lookup is preformed using power products constructed from the address qubits.
+/// Data is processed using Fast Mobius Transform to fit power products structure.
+/// Longer data is ignored, shorter data is padded with false values.
+/// Little-endian format is used throughout. Address register is split into two halves.
+/// This version uses O(2^(n/2)) auxiliary qubits for n address qubits.
 operation LookupViaSplitPP(
     data : Bool[][],
     address : Qubit[],
@@ -85,6 +97,8 @@ operation LookupViaSplitPP(
     Fact(Std.Diagnostics.CheckAllZero(aux_qubits2), "Auxiliary2 qubits should be reset to zero after SelectViaPowerProducts");
 }
 
+/// # Summary
+/// Applies flips to the target register based on the data and power products.
 operation ApplyFlips(
     data : Bool[][],
     products1 : Qubit[],
@@ -106,13 +120,13 @@ operation ApplyFlips(
 
         for row in 0..m2-2 {
             if (mask_as_matrix[row + 1][0]) {
-                CNOT(products2[row], target[bit_index]);
+                CX(products2[row], target[bit_index]);
             }
         }
 
         for col in 0..m1-2 {
             if (mask_as_matrix[0][col + 1]) {
-                CNOT(products1[col], target[bit_index]);
+                CX(products1[col], target[bit_index]);
             }
         }
 

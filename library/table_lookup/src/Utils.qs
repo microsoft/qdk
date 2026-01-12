@@ -6,7 +6,7 @@ import Std.Math.*;
 import Std.Arrays.*;
 import Std.Convert.*;
 
-import Select.*;
+import Lookup.*;
 
 struct AddressAndData {
     // Lower part of the address needed to index into data.
@@ -16,7 +16,7 @@ struct AddressAndData {
 }
 
 function PrepareAddressAndData(
-    options : SelectOptions,
+    options : LookupOptions,
     address : Qubit[],
     data : Bool[][]
 ) : AddressAndData {

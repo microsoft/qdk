@@ -8,12 +8,15 @@ import Std.Convert.*;
 
 
 /// # Summary
-/// Performs table lookup using a SELECT network
+/// Performs table lookup using a SELECT network respecting longer addresses.
 ///
 /// # Description
 /// Assuming a zero-initialized `target` register, this operation will
 /// initialize it with the bitstrings in `data` at indices according to the
 /// computational values of the `address` register.
+/// The implementation of the SELECT network is based on unary encoding as
+/// presented in [1]. The recursive implementation differs from the one
+/// presented in [2] by allowing addresses beyond the length of `data`.
 ///
 /// # Input
 /// ## data
@@ -24,11 +27,6 @@ import Std.Convert.*;
 /// Address register
 /// ## target
 /// Zero-initialized target register
-///
-/// # Remarks
-/// The implementation of the SELECT network is based on unary encoding as
-/// presented in [1]. The recursive implementation of that algorithm is
-/// presented in [2].
 ///
 /// # References
 /// 1. [arXiv:1805.03662](https://arxiv.org/abs/1805.03662)
@@ -66,6 +64,8 @@ operation RecursiveLookup(
     ControlledRecursiveSelect(useAnd, highest_address_qubit, parts[1], lower_address_qubits, target);
 }
 
+/// # Summary
+/// Performs table lookup using a SELECT network assuming no addresses beyond data length.
 operation RecursiveLookupOpt(
     useAnd : Bool,
     data : Bool[][],
@@ -105,7 +105,7 @@ operation RecursiveLookupOpt(
 
 // Complete version of recursive select network that ignores address values
 // beyond data length. This is equivalent to padding data with false values
-// to cover entire addressable space.
+// to cover the entire addressable space.
 // If data length is 1, single data value is used only if address is zero.
 operation ControlledRecursiveSelect(
     useAnd : Bool,

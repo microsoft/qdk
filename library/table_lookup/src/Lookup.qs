@@ -10,75 +10,77 @@ import LookupViaPP.*;
 import PhaseLookup.*;
 
 // ----------------------------------------------
-// Select algorithm options.
+// Lookup algorithm options.
 
-/// Use select algorithm defined in the standard library.
-function SelectViaStd() : Int {
+/// Use lookup algorithm defined in the standard library.
+function DoStdLookup() : Int {
     0
 }
 
-/// Use basic select algorithm with multicontrolled X gates.
-function SelectViaMCX() : Int {
+/// Use basic lookup algorithm with multicontrolled X gates.
+function DoMCXLookup() : Int {
     1
 }
 
-/// Use recursive SELECT network as select algorithm.
-function SelectViaRecursion() : Int {
+/// Use recursive SELECT network as lookup algorithm.
+function DoRecursiveSelectLookup() : Int {
     2
 }
 
-/// Use select algorithm via power products without address split.
-function SelectViaPP() : Int {
+/// Use lookup algorithm via power products without address split.
+function DoPPLookup() : Int {
     3
 }
 
-/// Use select algorithm via power products with address split.
-function SelectViaSplitPP() : Int {
+/// Use lookup algorithm via power products with address split.
+function DoSplitPPLookup() : Int {
     4
 }
 
 // ----------------------------------------------
-// Unselect algorithm options.
+// Unlookup algorithm options.
 
-/// Use unselect algorithm defined in the standard library.
-function UnselectViaStd() : Int {
+/// Use unlookup algorithm defined in the standard library.
+function DoStdUnlookup() : Int {
     0
 }
 
-/// Use the same unselect algorithm. (Note, that select is self-adjoint.)
-function UnselectViaSelect() : Int {
+/// Use the same unlookup algorithm as lookup.
+/// This is always possible as lookup is self-adjoint.
+function DoUnlookupViaLookup() : Int {
     1
 }
 
-/// Use unselect algorithm with multicontrolled X gates.
+/// Use unlookup algorithm with multicontrolled X gates.
 /// This options is measurement based and returns target to zero state.
-function UnselectViaMCX() : Int {
+function DoMCXUnlookup() : Int {
     2
 }
 
-/// Use unselect algorithm via power products without address split (Phase lookup).
+/// Use unlookup algorithm via power products without address split (Phase lookup).
 /// This options is measurement based and returns target to zero state.
-function UnselectViaPP() : Int {
+function DoPPUnlookup() : Int {
     3
 }
 
-/// Use unselect algorithm via power products with address split (Phase lookup).
+/// Use unlookup algorithm via power products with address split (Phase lookup).
 /// This options is measurement based and returns target to zero state.
-function UnselectViaSplitPP() : Int {
+function DoSplitPPUnlookup() : Int {
     4
 }
 
-struct SelectOptions {
-    // Specifies select algorithm. Options:
-    // `SelectViaStd`, `SelectViaMCX`, `SelectViaRecursion`, `SelectViaPP`, `SelectViaSplitPP`.
-    selectAlgorithm : Int,
+/// # Summary
+/// Options for table lookup and unlookup operations.
+struct LookupOptions {
+    // Specifies lookup algorithm. Options:
+    // `DoStdLookup`, `DoMCXLookup`, `DoRecursiveSelectLookup`, `DoPPLookup`, `DoSplitPPLookup`.
+    lookupAlgorithm : Int,
 
-    // Specifies unselect algorithm. Options:
-    // `UnselectViaStd`, `UnselectViaSelect`, `UnselectViaMCX`, `UnselectViaPP`, `UnselectViaSplitPP`.
-    unselectAlgorithm : Int,
-
+    // Specifies unlookup algorithm. Options:
+    // `DoStdUnlookup`, `DoUnlookupViaLookup`, `DoMCXUnlookup`, `DoPPUnlookup`, `DoSplitPPUnlookup`.
+    unlookupAlgorithm : Int,
     // Suggests using measurement-based uncomputation where applicable.
-    // Some algorithms are measurement-based by design.
+    // Note that some algorithms are measurement-based only and some cannot use measurements.
     // If `true`, use measurement-based uncomputations. Example: prefer adjoint AND.
     // If `false`, avoid measurement-based uncomputations. Example: prefer adjoint CCNOT.
     preferMeasurementBasedUncomputation : Bool,
@@ -98,10 +100,12 @@ struct SelectOptions {
     respectExcessiveAddress : Bool,
 }
 
-function DefaultSelectOptions() : SelectOptions {
-    new SelectOptions {
-        selectAlgorithm = SelectViaSplitPP(),
-        unselectAlgorithm = UnselectViaSplitPP(),
+/// # Summary
+/// Default lookup options. Use power products with register split for lookup and unlookup.
+function DefaultLookupOptions() : LookupOptions {
+    new LookupOptions {
+        lookupAlgorithm = DoSplitPPLookup(),
+        unlookupAlgorithm = DoSplitPPUnlookup(),
         failOnLongData = false,
         failOnShortData = false,
         respectExcessiveAddress = false,
@@ -109,14 +113,29 @@ function DefaultSelectOptions() : SelectOptions {
     }
 }
 
-operation Select(
-    options : SelectOptions,
+/// # Summary
+/// Performs table lookup/unlookup operation using specified algorithm and other options.
+///
+/// # Input
+/// ## options
+/// LookupOptions defining lookup and unlookup algorithms and other parameters.
+/// ## data
+/// The data table to be looked up. Each entry is a Bool array the size of the target register.
+/// ## address
+/// Qubit register representing the address in little-endian format.
+/// If the state of this register is one of the basis states |i⟩, and the target register is in |0⟩,
+/// the target register will be set to the value data[i] during lookup. Address can also be in superposition.
+/// ## target
+/// Qubit register to accept the target data. Must be in the |0⟩ state for some algorithms.
+/// For specifics see the corresponding algorithm implementation.
+operation Lookup(
+    options : LookupOptions,
     data : Bool[][],
     address : Qubit[],
     target : Qubit[]
 ) : Unit is Adj + Ctl {
     body (...) {
-        if (options.selectAlgorithm == SelectViaStd()) {
+        if (options.lookupAlgorithm == DoStdLookup()) {
             // Don't do anthing beyond standard library select.
             Std.TableLookup.Select(data, address, target);
             return ();
@@ -124,13 +143,13 @@ operation Select(
 
         let input = PrepareAddressAndData(options, address, data);
 
-        if options.selectAlgorithm == SelectViaMCX() {
+        if options.lookupAlgorithm == DoMCXLookup() {
             // Basic lookup via multicontrolled X gates.
             LookupViaMCX(input.fitData, input.fitAddress, target);
             return ();
         }
 
-        if options.selectAlgorithm == SelectViaRecursion() {
+        if options.lookupAlgorithm == DoRecursiveSelectLookup() {
             // Recursive select implementation.
             if (options.respectExcessiveAddress) {
                 RecursiveLookup(options.preferMeasurementBasedUncomputation, input.fitData, input.fitAddress, target);
@@ -140,28 +159,28 @@ operation Select(
             return ();
         }
 
-        if options.selectAlgorithm == SelectViaPP() {
+        if options.lookupAlgorithm == DoPPLookup() {
             // Lookup via power products without address split.
             LookupViaPP(input.fitData, input.fitAddress, target);
             return ();
         }
 
-        if options.selectAlgorithm == SelectViaSplitPP() {
+        if options.lookupAlgorithm == DoSplitPPLookup() {
             LookupViaSplitPP(input.fitData, input.fitAddress, target);
             return ();
         }
 
-        fail "Unknown select algorithm specified.";
+        fail $"Unknown lookup algorithm specified ({options.lookupAlgorithm}).";
     }
 
     controlled (controls, ...) {
         let control_size = Length(controls);
         if control_size == 0 {
-            Select(options, data, address, target);
+            Lookup(options, data, address, target);
             return ();
         }
 
-        if options.selectAlgorithm == SelectViaStd() {
+        if options.lookupAlgorithm == DoStdLookup() {
             // Don't do anthing beyond standard library select.
             Controlled Std.TableLookup.Select(controls, (data, address, target));
             return ();
@@ -169,7 +188,7 @@ operation Select(
 
         let input = PrepareAddressAndData(options, address, data);
 
-        if options.selectAlgorithm == SelectViaMCX() {
+        if options.lookupAlgorithm == DoMCXLookup() {
             // This is already a multicontrolled approach. Just add more controls.
             Controlled LookupViaMCX(controls, (data, address, target));
             return ();
@@ -182,7 +201,7 @@ operation Select(
         } apply {
             let single_control = GetCombinedControl(controls, aux);
 
-            if options.selectAlgorithm == SelectViaRecursion() {
+            if options.lookupAlgorithm == DoRecursiveSelectLookup() {
                 // Recursive select implementation.
                 if (options.respectExcessiveAddress) {
                     ControlledRecursiveSelect(
@@ -203,18 +222,18 @@ operation Select(
                 }
             } else {
                 // To use control qubit as an extra address qubit we need to respect entire address.
-                // Power products implementation does that.
+                // Power products implementation already does that.
                 within {
                     // Invert control so that data is selected when control is |1>
                     X(single_control);
                 } apply {
                     // Add control as the most significant address qubit.
-                    if options.selectAlgorithm == SelectViaPP() {
+                    if options.lookupAlgorithm == DoPPLookup() {
                         LookupViaPP(input.fitData, input.fitAddress + [single_control], target);
-                    } elif options.selectAlgorithm == SelectViaSplitPP() {
+                    } elif options.lookupAlgorithm == DoSplitPPLookup() {
                         LookupViaSplitPP(input.fitData, input.fitAddress + [single_control], target);
                     } else {
-                        fail "Unknown select algorithm specified.";
+                        fail $"Unknown lookup algorithm specified ({options.lookupAlgorithm}).";
                     }
                 }
             }
@@ -222,50 +241,52 @@ operation Select(
     }
 
     adjoint (...) {
-        if (options.unselectAlgorithm == UnselectViaStd()) {
+        if (options.unlookupAlgorithm == DoStdUnlookup()) {
             // Don't do anthing beyond standard library select.
-            Std.TableLookup.Select(data, address, target);
+            Adjoint Std.TableLookup.Select(data, address, target);
             return ();
         }
-        if (options.unselectAlgorithm == UnselectViaSelect()) {
-            // Perform same select operation as it is self-adjoint.
-            Select(options, data, address, target);
+        if (options.unlookupAlgorithm == DoUnlookupViaLookup()) {
+            // Perform same lookup operation (as it is self-adjoint).
+            Lookup(options, data, address, target);
             return ();
         }
 
+        // Perform measurement-based uncomputation.
         let input = PrepareAddressAndData(options, address, data);
         let phaseData = MeasureAndComputePhaseData(target, input.fitData, Length(input.fitAddress));
+        // Now apply phase corrections after measurement-based uncomputation.
 
-        if options.unselectAlgorithm == UnselectViaMCX() {
+        if options.unlookupAlgorithm == DoMCXUnlookup() {
             // Phase lookup via multicontrolled X gates.
             PhaseLookupViaMCX(phaseData, input.fitAddress);
             return ();
         }
 
-        if options.unselectAlgorithm == UnselectViaPP() {
+        if options.unlookupAlgorithm == DoPPUnlookup() {
             // Phase lookup via power products without address split.
             PhaseLookupViaPP(input.fitAddress, phaseData);
             return ();
         }
 
-        if options.unselectAlgorithm == UnselectViaSplitPP() {
+        if options.unlookupAlgorithm == DoSplitPPUnlookup() {
             // Phase lookup via power products with address split.
             PhaseLookupViaSplitPP(input.fitAddress, phaseData);
             return ();
         }
 
-        fail "Unknown unselect algorithm specified.";
+        fail $"Unknown unlookup algorithm specified ({options.unlookupAlgorithm}).";
     }
 
     controlled adjoint (controls, ...) {
-        if options.unselectAlgorithm == UnselectViaStd() {
+        if options.unlookupAlgorithm == DoStdUnlookup() {
             // Don't do anthing beyond standard library select.
             Controlled Adjoint Std.TableLookup.Select(controls, (data, address, target));
             return ();
         }
 
-        // In all other cases we perform controlled select as
+        // In all other cases we perform controlled lookup as
         // we cannot do controlled measurement-based uncomputation.
-        Controlled Select(controls, (options, data, address, target));
+        Controlled Lookup(controls, (options, data, address, target));
     }
 }

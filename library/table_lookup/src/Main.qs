@@ -3,24 +3,24 @@
 
 // Main wrapper operation for lookup.
 
-export Select.Select;
+export Lookup.Lookup;
 
 // Options and available algorithms.
 
-export Select.SelectOptions;
-export Select.DefaultSelectOptions;
+export Lookup.LookupOptions;
+export Lookup.DefaultLookupOptions;
 
-export Select.SelectViaStd;
-export Select.SelectViaMCX;
-export Select.SelectViaRecursion;
-export Select.SelectViaPP;
-export Select.SelectViaSplitPP;
+export Lookup.DoStdLookup;
+export Lookup.DoMCXLookup;
+export Lookup.DoRecursiveSelectLookup;
+export Lookup.DoPPLookup;
+export Lookup.DoSplitPPLookup;
 
-export Select.UnselectViaStd;
-export Select.UnselectViaSelect;
-export Select.UnselectViaMCX;
-export Select.UnselectViaPP;
-export Select.UnselectViaSplitPP;
+export Lookup.DoStdUnlookup;
+export Lookup.DoUnlookupViaLookup;
+export Lookup.DoMCXUnlookup;
+export Lookup.DoPPUnlookup;
+export Lookup.DoSplitPPUnlookup;
 
 // Lookup implementations via multicontrolled X gates.
 
