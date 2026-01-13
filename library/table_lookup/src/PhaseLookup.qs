@@ -76,28 +76,28 @@ operation PhaseLookupViaSplitPP(address : Qubit[], data : Bool[]) : Unit {
     Fact(Length(data) == addressable_space, "Data length must match 2^Length(qs).");
     let n1 = address_size >>> 1; // Number of qubits in the first half
     let n2 = address_size - n1; // Number of qubits in the second half
-    let address_low = address[...n1-1]; // Note that address_low will be empty if n == 1.
+    let address_low = address[...n1-1]; // Note that address_low will be empty if n == 1
     let address_high = address[n1...];
     let m1 = 1 <<< n1;
     let m2 = 1 <<< n2;
     Fact(m1 * m2 == addressable_space, "Length of halves must match total length.");
 
-    // Allocate auxilliary qubits
+    // Allocate auxilliary qubits.
     use aux_qubits1 = Qubit[GetAuxCountForPP(n1)];
     use aux_qubits2 = Qubit[GetAuxCountForPP(n2)];
 
-    // Construct power products for both halves
+    // Construct power products for both halves.
     let products1 = ConstructPowerProducts(address_low, aux_qubits1);
     let products2 = ConstructPowerProducts(address_high, aux_qubits2);
 
-    // Convert data from minterm to monomial basis using Fast Möbius Transform
+    // Convert data from minterm to monomial basis using Fast Möbius Transform.
     // and chunk it into a matrix
     let mask_as_matrix = Chunks(m1, FastMobiusTransform(data));
 
-    // Apply phasing within each half and between halves
+    // Apply phasing within each half and between halves.
     ApplyPhasingViaZandCZ(products1, products2, mask_as_matrix);
 
-    // Undo power products of both halves
+    // Undo power products of both halves.
     DestructPowerProducts(products1);
     DestructPowerProducts(products2);
 }
@@ -112,9 +112,9 @@ operation PhaseLookupViaSplitPP(address : Qubit[], data : Bool[]) : Unit {
 /// input qubits as split into two halves, with separate power products for each half.
 ///
 /// The phase correction is applied as follows:
-/// 1. Apply Z gates to products2 based on products1[0] (for products from first half only)
-/// 2. Apply Z gates to products1 based on products2[0] (for products from second half only)
-/// 3. Apply CZ gates between corresponding products from both halves
+/// 1. Apply Z gates to products2 based on products1[0] (for products from first half only).
+/// 2. Apply Z gates to products1 based on products2[0] (for products from second half only).
+/// 3. Apply CZ gates between corresponding products from both halves.
 ///
 /// # Input
 /// ## products1
@@ -126,7 +126,7 @@ operation PhaseLookupViaSplitPP(address : Qubit[], data : Bool[]) : Unit {
 /// ## mask
 /// 2D boolean array containing power product coefficients.
 /// - `mask[i][j]` indicates whether to apply phase correction for the product
-///   of subset i from second half and subset j from first half
+///   of subset i from second half and subset j from first half.
 ///
 /// # Remarks
 /// The mask is obtained by applying Fast Möbius Transform to phase data

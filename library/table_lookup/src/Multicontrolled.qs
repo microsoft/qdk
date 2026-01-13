@@ -19,7 +19,7 @@ operation BitLookupViaMCX(data : Bool[], address : Qubit[], target : Qubit) : Un
     for basis_vector in 0..MinI(data_length, addressable_space)-1 {
         if data[basis_vector] {
             within {
-                // Invert address qubits for 0-es in basis_vector
+                // Invert address qubits for 0-es in basis_vector.
                 ApplyXorInPlace(addressable_space-1-basis_vector, address)
             } apply {
                 Controlled X(address, target);
@@ -49,7 +49,7 @@ operation LookupViaMCX(data : Bool[][], address : Qubit[], target : Qubit[]) : U
         let data_vector = data[basis_vector];
         Fact(Length(data_vector) == target_size, $"Data vector length {Length(data_vector)} must match target size {target_size}.");
         within {
-            // Invert address qubits for 0-es in basis_vector
+            // Invert address qubits for 0-es in basis_vector.
             ApplyXorInPlace(addressable_space-1-basis_vector, address)
         } apply {
             Controlled ApplyPauliFromBitString(address, (PauliX, true, data_vector, target));
@@ -99,7 +99,7 @@ operation CheckLookupViaMCXShorterData() : Unit {
             ApplyPauliFromBitString(PauliX, true, data[i], target);
             set expected_data = data[i];
         } else {
-            // For out-of-bounds indices, target should remain |0...0>
+            // For out-of-bounds indices, target should remain |0...0⟩.
         }
         let zero = CheckAllZero(target);
         Fact(zero, $"Target should match {expected_data} at index {i}.");
@@ -157,11 +157,11 @@ operation TestPhaseLookupViaMCX() : Unit {
     use qs = Qubit[n];
     ApplyToEach(H, qs);
 
-    // `Reversed` to match big-endian state preparation coefficients order
+    // `Reversed` to match big-endian state preparation coefficients order.
     PhaseLookupViaMCX(data, Std.Arrays.Reversed(qs));
     Adjoint Std.StatePreparation.PreparePureStateD(coeffs, qs);
 
-    Fact(CheckAllZero(qs), "All qubits should be back to |0> state.");
+    Fact(CheckAllZero(qs), "All qubits should be back to |0⟩ state.");
 }
 
 @Test()

@@ -224,7 +224,7 @@ operation Lookup(
                 // To use control qubit as an extra address qubit we need to respect entire address.
                 // Power products implementation already does that.
                 within {
-                    // Invert control so that data is selected when control is |1>
+                    // Invert control so that data is selected when control is |1⟩.
                     X(single_control);
                 } apply {
                     // Add control as the most significant address qubit.

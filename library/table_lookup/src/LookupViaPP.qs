@@ -31,21 +31,22 @@ operation LookupViaPP(
         data
     };
 
-    // Allocate auxilliary qubits
+    // Allocate auxilliary qubits.
     use aux_qubits = Qubit[GetAuxCountForPP(address_size)];
 
-    // Construct power products
+    // Construct power products.
     let products = ConstructPowerProducts(address, aux_qubits);
 
     ApplyFlips(data, products, [], target);
 
-    // Undo power products
+    // Undo power products.
     DestructPowerProducts(products);
 
 }
 
 /// # Summary
 /// Performs table lookup using power products and register split.
+///
 /// # Description
 /// Table lookup is preformed using power products constructed from the address qubits.
 /// Data is processed using Fast Mobius Transform to fit power products structure.
@@ -73,23 +74,23 @@ operation LookupViaSplitPP(
     Fact(Length(data) == m, "Data length must match 2^Length(qs).");
     let n1 = address_size >>> 1; // Number of qubits in the first half
     let n2 = address_size - n1; // Number of qubits in the second half
-    let h1 = address[...n1-1]; // Note that h1 will be empty if address_size == 1.
+    let h1 = address[...n1-1]; // Note that h1 will be empty if address_size == 1
     let h2 = address[n1...];
     let m1 = 1 <<< n1;
     let m2 = 1 <<< n2;
     Fact(m1 * m2 == m, "Length of halves must match total length.");
 
-    // Allocate auxilliary qubits
+    // Allocate auxilliary qubits.
     use aux_qubits1 = Qubit[2^n1 - n1 - 1];
     use aux_qubits2 = Qubit[2^n2 - n2 - 1];
 
-    // Construct power products for both halves
+    // Construct power products for both halves.
     let products1 = ConstructPowerProducts(h1, aux_qubits1);
     let products2 = ConstructPowerProducts(h2, aux_qubits2);
 
     ApplyFlips(data, products1, products2, target);
 
-    // Undo power products of both halves
+    // Undo power products of both halves.
     DestructPowerProducts(products1);
     DestructPowerProducts(products2);
 }
@@ -110,7 +111,7 @@ operation ApplyFlips(
         let flipData = FastMobiusTransform(sourceData);
         let mask_as_matrix = Chunks(m1, flipData);
 
-        // Apply X to target[bit_index] if the empty product (index 0) is set
+        // Apply X to target[bit_index] if the empty product (index 0) is set.
         if mask_as_matrix[0][0] {
             X(target[bit_index]);
         }
@@ -180,7 +181,7 @@ operation CheckLookupViaPPShorterData() : Unit {
             ApplyPauliFromBitString(PauliX, true, data[i], target);
             set expected_data = data[i];
         } else {
-            // For out-of-bounds indices, target should remain |0...0>
+            // For out-of-bounds indices, target should remain |0...0⟩.
         }
         let zero = CheckAllZero(target);
         Fact(zero, $"Target should match {expected_data} at index {i}.");
@@ -263,7 +264,7 @@ operation CheckLookupViaSplitPPShorterData() : Unit {
             ApplyPauliFromBitString(PauliX, true, data[i], target);
             set expected_data = data[i];
         } else {
-            // For out-of-bounds indices, target should remain |0...0>
+            // For out-of-bounds indices, target should remain |0...0⟩.
         }
         let zero = CheckAllZero(target);
         Fact(zero, $"Target should match {expected_data} at index {i}.");

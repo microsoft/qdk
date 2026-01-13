@@ -264,7 +264,7 @@ operation CheckRecursiveLookupShorterData() : Unit {
             ApplyPauliFromBitString(PauliX, true, data[i], target);
             set expected_data = data[i];
         } else {
-            // For out-of-bounds indices, target should remain |0...0>
+            // For out-of-bounds indices, target should remain |0...0⟩.
         }
         let zero = CheckAllZero(target);
         Fact(zero, $"Target should match {expected_data} at index {i}.");

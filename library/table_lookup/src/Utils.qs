@@ -109,13 +109,13 @@ function FastMobiusTransform(coefficients : Bool[]) : Bool[] {
     let n = BitSizeI(len)-1;
 
     mutable result = coefficients;
-    // For each bit position (from least to most significant)
+    // For each bit position (from least to most significant).
     for i in 0..n-1 {
         let step = 2^i;
-        // For each pair of positions that differ only in that bit
+        // For each pair of positions that differ only in that bit.
         for j in 0..(step * 2)..len-1 {
             for k in 0..step-1 {
-                // XOR the "upper" position with the "lower" position
+                // XOR the "upper" position with the "lower" position.
                 result[j + k + step] = Xor(result[j + k + step], result[j + k]);
             }
         }
@@ -124,7 +124,7 @@ function FastMobiusTransform(coefficients : Bool[]) : Bool[] {
 }
 
 /// # Summary
-/// Measures all qubits in the `target` register in the X basis. Resets them to |0>.
+/// Measures all qubits in the `target` register in the X basis. Resets them to |0⟩.
 /// Computes and pads resulting phase data to cover the entire address space `2^address_size`.
 operation MeasureAndComputePhaseData(
     target : Qubit[],
@@ -191,7 +191,7 @@ function GetCombinedControl(controls : Qubit[], aux : Qubit[]) : Qubit {
 
 @Test()
 function TestFastMobiusTransform() : Unit {
-    // Test cases for FastMobiusTransform
+    // Test cases for FastMobiusTransform.
     let testCases = [
         ([], []),
         ([false], [false]),
@@ -210,7 +210,7 @@ function TestFastMobiusTransform() : Unit {
     for (input, expected) in testCases {
         let output = FastMobiusTransform(input);
         Fact(output == expected, $"FastMobiusTransform({input}) should be {expected}, got {output}");
-        // Test that applying the transform twice returns the original input
+        // Test that applying the transform twice returns the original input.
         let roundTrip = FastMobiusTransform(output);
         Fact(roundTrip == input, $"FastMobiusTransform(FastMobiusTransform({input})) should be {input}, got {roundTrip}");
     }
@@ -221,31 +221,30 @@ internal operation TestCombineControlsForN(n : Int) : Unit {
     use controls = Qubit[n];
     use aux = Qubit[n - 1];
 
-    // Test all combinations of control qubits
+    // Test all combinations of control qubits.
     for i in 0..all_ones {
         ApplyXorInPlace(i, controls);
 
-        // Combine controls
+        // Combine controls.
         within {
             CombineControls(controls, aux);
         } apply {
             let combined = GetCombinedControl(controls, aux);
-            // Check that combined control is |1> iff all controls are |1>
+            // Check that combined control is |1⟩ iff all controls are |1⟩.
             if i == all_ones {
                 within {
-                    // Ensure combined control is |1>
+                    // Ensure combined control is |1⟩.
                     X(combined);
                 } apply {
-                    Fact(CheckZero(combined), $"Combined control should be |1> when all {n} controls are |1>.");
+                    Fact(CheckZero(combined), $"Combined control should be |1⟩ when all {n} controls are |1⟩.");
                 }
             } else {
-                Fact(CheckZero(combined), $"Combined control should be |0> when some of {n} controls are |0>.");
+                Fact(CheckZero(combined), $"Combined control should be |0⟩ when some of {n} controls are |0⟩.");
             }
-
         }
         ApplyXorInPlace(i, controls);
-        // Check that all qubits are reset to |0>
-        Fact(CheckAllZero(controls + aux), "All qubits should be reset to |0> after CombineControls adjoint.");
+        // Check that all qubits are reset to |0⟩.
+        Fact(CheckAllZero(controls + aux), "All qubits should be reset to |0⟩ after CombineControls adjoint.");
     }
 }
 

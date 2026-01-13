@@ -24,20 +24,20 @@ import Std.Diagnostics.*;
 /// of the qubits from the input register: each power product qubit state is a result of AND operation
 /// for the qubits in corresponding subset.
 operation ConstructPowerProducts(qubits : Qubit[], aux_qubits : Qubit[]) : Qubit[] {
-    // Start with empty array - no dummy qubit for empty set
+    // Start with empty array - no dummy qubit for empty set.
     mutable power_products = [];
     // Index to take next free qubit from aux_qubits array.
     mutable next_available = 0;
-    // Consider every index in the input qubit register
+    // Consider every index in the input qubit register.
     for qubit_index in IndexRange(qubits) {
         // First, add the set that consists of only one qubit at index qubit_index.
         power_products += qubits[qubit_index..qubit_index];
         // Then, construct and add sets that include this new qubit as the last one.
         for existing_set_index in 0..Length(power_products)-2 {
-            // Take the next qubit for the new set
+            // Take the next qubit for the new set.
             let next_power_product = aux_qubits[next_available];
             next_available += 1;
-            // Create appropriate set and add it to the result
+            // Create appropriate set and add it to the result.
             AND(power_products[existing_set_index], qubits[qubit_index], next_power_product);
             power_products += [next_power_product];
         }
@@ -47,9 +47,9 @@ operation ConstructPowerProducts(qubits : Qubit[], aux_qubits : Qubit[]) : Qubit
 }
 
 /// # Summary
-/// Undo construction of power products done by `ConstructPowerProducts`
+/// Uncomputes construction of power products done by `ConstructPowerProducts`.
 /// Pass array returned by `ConstructPowerProducts` to this function
-/// to reset auxiliary qubits used to hold power products back to |0> state.
+/// to reset auxiliary qubits used to hold power products back to |0⟩ state.
 ///
 /// # Description
 /// `products` array has no qubit that corresponds to an empty product (≡1).
@@ -60,27 +60,26 @@ operation ConstructPowerProducts(qubits : Qubit[], aux_qubits : Qubit[]) : Qubit
 /// Then measures out qubits from `2^i - 1` to `2^(i+1) - 2` in X basis,
 /// targeting corresponding qubits from 0 to `2^i - 2` in CZ gates if necessary.
 operation DestructPowerProducts(products : Qubit[]) : Unit {
-    let len = Length(products);
-    if len <= 1 {
+    let length = Length(products);
+    if length <= 1 {
         // Nothing to undo - this was one of the source qubits.
         return ();
     }
-    // For no-dummy version, length is 2^n - 1, so we need to work with 2^n
-    let extended_len = len + 1;
-    Fact((extended_len &&& (extended_len-1)) == 0, "DestructPowerProducts: Length + 1 of a qubit register should be a power of 2");
+    // Adjust for empty set.
+    let extended_len = length + 1;
+    Fact((extended_len &&& length) == 0, "DestructPowerProducts: Length + 1 of a qubit register should be a power of 2");
 
-    // At index h-1 a source qubit is located (shifted by 1 compared to original version).
+    // At index h-1 a source qubit is located (shifted by 1 to account for the lack of empty set).
     // To the right are all power products ending in it.
     // We are going backwards over all original qubits.
     mutable h = extended_len / 2;
     // If h is 1 we have nothing else to undo.
     while h > 1 {
         // Go over all sets that end in original qubit currently at index h-1.
-        // NOTE: k starts from 0 since there's no dummy qubit.
         // NOTE: The order of targets here doesn't matter.
         for k in 0..h-2 {
             // Measure and reset the qubit that represents
-            // the set (h-1) | k, which is at index h-1+k+1 = h+k
+            // the set (h-1) | k, which is at index h-1+k+1 = h+k.
             if MResetX(products[h + k]) == One {
                 // If we measure 1, qubit representing set k needs to be included in targets.
                 CZ(products[h - 1], products[k]);
@@ -103,7 +102,7 @@ function GetAuxCountForPP(nQubits : Int) : Int {
 // Tests
 
 internal operation ConstructDestructPowerProducts(qs : Qubit[]) : Unit {
-    // For monomials with more than one variable we need auxilliary qubits
+    // For monomials with more than one variable we need auxilliary qubits.
     use aux_qubits = Qubit[GetAuxCountForPP(Length(qs))];
 
     // Construct/destruct should leave qs unchanged.
@@ -153,7 +152,7 @@ internal operation CheckPowerProducts(nQubits : Int, address_value : Int) : Unit
         }
         within {
             if (expected_value) {
-                // Invert if expected value is 1 - we'll check for |0> state.
+                // Invert if expected value is 1 - we'll check for |0⟩ state.
                 X(products[index]);
             }
         } apply {
@@ -167,7 +166,7 @@ internal operation CheckPowerProducts(nQubits : Int, address_value : Int) : Unit
     // Reset original qubits.
     ApplyPauliFromBitString(PauliX, true, state, qs);
 
-    // All qubits should be back to |0> state at this point.
+    // All qubits should be back to |0⟩ state at this point.
 }
 
 @Test()
