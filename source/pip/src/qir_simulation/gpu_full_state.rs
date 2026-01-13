@@ -41,9 +41,9 @@ pub fn run_parallel_shots<'py>(
     let mut ops: Vec<Op> = Vec::with_capacity(input.len());
     for intr in input {
         // Error if the instruction can't be converted
-        let item: QirInstruction = intr.extract().map_err(|e| {
-            PyValueError::new_err(format!("expected QirInstruction: {e}"))
-        })?;
+        let item: QirInstruction = intr
+            .extract()
+            .map_err(|e| PyValueError::new_err(format!("expected QirInstruction: {e}")))?;
         // However some ops can't be mapped (e.g. OutputRecording), so skip those
         if let Some(op) = map_instruction(&item) {
             ops.push(op);
