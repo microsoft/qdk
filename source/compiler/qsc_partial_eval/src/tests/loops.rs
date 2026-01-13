@@ -553,7 +553,7 @@ fn result_array_index_range_in_for_loop() {
                     Variable(2, Integer) = Store Variable(8, Integer)
                     Jump(3)
             config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs | QubitReset)
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs)
             num_qubits: 2
             num_results: 2
             tags:

@@ -28,9 +28,11 @@ use qsc_circuit::{
 };
 use qsc_codegen::qir::{fir_to_qir, fir_to_qir_from_callable};
 use qsc_data_structures::{
+    error::WithSource,
     functors::FunctorApp,
     language_features::LanguageFeatures,
     line_column::{Encoding, Range},
+    source::{Source, SourceMap},
     span::Span,
     target::TargetCapabilityFlags,
 };
@@ -51,14 +53,13 @@ pub use qsc_eval::{
 };
 use qsc_fir::{
     fir::{
-        self, Block, BlockId, ExecGraph, Expr, ExprId, Global, Package, PackageId,
+        self, Block, BlockId, ExecGraph, ExecGraphConfig, Expr, ExprId, Global, Package, PackageId,
         PackageStoreLookup, Pat, PatId, Stmt, StmtId,
     },
     visit::{self, Visitor},
 };
 use qsc_frontend::{
-    compile::{CompileUnit, Dependencies, PackageStore, Source, SourceMap},
-    error::WithSource,
+    compile::{CompileUnit, Dependencies, PackageStore},
     incremental::Increment,
 };
 use qsc_hir::{global, ty};
@@ -156,6 +157,8 @@ pub struct Interpreter {
     classical_seed: Option<u64>,
     /// The evaluator environment.
     env: Env,
+    /// The execution graph configuration to use for evaluation.
+    eval_config: ExecGraphConfig,
 }
 
 pub type InterpretResult = std::result::Result<Value, Vec<Error>>;
@@ -198,7 +201,7 @@ impl Interpreter {
         dependencies: &Dependencies,
     ) -> std::result::Result<Self, Vec<Error>> {
         Self::with_sources(
-            false,
+            ExecGraphConfig::NoDebug,
             sources,
             package_type,
             capabilities,
@@ -219,7 +222,7 @@ impl Interpreter {
         circuit_tracer_config: TracerConfig,
     ) -> std::result::Result<Self, Vec<Error>> {
         Self::with_sources(
-            false,
+            ExecGraphConfig::NoDebug,
             sources,
             package_type,
             capabilities,
@@ -243,7 +246,7 @@ impl Interpreter {
         trace_circuit_config: TracerConfig,
     ) -> std::result::Result<Self, Vec<Error>> {
         Self::with_sources(
-            true,
+            ExecGraphConfig::Debug,
             sources,
             package_type,
             capabilities,
@@ -256,7 +259,7 @@ impl Interpreter {
 
     #[allow(clippy::too_many_arguments)]
     fn with_sources(
-        dbg: bool,
+        eval_config: ExecGraphConfig,
         sources: SourceMap,
         package_type: PackageType,
         capabilities: TargetCapabilityFlags,
@@ -275,7 +278,7 @@ impl Interpreter {
         )
         .map_err(into_errors)?;
 
-        Self::with_compiler(dbg, capabilities, circuit_tracer_config, compiler)
+        Self::with_compiler(eval_config, capabilities, circuit_tracer_config, compiler)
     }
 
     pub fn with_package_store(
@@ -298,18 +301,24 @@ impl Interpreter {
         // Always enable circuit tracing along with debugging.
         let circuit_tracer_config = if dbg { Some(Default::default()) } else { None };
 
-        Self::with_compiler(dbg, capabilities, circuit_tracer_config, compiler)
+        let eval_config = if dbg {
+            ExecGraphConfig::Debug
+        } else {
+            ExecGraphConfig::NoDebug
+        };
+
+        Self::with_compiler(eval_config, capabilities, circuit_tracer_config, compiler)
     }
 
     fn with_compiler(
-        dbg: bool,
+        eval_config: ExecGraphConfig,
         capabilities: TargetCapabilityFlags,
         circuit_tracer_config: Option<TracerConfig>,
         compiler: Compiler,
     ) -> std::result::Result<Interpreter, Vec<Error>> {
         let mut fir_store = fir::PackageStore::new();
         for (id, unit) in compiler.package_store() {
-            let mut lowerer = qsc_lowerer::Lowerer::new().with_debug(dbg);
+            let mut lowerer = qsc_lowerer::Lowerer::new();
             let pkg = lowerer.lower_package(&unit.package, &fir_store);
             fir_store.insert(map_hir_package_to_fir(id), pkg);
         }
@@ -342,7 +351,7 @@ impl Interpreter {
             lines: 0,
             capabilities,
             fir_store,
-            lowerer: qsc_lowerer::Lowerer::new().with_debug(dbg),
+            lowerer: qsc_lowerer::Lowerer::new(),
             expr_graph: None,
             angle_ty_cache: None.into(),
             complex_ty_cache: None.into(),
@@ -358,6 +367,7 @@ impl Interpreter {
             classical_seed: None,
             package,
             source_package: map_hir_package_to_fir(source_package_id),
+            eval_config,
         })
     }
 
@@ -371,7 +381,7 @@ impl Interpreter {
             .get(map_fir_package_to_hir(package_id))
             .expect("package should exist in the package store")
             .package;
-        for global in global::iter_package(Some(map_fir_package_to_hir(package_id)), package) {
+        for global in global::iter_package(map_fir_package_to_hir(package_id), package) {
             if let global::Kind::Callable(term) = global.kind {
                 let store_item_id = fir::StoreItemId {
                     package: package_id,
@@ -437,7 +447,7 @@ impl Interpreter {
             .get(map_fir_package_to_hir(package_id))
             .expect("package should exist in the package store")
             .package;
-        for global in global::iter_package(Some(map_fir_package_to_hir(package_id)), package) {
+        for global in global::iter_package(map_fir_package_to_hir(package_id), package) {
             if let global::Kind::Ty(ty) = global.kind {
                 exported_items.push(TaggedItem {
                     item_id: ty.id,
@@ -465,7 +475,7 @@ impl Interpreter {
         store_item_id: crate::fir::StoreItemId,
     ) -> (&ty::Udt, UdtKind) {
         self.udt_ty_from_item_id(&crate::hir::ItemId {
-            package: Some(map_fir_package_to_hir(store_item_id.package)),
+            package: map_fir_package_to_hir(store_item_id.package),
             item: map_fir_local_item_to_hir(store_item_id.item),
         })
     }
@@ -475,15 +485,9 @@ impl Interpreter {
     /// Panics if the item is not a UDT.
     pub fn udt_ty_from_item_id(&self, item_id: &crate::hir::ItemId) -> (&ty::Udt, UdtKind) {
         let crate::hir::ItemId {
-            package: package_id_opt,
+            package: package_id,
             item: local_item_id,
         } = item_id;
-
-        let package_id = if let Some(package_id) = package_id_opt {
-            package_id
-        } else {
-            &self.compiler.package_id()
-        };
 
         let unit = self
             .compiler
@@ -545,15 +549,10 @@ impl Interpreter {
     pub fn get_angle_id(&self) -> fir::StoreItemId {
         if let Some(id) = &*self.angle_ty_cache.borrow() {
             let crate::hir::ItemId {
-                package: hir_package_id_opt,
+                package: hir_package_id,
                 item: hir_local_item_id,
             } = id;
-            let package_id = if let Some(package_id) = hir_package_id_opt {
-                package_id
-            } else {
-                &self.compiler.package_id()
-            };
-            let fir_package_id = map_hir_package_to_fir(*package_id);
+            let fir_package_id = map_hir_package_to_fir(*hir_package_id);
             let fir_local_item_id = map_hir_local_item_to_fir(*hir_local_item_id);
             crate::fir::StoreItemId {
                 package: fir_package_id,
@@ -587,19 +586,11 @@ impl Interpreter {
     pub fn get_complex_id(&self) -> crate::fir::StoreItemId {
         if let Some(id) = &*self.complex_ty_cache.borrow() {
             let crate::hir::ItemId {
-                package: hir_package_id_opt,
+                package: hir_package_id,
                 item: hir_local_item_id,
             } = id;
-
-            let package_id = if let Some(package_id) = hir_package_id_opt {
-                package_id
-            } else {
-                &self.compiler.package_id()
-            };
-
-            let fir_package_id = map_hir_package_to_fir(*package_id);
+            let fir_package_id = map_hir_package_to_fir(*hir_package_id);
             let fir_local_item_id = map_hir_local_item_to_fir(*hir_local_item_id);
-
             crate::fir::StoreItemId {
                 package: fir_package_id,
                 item: fir_local_item_id,
@@ -664,6 +655,7 @@ impl Interpreter {
             self.source_package,
             self.classical_seed,
             graph,
+            self.eval_config,
             self.compiler.package_store(),
             &self.fir_store,
             &mut Env::default(),
@@ -688,6 +680,7 @@ impl Interpreter {
             self.source_package,
             self.classical_seed,
             graph,
+            self.eval_config,
             self.compiler.package_store(),
             &self.fir_store,
             &mut Env::default(),
@@ -769,6 +762,7 @@ impl Interpreter {
             self.package,
             self.classical_seed,
             graph,
+            self.eval_config,
             self.compiler.package_store(),
             &self.fir_store,
             &mut self.env,
@@ -788,6 +782,7 @@ impl Interpreter {
             self.package,
             self.classical_seed,
             &self.fir_store,
+            self.eval_config,
             &mut self.env,
             &mut TracingBackend::new(&mut self.sim, self.circuit_tracer.as_mut()),
             receiver,
@@ -977,6 +972,15 @@ impl Interpreter {
             &[self.package, self.source_package],
             qubit_params,
         );
+
+        // If grouping by scope is enabled, we'll want to execute
+        // debug nodes to track block scopes.
+        let eval_config = if tracer_config.group_by_scope {
+            ExecGraphConfig::Debug
+        } else {
+            self.eval_config
+        };
+
         match method {
             CircuitGenerationMethod::Simulate => {
                 let mut sim = SparseSim::new();
@@ -987,21 +991,34 @@ impl Interpreter {
                         &mut out,
                         callable,
                         args,
+                        eval_config,
                     )?;
                 } else {
                     self.run_with_tracing_backend(
                         &mut tracing_backend,
                         &mut out,
                         entry_expr.as_deref(),
+                        eval_config,
                     )?;
                 }
             }
             CircuitGenerationMethod::ClassicalEval => {
                 let mut tracer = TracingBackend::<SparseSim>::no_backend(&mut tracer);
                 if let Some((callable, args)) = invoke_params {
-                    self.invoke_with_tracing_backend(&mut tracer, &mut out, callable, args)?;
+                    self.invoke_with_tracing_backend(
+                        &mut tracer,
+                        &mut out,
+                        callable,
+                        args,
+                        eval_config,
+                    )?;
                 } else {
-                    self.run_with_tracing_backend(&mut tracer, &mut out, entry_expr.as_deref())?;
+                    self.run_with_tracing_backend(
+                        &mut tracer,
+                        &mut out,
+                        entry_expr.as_deref(),
+                        eval_config,
+                    )?;
                 }
             }
         }
@@ -1041,6 +1058,7 @@ impl Interpreter {
             self.package,
             self.classical_seed,
             graph,
+            self.eval_config,
             self.compiler.package_store(),
             &self.fir_store,
             &mut Env::default(),
@@ -1054,6 +1072,7 @@ impl Interpreter {
         tracing_backend: &mut TracingBackend<'_, B>,
         out: &mut GenericReceiver,
         entry_expr: Option<&str>,
+        config: ExecGraphConfig,
     ) -> InterpretResult {
         let (package_id, graph) = if let Some(entry_expr) = entry_expr {
             // entry expression is provided
@@ -1070,6 +1089,7 @@ impl Interpreter {
             package_id,
             self.classical_seed,
             graph,
+            config,
             self.compiler.package_store(),
             &self.fir_store,
             &mut Env::default(),
@@ -1092,6 +1112,7 @@ impl Interpreter {
             receiver,
             callable,
             args,
+            self.eval_config,
         )
     }
 
@@ -1101,11 +1122,13 @@ impl Interpreter {
         receiver: &mut impl Receiver,
         callable: Value,
         args: Value,
+        config: ExecGraphConfig,
     ) -> InterpretResult {
         qsc_eval::invoke(
             self.package,
             self.classical_seed,
             &self.fir_store,
+            config,
             &mut Env::default(),
             tracing_backend,
             receiver,
@@ -1161,7 +1184,7 @@ impl Interpreter {
         }
 
         self.lower_and_update_package(unit_addition);
-        Ok((self.lowerer.take_exec_graph().into(), None))
+        Ok((self.lowerer.take_exec_graph(), None))
     }
 
     fn lower_and_update_package(&mut self, unit: &qsc_frontend::incremental::Increment) {
@@ -1202,7 +1225,7 @@ impl Interpreter {
         })?;
 
         let graph = self.lowerer.take_exec_graph();
-        Ok((graph.into(), Some(compute_properties)))
+        Ok((graph, Some(compute_properties)))
     }
 
     fn next_line_label(&mut self) -> String {
@@ -1306,6 +1329,7 @@ impl Debugger {
             state: State::new(
                 source_package_id,
                 entry_exec_graph,
+                ExecGraphConfig::Debug,
                 None,
                 ErrorBehavior::StopOnError,
             ),
@@ -1322,6 +1346,7 @@ impl Debugger {
             state: State::new(
                 source_package_id,
                 entry_exec_graph,
+                ExecGraphConfig::Debug,
                 None,
                 ErrorBehavior::StopOnError,
             ),
@@ -1450,6 +1475,7 @@ fn eval<B: Backend>(
     package: PackageId,
     classical_seed: Option<u64>,
     exec_graph: ExecGraph,
+    exec_graph_config: ExecGraphConfig,
     package_store: &PackageStore,
     fir_store: &fir::PackageStore,
     env: &mut Env,
@@ -1460,6 +1486,7 @@ fn eval<B: Backend>(
         package,
         classical_seed,
         exec_graph,
+        exec_graph_config,
         fir_store,
         env,
         tracing_backend,

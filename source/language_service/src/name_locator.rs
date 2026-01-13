@@ -145,9 +145,7 @@ impl<'inner, 'package, T: Handler<'package>> Locator<'inner, 'package, T> {
         udt_res: &'package hir::Res,
         field_ref: &'other ast::Ident,
     ) -> Option<(hir::ItemId, &'package hir::ty::UdtField)> {
-        let (item, resolved_item_id) = self
-            .compilation
-            .resolve_item_res(self.compilation.user_package_id, udt_res);
+        let (item, resolved_item_id) = self.compilation.resolve_item_res(udt_res);
         if let hir::ItemKind::Ty(_, udt) = &item.kind
             && let Some(field_def) = udt.find_field_by_name(&field_ref.name)
         {

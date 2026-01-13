@@ -279,17 +279,14 @@ impl From<LocalItemId> for usize {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ItemId {
     /// The package ID or `None` for the local package.
-    pub package: Option<PackageId>,
+    pub package: PackageId,
     /// The item ID.
     pub item: LocalItemId,
 }
 
 impl Display for ItemId {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match self.package {
-            None => write!(f, "Item {}", self.item),
-            Some(package) => write!(f, "Item {} (Package {package})", self.item),
-        }
+        write!(f, "Item {} (Package {})", self.item, self.package)
     }
 }
 
@@ -714,7 +711,7 @@ impl Display for Item {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ItemKind {
     /// A `function` or `operation` declaration.
-    Callable(CallableDecl),
+    Callable(Box<CallableDecl>),
     /// A `namespace` declaration.
     Namespace(Ident, Vec<LocalItemId>),
     /// A `newtype` declaration.
@@ -907,8 +904,116 @@ impl Display for SpecDecl {
     }
 }
 
+#[derive(Clone, PartialEq, Debug, Default)]
+/// A multi-configuration execution graph, containing both a debug and no-debug version.
+pub struct ExecGraph {
+    /// Execution graph without any debug nodes.
+    no_debug: ConfiguredExecGraph,
+    /// Execution graph with debug nodes.
+    debug: ConfiguredExecGraph,
+}
+
+impl ExecGraph {
+    #[must_use]
+    /// Creates a new multi-configuration execution graph.
+    pub fn new(
+        no_debug_exec_graph: ConfiguredExecGraph,
+        debug_exec_graph: ConfiguredExecGraph,
+    ) -> Self {
+        Self {
+            no_debug: no_debug_exec_graph,
+            debug: debug_exec_graph,
+        }
+    }
+
+    #[must_use]
+    /// Selects the execution graph based on the configuration.
+    pub fn select(self, exec_graph_config: ExecGraphConfig) -> ConfiguredExecGraph {
+        match exec_graph_config {
+            ExecGraphConfig::Debug => self.debug,
+            ExecGraphConfig::NoDebug => self.no_debug,
+        }
+    }
+
+    #[must_use]
+    /// Selects the execution graph based on the configuration.
+    fn select_ref(&self, exec_graph_config: ExecGraphConfig) -> &ConfiguredExecGraph {
+        match exec_graph_config {
+            ExecGraphConfig::Debug => &self.debug,
+            ExecGraphConfig::NoDebug => &self.no_debug,
+        }
+    }
+
+    /// Utility function to identify a subset of a control flow graph corresponding to a given
+    /// range.
+    #[must_use]
+    pub fn get_range(&self, range: &ops::Range<ExecGraphIdx>) -> ExecGraph {
+        let get = |config: ExecGraphConfig| -> ConfiguredExecGraph {
+            let start: u32 = range
+                .start
+                .select(config)
+                .try_into()
+                .expect("exec graph ranges should fit into u32");
+            self.select_ref(config)[range.start.select(config)..range.end.select(config)]
+                .iter()
+                .map(|node| match node {
+                    ExecGraphNode::Jump(idx) => ExecGraphNode::Jump(idx - start),
+                    ExecGraphNode::JumpIf(idx) => ExecGraphNode::JumpIf(idx - start),
+                    ExecGraphNode::JumpIfNot(idx) => ExecGraphNode::JumpIfNot(idx - start),
+                    _ => *node,
+                })
+                .collect::<Vec<_>>()
+                .into()
+        };
+
+        ExecGraph {
+            no_debug: get(ExecGraphConfig::NoDebug),
+            debug: get(ExecGraphConfig::Debug),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+/// The execution graph configuration.
+pub enum ExecGraphConfig {
+    /// Execution graph with debug nodes.
+    Debug,
+    /// Execution graph without debug nodes.
+    NoDebug,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+/// An index into a multi-configuration execution graph.
+pub struct ExecGraphIdx {
+    /// The index into the no-debug execution graph.
+    pub no_debug_idx: usize,
+    /// The index into the debug execution graph.
+    pub debug_idx: usize,
+}
+
+impl ExecGraphIdx {
+    /// Selects the index based on the configuration.
+    fn select(self, exec_graph_config: ExecGraphConfig) -> usize {
+        match exec_graph_config {
+            ExecGraphConfig::Debug => self.debug_idx,
+            ExecGraphConfig::NoDebug => self.no_debug_idx,
+        }
+    }
+}
+
+impl std::ops::Add<usize> for ExecGraphIdx {
+    type Output = Self;
+
+    fn add(self, rhs: usize) -> Self::Output {
+        Self {
+            no_debug_idx: self.no_debug_idx + rhs,
+            debug_idx: self.debug_idx + rhs,
+        }
+    }
+}
+
 /// An execution graph represented by a reference counted vector of nodes.
-pub type ExecGraph = Rc<[ExecGraphNode]>;
+pub type ConfiguredExecGraph = Rc<[ExecGraphNode]>;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 /// A node within the control flow graph.
@@ -988,7 +1093,7 @@ pub struct Stmt {
     /// The statement kind.
     pub kind: StmtKind,
     /// The locations within the containing control flow graph for the current statement.
-    pub exec_graph_range: ops::Range<usize>,
+    pub exec_graph_range: ops::Range<ExecGraphIdx>,
 }
 
 impl Display for Stmt {
@@ -1040,7 +1145,7 @@ pub struct Expr {
     /// The expression kind.
     pub kind: ExprKind,
     /// The locations within the containing control flow graph for the current expression.
-    pub exec_graph_range: ops::Range<usize>,
+    pub exec_graph_range: ops::Range<ExecGraphIdx>,
 }
 
 impl Display for Expr {

@@ -106,16 +106,11 @@ pub(crate) struct Compilation<'a> {
 impl Compilation<'_> {
     /// Resolves an item id to an item.
     pub fn resolve_item_id(&self, item_id: &ItemId) -> &Item {
-        let package = match item_id.package {
-            Some(package_id) => {
-                &self
-                    .package_store
-                    .get(package_id)
-                    .expect("package should exist in store")
-                    .package
-            }
-            None => &self.compile_unit.package,
-        };
+        let package = &self
+            .package_store
+            .get(item_id.package)
+            .expect("package should exist in store")
+            .package;
         package
             .items
             .get(item_id.item)

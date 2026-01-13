@@ -50,10 +50,10 @@ mod tests {
     use crate::compile;
     use expect_test::expect;
     use qsc_data_structures::{
-        language_features::LanguageFeatures, line_column::Encoding, span::Span,
+        language_features::LanguageFeatures, line_column::Encoding, source::SourceMap, span::Span,
         target::TargetCapabilityFlags,
     };
-    use qsc_frontend::compile::{PackageStore, SourceMap};
+    use qsc_frontend::compile::PackageStore;
     use qsc_hir::hir::PackageId;
     use qsc_passes::PackageType;
 

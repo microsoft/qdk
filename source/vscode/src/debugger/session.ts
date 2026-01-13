@@ -25,6 +25,8 @@ import { DebugProtocol } from "@vscode/debugprotocol";
 import {
   IDebugServiceWorker,
   IStructStepResult,
+  IVariable,
+  IVariableChild,
   QscEventTarget,
   StepResultId,
   log,
@@ -64,6 +66,20 @@ interface IBreakpointLocationData {
   breakpoint: DebugProtocol.Breakpoint;
 }
 
+type ScopeHandle =
+  | { kind: "scope"; scope: "locals"; frameId: number }
+  | { kind: "scope"; scope: "quantum" }
+  | { kind: "scope"; scope: "circuit" };
+
+type ArrayHandle = {
+  kind: "array";
+  previewChildren: IVariableChild[];
+  truncated: boolean;
+  totalLength: number | undefined;
+};
+
+type VariableHandle = ScopeHandle | ArrayHandle;
+
 export class QscDebugSession extends LoggingDebugSession {
   private static threadID = 1;
 
@@ -71,9 +87,7 @@ export class QscDebugSession extends LoggingDebugSession {
 
   private breakpointLocations: Map<string, IBreakpointLocationData[]>;
   private breakpoints: Map<string, DebugProtocol.Breakpoint[]>;
-  private variableHandles = new Handles<
-    ["locals" | "quantum" | "circuit", number]
-  >();
+  private variableHandles = new Handles<VariableHandle>();
   private failureMessage: string;
   private eventTarget: QscEventTarget;
   private supportsVariableType = false;
@@ -756,17 +770,21 @@ export class QscDebugSession extends LoggingDebugSession {
       scopes: [
         new Scope(
           "Locals",
-          this.variableHandles.create(["locals", args.frameId]),
+          this.variableHandles.create({
+            kind: "scope",
+            scope: "locals",
+            frameId: args.frameId,
+          }),
           false,
         ),
         new Scope(
           "Quantum State",
-          this.variableHandles.create(["quantum", -1]),
+          this.variableHandles.create({ kind: "scope", scope: "quantum" }),
           true, // expensive - keeps scope collapsed in the UI by default
         ),
         new Scope(
           "Quantum Circuit",
-          this.variableHandles.create(["circuit", -1]),
+          this.variableHandles.create({ kind: "scope", scope: "circuit" }),
           true, // expensive - keeps scope collapsed in the UI by default
         ),
       ],
@@ -786,101 +804,212 @@ export class QscDebugSession extends LoggingDebugSession {
       variables: [],
     };
 
-    const [handle, frameID] = this.variableHandles.get(args.variablesReference);
+    const handleData = this.variableHandles.get(args.variablesReference);
 
-    switch (handle) {
-      case "locals":
-        {
-          const locals = await this.debugService.getLocalVariables(frameID);
-          const variables = locals.map((local) => {
-            const variable: DebugProtocol.Variable = {
-              name: local.name,
-              value: local.value,
-              variablesReference: 0,
+    if (!handleData) {
+      log.warn(`variablesRequest: unknown handle ${args.variablesReference}`);
+    } else if (handleData.kind === "scope") {
+      switch (handleData.scope) {
+        case "locals":
+          {
+            const locals = await this.debugService.getLocalVariables(
+              handleData.frameId,
+            );
+            response.body = {
+              variables: locals.map((local) =>
+                this.createVariableFromLocal(local),
+              ),
             };
-            if (this.supportsVariableType) {
-              variable.type = local.var_type;
-            }
-            return variable;
-          });
-          response.body = {
-            variables: variables,
-          };
-        }
-        break;
-      case "quantum":
-        {
-          const associationId = getRandomGuid();
-          const start = performance.now();
-          sendTelemetryEvent(
-            EventType.RenderQuantumStateStart,
-            { associationId },
-            {},
-          );
-          const state = await this.debugService.captureQuantumState();
+          }
+          break;
+        case "quantum":
+          {
+            const associationId = getRandomGuid();
+            const start = performance.now();
+            sendTelemetryEvent(
+              EventType.RenderQuantumStateStart,
+              { associationId },
+              {},
+            );
+            const state = await this.debugService.captureQuantumState();
 
-          // When there is no quantum state, return a single variable with a message
-          // for the user.
-          if (state.length == 0) {
+            // When there is no quantum state, return a single variable with a message
+            // for the user.
+            if (state.length == 0) {
+              response.body = {
+                variables: [
+                  {
+                    name: "None",
+                    value: "No qubits allocated",
+                    variablesReference: 0,
+                  },
+                ],
+              };
+              break;
+            }
+
+            const variables: DebugProtocol.Variable[] = state.map((entry) => {
+              const variable: DebugProtocol.Variable = {
+                name: entry.name,
+                value: entry.value,
+                variablesReference: 0,
+                type: "Complex",
+              };
+              return variable;
+            });
+            sendTelemetryEvent(
+              EventType.RenderQuantumStateEnd,
+              { associationId },
+              { timeToCompleteMs: performance.now() - start },
+            );
+            response.body = {
+              variables: variables,
+            };
+          }
+          break;
+        case "circuit":
+          {
+            // This will get invoked when the "Quantum Circuit" scope is expanded
+            // in the Variables view, but instead of showing any values in the variables
+            // view, we can pop open the circuit diagram panel.
+            if (!this.config.showCircuit) {
+              // Keep updating the circuit for the rest of this session, even if
+              // the Variables scope gets collapsed by the user. If we don't do this,
+              // the diagram won't get updated with each step even though the circuit
+              // panel is still being shown, which is misleading.
+              this.config.showCircuit = true;
+              await this.updateCircuit();
+            }
             response.body = {
               variables: [
                 {
-                  name: "None",
-                  value: "No qubits allocated",
+                  name: "Circuit",
+                  value: "See QDK Circuit panel",
                   variablesReference: 0,
                 },
               ],
             };
-            break;
           }
-
-          const variables: DebugProtocol.Variable[] = state.map((entry) => {
-            const variable: DebugProtocol.Variable = {
-              name: entry.name,
-              value: entry.value,
-              variablesReference: 0,
-              type: "Complex",
-            };
-            return variable;
-          });
-          sendTelemetryEvent(
-            EventType.RenderQuantumStateEnd,
-            { associationId },
-            { timeToCompleteMs: performance.now() - start },
-          );
-          response.body = {
-            variables: variables,
-          };
-        }
-        break;
-      case "circuit":
-        {
-          // This will get invoked when the "Quantum Circuit" scope is expanded
-          // in the Variables view, but instead of showing any values in the variables
-          // view, we can pop open the circuit diagram panel.
-          if (!this.config.showCircuit) {
-            // Keep updating the circuit for the rest of this session, even if
-            // the Variables scope gets collapsed by the user. If we don't do this,
-            // the diagram won't get updated with each step even though the circuit
-            // panel is still being shown, which is misleading.
-            this.config.showCircuit = true;
-            await this.updateCircuit();
-          }
-          response.body = {
-            variables: [
-              {
-                name: "Circuit",
-                value: "See QDK Circuit panel",
-                variablesReference: 0,
-              },
-            ],
-          };
-        }
-        break;
+          break;
+      }
+    } else if (handleData.kind === "array") {
+      const allChildren = this.createArrayVariables(handleData);
+      const totalChildren = allChildren.length;
+      const rawStart = args.start ?? 0;
+      const start = Math.max(0, Math.min(rawStart, totalChildren));
+      const requestedCount = args.count;
+      let end = totalChildren;
+      if (requestedCount !== undefined) {
+        end = Math.min(start + Math.max(requestedCount, 0), totalChildren);
+      }
+      const variables =
+        start >= totalChildren ? [] : allChildren.slice(start, end);
+      response.body = {
+        variables,
+      };
     }
 
     log.trace(`variablesResponse: %O`, response);
     this.sendResponse(response);
+  }
+
+  private createVariableFromLocal(local: IVariable): DebugProtocol.Variable {
+    const variable: DebugProtocol.Variable = {
+      name: local.name,
+      value: local.value,
+      variablesReference: 0,
+    };
+
+    if (this.supportsVariableType) {
+      variable.type = local.varType;
+    }
+
+    if (local.varType === "Array") {
+      const previewChildren = (local.previewChildren ?? []).map((child) => ({
+        ...child,
+      }));
+      const truncated = local.truncated === true;
+      variable.value = this.formatArraySummary(
+        local.length,
+        previewChildren.length,
+        truncated,
+        local.value,
+      );
+
+      if (this.supportsVariableType) {
+        const elementType = local.elementType ?? "Unknown";
+        variable.type = `Array<${elementType}>`;
+      }
+
+      if (previewChildren.length > 0 || truncated) {
+        variable.variablesReference = this.variableHandles.create({
+          kind: "array",
+          previewChildren,
+          truncated,
+          totalLength: local.length,
+        });
+      }
+    }
+
+    return variable;
+  }
+
+  private createArrayVariables(handle: ArrayHandle): DebugProtocol.Variable[] {
+    const variables = handle.previewChildren.map((child) => {
+      const variable: DebugProtocol.Variable = {
+        name: `[${child.index}]`,
+        value: child.value,
+        variablesReference: 0,
+      };
+      if (this.supportsVariableType) {
+        variable.type = child.varType;
+      }
+      return variable;
+    });
+
+    if (handle.truncated) {
+      const remaining =
+        handle.totalLength !== undefined
+          ? Math.max(handle.totalLength - handle.previewChildren.length, 0)
+          : undefined;
+      const message =
+        remaining !== undefined && remaining > 0
+          ? `${remaining} more items truncated`
+          : "More items truncated";
+      const sentinel: DebugProtocol.Variable = {
+        name: "[...]",
+        value: message,
+        variablesReference: 0,
+      };
+      if (this.supportsVariableType) {
+        sentinel.type = "Truncated";
+      }
+      variables.push(sentinel);
+    }
+
+    return variables;
+  }
+
+  private formatArraySummary(
+    length: number | undefined,
+    previewCount: number,
+    truncated: boolean,
+    fallback: string,
+  ): string {
+    if (length !== undefined) {
+      if (truncated) {
+        return `length = ${length} (showing first ${previewCount})`;
+      }
+      return `length = ${length}`;
+    }
+
+    if (truncated) {
+      return previewCount > 0
+        ? `showing first ${previewCount}`
+        : "values truncated";
+    }
+
+    return fallback;
   }
 
   private createBreakpoint(

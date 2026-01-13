@@ -2,11 +2,10 @@
 // Licensed under the MIT License.
 
 use miette::Diagnostic;
+pub use qsc_data_structures::error::WithSource;
 use qsc_frontend::compile::PackageStore;
 use std::fmt::{self, Debug, Display, Formatter};
 use thiserror::Error;
-
-pub use qsc_frontend::error::WithSource;
 
 #[derive(Clone, Debug, Error)]
 pub struct WithStack<E> {

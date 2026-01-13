@@ -152,17 +152,21 @@ impl<'py> PythonFactoryBuilder<'py> {
         find_factories: &Bound<'py, PyAny>,
     ) -> Result<Vec<std::borrow::Cow<'a, PythonFactory<'py>>>, String> {
         let result = find_factories
-            .call1((code.bound(), qubit.as_ref(), output_error_rate))
+            .call1((
+                code.bound(),
+                std::convert::AsRef::<pyo3::Py<PyAny>>::as_ref(qubit),
+                output_error_rate,
+            ))
             .map_err(|e| e.to_string())?;
 
         if result.is_none() {
             Ok(vec![])
         } else {
-            let factories = result.downcast::<PyList>().map_err(|e| e.to_string())?;
+            let factories = result.cast::<PyList>().map_err(|e| e.to_string())?;
             let mut converted = vec![];
 
             for element in factories {
-                let dict = element.downcast::<PyDict>().map_err(|e| e.to_string())?;
+                let dict = element.cast::<PyDict>().map_err(|e| e.to_string())?;
                 let factory = PythonFactory::from_py_dict(dict).ok_or(format!(
                             "Failed to convert factory from Python dict: {dict:?}, does the dictionary contain entries for 'physical_qubits' and 'duration'?",
                         ))?;
@@ -192,7 +196,7 @@ impl<'py> PythonFactoryBuilder<'py> {
             .get_item(&qubit_key)
             .map_err(|e| e.to_string())?
             .extract()
-            .map_err(|e| e.to_string())?;
+            .map_err(|e: pyo3::PyErr| e.to_string())?;
 
         if initial_input_error_rate <= output_error_rate
             && let Some(trivial_distillation_unit) = trivial_distillation_unit
@@ -223,7 +227,11 @@ impl<'py> PythonFactoryBuilder<'py> {
             .unwrap_or(5);
 
         let return_value = distillation_units
-            .call1((code.bound(), qubit.as_ref(), &**max_code_parameter))
+            .call1((
+                code.bound(),
+                std::convert::AsRef::<pyo3::Py<PyAny>>::as_ref(qubit),
+                &**max_code_parameter,
+            ))
             .map_err(|e| e.to_string())?;
 
         let units: Vec<_> = return_value
@@ -231,7 +239,7 @@ impl<'py> PythonFactoryBuilder<'py> {
             .map_err(|e| {
                 format!("{e} (check the return value of the 'distillation_units' method)",)
             })?
-            .map(|bound| PythonDistillationUnit::new(bound?.downcast_into::<PyDict>()?))
+            .map(|bound| PythonDistillationUnit::new(bound?.cast_into::<PyDict>()?))
             .collect::<Result<_, _>>()
             .map_err(|e| e.to_string())?;
 
@@ -284,15 +292,16 @@ impl<'py> PythonFactoryBuilder<'py> {
         input_error_rate: f64,
     ) -> Result<Vec<std::borrow::Cow<'a, PythonFactory<'py>>>, String> {
         let result = trivial_distillation_unit
-            .call1((code.bound(), qubit.as_ref(), &**max_code_parameter))
+            .call1((
+                code.bound(),
+                std::convert::AsRef::<pyo3::Py<PyAny>>::as_ref(qubit),
+                &**max_code_parameter,
+            ))
             .map_err(|e| e.to_string())?;
 
-        let unit = PythonDistillationUnit::new(
-            result
-                .downcast_into::<PyDict>()
-                .map_err(|e| e.to_string())?,
-        )
-        .map_err(|e| e.to_string())?;
+        let unit =
+            PythonDistillationUnit::new(result.cast_into::<PyDict>().map_err(|e| e.to_string())?)
+                .map_err(|e| e.to_string())?;
 
         let round = DistillationRound::new(&unit, 0.0, 0);
 
