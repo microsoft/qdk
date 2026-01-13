@@ -10,18 +10,18 @@ which uses one of the approaches depending on options.
 ### Options for lookup
 
 * `DoStdLookup` - Use lookup algorithm defined in the Q# standard library.
-* `DoMCXLookup` - Use naive lookup algorithm via multicontrolled X gates.
-* `DoRecursiveSelectLookup` - Use select network algorithm via recursion. See [arXiv:2211.01133](https://arxiv.org/abs/2211.01133)
-* `DoPPLookup` - Use lookup algorithm via power products without address split. See [arXiv:2505.15917](https://arxiv.org/abs/2505.15917)
-* `DoSplitPPLookup` - Use lookup algorithm via power products with address split. See [arXiv:2505.15917](https://arxiv.org/abs/2505.15917)
+* `DoMCXLookup` - Use naive lookup algorithm via multicontrolled X gates. See [arXiv:1805.03662](https://arxiv.org/abs/1805.03662), Section A.
+* `DoRecursiveSelectLookup` - Use select network algorithm via recursion. See [arXiv:2211.01133](https://arxiv.org/abs/2211.01133), Section 2.
+* `DoPPLookup` - Use lookup algorithm via power products without address split. See [arXiv:2505.15917](https://arxiv.org/abs/2505.15917), Section A.4.
+* `DoSplitPPLookup` - Use lookup algorithm via power products with address split. See [arXiv:2505.15917](https://arxiv.org/abs/2505.15917), Section A.4.
 
 ### Options for unlookup
 
 * `DoStdUnlookup` - Use unlookup algorithm defined in the Q# standard library.
 * `DoUnlookupViaLookup` - Perform unlookup via the same algorithm as lookup as it is self-adjoint.
-* `DoMCXUnlookup` - Perform measurement-based unlookup with corrections via multicontrolled X gates. See [arXiv:2211.01133](https://arxiv.org/abs/2211.01133)
-* `DoPPUnlookup` - Perform measurement-based unlookup with corrections via power products without address split (Phase lookup). See [arXiv:2505.15917](https://arxiv.org/abs/2505.15917)
-* `DoSplitPPUnlookup` - Perform measurement-based unlookup with corrections via power products with address split (Phase lookup). See [arXiv:2505.15917](https://arxiv.org/abs/2505.15917)
+* `DoMCXUnlookup` - Perform measurement-based unlookup with corrections via multicontrolled X gates. See [arXiv:2211.01133](https://arxiv.org/abs/2211.01133), Section 2
+* `DoPPUnlookup` - Perform measurement-based unlookup with corrections via power products without address split (Phase lookup). See [arXiv:2505.15917](https://arxiv.org/abs/2505.15917), Section A.3.
+* `DoSplitPPUnlookup` - Perform measurement-based unlookup with corrections via power products with address split (Phase lookup). See [arXiv:2505.15917](https://arxiv.org/abs/2505.15917), Section A.3.
 
 ## Potential future work
 

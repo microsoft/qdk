@@ -59,7 +59,7 @@ operation ApplyPhasingViaZ(qs : Qubit[], mask : Bool[]) : Unit {
 /// # Reference
 /// 1. [arXiv:2505.15917](https://arxiv.org/abs/2505.15917)
 ///    "How to factor 2048 bit RSA integers with less than a million noisy qubits"
-///    by Craig Gidney, May 2025.
+///    by Craig Gidney, May 2025. Section A.3.
 operation PhaseLookupViaSplitPP(address : Qubit[], data : Bool[]) : Unit {
     let data_length = Length(data);
     let address_size = Length(address);

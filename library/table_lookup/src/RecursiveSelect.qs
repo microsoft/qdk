@@ -31,9 +31,9 @@ import Std.Convert.*;
 /// # References
 /// 1. [arXiv:1805.03662](https://arxiv.org/abs/1805.03662)
 ///    "Encoding Electronic Spectra in Quantum Circuits with Linear T
-///    Complexity"
+///    Complexity", Section A.
 /// 2. [arXiv:2211.01133](https://arxiv.org/abs/2211.01133)
-///    "Space-time optimized table lookup"
+///    "Space-time optimized table lookup", Section 2.
 operation RecursiveLookup(
     useAnd : Bool,
     data : Bool[][],

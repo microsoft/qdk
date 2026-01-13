@@ -9,12 +9,18 @@ import PowerProducts.*;
 
 /// # Summary
 /// Performs table lookup using power products without register split.
+///
 /// # Description
 /// Table lookup is preformed using power products constructed from the address qubits.
 /// Data is processed using Fast Mobius Transform to fit power products structure.
 /// Longer data is ignored, shorter data is padded with false values.
 /// Little-endian format is used throughout.
 /// This version uses O(2^n) auxiliary qubits for n address qubits.
+///
+/// # Reference
+/// 1. [arXiv:2505.15917](https://arxiv.org/abs/2505.15917)
+///    "How to factor 2048 bit RSA integers with less than a million noisy qubits"
+///    by Craig Gidney, May 2025. Section A.4.
 operation LookupViaPP(
     data : Bool[][],
     address : Qubit[],
@@ -53,6 +59,11 @@ operation LookupViaPP(
 /// Longer data is ignored, shorter data is padded with false values.
 /// Little-endian format is used throughout. Address register is split into two halves.
 /// This version uses O(2^(n/2)) auxiliary qubits for n address qubits.
+///
+/// # Reference
+/// 1. [arXiv:2505.15917](https://arxiv.org/abs/2505.15917)
+///    "How to factor 2048 bit RSA integers with less than a million noisy qubits"
+///    by Craig Gidney, May 2025. Section A.4.
 operation LookupViaSplitPP(
     data : Bool[][],
     address : Qubit[],
