@@ -423,8 +423,8 @@ impl Interpreter {
                 buildable_program.user_code.language_features,
                 buildable_program.store,
                 &buildable_program.user_code_dependencies,
-                // `trace_circuit` is a deprecated feature, so we default to `false`
-                // for most features to discourage use.
+                // `trace_circuit` is a deprecated option, so here we pass `false`
+                // for any newer features to discourage its use.
                 // The encouraged alternative is to use the `circuit()` method.
                 TracerConfig {
                     max_operations: TracerConfig::DEFAULT_MAX_OPERATIONS,
