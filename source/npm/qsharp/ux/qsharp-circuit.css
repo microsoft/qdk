@@ -626,6 +626,13 @@
   transform: rotate(180deg);
 }
 
+/* Empty state: hide SVG and toolbar */
+.state-panel.empty .state-svg,
+.state-panel.empty .dev-toolbar {
+  height: auto;
+  display: none;
+}
+
 .state-svg .state-header {
   font-size: 17px;
   font-weight: 600;

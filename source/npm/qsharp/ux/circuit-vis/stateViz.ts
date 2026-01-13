@@ -321,14 +321,12 @@ type LayoutMetrics = {
 
 const getAnimationMs = (panel: HTMLElement, opts: RenderOptions): number => {
   let animationMs = VIZ.defaultAnimationMs;
-  try {
+  if (panel.isConnected) {
     const cssDur = getComputedStyle(panel)
       .getPropertyValue("--stateAnimMs")
       .trim();
     const parsed = parseDurationMs(cssDur);
     if (!isNaN(parsed) && parsed > 0) animationMs = parsed;
-  } catch {
-    void 0;
   }
   if (
     typeof opts.animationMs === "number" &&
@@ -724,19 +722,17 @@ const finalizeSvgAndFlex = (
     const edgePad = VIZ.edgePad;
     panel.style.flexBasis = `${Math.ceil(layout.panelWidthPx + edgePad)}px`;
   } catch {
-    void 0;
+    // If getBBox fails (e.g., element not rendered), set conservative defaults
+    svg.setAttribute("height", VIZ.baseHeight.toString());
+    svg.setAttribute("width", layout.panelWidthPx.toString());
   }
 };
 
 const savePreviousValues = (panel: HTMLElement, columnData: ColumnDatum[]) => {
-  try {
-    const store: Record<string, { prob: number; phase: number }> = {};
-    for (const col of columnData)
-      store[col.label] = { prob: col.prob, phase: col.phase };
-    (panel as any)._stateVizPrev = store;
-  } catch {
-    void 0;
-  }
+  const store: Record<string, { prob: number; phase: number }> = {};
+  for (const col of columnData)
+    store[col.label] = { prob: col.prob, phase: col.phase };
+  (panel as any)._stateVizPrev = store;
 };
 
 // Simple animation helper for numeric interpolation
@@ -754,7 +750,7 @@ const animate = (
     try {
       onUpdate(v);
     } catch {
-      void 0;
+      // Ignore update errors to keep the animation loop alive
     }
     if (t < 1) requestAnimationFrame(tick);
     else if (onDone) onDone();
@@ -766,31 +762,19 @@ const showEmptyState = (panel: HTMLElement): void => {
   const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
   if (svg) {
     while (svg.firstChild) svg.removeChild(svg.firstChild);
-    try {
-      svg.removeAttribute("height");
-      (svg as any).style.height = "auto";
-    } catch {
-      void 0;
-    }
-    svg.style.display = "none";
+    svg.removeAttribute("height");
   }
-  const toolbar = panel.querySelector(".dev-toolbar") as HTMLElement | null;
-  if (toolbar) toolbar.style.display = "none";
+  panel.classList.add("empty");
   ensureEmptyMessage(panel, "The circuit is empty.");
-  try {
-    if (!panel.classList.contains("collapsed")) {
-      panel.style.flexBasis = `${VIZ.emptyStateFlexBasisPx}px`;
-    }
-  } catch {
-    void 0;
+  if (!panel.classList.contains("collapsed")) {
+    panel.style.flexBasis = `${VIZ.emptyStateFlexBasisPx}px`;
   }
 };
 
 const showContentState = (panel: HTMLElement): void => {
-  const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
-  if (svg) svg.style.display = "";
-  const toolbar = panel.querySelector(".dev-toolbar") as HTMLElement | null;
-  if (toolbar) toolbar.style.display = "";
+  // Content visibility restored via CSS when not in empty mode
+  // Remove empty mode to reveal content via CSS
+  panel.classList.remove("empty");
   const emptyMsg = panel.querySelector(".state-empty-message");
   if (emptyMsg) emptyMsg.remove();
 };
