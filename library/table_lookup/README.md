@@ -19,7 +19,7 @@ which uses one of the approaches depending on options.
 
 * `DoStdUnlookup` - Use unlookup algorithm defined in the Q# standard library.
 * `DoUnlookupViaLookup` - Perform unlookup via the same algorithm as lookup as it is self-adjoint.
-* `DoMCXUnlookup` - Perform measurement-based unlookup with corrections via multicontrolled X gates. See [arXiv:2211.01133](https://arxiv.org/abs/2211.01133), Section 2
+* `DoMCXUnlookup` - Perform measurement-based unlookup with corrections via multicontrolled X gates. See [arXiv:2211.01133](https://arxiv.org/abs/2211.01133), Section 2.
 * `DoPPUnlookup` - Perform measurement-based unlookup with corrections via power products without address split (Phase lookup). See [arXiv:2505.15917](https://arxiv.org/abs/2505.15917), Section A.3.
 * `DoSplitPPUnlookup` - Perform measurement-based unlookup with corrections via power products with address split (Phase lookup). See [arXiv:2505.15917](https://arxiv.org/abs/2505.15917), Section A.3.
 
