@@ -168,8 +168,12 @@ export class Sqore {
       ) {
         const location: string = onlyComponent.dataAttributes["location"];
         this.expandOperation(grid, location);
-        // Recursively expand if the only child is also a single operation
-        this.expandIfSingleOperation(onlyComponent.children || []);
+      }
+    }
+    // Recursively expand if the only child is also a single operation
+    for (const col of grid) {
+      for (const op of col.components) {
+        this.expandIfSingleOperation(op.children || []);
       }
     }
   }

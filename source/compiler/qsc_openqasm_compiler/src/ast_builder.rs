@@ -1654,6 +1654,38 @@ pub(crate) fn build_adj_plus_ctl_functor() -> FunctorExpr {
     }
 }
 
+/// Builds a functor expression for adjoint only.
+pub(crate) fn build_adj_functor() -> FunctorExpr {
+    FunctorExpr {
+        kind: Box::new(FunctorExprKind::Lit(ast::Functor::Adj)),
+        id: Default::default(),
+        span: Default::default(),
+    }
+}
+
+/// Builds a functor expression for controlled only.
+pub(crate) fn build_ctl_functor() -> FunctorExpr {
+    FunctorExpr {
+        kind: Box::new(FunctorExprKind::Lit(ast::Functor::Ctl)),
+        id: Default::default(),
+        span: Default::default(),
+    }
+}
+
+/// Builds a functor expression based on the required constraints.
+/// Returns None if no functors are required.
+pub(crate) fn build_functor_from_constraints(
+    requires_adj: bool,
+    requires_ctl: bool,
+) -> Option<FunctorExpr> {
+    match (requires_adj, requires_ctl) {
+        (true, true) => Some(build_adj_plus_ctl_functor()),
+        (true, false) => Some(build_adj_functor()),
+        (false, true) => Some(build_ctl_functor()),
+        (false, false) => None,
+    }
+}
+
 fn build_idents(idents: &[&str]) -> Option<Box<[Ident]>> {
     let idents = idents
         .iter()
