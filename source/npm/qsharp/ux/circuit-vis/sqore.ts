@@ -11,7 +11,6 @@ import {
   CircuitGroup,
   ComponentGrid,
   Operation,
-  Column,
   SourceLocation,
 } from "./circuit.js";
 import { GateRenderData } from "./gateRenderData.js";
