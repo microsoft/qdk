@@ -103,7 +103,8 @@
           "default": {
             "maxOperations": 10001,
             "generationMethod": "classicalEval",
-            "sourceLocations": true
+            "sourceLocations": true,
+            "groupByScope": true
           },
           "properties": {
             "maxOperations": {
@@ -114,11 +115,8 @@
             },
             "groupByScope": {
               "type": "boolean",
-              "default": false,
-              "tags": [
-                "experimental"
-              ],
-              "description": "(Experimental) Whether to group operations into scopes based on the original source code."
+              "default": true,
+              "description": "Group operations based on the structure of the original source code."
             },
             "generationMethod": {
               "type": "string",
