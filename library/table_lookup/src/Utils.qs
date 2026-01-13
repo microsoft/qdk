@@ -124,14 +124,27 @@ function FastMobiusTransform(coefficients : Bool[]) : Bool[] {
 }
 
 /// # Summary
-/// Measures all qubits in the given register in the X basis. And resets them to |0>.
-operation MeasureAndComputePhaseData(target : Qubit[], data : Bool[][], size : Int) : Bool[] {
-    // Measure target register in X basis
-    let measurements = ResultArrayAsBoolArray(ForEach(MResetX, target));
-    // Get phasing data via parity checks
-    let phaseData = Mapped(BinaryInnerProduct(measurements, _), data);
-    // Pad phase data at the end to cover the entire address space
-    Padded(-2^size, false, phaseData)
+/// Measures all qubits in the `target` register in the X basis. Resets them to |0>.
+/// Computes and pads resulting phase data to cover the entire address space `2^address_size`.
+operation MeasureAndComputePhaseData(
+    target : Qubit[],
+    data : Bool[][],
+    address_size : Int
+) : Bool[] {
+    // Measure target register in X basis.
+    mutable measurements = [];
+    for qubit in target {
+        set measurements += [MResetX(qubit) == One];
+    }
+
+    // Get phasing data via parity checks.
+    mutable phaseData = [];
+    for x in data {
+        set phaseData += [BinaryInnerProduct(x, measurements)];
+    }
+
+    // Pad phase data at the end to cover the entire address space.
+    Padded(-2^address_size, false, phaseData)
 }
 
 /// # Summary
