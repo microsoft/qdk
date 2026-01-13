@@ -53,6 +53,8 @@ export interface GateRenderData {
   width: number;
   /** Children operations as part of group. */
   children?: GateRenderData[][] | GateRenderData[][][];
+  maxDepthTop: number;
+  maxDepthBottom: number;
   /** Custom data attributes to attach to gate element. */
   dataAttributes?: DataAttributes;
   /** Link href and title for clickable gate. */
