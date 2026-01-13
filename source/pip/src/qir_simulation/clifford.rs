@@ -17,16 +17,16 @@ pub fn run_clifford<'py>(
     shots: u32,
     noise_config: &Bound<'py, NoiseConfig>,
     _seed: Option<u32>,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
     assert!(shots > 0, "must run at least one shot");
 
     // convert Python list input to Vec<QirInstruction>
     let mut instructions: Vec<QirInstruction> = Vec::with_capacity(input.len());
     for item in input.iter() {
-        let item = <QirInstruction as FromPyObject>::extract_bound(&item).map_err(|e| {
-            PyValueError::new_err(format!("expected QirInstruction, got {item:?}: {e}"))
-        })?;
+        let item: QirInstruction = item
+            .extract()
+            .map_err(|e| PyValueError::new_err(format!("expected QirInstruction: {e}")))?;
         instructions.push(item);
     }
 

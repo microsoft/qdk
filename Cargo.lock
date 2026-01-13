@@ -1858,7 +1858,6 @@ dependencies = [
  "quantum-sparse-sim",
  "rand 0.8.5",
  "regex-lite",
- "smallvec",
  "wgpu",
 ]
 
@@ -1966,7 +1965,7 @@ dependencies = [
  "miette",
  "rustc-hash",
  "serde",
- "thiserror",
+ "thiserror 1.0.63",
 ]
 
 [[package]]
@@ -2086,7 +2085,7 @@ dependencies = [
 name = "qsc_openqasm_compiler"
 version = "0.0.0"
 dependencies = [
- "criterion",
+ "criterion 0.7.0",
  "difference",
  "expect-test",
  "indenter",
@@ -2101,14 +2100,14 @@ dependencies = [
  "qsc_openqasm_parser",
  "qsc_passes",
  "rustc-hash",
- "thiserror",
+ "thiserror 1.0.63",
 ]
 
 [[package]]
 name = "qsc_openqasm_parser"
 version = "0.0.0"
 dependencies = [
- "bitflags",
+ "bitflags 2.9.4",
  "enum-iterator",
  "expect-test",
  "indenter",
@@ -2117,7 +2116,7 @@ dependencies = [
  "num-traits",
  "qsc_data_structures",
  "rustc-hash",
- "thiserror",
+ "thiserror 1.0.63",
 ]
 
 [[package]]
