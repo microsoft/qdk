@@ -29,6 +29,7 @@ export const groupPaddingX = 10;
 export const groupLabelPaddingY = 2;
 /** Bottom padding inside group box. */
 export const groupBottomPadding = 10;
+/** Top padding inside group box. */
 export const groupTopPadding =
   groupBottomPadding + labelFontSize + groupLabelPaddingY;
 /** Additional offset for control button. */
@@ -39,7 +40,6 @@ export const controlBtnRadius = 15;
 export const argsFontSize = 12;
 /** Starting x coord for each register wire. */
 export const regLineStart = 40;
-/** Top padding inside group box. */
 
 // Toolbox
 /** Toolbox minimum height */
