@@ -402,7 +402,7 @@ impl Lowerer {
             panic!("if a SpecDecl is some, then it must be an implementation");
         };
         let input = pat.as_ref().map(|p| self.lower_spec_decl_pat(p));
-        let block = self.lower_block(block, false);
+        let block = self.lower_block(block);
         fir::SpecDecl {
             id: self.lower_id(decl.id),
             span: decl.span,
@@ -431,7 +431,7 @@ impl Lowerer {
         id
     }
 
-    fn lower_block(&mut self, block: &hir::Block, is_loop_body: bool) -> BlockId {
+    fn lower_block(&mut self, block: &hir::Block) -> BlockId {
         let id = self.assigner.next_block();
         // When lowering for debugging, we need to be more strict about scoping for variables
         // otherwise variables that are not in scope will be visible in the locals view.
@@ -442,13 +442,6 @@ impl Lowerer {
         // is performed via their lowered local variable ID, so they cannot be accessed outside of
         // their scope. Associated memory is still cleaned up at callable exit rather than block
         // exit.
-
-        if is_loop_body {
-            // Increment iteration counter for loop body scopes
-            self.exec_graph
-                .debug_push(ExecGraphDebugNode::LoopIteration);
-        }
-
         self.exec_graph.debug_push(ExecGraphDebugNode::PushScope);
 
         let set_unit = block.stmts.is_empty()
@@ -639,7 +632,7 @@ impl Lowerer {
                 }
                 fir::ExprKind::BinOp(lower_binop(*op), lhs, rhs)
             }
-            hir::ExprKind::Block(block) => fir::ExprKind::Block(self.lower_block(block, false)),
+            hir::ExprKind::Block(block) => fir::ExprKind::Block(self.lower_block(block)),
             hir::ExprKind::Call(callee, arg) => {
                 let call = self.lower_expr(callee);
                 self.exec_graph.push(ExecGraphNode::Store);
@@ -746,7 +739,11 @@ impl Lowerer {
                 let idx = self.exec_graph.len();
                 // Put a placeholder in the execution graph for the jump past the loop
                 self.exec_graph.push(ExecGraphNode::Jump(0));
-                let body = self.lower_block(body, true);
+
+                // Increment iteration counter for loop body scopes
+                self.exec_graph
+                    .debug_push(ExecGraphDebugNode::LoopIteration);
+                let body = self.lower_block(body);
                 self.exec_graph.push_with_arg(ExecGraphNode::Jump, cond_idx);
                 // Update the placeholder to skip the loop if the condition is false
                 self.exec_graph
