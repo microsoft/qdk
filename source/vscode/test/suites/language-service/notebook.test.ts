@@ -47,7 +47,6 @@ suite("Q# Notebook Tests", function suite() {
   });
 
   test("Cell language is set back to Python", async () => {
-    this.timeout(4000); // This test can be slow on some CI machines, so increase timeout
     const notebook = await vscode.workspace.openNotebookDocument(
       vscode.Uri.joinPath(workspaceFolderUri, "test.ipynb"),
     );
@@ -76,7 +75,7 @@ suite("Q# Notebook Tests", function suite() {
         );
       },
       vscode.workspace.onDidChangeNotebookDocument,
-      1000,
+      50,
       "timed out waiting for a Python code cell",
     );
   });
