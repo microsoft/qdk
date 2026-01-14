@@ -7,7 +7,6 @@ mod tests;
 pub mod preprocess;
 
 use crate::{
-    error::WithSource,
     lower::{self, Lowerer},
     resolve::{self, GlobalScope, Locals, Names, Resolver},
     typeck::{self, Checker, Table},
@@ -23,8 +22,10 @@ use qsc_ast::{
     visit::Visitor as _,
 };
 use qsc_data_structures::{
+    error::WithSource,
     index_map::{self, IndexMap},
     language_features::LanguageFeatures,
+    source::{SourceContents, SourceMap, SourceName},
     span::Span,
     target::{Profile, TargetCapabilityFlags},
 };
@@ -38,7 +39,7 @@ use qsc_hir::{
 use std::{fmt::Debug, sync::Arc};
 use thiserror::Error;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct CompileUnit {
     pub package: hir::Package,
     pub ast: AstPackage,
@@ -49,10 +50,26 @@ pub struct CompileUnit {
 }
 
 impl CompileUnit {
+    #[must_use]
+    pub fn new(package_id: PackageId) -> Self {
+        Self {
+            package: hir::Package::new(package_id),
+            ast: Default::default(),
+            assigner: Default::default(),
+            sources: Default::default(),
+            errors: Default::default(),
+            dropped_names: Default::default(),
+        }
+    }
+
     pub fn expose(&mut self) {
         for (_item_id, item) in self.package.items.iter_mut() {
             item.visibility = hir::Visibility::Public;
         }
+    }
+
+    pub fn package_id(&self) -> PackageId {
+        self.package.package_id
     }
 }
 
@@ -64,130 +81,6 @@ pub struct AstPackage {
     pub locals: Locals,
     pub globals: GlobalScope,
 }
-
-#[derive(Clone, Debug, Default)]
-pub struct SourceMap {
-    sources: Vec<Source>,
-    /// The common prefix of the sources
-    /// e.g. if the sources all start with `/Users/microsoft/code/qsharp/src`, then this value is
-    /// `/Users/microsoft/code/qsharp/src`.
-    common_prefix: Option<Arc<str>>,
-    entry: Option<Source>,
-}
-
-impl SourceMap {
-    pub fn new(
-        sources: impl IntoIterator<Item = (SourceName, SourceContents)>,
-        entry: Option<Arc<str>>,
-    ) -> Self {
-        let mut offset_sources = Vec::new();
-
-        let entry_source = entry.map(|contents| Source {
-            name: "<entry>".into(),
-            contents,
-            offset: 0,
-        });
-
-        let mut offset = next_offset(entry_source.as_ref());
-        for (name, contents) in sources {
-            let source = Source {
-                name,
-                contents,
-                offset,
-            };
-            offset = next_offset(Some(&source));
-            offset_sources.push(source);
-        }
-
-        // Each source has a name, which is a string. The project root dir is calculated as the
-        // common prefix of all of the sources.
-        // Calculate the common prefix.
-        let common_prefix: String = longest_common_prefix(
-            &offset_sources
-                .iter()
-                .map(|source| source.name.as_ref())
-                .collect::<Vec<_>>(),
-        )
-        .to_string();
-
-        let common_prefix: Arc<str> = Arc::from(common_prefix);
-
-        Self {
-            sources: offset_sources,
-            common_prefix: if common_prefix.is_empty() {
-                None
-            } else {
-                Some(common_prefix)
-            },
-            entry: entry_source,
-        }
-    }
-
-    pub fn push(&mut self, name: SourceName, contents: SourceContents) -> u32 {
-        let offset = next_offset(self.sources.last());
-
-        self.sources.push(Source {
-            name,
-            contents,
-            offset,
-        });
-
-        offset
-    }
-
-    #[must_use]
-    pub fn find_by_offset(&self, offset: u32) -> Option<&Source> {
-        self.sources
-            .iter()
-            .rev()
-            .chain(&self.entry)
-            .find(|source| offset >= source.offset)
-    }
-
-    #[must_use]
-    pub fn find_by_name(&self, name: &str) -> Option<&Source> {
-        self.sources.iter().find(|s| s.name.as_ref() == name)
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = &Source> {
-        self.sources.iter()
-    }
-
-    /// Returns the sources as an iter, but with the project root directory subtracted
-    /// from the individual source names.
-    pub(crate) fn relative_sources(&self) -> impl Iterator<Item = Source> + '_ {
-        self.sources.iter().map(move |source| {
-            let name = source.name.as_ref();
-            let relative_name = self.relative_name(name);
-
-            Source {
-                name: relative_name.into(),
-                contents: source.contents.clone(),
-                offset: source.offset,
-            }
-        })
-    }
-
-    #[must_use]
-    pub fn relative_name<'a>(&'a self, name: &'a str) -> &'a str {
-        if let Some(common_prefix) = &self.common_prefix {
-            name.strip_prefix(common_prefix.as_ref()).unwrap_or(name)
-        } else {
-            name
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct Source {
-    pub name: SourceName,
-    pub contents: SourceContents,
-    pub offset: u32,
-}
-
-pub type SourceName = Arc<str>;
-
-pub type SourceContents = Arc<str>;
 
 // the arc<str> is only `None` for the legacy stdlib, core, and an interpreter special case
 pub type Dependencies = [(PackageId, Option<Arc<str>>)];
@@ -225,7 +118,7 @@ impl Debug for PackageStore {
 impl PackageStore {
     #[must_use]
     pub fn new(core: CompileUnit) -> Self {
-        let table = global::iter_package(Some(PackageId::CORE), &core.package).collect();
+        let table = global::iter_package(PackageId::CORE, &core.package).collect();
         let mut units = IndexMap::new();
         units.insert(PackageId::CORE, core);
         Self {
@@ -240,8 +133,18 @@ impl PackageStore {
         &self.core
     }
 
+    #[must_use]
+    pub fn peek_package_id(&self) -> PackageId {
+        self.next_id
+    }
+
     pub fn insert(&mut self, unit: CompileUnit) -> PackageId {
         let id = self.next_id;
+        assert_eq!(
+            id,
+            unit.package_id(),
+            "The id of the inserted unit should match the next_id of the store."
+        );
         self.next_id = id.successor();
         self.units.insert(id, unit);
         id
@@ -264,7 +167,7 @@ impl PackageStore {
     pub fn open(mut self) -> OpenPackageStore {
         let id = self.next_id;
         self.next_id = id.successor();
-        self.units.insert(id, CompileUnit::default());
+        self.units.insert(id, CompileUnit::new(id));
 
         OpenPackageStore {
             store: self,
@@ -408,7 +311,8 @@ pub fn compile_ast(
         dropped_names.clone(),
     );
     let (tys, ty_errors) = typeck_all(store, dependencies, &ast_package, &names);
-    let mut lowerer = Lowerer::new();
+    let package_id = store.peek_package_id();
+    let mut lowerer = Lowerer::new(package_id);
     let package = lowerer
         .with(&mut hir_assigner, &names, &tys)
         .lower_package(&ast_package);
@@ -513,7 +417,7 @@ pub fn parse_all(
     }
 
     let entry = sources
-        .entry
+        .entry()
         .as_ref()
         .filter(|source| !source.contents.is_empty())
         .map(|source| {
@@ -580,8 +484,9 @@ fn resolve_all(
     }
 
     // bind all declarations in the package, but don't resolve imports/exports yet
-    errors.extend(globals.add_local_package(assigner, package));
-    let mut resolver = Resolver::new(globals, dropped_names);
+    let package_id = store.peek_package_id();
+    errors.extend(globals.add_local_package(assigner, package, package_id));
+    let mut resolver = Resolver::new(package_id, globals, dropped_names);
 
     // resolve all symbols, binding imports/export names as they're resolved
     resolver.resolve(assigner, package);
@@ -634,14 +539,6 @@ fn append_parse_errors(
     }
 }
 
-fn next_offset(last_source: Option<&Source>) -> u32 {
-    // Leave a gap of 1 between each source so that offsets at EOF
-    // get mapped to the correct source
-    last_source.map_or(0, |s| {
-        1 + s.offset + u32::try_from(s.contents.len()).expect("contents length should fit into u32")
-    })
-}
-
 fn assert_no_errors(sources: &SourceMap, errors: &mut Vec<Error>) {
     if !errors.is_empty() {
         for error in errors.drain(..) {
@@ -650,39 +547,4 @@ fn assert_no_errors(sources: &SourceMap, errors: &mut Vec<Error>) {
 
         panic!("could not compile package");
     }
-}
-
-#[must_use]
-pub fn longest_common_prefix<'a>(strs: &'a [&'a str]) -> &'a str {
-    if strs.len() == 1 {
-        return truncate_to_path_separator(strs[0]);
-    }
-
-    let Some(common_prefix_so_far) = strs.first() else {
-        return "";
-    };
-
-    for (i, character) in common_prefix_so_far.char_indices() {
-        for string in strs {
-            if string.chars().nth(i) != Some(character) {
-                let prefix = &common_prefix_so_far[0..i];
-                // Find the last occurrence of the path separator in the prefix
-                return truncate_to_path_separator(prefix);
-            }
-        }
-    }
-    common_prefix_so_far
-}
-
-fn truncate_to_path_separator(prefix: &str) -> &str {
-    let last_separator_index = prefix
-        .rfind('/')
-        .or_else(|| prefix.rfind('\\'))
-        .or_else(|| prefix.rfind(':'));
-    if let Some(last_separator_index) = last_separator_index {
-        // Return the prefix up to and including the last path separator
-        return &prefix[0..=last_separator_index];
-    }
-    // If there's no path separator in the prefix, return an empty string
-    ""
 }

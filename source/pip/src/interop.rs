@@ -18,10 +18,10 @@ use pyo3::types::{PyDict, PyList};
 use qsc::hir::PackageId;
 use qsc::interpret::output::Receiver;
 use qsc::interpret::{CircuitEntryPoint, Interpreter, into_errors};
+use qsc::openqasm::compiler::compile_to_qsharp_ast_with_config;
+use qsc::openqasm::semantic::QasmSemanticParseResult;
+use qsc::openqasm::{OperationSignature, QubitSemantics};
 use qsc::project::ProjectType;
-use qsc::qasm::compiler::compile_to_qsharp_ast_with_config;
-use qsc::qasm::semantic::QasmSemanticParseResult;
-use qsc::qasm::{OperationSignature, QubitSemantics};
 use qsc::target::Profile;
 use qsc::{Backend, PackageType, PauliNoise, SparseSim};
 use qsc::{
@@ -75,15 +75,15 @@ use resource_estimator as re;
 pub(crate) fn run_qasm_program(
     py: Python,
     source: &str,
-    callback: Option<PyObject>,
+    callback: Option<Py<PyAny>>,
     noise: Option<(f64, f64, f64)>,
     qubit_loss: Option<f64>,
-    read_file: Option<PyObject>,
-    list_directory: Option<PyObject>,
-    resolve_path: Option<PyObject>,
-    fetch_github: Option<PyObject>,
+    read_file: Option<Py<PyAny>>,
+    list_directory: Option<Py<PyAny>>,
+    resolve_path: Option<Py<PyAny>>,
+    fetch_github: Option<Py<PyAny>>,
     kwargs: Option<Bound<'_, PyDict>>,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let mut receiver = OptionalCallbackReceiver { callback, py };
 
     let kwargs = kwargs.unwrap_or_else(|| PyDict::new(py));
@@ -105,7 +105,7 @@ pub(crate) fn run_qasm_program(
             "Expected OpenQASM project, but got a different type".to_string(),
         ));
     };
-    let res = qsc::qasm::semantic::parse_sources(&sources);
+    let res = qsc::openqasm::semantic::parse_sources(&sources);
     let (package, source_map, signature) = compile_qasm_enriching_errors(
         res,
         &operation_name,
@@ -200,10 +200,10 @@ pub(crate) fn resource_estimate_qasm_program(
     py: Python,
     source: &str,
     job_params: &str,
-    read_file: Option<PyObject>,
-    list_directory: Option<PyObject>,
-    resolve_path: Option<PyObject>,
-    fetch_github: Option<PyObject>,
+    read_file: Option<Py<PyAny>>,
+    list_directory: Option<Py<PyAny>>,
+    resolve_path: Option<Py<PyAny>>,
+    fetch_github: Option<Py<PyAny>>,
     kwargs: Option<Bound<'_, PyDict>>,
 ) -> PyResult<String> {
     let kwargs = kwargs.unwrap_or_else(|| PyDict::new(py));
@@ -221,7 +221,7 @@ pub(crate) fn resource_estimate_qasm_program(
             "Expected OpenQASM project, but got a different type".to_string(),
         ));
     };
-    let res = qsc::qasm::semantic::parse_sources(&sources);
+    let res = qsc::openqasm::semantic::parse_sources(&sources);
 
     let program_type = ProgramType::File;
     let output_semantics = OutputSemantics::ResourceEstimation;
@@ -288,10 +288,10 @@ pub(crate) fn resource_estimate_qasm_program(
 pub(crate) fn compile_qasm_program_to_qir(
     py: Python,
     source: &str,
-    read_file: Option<PyObject>,
-    list_directory: Option<PyObject>,
-    resolve_path: Option<PyObject>,
-    fetch_github: Option<PyObject>,
+    read_file: Option<Py<PyAny>>,
+    list_directory: Option<Py<PyAny>>,
+    resolve_path: Option<Py<PyAny>>,
+    fetch_github: Option<Py<PyAny>>,
     kwargs: Option<Bound<'_, PyDict>>,
 ) -> PyResult<String> {
     let kwargs = kwargs.unwrap_or_else(|| PyDict::new(py));
@@ -310,7 +310,7 @@ pub(crate) fn compile_qasm_program_to_qir(
             "Expected OpenQASM project, but got a different type".to_string(),
         ));
     };
-    let res = qsc::qasm::semantic::parse_sources(&sources);
+    let res = qsc::openqasm::semantic::parse_sources(&sources);
 
     let program_ty = ProgramType::File;
     let output_semantics = get_output_semantics(&kwargs, || OutputSemantics::Qiskit)?;
@@ -334,7 +334,7 @@ pub(crate) fn compile_qasm_enriching_errors<S: AsRef<str>>(
     output_semantics: OutputSemantics,
     allow_input_params: bool,
 ) -> PyResult<(Package, SourceMap, OperationSignature)> {
-    let config = qsc::qasm::CompilerConfig::new(
+    let config = qsc::openqasm::CompilerConfig::new(
         QubitSemantics::Qiskit,
         output_semantics.into(),
         program_ty.into(),
@@ -388,10 +388,10 @@ fn generate_qir_from_ast<S: AsRef<str>>(
 pub(crate) fn compile_qasm_to_qsharp(
     py: Python,
     source: &str,
-    read_file: Option<PyObject>,
-    list_directory: Option<PyObject>,
-    resolve_path: Option<PyObject>,
-    fetch_github: Option<PyObject>,
+    read_file: Option<Py<PyAny>>,
+    list_directory: Option<Py<PyAny>>,
+    resolve_path: Option<Py<PyAny>>,
+    fetch_github: Option<Py<PyAny>>,
     kwargs: Option<Bound<'_, PyDict>>,
 ) -> PyResult<String> {
     let kwargs = kwargs.unwrap_or_else(|| PyDict::new(py));
@@ -409,7 +409,7 @@ pub(crate) fn compile_qasm_to_qsharp(
             "Expected OpenQASM project, but got a different type".to_string(),
         ));
     };
-    let res = qsc::qasm::semantic::parse_sources(&sources);
+    let res = qsc::openqasm::semantic::parse_sources(&sources);
 
     let program_ty = get_program_type(&kwargs, || ProgramType::File)?;
     let output_semantics = get_output_semantics(&kwargs, || OutputSemantics::Qiskit)?;
@@ -553,12 +553,12 @@ pub(crate) fn circuit_qasm_program(
     py: Python,
     source: &str,
     config: &CircuitConfig,
-    read_file: Option<PyObject>,
-    list_directory: Option<PyObject>,
-    resolve_path: Option<PyObject>,
-    fetch_github: Option<PyObject>,
+    read_file: Option<Py<PyAny>>,
+    list_directory: Option<Py<PyAny>>,
+    resolve_path: Option<Py<PyAny>>,
+    fetch_github: Option<Py<PyAny>>,
     kwargs: Option<Bound<'_, PyDict>>,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let kwargs = kwargs.unwrap_or_else(|| PyDict::new(py));
 
     let operation_name = get_operation_name(&kwargs)?;
@@ -574,7 +574,7 @@ pub(crate) fn circuit_qasm_program(
             "Expected OpenQASM project, but got a different type".to_string(),
         ));
     };
-    let res = qsc::qasm::semantic::parse_sources(&sources);
+    let res = qsc::openqasm::semantic::parse_sources(&sources);
 
     let (package, source_map, signature) = compile_qasm_enriching_errors(
         res,
@@ -604,12 +604,9 @@ pub(crate) fn circuit_qasm_program(
     if let Some(max_ops) = config.max_operations {
         tracer_config.max_operations = max_ops;
     }
-    if let Some(locations) = config.source_locations {
-        tracer_config.source_locations = locations;
-    }
-    if let Some(group_by_scope) = config.group_by_scope {
-        tracer_config.group_by_scope = group_by_scope;
-    }
+    tracer_config.source_locations = config.source_locations;
+    tracer_config.group_by_scope = config.group_by_scope;
+    tracer_config.prune_classical_qubits = config.prune_classical_qubits;
 
     let generation_method = if let Some(generation_method) = config.generation_method {
         generation_method.into()
@@ -636,7 +633,7 @@ fn into_estimation_errors(errors: Vec<interpret::Error>) -> Vec<resource_estimat
 }
 
 /// Formats a list of QASM errors into a single string.
-pub(crate) fn format_qasm_errors(errors: Vec<WithSource<qsc::qasm::error::Error>>) -> String {
+pub(crate) fn format_qasm_errors(errors: Vec<WithSource<qsc::openqasm::error::Error>>) -> String {
     errors
         .into_iter()
         .map(|e| {
@@ -652,10 +649,10 @@ pub(crate) fn format_qasm_errors(errors: Vec<WithSource<qsc::qasm::error::Error>
 /// If any of the callbacks are missing, this will panic.
 pub(crate) fn create_filesystem_from_py(
     py: Python,
-    read_file: Option<PyObject>,
-    list_directory: Option<PyObject>,
-    resolve_path: Option<PyObject>,
-    fetch_github: Option<PyObject>,
+    read_file: Option<Py<PyAny>>,
+    list_directory: Option<Py<PyAny>>,
+    resolve_path: Option<Py<PyAny>>,
+    fetch_github: Option<Py<PyAny>>,
 ) -> impl FileSystem {
     file_system(
         py,
@@ -754,10 +751,10 @@ pub(crate) fn get_program_type<D>(kwargs: &Bound<'_, PyDict>, default: D) -> PyR
 where
     D: FnOnce() -> ProgramType,
 {
-    let target = kwargs
-        .get_item("program_type")?
-        .map_or_else(|| Ok(default()), |x| x.extract::<ProgramType>())?;
-    Ok(target)
+    match kwargs.get_item("program_type")? {
+        Some(obj) => Ok(obj.extract::<ProgramType>()?),
+        None => Ok(default()),
+    }
 }
 
 /// Extracts the output semantics from the kwargs dictionary.
@@ -768,10 +765,10 @@ pub(crate) fn get_output_semantics<D>(
 where
     D: FnOnce() -> OutputSemantics,
 {
-    let target = kwargs
-        .get_item("output_semantics")?
-        .map_or_else(|| Ok(default()), |x| x.extract::<OutputSemantics>())?;
-    Ok(target)
+    match kwargs.get_item("output_semantics")? {
+        Some(obj) => Ok(obj.extract::<OutputSemantics>()?),
+        None => Ok(default()),
+    }
 }
 
 /// Extracts the name from the kwargs dictionary.
@@ -795,11 +792,10 @@ pub(crate) fn get_operation_name(kwargs: &Bound<'_, PyDict>) -> PyResult<String>
 /// This also maps the `TargetProfile` exposed to Python to a `Profile`
 /// used by the interpreter.
 pub(crate) fn get_target_profile(kwargs: &Bound<'_, PyDict>) -> PyResult<Profile> {
-    let target = kwargs.get_item("target_profile")?.map_or_else(
-        || Ok(TargetProfile::Unrestricted),
-        |x| x.extract::<TargetProfile>(),
-    )?;
-    Ok(target.into())
+    match kwargs.get_item("target_profile")? {
+        Some(obj) => Ok(obj.extract::<TargetProfile>()?.into()),
+        None => Ok(TargetProfile::Unrestricted.into()),
+    }
 }
 
 /// Extracts the shots from the kwargs dictionary.

@@ -332,13 +332,7 @@ fn try_get_direct_callee<'a>(
         let (item, _, resolved_item_id) =
             compilation.resolve_item_relative_to_user_package(item_id);
         if let hir::ItemKind::Callable(callee_decl) = &item.kind {
-            return Some((
-                resolved_item_id
-                    .package
-                    .expect("package id should be resolved"),
-                callee_decl,
-                &item.doc,
-            ));
+            return Some((resolved_item_id.package, callee_decl, &item.doc));
         }
     }
 

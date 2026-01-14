@@ -5,9 +5,9 @@ mod given_interpreter {
     use crate::interpret::{InterpretResult, Interpreter};
     use expect_test::Expect;
     use miette::Diagnostic;
+    use qsc_data_structures::source::SourceMap;
     use qsc_data_structures::{language_features::LanguageFeatures, target::TargetCapabilityFlags};
     use qsc_eval::{output::CursorReceiver, val::Value};
-    use qsc_frontend::compile::SourceMap;
     use qsc_passes::PackageType;
     use std::{fmt::Write, io::Cursor, iter, str::from_utf8};
 
@@ -68,7 +68,7 @@ mod given_interpreter {
         use super::*;
 
         mod without_stdlib {
-            use qsc_frontend::compile::SourceMap;
+            use qsc_data_structures::source::SourceMap;
             use qsc_passes::PackageType;
 
             use super::*;
@@ -1030,9 +1030,7 @@ mod given_interpreter {
         #[test]
         fn adaptive_qirgen() {
             let mut interpreter = get_interpreter_with_capabilities(
-                TargetCapabilityFlags::Adaptive
-                    | TargetCapabilityFlags::QubitReset
-                    | TargetCapabilityFlags::IntegerComputations,
+                TargetCapabilityFlags::Adaptive | TargetCapabilityFlags::IntegerComputations,
             );
             let (result, output) = line(
                 &mut interpreter,
@@ -1100,9 +1098,8 @@ mod given_interpreter {
 
         #[test]
         fn adaptive_qirgen_nested_output_types() {
-            let mut interpreter = get_interpreter_with_capabilities(
-                TargetCapabilityFlags::Adaptive | TargetCapabilityFlags::QubitReset,
-            );
+            let mut interpreter =
+                get_interpreter_with_capabilities(TargetCapabilityFlags::Adaptive);
             let (result, output) = line(
                 &mut interpreter,
                 indoc! {r#"
@@ -1453,9 +1450,8 @@ mod given_interpreter {
 
         #[test]
         fn adaptive_qirgen_custom_intrinsic_returning_bool() {
-            let mut interpreter = get_interpreter_with_capabilities(
-                TargetCapabilityFlags::Adaptive | TargetCapabilityFlags::QubitReset,
-            );
+            let mut interpreter =
+                get_interpreter_with_capabilities(TargetCapabilityFlags::Adaptive);
             let res = interpreter
                 .qirgen("{ operation check_result(r : Result) : Bool { body intrinsic; }; operation Foo() : Bool { use q = Qubit(); let r = MResetZ(q); check_result(r) } Foo() }")
                 .expect("expected success");
@@ -1695,8 +1691,8 @@ mod given_interpreter {
         use qsc_ast::ast::{
             Expr, ExprKind, NodeId, Package, Path, PathKind, Stmt, StmtKind, TopLevelNode,
         };
+        use qsc_data_structures::source::SourceMap;
         use qsc_data_structures::span::Span;
-        use qsc_frontend::compile::SourceMap;
         use qsc_passes::PackageType;
 
         #[test]
@@ -1758,9 +1754,7 @@ mod given_interpreter {
             let result = Interpreter::new(
                 sources,
                 PackageType::Exe,
-                TargetCapabilityFlags::Adaptive
-                    | TargetCapabilityFlags::IntegerComputations
-                    | TargetCapabilityFlags::QubitReset,
+                TargetCapabilityFlags::Adaptive | TargetCapabilityFlags::IntegerComputations,
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],

@@ -111,7 +111,7 @@ impl FromIterator<Global> for Table {
 }
 
 pub struct PackageIter<'a> {
-    id: Option<PackageId>,
+    id: PackageId,
     package: &'a Package,
     items: index_map::Values<'a, Item>,
     next: Option<Global>,
@@ -197,7 +197,7 @@ impl PackageIter<'_> {
                 // Export items can refer to different packages, so be sure
                 // to use the provided package id
                 kind: Kind::Export(ItemId {
-                    package: item_id.package.or(self.id),
+                    package: item_id.package,
                     item: item_id.item,
                 }),
             }),
@@ -224,7 +224,7 @@ impl Iterator for PackageIter<'_> {
 }
 
 #[must_use]
-pub fn iter_package(id: Option<PackageId>, package: &Package) -> PackageIter<'_> {
+pub fn iter_package(id: PackageId, package: &Package) -> PackageIter<'_> {
     PackageIter {
         id,
         package,

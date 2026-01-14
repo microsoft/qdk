@@ -28,7 +28,7 @@ jobs:
     name: Format
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
         with:
           submodules: "true"
       - name: Setup rust toolchain
@@ -43,7 +43,7 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
         with:
           submodules: "true"
       - name: Setup rust toolchain
@@ -59,7 +59,7 @@ jobs:
     name: Format Q# Files
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
         with:
           submodules: "true"
       - name: Setup rust toolchain
@@ -74,10 +74,10 @@ jobs:
     name: Check web files
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
         with:
           submodules: "true"
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: npm install
@@ -94,7 +94,7 @@ jobs:
     runs-on: ${{matrix.os}}
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
         with:
           submodules: "true"
       - name: Setup rust toolchain
@@ -106,17 +106,17 @@ jobs:
         run: |
           rustup target add x86_64-apple-darwin
         if: matrix.os == 'macos-latest'
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
       - uses: Swatinem/rust-cache@v2
       - name: Prereqs
         run: python ./prereqs.py --install
       - name: Build and Test
-        run: python ./build.py --no-check --wasm --npm --vscode --play --pip --widgets --jupyterlab --qdk
+        run: python ./build.py --no-check --wasm --npm --vscode --play --pip --widgets --jupyterlab --qdk --manylinux
 
   unit-tests:
     name: Rust Unit tests
@@ -127,7 +127,7 @@ jobs:
     runs-on: ${{matrix.os}}
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
         with:
           submodules: "true"
       - name: Setup rust toolchain
@@ -139,10 +139,10 @@ jobs:
         run: |
           rustup target add x86_64-apple-darwin
         if: matrix.os == 'macos-latest'
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
       - uses: Swatinem/rust-cache@v2
@@ -161,7 +161,7 @@ jobs:
     runs-on: ${{matrix.os}}
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
         with:
           submodules: "true"
       - name: Setup rust toolchain
@@ -173,17 +173,17 @@ jobs:
         run: |
           rustup target add x86_64-apple-darwin
         if: matrix.os == 'macos-latest'
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
       - uses: Swatinem/rust-cache@v2
       - name: Prereqs
         run: python ./prereqs.py --install
       - name: Run integration tests
-        run: python ./build.py --no-check --no-test --wasm --npm --vscode --pip --widgets --qdk --integration-tests
+        run: python ./build.py --no-check --no-test --wasm --npm --vscode --pip --widgets --qdk --integration-tests --manylinux
 
   status-check:
     name: Status Check

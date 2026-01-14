@@ -21,13 +21,13 @@ pub fn run_cpu_full_state<'py>(
     shots: u32,
     noise_config: &Bound<'py, NoiseConfig>,
     seed: Option<u32>,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     // Convert Python list input to Vec<QirInstruction>.
     let mut instructions: Vec<QirInstruction> = Vec::with_capacity(input.len());
     for item in input.iter() {
-        let item = <QirInstruction as FromPyObject>::extract_bound(&item).map_err(|e| {
-            PyValueError::new_err(format!("expected QirInstruction, got {item:?}: {e}"))
-        })?;
+        let item: QirInstruction = item
+            .extract()
+            .map_err(|e| PyValueError::new_err(format!("expected QirInstruction: {e}")))?;
         instructions.push(item);
     }
     let mut noise = unbind_noise_config(py, noise_config);

@@ -6,7 +6,6 @@ use crate::line_column::Encoding;
 use qsc_data_structures::language_features::LanguageFeatures;
 use qsc_eval::{StepAction, StepResult, output::CursorReceiver};
 use qsc_fir::fir::StmtId;
-use qsc_frontend::compile::SourceMap;
 use std::io::Cursor;
 
 fn get_breakpoint_ids(debugger: &Debugger, path: &str) -> Vec<StmtId> {
@@ -120,7 +119,7 @@ mod given_debugger {
         }"#;
     #[cfg(test)]
     mod step {
-        use qsc_data_structures::target::TargetCapabilityFlags;
+        use qsc_data_structures::{source::SourceMap, target::TargetCapabilityFlags};
 
         use super::*;
 

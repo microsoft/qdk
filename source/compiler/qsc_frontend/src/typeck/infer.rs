@@ -1229,9 +1229,7 @@ fn check_has_field(
             match udts.get(id).and_then(|udt| udt.field_ty_by_name(&name)) {
                 Some(ty) => (
                     vec![Constraint::Eq {
-                        expected: id
-                            .package
-                            .map_or_else(|| ty.clone(), |package_id| ty.with_package(package_id)),
+                        expected: ty.with_package(id.package),
                         actual: item,
                         span,
                     }],
@@ -1477,10 +1475,7 @@ fn check_unwrap(
         return (
             vec![Constraint::Eq {
                 expected: base,
-                actual: id.package.map_or_else(
-                    || udt.get_pure_ty(),
-                    |package_id| udt.get_pure_ty().with_package(package_id),
-                ),
+                actual: udt.get_pure_ty().with_package(id.package),
                 span,
             }],
             Vec::new(),
