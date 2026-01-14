@@ -48,6 +48,66 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   --error-background-color: #ffe3e3;
   --warning-background-color: #fff6d7;
   --bar-selected-outline: #587ddd;
+
+  /* Histogram palette (light scheme by default; used when no VS Code theme is detected) */
+  --qs-histogram-bg: #ffffff;
+  --qs-histogram-border: #768f9c;
+  --qs-histogram-bar-fill: #bed1f4;
+  --qs-histogram-bar-hover-stroke: #6b6b6b;
+  --qs-histogram-bar-selected-fill: #b5c5f2;
+  --qs-histogram-bar-selected-stroke: #587ddd;
+  --qs-histogram-bar-label-fill: #202020;
+  --qs-histogram-label-fill: #3b3b3b;
+  --qs-histogram-hover-text-fill: #6b6b6b;
+  --qs-histogram-menu-icon-stroke: #3b3b3b;
+  --qs-histogram-menu-icon-fill: #ffffff;
+  --qs-histogram-menu-box-fill: #ffffff;
+  --qs-histogram-menu-box-stroke: #3b3b3b;
+  --qs-histogram-menu-item-fill: #bed1f4;
+  --qs-histogram-menu-item-hover-fill: #b3bede;
+  --qs-histogram-menu-item-stroke: #6b6b6b;
+  --qs-histogram-menu-item-selected-fill: #b5c5f2;
+  --qs-histogram-menu-text-fill: #202020;
+  --qs-histogram-menu-separator-stroke: #6b6b6b;
+  --qs-histogram-help-fill: #ffffff;
+  --qs-histogram-help-stroke: #6b6b6b;
+  --qs-histogram-help-text-fill: #202020;
+}
+
+/* Histogram palette overrides for dark themes.
+
+VS Code webviews typically set one of:
+ - body.vscode-dark / body.vscode-high-contrast
+ - body[data-vscode-theme-kind="vscode-dark"] (newer)
+ - body[vscode-color-theme="dark"] (some hosted contexts)
+*/
+body.vscode-dark,
+body.vscode-high-contrast,
+body[data-vscode-theme-kind="vscode-dark"],
+body[data-vscode-theme-kind="vscode-high-contrast"],
+body[vscode-color-theme="dark"] {
+  --qs-histogram-bg: #1e1e1e;
+  --qs-histogram-border: #3c3c3c;
+  --qs-histogram-bar-fill: #4aa3ff;
+  --qs-histogram-bar-hover-stroke: #c5c5c5;
+  --qs-histogram-bar-selected-fill: #ffd54f;
+  --qs-histogram-bar-selected-stroke: #ffecb3;
+  --qs-histogram-bar-label-fill: #d4d4d4;
+  --qs-histogram-label-fill: #d4d4d4;
+  --qs-histogram-hover-text-fill: #c5c5c5;
+  --qs-histogram-menu-icon-stroke: #d4d4d4;
+  --qs-histogram-menu-icon-fill: #1e1e1e;
+  --qs-histogram-menu-box-fill: #252526;
+  --qs-histogram-menu-box-stroke: #d4d4d4;
+  --qs-histogram-menu-item-fill: #2d2d30;
+  --qs-histogram-menu-item-hover-fill: #3e3e42;
+  --qs-histogram-menu-item-stroke: #6b6b6b;
+  --qs-histogram-menu-item-selected-fill: #094771;
+  --qs-histogram-menu-text-fill: #d4d4d4;
+  --qs-histogram-menu-separator-stroke: #6b6b6b;
+  --qs-histogram-help-fill: #252526;
+  --qs-histogram-help-stroke: #6b6b6b;
+  --qs-histogram-help-text-fill: #d4d4d4;
 }
 
 /* TODO: Make the below playground specific classes */
@@ -345,27 +405,27 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
 .histogram {
   max-height: calc(100vh - 40px);
   max-width: 600px;
-  border: 1px solid var(--border-color);
-  background-color: var(--vscode-sideBar-background, white);
+  border: 1px solid var(--qs-histogram-border);
+  background-color: var(--qs-histogram-bg);
 }
 
 .bar {
-  fill: var(--vscode-editorInfo-foreground, var(--nav-background));
+  fill: var(--qs-histogram-bar-fill);
 }
 
 .bar:hover {
-  stroke: gray;
+  stroke: var(--qs-histogram-bar-hover-stroke);
   stroke-width: 0.5;
 }
 
 .bar-selected {
-  stroke: var(--bar-selected-outline);
-  fill: var(--nav-current-background);
+  stroke: var(--qs-histogram-bar-selected-stroke);
+  fill: var(--qs-histogram-bar-selected-fill);
 }
 
 .bar-label {
   font-size: 3pt;
-  fill: var(--vscode-icon-foreground, var(--main-color));
+  fill: var(--qs-histogram-bar-label-fill);
   text-anchor: end;
   pointer-events: none;
 }
@@ -376,32 +436,31 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
 
 .histo-label {
   font-size: 3.5pt;
-  fill: var(--vscode-foreground, #3b3b3b);
+  fill: var(--qs-histogram-label-fill);
 }
 
 .hover-text {
   font-size: 3.5pt;
-  fill: gray;
+  fill: var(--qs-histogram-hover-text-fill);
   text-anchor: middle;
 }
 
 .menu-icon * {
-  stroke: black;
-  fill: var(--vscode-sideBar-background, white);
-  stroke: var(--vscode-icon-foreground, #3b3b3b);
+  fill: var(--qs-histogram-menu-icon-fill);
+  stroke: var(--qs-histogram-menu-icon-stroke);
 }
 
 .menu-box {
-  fill: var(--menu-box-fill);
-  stroke: black;
+  fill: var(--qs-histogram-menu-box-fill);
+  stroke: var(--qs-histogram-menu-box-stroke);
   stroke-width: 0.1;
 }
 
 .menu-item {
   width: 32px;
   height: 10px;
-  fill: var(--vscode-list-inactiveSelectionBackground, var(--nav-background));
-  stroke: gray;
+  fill: var(--qs-histogram-menu-item-fill);
+  stroke: var(--qs-histogram-menu-item-stroke);
   stroke-width: 0.2;
 }
 
@@ -409,38 +468,35 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
 
 .menu-item:hover {
   stroke-width: 0.6;
-  fill: var(--vscode-list-hoverBackground, var(--nav-hover-background));
+  fill: var(--qs-histogram-menu-item-hover-fill);
 }
 
 .menu-selected {
   /* stroke: #0800ff; */
-  fill: var(
-    --vscode-list-activeSelectionBackground,
-    var(--nav-current-background)
-  );
+  fill: var(--qs-histogram-menu-item-selected-fill);
 }
 
 .menu-text {
   font-size: 4.5px;
   pointer-events: none;
-  fill: var(--main-color);
+  fill: var(--qs-histogram-menu-text-fill);
 }
 
 .menu-separator {
-  stroke: gray;
+  stroke: var(--qs-histogram-menu-separator-stroke);
   stroke-width: 0.25;
 }
 
 .help-info {
-  fill: var(--menu-box-fill);
-  stroke: gray;
+  fill: var(--qs-histogram-help-fill);
+  stroke: var(--qs-histogram-help-stroke);
   stroke-width: 0.5;
 }
 
 .help-info-text {
   font-size: 4.5px;
   pointer-events: none;
-  fill: var(--main-color);
+  fill: var(--qs-histogram-help-text-fill);
 }
 
 /* RE details */
