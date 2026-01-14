@@ -563,11 +563,11 @@ impl Env {
     }
 }
 
-#[derive(Default, Clone)]
-pub struct Scope {
+#[derive(Default)]
+struct Scope {
     bindings: IndexMap<LocalVarId, Variable>,
-    pub frame_id: usize,
-    pub is_loop: bool,
+    frame_id: usize,
+    is_loop: bool,
 }
 
 type CallableCountKey = (StoreItemId, bool, bool);
