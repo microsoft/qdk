@@ -709,6 +709,7 @@ if build_pip and build_widgets and args.integration_tests:
             or f.startswith("pennylane_submission_to_azure.")
             or f.startswith("benzene.")
             or f.startswith("parallel_teleport.")
+            or f.startswith("carbon.")
             or f.startswith("simulating_qir.")
         )
     ]
