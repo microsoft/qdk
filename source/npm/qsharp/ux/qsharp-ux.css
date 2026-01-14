@@ -76,13 +76,16 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
 
 /* Histogram palette overrides for dark themes.
 
-VS Code webviews typically set one of:
- - body.vscode-dark / body.vscode-high-contrast
- - body[data-vscode-theme-kind="vscode-dark"] (newer)
- - body[vscode-color-theme="dark"] (some hosted contexts)
+VS Code webviews can indicate the theme in a few ways:
+ - Classes: .vscode-dark, .vscode-high-contrast, .vscode-high-contrast-light
+ - Attribute: data-vscode-theme-kind="vscode-..." (preferred)
+
+Important: VS Code adds .vscode-high-contrast for backwards compatibility even
+when the theme is actually vscode-high-contrast-light, so we must explicitly
+exclude that case.
 */
 body.vscode-dark,
-body.vscode-high-contrast,
+body.vscode-high-contrast:not(.vscode-high-contrast-light),
 body[data-vscode-theme-kind="vscode-dark"],
 body[data-vscode-theme-kind="vscode-high-contrast"],
 body[vscode-color-theme="dark"] {
@@ -92,9 +95,9 @@ body[vscode-color-theme="dark"] {
   --qs-histogram-bar-hover-stroke: #c5c5c5;
   --qs-histogram-bar-selected-fill: #ffd54f;
   --qs-histogram-bar-selected-stroke: #ffecb3;
-  --qs-histogram-bar-label-fill: #d4d4d4;
-  --qs-histogram-label-fill: #d4d4d4;
-  --qs-histogram-hover-text-fill: #c5c5c5;
+  --qs-histogram-bar-label-fill: #ffffff;
+  --qs-histogram-label-fill: #ffffff;
+  --qs-histogram-hover-text-fill: #ffffff;
   --qs-histogram-menu-icon-stroke: #d4d4d4;
   --qs-histogram-menu-icon-fill: #1e1e1e;
   --qs-histogram-menu-box-fill: #252526;
@@ -103,11 +106,11 @@ body[vscode-color-theme="dark"] {
   --qs-histogram-menu-item-hover-fill: #3e3e42;
   --qs-histogram-menu-item-stroke: #6b6b6b;
   --qs-histogram-menu-item-selected-fill: #094771;
-  --qs-histogram-menu-text-fill: #d4d4d4;
+  --qs-histogram-menu-text-fill: #ffffff;
   --qs-histogram-menu-separator-stroke: #6b6b6b;
   --qs-histogram-help-fill: #252526;
   --qs-histogram-help-stroke: #6b6b6b;
-  --qs-histogram-help-text-fill: #d4d4d4;
+  --qs-histogram-help-text-fill: #ffffff;
 }
 
 /* TODO: Make the below playground specific classes */
