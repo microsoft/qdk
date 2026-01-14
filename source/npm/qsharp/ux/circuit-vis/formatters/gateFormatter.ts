@@ -11,7 +11,6 @@ import {
   controlBtnOffset,
   groupPaddingX,
   classicalRegHeight,
-  groupBottomPadding,
   groupTopPadding,
   labelPaddingX,
   groupLabelPaddingY,
@@ -186,52 +185,33 @@ const _zoomButton = (renderData: GateRenderData): SVGElement | null => {
 const _gateBoundingBox = (
   renderData: GateRenderData,
 ): [number, number, number, number] => {
-  const {
-    x: centerX,
-    width,
-    type,
-    targetsY,
-    maxDepthTop,
-    maxDepthBottom,
-  } = renderData;
+  const { x: centerX, width, targetsY, topPadding, bottomPadding } = renderData;
 
   const x = centerX - width / 2;
   const ys = targetsY?.flatMap((y) => y as number[]) || [];
   const maxY = Math.max(...ys);
   const minY = Math.min(...ys);
 
-  let y = minY - gateHeight / 2;
-  let height = maxY - minY + gateHeight;
-
-  switch (type) {
-    case GateType.Group: {
-      // Here, we want to expand the bounding box to include the whole dashed
-      // box around the group, which will be sized according to the nested depth.
-      //
-      // Example: nestedDepth = 1 for the outermost group
-      //
-      // `y` and `height` are currently based on the contained gate only.
-      //
-      //                 ┌╌╌╌╌╌╌╌┐
-      //                 ╎┌╌╌╌╌╌┐╎
-      //                 ╎╎     ╎╎
-      // y ->            ╎╎ ┌─┐ ╎╎
-      //              ───┼┼─│X│─┼┼──
-      // height + y ->   ╎╎ └╥┘ ╎╎
-      //                 ╎╎  ╚══╪╪══
-      //                 ╎╎     ╎╎
-      //                 ╎└╌╌╌╌╌┘╎
-      //                 └╌╌╌╌╌╌╌┘
-      //
-      // Add the top and bottom padding based on nested depth:
-      const topPadding = maxDepthTop * groupTopPadding;
-      const bottomPadding = maxDepthBottom * groupBottomPadding;
-
-      y = y - topPadding;
-      height = height + bottomPadding + topPadding;
-      break;
-    }
-  }
+  // Here, we want to expand the bounding box to include the whole dashed
+  // box around the group, which will be sized according to the nested depth.
+  //
+  // Example of a grouped operation:
+  //
+  // y ->            ┌╌╌╌╌╌╌╌┐
+  //                 ╎┌╌╌╌╌╌┐╎
+  //                 ╎╎     ╎╎
+  //                 ╎╎ ┌─┐ ╎╎
+  // minY ->      ───┼┼─│ │─┼┼──
+  //                 ╎╎ │X│ ╎╎
+  // maxY ->      ───┼┼─│ │─┼┼──
+  //                 ╎╎ └╥┘ ╎╎
+  //                 ╎╎  ╚══╪╪══
+  //                 ╎╎     ╎╎
+  //                 ╎└╌╌╌╌╌┘╎
+  // y + height ->   └╌╌╌╌╌╌╌┘
+  //
+  const y = minY - gateHeight / 2 - topPadding;
+  const height = maxY - minY + gateHeight + bottomPadding + topPadding;
 
   return [x, y, width, height];
 };

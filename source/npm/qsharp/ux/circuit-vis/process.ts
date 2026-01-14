@@ -7,6 +7,8 @@ import {
   gatePadding,
   controlBtnOffset,
   groupPaddingX,
+  groupTopPadding,
+  groupBottomPadding,
 } from "./constants.js";
 import {
   ComponentGrid,
@@ -40,21 +42,21 @@ const processOperations = (
 ): {
   renderDataArray: GateRenderData[][];
   svgWidth: number;
-  maxDepthTop: number;
-  maxDepthBottom: number;
+  maxTopPadding: number;
+  maxBottomPadding: number;
 } => {
   if (componentGrid.length === 0)
     return {
       renderDataArray: [],
       svgWidth: startX + gatePadding * 2,
-      maxDepthTop: 0,
-      maxDepthBottom: 0,
+      maxTopPadding: 0,
+      maxBottomPadding: 0,
     };
   const numColumns: number = componentGrid.length;
   const columnsWidths: number[] = new Array(numColumns).fill(minGateWidth);
 
-  let maxDepthTop = 0;
-  let maxDepthBottom = 0;
+  let maxTopPadding = 0;
+  let maxBottomPadding = 0;
 
   // Get classical registers and their starting column index
   const classicalRegs: [number, Register][] =
@@ -86,10 +88,13 @@ const processOperations = (
         const maxTargetY = Math.max(...(renderData.targetsY as number[]));
 
         if (topY === minTargetY) {
-          maxDepthTop = Math.max(maxDepthTop, renderData.maxDepthTop);
+          maxTopPadding = Math.max(maxTopPadding, renderData.topPadding);
         }
         if (bottomY === maxTargetY) {
-          maxDepthBottom = Math.max(maxDepthBottom, renderData.maxDepthBottom);
+          maxBottomPadding = Math.max(
+            maxBottomPadding,
+            renderData.bottomPadding,
+          );
         }
 
         if (
@@ -142,8 +147,8 @@ const processOperations = (
   return {
     renderDataArray: filteredArray,
     svgWidth: endX,
-    maxDepthTop,
-    maxDepthBottom,
+    maxTopPadding,
+    maxBottomPadding,
   };
 };
 
@@ -198,8 +203,8 @@ const _opToRenderData = (
     targetsY: [],
     label: "",
     width: -1,
-    maxDepthTop: 0,
-    maxDepthBottom: 0,
+    topPadding: 0,
+    bottomPadding: 0,
   };
 
   if (op == null) return renderData;
@@ -265,8 +270,8 @@ const _opToRenderData = (
     );
     const zeroGates: GateRenderData[][] = childrenInstrs.renderDataArray;
     const zeroChildWidth: number = childrenInstrs.svgWidth;
-    const zeroChildMaxDepthTop = childrenInstrs.maxDepthTop;
-    const zeroChildMaxDepthBottom = childrenInstrs.maxDepthBottom;
+    const zeroChildMaxTopPadding = childrenInstrs.maxTopPadding;
+    const zeroChildMaxBottomPadding = childrenInstrs.maxBottomPadding;
 
     // Gates to display when classical bit is 1.
     const onOneOps: ComponentGrid = children
@@ -285,25 +290,28 @@ const _opToRenderData = (
     );
     const oneGates: GateRenderData[][] = childrenInstrs.renderDataArray;
     const oneChildWidth: number = childrenInstrs.svgWidth;
-    const oneChildMaxDepthTop = childrenInstrs.maxDepthTop;
-    const oneChildMaxDepthBottom = childrenInstrs.maxDepthBottom;
+    const oneChildMaxTopPadding = childrenInstrs.maxTopPadding;
+    const oneChildMaxBottomPadding = childrenInstrs.maxBottomPadding;
 
     // Subtract startX (left-side) and 2*gatePadding (right-side) from nested child gates width
     const width: number =
       Math.max(zeroChildWidth, oneChildWidth) - startX - gatePadding * 2;
 
-    const maxDepthTop = Math.max(zeroChildMaxDepthTop, oneChildMaxDepthTop);
-    const maxDepthBottom = Math.max(
-      zeroChildMaxDepthBottom,
-      oneChildMaxDepthBottom,
+    const maxTopPadding = Math.max(
+      zeroChildMaxTopPadding,
+      oneChildMaxTopPadding,
+    );
+    const maxBottomPadding = Math.max(
+      zeroChildMaxBottomPadding,
+      oneChildMaxBottomPadding,
     );
 
     renderData.type = GateType.ClassicalControlled;
     renderData.children = [zeroGates, oneGates];
     // Add additional width from control button and inner box padding for dashed box
     renderData.width = width + controlBtnOffset + groupPaddingX * 2;
-    renderData.maxDepthTop = maxDepthTop + 1;
-    renderData.maxDepthBottom = maxDepthBottom + 1;
+    renderData.topPadding = maxTopPadding + groupTopPadding;
+    renderData.bottomPadding = maxBottomPadding + groupBottomPadding;
 
     // Set targets to first and last quantum registers so we can render the surrounding box
     // around all quantum registers.
@@ -324,14 +332,15 @@ const _opToRenderData = (
     renderData.type = GateType.Group;
     renderData.label = gate;
     renderData.children = childrenInstrs.renderDataArray;
-    renderData.maxDepthTop = childrenInstrs.maxDepthTop + 1;
-    renderData.maxDepthBottom = childrenInstrs.maxDepthBottom + 1;
     // _zoomButton function in gateFormatter.ts relies on
     // 'expanded' attribute to render zoom button
     renderData.dataAttributes = { expanded: "true" };
     // Subtract startX (left-side) and add inner box padding for dashed box
     renderData.width =
       childrenInstrs.svgWidth - startX - gatePadding * 3 + groupPaddingX * 2; // (svgWidth includes 3 extra gate paddings)
+    renderData.topPadding = childrenInstrs.maxTopPadding + groupTopPadding;
+    renderData.bottomPadding =
+      childrenInstrs.maxBottomPadding + groupBottomPadding;
   } else if (op.kind === "measurement") {
     renderData.type = GateType.Measure;
   } else if (op.kind === "ket") {

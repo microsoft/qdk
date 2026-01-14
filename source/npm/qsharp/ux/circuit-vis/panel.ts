@@ -253,8 +253,8 @@ const toRenderData = (
     targetsY: [target],
     label: "",
     width: -1,
-    maxDepthTop: 0,
-    maxDepthBottom: 0,
+    topPadding: 0,
+    bottomPadding: 0,
   };
 
   if (operation === undefined) return renderData;
