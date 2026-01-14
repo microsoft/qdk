@@ -90,7 +90,8 @@
     fill: var(--vscode-editorLink-activeForeground, #5d5d5d);
   }
 
-  a.qs-circuit-source-link:hover .control-dot {
+  a.qs-circuit-source-link:hover .control-dot,
+  a.qs-circuit-source-link:hover .control-line {
     fill: var(--vscode-editorLink-activeForeground, #5d5d5d);
     stroke: var(--vscode-editorLink-activeForeground, #5d5d5d);
   }
@@ -117,14 +118,14 @@
   }
 
   /* Dot and line for controlled gates */
-  .gate > line,
+  .control-line,
   .control-dot {
     fill: var(--main-color);
   }
 
   /* X gate */
-  .gate > .oplus > line,
-  .gate > .oplus > circle {
+  .oplus > line,
+  .oplus > circle {
     fill: var(--main-background);
     stroke: var(--main-color);
     stroke-width: 2;
@@ -265,7 +266,7 @@
   .gate:hover > .gate-expand {
     visibility: visible;
     opacity: 1;
-    transition: opacity 1s;
+    transition: opacity 0.2s;
   }
 
   .dropzone-layer {

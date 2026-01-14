@@ -433,6 +433,80 @@ fn conjugate_mutable_update_in_apply_fail() {
 }
 
 #[test]
+fn conjugate_allowed_mutable_with_invalid_lhs_ignored() {
+    check(
+        indoc! {"
+            namespace Test {
+                operation B(i : Int) : Unit is Adj {}
+                operation A() : Unit {
+                    mutable a = 1;
+                    within {
+                        B(1);
+                    }
+                    apply {
+                        set (a + 1) = 3;
+                        B(2);
+                    }
+                }
+            }
+        "},
+        &expect![[r#"
+            Package:
+                Item 0 [0-234] (Public):
+                    Namespace (Ident 33 [10-14] "Test"): Item 1, Item 2
+                Item 1 [21-58] (Internal):
+                    Parent: 0
+                    Callable 0 [21-58] (operation):
+                        name: Ident 1 [31-32] "B"
+                        input: Pat 2 [33-40] [Type Int]: Bind: Ident 3 [33-34] "i"
+                        output: Unit
+                        functors: Adj
+                        body: SpecDecl 4 [21-58]: Impl:
+                            Block 5 [56-58]: <empty>
+                        adj: <none>
+                        ctl: <none>
+                        ctl-adj: <none>
+                Item 2 [63-232] (Internal):
+                    Parent: 0
+                    Callable 6 [63-232] (operation):
+                        name: Ident 7 [73-74] "A"
+                        input: Pat 8 [74-76] [Type Unit]: Unit
+                        output: Unit
+                        functors: empty set
+                        body: SpecDecl 9 [63-232]: Impl:
+                            Block 10 [84-232] [Type Unit]:
+                                Stmt 11 [94-108]: Local (Mutable):
+                                    Pat 12 [102-103] [Type Int]: Bind: Ident 13 [102-103] "a"
+                                    Expr 14 [106-107] [Type Int]: Lit: Int(1)
+                                Stmt 15 [117-226]: Expr: Expr 51 [0-0] [Type Unit]: Expr Block: Block 44 [0-0] [Type Unit]:
+                                    Stmt 45 [0-0]: Expr: Expr 46 [0-0] [Type Unit]: Expr Block: Block 17 [124-153] [Type Unit]:
+                                        Stmt 18 [138-143]: Semi: Expr 19 [138-142] [Type Unit]: Call:
+                                            Expr 20 [138-139] [Type (Int => Unit is Adj)]: Var: Item 1 (Package 1)
+                                            Expr 21 [140-141] [Type Int]: Lit: Int(1)
+                                    Stmt 41 [0-0]: Local (Immutable):
+                                        Pat 42 [0-0] [Type Unit]: Bind: Ident 40 [0-0] "@apply_res"
+                                        Expr 43 [0-0] [Type Unit]: Expr Block: Block 22 [168-226] [Type Unit]:
+                                            Stmt 23 [182-198]: Semi: Expr 24 [182-197] [Type Unit]: Assign:
+                                                Expr 25 [187-192] [Type Int]: BinOp (Add):
+                                                    Expr 26 [187-188] [Type Int]: Var: Local 13
+                                                    Expr 27 [191-192] [Type Int]: Lit: Int(1)
+                                                Expr 28 [196-197] [Type Int]: Lit: Int(3)
+                                            Stmt 29 [211-216]: Semi: Expr 30 [211-215] [Type Unit]: Call:
+                                                Expr 31 [211-212] [Type (Int => Unit is Adj)]: Var: Item 1 (Package 1)
+                                                Expr 32 [213-214] [Type Int]: Lit: Int(2)
+                                    Stmt 47 [0-0]: Expr: Expr 48 [0-0] [Type Unit]: Expr Block: Block 34 [124-153] [Type Unit]:
+                                        Stmt 35 [138-143]: Semi: Expr 36 [138-142] [Type Unit]: Call:
+                                            Expr 37 [138-139] [Type (Int => Unit is Adj)]: UnOp (Functor Adj):
+                                                Expr 38 [138-139] [Type (Int => Unit is Adj)]: Var: Item 1 (Package 1)
+                                            Expr 39 [140-141] [Type Int]: Lit: Int(1)
+                                    Stmt 49 [0-0]: Expr: Expr 50 [0-0] [Type Unit]: Var: Local 40
+                        adj: <none>
+                        ctl: <none>
+                        ctl-adj: <none>"#]],
+    );
+}
+
+#[test]
 fn conjugate_return_in_apply_fail() {
     check(
         indoc! {"
@@ -456,6 +530,39 @@ fn conjugate_return_in_apply_fail() {
                     Span {
                         lo: 205,
                         hi: 214,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn conjugate_return_nested_in_apply_fail() {
+    check(
+        indoc! {"
+            namespace Test {
+                operation B(i : Int) : Unit is Adj {}
+                operation A() : Unit {
+                    mutable a = 1;
+                    within {
+                        let x = a;
+                        B(2);
+                    }
+                    apply {
+                        if true {
+                            return ();
+                        }
+                    }
+                }
+            }
+        "},
+        &expect![[r#"
+            [
+                ReturnForbidden(
+                    Span {
+                        lo: 231,
+                        hi: 240,
                     },
                 ),
             ]

@@ -1030,9 +1030,7 @@ mod given_interpreter {
         #[test]
         fn adaptive_qirgen() {
             let mut interpreter = get_interpreter_with_capabilities(
-                TargetCapabilityFlags::Adaptive
-                    | TargetCapabilityFlags::QubitReset
-                    | TargetCapabilityFlags::IntegerComputations,
+                TargetCapabilityFlags::Adaptive | TargetCapabilityFlags::IntegerComputations,
             );
             let (result, output) = line(
                 &mut interpreter,
@@ -1100,9 +1098,8 @@ mod given_interpreter {
 
         #[test]
         fn adaptive_qirgen_nested_output_types() {
-            let mut interpreter = get_interpreter_with_capabilities(
-                TargetCapabilityFlags::Adaptive | TargetCapabilityFlags::QubitReset,
-            );
+            let mut interpreter =
+                get_interpreter_with_capabilities(TargetCapabilityFlags::Adaptive);
             let (result, output) = line(
                 &mut interpreter,
                 indoc! {r#"
@@ -1453,9 +1450,8 @@ mod given_interpreter {
 
         #[test]
         fn adaptive_qirgen_custom_intrinsic_returning_bool() {
-            let mut interpreter = get_interpreter_with_capabilities(
-                TargetCapabilityFlags::Adaptive | TargetCapabilityFlags::QubitReset,
-            );
+            let mut interpreter =
+                get_interpreter_with_capabilities(TargetCapabilityFlags::Adaptive);
             let res = interpreter
                 .qirgen("{ operation check_result(r : Result) : Bool { body intrinsic; }; operation Foo() : Bool { use q = Qubit(); let r = MResetZ(q); check_result(r) } Foo() }")
                 .expect("expected success");
@@ -1758,9 +1754,7 @@ mod given_interpreter {
             let result = Interpreter::new(
                 sources,
                 PackageType::Exe,
-                TargetCapabilityFlags::Adaptive
-                    | TargetCapabilityFlags::IntegerComputations
-                    | TargetCapabilityFlags::QubitReset,
+                TargetCapabilityFlags::Adaptive | TargetCapabilityFlags::IntegerComputations,
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
