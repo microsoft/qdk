@@ -11,7 +11,6 @@ import {
   CircuitGroup,
   ComponentGrid,
   Operation,
-  Column,
   SourceLocation,
 } from "./circuit.js";
 import { GateRenderData } from "./gateRenderData.js";
@@ -115,13 +114,10 @@ export class Sqore {
       ),
     );
 
-    // Render operations starting at given depth
-    _circuit.componentGrid = this.selectOpsAtDepth(
-      _circuit.componentGrid,
-      this.renderDepth,
-    );
+    // Expand operations to the specified render depth
+    this.expandOperationsToDepth(_circuit.componentGrid, this.renderDepth);
 
-    // If only one top-level operation, expand automatically:
+    // Auto-expand any groups with single children
     this.expandIfSingleOperation(_circuit.componentGrid);
 
     // Create visualization components
@@ -151,6 +147,27 @@ export class Sqore {
       enableEvents(container, this, () => this.renderCircuit(container));
       if (this.options.editCallback != undefined) {
         this.options.editCallback(this.minimizeCircuits(this.circuitGroup));
+      }
+    }
+  }
+
+  private expandOperationsToDepth(
+    componentGrid: ComponentGrid,
+    targetDepth: number,
+    currentDepth: number = 0,
+  ) {
+    for (const col of componentGrid) {
+      for (const op of col.components) {
+        if (currentDepth < targetDepth && op.children != null) {
+          op.conditionalRender = ConditionalRender.AsGroup;
+          op.dataAttributes = op.dataAttributes || {};
+          op.dataAttributes["expanded"] = "true";
+          this.expandOperationsToDepth(
+            op.children,
+            targetDepth,
+            currentDepth + 1,
+          );
+        }
       }
     }
   }
@@ -307,53 +324,6 @@ export class Sqore {
     operation.dataAttributes["zoom-in"] = (
       operation.children != null
     ).toString();
-  }
-
-  /**
-   * Pick out operations that are at or below `renderDepth`.
-   *
-   * @param componentGrid Circuit components.
-   * @param renderDepth Initial layer depth at which to render gates.
-   *
-   * @returns Grid of components at or below specified depth.
-   */
-  private selectOpsAtDepth(
-    componentGrid: ComponentGrid,
-    renderDepth: number,
-  ): ComponentGrid {
-    if (renderDepth < 0)
-      throw new Error(
-        `Invalid renderDepth of ${renderDepth}. Needs to be >= 0.`,
-      );
-    if (renderDepth === 0) return componentGrid;
-    const selectedOps: ComponentGrid = [];
-    componentGrid.forEach((col) => {
-      const selectedCol: Operation[] = [];
-      const extraCols: Column[] = [];
-      col.components.forEach((op) => {
-        if (op.children != null) {
-          const selectedChildren = this.selectOpsAtDepth(
-            op.children,
-            renderDepth - 1,
-          );
-          if (selectedChildren.length > 0) {
-            selectedCol.push(...selectedChildren[0].components);
-            selectedChildren.slice(1).forEach((col, colIndex) => {
-              if (extraCols[colIndex] == null) extraCols[colIndex] = col;
-              // NOTE: I'm unsure if this is a safe way to combine column arrays
-              else extraCols[colIndex].components.push(...col.components);
-            });
-          }
-        } else {
-          selectedCol.push(op);
-        }
-      });
-      selectedOps.push({ components: selectedCol });
-      if (extraCols.length > 0) {
-        selectedOps.push(...extraCols);
-      }
-    });
-    return selectedOps;
   }
 
   /**
