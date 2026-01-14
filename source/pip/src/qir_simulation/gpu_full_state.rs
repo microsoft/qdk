@@ -153,9 +153,9 @@ impl GpuContext {
         let mut ops: Vec<Op> = Vec::with_capacity(input.len());
         for intr in input {
             // Error if the instruction can't be converted
-            let item = <QirInstruction as FromPyObject>::extract_bound(&intr).map_err(|e| {
-                PyValueError::new_err(format!("expected QirInstruction, got {intr:?}: {e}"))
-            })?;
+            let item: QirInstruction = intr
+                .extract()
+                .map_err(|e| PyValueError::new_err(format!("expected QirInstruction: {e}")))?;
             // However some ops can't be mapped (e.g. OutputRecording), so skip those
             if let Some(op) = map_instruction(&item) {
                 ops.push(op);
@@ -187,7 +187,7 @@ impl GpuContext {
         Ok(())
     }
 
-    fn run_shots(&self, py: Python<'_>, shot_count: i32, seed: u32) -> PyResult<PyObject> {
+    fn run_shots(&self, py: Python<'_>, shot_count: i32, seed: u32) -> PyResult<Py<PyAny>> {
         let mut gpu_context = self
             .native_context
             .lock()
