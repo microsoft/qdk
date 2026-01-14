@@ -684,7 +684,7 @@
 
 .state-svg .state-phase-wedge {
   stroke: none;
-  fill-opacity: 0.25;
+  fill-opacity: 0.75;
   transition:
     fill var(--stateAnimMs, 200ms) ease,
     opacity var(--stateAnimMs, 200ms) ease;

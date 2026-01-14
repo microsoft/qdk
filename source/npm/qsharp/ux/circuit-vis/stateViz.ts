@@ -4,6 +4,9 @@
 export type RenderOptions = {
   maxColumns?: number;
   phaseColorMap?: (phaseRad: number) => string;
+  // Fill color for the aggregated "Others" column.
+  // Default comes from VIZ.defaultOthersColor.
+  othersColor?: string;
   normalize?: boolean; // normalize probabilities to unit mass (default true)
   minColumnWidth?: number; // minimum width per column to avoid label collisions
   minPanelWidthPx?: number; // prescribed minimum panel width in pixels
@@ -24,6 +27,7 @@ const VIZ = {
   marginBottom: 62,
   minPanelWidthPx: 80,
   defaultMinPanelWidth: 190,
+  defaultOthersColor: "#a6a6a6",
   columnSpacing: 4,
   minColumnWidthFloor: 16,
   defaultMinColumnWidth: 36,
@@ -350,6 +354,7 @@ type LayoutMetrics = {
   verticalLabels: boolean;
 
   animationMs: number;
+  othersColor: string;
   scaleY: (p: number) => number;
   clampProb: (p: number) => number;
   displayLabel: (b: ColumnDatum) => string;
@@ -457,6 +462,7 @@ const computeLayoutMetrics = (
     Math.max(...columnsData.map((b) => b.prob ?? 0)),
   );
   const barAreaHeightPx = VIZ.columnAreaHeight;
+  const othersColor = opts.othersColor ?? VIZ.defaultOthersColor;
   const scaleY = (p: number) => (p / maxProb) * barAreaHeightPx;
   const clampProb = (p: number) => Math.max(0, Math.min(p, maxProb));
   const phaseColor = opts.phaseColorMap ?? defaultPhaseColor;
@@ -486,6 +492,7 @@ const computeLayoutMetrics = (
     clampProb,
     displayLabel,
     phaseColor,
+    othersColor,
   };
 };
 
@@ -537,6 +544,7 @@ const renderColumn = (
     clampProb,
     displayLabel,
     phaseColor,
+    othersColor,
   } = layout;
   const x = i * (columnWidthPx + VIZ.columnSpacing);
   const bar = document.createElementNS("http://www.w3.org/2000/svg", "rect");
@@ -544,7 +552,7 @@ const renderColumn = (
   bar.setAttribute("width", `${columnWidthPx}`);
   bar.setAttribute(
     "fill",
-    column.isOthers ? "#a6a6a6" : phaseColor(column.phase),
+    column.isOthers ? othersColor : phaseColor(column.phase),
   );
   bar.setAttribute("class", "state-bar");
   const tip = document.createElementNS("http://www.w3.org/2000/svg", "title");
@@ -586,10 +594,11 @@ const renderColumn = (
 
   const cx = x + columnWidthPx / 2;
   if (!column.isOthers) {
-    const DOT_FRAC = VIZ.phaseDotFrac;
     let r = phaseCircleRadiusPx;
     if (r >= VIZ.phaseRadiusThreshold) {
-      const maxR = Math.floor((columnWidthPx / 2 - VIZ.padX) / (1 + DOT_FRAC));
+      const maxR = Math.floor(
+        (columnWidthPx / 2 - VIZ.padX) / (1 + VIZ.phaseDotFrac),
+      );
       r = Math.min(r, Math.max(2, maxR));
     } else {
       const maxR = Math.floor(columnWidthPx / 2 - VIZ.padX - 1.5);
@@ -634,7 +643,7 @@ const renderColumn = (
       "text",
     );
     phaseText.setAttribute("x", `${cx}`);
-    const dotRadius = Math.max(VIZ.phaseDotRadiusMinPx, r * DOT_FRAC);
+    const dotRadius = Math.max(VIZ.phaseDotRadiusMinPx, r * VIZ.phaseDotFrac);
     const yTop = cy + r + dotRadius;
     const yBottom = stateSectionTopY - VIZ.phaseTextBottomPad;
     const textH = VIZ.verticalLabelLineHeight;
@@ -656,7 +665,10 @@ const renderColumn = (
     );
     dot.setAttribute("cx", `${cx + prevDx}`);
     dot.setAttribute("cy", `${cy - prevDy}`);
-    dot.setAttribute("r", `${Math.max(VIZ.phaseDotRadiusMinPx, r * DOT_FRAC)}`);
+    dot.setAttribute(
+      "r",
+      `${Math.max(VIZ.phaseDotRadiusMinPx, r * VIZ.phaseDotFrac)}`,
+    );
     dot.setAttribute("fill", phaseColor(column.phase));
     dot.setAttribute("class", "state-phase-dot");
     g.appendChild(dot);
