@@ -59,31 +59,7 @@ const VIZ = {
   rowLabelFallbackPx: 24,
 };
 
-// Data Preparation
-
-const OTHERS_KEY = "__OTHERS__";
-
-export type AmpComplex = { re: number; im: number };
-export type AmpPolar = { prob?: number; phase?: number };
-export type AmpLike = AmpComplex | AmpPolar;
-export type AmpMap = Record<string, AmpLike>;
-
-// Convert amplitude to polar `{ prob, phase }`.
-const toPolar = (a: AmpLike): { prob: number; phase: number } => {
-  const maybe = a as Partial<AmpComplex & AmpPolar>;
-  const hasPolar =
-    typeof maybe.prob === "number" || typeof maybe.phase === "number";
-  if (hasPolar) {
-    const prob = typeof maybe.prob === "number" ? maybe.prob : 0;
-    const phase = typeof maybe.phase === "number" ? maybe.phase : 0;
-    return { prob, phase };
-  }
-  const re = typeof maybe.re === "number" ? maybe.re : 0;
-  const im = typeof maybe.im === "number" ? maybe.im : 0;
-  return { prob: re * re + im * im, phase: Math.atan2(im, re) };
-};
-
-// Entry Points
+// --- Entry Points ---
 
 // Adapter: render from a map of named states to complex amplitudes.
 export const updateStatePanelFromMap = (
@@ -109,98 +85,31 @@ export const updateStatePanelFromMap = (
 
   // Ensure SVG is visible and remove any empty-state message when rendering data
   showContentState(panel);
+
   const raw = entries.map(([label, a]) => {
     const { prob, phase } = toPolar(a);
     return { label, prob, phase } as ColumnDatum;
   });
+
+  // Normalize probabilities
   const doNormalize = opts.normalize ?? true;
-  const mass = raw.reduce((total, r) => total + r.prob, 0);
-  const states =
-    doNormalize && mass > 0
-      ? raw.map((r) => ({ ...r, prob: r.prob / mass }))
-      : raw;
+  const states = doNormalize ? normalizeColumns(raw) : raw;
 
-  const numericRegex = /^[+-]?\d+(?:\.\d+)?$/;
-  const asNumber = (s: string) => (numericRegex.test(s) ? parseFloat(s) : NaN);
-  const isNumeric = (s: string) => numericRegex.test(s);
-  const labelCmp = (a: string, b: string) => a.localeCompare(b);
+  // Split columns based on threshold value
+  const { significant, small } =
+    typeof opts.minProbThreshold === "number"
+      ? splitByThreshold(states, opts.minProbThreshold)
+      : { significant: states, small: [] };
 
+  // Sort by probability and cap to max column numbers, aggregating rest into "Others"
+  significant.sort((a, b) => (b.prob ?? 0) - (a.prob ?? 0));
   const maxColumns = opts.maxColumns ?? VIZ.defaultMaxColumns;
-  // Helper comparator for usual label ordering (numeric labels first, then lexical)
-  const labelOrderCmp = (a: { label: string }, b: { label: string }) => {
-    const an = isNumeric(a.label);
-    const bn = isNumeric(b.label);
-    if (an && bn) {
-      const av = asNumber(a.label);
-      const bv = asNumber(b.label);
-      return av - bv;
-    }
-    if (an !== bn) return an ? -1 : 1;
-    return labelCmp(a.label, b.label);
-  };
-  const sortedByLabel = states.slice().sort(labelOrderCmp);
-  let columns: ColumnDatum[] = [];
-  const minThresh = Math.max(
-    0,
-    Math.min(
-      1,
-      typeof opts.minProbThreshold === "number" ? opts.minProbThreshold : 0.0,
-    ),
-  );
-  // Apply threshold against normalized mass so the value represents a percentage of total
-  const probForThresh = (r: { prob: number }) =>
-    doNormalize || mass <= 0 ? (r.prob ?? 0) : (r.prob ?? 0) / mass;
-  const smallStates =
-    minThresh > 0 ? states.filter((r) => probForThresh(r) < minThresh) : [];
-  const sigStates =
-    minThresh > 0
-      ? states.filter((r) => probForThresh(r) >= minThresh)
-      : states.slice();
-  const needOthers =
-    smallStates.length > 0 || sortedByLabel.length > maxColumns;
-  if (!needOthers) {
-    // No need to aggregate; everything fits and no thresholded states
-    columns = sortedByLabel;
-  } else {
-    const reserveOthers = 1; // keep one column for Others when needed
-    const capacity = Math.max(
-      0,
-      (opts.maxColumns ?? VIZ.defaultMaxColumns) - reserveOthers,
-    );
-    // Choose by probability first from significant states (those above threshold)
-    const chosenByProb = sigStates
-      .slice()
-      .sort((a, b) => (b.prob ?? 0) - (a.prob ?? 0))
-      .slice(0, capacity);
-    const chosenOrdered = chosenByProb.slice().sort(labelOrderCmp);
-    const chosenSet = new Set(chosenByProb.map((r) => r.label));
-    const tail = states.filter((r) => !chosenSet.has(r.label));
-    const othersProb = tail.reduce((s, r) => s + (r.prob ?? 0), 0);
-    const othersCount = tail.length;
-    if (chosenOrdered.length === 0) {
-      // Edge case: threshold or capacity leaves no explicit states; only Others
-      columns = [
-        {
-          label: OTHERS_KEY,
-          prob: othersProb,
-          phase: 0,
-          isOthers: true,
-          othersCount,
-        },
-      ];
-    } else {
-      columns = [
-        ...chosenOrdered,
-        {
-          label: OTHERS_KEY,
-          prob: othersProb,
-          phase: 0,
-          isOthers: true,
-          othersCount,
-        },
-      ];
-    }
-  }
+  const cappedColumns = capAndAggregateColumns(significant, small, maxColumns);
+
+  // Sort by top columns by label, with "Others" last
+  const columns = sortColumnsByLabel(cappedColumns);
+
+  // Finally, render
   renderStatePanel(panel, columns, opts);
 };
 
@@ -314,7 +223,104 @@ export const createStatePanel = (): HTMLElement => {
   return panel;
 };
 
-// Layout Computation
+// --- State Amplitude Preparation ---
+
+export type AmpComplex = { re: number; im: number };
+export type AmpPolar = { prob?: number; phase?: number };
+export type AmpLike = AmpComplex | AmpPolar;
+export type AmpMap = Record<string, AmpLike>;
+
+// Convert amplitude to polar `{ prob, phase }`.
+const toPolar = (a: AmpLike): { prob: number; phase: number } => {
+  const maybe = a as Partial<AmpComplex & AmpPolar>;
+  const hasPolar =
+    typeof maybe.prob === "number" || typeof maybe.phase === "number";
+  if (hasPolar) {
+    const prob = typeof maybe.prob === "number" ? maybe.prob : 0;
+    const phase = typeof maybe.phase === "number" ? maybe.phase : 0;
+    return { prob, phase };
+  }
+  const re = typeof maybe.re === "number" ? maybe.re : 0;
+  const im = typeof maybe.im === "number" ? maybe.im : 0;
+  return { prob: re * re + im * im, phase: Math.atan2(im, re) };
+};
+
+// --- Data Normalization and Column Utilities ---
+
+// Normalize probabilities in-place on ColumnDatum[]
+function normalizeColumns(states: ColumnDatum[]): ColumnDatum[] {
+  const sum = states.reduce((acc, s) => acc + (s.prob ?? 0), 0);
+  if (sum <= 0) return states;
+  return states.map((s) => ({ ...s, prob: (s.prob ?? 0) / sum }));
+}
+
+// Split columns by threshold
+function splitByThreshold(
+  states: ColumnDatum[],
+  minProb: number,
+): { significant: ColumnDatum[]; small: ColumnDatum[] } {
+  const minThresh = Math.max(0, Math.min(1, minProb));
+  const significant: ColumnDatum[] = [];
+  const small: ColumnDatum[] = [];
+  for (const s of states) {
+    if ((s.prob ?? 0) >= minThresh) significant.push(s);
+    else small.push(s);
+  }
+  return { significant, small };
+}
+
+// Cap by max columns, aggregate rest into Other
+function capAndAggregateColumns(
+  significant: ColumnDatum[],
+  small: ColumnDatum[],
+  maxColumns: number,
+): ColumnDatum[] {
+  // Only reserve a column for 'Other' if there are small states or dropped states
+  const needsOthers = small.length > 0 || significant.length > maxColumns;
+  const capacity = needsOthers
+    ? Math.max(0, maxColumns - 1)
+    : Math.max(1, maxColumns);
+  const topColumns = significant.slice(0, capacity);
+  const dropped = significant.slice(capacity);
+  const othersList = [...small, ...dropped];
+  const columns = [...topColumns];
+  if (othersList.length > 0) {
+    const othersProb = othersList.reduce((s, r) => s + (r.prob ?? 0), 0);
+    const othersCount = othersList.length;
+    columns.push({
+      label: "__OTHERS__",
+      prob: othersProb,
+      phase: 0,
+      isOthers: true,
+      othersCount,
+    });
+  }
+  return columns;
+}
+
+// Sort columns by label, with Others last
+function sortColumnsByLabel(columns: ColumnDatum[]): ColumnDatum[] {
+  const numericRegex = /^[+-]?\d+(?:\.\d+)?$/;
+  const asNumber = (s: string) => (numericRegex.test(s) ? parseFloat(s) : NaN);
+  const isNumeric = (s: string) => numericRegex.test(s);
+  const labelCmp = (a: string, b: string) => a.localeCompare(b);
+  const labelOrderCmp = (a: ColumnDatum, b: ColumnDatum) => {
+    if (a.isOthers === true) return 1;
+    if (b.isOthers === true) return -1;
+    const an = isNumeric(a.label);
+    const bn = isNumeric(b.label);
+    if (an && bn) {
+      const av = asNumber(a.label);
+      const bv = asNumber(b.label);
+      return av - bv;
+    }
+    if (an !== bn) return an ? -1 : 1;
+    return labelCmp(a.label, b.label);
+  };
+  return columns.slice().sort(labelOrderCmp);
+}
+
+// --- Layout Computation ---
 
 // Render helper that draws the state panel directly from column data
 type ColumnDatum = {
@@ -435,7 +441,7 @@ const computeLayoutMetrics = (
     Math.floor(columnWidthPx / 2) - 1,
   );
   const displayLabel = (b: ColumnDatum) =>
-    b.label === OTHERS_KEY ? `Others (${b.othersCount ?? 0})` : b.label;
+    b.isOthers === true ? `Others (${b.othersCount ?? 0})` : b.label;
   const maxLabelLen = columnsData.reduce(
     (m, b) => Math.max(m, (displayLabel(b) || "").length),
     0,
@@ -483,7 +489,7 @@ const computeLayoutMetrics = (
   };
 };
 
-// Rendering functions
+// --- Rendering functions ---
 
 const renderStatePanel = (
   panel: HTMLElement,
