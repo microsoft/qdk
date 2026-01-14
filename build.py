@@ -710,7 +710,7 @@ if build_pip and build_widgets and args.integration_tests:
             or f.startswith("benzene.")
             or f.startswith("parallel_teleport.")
             or f.startswith("carbon.")
-            or f.startswith("simulating_qir.")
+            or f.startswith("gpu_and_clifford_simulation.")
         )
     ]
     python_bin = use_python_env(samples_src)
