@@ -708,11 +708,8 @@ if build_pip and build_widgets and args.integration_tests:
             or f.startswith("cirq_submission_to_azure.")
             or f.startswith("pennylane_submission_to_azure.")
             or f.startswith("benzene.")
-            or f.startswith("carbon.")
-            or f.startswith("Ising.")
-            or f.startswith("atoms.")
-            or f.startswith("teleport-notebook.")
-            or f.startswith("qdk_simulators.")
+            or f.startswith("parallel_teleport.")
+            or f.startswith("simulating_qir.")
         )
     ]
     python_bin = use_python_env(samples_src)
