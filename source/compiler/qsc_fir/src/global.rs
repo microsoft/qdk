@@ -75,7 +75,7 @@ impl FromIterator<Global> for Table {
 }
 
 pub struct PackageIter<'a> {
-    id: Option<PackageId>,
+    id: PackageId,
     package: &'a Package,
     items: index_map::Values<'a, Item>,
     next: Option<Global>,
@@ -154,7 +154,7 @@ impl Iterator for PackageIter<'_> {
 }
 
 #[must_use]
-pub fn iter_package(id: Option<PackageId>, package: &'_ Package) -> PackageIter<'_> {
+pub fn iter_package(id: PackageId, package: &'_ Package) -> PackageIter<'_> {
     PackageIter {
         id,
         package,

@@ -110,7 +110,7 @@ impl<'py> ErrorCorrection for PythonQEC<'py> {
             .call1((&**code_parameter,))
             .map_err(|e| e.to_string())?;
 
-        result.extract().map_err(|e| e.to_string())
+        result.extract().map_err(|e: pyo3::PyErr| e.to_string())
     }
 
     fn logical_qubits(&self, code_parameter: &Self::Parameter) -> Result<u64, String> {
@@ -119,7 +119,7 @@ impl<'py> ErrorCorrection for PythonQEC<'py> {
             .call1((&**code_parameter,))
             .map_err(|e| e.to_string())?;
 
-        result.extract().map_err(|e| e.to_string())
+        result.extract().map_err(|e: pyo3::PyErr| e.to_string())
     }
 
     fn logical_cycle_time(
@@ -132,7 +132,7 @@ impl<'py> ErrorCorrection for PythonQEC<'py> {
             .call1((qubit, &**code_parameter))
             .map_err(|e| e.to_string())?;
 
-        result.extract().map_err(|e| e.to_string())
+        result.extract().map_err(|e: pyo3::PyErr| e.to_string())
     }
 
     fn logical_error_rate(
@@ -145,7 +145,7 @@ impl<'py> ErrorCorrection for PythonQEC<'py> {
             .call1((qubit, &**code_parameter))
             .map_err(|e| e.to_string())?;
 
-        result.extract().map_err(|e| e.to_string())
+        result.extract().map_err(|e: pyo3::PyErr| e.to_string())
     }
 
     fn code_parameter_range(

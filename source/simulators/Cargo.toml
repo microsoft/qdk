@@ -17,7 +17,6 @@ rand = { workspace = true }
 nalgebra = { workspace = true }
 num-bigint = { workspace = true }
 num-complex = { workspace = true }
-smallvec = { workspace = true }
 regex-lite = { workspace = true }
 paulimer = { path = "../paulimer" }
 noisy_simulator = { path = "../noisy_simulator" }

@@ -3,7 +3,9 @@
 
 use qsc_data_structures::index_map::IndexMap;
 use qsc_fir::assigner::Assigner;
-use qsc_fir::fir::{Block, CallableImpl, ExecGraphNode, Expr, Pat, SpecImpl, Stmt};
+use qsc_fir::fir::{
+    Block, CallableImpl, ExecGraph, ExecGraphIdx, ExecGraphNode, Expr, Pat, SpecImpl, Stmt,
+};
 use qsc_fir::{
     fir::{self, BlockId, ExprId, LocalItemId, PatId, StmtId},
     ty::{Arrow, InferFunctorId, ParamId, Ty},
@@ -41,6 +43,104 @@ struct FirIncrement {
     items: Vec<LocalItemId>,
 }
 
+#[derive(Default)]
+pub struct ExecGraphBuilder {
+    no_debug: Vec<ExecGraphNode>,
+    debug: Vec<ExecGraphNode>,
+}
+
+impl ExecGraphBuilder {
+    /// Takes the built execution graph and resets the builder.
+    fn take(&mut self) -> ExecGraph {
+        let debug_exec_graph = self
+            .debug
+            .drain(..)
+            .chain(once(ExecGraphNode::RetFrame))
+            .collect::<Vec<_>>()
+            .into();
+
+        let no_debug_exec_graph = self
+            .no_debug
+            .drain(..)
+            .chain(once(ExecGraphNode::Ret))
+            .collect::<Vec<_>>()
+            .into();
+
+        ExecGraph::new(no_debug_exec_graph, debug_exec_graph)
+    }
+
+    /// Pushes a node to *only* the debug execution graph.
+    fn debug_push(&mut self, node: ExecGraphNode) {
+        self.debug.push(node);
+    }
+
+    /// Pushes a node to the execution graph.
+    fn push(&mut self, node: ExecGraphNode) {
+        self.no_debug.push(node);
+        self.debug.push(node);
+    }
+
+    /// Constructs a node with the given argument, then pushes it to the execution graph.
+    fn push_with_arg<F>(&mut self, node_fn: F, arg: ExecGraphIdx)
+    where
+        F: Fn(u32) -> ExecGraphNode,
+    {
+        self.debug.push(node_fn(
+            arg.debug_idx.try_into().expect("nodes should fit into u32"),
+        ));
+
+        self.no_debug.push(node_fn(
+            arg.no_debug_idx
+                .try_into()
+                .expect("nodes should fit into u32"),
+        ));
+    }
+
+    /// Pushes a return node to the execution graph.
+    fn push_ret(&mut self) {
+        self.no_debug.push(ExecGraphNode::Ret);
+        self.debug.push(ExecGraphNode::RetFrame);
+    }
+
+    /// Returns the current length of the execution graph.
+    fn len(&self) -> ExecGraphIdx {
+        ExecGraphIdx {
+            no_debug_idx: self.no_debug.len(),
+            debug_idx: self.debug.len(),
+        }
+    }
+
+    /// Constructs a node with the given argument, then sets it at the given index in the execution graph.
+    fn set_with_arg<F>(&mut self, node_fn: F, index: ExecGraphIdx, arg: ExecGraphIdx)
+    where
+        F: Fn(u32) -> ExecGraphNode,
+    {
+        let debug_idx = index.debug_idx;
+        let no_debug_idx = index.no_debug_idx;
+
+        self.debug[debug_idx] =
+            node_fn(arg.debug_idx.try_into().expect("nodes should fit into u32"));
+
+        self.no_debug[no_debug_idx] = node_fn(
+            arg.no_debug_idx
+                .try_into()
+                .expect("nodes should fit into u32"),
+        );
+    }
+
+    /// Removes all nodes after and including the given index.
+    fn truncate(&mut self, idx: ExecGraphIdx) {
+        self.no_debug.truncate(idx.no_debug_idx);
+        self.debug.truncate(idx.debug_idx);
+    }
+
+    /// Removes the last pushed node.
+    fn pop(&mut self) {
+        self.no_debug.pop();
+        self.debug.pop();
+    }
+}
+
 pub struct Lowerer {
     nodes: IndexMap<hir::NodeId, fir::NodeId>,
     locals: IndexMap<hir::NodeId, fir::LocalVarId>,
@@ -49,9 +149,7 @@ pub struct Lowerer {
     stmts: IndexMap<StmtId, Stmt>,
     blocks: IndexMap<BlockId, Block>,
     assigner: Assigner,
-    exec_graph: Vec<ExecGraphNode>,
-    enable_debug: bool,
-    ret_node: ExecGraphNode,
+    exec_graph: ExecGraphBuilder,
     fir_increment: FirIncrement,
 }
 
@@ -72,29 +170,13 @@ impl Lowerer {
             stmts: IndexMap::new(),
             blocks: IndexMap::new(),
             assigner: Assigner::new(),
-            exec_graph: Vec::new(),
-            enable_debug: false,
-            ret_node: ExecGraphNode::Ret,
+            exec_graph: ExecGraphBuilder::default(),
             fir_increment: FirIncrement::default(),
         }
     }
 
-    #[must_use]
-    pub fn with_debug(mut self, dbg: bool) -> Self {
-        self.enable_debug = dbg;
-        if dbg {
-            self.ret_node = ExecGraphNode::RetFrame;
-        } else {
-            self.ret_node = ExecGraphNode::Ret;
-        }
-        self
-    }
-
-    pub fn take_exec_graph(&mut self) -> Vec<ExecGraphNode> {
-        self.exec_graph
-            .drain(..)
-            .chain(once(self.ret_node))
-            .collect()
+    pub fn take_exec_graph(&mut self) -> ExecGraph {
+        self.exec_graph.take()
     }
 
     pub fn lower_package(
@@ -103,7 +185,7 @@ impl Lowerer {
         store: &fir::PackageStore,
     ) -> fir::Package {
         let entry = package.entry.as_ref().map(|e| self.lower_expr(e));
-        let entry_exec_graph = self.exec_graph.drain(..).collect();
+        let entry_exec_graph = self.exec_graph.take();
         let items: IndexMap<LocalItemId, fir::Item> = package
             .items
             .values()
@@ -228,7 +310,7 @@ impl Lowerer {
             hir::ItemKind::Callable(callable) => {
                 let callable = self.lower_callable_decl(callable, &item.attrs);
 
-                fir::ItemKind::Callable(callable)
+                fir::ItemKind::Callable(callable.into())
             }
             hir::ItemKind::Ty(name, udt) => {
                 let name = self.lower_ident(name);
@@ -324,11 +406,7 @@ impl Lowerer {
             span: decl.span,
             block,
             input,
-            exec_graph: self
-                .exec_graph
-                .drain(..)
-                .chain(once(self.ret_node))
-                .collect(),
+            exec_graph: self.exec_graph.take(),
         }
     }
 
@@ -362,9 +440,7 @@ impl Lowerer {
         // is performed via their lowered local variable ID, so they cannot be accessed outside of
         // their scope. Associated memory is still cleaned up at callable exit rather than block
         // exit.
-        if self.enable_debug {
-            self.exec_graph.push(ExecGraphNode::PushScope);
-        }
+        self.exec_graph.debug_push(ExecGraphNode::PushScope);
         let set_unit = block.stmts.is_empty()
             || !matches!(
                 block.stmts.last().expect("block should be non-empty").kind,
@@ -379,10 +455,8 @@ impl Lowerer {
         if set_unit {
             self.exec_graph.push(ExecGraphNode::Unit);
         }
-        if self.enable_debug {
-            self.exec_graph.push(ExecGraphNode::BlockEnd(id));
-            self.exec_graph.push(ExecGraphNode::PopScope);
-        }
+        self.exec_graph.debug_push(ExecGraphNode::BlockEnd(id));
+        self.exec_graph.debug_push(ExecGraphNode::PopScope);
         self.blocks.insert(id, block);
         id
     }
@@ -390,9 +464,7 @@ impl Lowerer {
     fn lower_stmt(&mut self, stmt: &hir::Stmt) -> fir::StmtId {
         let id = self.assigner.next_stmt();
         let graph_start_idx = self.exec_graph.len();
-        if self.enable_debug {
-            self.exec_graph.push(ExecGraphNode::Stmt(id));
-        }
+        self.exec_graph.debug_push(ExecGraphNode::Stmt(id));
         let kind = match &stmt.kind {
             hir::StmtKind::Expr(expr) => fir::StmtKind::Expr(self.lower_expr(expr)),
             hir::StmtKind::Item(item) => fir::StmtKind::Item(lower_local_item_id(*item)),
@@ -466,7 +538,7 @@ impl Lowerer {
                 let lhs = self.lower_expr(lhs);
                 // The left-hand side of an assignment is not really an expression to be executed,
                 // so remove any added nodes from the execution graph.
-                self.exec_graph.drain(idx..);
+                self.exec_graph.truncate(idx);
                 fir::ExprKind::Assign(lhs, self.lower_expr(rhs))
             }
             hir::ExprKind::AssignOp(op, lhs, rhs) => {
@@ -476,7 +548,7 @@ impl Lowerer {
                 if is_array {
                     // The left-hand side of an array append is not really an expression to be
                     // executed, so remove any added nodes from the execution graph.
-                    self.exec_graph.drain(idx..);
+                    self.exec_graph.truncate(idx);
                 }
                 let idx = self.exec_graph.len();
                 if matches!(op, hir::BinOp::AndL | hir::BinOp::OrL) {
@@ -488,19 +560,17 @@ impl Lowerer {
                 let rhs = self.lower_expr(rhs);
                 match op {
                     hir::BinOp::AndL => {
-                        self.exec_graph[idx] = ExecGraphNode::JumpIfNot(
-                            self.exec_graph
-                                .len()
-                                .try_into()
-                                .expect("nodes should fit into u32"),
+                        self.exec_graph.set_with_arg(
+                            ExecGraphNode::JumpIfNot,
+                            idx,
+                            self.exec_graph.len(),
                         );
                     }
                     hir::BinOp::OrL => {
-                        self.exec_graph[idx] = ExecGraphNode::JumpIf(
-                            self.exec_graph
-                                .len()
-                                .try_into()
-                                .expect("nodes should fit into u32"),
+                        self.exec_graph.set_with_arg(
+                            ExecGraphNode::JumpIf,
+                            idx,
+                            self.exec_graph.len(),
                         );
                     }
                     _ => {}
@@ -522,7 +592,7 @@ impl Lowerer {
                 let container = self.lower_expr(container);
                 // The left-hand side of an array index assignment is not really an expression to be
                 // executed, so remove any added nodes from the execution graph.
-                self.exec_graph.drain(idx..);
+                self.exec_graph.truncate(idx);
                 fir::ExprKind::AssignIndex(container, index, replace)
             }
             hir::ExprKind::BinOp(op, lhs, rhs) => {
@@ -539,21 +609,19 @@ impl Lowerer {
                     // If the operator is logical AND, update the placeholder to skip the
                     // right-hand side if the left-hand side is false
                     hir::BinOp::AndL => {
-                        self.exec_graph[idx] = ExecGraphNode::JumpIfNot(
-                            self.exec_graph
-                                .len()
-                                .try_into()
-                                .expect("nodes should fit into u32"),
+                        self.exec_graph.set_with_arg(
+                            ExecGraphNode::JumpIfNot,
+                            idx,
+                            self.exec_graph.len(),
                         );
                     }
                     // If the operator is logical OR, update the placeholder to skip the
                     // right-hand side if the left-hand side is true
                     hir::BinOp::OrL => {
-                        self.exec_graph[idx] = ExecGraphNode::JumpIf(
-                            self.exec_graph
-                                .len()
-                                .try_into()
-                                .expect("nodes should fit into u32"),
+                        self.exec_graph.set_with_arg(
+                            ExecGraphNode::JumpIf,
+                            idx,
+                            self.exec_graph.len(),
                         );
                     }
                     _ => {}
@@ -589,12 +657,8 @@ impl Lowerer {
                     self.exec_graph.push(ExecGraphNode::Jump(0));
                     let if_false = self.lower_expr(if_false);
                     // Update the placeholder to skip over the false branch
-                    self.exec_graph[idx] = ExecGraphNode::Jump(
-                        self.exec_graph
-                            .len()
-                            .try_into()
-                            .expect("nodes should fit into u32"),
-                    );
+                    self.exec_graph
+                        .set_with_arg(ExecGraphNode::Jump, idx, self.exec_graph.len());
                     (Some(if_false), idx + 1)
                 } else {
                     // An if-expr without an else cannot return a value, so we need to
@@ -604,9 +668,8 @@ impl Lowerer {
                     (None, idx)
                 };
                 // Update the placeholder to skip the true branch if the condition is false
-                self.exec_graph[branch_idx] = ExecGraphNode::JumpIfNot(
-                    else_idx.try_into().expect("nodes should fit into u32"),
-                );
+                self.exec_graph
+                    .set_with_arg(ExecGraphNode::JumpIfNot, branch_idx, else_idx);
                 fir::ExprKind::If(cond, if_true, if_false)
             }
             hir::ExprKind::Index(container, index) => {
@@ -630,7 +693,7 @@ impl Lowerer {
             }
             hir::ExprKind::Return(expr) => {
                 let expr = self.lower_expr(expr);
-                self.exec_graph.push(self.ret_node);
+                self.exec_graph.push_ret();
                 fir::ExprKind::Return(expr)
             }
             hir::ExprKind::Struct(name, copy, fields) => {
@@ -670,16 +733,10 @@ impl Lowerer {
                 // Put a placeholder in the execution graph for the jump past the loop
                 self.exec_graph.push(ExecGraphNode::Jump(0));
                 let body = self.lower_block(body);
-                self.exec_graph.push(ExecGraphNode::Jump(
-                    cond_idx.try_into().expect("nodes should fit into u32"),
-                ));
+                self.exec_graph.push_with_arg(ExecGraphNode::Jump, cond_idx);
                 // Update the placeholder to skip the loop if the condition is false
-                self.exec_graph[idx] = ExecGraphNode::JumpIfNot(
-                    self.exec_graph
-                        .len()
-                        .try_into()
-                        .expect("nodes should fit into u32"),
-                );
+                self.exec_graph
+                    .set_with_arg(ExecGraphNode::JumpIfNot, idx, self.exec_graph.len());
                 // While-exprs never have a return value, so we need to insert a no-op to ensure
                 // a Unit value is returned for the expr.
                 self.exec_graph.push(ExecGraphNode::Unit);
@@ -1013,7 +1070,7 @@ fn lower_prim_field(field: hir::PrimField) -> fir::PrimField {
 fn lower_item_id(id: &hir::ItemId) -> fir::ItemId {
     fir::ItemId {
         item: lower_local_item_id(id.item),
-        package: id.package.map(|p| fir::PackageId::from(usize::from(p))),
+        package: map_hir_package_to_fir(id.package),
     }
 }
 

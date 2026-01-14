@@ -19,7 +19,7 @@ async-trait = { workspace = true }
 qsc_linter = { path = "../qsc_linter" }
 qsc_circuit = { path = "../qsc_circuit" }
 qsc_data_structures = { path = "../qsc_data_structures" }
-qsc_qasm = { path = "../qsc_qasm" }
+qsc_openqasm_parser = { path = "../qsc_openqasm_parser" }
 qsc_frontend = { path = "../qsc_frontend" }
 rustc-hash = { workspace = true }
 futures = { workspace = true }

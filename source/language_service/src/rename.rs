@@ -97,7 +97,7 @@ impl<'a> Rename<'a> {
     }
 
     fn get_spans_for_item_rename(&mut self, item_id: &hir::ItemId, ast_name: &ast::Ident) {
-        let package_id = item_id.package.expect("package id should be resolved");
+        let package_id = item_id.package;
         // Only rename items that are part of the user package
         if package_id == self.compilation.user_package_id {
             if self.is_prepare {
@@ -111,7 +111,7 @@ impl<'a> Rename<'a> {
     }
 
     fn get_spans_for_field_rename(&mut self, item_id: &hir::ItemId, ast_name: &ast::Ident) {
-        let package_id = item_id.package.expect("package id should be resolved");
+        let package_id = item_id.package;
         // Only rename items that are part of the user package
         if package_id == self.compilation.user_package_id {
             if self.is_prepare {
@@ -176,10 +176,7 @@ impl<'a> Handler<'a> for Rename<'a> {
         _: &'a ast::CallableDecl,
     ) {
         if let Some(resolve::Res::Item(item_id, _)) = self.compilation.get_res(name.id) {
-            self.get_spans_for_item_rename(
-                &resolve_package(self.compilation.user_package_id, item_id),
-                name,
-            );
+            self.get_spans_for_item_rename(item_id, name);
         }
     }
 
@@ -200,10 +197,7 @@ impl<'a> Handler<'a> for Rename<'a> {
         _: &'a ast::TyDef,
     ) {
         if let Some(resolve::Res::Item(item_id, _)) = self.compilation.get_res(type_name.id) {
-            self.get_spans_for_item_rename(
-                &resolve_package(self.compilation.user_package_id, item_id),
-                type_name,
-            );
+            self.get_spans_for_item_rename(item_id, type_name);
         }
     }
 
@@ -214,10 +208,7 @@ impl<'a> Handler<'a> for Rename<'a> {
         _: &'a ast::StructDecl,
     ) {
         if let Some(resolve::Res::Item(item_id, _)) = self.compilation.get_res(type_name.id) {
-            self.get_spans_for_item_rename(
-                &resolve_package(self.compilation.user_package_id, item_id),
-                type_name,
-            );
+            self.get_spans_for_item_rename(item_id, type_name);
         }
     }
 
@@ -262,10 +253,7 @@ impl<'a> Handler<'a> for Rename<'a> {
         _: &'a ast::Ty,
     ) {
         if let Some(item_id) = context.current_udt_id {
-            self.get_spans_for_field_rename(
-                &resolve_package(self.compilation.user_package_id, item_id),
-                field_name,
-            );
+            self.get_spans_for_field_rename(item_id, field_name);
         }
     }
 
@@ -295,13 +283,6 @@ impl<'a> Handler<'a> for Rename<'a> {
         _: &'a ast::Ident,
     ) {
         self.get_spans_for_local_rename(node_id, name, context.current_callable);
-    }
-}
-
-fn resolve_package(local_package_id: hir::PackageId, item_id: &hir::ItemId) -> hir::ItemId {
-    hir::ItemId {
-        item: item_id.item,
-        package: item_id.package.or(Some(local_package_id)),
     }
 }
 

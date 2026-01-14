@@ -61,6 +61,46 @@ fn qubit_reindexed_after_reset_removes_reset() {
 }
 
 #[test]
+fn qubit_reindex_removes_initial_reset_without_reindexing() {
+    const X: CallableId = CallableId(0);
+    const RESET: CallableId = CallableId(1);
+    let mut program = Program::new();
+    program.num_qubits = 1;
+    program.callables.insert(X, x_decl());
+    program.callables.insert(RESET, reset_decl());
+    program.blocks.insert(
+        BlockId(0),
+        Block(vec![
+            Instruction::Call(RESET, vec![Operand::Literal(Literal::Qubit(0))], None),
+            Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None),
+            Instruction::Return,
+        ]),
+    );
+
+    // Before
+    expect![[r#"
+        Block:
+            Call id(1), args( Qubit(0), )
+            Call id(0), args( Qubit(0), )
+            Return"#]]
+    .assert_eq(&program.get_block(BlockId(0)).to_string());
+
+    // After
+    reindex_qubits(&mut program);
+    expect![[r#"
+        Block:
+            Call id(0), args( Qubit(0), )
+            Return"#]]
+    .assert_eq(&program.get_block(BlockId(0)).to_string());
+    assert_eq!(program.num_qubits, 1);
+
+    // Reset callable should be removed.
+    for callable in program.callables.values() {
+        assert_ne!(callable.call_type, CallableType::Reset);
+    }
+}
+
+#[test]
 fn qubit_reindexed_after_mz() {
     const X: CallableId = CallableId(0);
     const M: CallableId = CallableId(1);

@@ -152,7 +152,7 @@ impl Ty {
                     .map(|item| item.with_package(package))
                     .collect(),
             ),
-            Ty::Udt(name, res) => Ty::Udt(name.clone(), res.with_package(package)),
+            Ty::Udt(name, res) => Ty::Udt(name.clone(), *res),
         }
     }
 

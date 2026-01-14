@@ -214,6 +214,14 @@ impl Operation {
         }
     }
 
+    #[must_use]
+    pub fn targets_mut(&mut self) -> &mut Vec<Register> {
+        match self {
+            Operation::Measurement(m) => &mut m.qubits,
+            Operation::Unitary(u) => &mut u.targets,
+            Operation::Ket(k) => &mut k.targets,
+        }
+    }
     /// Returns if the operation is a controlled operation.
     #[must_use]
     pub fn is_controlled(&self) -> bool {
@@ -337,6 +345,7 @@ pub struct Qubit {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
 /// The schema of `Metadata` may change and its contents
 /// are never meant to be persisted in a .qsc file.
 pub struct Metadata {
@@ -416,32 +425,30 @@ impl Row {
         self.add(column, CircuitObject::Object(gate_label.clone()));
     }
 
-    fn add_gate(
-        &mut self,
-        column: usize,
-        gate: &str,
-        args: &[String],
-        is_adjoint: bool,
-        source: Option<&SourceLocation>,
-    ) {
+    fn add_gate(&mut self, column: usize, operation: &Operation) {
+        let gate_label = self.operation_label(operation);
+
+        self.add_object(column, gate_label.as_str());
+    }
+
+    fn operation_label(&self, operation: &Operation) -> String {
         let mut gate_label = String::new();
-        gate_label.push_str(gate);
-        if is_adjoint {
+        gate_label.push_str(&operation.gate());
+        if operation.is_adjoint() {
             gate_label.push('\'');
         }
 
-        if !args.is_empty() {
-            let args = args.join(", ");
+        if !operation.args().is_empty() {
+            let args = operation.args().join(", ");
             let _ = write!(&mut gate_label, "({args})");
         }
 
         if self.render_locations
-            && let Some(SourceLocation::Resolved(loc)) = source
+            && let Some(SourceLocation::Resolved(loc)) = operation.source_location()
         {
             let _ = write!(&mut gate_label, "@{}:{}:{}", loc.file, loc.line, loc.column);
         }
-
-        self.add_object(column, gate_label.as_str());
+        gate_label
     }
 
     fn add_vertical(&mut self, column: usize) {
@@ -889,13 +896,7 @@ fn add_operation_to_rows(
         {
             row.start_classical(column);
         } else {
-            row.add_gate(
-                column,
-                &operation.gate(),
-                &operation.args(),
-                operation.is_adjoint(),
-                operation.source_location(),
-            );
+            row.add_gate(column, operation);
         }
     }
 
@@ -936,15 +937,8 @@ fn add_box_start(operation: &Operation, rows: &mut [Row], target_rows: &[usize],
     for i in target_rows {
         if first {
             first = false;
-            rows[*i].add_object(
-                column,
-                format!(
-                    "[ [{}{}]",
-                    operation.gate(),
-                    if operation.is_adjoint() { "'" } else { "" },
-                )
-                .as_str(),
-            );
+            let label = rows[*i].operation_label(operation);
+            rows[*i].add_object(column, format!("[ [{label}]").as_str());
         } else {
             rows[*i].add_object(column, "[");
         }

@@ -4,8 +4,10 @@
 use crate::{PackageType, entry_point::generate_entry_expr};
 use expect_test::{Expect, expect};
 use indoc::indoc;
-use qsc_data_structures::{language_features::LanguageFeatures, target::TargetCapabilityFlags};
-use qsc_frontend::compile::{self, PackageStore, SourceMap, compile};
+use qsc_data_structures::{
+    language_features::LanguageFeatures, source::SourceMap, target::TargetCapabilityFlags,
+};
+use qsc_frontend::compile::{self, PackageStore, compile};
 
 fn check(file: &str, expr: &str, expect: &Expect) {
     let sources = SourceMap::new([("test".into(), file.into())], Some(expr.into()));
@@ -43,7 +45,7 @@ fn test_entry_point_attr_to_expr() {
         "",
         &expect![[r#"
             Expr 12 [0-0] [Type Int]: Call:
-                Expr 11 [50-54] [Type Int]: Var: Item 1
+                Expr 11 [50-54] [Type Int]: Var: Item 1 (Package 1)
                 Expr 10 [54-56] [Type Unit]: Unit"#]],
     );
 }
@@ -58,7 +60,7 @@ fn test_entry_point_attr_missing_implies_main() {
         "",
         &expect![[r#"
             Expr 12 [0-0] [Type Int]: Call:
-                Expr 11 [32-36] [Type Int]: Var: Item 1
+                Expr 11 [32-36] [Type Int]: Var: Item 1 (Package 1)
                 Expr 10 [36-38] [Type Unit]: Unit"#]],
     );
 }

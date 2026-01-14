@@ -14,13 +14,14 @@ members = [
     "source/compiler/qsc_fir",
     "source/compiler/qsc_frontend",
     "source/compiler/qsc_hir",
+    "source/compiler/qsc_openqasm_compiler",
+    "source/compiler/qsc_openqasm_parser",
     "source/compiler/qsc_linter",
     "source/compiler/qsc_lowerer",
     "source/compiler/qsc_parse",
     "source/compiler/qsc_partial_eval",
     "source/compiler/qsc_passes",
     "source/compiler/qsc_project",
-    "source/compiler/qsc_qasm",
     "source/compiler/qsc_rir",
     "source/fuzz",
     "source/language_service",
@@ -79,8 +80,7 @@ wasm-bindgen = "0.2.100"
 wasm-bindgen-futures = "0.4"
 rand = "0.8"
 serde_json = "1.0"
-smallvec = "1.8.1"
-pyo3 = "0.24"
+pyo3 = "0.27.2"
 quantum-sparse-sim = { git = "https://github.com/qir-alliance/qir-runner", rev = "8cd6fa698521ecf96d459f88254e53dd6e5d6877" }
 async-trait = "0.1"
 tokio = { version = "1.44", features = ["macros", "rt"] }

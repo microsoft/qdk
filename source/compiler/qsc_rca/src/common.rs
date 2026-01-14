@@ -160,7 +160,7 @@ pub fn try_resolve_callee(
             try_resolve_un_op_callee(*operator, *operand_expr_id, package_id, package, locals_map)
         }
         ExprKind::Var(res, _) => match res {
-            Res::Item(item_id) => (Some(resolve_item_callee(package_id, *item_id)), None),
+            Res::Item(item_id) => (Some(resolve_item_callee(*item_id)), None),
             Res::Local(local_var_id) => {
                 try_resolve_local_callee(*local_var_id, package_id, package, locals_map)
             }
@@ -178,10 +178,9 @@ pub fn try_resolve_callee(
     }
 }
 
-fn resolve_item_callee(call_package_id: PackageId, item_id: ItemId) -> Callee {
-    let package_id = item_id.package.unwrap_or(call_package_id);
+fn resolve_item_callee(item_id: ItemId) -> Callee {
     Callee {
-        item: (package_id, item_id.item).into(),
+        item: (item_id.package, item_id.item).into(),
         functor_app: FunctorApp::default(),
     }
 }

@@ -220,14 +220,7 @@ impl<'a> ReferenceFinder<'a> {
             };
 
             if name_filter.is_none() || decl_name == name_filter {
-                locations.push(
-                    self.location(
-                        decl_span,
-                        resolved_item_id
-                            .package
-                            .expect("package id should have been resolved"),
-                    ),
-                );
+                locations.push(self.location(decl_span, resolved_item_id.package));
             }
         }
 
@@ -263,14 +256,7 @@ impl<'a> ReferenceFinder<'a> {
                 let def_span = ty_field
                     .name_span
                     .expect("field found via name should have a name");
-                locations.push(
-                    self.location(
-                        def_span,
-                        resolved_ty_item_id
-                            .package
-                            .expect("package id should have been resolved"),
-                    ),
-                );
+                locations.push(self.location(def_span, resolved_ty_item_id.package));
             } else {
                 panic!("item id resolved to non-type: {ty_item_id}");
             }
@@ -384,9 +370,7 @@ impl Visitor<'_> for FindItemRefs<'_> {
 
 impl FindItemRefs<'_> {
     fn eq(&mut self, item_id: &hir::ItemId) -> bool {
-        item_id.item == self.item_id.item
-            && item_id.package.unwrap_or(self.compilation.user_package_id)
-                == self.item_id.package.expect("package id should be resolved")
+        item_id.item == self.item_id.item && item_id.package == self.item_id.package
     }
 }
 
@@ -452,12 +436,7 @@ impl Visitor<'_> for FindFieldRefs<'_> {
 
 impl FindFieldRefs<'_> {
     fn eq(&mut self, item_id: &hir::ItemId) -> bool {
-        item_id.item == self.ty_item_id.item
-            && item_id.package.unwrap_or(self.compilation.user_package_id)
-                == self
-                    .ty_item_id
-                    .package
-                    .expect("package id should be resolved")
+        item_id.item == self.ty_item_id.item && item_id.package == self.ty_item_id.package
     }
 }
 

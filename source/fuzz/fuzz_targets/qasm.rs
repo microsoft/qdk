@@ -12,7 +12,7 @@ use qsc::{
     PackageStore, PackageType,
     compile::{compile_ast, package_store_with_stdlib},
     hir::PackageId,
-    qasm::{
+    openqasm::{
         CompilerConfig, OutputSemantics, ProgramType, QubitSemantics,
         compiler::parse_and_compile_to_qsharp_ast_with_config, io::InMemorySourceResolver,
     },

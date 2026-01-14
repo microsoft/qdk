@@ -8,8 +8,9 @@ use crate::display::{CodeDisplay, Lookup, increase_header_level, parse_doc_for_s
 use crate::table_of_contents::table_of_contents;
 use qsc_ast::ast;
 use qsc_data_structures::language_features::LanguageFeatures;
+use qsc_data_structures::source::SourceMap;
 use qsc_data_structures::target::TargetCapabilityFlags;
-use qsc_frontend::compile::{self, Dependencies, PackageStore, SourceMap, compile};
+use qsc_frontend::compile::{self, Dependencies, PackageStore, compile};
 use qsc_frontend::resolve;
 use qsc_hir::hir::{CallableKind, Item, ItemKind, Package, PackageId, Res, Visibility};
 use qsc_hir::{hir, ty};
@@ -230,14 +231,10 @@ impl Lookup for Compilation {
     /// `Res`s can resolve to external packages, and the references
     /// are relative, so here we also need the
     /// local `PackageId` that the `res` itself came from.
-    fn resolve_item_res(
-        &self,
-        local_package_id: PackageId,
-        res: &hir::Res,
-    ) -> (&hir::Item, hir::ItemId) {
+    fn resolve_item_res(&self, res: &hir::Res) -> (&hir::Item, hir::ItemId) {
         match res {
             hir::Res::Item(item_id) => {
-                let (item, _, resolved_item_id) = self.resolve_item(local_package_id, item_id);
+                let (item, _, resolved_item_id) = self.resolve_item(item_id);
                 (item, resolved_item_id)
             }
             _ => panic!("expected to find item"),
@@ -248,19 +245,14 @@ impl Lookup for Compilation {
     /// `ItemId`s can refer to external packages, and the references
     /// are relative, so here we also need the local `PackageId`
     /// that the `ItemId` originates from.
-    fn resolve_item(
-        &self,
-        local_package_id: PackageId,
-        item_id: &hir::ItemId,
-    ) -> (&hir::Item, &hir::Package, hir::ItemId) {
+    fn resolve_item(&self, item_id: &hir::ItemId) -> (&hir::Item, &hir::Package, hir::ItemId) {
         // If the `ItemId` contains a package id, use that.
         // Lack of a package id means the item is in the
         // same package as the one this `ItemId` reference
         // came from. So use the local package id passed in.
-        let package_id = item_id.package.unwrap_or(local_package_id);
         let package = &self
             .package_store
-            .get(package_id)
+            .get(item_id.package)
             .expect("package should exist in store")
             .package;
         (
@@ -269,10 +261,7 @@ impl Lookup for Compilation {
                 .get(item_id.item)
                 .expect("item id should exist"),
             package,
-            hir::ItemId {
-                package: Some(package_id),
-                item: item_id.item,
-            },
+            *item_id,
         )
     }
 }
@@ -319,7 +308,6 @@ fn build_toc_from_compilation(
 
         for (_, item) in &package.items {
             if let Some((ns, metadata)) = generate_doc_for_item(
-                package_id,
                 package,
                 package_kind.clone(),
                 is_current_package,
@@ -385,7 +373,6 @@ pub fn generate_docs(
 }
 
 fn generate_doc_for_item<'a>(
-    default_package_id: PackageId,
     package: &'a Package,
     package_kind: PackageKind,
     include_internals: bool,
@@ -393,13 +380,7 @@ fn generate_doc_for_item<'a>(
     display: &'a CodeDisplay,
     files: &mut FilesWithMetadata,
 ) -> Option<(Rc<str>, Rc<Metadata>)> {
-    let (true_package, true_item) = resolve_export(
-        default_package_id,
-        package,
-        include_internals,
-        item,
-        display,
-    )?;
+    let (true_package, true_item) = resolve_export(package, include_internals, item, display)?;
 
     // Get namespace for item
     let ns = get_namespace(package, item)?;
@@ -656,7 +637,6 @@ fn get_namespace(package: &Package, item: &Item) -> Option<Rc<str>> {
 // Returns the package and item of the root definition for an item.
 // If given the root definition, it will return the same item.
 fn resolve_export<'a>(
-    default_package_id: PackageId,
     package: &'a Package,
     include_internals: bool,
     item: &'a Item,
@@ -670,15 +650,8 @@ fn resolve_export<'a>(
         return None;
     }
     if let ItemKind::Export(_, Res::Item(id)) = item.kind {
-        let (exported_item, exported_package, _) =
-            display.compilation.resolve_item(default_package_id, &id);
-        return resolve_export(
-            default_package_id,
-            exported_package,
-            include_internals,
-            exported_item,
-            display,
-        );
+        let (exported_item, exported_package, _) = display.compilation.resolve_item(&id);
+        return resolve_export(exported_package, include_internals, exported_item, display);
     }
 
     Some((package, item))

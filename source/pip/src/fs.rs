@@ -16,10 +16,10 @@ use qsc::project::{DirEntry, EntryType, FileSystem};
 
 pub(crate) fn file_system(
     py: Python,
-    read_file: PyObject,
-    list_directory: PyObject,
-    resolve_path: PyObject,
-    fetch_github: PyObject,
+    read_file: pyo3::Py<PyAny>,
+    list_directory: pyo3::Py<PyAny>,
+    resolve_path: pyo3::Py<PyAny>,
+    fetch_github: pyo3::Py<PyAny>,
 ) -> impl FileSystem {
     Py {
         py,
@@ -33,10 +33,10 @@ pub(crate) fn file_system(
 }
 
 struct FsHooks {
-    read_file: PyObject,
-    list_directory: PyObject,
-    resolve_path: PyObject,
-    fetch_github: PyObject,
+    read_file: pyo3::Py<PyAny>,
+    list_directory: pyo3::Py<PyAny>,
+    resolve_path: pyo3::Py<PyAny>,
+    fetch_github: pyo3::Py<PyAny>,
 }
 
 #[derive(Debug)]
@@ -103,23 +103,31 @@ impl FileSystem for Py<'_> {
     }
 }
 
-fn read_file(py: Python, read_file: &PyObject, path: &Path) -> PyResult<(Arc<str>, Arc<str>)> {
+fn read_file(
+    py: Python,
+    read_file: &pyo3::Py<PyAny>,
+    path: &Path,
+) -> PyResult<(Arc<str>, Arc<str>)> {
     let read_file_result = read_file.call1(py, PyTuple::new(py, &[path.to_string_lossy()])?)?;
 
-    let tuple = read_file_result.downcast_bound::<PyTuple>(py)?;
+    let tuple = read_file_result.cast_bound::<PyTuple>(py)?;
 
     Ok((get_tuple_string(tuple, 0)?, get_tuple_string(tuple, 1)?))
 }
 
-fn list_directory(py: Python, list_directory: &PyObject, path: &Path) -> PyResult<Vec<Entry>> {
+fn list_directory(
+    py: Python,
+    list_directory: &pyo3::Py<PyAny>,
+    path: &Path,
+) -> PyResult<Vec<Entry>> {
     let list_directory_result =
         list_directory.call1(py, PyTuple::new(py, &[path.to_string_lossy()])?)?;
 
     list_directory_result
-        .downcast_bound::<PyList>(py)?
+        .cast_bound::<PyList>(py)?
         .into_iter()
         .map(|e| {
-            let dict = e.downcast::<PyDict>()?;
+            let dict = e.cast::<PyDict>()?;
             let entry_type = match get_dict_string(dict, "type")?.to_string().as_str() {
                 "file" => EntryType::File,
                 "folder" => EntryType::Folder,
@@ -140,7 +148,7 @@ fn list_directory(py: Python, list_directory: &PyObject, path: &Path) -> PyResul
 
 fn resolve_path(
     py: Python,
-    resolve_path: &PyObject,
+    resolve_path: &pyo3::Py<PyAny>,
     base: &Path,
     path: &Path,
 ) -> PyResult<PathBuf> {
@@ -151,7 +159,7 @@ fn resolve_path(
 
     Ok(PathBuf::from(
         resolve_path_result
-            .downcast_bound::<PyString>(py)?
+            .cast_bound::<PyString>(py)?
             .str()?
             .to_string(),
     ))
@@ -159,7 +167,7 @@ fn resolve_path(
 
 fn fetch_github(
     py: Python,
-    fetch_github: &PyObject,
+    fetch_github: &pyo3::Py<PyAny>,
     owner: &str,
     repo: &str,
     r#ref: &str,
@@ -169,7 +177,7 @@ fn fetch_github(
         fetch_github.call1(py, PyTuple::new(py, [owner, repo, r#ref, path])?)?;
 
     Ok(fetch_github_result
-        .downcast_bound::<PyString>(py)?
+        .cast_bound::<PyString>(py)?
         .to_string()
         .into())
 }
@@ -177,14 +185,14 @@ fn fetch_github(
 fn get_tuple_string(tuple: &Bound<'_, PyTuple>, index: usize) -> PyResult<Arc<str>> {
     Ok(tuple
         .get_item(index)?
-        .downcast::<PyString>()?
+        .cast::<PyString>()?
         .to_string()
         .into())
 }
 
 fn get_dict_string<'a>(dict: &Bound<'a, PyDict>, key: &'a str) -> PyResult<Bound<'a, PyString>> {
     match dict.get_item(key)? {
-        Some(item) => Ok(item.downcast::<PyString>()?.str()?),
+        Some(item) => Ok(item.cast::<PyString>()?.str()?),
         None => Err(PyException::new_err(format!("missing key `{key}` in dict"))),
     }
 }

@@ -17,7 +17,7 @@ use qsc_ast::{
     visit::{self, Visitor},
 };
 use qsc_data_structures::{index_map::IndexMap, language_features::LanguageFeatures, span::Span};
-use qsc_hir::{assigner::Assigner as HirAssigner, ty::Ty};
+use qsc_hir::{assigner::Assigner as HirAssigner, hir::PackageId, ty::Ty};
 use std::fmt::Write;
 
 struct TyCollector<'a> {
@@ -121,9 +121,13 @@ fn compile(
     AstAssigner::new().visit_package(&mut package);
     let mut assigner = HirAssigner::new();
 
+    // These tests do not happen in the context of a `PackageStore`,
+    // so we just make up a fake PackageId.
+    let package_id = PackageId::CORE.successor().successor();
+
     let mut globals = resolve::GlobalTable::new();
-    let mut errors = globals.add_local_package(&mut assigner, &package);
-    let mut resolver = Resolver::new(globals, Vec::new());
+    let mut errors = globals.add_local_package(&mut assigner, &package, package_id);
+    let mut resolver = Resolver::new(package_id, globals, Vec::new());
     resolver.resolve(&mut assigner, &package);
     let (names, _, _, mut resolve_errors) = resolver.into_result();
     errors.append(&mut resolve_errors);
@@ -1309,21 +1313,21 @@ fn ternop_update_udt_known_field_name() {
             }
         "},
         "",
-        &expect![[r#"
+        &expect![[r##"
             #19 79-81 "()" : Unit
             #21 87-155 "{\n        let p = Pair(1, 2);\n        let q = p w/ First <- 3;\n    }" : Unit
-            #23 101-102 "p" : UDT<"Pair": Item 1>
-            #25 105-115 "Pair(1, 2)" : UDT<"Pair": Item 1>
-            #26 105-109 "Pair" : ((Int, Int) -> UDT<"Pair": Item 1>)
+            #23 101-102 "p" : UDT<"Pair": Item 1 (Package 2)>
+            #25 105-115 "Pair(1, 2)" : UDT<"Pair": Item 1 (Package 2)>
+            #26 105-109 "Pair" : ((Int, Int) -> UDT<"Pair": Item 1 (Package 2)>)
             #29 109-115 "(1, 2)" : (Int, Int)
             #30 110-111 "1" : Int
             #31 113-114 "2" : Int
-            #33 129-130 "q" : UDT<"Pair": Item 1>
-            #35 133-148 "p w/ First <- 3" : UDT<"Pair": Item 1>
-            #36 133-134 "p" : UDT<"Pair": Item 1>
+            #33 129-130 "q" : UDT<"Pair": Item 1 (Package 2)>
+            #35 133-148 "p w/ First <- 3" : UDT<"Pair": Item 1 (Package 2)>
+            #36 133-134 "p" : UDT<"Pair": Item 1 (Package 2)>
             #39 138-143 "First" : ?
             #42 147-148 "3" : Int
-        "#]],
+        "##]],
     );
 }
 
@@ -1341,24 +1345,24 @@ fn ternop_update_udt_known_field_name_expr() {
             }
         "},
         "",
-        &expect![[r#"
+        &expect![[r##"
             #19 79-81 "()" : Unit
             #21 87-159 "{\n        let p = Pair(1, 2);\n        let q = p w/ First + 1 <- 3;\n    }" : Unit
-            #23 101-102 "p" : UDT<"Pair": Item 1>
-            #25 105-115 "Pair(1, 2)" : UDT<"Pair": Item 1>
-            #26 105-109 "Pair" : ((Int, Int) -> UDT<"Pair": Item 1>)
+            #23 101-102 "p" : UDT<"Pair": Item 1 (Package 2)>
+            #25 105-115 "Pair(1, 2)" : UDT<"Pair": Item 1 (Package 2)>
+            #26 105-109 "Pair" : ((Int, Int) -> UDT<"Pair": Item 1 (Package 2)>)
             #29 109-115 "(1, 2)" : (Int, Int)
             #30 110-111 "1" : Int
             #31 113-114 "2" : Int
-            #33 129-130 "q" : UDT<"Pair": Item 1>
-            #35 133-152 "p w/ First + 1 <- 3" : UDT<"Pair": Item 1>
-            #36 133-134 "p" : UDT<"Pair": Item 1>
+            #33 129-130 "q" : UDT<"Pair": Item 1 (Package 2)>
+            #35 133-152 "p w/ First + 1 <- 3" : UDT<"Pair": Item 1 (Package 2)>
+            #36 133-134 "p" : UDT<"Pair": Item 1 (Package 2)>
             #39 138-147 "First + 1" : ?
             #40 138-143 "First" : ?
             #43 146-147 "1" : Int
             #44 151-152 "3" : Int
             Error(Resolve(NotFound("First", Span { lo: 138, hi: 143 })))
-        "#]],
+        "##]],
     );
 }
 
@@ -1376,22 +1380,22 @@ fn ternop_update_udt_unknown_field_name() {
             }
         "},
         "",
-        &expect![[r#"
+        &expect![[r##"
             #19 79-81 "()" : Unit
             #21 87-155 "{\n        let p = Pair(1, 2);\n        let q = p w/ Third <- 3;\n    }" : Unit
-            #23 101-102 "p" : UDT<"Pair": Item 1>
-            #25 105-115 "Pair(1, 2)" : UDT<"Pair": Item 1>
-            #26 105-109 "Pair" : ((Int, Int) -> UDT<"Pair": Item 1>)
+            #23 101-102 "p" : UDT<"Pair": Item 1 (Package 2)>
+            #25 105-115 "Pair(1, 2)" : UDT<"Pair": Item 1 (Package 2)>
+            #26 105-109 "Pair" : ((Int, Int) -> UDT<"Pair": Item 1 (Package 2)>)
             #29 109-115 "(1, 2)" : (Int, Int)
             #30 110-111 "1" : Int
             #31 113-114 "2" : Int
-            #33 129-130 "q" : UDT<"Pair": Item 1>
-            #35 133-148 "p w/ Third <- 3" : UDT<"Pair": Item 1>
-            #36 133-134 "p" : UDT<"Pair": Item 1>
+            #33 129-130 "q" : UDT<"Pair": Item 1 (Package 2)>
+            #35 133-148 "p w/ Third <- 3" : UDT<"Pair": Item 1 (Package 2)>
+            #36 133-134 "p" : UDT<"Pair": Item 1 (Package 2)>
             #39 138-143 "Third" : ?
             #42 147-148 "3" : Int
             Error(Type(Error(MissingClassHasField("Pair", "Third", Span { lo: 133, hi: 148 }))))
-        "#]],
+        "##]],
     );
 }
 
@@ -1411,24 +1415,24 @@ fn ternop_update_udt_unknown_field_name_known_global() {
             }
         "},
         "",
-        &expect![[r#"
+        &expect![[r##"
             #19 81-83 "()" : Unit
             #21 89-91 "{}" : Unit
             #25 109-111 "()" : Unit
             #27 117-185 "{\n        let p = Pair(1, 2);\n        let q = p w/ Third <- 3;\n    }" : Unit
-            #29 131-132 "p" : UDT<"Pair": Item 1>
-            #31 135-145 "Pair(1, 2)" : UDT<"Pair": Item 1>
-            #32 135-139 "Pair" : ((Int, Int) -> UDT<"Pair": Item 1>)
+            #29 131-132 "p" : UDT<"Pair": Item 1 (Package 2)>
+            #31 135-145 "Pair(1, 2)" : UDT<"Pair": Item 1 (Package 2)>
+            #32 135-139 "Pair" : ((Int, Int) -> UDT<"Pair": Item 1 (Package 2)>)
             #35 139-145 "(1, 2)" : (Int, Int)
             #36 140-141 "1" : Int
             #37 143-144 "2" : Int
-            #39 159-160 "q" : UDT<"Pair": Item 1>
-            #41 163-178 "p w/ Third <- 3" : UDT<"Pair": Item 1>
-            #42 163-164 "p" : UDT<"Pair": Item 1>
+            #39 159-160 "q" : UDT<"Pair": Item 1 (Package 2)>
+            #41 163-178 "p w/ Third <- 3" : UDT<"Pair": Item 1 (Package 2)>
+            #42 163-164 "p" : UDT<"Pair": Item 1 (Package 2)>
             #45 168-173 "Third" : ?
             #48 177-178 "3" : Int
             Error(Type(Error(MissingClassHasField("Pair", "Third", Span { lo: 163, hi: 178 }))))
-        "#]],
+        "##]],
     );
 }
 
@@ -2735,14 +2739,14 @@ fn newtype_cons() {
             }
         "},
         "",
-        &expect![[r#"
+        &expect![[r##"
             #12 56-58 "()" : Unit
-            #16 68-81 "{ NewInt(5) }" : UDT<"NewInt": Item 1>
-            #18 70-79 "NewInt(5)" : UDT<"NewInt": Item 1>
-            #19 70-76 "NewInt" : (Int -> UDT<"NewInt": Item 1>)
+            #16 68-81 "{ NewInt(5) }" : UDT<"NewInt": Item 1 (Package 2)>
+            #18 70-79 "NewInt(5)" : UDT<"NewInt": Item 1 (Package 2)>
+            #19 70-76 "NewInt" : (Int -> UDT<"NewInt": Item 1 (Package 2)>)
             #22 76-79 "(5)" : Int
             #23 77-78 "5" : Int
-        "#]],
+        "##]],
     );
 }
 
@@ -2756,15 +2760,15 @@ fn newtype_cons_wrong_input() {
             }
         "},
         "",
-        &expect![[r#"
+        &expect![[r##"
             #12 56-58 "()" : Unit
-            #16 68-83 "{ NewInt(5.0) }" : UDT<"NewInt": Item 1>
-            #18 70-81 "NewInt(5.0)" : UDT<"NewInt": Item 1>
-            #19 70-76 "NewInt" : (Int -> UDT<"NewInt": Item 1>)
+            #16 68-83 "{ NewInt(5.0) }" : UDT<"NewInt": Item 1 (Package 2)>
+            #18 70-81 "NewInt(5.0)" : UDT<"NewInt": Item 1 (Package 2)>
+            #19 70-76 "NewInt" : (Int -> UDT<"NewInt": Item 1 (Package 2)>)
             #22 76-81 "(5.0)" : Double
             #23 77-80 "5.0" : Double
             Error(Type(Error(TyMismatch("Int", "Double", Span { lo: 70, hi: 81 }))))
-        "#]],
+        "##]],
     );
 }
 
@@ -2778,13 +2782,13 @@ fn struct_cons() {
             }
         "},
         "",
-        &expect![[r#"
+        &expect![[r##"
             #19 76-78 "()" : Unit
-            #23 86-124 "{ new Pair { First = 5, Second = 6 } }" : UDT<"Pair": Item 1>
-            #25 88-122 "new Pair { First = 5, Second = 6 }" : UDT<"Pair": Item 1>
+            #23 86-124 "{ new Pair { First = 5, Second = 6 } }" : UDT<"Pair": Item 1 (Package 2)>
+            #25 88-122 "new Pair { First = 5, Second = 6 }" : UDT<"Pair": Item 1 (Package 2)>
             #30 107-108 "5" : Int
             #33 119-120 "6" : Int
-        "#]],
+        "##]],
     );
 }
 
@@ -2798,14 +2802,14 @@ fn struct_cons_wrong_input() {
             }
         "},
         "",
-        &expect![[r#"
+        &expect![[r##"
             #19 76-78 "()" : Unit
-            #23 86-126 "{ new Pair { First = 5.0, Second = 6 } }" : UDT<"Pair": Item 1>
-            #25 88-124 "new Pair { First = 5.0, Second = 6 }" : UDT<"Pair": Item 1>
+            #23 86-126 "{ new Pair { First = 5.0, Second = 6 } }" : UDT<"Pair": Item 1 (Package 2)>
+            #25 88-124 "new Pair { First = 5.0, Second = 6 }" : UDT<"Pair": Item 1 (Package 2)>
             #30 107-110 "5.0" : Double
             #33 121-122 "6" : Int
             Error(Type(Error(TyMismatch("Int", "Double", Span { lo: 99, hi: 110 }))))
-        "#]],
+        "##]],
     );
 }
 
@@ -2819,14 +2823,14 @@ fn struct_cons_wrong_field() {
             }
         "},
         "",
-        &expect![[r#"
+        &expect![[r##"
             #19 76-78 "()" : Unit
-            #23 86-127 "{ new Pair { First = 5, NotSecond = 6 } }" : UDT<"Pair": Item 1>
-            #25 88-125 "new Pair { First = 5, NotSecond = 6 }" : UDT<"Pair": Item 1>
+            #23 86-127 "{ new Pair { First = 5, NotSecond = 6 } }" : UDT<"Pair": Item 1 (Package 2)>
+            #25 88-125 "new Pair { First = 5, NotSecond = 6 }" : UDT<"Pair": Item 1 (Package 2)>
             #30 107-108 "5" : Int
             #33 122-123 "6" : Int
             Error(Type(Error(MissingClassHasField("Pair", "NotSecond", Span { lo: 110, hi: 123 }))))
-        "#]],
+        "##]],
     );
 }
 
@@ -2840,14 +2844,14 @@ fn struct_cons_dup_field() {
             }
         "},
         "",
-        &expect![[r#"
+        &expect![[r##"
             #19 76-78 "()" : Unit
-            #23 86-123 "{ new Pair { First = 5, First = 6 } }" : UDT<"Pair": Item 1>
-            #25 88-121 "new Pair { First = 5, First = 6 }" : UDT<"Pair": Item 1>
+            #23 86-123 "{ new Pair { First = 5, First = 6 } }" : UDT<"Pair": Item 1 (Package 2)>
+            #25 88-121 "new Pair { First = 5, First = 6 }" : UDT<"Pair": Item 1 (Package 2)>
             #30 107-108 "5" : Int
             #33 118-119 "6" : Int
             Error(Type(Error(DuplicateField("Pair", "First", Span { lo: 110, hi: 119 }))))
-        "#]],
+        "##]],
     );
 }
 
@@ -2861,13 +2865,13 @@ fn struct_cons_too_few_fields() {
             }
         "},
         "",
-        &expect![[r#"
+        &expect![[r##"
             #19 76-78 "()" : Unit
-            #23 86-112 "{ new Pair { First = 5 } }" : UDT<"Pair": Item 1>
-            #25 88-110 "new Pair { First = 5 }" : UDT<"Pair": Item 1>
+            #23 86-112 "{ new Pair { First = 5 } }" : UDT<"Pair": Item 1 (Package 2)>
+            #25 88-110 "new Pair { First = 5 }" : UDT<"Pair": Item 1 (Package 2)>
             #30 107-108 "5" : Int
             Error(Type(Error(MissingClassCorrectFieldCount("Pair", Span { lo: 88, hi: 110 }))))
-        "#]],
+        "##]],
     );
 }
 
@@ -2881,16 +2885,16 @@ fn struct_cons_too_many_fields() {
             }
         "},
         "",
-        &expect![[r#"
+        &expect![[r##"
             #19 76-78 "()" : Unit
-            #23 86-135 "{ new Pair { First = 5, Second = 6, Third = 7 } }" : UDT<"Pair": Item 1>
-            #25 88-133 "new Pair { First = 5, Second = 6, Third = 7 }" : UDT<"Pair": Item 1>
+            #23 86-135 "{ new Pair { First = 5, Second = 6, Third = 7 } }" : UDT<"Pair": Item 1 (Package 2)>
+            #25 88-133 "new Pair { First = 5, Second = 6, Third = 7 }" : UDT<"Pair": Item 1 (Package 2)>
             #30 107-108 "5" : Int
             #33 119-120 "6" : Int
             #36 130-131 "7" : Int
             Error(Type(Error(MissingClassCorrectFieldCount("Pair", Span { lo: 88, hi: 133 }))))
             Error(Type(Error(MissingClassHasField("Pair", "Third", Span { lo: 122, hi: 131 }))))
-        "#]],
+        "##]],
     );
 }
 
@@ -2907,16 +2911,16 @@ fn struct_copy_cons() {
             }
         "},
         "",
-        &expect![[r#"
+        &expect![[r##"
             #19 76-78 "()" : Unit
-            #23 86-177 "{\n        let pair = new Pair { First = 5, Second = 6 };\n        new Pair { ...pair }\n    }" : UDT<"Pair": Item 1>
-            #25 100-104 "pair" : UDT<"Pair": Item 1>
-            #27 107-141 "new Pair { First = 5, Second = 6 }" : UDT<"Pair": Item 1>
+            #23 86-177 "{\n        let pair = new Pair { First = 5, Second = 6 };\n        new Pair { ...pair }\n    }" : UDT<"Pair": Item 1 (Package 2)>
+            #25 100-104 "pair" : UDT<"Pair": Item 1 (Package 2)>
+            #27 107-141 "new Pair { First = 5, Second = 6 }" : UDT<"Pair": Item 1 (Package 2)>
             #32 126-127 "5" : Int
             #35 138-139 "6" : Int
-            #37 151-171 "new Pair { ...pair }" : UDT<"Pair": Item 1>
-            #40 165-169 "pair" : UDT<"Pair": Item 1>
-        "#]],
+            #37 151-171 "new Pair { ...pair }" : UDT<"Pair": Item 1 (Package 2)>
+            #40 165-169 "pair" : UDT<"Pair": Item 1 (Package 2)>
+        "##]],
     );
 }
 
@@ -2933,17 +2937,17 @@ fn struct_copy_cons_with_fields() {
             }
         "},
         "",
-        &expect![[r#"
+        &expect![[r##"
             #19 76-78 "()" : Unit
-            #23 86-188 "{\n        let pair = new Pair { First = 5, Second = 6 };\n        new Pair { ...pair, First = 7 }\n    }" : UDT<"Pair": Item 1>
-            #25 100-104 "pair" : UDT<"Pair": Item 1>
-            #27 107-141 "new Pair { First = 5, Second = 6 }" : UDT<"Pair": Item 1>
+            #23 86-188 "{\n        let pair = new Pair { First = 5, Second = 6 };\n        new Pair { ...pair, First = 7 }\n    }" : UDT<"Pair": Item 1 (Package 2)>
+            #25 100-104 "pair" : UDT<"Pair": Item 1 (Package 2)>
+            #27 107-141 "new Pair { First = 5, Second = 6 }" : UDT<"Pair": Item 1 (Package 2)>
             #32 126-127 "5" : Int
             #35 138-139 "6" : Int
-            #37 151-182 "new Pair { ...pair, First = 7 }" : UDT<"Pair": Item 1>
-            #40 165-169 "pair" : UDT<"Pair": Item 1>
+            #37 151-182 "new Pair { ...pair, First = 7 }" : UDT<"Pair": Item 1 (Package 2)>
+            #40 165-169 "pair" : UDT<"Pair": Item 1 (Package 2)>
             #45 179-180 "7" : Int
-        "#]],
+        "##]],
     );
 }
 
@@ -2960,21 +2964,21 @@ fn struct_copy_cons_too_many_fields() {
             }
         "},
         "",
-        &expect![[r#"
+        &expect![[r##"
             #19 76-78 "()" : Unit
-            #23 86-211 "{\n        let pair = new Pair { First = 5, Second = 6 };\n        new Pair { ...pair, First = 7, Second = 8, Third = 9 }\n    }" : UDT<"Pair": Item 1>
-            #25 100-104 "pair" : UDT<"Pair": Item 1>
-            #27 107-141 "new Pair { First = 5, Second = 6 }" : UDT<"Pair": Item 1>
+            #23 86-211 "{\n        let pair = new Pair { First = 5, Second = 6 };\n        new Pair { ...pair, First = 7, Second = 8, Third = 9 }\n    }" : UDT<"Pair": Item 1 (Package 2)>
+            #25 100-104 "pair" : UDT<"Pair": Item 1 (Package 2)>
+            #27 107-141 "new Pair { First = 5, Second = 6 }" : UDT<"Pair": Item 1 (Package 2)>
             #32 126-127 "5" : Int
             #35 138-139 "6" : Int
-            #37 151-205 "new Pair { ...pair, First = 7, Second = 8, Third = 9 }" : UDT<"Pair": Item 1>
-            #40 165-169 "pair" : UDT<"Pair": Item 1>
+            #37 151-205 "new Pair { ...pair, First = 7, Second = 8, Third = 9 }" : UDT<"Pair": Item 1 (Package 2)>
+            #40 165-169 "pair" : UDT<"Pair": Item 1 (Package 2)>
             #45 179-180 "7" : Int
             #48 191-192 "8" : Int
             #51 202-203 "9" : Int
             Error(Type(Error(MissingClassCorrectFieldCount("Pair", Span { lo: 151, hi: 205 }))))
             Error(Type(Error(MissingClassHasField("Pair", "Third", Span { lo: 194, hi: 203 }))))
-        "#]],
+        "##]],
     );
 }
 
@@ -3011,8 +3015,8 @@ fn struct_cons_struct_like_udt() {
         "",
         &expect![[r##"
             #19 78-80 "()" : Unit
-            #23 88-126 "{ new Pair { First = 5, Second = 6 } }" : UDT<"Pair": Item 1>
-            #25 90-124 "new Pair { First = 5, Second = 6 }" : UDT<"Pair": Item 1>
+            #23 88-126 "{ new Pair { First = 5, Second = 6 } }" : UDT<"Pair": Item 1 (Package 2)>
+            #25 90-124 "new Pair { First = 5, Second = 6 }" : UDT<"Pair": Item 1 (Package 2)>
             #30 109-110 "5" : Int
             #33 121-122 "6" : Int
         "##]],
@@ -3075,10 +3079,10 @@ fn struct_cons_call_not_struct() {
             }
         "},
         "",
-        &expect![[r#"
+        &expect![[r##"
             #19 76-78 "()" : Unit
-            #23 86-124 "{ new Pair { First = 1, Second = 2 } }" : UDT<"Pair": Item 1>
-            #25 88-122 "new Pair { First = 1, Second = 2 }" : UDT<"Pair": Item 1>
+            #23 86-124 "{ new Pair { First = 1, Second = 2 } }" : UDT<"Pair": Item 1 (Package 2)>
+            #25 88-122 "new Pair { First = 1, Second = 2 }" : UDT<"Pair": Item 1 (Package 2)>
             #30 107-108 "1" : Int
             #33 119-120 "2" : Int
             #37 141-143 "()" : Unit
@@ -3087,7 +3091,7 @@ fn struct_cons_call_not_struct() {
             #48 171-172 "5" : ?
             #51 183-184 "6" : ?
             Error(Resolve(NotFound("Bar", Span { lo: 157, hi: 160 })))
-        "#]],
+        "##]],
     );
 }
 
@@ -3101,15 +3105,15 @@ fn newtype_does_not_match_base_ty() {
             }
         "},
         "",
-        &expect![[r#"
+        &expect![[r##"
             #12 56-58 "()" : Unit
-            #16 65-78 "{ NewInt(5) }" : UDT<"NewInt": Item 1>
-            #18 67-76 "NewInt(5)" : UDT<"NewInt": Item 1>
-            #19 67-73 "NewInt" : (Int -> UDT<"NewInt": Item 1>)
+            #16 65-78 "{ NewInt(5) }" : UDT<"NewInt": Item 1 (Package 2)>
+            #18 67-76 "NewInt(5)" : UDT<"NewInt": Item 1 (Package 2)>
+            #19 67-73 "NewInt" : (Int -> UDT<"NewInt": Item 1 (Package 2)>)
             #22 73-76 "(5)" : Int
             #23 74-75 "5" : Int
             Error(Type(Error(TyMismatch("Int", "NewInt", Span { lo: 67, hi: 76 }))))
-        "#]],
+        "##]],
     );
 }
 
@@ -3124,15 +3128,15 @@ fn newtype_does_not_match_other_newtype() {
             }
         "},
         "",
-        &expect![[r#"
+        &expect![[r##"
             #18 84-86 "()" : Unit
-            #22 97-111 "{ NewInt1(5) }" : UDT<"NewInt1": Item 1>
-            #24 99-109 "NewInt1(5)" : UDT<"NewInt1": Item 1>
-            #25 99-106 "NewInt1" : (Int -> UDT<"NewInt1": Item 1>)
+            #22 97-111 "{ NewInt1(5) }" : UDT<"NewInt1": Item 1 (Package 2)>
+            #24 99-109 "NewInt1(5)" : UDT<"NewInt1": Item 1 (Package 2)>
+            #25 99-106 "NewInt1" : (Int -> UDT<"NewInt1": Item 1 (Package 2)>)
             #28 106-109 "(5)" : Int
             #29 107-108 "5" : Int
             Error(Type(Error(TyMismatch("NewInt2", "NewInt1", Span { lo: 99, hi: 109 }))))
-        "#]],
+        "##]],
     );
 }
 
@@ -3148,14 +3152,14 @@ fn newtype_unwrap() {
             }
         "},
         "",
-        &expect![[r#"
-            #16 61-70 "(x : Foo)" : UDT<"Foo": Item 1>
-            #17 62-69 "x : Foo" : UDT<"Foo": Item 1>
+        &expect![[r##"
+            #16 61-70 "(x : Foo)" : UDT<"Foo": Item 1 (Package 2)>
+            #17 62-69 "x : Foo" : UDT<"Foo": Item 1 (Package 2)>
             #23 76-103 "{\n        let y = x!;\n    }" : Unit
             #25 90-91 "y" : (Int, Bool)
             #27 94-96 "x!" : (Int, Bool)
-            #28 94-95 "x" : UDT<"Foo": Item 1>
-        "#]],
+            #28 94-95 "x" : UDT<"Foo": Item 1 (Package 2)>
+        "##]],
     );
 }
 
@@ -3171,14 +3175,14 @@ fn newtype_field() {
             }
         "},
         "",
-        &expect![[r#"
-            #13 59-68 "(x : Foo)" : UDT<"Foo": Item 1>
-            #14 60-67 "x : Foo" : UDT<"Foo": Item 1>
+        &expect![[r##"
+            #13 59-68 "(x : Foo)" : UDT<"Foo": Item 1 (Package 2)>
+            #14 60-67 "x : Foo" : UDT<"Foo": Item 1 (Package 2)>
             #20 74-105 "{\n        let y = x::Bar;\n    }" : Unit
             #22 88-89 "y" : Int
             #24 92-98 "x::Bar" : Int
-            #25 92-93 "x" : UDT<"Foo": Item 1>
-        "#]],
+            #25 92-93 "x" : UDT<"Foo": Item 1 (Package 2)>
+        "##]],
     );
 }
 
@@ -3194,16 +3198,16 @@ fn newtype_field_invalid() {
             }
         "},
         "",
-        &expect![[r#"
-            #13 59-68 "(x : Foo)" : UDT<"Foo": Item 1>
-            #14 60-67 "x : Foo" : UDT<"Foo": Item 1>
+        &expect![[r##"
+            #13 59-68 "(x : Foo)" : UDT<"Foo": Item 1 (Package 2)>
+            #14 60-67 "x : Foo" : UDT<"Foo": Item 1 (Package 2)>
             #20 74-106 "{\n        let y = x::Nope;\n    }" : Unit
             #22 88-89 "y" : ?1
             #24 92-99 "x::Nope" : ?1
-            #25 92-93 "x" : UDT<"Foo": Item 1>
+            #25 92-93 "x" : UDT<"Foo": Item 1 (Package 2)>
             Error(Type(Error(MissingClassHasField("Foo", "Nope", Span { lo: 92, hi: 99 }))))
             Error(Type(Error(AmbiguousTy(Span { lo: 92, hi: 99 }))))
-        "#]],
+        "##]],
     );
 }
 
@@ -3221,17 +3225,17 @@ fn struct_field_path() {
             }
         "},
         "",
-        &expect![[r#"
-            #30 103-110 "(x : A)" : UDT<"A": Item 1>
-            #31 104-109 "x : A" : UDT<"A": Item 1>
+        &expect![[r##"
+            #30 103-110 "(x : A)" : UDT<"A": Item 1 (Package 2)>
+            #31 104-109 "x : A" : UDT<"A": Item 1 (Package 2)>
             #39 118-150 "{\n        let y = x.b.c.i;\n    }" : Unit
             #41 132-133 "y" : Int
             #43 136-143 "x.b.c.i" : Int
-            #45 136-137 "x" : UDT<"A": Item 1>
-            #46 138-139 "b" : UDT<"B": Item 2>
-            #47 140-141 "c" : UDT<"C": Item 3>
+            #45 136-137 "x" : UDT<"A": Item 1 (Package 2)>
+            #46 138-139 "b" : UDT<"B": Item 2 (Package 2)>
+            #47 140-141 "c" : UDT<"C": Item 3 (Package 2)>
             #48 142-143 "i" : Int
-        "#]],
+        "##]],
     );
 }
 
@@ -3249,20 +3253,20 @@ fn struct_field_path_invalid() {
             }
         "},
         "",
-        &expect![[r#"
-            #30 102-109 "(x : A)" : UDT<"A": Item 1>
-            #31 103-108 "x : A" : UDT<"A": Item 1>
+        &expect![[r##"
+            #30 102-109 "(x : A)" : UDT<"A": Item 1 (Package 2)>
+            #31 103-108 "x : A" : UDT<"A": Item 1 (Package 2)>
             #39 117-152 "{\n        let y = x.b.Nope.i;\n    }" : Unit
             #41 131-132 "y" : ?3
             #43 135-145 "x.b.Nope.i" : ?3
-            #45 135-136 "x" : UDT<"A": Item 1>
-            #46 137-138 "b" : UDT<"B": Item 2>
+            #45 135-136 "x" : UDT<"A": Item 1 (Package 2)>
+            #46 137-138 "b" : UDT<"B": Item 2 (Package 2)>
             #47 139-143 "Nope" : ?2
             #48 144-145 "i" : ?3
             Error(Type(Error(MissingClassHasField("B", "Nope", Span { lo: 135, hi: 143 }))))
             Error(Type(Error(AmbiguousTy(Span { lo: 135, hi: 143 }))))
             Error(Type(Error(AmbiguousTy(Span { lo: 135, hi: 145 }))))
-        "#]],
+        "##]],
     );
 }
 
@@ -3280,19 +3284,19 @@ fn struct_field_path_with_expr() {
             }
         "},
         "",
-        &expect![[r#"
-            #30 103-110 "(x : A)" : UDT<"A": Item 1>
-            #31 104-109 "x : A" : UDT<"A": Item 1>
+        &expect![[r##"
+            #30 103-110 "(x : A)" : UDT<"A": Item 1 (Package 2)>
+            #31 104-109 "x : A" : UDT<"A": Item 1 (Package 2)>
             #39 118-154 "{\n        let y = { x.b }.c.i;\n    }" : Unit
             #41 132-133 "y" : Int
             #43 136-147 "{ x.b }.c.i" : Int
-            #44 136-145 "{ x.b }.c" : UDT<"C": Item 3>
-            #45 136-143 "{ x.b }" : UDT<"B": Item 2>
-            #46 136-143 "{ x.b }" : UDT<"B": Item 2>
-            #48 138-141 "x.b" : UDT<"B": Item 2>
-            #50 138-139 "x" : UDT<"A": Item 1>
-            #51 140-141 "b" : UDT<"B": Item 2>
-        "#]],
+            #44 136-145 "{ x.b }.c" : UDT<"C": Item 3 (Package 2)>
+            #45 136-143 "{ x.b }" : UDT<"B": Item 2 (Package 2)>
+            #46 136-143 "{ x.b }" : UDT<"B": Item 2 (Package 2)>
+            #48 138-141 "x.b" : UDT<"B": Item 2 (Package 2)>
+            #50 138-139 "x" : UDT<"A": Item 1 (Package 2)>
+            #51 140-141 "b" : UDT<"B": Item 2 (Package 2)>
+        "##]],
     );
 }
 
@@ -3310,21 +3314,21 @@ fn struct_field_path_with_expr_invalid() {
             }
         "},
         "",
-        &expect![[r#"
-            #30 102-109 "(x : A)" : UDT<"A": Item 1>
-            #31 103-108 "x : A" : UDT<"A": Item 1>
+        &expect![[r##"
+            #30 102-109 "(x : A)" : UDT<"A": Item 1 (Package 2)>
+            #31 103-108 "x : A" : UDT<"A": Item 1 (Package 2)>
             #39 117-156 "{\n        let y = { x }.b.Nope.i;\n    }" : Unit
             #41 131-132 "y" : ?3
             #43 135-149 "{ x }.b.Nope.i" : ?3
             #44 135-147 "{ x }.b.Nope" : ?2
-            #45 135-142 "{ x }.b" : UDT<"B": Item 2>
-            #46 135-140 "{ x }" : UDT<"A": Item 1>
-            #47 135-140 "{ x }" : UDT<"A": Item 1>
-            #49 137-138 "x" : UDT<"A": Item 1>
+            #45 135-142 "{ x }.b" : UDT<"B": Item 2 (Package 2)>
+            #46 135-140 "{ x }" : UDT<"A": Item 1 (Package 2)>
+            #47 135-140 "{ x }" : UDT<"A": Item 1 (Package 2)>
+            #49 137-138 "x" : UDT<"A": Item 1 (Package 2)>
             Error(Type(Error(MissingClassHasField("B", "Nope", Span { lo: 135, hi: 147 }))))
             Error(Type(Error(AmbiguousTy(Span { lo: 135, hi: 147 }))))
             Error(Type(Error(AmbiguousTy(Span { lo: 135, hi: 149 }))))
-        "#]],
+        "##]],
     );
 }
 
@@ -3482,15 +3486,15 @@ fn local_type() {
             }
         "},
         "",
-        &expect![[r#"
+        &expect![[r##"
             #6 30-32 "()" : Unit
             #8 38-96 "{\n        newtype Bar = Int;\n        let x = Bar(5);\n    }" : Unit
-            #17 79-80 "x" : UDT<"Bar": Item 2>
-            #19 83-89 "Bar(5)" : UDT<"Bar": Item 2>
-            #20 83-86 "Bar" : (Int -> UDT<"Bar": Item 2>)
+            #17 79-80 "x" : UDT<"Bar": Item 2 (Package 2)>
+            #19 83-89 "Bar(5)" : UDT<"Bar": Item 2 (Package 2)>
+            #20 83-86 "Bar" : (Int -> UDT<"Bar": Item 2 (Package 2)>)
             #23 86-89 "(5)" : Int
             #24 87-88 "5" : Int
-        "#]],
+        "##]],
     );
 }
 
@@ -4526,16 +4530,16 @@ fn duplicate_type_decls_inferred_and_ignored() {
             }
         "},
         "",
-        &expect![[r#"
+        &expect![[r##"
             #18 81-83 "()" : Unit
             #22 91-127 "{\n        let val = Foo(true);\n    }" : Unit
-            #24 105-108 "val" : UDT<"Foo": Item 1>
-            #26 111-120 "Foo(true)" : UDT<"Foo": Item 1>
-            #27 111-114 "Foo" : (Bool -> UDT<"Foo": Item 1>)
+            #24 105-108 "val" : UDT<"Foo": Item 1 (Package 2)>
+            #26 111-120 "Foo(true)" : UDT<"Foo": Item 1 (Package 2)>
+            #27 111-114 "Foo" : (Bool -> UDT<"Foo": Item 1 (Package 2)>)
             #30 114-120 "(true)" : Bool
             #31 115-119 "true" : Bool
             Error(Resolve(Duplicate("Foo", "Test", Span { lo: 53, hi: 56 })))
-        "#]],
+        "##]],
     );
 }
 
@@ -4752,26 +4756,26 @@ fn use_range_field_names_in_udt() {
             }
         "},
         "",
-        &expect![[r#"
+        &expect![[r##"
             #24 112-114 "()" : Unit
             #28 122-249 "{\n        let udt = B(1, 2, 3);\n        let start = udt::Start;\n        let step = udt::Step;\n        let end = udt::End;\n    }" : Unit
-            #30 136-139 "udt" : UDT<"B": Item 1>
-            #32 142-152 "B(1, 2, 3)" : UDT<"B": Item 1>
-            #33 142-143 "B" : ((Int, Int, Int) -> UDT<"B": Item 1>)
+            #30 136-139 "udt" : UDT<"B": Item 1 (Package 2)>
+            #32 142-152 "B(1, 2, 3)" : UDT<"B": Item 1 (Package 2)>
+            #33 142-143 "B" : ((Int, Int, Int) -> UDT<"B": Item 1 (Package 2)>)
             #36 143-152 "(1, 2, 3)" : (Int, Int, Int)
             #37 144-145 "1" : Int
             #38 147-148 "2" : Int
             #39 150-151 "3" : Int
             #41 166-171 "start" : Int
             #43 174-184 "udt::Start" : Int
-            #44 174-177 "udt" : UDT<"B": Item 1>
+            #44 174-177 "udt" : UDT<"B": Item 1 (Package 2)>
             #49 198-202 "step" : Int
             #51 205-214 "udt::Step" : Int
-            #52 205-208 "udt" : UDT<"B": Item 1>
+            #52 205-208 "udt" : UDT<"B": Item 1 (Package 2)>
             #57 228-231 "end" : Int
             #59 234-242 "udt::End" : Int
-            #60 234-237 "udt" : UDT<"B": Item 1>
-        "#]],
+            #60 234-237 "udt" : UDT<"B": Item 1 (Package 2)>
+        "##]],
     );
 }
 
@@ -4859,11 +4863,11 @@ fn path_field_access() {
         &expect![[r##"
             #14 55-57 "()" : Unit
             #18 65-118 "{\n        let b = new B { C = 5 };\n        b.C;\n    }" : Unit
-            #20 79-80 "b" : UDT<"B": Item 1>
-            #22 83-98 "new B { C = 5 }" : UDT<"B": Item 1>
+            #20 79-80 "b" : UDT<"B": Item 1 (Package 2)>
+            #22 83-98 "new B { C = 5 }" : UDT<"B": Item 1 (Package 2)>
             #27 95-96 "5" : Int
             #29 108-111 "b.C" : Int
-            #31 108-109 "b" : UDT<"B": Item 1>
+            #31 108-109 "b" : UDT<"B": Item 1 (Package 2)>
             #32 110-111 "C" : Int
         "##]],
     );
@@ -4886,13 +4890,13 @@ fn field_access_chained() {
         &expect![[r##"
             #22 78-80 "()" : Unit
             #26 88-157 "{\n        let d = new D { E = new B { C = 5 } };\n        d.E.C;\n    }" : Unit
-            #28 102-103 "d" : UDT<"D": Item 2>
-            #30 106-135 "new D { E = new B { C = 5 } }" : UDT<"D": Item 2>
-            #35 118-133 "new B { C = 5 }" : UDT<"B": Item 1>
+            #28 102-103 "d" : UDT<"D": Item 2 (Package 2)>
+            #30 106-135 "new D { E = new B { C = 5 } }" : UDT<"D": Item 2 (Package 2)>
+            #35 118-133 "new B { C = 5 }" : UDT<"B": Item 1 (Package 2)>
             #40 130-131 "5" : Int
             #42 145-150 "d.E.C" : Int
-            #44 145-146 "d" : UDT<"D": Item 2>
-            #45 147-148 "E" : UDT<"B": Item 1>
+            #44 145-146 "d" : UDT<"D": Item 2 (Package 2)>
+            #45 147-148 "E" : UDT<"B": Item 1 (Package 2)>
             #46 149-150 "C" : Int
         "##]],
     );
@@ -4914,8 +4918,8 @@ fn expr_field_access() {
             #14 55-57 "()" : Unit
             #18 65-101 "{\n        (new B { C = 5 }).C;\n    }" : Unit
             #20 75-94 "(new B { C = 5 }).C" : Int
-            #21 75-92 "(new B { C = 5 })" : UDT<"B": Item 1>
-            #22 76-91 "new B { C = 5 }" : UDT<"B": Item 1>
+            #21 75-92 "(new B { C = 5 })" : UDT<"B": Item 1 (Package 2)>
+            #22 76-91 "new B { C = 5 }" : UDT<"B": Item 1 (Package 2)>
             #27 88-89 "5" : Int
         "##]],
     );
@@ -4937,8 +4941,8 @@ fn expr_incomplete_field_access() {
             #14 55-57 "()" : Unit
             #18 65-100 "{\n        (new B { C = 5 }).;\n    }" : Unit
             #20 75-93 "(new B { C = 5 })." : ?
-            #21 75-92 "(new B { C = 5 })" : UDT<"B": Item 1>
-            #22 76-91 "new B { C = 5 }" : UDT<"B": Item 1>
+            #21 75-92 "(new B { C = 5 })" : UDT<"B": Item 1 (Package 2)>
+            #22 76-91 "new B { C = 5 }" : UDT<"B": Item 1 (Package 2)>
             #27 88-89 "5" : Int
         "##]],
     );
@@ -4960,8 +4964,8 @@ fn expr_incomplete_field_access_no_semi() {
             #14 55-57 "()" : Unit
             #18 65-99 "{\n        (new B { C = 5 }).\n    }" : ?
             #20 75-98 "(new B { C = 5 }).\n    " : ?
-            #21 75-92 "(new B { C = 5 })" : UDT<"B": Item 1>
-            #22 76-91 "new B { C = 5 }" : UDT<"B": Item 1>
+            #21 75-92 "(new B { C = 5 })" : UDT<"B": Item 1 (Package 2)>
+            #22 76-91 "new B { C = 5 }" : UDT<"B": Item 1 (Package 2)>
             #27 88-89 "5" : Int
         "##]],
     );
@@ -4983,11 +4987,11 @@ fn path_incomplete_field_access() {
         &expect![[r##"
             #14 55-57 "()" : Unit
             #18 65-117 "{\n        let b = new B { C = 5 };\n        b.;\n    }" : Unit
-            #20 79-80 "b" : UDT<"B": Item 1>
-            #22 83-98 "new B { C = 5 }" : UDT<"B": Item 1>
+            #20 79-80 "b" : UDT<"B": Item 1 (Package 2)>
+            #22 83-98 "new B { C = 5 }" : UDT<"B": Item 1 (Package 2)>
             #27 95-96 "5" : Int
             #29 108-110 "b." : ?
-            #30 108-109 "b" : UDT<"B": Item 1>
+            #30 108-109 "b" : UDT<"B": Item 1 (Package 2)>
         "##]],
     );
 }
@@ -5009,13 +5013,13 @@ fn incomplete_field_access_chained() {
         &expect![[r##"
             #22 78-80 "()" : Unit
             #26 88-156 "{\n        let d = new D { E = new B { C = 5 } };\n        d.E.;\n    }" : Unit
-            #28 102-103 "d" : UDT<"D": Item 2>
-            #30 106-135 "new D { E = new B { C = 5 } }" : UDT<"D": Item 2>
-            #35 118-133 "new B { C = 5 }" : UDT<"B": Item 1>
+            #28 102-103 "d" : UDT<"D": Item 2 (Package 2)>
+            #30 106-135 "new D { E = new B { C = 5 } }" : UDT<"D": Item 2 (Package 2)>
+            #35 118-133 "new B { C = 5 }" : UDT<"B": Item 1 (Package 2)>
             #40 130-131 "5" : Int
             #42 145-149 "d.E." : ?
-            #43 145-146 "d" : UDT<"D": Item 2>
-            #44 147-148 "E" : UDT<"B": Item 1>
+            #43 145-146 "d" : UDT<"D": Item 2 (Package 2)>
+            #44 147-148 "E" : UDT<"B": Item 1 (Package 2)>
         "##]],
     );
 }
@@ -5037,10 +5041,10 @@ fn expr_field_access_chained() {
             #22 78-80 "()" : Unit
             #26 88-140 "{\n        (new D { E = new B { C = 5 } }).E.C;\n    }" : Unit
             #28 98-133 "(new D { E = new B { C = 5 } }).E.C" : Int
-            #29 98-131 "(new D { E = new B { C = 5 } }).E" : UDT<"B": Item 1>
-            #30 98-129 "(new D { E = new B { C = 5 } })" : UDT<"D": Item 2>
-            #31 99-128 "new D { E = new B { C = 5 } }" : UDT<"D": Item 2>
-            #36 111-126 "new B { C = 5 }" : UDT<"B": Item 1>
+            #29 98-131 "(new D { E = new B { C = 5 } }).E" : UDT<"B": Item 1 (Package 2)>
+            #30 98-129 "(new D { E = new B { C = 5 } })" : UDT<"D": Item 2 (Package 2)>
+            #31 99-128 "new D { E = new B { C = 5 } }" : UDT<"D": Item 2 (Package 2)>
+            #36 111-126 "new B { C = 5 }" : UDT<"B": Item 1 (Package 2)>
             #41 123-124 "5" : Int
         "##]],
     );
@@ -5063,10 +5067,10 @@ fn incomplete_expr_field_access_chained() {
             #22 78-80 "()" : Unit
             #26 88-139 "{\n        (new D { E = new B { C = 5 } }).E.;\n    }" : Unit
             #28 98-132 "(new D { E = new B { C = 5 } }).E." : ?
-            #29 98-131 "(new D { E = new B { C = 5 } }).E" : UDT<"B": Item 1>
-            #30 98-129 "(new D { E = new B { C = 5 } })" : UDT<"D": Item 2>
-            #31 99-128 "new D { E = new B { C = 5 } }" : UDT<"D": Item 2>
-            #36 111-126 "new B { C = 5 }" : UDT<"B": Item 1>
+            #29 98-131 "(new D { E = new B { C = 5 } }).E" : UDT<"B": Item 1 (Package 2)>
+            #30 98-129 "(new D { E = new B { C = 5 } })" : UDT<"D": Item 2 (Package 2)>
+            #31 99-128 "new D { E = new B { C = 5 } }" : UDT<"D": Item 2 (Package 2)>
+            #36 111-126 "new B { C = 5 }" : UDT<"B": Item 1 (Package 2)>
             #41 123-124 "5" : Int
         "##]],
     );
@@ -5089,11 +5093,11 @@ fn field_access_not_ident() {
         &expect![[r##"
             #14 55-57 "()" : Unit
             #18 65-129 "{\n        let b = new B { C = 5 };\n        b.\n        123;\n    }" : Unit
-            #20 79-80 "b" : UDT<"B": Item 1>
-            #22 83-98 "new B { C = 5 }" : UDT<"B": Item 1>
+            #20 79-80 "b" : UDT<"B": Item 1 (Package 2)>
+            #22 83-98 "new B { C = 5 }" : UDT<"B": Item 1 (Package 2)>
             #27 95-96 "5" : Int
             #29 108-119 "b.\n        " : ?
-            #30 108-109 "b" : UDT<"B": Item 1>
+            #30 108-109 "b" : UDT<"B": Item 1 (Package 2)>
             #32 119-122 "123" : Int
         "##]],
     );
