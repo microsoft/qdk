@@ -27,7 +27,6 @@ const VIZ = {
   columnSpacing: 4,
   minColumnWidthFloor: 16,
   defaultMinColumnWidth: 36,
-  minMaxColumns: 4,
   defaultMaxColumns: 16,
   labelLongThresholdChars: 4,
   maxColumnsWithLabels: 16,
@@ -58,6 +57,30 @@ const VIZ = {
   edgePad: 36,
   emptyStateFlexBasisPx: 360,
   rowLabelFallbackPx: 24,
+};
+
+// Data Preparation
+
+const OTHERS_KEY = "__OTHERS__";
+
+export type AmpComplex = { re: number; im: number };
+export type AmpPolar = { prob?: number; phase?: number };
+export type AmpLike = AmpComplex | AmpPolar;
+export type AmpMap = Record<string, AmpLike>;
+
+// Convert amplitude to polar `{ prob, phase }`.
+const toPolar = (a: AmpLike): { prob: number; phase: number } => {
+  const maybe = a as Partial<AmpComplex & AmpPolar>;
+  const hasPolar =
+    typeof maybe.prob === "number" || typeof maybe.phase === "number";
+  if (hasPolar) {
+    const prob = typeof maybe.prob === "number" ? maybe.prob : 0;
+    const phase = typeof maybe.phase === "number" ? maybe.phase : 0;
+    return { prob, phase };
+  }
+  const re = typeof maybe.re === "number" ? maybe.re : 0;
+  const im = typeof maybe.im === "number" ? maybe.im : 0;
+  return { prob: re * re + im * im, phase: Math.atan2(im, re) };
 };
 
 // Entry Points
@@ -102,7 +125,7 @@ export const updateStatePanelFromMap = (
   const isNumeric = (s: string) => numericRegex.test(s);
   const labelCmp = (a: string, b: string) => a.localeCompare(b);
 
-  const maxColumns = opts.maxColumns ?? 16;
+  const maxColumns = opts.maxColumns ?? VIZ.defaultMaxColumns;
   // Helper comparator for usual label ordering (numeric labels first, then lexical)
   const labelOrderCmp = (a: { label: string }, b: { label: string }) => {
     const an = isNumeric(a.label);
@@ -140,7 +163,10 @@ export const updateStatePanelFromMap = (
     columns = sortedByLabel;
   } else {
     const reserveOthers = 1; // keep one column for Others when needed
-    const capacity = Math.max(0, (opts.maxColumns ?? 16) - reserveOthers);
+    const capacity = Math.max(
+      0,
+      (opts.maxColumns ?? VIZ.defaultMaxColumns) - reserveOthers,
+    );
     // Choose by probability first from significant states (those above threshold)
     const chosenByProb = sigStates
       .slice()
@@ -204,6 +230,35 @@ export const renderDefaultStatePanel = (
   }
 };
 
+const showEmptyState = (panel: HTMLElement): void => {
+  const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
+  if (svg) {
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    svg.removeAttribute("height");
+  }
+  panel.classList.add("empty");
+
+  let msg = panel.querySelector(".state-empty-message") as HTMLElement | null;
+  if (!msg) {
+    msg = document.createElement("div");
+    msg.className = "state-empty-message";
+    panel.appendChild(msg);
+  }
+  msg.textContent = "The circuit is empty.";
+
+  if (!panel.classList.contains("collapsed")) {
+    panel.style.flexBasis = `${VIZ.emptyStateFlexBasisPx}px`;
+  }
+};
+
+const showContentState = (panel: HTMLElement): void => {
+  // Content visibility restored via CSS when not in empty mode
+  // Remove empty mode to reveal content via CSS
+  panel.classList.remove("empty");
+  const emptyMsg = panel.querySelector(".state-empty-message");
+  if (emptyMsg) emptyMsg.remove();
+};
+
 export const createStatePanel = (): HTMLElement => {
   const panel = document.createElement("div");
   panel.className = "state-panel";
@@ -259,30 +314,6 @@ export const createStatePanel = (): HTMLElement => {
   return panel;
 };
 
-// Data Preparation
-
-const OTHERS_KEY = "__OTHERS__";
-
-export type AmpComplex = { re: number; im: number };
-export type AmpPolar = { prob?: number; phase?: number };
-export type AmpLike = AmpComplex | AmpPolar;
-export type AmpMap = Record<string, AmpLike>;
-
-// Convert amplitude to polar `{ prob, phase }`.
-const toPolar = (a: AmpLike): { prob: number; phase: number } => {
-  const maybe = a as Partial<AmpComplex & AmpPolar>;
-  const hasPolar =
-    typeof maybe.prob === "number" || typeof maybe.phase === "number";
-  if (hasPolar) {
-    const prob = typeof maybe.prob === "number" ? maybe.prob : 0;
-    const phase = typeof maybe.phase === "number" ? maybe.phase : 0;
-    return { prob, phase };
-  }
-  const re = typeof maybe.re === "number" ? maybe.re : 0;
-  const im = typeof maybe.im === "number" ? maybe.im : 0;
-  return { prob: re * re + im * im, phase: Math.atan2(im, re) };
-};
-
 // Layout Computation
 
 // Render helper that draws the state panel directly from column data
@@ -319,15 +350,12 @@ type LayoutMetrics = {
   phaseColor: (phi: number) => string;
 };
 
+// The animation speed for the state viz panel can be set via the passed in options
+// argument, or via CSS custom property `--stateAnimMs` on the panel element.
+// This function computes the effective animation duration in milliseconds from
+// these sources, with the CSS value taking precedence over the options argument.
 const getAnimationMs = (panel: HTMLElement, opts: RenderOptions): number => {
   let animationMs = VIZ.defaultAnimationMs;
-  if (panel.isConnected) {
-    const cssDur = getComputedStyle(panel)
-      .getPropertyValue("--stateAnimMs")
-      .trim();
-    const parsed = parseDurationMs(cssDur);
-    if (!isNaN(parsed) && parsed > 0) animationMs = parsed;
-  }
   if (
     typeof opts.animationMs === "number" &&
     isFinite(opts.animationMs) &&
@@ -335,7 +363,30 @@ const getAnimationMs = (panel: HTMLElement, opts: RenderOptions): number => {
   ) {
     animationMs = Math.round(opts.animationMs);
   }
+  if (panel.isConnected) {
+    const cssDur = getComputedStyle(panel)
+      .getPropertyValue("--stateAnimMs")
+      .trim();
+    const parsed = parseDurationMs(cssDur);
+    if (!isNaN(parsed) && parsed > 0) animationMs = parsed;
+  }
   return animationMs;
+};
+
+// Parse CSS duration strings (e.g., "200ms" or "0.2s") into milliseconds
+const parseDurationMs = (val: string): number => {
+  const s = (val || "").trim();
+  if (!s) return NaN;
+  if (s.endsWith("ms")) {
+    const v = parseFloat(s.slice(0, -2));
+    return isFinite(v) ? v : NaN;
+  }
+  if (s.endsWith("s")) {
+    const v = parseFloat(s.slice(0, -1));
+    return isFinite(v) ? Math.round(v * 1000) : NaN;
+  }
+  const v = parseFloat(s);
+  return isFinite(v) ? v : NaN;
 };
 
 const computeLayoutMetrics = (
@@ -352,10 +403,7 @@ const computeLayoutMetrics = (
       ? Math.floor(opts.minColumnWidth)
       : VIZ.defaultMinColumnWidth,
   );
-  const maxColumns = Math.max(
-    VIZ.minMaxColumns,
-    opts.maxColumns ?? VIZ.defaultMaxColumns,
-  );
+  const maxColumns = opts.maxColumns ?? VIZ.defaultMaxColumns;
   const defaultMinPanelWidthPx = VIZ.defaultMinPanelWidth;
   const defaultMaxPanelWidthPx =
     VIZ.marginLeft +
@@ -758,28 +806,7 @@ const animate = (
   requestAnimationFrame(tick);
 };
 
-const showEmptyState = (panel: HTMLElement): void => {
-  const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
-  if (svg) {
-    while (svg.firstChild) svg.removeChild(svg.firstChild);
-    svg.removeAttribute("height");
-  }
-  panel.classList.add("empty");
-  ensureEmptyMessage(panel, "The circuit is empty.");
-  if (!panel.classList.contains("collapsed")) {
-    panel.style.flexBasis = `${VIZ.emptyStateFlexBasisPx}px`;
-  }
-};
-
-const showContentState = (panel: HTMLElement): void => {
-  // Content visibility restored via CSS when not in empty mode
-  // Remove empty mode to reveal content via CSS
-  panel.classList.remove("empty");
-  const emptyMsg = panel.querySelector(".state-empty-message");
-  if (emptyMsg) emptyMsg.remove();
-};
-
-// Utilities (formatting, colors, CSS parsing)
+// The default phase color mapping: map phase (-π..π) to HSL hue (0..360)
 const defaultPhaseColor = (phi: number) => {
   const hue = ((phi + Math.PI) / (2 * Math.PI)) * 360;
   return `hsl(${hue},70%,50%)`;
@@ -797,31 +824,4 @@ const formatPhasePiTip = (phi: number): string => {
   const k = phi / Math.PI;
   const sign = k >= 0 ? "+" : "";
   return `${sign}${k.toFixed(2)}π`;
-};
-
-// Helpers to manage empty/content states without inline styles duplication
-const ensureEmptyMessage = (panel: HTMLElement, text: string): void => {
-  let msg = panel.querySelector(".state-empty-message") as HTMLElement | null;
-  if (!msg) {
-    msg = document.createElement("div");
-    msg.className = "state-empty-message";
-    panel.appendChild(msg);
-  }
-  msg.textContent = text;
-};
-
-// Parse CSS duration strings (e.g., "200ms" or "0.2s") into milliseconds
-const parseDurationMs = (val: string): number => {
-  const s = (val || "").trim();
-  if (!s) return NaN;
-  if (s.endsWith("ms")) {
-    const v = parseFloat(s.slice(0, -2));
-    return isFinite(v) ? v : NaN;
-  }
-  if (s.endsWith("s")) {
-    const v = parseFloat(s.slice(0, -1));
-    return isFinite(v) ? Math.round(v * 1000) : NaN;
-  }
-  const v = parseFloat(s);
-  return isFinite(v) ? v : NaN;
 };
