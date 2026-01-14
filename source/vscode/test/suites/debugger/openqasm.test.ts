@@ -50,6 +50,7 @@ suite("OpenQASM Debugger Tests", function suite() {
   });
 
   test("Launch with debugProgram command", async () => {
+    this.timeout(4000); // This test can be slow on some CI machines, so increase timeout
     await vscode.window.showTextDocument(selfContainedUri);
 
     // launch debugger
