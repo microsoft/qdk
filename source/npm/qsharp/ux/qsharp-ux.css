@@ -52,7 +52,7 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   /* Histogram palette (light scheme by default; used when no VS Code theme is detected) */
   --qs-histogram-bg: #ffffff;
   --qs-histogram-border: #768f9c;
-  --qs-histogram-bar-fill: #bed1f4;
+  --qs-histogram-bar-fill: #8ab8ff;
   --qs-histogram-bar-hover-stroke: #6b6b6b;
   --qs-histogram-bar-selected-fill: #b5c5f2;
   --qs-histogram-bar-selected-stroke: #587ddd;
@@ -63,10 +63,10 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   --qs-histogram-menu-icon-fill: #ffffff;
   --qs-histogram-menu-box-fill: #ffffff;
   --qs-histogram-menu-box-stroke: #3b3b3b;
-  --qs-histogram-menu-item-fill: #bed1f4;
-  --qs-histogram-menu-item-hover-fill: #b3bede;
+  --qs-histogram-menu-item-fill: #b7d5ff;
+  --qs-histogram-menu-item-hover-fill: #9fc7ff;
   --qs-histogram-menu-item-stroke: #6b6b6b;
-  --qs-histogram-menu-item-selected-fill: #b5c5f2;
+  --qs-histogram-menu-item-selected-fill: #6aa9ff;
   --qs-histogram-menu-text-fill: #202020;
   --qs-histogram-menu-separator-stroke: #6b6b6b;
   --qs-histogram-help-fill: #ffffff;
