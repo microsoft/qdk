@@ -18,8 +18,8 @@ use qsc_data_structures::{
     line_column::{Encoding, Position},
 };
 use qsc_eval::{
-    StackTrace,
     backend::Tracer,
+    debug::Frame,
     val::{self, Value},
 };
 use qsc_fir::fir::{self, ExprId, ExprKind, PackageId, PackageLookup, StoreItemId};
@@ -47,22 +47,22 @@ pub struct CircuitTracer {
 }
 
 impl Tracer for CircuitTracer {
-    fn qubit_allocate(&mut self, stack: &StackTrace, q: usize) {
+    fn qubit_allocate(&mut self, stack: &[Frame], q: usize) {
         let declared_at = self.user_code_call_location(stack);
         self.wire_map_builder.map_qubit(q, declared_at);
     }
 
-    fn qubit_release(&mut self, _stack: &StackTrace, q: usize) {
+    fn qubit_release(&mut self, _stack: &[Frame], q: usize) {
         self.wire_map_builder.unmap_qubit(q);
     }
 
-    fn qubit_swap_id(&mut self, _stack: &StackTrace, q0: usize, q1: usize) {
+    fn qubit_swap_id(&mut self, _stack: &[Frame], q0: usize, q1: usize) {
         self.wire_map_builder.swap(q0, q1);
     }
 
     fn gate(
         &mut self,
-        stack: &StackTrace,
+        stack: &[Frame],
         name: &str,
         is_adjoint: bool,
         targets: &[usize],
@@ -88,7 +88,7 @@ impl Tracer for CircuitTracer {
         );
     }
 
-    fn measure(&mut self, stack: &StackTrace, name: &str, q: usize, val: &val::Result) {
+    fn measure(&mut self, stack: &[Frame], name: &str, q: usize, val: &val::Result) {
         let called_at = LogicalStack::from_evaluator_trace(stack);
         let r = match val {
             val::Result::Id(id) => *id,
@@ -110,7 +110,7 @@ impl Tracer for CircuitTracer {
         }
     }
 
-    fn reset(&mut self, stack: &StackTrace, q: usize) {
+    fn reset(&mut self, stack: &[Frame], q: usize) {
         let called_at = LogicalStack::from_evaluator_trace(stack);
         self.classical_one_qubits
             .remove(&self.wire_map_builder.wire_map.qubit_wire(q));
@@ -118,7 +118,7 @@ impl Tracer for CircuitTracer {
             .reset(self.wire_map_builder.current(), q, called_at);
     }
 
-    fn custom_intrinsic(&mut self, stack: &StackTrace, name: &str, arg: Value) {
+    fn custom_intrinsic(&mut self, stack: &[Frame], name: &str, arg: Value) {
         // The qubit arguments are treated as the targets for custom gates.
         // Any remaining arguments will be kept in the display_args field
         // to be shown as part of the gate label when the circuit is rendered.
@@ -372,7 +372,7 @@ impl CircuitTracer {
         }
     }
 
-    fn user_code_call_location(&self, stack: &StackTrace) -> Option<PackageOffset> {
+    fn user_code_call_location(&self, stack: &[Frame]) -> Option<PackageOffset> {
         if self.config.source_locations {
             let logical_stack = LogicalStack::from_evaluator_trace(stack);
             retain_user_frames(&self.user_package_ids, logical_stack)
@@ -1482,12 +1482,10 @@ pub struct LogicalStack(pub Vec<LogicalStackEntry>);
 
 impl LogicalStack {
     #[must_use]
-    pub fn from_evaluator_trace(trace: &StackTrace) -> Self {
+    pub fn from_evaluator_trace(trace: &[Frame]) -> Self {
         let call_stack = trace
-            .call_stack()
             .iter()
-            .enumerate()
-            .flat_map(|(frame_idx, frame)| {
+            .flat_map(|frame| {
                 let mut logical_stack = vec![LogicalStackEntry::new_call_site(
                     PackageOffset {
                         package_id: frame.id.package,
@@ -1497,47 +1495,34 @@ impl LogicalStack {
                 )];
 
                 // Insert any loop frames
-                let mut iteration_count: usize = 0;
-                for block_scope in trace.scope_stack() {
-                    if block_scope.frame_id == frame_idx + 1 {
+                if !frame.loop_iterations.is_empty() {
+                    for loop_scope in &frame.loop_iterations {
                         let last = logical_stack.last_mut().expect("there should be a frame");
-
-                        let current_loop_scope_and_call_to_current =
-                            if let Some(loop_scope) = &block_scope.loop_scope {
-                                iteration_count = loop_scope.iteration_count;
-                                // This is the containing scope for a loop
-                                Some((
-                                    Scope::Loop(frame.id.package, loop_scope.loop_expr),
-                                    LogicalStackEntryLocation::Loop(
-                                        frame.id.package,
-                                        loop_scope.loop_expr,
-                                    ),
-                                ))
-                            } else if let Scope::Loop(package_id, loop_expr) = &last.scope {
-                                // This is a block immediately inside a loop, so this is an iteration scope
-                                Some((
-                                    Scope::LoopIteration(*package_id, *loop_expr, iteration_count),
-                                    LogicalStackEntryLocation::LoopIteration(
-                                        *package_id,
-                                        *loop_expr,
-                                        iteration_count,
-                                    ),
-                                ))
-                            } else {
-                                None
-                            };
-
-                        if let Some((current_scope, call_to_current)) =
-                            current_loop_scope_and_call_to_current
-                        {
-                            let last_call_site = last.location;
-                            last.location = call_to_current;
-
-                            logical_stack
-                                .push(LogicalStackEntry::new(last_call_site, current_scope));
-                        }
+                        let last_call_site = last.location;
+                        last.location =
+                            LogicalStackEntryLocation::Loop(frame.id.package, loop_scope.loop_expr);
+                        logical_stack.push(LogicalStackEntry::new(
+                            last_call_site,
+                            Scope::Loop(frame.id.package, loop_scope.loop_expr),
+                        ));
+                        let last = logical_stack.last_mut().expect("there should be a frame");
+                        let last_location = last.location;
+                        last.location = LogicalStackEntryLocation::LoopIteration(
+                            frame.id.package,
+                            loop_scope.loop_expr,
+                            loop_scope.iteration_count,
+                        );
+                        logical_stack.push(LogicalStackEntry::new(
+                            last_location,
+                            Scope::LoopIteration(
+                                frame.id.package,
+                                loop_scope.loop_expr,
+                                loop_scope.iteration_count,
+                            ),
+                        ));
                     }
                 }
+
                 logical_stack
             })
             .collect::<Vec<_>>();

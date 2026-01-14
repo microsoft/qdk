@@ -461,16 +461,18 @@ impl Env {
         self.scopes.push(scope);
     }
 
-    pub fn push_loop_scope(&mut self, frame_id: usize, loop_expr: ExprId) {
+    pub fn push_loop_scope(&mut self, frame_id: usize) {
         let scope = Scope {
             frame_id,
-            loop_scope: Some(LoopScope {
-                loop_expr,
-                iteration_count: 0,
-            }),
+            is_loop: true,
             ..Default::default()
         };
         self.scopes.push(scope);
+    }
+
+    #[must_use]
+    pub fn last_scope_is_loop(&self) -> bool {
+        self.scopes.last().is_some_and(|scope| scope.is_loop)
     }
 
     pub fn leave_scope(&mut self) {
@@ -565,13 +567,7 @@ impl Env {
 pub struct Scope {
     bindings: IndexMap<LocalVarId, Variable>,
     pub frame_id: usize,
-    pub loop_scope: Option<LoopScope>,
-}
-
-#[derive(Default, Clone)]
-pub struct LoopScope {
-    pub loop_expr: ExprId,
-    pub iteration_count: usize,
+    pub is_loop: bool,
 }
 
 type CallableCountKey = (StoreItemId, bool, bool);
@@ -600,37 +596,6 @@ pub struct State {
     error_behavior: ErrorBehavior,
     last_error: Option<(Error, Vec<Frame>)>,
     exec_graph_config: ExecGraphConfig,
-}
-
-#[derive(Default)]
-pub struct StackTrace {
-    call_stack: Vec<Frame>,
-    scope_stack: Vec<Scope>,
-}
-
-impl StackTrace {
-    #[must_use]
-    pub fn new(call_stack: Vec<Frame>, scope_stack: Vec<Scope>) -> Self {
-        Self {
-            call_stack,
-            scope_stack,
-        }
-    }
-
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.call_stack.is_empty() && self.scope_stack.is_empty()
-    }
-
-    #[must_use]
-    pub fn call_stack(&self) -> &Vec<Frame> {
-        &self.call_stack
-    }
-
-    #[must_use]
-    pub fn scope_stack(&self) -> &Vec<Scope> {
-        &self.scope_stack
-    }
 }
 
 impl State {
@@ -680,6 +645,7 @@ impl State {
             id,
             caller: self.package,
             functor,
+            loop_iterations: Vec::new(),
         });
         self.exec_graph_stack.push(exec_graph);
         self.val_stack.push(Vec::new());
@@ -702,7 +668,8 @@ impl State {
     }
 
     fn push_loop_scope(&mut self, env: &mut Env, loop_expr: ExprId) {
-        env.push_loop_scope(self.current_frame_id(), loop_expr);
+        env.push_loop_scope(self.current_frame_id());
+        self.call_stack.push_loop_iteration(loop_expr);
     }
 
     fn take_val_register(&mut self) -> Value {
@@ -752,12 +719,11 @@ impl State {
     pub fn capture_stack_if_trace_enabled<B: Backend>(
         &self,
         tracing_backend: &TracingBackend<'_, B>,
-        env: &Env,
-    ) -> StackTrace {
+    ) -> Vec<Frame> {
         if tracing_backend.is_stacks_enabled() {
-            StackTrace::new(self.capture_stack(), env.scopes.clone())
+            self.capture_stack()
         } else {
-            StackTrace::default()
+            vec![]
         }
     }
 
@@ -876,15 +842,14 @@ impl State {
                     }
                     ExecGraphDebugNode::LoopIteration => {
                         // we're in an iteration, increment counter
-                        let current_scope = env.scopes.last_mut().expect("last scope should exist");
-                        let Some(loop_scope) = &mut current_scope.loop_scope.as_mut() else {
-                            panic!("expected to be in a loop scope");
-                        };
-                        loop_scope.iteration_count += 1;
+                        self.call_stack.increment_loop_iteration();
                         self.idx += 1;
                         continue;
                     }
                     ExecGraphDebugNode::PopScope => {
+                        if env.last_scope_is_loop() {
+                            self.call_stack.pop_loop_iteration();
+                        }
                         env.leave_scope();
                         self.idx += 1;
                         continue;
@@ -1352,7 +1317,7 @@ impl State {
         arg_span: PackageSpan,
         out: &mut impl Receiver,
     ) -> Result<(), Error> {
-        let call_stack = self.capture_stack_if_trace_enabled(sim, env);
+        let call_stack = self.capture_stack_if_trace_enabled(sim);
         self.push_frame(Vec::new().into(), callee_id, functor);
         self.current_span = callee_span.span;
         self.increment_call_count(callee_id, functor);

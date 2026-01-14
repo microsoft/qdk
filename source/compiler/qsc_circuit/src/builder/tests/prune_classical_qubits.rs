@@ -2,12 +2,9 @@
 // Licensed under the MIT License.
 
 use expect_test::expect;
-use qsc_eval::{StackTrace, backend::Tracer, val};
+use qsc_eval::{backend::Tracer, val};
 
-use crate::{
-    CircuitTracer, TracerConfig,
-    builder::tests::{FakeCompilation, stack_trace},
-};
+use crate::{CircuitTracer, TracerConfig, builder::tests::FakeCompilation};
 
 #[test]
 fn circuit_trimmed_stays_the_same() {
@@ -21,13 +18,13 @@ fn circuit_trimmed_stays_the_same() {
         &FakeCompilation::user_package_ids(),
     );
 
-    builder.qubit_allocate(&StackTrace::default(), 0);
-    builder.qubit_allocate(&StackTrace::default(), 1);
+    builder.qubit_allocate(&[], 0);
+    builder.qubit_allocate(&[], 1);
 
-    builder.gate(&StackTrace::default(), "H", false, &[0], &[], None);
-    builder.gate(&StackTrace::default(), "X", false, &[1], &[0], None);
-    builder.measure(&StackTrace::default(), "MResetZ", 0, &val::Result::Id(0));
-    builder.measure(&StackTrace::default(), "MResetZ", 1, &val::Result::Id(1));
+    builder.gate(&[], "H", false, &[0], &[], None);
+    builder.gate(&[], "X", false, &[1], &[0], None);
+    builder.measure(&[], "MResetZ", 0, &val::Result::Id(0));
+    builder.measure(&[], "MResetZ", 1, &val::Result::Id(1));
 
     let circuit = builder.finish(&FakeCompilation::default());
 
@@ -52,14 +49,14 @@ fn circuit_trims_unused_qubit() {
         &FakeCompilation::user_package_ids(),
     );
 
-    builder.qubit_allocate(&StackTrace::default(), 0);
-    builder.qubit_allocate(&StackTrace::default(), 1);
-    builder.qubit_allocate(&StackTrace::default(), 2);
+    builder.qubit_allocate(&[], 0);
+    builder.qubit_allocate(&[], 1);
+    builder.qubit_allocate(&[], 2);
 
-    builder.gate(&StackTrace::default(), "H", false, &[0], &[], None);
-    builder.gate(&StackTrace::default(), "X", false, &[2], &[0], None);
-    builder.measure(&StackTrace::default(), "MResetZ", 0, &val::Result::Id(0));
-    builder.measure(&StackTrace::default(), "MResetZ", 2, &val::Result::Id(1));
+    builder.gate(&[], "H", false, &[0], &[], None);
+    builder.gate(&[], "X", false, &[2], &[0], None);
+    builder.measure(&[], "MResetZ", 0, &val::Result::Id(0));
+    builder.measure(&[], "MResetZ", 2, &val::Result::Id(1));
 
     let circuit = builder.finish(&FakeCompilation::default());
 
@@ -85,20 +82,13 @@ fn circuit_trims_unused_qubit_with_grouping() {
         &FakeCompilation::user_package_ids(),
     );
 
-    builder.qubit_allocate(&stack_trace(vec![c.user_code_frame("Main", 1)]), 0);
-    builder.qubit_allocate(&stack_trace(vec![c.user_code_frame("Main", 2)]), 1);
-    builder.qubit_allocate(&stack_trace(vec![c.user_code_frame("Main", 3)]), 2);
+    builder.qubit_allocate(&[c.user_code_frame("Main", 1)], 0);
+    builder.qubit_allocate(&[c.user_code_frame("Main", 2)], 1);
+    builder.qubit_allocate(&[c.user_code_frame("Main", 3)], 2);
 
+    builder.gate(&[c.user_code_frame("Main", 4)], "H", false, &[0], &[], None);
     builder.gate(
-        &stack_trace(vec![c.user_code_frame("Main", 4)]),
-        "H",
-        false,
-        &[0],
-        &[],
-        None,
-    );
-    builder.gate(
-        &stack_trace(vec![c.user_code_frame("Main", 5)]),
+        &[c.user_code_frame("Main", 5)],
         "X",
         false,
         &[2],
@@ -106,13 +96,13 @@ fn circuit_trims_unused_qubit_with_grouping() {
         None,
     );
     builder.measure(
-        &stack_trace(vec![c.user_code_frame("Main", 6)]),
+        &[c.user_code_frame("Main", 6)],
         "MResetZ",
         0,
         &val::Result::Id(0),
     );
     builder.measure(
-        &stack_trace(vec![c.user_code_frame("Main", 7)]),
+        &[c.user_code_frame("Main", 7)],
         "MResetZ",
         2,
         &val::Result::Id(1),
@@ -141,16 +131,17 @@ fn circuit_trims_classical_qubit() {
         &FakeCompilation::user_package_ids(),
     );
 
-    builder.qubit_allocate(&StackTrace::default(), 0);
-    builder.qubit_allocate(&StackTrace::default(), 1);
-    builder.qubit_allocate(&StackTrace::default(), 2);
+    builder.qubit_allocate(&[], 0);
+    builder.qubit_allocate(&[], 1);
+    builder.qubit_allocate(&[], 2);
 
-    builder.gate(&StackTrace::default(), "H", false, &[0], &[], None);
-    builder.gate(&StackTrace::default(), "X", false, &[1], &[], None);
-    builder.gate(&StackTrace::default(), "X", false, &[2], &[0], None);
-    builder.measure(&StackTrace::default(), "MResetZ", 0, &val::Result::Id(0));
-    builder.measure(&StackTrace::default(), "MResetZ", 1, &val::Result::Id(1));
-    builder.measure(&StackTrace::default(), "MResetZ", 2, &val::Result::Id(2));
+    builder.gate(&[], "H", false, &[0], &[], None);
+    builder.gate(&[], "X", false, &[1], &[], None);
+    builder.gate(&[], "X", false, &[2], &[0], None);
+    builder.measure(&[], "MResetZ", 0, &val::Result::Id(0));
+    builder.measure(&[], "MResetZ", 1, &val::Result::Id(1));
+    builder.measure(&[], "MResetZ", 2, &val::Result::Id(2));
+
     let circuit = builder.finish(&FakeCompilation::default());
 
     expect![[r#"
@@ -174,16 +165,17 @@ fn circuit_trims_classical_control_qubit() {
         &FakeCompilation::user_package_ids(),
     );
 
-    builder.qubit_allocate(&StackTrace::default(), 0);
-    builder.qubit_allocate(&StackTrace::default(), 1);
-    builder.qubit_allocate(&StackTrace::default(), 2);
+    builder.qubit_allocate(&[], 0);
+    builder.qubit_allocate(&[], 1);
+    builder.qubit_allocate(&[], 2);
 
-    builder.gate(&StackTrace::default(), "H", false, &[0], &[], None);
-    builder.gate(&StackTrace::default(), "X", false, &[0], &[1], None);
-    builder.gate(&StackTrace::default(), "X", false, &[2], &[0], None);
-    builder.measure(&StackTrace::default(), "MResetZ", 0, &val::Result::Id(0));
-    builder.measure(&StackTrace::default(), "MResetZ", 1, &val::Result::Id(1));
-    builder.measure(&StackTrace::default(), "MResetZ", 2, &val::Result::Id(2));
+    builder.gate(&[], "H", false, &[0], &[], None);
+    builder.gate(&[], "X", false, &[0], &[1], None);
+    builder.gate(&[], "X", false, &[2], &[0], None);
+    builder.measure(&[], "MResetZ", 0, &val::Result::Id(0));
+    builder.measure(&[], "MResetZ", 1, &val::Result::Id(1));
+    builder.measure(&[], "MResetZ", 2, &val::Result::Id(2));
+
     let circuit = builder.finish(&FakeCompilation::default());
 
     expect![[r#"
@@ -207,16 +199,17 @@ fn circuit_trims_classical_qubit_when_2q_precedes_superposition() {
         &FakeCompilation::user_package_ids(),
     );
 
-    builder.qubit_allocate(&StackTrace::default(), 0);
-    builder.qubit_allocate(&StackTrace::default(), 1);
-    builder.qubit_allocate(&StackTrace::default(), 2);
+    builder.qubit_allocate(&[], 0);
+    builder.qubit_allocate(&[], 1);
+    builder.qubit_allocate(&[], 2);
 
-    builder.gate(&StackTrace::default(), "X", false, &[1], &[0], None);
-    builder.gate(&StackTrace::default(), "H", false, &[0], &[], None);
-    builder.gate(&StackTrace::default(), "X", false, &[2], &[0], None);
-    builder.measure(&StackTrace::default(), "MResetZ", 0, &val::Result::Id(0));
-    builder.measure(&StackTrace::default(), "MResetZ", 1, &val::Result::Id(1));
-    builder.measure(&StackTrace::default(), "MResetZ", 2, &val::Result::Id(2));
+    builder.gate(&[], "X", false, &[1], &[0], None);
+    builder.gate(&[], "H", false, &[0], &[], None);
+    builder.gate(&[], "X", false, &[2], &[0], None);
+    builder.measure(&[], "MResetZ", 0, &val::Result::Id(0));
+    builder.measure(&[], "MResetZ", 1, &val::Result::Id(1));
+    builder.measure(&[], "MResetZ", 2, &val::Result::Id(2));
+
     let circuit = builder.finish(&FakeCompilation::default());
 
     expect![[r#"
@@ -240,18 +233,18 @@ fn target_qubit_trimmed_when_only_one_control_non_classical() {
         &FakeCompilation::user_package_ids(),
     );
 
-    builder.qubit_allocate(&StackTrace::default(), 0);
-    builder.qubit_allocate(&StackTrace::default(), 1);
-    builder.qubit_allocate(&StackTrace::default(), 2);
-    builder.qubit_allocate(&StackTrace::default(), 3);
+    builder.qubit_allocate(&[], 0);
+    builder.qubit_allocate(&[], 1);
+    builder.qubit_allocate(&[], 2);
+    builder.qubit_allocate(&[], 3);
 
-    builder.gate(&StackTrace::default(), "H", false, &[2], &[], None);
-    builder.gate(&StackTrace::default(), "X", false, &[0], &[1, 2], None);
-    builder.gate(&StackTrace::default(), "H", false, &[3], &[], None);
-    builder.gate(&StackTrace::default(), "X", false, &[1], &[3, 2], None);
-    builder.measure(&StackTrace::default(), "MResetZ", 0, &val::Result::Id(0));
-    builder.measure(&StackTrace::default(), "MResetZ", 1, &val::Result::Id(1));
-    builder.measure(&StackTrace::default(), "MResetZ", 2, &val::Result::Id(2));
+    builder.gate(&[], "H", false, &[2], &[], None);
+    builder.gate(&[], "X", false, &[0], &[1, 2], None);
+    builder.gate(&[], "H", false, &[3], &[], None);
+    builder.gate(&[], "X", false, &[1], &[3, 2], None);
+    builder.measure(&[], "MResetZ", 0, &val::Result::Id(0));
+    builder.measure(&[], "MResetZ", 1, &val::Result::Id(1));
+    builder.measure(&[], "MResetZ", 2, &val::Result::Id(2));
 
     let circuit = builder.finish(&FakeCompilation::default());
 
@@ -277,18 +270,18 @@ fn controlled_paulis_become_uncontrolled_when_control_is_known_classical_one() {
         &FakeCompilation::user_package_ids(),
     );
 
-    builder.qubit_allocate(&StackTrace::default(), 0);
-    builder.qubit_allocate(&StackTrace::default(), 1);
-    builder.qubit_allocate(&StackTrace::default(), 2);
-    builder.qubit_allocate(&StackTrace::default(), 3);
+    builder.qubit_allocate(&[], 0);
+    builder.qubit_allocate(&[], 1);
+    builder.qubit_allocate(&[], 2);
+    builder.qubit_allocate(&[], 3);
 
-    builder.gate(&StackTrace::default(), "X", false, &[0], &[], None);
-    builder.gate(&StackTrace::default(), "X", false, &[1], &[0], None);
-    builder.gate(&StackTrace::default(), "Y", false, &[2], &[0], None);
-    builder.gate(&StackTrace::default(), "Z", false, &[3], &[0], None);
-    builder.gate(&StackTrace::default(), "H", false, &[1], &[], None);
-    builder.gate(&StackTrace::default(), "H", false, &[2], &[], None);
-    builder.gate(&StackTrace::default(), "H", false, &[3], &[], None);
+    builder.gate(&[], "X", false, &[0], &[], None);
+    builder.gate(&[], "X", false, &[1], &[0], None);
+    builder.gate(&[], "Y", false, &[2], &[0], None);
+    builder.gate(&[], "Z", false, &[3], &[0], None);
+    builder.gate(&[], "H", false, &[1], &[], None);
+    builder.gate(&[], "H", false, &[2], &[], None);
+    builder.gate(&[], "H", false, &[3], &[], None);
 
     let circuit = builder.finish(&FakeCompilation::default());
 
@@ -312,14 +305,14 @@ fn ccx_becomes_cx_when_one_control_is_known_classical_one() {
         &FakeCompilation::user_package_ids(),
     );
 
-    builder.qubit_allocate(&StackTrace::default(), 0);
-    builder.qubit_allocate(&StackTrace::default(), 1);
-    builder.qubit_allocate(&StackTrace::default(), 2);
+    builder.qubit_allocate(&[], 0);
+    builder.qubit_allocate(&[], 1);
+    builder.qubit_allocate(&[], 2);
 
-    builder.gate(&StackTrace::default(), "X", false, &[0], &[], None);
-    builder.gate(&StackTrace::default(), "H", false, &[1], &[], None);
-    builder.gate(&StackTrace::default(), "H", false, &[2], &[], None);
-    builder.gate(&StackTrace::default(), "X", false, &[2], &[0, 1], None);
+    builder.gate(&[], "X", false, &[0], &[], None);
+    builder.gate(&[], "H", false, &[1], &[], None);
+    builder.gate(&[], "H", false, &[2], &[], None);
+    builder.gate(&[], "X", false, &[2], &[0, 1], None);
 
     let circuit = builder.finish(&FakeCompilation::default());
 
@@ -343,23 +336,13 @@ fn ccx_becomes_cx_when_one_control_is_known_classical_one_with_grouping() {
         &FakeCompilation::user_package_ids(),
     );
 
-    builder.qubit_allocate(&StackTrace::default(), 0);
-    builder.qubit_allocate(&StackTrace::default(), 1);
-    builder.qubit_allocate(&StackTrace::default(), 2);
+    builder.qubit_allocate(&[], 0);
+    builder.qubit_allocate(&[], 1);
+    builder.qubit_allocate(&[], 2);
 
+    builder.gate(&[c.user_code_frame("Main", 1)], "X", false, &[0], &[], None);
     builder.gate(
-        &stack_trace(vec![c.user_code_frame("Main", 1)]),
-        "X",
-        false,
-        &[0],
-        &[],
-        None,
-    );
-    builder.gate(
-        &stack_trace(vec![
-            c.user_code_frame("Main", 2),
-            c.user_code_frame("Foo", 3),
-        ]),
+        &[c.user_code_frame("Main", 2), c.user_code_frame("Foo", 3)],
         "H",
         false,
         &[1],
@@ -367,10 +350,7 @@ fn ccx_becomes_cx_when_one_control_is_known_classical_one_with_grouping() {
         None,
     );
     builder.gate(
-        &stack_trace(vec![
-            c.user_code_frame("Main", 2),
-            c.user_code_frame("Foo", 4),
-        ]),
+        &[c.user_code_frame("Main", 2), c.user_code_frame("Foo", 4)],
         "H",
         false,
         &[2],
@@ -378,10 +358,7 @@ fn ccx_becomes_cx_when_one_control_is_known_classical_one_with_grouping() {
         None,
     );
     builder.gate(
-        &stack_trace(vec![
-            c.user_code_frame("Main", 2),
-            c.user_code_frame("Foo", 5),
-        ]),
+        &[c.user_code_frame("Main", 2), c.user_code_frame("Foo", 5)],
         "X",
         false,
         &[2],
@@ -411,15 +388,12 @@ fn group_with_no_remaining_operations_is_pruned() {
         &FakeCompilation::user_package_ids(),
     );
 
-    builder.qubit_allocate(&StackTrace::default(), 0);
-    builder.qubit_allocate(&StackTrace::default(), 1);
-    builder.qubit_allocate(&StackTrace::default(), 2);
+    builder.qubit_allocate(&[], 0);
+    builder.qubit_allocate(&[], 1);
+    builder.qubit_allocate(&[], 2);
 
     builder.gate(
-        &stack_trace(vec![
-            c.user_code_frame("Main", 1),
-            c.user_code_frame("Bar", 3),
-        ]),
+        &[c.user_code_frame("Main", 1), c.user_code_frame("Bar", 3)],
         "X",
         false,
         &[0],
@@ -427,19 +401,13 @@ fn group_with_no_remaining_operations_is_pruned() {
         None,
     );
     builder.measure(
-        &stack_trace(vec![
-            c.user_code_frame("Main", 1),
-            c.user_code_frame("Bar", 4),
-        ]),
+        &[c.user_code_frame("Main", 1), c.user_code_frame("Bar", 4)],
         "M",
         0,
         &val::Result::Id(0),
     );
     builder.gate(
-        &stack_trace(vec![
-            c.user_code_frame("Main", 2),
-            c.user_code_frame("Foo", 3),
-        ]),
+        &[c.user_code_frame("Main", 2), c.user_code_frame("Foo", 3)],
         "H",
         false,
         &[1],
@@ -447,10 +415,7 @@ fn group_with_no_remaining_operations_is_pruned() {
         None,
     );
     builder.gate(
-        &stack_trace(vec![
-            c.user_code_frame("Main", 2),
-            c.user_code_frame("Foo", 4),
-        ]),
+        &[c.user_code_frame("Main", 2), c.user_code_frame("Foo", 4)],
         "H",
         false,
         &[2],
@@ -458,10 +423,7 @@ fn group_with_no_remaining_operations_is_pruned() {
         None,
     );
     builder.gate(
-        &stack_trace(vec![
-            c.user_code_frame("Main", 2),
-            c.user_code_frame("Foo", 5),
-        ]),
+        &[c.user_code_frame("Main", 2), c.user_code_frame("Foo", 5)],
         "X",
         false,
         &[2],

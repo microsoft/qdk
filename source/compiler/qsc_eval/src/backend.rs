@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::StackTrace;
+use crate::debug::Frame;
 use crate::val::{self, Value};
 use crate::{noise::PauliNoise, val::unwrap_tuple};
 use ndarray::Array2;
@@ -120,21 +120,21 @@ pub trait Backend {
 /// tracing is enabled. If stack tracing is disabled, the stack parameter
 /// will be ignored.
 pub trait Tracer {
-    fn qubit_allocate(&mut self, stack: &StackTrace, q: usize);
-    fn qubit_release(&mut self, stack: &StackTrace, q: usize);
-    fn qubit_swap_id(&mut self, stack: &StackTrace, q0: usize, q1: usize);
+    fn qubit_allocate(&mut self, stack: &[Frame], q: usize);
+    fn qubit_release(&mut self, stack: &[Frame], q: usize);
+    fn qubit_swap_id(&mut self, stack: &[Frame], q0: usize, q1: usize);
     fn gate(
         &mut self,
-        stack: &StackTrace,
+        stack: &[Frame],
         name: &str,
         is_adjoint: bool,
         targets: &[usize],
         controls: &[usize],
         theta: Option<f64>,
     );
-    fn measure(&mut self, stack: &StackTrace, name: &str, q: usize, r: &val::Result);
-    fn reset(&mut self, stack: &StackTrace, q: usize);
-    fn custom_intrinsic(&mut self, stack: &StackTrace, name: &str, arg: Value);
+    fn measure(&mut self, stack: &[Frame], name: &str, q: usize, r: &val::Result);
+    fn reset(&mut self, stack: &[Frame], q: usize);
+    fn custom_intrinsic(&mut self, stack: &[Frame], name: &str, arg: Value);
     fn is_stack_tracing_enabled(&self) -> bool;
 }
 
@@ -178,7 +178,7 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         }
     }
 
-    pub fn ccx(&mut self, ctl0: usize, ctl1: usize, q: usize, stack: &StackTrace) {
+    pub fn ccx(&mut self, ctl0: usize, ctl1: usize, q: usize, stack: &[Frame]) {
         if let OptionalBackend::Some(backend) = &mut self.backend {
             backend.ccx(ctl0, ctl1, q);
         }
@@ -187,7 +187,7 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         }
     }
 
-    pub fn cx(&mut self, ctl: usize, q: usize, stack: &StackTrace) {
+    pub fn cx(&mut self, ctl: usize, q: usize, stack: &[Frame]) {
         if let OptionalBackend::Some(backend) = &mut self.backend {
             backend.cx(ctl, q);
         }
@@ -196,7 +196,7 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         }
     }
 
-    pub fn cy(&mut self, ctl: usize, q: usize, stack: &StackTrace) {
+    pub fn cy(&mut self, ctl: usize, q: usize, stack: &[Frame]) {
         if let OptionalBackend::Some(backend) = &mut self.backend {
             backend.cy(ctl, q);
         }
@@ -205,7 +205,7 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         }
     }
 
-    pub fn cz(&mut self, ctl: usize, q: usize, stack: &StackTrace) {
+    pub fn cz(&mut self, ctl: usize, q: usize, stack: &[Frame]) {
         if let OptionalBackend::Some(backend) = &mut self.backend {
             backend.cz(ctl, q);
         }
@@ -214,7 +214,7 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         }
     }
 
-    pub fn h(&mut self, q: usize, stack: &StackTrace) {
+    pub fn h(&mut self, q: usize, stack: &[Frame]) {
         if let OptionalBackend::Some(backend) = &mut self.backend {
             backend.h(q);
         }
@@ -223,7 +223,7 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         }
     }
 
-    pub fn m(&mut self, q: usize, stack: &StackTrace) -> val::Result {
+    pub fn m(&mut self, q: usize, stack: &[Frame]) -> val::Result {
         let r = match &mut self.backend {
             OptionalBackend::Some(backend) => backend.m(q),
             OptionalBackend::None(fallback) => fallback.result_allocate(),
@@ -234,7 +234,7 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         r
     }
 
-    pub fn mresetz(&mut self, q: usize, stack: &StackTrace) -> val::Result {
+    pub fn mresetz(&mut self, q: usize, stack: &[Frame]) -> val::Result {
         let r = match &mut self.backend {
             OptionalBackend::Some(backend) => backend.mresetz(q),
             OptionalBackend::None(fallback) => fallback.result_allocate(),
@@ -245,7 +245,7 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         r
     }
 
-    pub fn reset(&mut self, q: usize, stack: &StackTrace) {
+    pub fn reset(&mut self, q: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
             tracer.reset(stack, q);
         }
@@ -254,7 +254,7 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         }
     }
 
-    pub fn rx(&mut self, theta: f64, q: usize, stack: &StackTrace) {
+    pub fn rx(&mut self, theta: f64, q: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(stack, "Rx", false, &[q], &[], Some(theta));
         }
@@ -263,7 +263,7 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         }
     }
 
-    pub fn rxx(&mut self, theta: f64, q0: usize, q1: usize, stack: &StackTrace) {
+    pub fn rxx(&mut self, theta: f64, q0: usize, q1: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(stack, "Rxx", false, &[q0, q1], &[], Some(theta));
         }
@@ -272,7 +272,7 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         }
     }
 
-    pub fn ry(&mut self, theta: f64, q: usize, stack: &StackTrace) {
+    pub fn ry(&mut self, theta: f64, q: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(stack, "Ry", false, &[q], &[], Some(theta));
         }
@@ -281,7 +281,7 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         }
     }
 
-    pub fn ryy(&mut self, theta: f64, q0: usize, q1: usize, stack: &StackTrace) {
+    pub fn ryy(&mut self, theta: f64, q0: usize, q1: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(stack, "Ryy", false, &[q0, q1], &[], Some(theta));
         }
@@ -290,7 +290,7 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         }
     }
 
-    pub fn rz(&mut self, theta: f64, q: usize, stack: &StackTrace) {
+    pub fn rz(&mut self, theta: f64, q: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(stack, "Rz", false, &[q], &[], Some(theta));
         }
@@ -299,7 +299,7 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         }
     }
 
-    pub fn rzz(&mut self, theta: f64, q0: usize, q1: usize, stack: &StackTrace) {
+    pub fn rzz(&mut self, theta: f64, q0: usize, q1: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(stack, "Rzz", false, &[q0, q1], &[], Some(theta));
         }
@@ -308,7 +308,7 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         }
     }
 
-    pub fn sadj(&mut self, q: usize, stack: &StackTrace) {
+    pub fn sadj(&mut self, q: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(stack, "S", true, &[q], &[], None);
         }
@@ -317,7 +317,7 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         }
     }
 
-    pub fn s(&mut self, q: usize, stack: &StackTrace) {
+    pub fn s(&mut self, q: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(stack, "S", false, &[q], &[], None);
         }
@@ -326,7 +326,7 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         }
     }
 
-    pub fn sx(&mut self, q: usize, stack: &StackTrace) {
+    pub fn sx(&mut self, q: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(stack, "SX", false, &[q], &[], None);
         }
@@ -335,7 +335,7 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         }
     }
 
-    pub fn swap(&mut self, q0: usize, q1: usize, stack: &StackTrace) {
+    pub fn swap(&mut self, q0: usize, q1: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(stack, "SWAP", false, &[q0, q1], &[], None);
         }
@@ -344,7 +344,7 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         }
     }
 
-    pub fn tadj(&mut self, q: usize, stack: &StackTrace) {
+    pub fn tadj(&mut self, q: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(stack, "T", true, &[q], &[], None);
         }
@@ -353,7 +353,7 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         }
     }
 
-    pub fn t(&mut self, q: usize, stack: &StackTrace) {
+    pub fn t(&mut self, q: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(stack, "T", false, &[q], &[], None);
         }
@@ -362,7 +362,7 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         }
     }
 
-    pub fn x(&mut self, q: usize, stack: &StackTrace) {
+    pub fn x(&mut self, q: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(stack, "X", false, &[q], &[], None);
         }
@@ -371,7 +371,7 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         }
     }
 
-    pub fn y(&mut self, q: usize, stack: &StackTrace) {
+    pub fn y(&mut self, q: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(stack, "Y", false, &[q], &[], None);
         }
@@ -380,7 +380,7 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         }
     }
 
-    pub fn z(&mut self, q: usize, stack: &StackTrace) {
+    pub fn z(&mut self, q: usize, stack: &[Frame]) {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(stack, "Z", false, &[q], &[], None);
         }
@@ -389,7 +389,7 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         }
     }
 
-    pub fn qubit_allocate(&mut self, stack: &StackTrace) -> usize {
+    pub fn qubit_allocate(&mut self, stack: &[Frame]) -> usize {
         let q = match &mut self.backend {
             OptionalBackend::Some(backend) => backend.qubit_allocate(),
             OptionalBackend::None(fallback) => fallback.qubit_allocate(),
@@ -400,7 +400,7 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         q
     }
 
-    pub fn qubit_release(&mut self, q: usize, stack: &StackTrace) -> bool {
+    pub fn qubit_release(&mut self, q: usize, stack: &[Frame]) -> bool {
         let b = match &mut self.backend {
             OptionalBackend::Some(backend) => backend.qubit_release(q),
             OptionalBackend::None(fallback) => fallback.qubit_release(q),
@@ -411,7 +411,7 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         b
     }
 
-    pub fn qubit_swap_id(&mut self, q0: usize, q1: usize, stack: &StackTrace) {
+    pub fn qubit_swap_id(&mut self, q0: usize, q1: usize, stack: &[Frame]) {
         if let OptionalBackend::Some(backend) = &mut self.backend {
             backend.qubit_swap_id(q0, q1);
         }
@@ -440,7 +440,7 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         &mut self,
         name: &str,
         arg: Value,
-        stack: &StackTrace,
+        stack: &[Frame],
     ) -> Option<Result<Value, String>> {
         if let Some(tracer) = &mut self.tracer {
             tracer.custom_intrinsic(stack, name, arg.clone());
