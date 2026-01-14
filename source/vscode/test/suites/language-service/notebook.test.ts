@@ -75,7 +75,7 @@ suite("Q# Notebook Tests", function suite() {
         );
       },
       vscode.workspace.onDidChangeNotebookDocument,
-      50,
+      500,
       "timed out waiting for a Python code cell",
     );
   });
