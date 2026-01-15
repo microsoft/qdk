@@ -11,6 +11,7 @@ use qsc_data_structures::{
 use qsc_eval::{
     Env, ErrorBehavior, State, StepAction,
     backend::{SparseSim, Tracer, TracingBackend},
+    debug::Frame,
     output::GenericReceiver,
     val::{self},
 };
@@ -28,24 +29,24 @@ struct TestTracer<'a> {
 }
 
 impl Tracer for TestTracer<'_> {
-    fn qubit_allocate(&mut self, stack: &qsc_eval::StackTrace, q: usize) {
+    fn qubit_allocate(&mut self, stack: &[Frame], q: usize) {
         self.write_stack(stack);
         let _ = writeln!(self.trace, "qubit_allocate(q_{q})");
     }
 
-    fn qubit_release(&mut self, stack: &qsc_eval::StackTrace, q: usize) {
+    fn qubit_release(&mut self, stack: &[Frame], q: usize) {
         self.write_stack(stack);
         let _ = writeln!(self.trace, "qubit_release(q_{q})");
     }
 
-    fn qubit_swap_id(&mut self, stack: &qsc_eval::StackTrace, q0: usize, q1: usize) {
+    fn qubit_swap_id(&mut self, stack: &[Frame], q0: usize, q1: usize) {
         self.write_stack(stack);
         let _ = writeln!(self.trace, "qubit_swap_id(q_{q0}, q_{q1})");
     }
 
     fn gate(
         &mut self,
-        stack: &qsc_eval::StackTrace,
+        stack: &[Frame],
         name: &str,
         is_adjoint: bool,
         targets: &[usize],
@@ -72,17 +73,17 @@ impl Tracer for TestTracer<'_> {
         );
     }
 
-    fn measure(&mut self, stack: &qsc_eval::StackTrace, name: &str, q: usize, r: &val::Result) {
+    fn measure(&mut self, stack: &[Frame], name: &str, q: usize, r: &val::Result) {
         self.write_stack(stack);
         let _ = writeln!(self.trace, "measure({name}, q_{q}, {r:?})");
     }
 
-    fn reset(&mut self, stack: &qsc_eval::StackTrace, q: usize) {
+    fn reset(&mut self, stack: &[Frame], q: usize) {
         self.write_stack(stack);
         let _ = writeln!(self.trace, "reset(q_{q})");
     }
 
-    fn custom_intrinsic(&mut self, stack: &qsc_eval::StackTrace, name: &str, arg: val::Value) {
+    fn custom_intrinsic(&mut self, stack: &[Frame], name: &str, arg: val::Value) {
         self.write_stack(stack);
         let _ = writeln!(self.trace, "intrinsic({name}, {arg})");
     }
@@ -93,7 +94,7 @@ impl Tracer for TestTracer<'_> {
 }
 
 impl TestTracer<'_> {
-    fn write_stack(&mut self, stack: &qsc_eval::StackTrace) {
+    fn write_stack(&mut self, stack: &[Frame]) {
         let trace = LogicalStack::from_evaluator_trace(stack);
         let display = LogicalStackWithSourceLookup {
             trace,

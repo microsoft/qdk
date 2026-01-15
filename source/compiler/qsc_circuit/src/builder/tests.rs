@@ -109,6 +109,7 @@ impl FakeCompilation {
                     adjoint: is_adjoint,
                     controlled: 0,
                 },
+                loop_iterations: Vec::new(),
             },
             _ => panic!("unexpected scope id {scope_item_id:?}"),
         }
@@ -158,11 +159,11 @@ fn exceed_max_operations() {
         &FakeCompilation::user_package_ids(),
     );
 
-    builder.qubit_allocate(&StackTrace::default(), 0);
+    builder.qubit_allocate(&[], 0);
 
-    builder.gate(&StackTrace::default(), "X", false, &[0], &[], None);
-    builder.gate(&StackTrace::default(), "X", false, &[0], &[], None);
-    builder.gate(&StackTrace::default(), "X", false, &[0], &[], None);
+    builder.gate(&[], "X", false, &[0], &[], None);
+    builder.gate(&[], "X", false, &[0], &[], None);
+    builder.gate(&[], "X", false, &[0], &[], None);
 
     let circuit = builder.finish(&FakeCompilation::default());
 
@@ -187,10 +188,10 @@ fn source_locations_enabled() {
         &FakeCompilation::user_package_ids(),
     );
 
-    builder.qubit_allocate(&StackTrace::default(), 0);
+    builder.qubit_allocate(&[], 0);
 
     builder.gate(
-        &stack_trace(vec![c.user_code_frame("Main", 10)]),
+        &[c.user_code_frame("Main", 10)],
         "X",
         false,
         &[0],
@@ -226,10 +227,10 @@ fn source_locations_disabled() {
         &FakeCompilation::user_package_ids(),
     );
 
-    builder.qubit_allocate(&StackTrace::default(), 0);
+    builder.qubit_allocate(&[], 0);
 
     builder.gate(
-        &stack_trace(vec![c.user_code_frame("Main", 10)]),
+        &[c.user_code_frame("Main", 10)],
         "X",
         false,
         &[0],
@@ -258,13 +259,10 @@ fn source_locations_multiple_user_frames() {
         &FakeCompilation::user_package_ids(),
     );
 
-    builder.qubit_allocate(&StackTrace::default(), 0);
+    builder.qubit_allocate(&[], 0);
 
     builder.gate(
-        &stack_trace(vec![
-            c.user_code_frame("Main", 10),
-            c.user_code_frame("Main", 20),
-        ]),
+        &[c.user_code_frame("Main", 10), c.user_code_frame("Main", 20)],
         "X",
         false,
         &[0],
@@ -300,9 +298,9 @@ fn source_locations_library_frames_excluded() {
         &FakeCompilation::user_package_ids(),
     );
 
-    builder.qubit_allocate(&StackTrace::default(), 0);
+    builder.qubit_allocate(&[], 0);
     builder.gate(
-        &stack_trace(vec![c.user_code_frame("Main", 10), c.library_frame(20)]),
+        &[c.user_code_frame("Main", 10), c.library_frame(20)],
         "X",
         false,
         &[0],
@@ -333,10 +331,10 @@ fn source_locations_only_library_frames() {
         &FakeCompilation::user_package_ids(),
     );
 
-    builder.qubit_allocate(&StackTrace::default(), 0);
+    builder.qubit_allocate(&[], 0);
 
     builder.gate(
-        &stack_trace(vec![c.library_frame(20), c.library_frame(30)]),
+        &[c.library_frame(20), c.library_frame(30)],
         "X",
         false,
         &[0],
@@ -366,9 +364,9 @@ fn source_locations_enabled_no_stack() {
         &FakeCompilation::user_package_ids(),
     );
 
-    builder.qubit_allocate(&StackTrace::default(), 0);
+    builder.qubit_allocate(&[], 0);
 
-    builder.gate(&StackTrace::default(), "X", false, &[0], &[], None);
+    builder.gate(&[], "X", false, &[0], &[], None);
 
     let circuit = builder.finish(&c);
 
@@ -392,9 +390,9 @@ fn qubit_source_locations_via_stack() {
         &FakeCompilation::user_package_ids(),
     );
 
-    builder.qubit_allocate(&stack_trace(vec![c.user_code_frame("Main", 10)]), 0);
+    builder.qubit_allocate(&[c.user_code_frame("Main", 10)], 0);
 
-    builder.gate(&StackTrace::default(), "X", false, &[0], &[], None);
+    builder.gate(&[], "X", false, &[0], &[], None);
 
     let circuit = builder.finish(&c);
 
@@ -424,10 +422,10 @@ fn qubit_labels_for_preallocated_qubits() {
         )),
     );
 
-    builder.qubit_allocate(&StackTrace::default(), 0);
+    builder.qubit_allocate(&[], 0);
 
     builder.gate(
-        &stack_trace(vec![c.user_code_frame("Main", 20)]),
+        &[c.user_code_frame("Main", 20)],
         "X",
         false,
         &[0],
@@ -457,23 +455,11 @@ fn measurement_target_propagated_to_group() {
         &FakeCompilation::user_package_ids(),
     );
 
-    builder.qubit_allocate(&StackTrace::default(), 0);
+    builder.qubit_allocate(&[], 0);
 
-    builder.gate(
-        &stack_trace(vec![c.user_code_frame("Main", 1)]),
-        "H",
-        false,
-        &[0],
-        &[],
-        None,
-    );
+    builder.gate(&[c.user_code_frame("Main", 1)], "H", false, &[0], &[], None);
 
-    builder.measure(
-        &stack_trace(vec![c.user_code_frame("Main", 2)]),
-        "M",
-        0,
-        &0.into(),
-    );
+    builder.measure(&[c.user_code_frame("Main", 2)], "M", 0, &0.into());
 
     let circuit = builder.finish(&c);
 
@@ -552,13 +538,10 @@ fn source_locations_for_groups() {
         &FakeCompilation::user_package_ids(),
     );
 
-    builder.qubit_allocate(&StackTrace::default(), 0);
+    builder.qubit_allocate(&[], 0);
 
     builder.gate(
-        &stack_trace(vec![
-            c.user_code_frame("Main", 10),
-            c.user_code_frame("Foo", 10),
-        ]),
+        &[c.user_code_frame("Main", 10), c.user_code_frame("Foo", 10)],
         "X",
         false,
         &[0],
@@ -576,8 +559,4 @@ fn source_locations_for_groups() {
                   └───────────────────────────────────────────────────┘
     "#]]
     .assert_eq(&circuit.display_with_groups().to_string());
-}
-
-pub(crate) fn stack_trace(frames: Vec<Frame>) -> StackTrace {
-    StackTrace::new(frames, vec![])
 }
