@@ -49,7 +49,7 @@ pub(crate) fn format_call_stack(
         }
         write!(trace, "{}", call.name.name).expect("writing to string should succeed");
 
-        let l = get_location(frame, store);
+        let l = get_location(&frame, store);
         write!(
             trace,
             " in {}:{}:{}",
@@ -88,7 +88,7 @@ fn get_ns_name(item: &Item) -> Option<Rc<str>> {
 }
 
 /// Converts the [`Span`] of [`Frame`] into a [`Location`].
-fn get_location(frame: Frame, store: &PackageStore) -> Location {
+fn get_location(frame: &Frame, store: &PackageStore) -> Location {
     let package_id = map_fir_package_to_hir(frame.id.package);
     Location::from(frame.span, package_id, store, Encoding::Utf8)
 }
