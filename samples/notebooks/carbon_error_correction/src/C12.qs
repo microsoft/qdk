@@ -14,12 +14,7 @@ operation PrepareZZ(block : Qubit[], ancillas : Qubit[]) : Result[] {
     C4.PrepareZZ(block[8..11], ancillas[2]);
     TransversalCNOT(block[4..7], block[8..11]);
 
-    // SwapLabels(block[9], block[10]);
-    // SwapLabels(block[10], block[11]);
     Relabel(block[9..11], [block[10], block[11], block[9]]);
-
-    // SwapLabels(block[6], block[7]);
-    // SwapLabels(block[5], block[6]);
     Relabel(block[5..7], [block[7], block[5], block[6]]);
 
     let check1_res = C4.DetectOn(block[4..7], ancillas[0], ancillas[1]);
@@ -33,11 +28,8 @@ operation PrepareXX(block : Qubit[], ancillas : Qubit[]) : Result[] {
     let res = PrepareZZ(block, ancillas);
     ApplyToEach(H, block);
 
-    // SwapLabels(block[1], block[2]);
     Relabel(block[1..2], [block[2], block[1]]);
-    // SwapLabels(block[5], block[6]);
     Relabel(block[5..6], [block[6], block[5]]);
-    // SwapLabels(block[9], block[10]);
     Relabel(block[9..10], [block[10], block[9]]);
 
     res
