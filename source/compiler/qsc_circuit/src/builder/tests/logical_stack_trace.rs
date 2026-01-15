@@ -40,7 +40,7 @@ impl Tracer for TestTracer<'_> {
 
     fn qubit_swap_id(&mut self, stack: &qsc_eval::StackTrace, q0: usize, q1: usize) {
         self.write_stack(stack);
-        let _ = writeln!(self.trace, "qubit_swap_id(q_{q0} q_{q1})");
+        let _ = writeln!(self.trace, "qubit_swap_id(q_{q0}, q_{q1})");
     }
 
     fn gate(
@@ -203,6 +203,29 @@ fn gate() {
             Main@A.qs:2:4 -> X@qsharp-library-source:Std/Intrinsic.qs:1038:8 -> gate(X, targets=(q_0), controls=())
             Main@A.qs:3:4 -> X@qsharp-library-source:Std/Intrinsic.qs:1038:8 -> gate(X, targets=(q_0), controls=())
             Main@A.qs:1:4 -> qubit_release(q_0)
+        "#]],
+    );
+}
+
+#[test]
+fn toffoli() {
+    check_trace(
+        indoc! {"
+            operation Main() : Unit {
+                use q = Qubit[3];
+                CCNOT(q[0], q[1], q[2]);
+            }
+        "},
+        "A.Main()",
+        ExecGraphConfig::NoDebug,
+        &expect![[r#"
+            Main@A.qs:1:4 -> AllocateQubitArray@qsharp-library-source:core/qir.qs:18:23 -> qubit_allocate(q_0)
+            Main@A.qs:1:4 -> AllocateQubitArray@qsharp-library-source:core/qir.qs:18:23 -> qubit_allocate(q_1)
+            Main@A.qs:1:4 -> AllocateQubitArray@qsharp-library-source:core/qir.qs:18:23 -> qubit_allocate(q_2)
+            Main@A.qs:2:4 -> CCNOT@qsharp-library-source:Std/Intrinsic.qs:75:8 -> gate(X, targets=(q_2), controls=(q_0, q_1))
+            Main@A.qs:1:4 -> ReleaseQubitArray@qsharp-library-source:core/qir.qs:25:12 -> qubit_release(q_0)
+            Main@A.qs:1:4 -> ReleaseQubitArray@qsharp-library-source:core/qir.qs:25:12 -> qubit_release(q_1)
+            Main@A.qs:1:4 -> ReleaseQubitArray@qsharp-library-source:core/qir.qs:25:12 -> qubit_release(q_2)
         "#]],
     );
 }
@@ -378,35 +401,6 @@ fn nested_callables_and_loop() {
 }
 
 #[test]
-fn repeat_until_loop() {
-    check_trace(
-        indoc! {"
-        operation Main() : Unit {
-            use q = Qubit();
-            for i in 0..2 {
-                Foo(q);
-            }
-            MResetZ(q);
-        }
-
-        operation Foo(q: Qubit) : Unit {
-            H(q);
-        }
-        "},
-        "A.Main()",
-        ExecGraphConfig::Debug,
-        &expect![[r#"
-            Main@A.qs:1:4 -> qubit_allocate(q_0)
-            Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[1] -> iter 1@A.qs:3:8 -> Foo@A.qs:9:4 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
-            Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[2] -> iter 2@A.qs:3:8 -> Foo@A.qs:9:4 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
-            Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[3] -> iter 3@A.qs:3:8 -> Foo@A.qs:9:4 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
-            Main@A.qs:5:4 -> MResetZ@qsharp-library-source:Std/Measurement.qs:135:4 -> measure(MResetZ, q_0, Id(0))
-            Main@A.qs:1:4 -> qubit_release(q_0)
-        "#]],
-    );
-}
-
-#[test]
 fn while_loop() {
     check_trace(
         indoc! {"
@@ -429,6 +423,46 @@ fn while_loop() {
             Main@A.qs:1:4 -> qubit_allocate(q_0)
             Main@A.qs:3:4 -> loop: i < 2@A.qs:3:18[1] -> iter 1@A.qs:4:8 -> Foo@A.qs:10:4 -> Y@qsharp-library-source:Std/Intrinsic.qs:1082:8 -> gate(Y, targets=(q_0), controls=())
             Main@A.qs:3:4 -> loop: i < 2@A.qs:3:18[2] -> iter 2@A.qs:4:8 -> Foo@A.qs:10:4 -> Y@qsharp-library-source:Std/Intrinsic.qs:1082:8 -> gate(Y, targets=(q_0), controls=())
+            Main@A.qs:1:4 -> qubit_release(q_0)
+        "#]],
+    );
+}
+
+#[test]
+fn while_loop_different_iterations() {
+    check_trace(
+        indoc! {"
+        operation Main() : Unit {
+            use q = Qubit();
+            mutable i = 0;
+            while (i < 7) {
+                if (i % 3 == 0) {
+                    set i += 2;
+                } else {
+                    set i += 1;
+                }
+
+                if (i % 2 == 0) {
+                    Foo(q);
+                } else {
+                    X(q);
+                }
+            }
+        }
+
+        operation Foo(q: Qubit) : Unit {
+            Y(q);
+        }
+        "},
+        "A.Main()",
+        ExecGraphConfig::Debug,
+        &expect![[r#"
+            Main@A.qs:1:4 -> qubit_allocate(q_0)
+            Main@A.qs:3:4 -> loop: i < 7@A.qs:3:18[1] -> (1)@A.qs:11:12 -> Foo@A.qs:19:4 -> Y@qsharp-library-source:Std/Intrinsic.qs:1082:8 -> gate(Y, targets=(q_0), controls=())
+            Main@A.qs:3:4 -> loop: i < 7@A.qs:3:18[2] -> (2)@A.qs:13:12 -> X@qsharp-library-source:Std/Intrinsic.qs:1038:8 -> gate(X, targets=(q_0), controls=())
+            Main@A.qs:3:4 -> loop: i < 7@A.qs:3:18[3] -> (3)@A.qs:13:12 -> X@qsharp-library-source:Std/Intrinsic.qs:1038:8 -> gate(X, targets=(q_0), controls=())
+            Main@A.qs:3:4 -> loop: i < 7@A.qs:3:18[4] -> (4)@A.qs:11:12 -> Foo@A.qs:19:4 -> Y@qsharp-library-source:Std/Intrinsic.qs:1082:8 -> gate(Y, targets=(q_0), controls=())
+            Main@A.qs:3:4 -> loop: i < 7@A.qs:3:18[5] -> (5)@A.qs:11:12 -> Foo@A.qs:19:4 -> Y@qsharp-library-source:Std/Intrinsic.qs:1082:8 -> gate(Y, targets=(q_0), controls=())
             Main@A.qs:1:4 -> qubit_release(q_0)
         "#]],
     );
@@ -521,6 +555,99 @@ fn custom_intrinsic() {
             Main@A.qs:6:4 -> X@qsharp-library-source:Std/Intrinsic.qs:1038:8 -> gate(X, targets=(q_0), controls=())
             Main@A.qs:7:4 -> intrinsic(foo, (4, Qubit0))
             Main@A.qs:5:4 -> qubit_release(q_0)
+        "#]],
+    );
+}
+
+#[test]
+fn adjoint_operation_implicit_specialization() {
+    check_trace(
+        indoc! {"
+            operation Main() : Unit {
+                use q = Qubit();
+                Foo(q);
+                Adjoint Foo(q);
+            }
+
+            operation Foo(q : Qubit) : Unit is Adj {
+                body (...) {
+                    X(q);
+                    Y(q);
+                }
+            }
+        "},
+        "A.Main()",
+        ExecGraphConfig::Debug,
+        &expect![[r#"
+            Main@A.qs:1:4 -> qubit_allocate(q_0)
+            Main@A.qs:2:4 -> Foo@A.qs:8:8 -> X@qsharp-library-source:Std/Intrinsic.qs:1038:8 -> gate(X, targets=(q_0), controls=())
+            Main@A.qs:2:4 -> Foo@A.qs:9:8 -> Y@qsharp-library-source:Std/Intrinsic.qs:1082:8 -> gate(Y, targets=(q_0), controls=())
+            Main@A.qs:3:4 -> Foo†@A.qs:9:8 -> Y†@qsharp-library-source:Std/Intrinsic.qs:1082:8 -> gate(Y, targets=(q_0), controls=())
+            Main@A.qs:3:4 -> Foo†@A.qs:8:8 -> X†@qsharp-library-source:Std/Intrinsic.qs:1038:8 -> gate(X, targets=(q_0), controls=())
+            Main@A.qs:1:4 -> qubit_release(q_0)
+        "#]],
+    );
+}
+
+#[test]
+fn adjoint_operation_explicit_specialization() {
+    check_trace(
+        indoc! {"
+            operation Main() : Unit {
+                use q = Qubit();
+                Foo(q);
+                Adjoint Foo(q);
+            }
+
+            operation Foo(q : Qubit) : Unit is Adj {
+                body (...) {
+                    X(q);
+                }
+
+                adjoint (...) {
+                    Y(q);
+                }
+            }
+        "},
+        "A.Main()",
+        ExecGraphConfig::Debug,
+        &expect![[r#"
+            Main@A.qs:1:4 -> qubit_allocate(q_0)
+            Main@A.qs:2:4 -> Foo@A.qs:8:8 -> X@qsharp-library-source:Std/Intrinsic.qs:1038:8 -> gate(X, targets=(q_0), controls=())
+            Main@A.qs:3:4 -> Foo†@A.qs:12:8 -> Y@qsharp-library-source:Std/Intrinsic.qs:1082:8 -> gate(Y, targets=(q_0), controls=())
+            Main@A.qs:1:4 -> qubit_release(q_0)
+        "#]],
+    );
+}
+
+#[test]
+fn controlled_operation() {
+    check_trace(
+        indoc! {"
+            operation Main() : Unit {
+                use q = Qubit();
+                use q1 = Qubit();
+                Controlled Foo([q1], q);
+            }
+
+            operation Foo(q : Qubit) : Unit is Ctl {
+                body (...) {
+                    X(q);
+                }
+
+                controlled (cs, ...) {
+                    CNOT(cs[0], q);
+                }
+            }
+        "},
+        "A.Main()",
+        ExecGraphConfig::Debug,
+        &expect![[r#"
+            Main@A.qs:1:4 -> qubit_allocate(q_0)
+            Main@A.qs:2:4 -> qubit_allocate(q_1)
+            Main@A.qs:3:4 -> Foo@A.qs:12:8 -> CNOT@qsharp-library-source:Std/Intrinsic.qs:113:8 -> gate(X, targets=(q_0), controls=(q_1))
+            Main@A.qs:2:4 -> qubit_release(q_1)
+            Main@A.qs:1:4 -> qubit_release(q_0)
         "#]],
     );
 }

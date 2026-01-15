@@ -464,12 +464,11 @@ impl Env {
     }
 
     pub fn push_loop_scope(&mut self, frame_id: usize, loop_expr: ExprId) {
-        let iteration_count = 0;
         let scope = Scope {
             frame_id,
             loop_scope: Some(LoopScope {
                 loop_expr,
-                iteration_count,
+                iteration_count: 0,
             }),
             ..Default::default()
         };
