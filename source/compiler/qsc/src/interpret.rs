@@ -1477,7 +1477,7 @@ impl Debugger {
         TracerConfig {
             max_operations: TracerConfig::DEFAULT_MAX_OPERATIONS,
             source_locations: true,
-            group_by_scope: true,
+            group_by_scope: false,
             prune_classical_qubits: false,
         }
     }
