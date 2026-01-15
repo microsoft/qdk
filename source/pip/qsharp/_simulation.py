@@ -523,6 +523,11 @@ def prepare_qir_with_correlated_noise(
 
 
 class GpuSimulator:
+    """
+    Represents a GPU-based QIR simulator. This is a 'full state' simulator that can simulate
+    quantum programs, including non-Clifford gates, up to a limit of 27 qubits.
+    """
+
     def __init__(self):
         self.gpu_context = GpuContext()
 
@@ -530,9 +535,29 @@ class GpuSimulator:
         self,
         noise_dir: str,
     ):
+        """
+        Loads noise tables from the specified directory path. For each .csv file found in the directory,
+        the noise table is loaded and associated with a unique identifier. The name of the file (without the .csv extension)
+        is used as the label for the noise table, which should match the QIR instruction that will apply noise using this table.
+
+        If testing various noise models, you may load new noise models at any time by calling this method again
+        with a different directory path. Previously loaded noise tables will be replaced. The program currently loaded
+        into the simulator (if any) will remain loaded, but any subsequent calls to `run_shots` will use the newly loaded noise tables.
+
+        Each line of the table should be of the format: "IXYZ,1.345e-4" where IXYZ is a string of Pauli operators
+        representing the error on each qubit (Z applying to the first qubit argument, Y to the second, etc.), and the second value
+        is the corresponding error probability for that specific Pauli string.
+
+        Blank lines, lines starting with #, or lines that start with the string "pauli" (i.e., a column header) are ignored.
+        """
         self.tables = self.gpu_context.load_noise_tables(noise_dir)
 
     def set_program(self, input: Union[QirInputData, str, bytes]):
+        """
+        Load the QIR program into the GPU simulator, preparing it for execution. You may load and run
+        multiple programs sequentially by calling this method multiple times before calling `run_shots`
+        without needing to create a new simulator instance or reloading noise tables.
+        """
         (self.gates, self.required_num_qubits, self.required_num_results) = (
             prepare_qir_with_correlated_noise(
                 input, self.tables if not self.tables is None else []
@@ -543,6 +568,10 @@ class GpuSimulator:
         )
 
     def run_shots(self, shots: int, seed: Optional[int] = None) -> "GpuShotResults":
+        """
+        Run the loaded QIR program for the specified number of shots, using an optional seed for reproducibility.
+        If noise is to be applied, ensure that noise has been loaded prior to running shots.
+        """
         seed = seed if seed is not None else random.randint(0, 2**32 - 1)
         return self.gpu_context.run_shots(shots, seed=seed)
 

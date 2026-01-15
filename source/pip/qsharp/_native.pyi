@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 
 from enum import Enum
-from typing import Any, Callable, Optional, Dict, List, NotRequired, Tuple, TypedDict, overload
+from typing import Any, Callable, Optional, Dict, List, Tuple, TypedDict, overload
 
 # pylint: disable=unused-argument
 # E302 is fighting with the formatter for number of blank lines
@@ -912,24 +912,35 @@ def run_parallel_shots(
     """ """
     ...
 
-class GpuShotResults(TypedDict):
-    """
-    Results from running shots on the GPU simulator.
-    """
-
+# This is a little clunky, but until we move to Python 3.11 as a minimum, the NotRequired annotation
+# for Dict fields that may be missing is not availalble. See https://peps.python.org/pep-0655/#motivation
+class _GpuShotResultsBase(TypedDict):
     shot_results: List[str]
     """Bit strings for each shot ('0', '1', or 'L' for lost qubits)."""
 
     shot_result_codes: List[int]
-    """Result codes for each shot."""
+    """Result codes for each shot. 0 = Success, else Failure  (Specific codes are an internal detail)."""
 
-    diagnostics: NotRequired[str]
-    """Diagnostic information if available."""
+class GpuShotResults(_GpuShotResultsBase, total=False):
+    """
+    Results from running shots on the GPU simulator.
+    """
+
+    diagnostics: str
+    """Diagnostic information if available. (Useful primarly for debugging by the development team)"""
 
 class GpuContext:
     def load_noise_tables(self, dir_path: str) -> List[Tuple[int, str, int]]:
         """
-        Loads a noise table from the specified directory path.
+        Loads noise tables from the specified directory path. For each .csv file found in the directory,
+        the noise table is loaded and associated with a unique identifier. The name of the file (without the .csv extension)
+        is used as the label for the noise table, which should match the QIR instruction that will apply noise using this table.
+
+        Each line of the table should be for the format: "IXYZ,1.345e-4" where IXYZ is a string of Pauli operators
+        representing the error on each qubit (Z applying to the first qubit argument, Y to the second, etc.), and the second value
+        is the corresponding error probability for that specific Pauli string.
+
+        Blank lines, lines starting with #, or lines that start with the string "pauli" (i.e., a column header) are ignored.
         """
         ...
 
