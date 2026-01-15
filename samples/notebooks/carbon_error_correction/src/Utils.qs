@@ -9,10 +9,10 @@ operation TransversalCNOT(block0 : Qubit[], block1 : Qubit[]) : Unit {
 }
 
 operation PrepareZero(q : Qubit) : Unit {
-    // Reset(q);
+    Reset(q);
 }
 
 operation PreparePlus(q : Qubit) : Unit {
-    // Reset(q);
+    Reset(q);
     H(q);
 }
