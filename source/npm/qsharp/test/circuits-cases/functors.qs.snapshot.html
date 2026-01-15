@@ -13,10 +13,10 @@
       <svg
         xmlns="http://www.w3.org/2000/svg"
         class="qviz"
-        width="364.24"
-        height="148"
+        width="488.48"
+        height="268"
         style="max-width: fit-content"
-        viewBox="0 0 364 148"
+        viewBox="0 0 488 268"
       >
         <g class="qubit-input-states">
           <text
@@ -33,34 +33,64 @@
             <tspan baseline-shift="sub" font-size="65%">0</tspan>
             ⟩
           </text>
+          <text
+            font-size="16"
+            x="20"
+            y="148"
+            text-anchor="start"
+            dominant-baseline="middle"
+            data-wire="1"
+            class="qs-maintext qs-qubit-label"
+          >
+            |
+            <tspan class="qs-mathtext">ψ</tspan>
+            <tspan baseline-shift="sub" font-size="65%">1</tspan>
+            ⟩
+          </text>
+          <text
+            font-size="16"
+            x="20"
+            y="208"
+            text-anchor="start"
+            dominant-baseline="middle"
+            data-wire="2"
+            class="qs-maintext qs-qubit-label"
+          >
+            |
+            <tspan class="qs-mathtext">ψ</tspan>
+            <tspan baseline-shift="sub" font-size="65%">2</tspan>
+            ⟩
+          </text>
         </g>
         <g class="wires">
-          <line x1="40" x2="364.24" y1="68" y2="68" class="qubit-wire" />
+          <line x1="40" x2="488.48" y1="68" y2="68" class="qubit-wire" />
+          <line x1="40" x2="488.48" y1="148" y2="148" class="qubit-wire" />
+          <line x1="40" x2="488.48" y1="208" y2="208" class="qubit-wire" />
           <g>
             <line
-              x1="235.24"
-              x2="235.24"
+              x1="359.48"
+              x2="359.48"
               y1="68"
               y2="107"
               class="register-classical"
             />
             <line
-              x1="233.24"
-              x2="233.24"
+              x1="357.48"
+              x2="357.48"
               y1="68"
               y2="109"
               class="register-classical"
             />
             <line
-              x1="235.24"
-              x2="364.24"
+              x1="359.48"
+              x2="488.48"
               y1="107"
               y2="107"
               class="register-classical"
             />
             <line
-              x1="233.24"
-              x2="364.24"
+              x1="357.48"
+              x2="488.48"
               y1="109"
               y2="109"
               class="register-classical"
@@ -79,8 +109,8 @@
               class="gate-unitary"
               x="60"
               y="38"
-              width="274.24"
-              height="100"
+              width="398.48"
+              height="200"
               fill-opacity="0"
               stroke-dasharray="8, 8"
             />
@@ -159,14 +189,86 @@
                 class="gate"
                 data-location="0,0-2,0"
                 data-zoom-out="true"
+                data-zoom-in="true"
+              >
+                <a href="#" class="qs-circuit-source-link">
+                  <title>functors.qs:6:5 Controlled Foo(controls, q);</title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="214.24"
+                        y="48"
+                        width="42.120000000000005"
+                        height="180"
+                        data-wire-ys="[68,148,208]"
+                        data-width="42.120000000000005"
+                      />
+                      <text
+                        font-size="14"
+                        x="235.3"
+                        y="138"
+                        class="qs-maintext"
+                      >
+                        <tspan class="qs-mathtext">Foo</tspan>
+                      </text>
+                    </g>
+                  </g>
+                </a>
+                <g class="gate-control gate-expand">
+                  <circle cx="216.24" cy="50" r="10" />
+                  <path d="M216.24,43 v14 M209.24,50 h14" />
+                </g>
+              </g>
+              <g
+                class="gate"
+                data-location="0,0-3,0"
+                data-zoom-out="true"
+                data-zoom-in="true"
+              >
+                <a href="#" class="qs-circuit-source-link">
+                  <title>
+                    functors.qs:7:5 Controlled Adjoint Foo(controls, q);
+                  </title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="276.36"
+                        y="48"
+                        width="42.120000000000005"
+                        height="180"
+                        data-wire-ys="[68,148,208]"
+                        data-width="42.120000000000005"
+                      />
+                      <text
+                        font-size="14"
+                        x="297.42"
+                        y="138"
+                        class="qs-maintext"
+                      >
+                        <tspan class="qs-mathtext">Foo</tspan>
+                      </text>
+                    </g>
+                  </g>
+                </a>
+                <g class="gate-control gate-expand">
+                  <circle cx="278.36" cy="50" r="10" />
+                  <path d="M278.36,43 v14 M271.36,50 h14" />
+                </g>
+              </g>
+              <g
+                class="gate"
+                data-location="0,0-4,0"
+                data-zoom-out="true"
                 data-zoom-in="false"
               >
                 <a href="#" class="qs-circuit-source-link">
-                  <title>functors.qs:5:6 [MResetZ(q)]</title>
+                  <title>functors.qs:8:6 [MResetZ(q)]</title>
                   <g>
                     <rect
                       class="gate-measure"
-                      x="214.24"
+                      x="338.48"
                       y="48"
                       width="40"
                       height="40"
@@ -175,12 +277,12 @@
                     />
                     <path
                       class="arc-measure"
-                      d="M 249.24 70 A 15 12 0 0 0 219.24 70"
+                      d="M 373.48 70 A 15 12 0 0 0 343.48 70"
                       style="pointer-events: none"
                     />
                     <line
-                      x1="234.24"
-                      x2="246.24"
+                      x1="358.48"
+                      x2="370.48"
                       y1="76"
                       y2="56"
                       class="qs-line-measure"
@@ -191,17 +293,17 @@
               </g>
               <g
                 class="gate"
-                data-location="0,0-3,0"
+                data-location="0,0-5,0"
                 data-zoom-out="true"
                 data-zoom-in="false"
               >
                 <a href="#" class="qs-circuit-source-link">
-                  <title>functors.qs:5:6 [MResetZ(q)]</title>
+                  <title>functors.qs:8:6 [MResetZ(q)]</title>
                   <g>
                     <g>
                       <rect
                         class="gate-ket"
-                        x="274.24"
+                        x="398.48"
                         y="48"
                         width="40"
                         height="40"
@@ -210,7 +312,7 @@
                       />
                       <text
                         font-size="14"
-                        x="294.24"
+                        x="418.48"
                         y="68"
                         class="qs-maintext ket-text"
                       >
@@ -242,10 +344,10 @@
       <svg
         xmlns="http://www.w3.org/2000/svg"
         class="qviz"
-        width="420"
-        height="176"
+        width="600"
+        height="296"
         style="max-width: fit-content"
-        viewBox="0 0 420 176"
+        viewBox="0 0 600 296"
       >
         <g class="qubit-input-states">
           <text
@@ -262,34 +364,64 @@
             <tspan baseline-shift="sub" font-size="65%">0</tspan>
             ⟩
           </text>
+          <text
+            font-size="16"
+            x="20"
+            y="176"
+            text-anchor="start"
+            dominant-baseline="middle"
+            data-wire="1"
+            class="qs-maintext qs-qubit-label"
+          >
+            |
+            <tspan class="qs-mathtext">ψ</tspan>
+            <tspan baseline-shift="sub" font-size="65%">1</tspan>
+            ⟩
+          </text>
+          <text
+            font-size="16"
+            x="20"
+            y="236"
+            text-anchor="start"
+            dominant-baseline="middle"
+            data-wire="2"
+            class="qs-maintext qs-qubit-label"
+          >
+            |
+            <tspan class="qs-mathtext">ψ</tspan>
+            <tspan baseline-shift="sub" font-size="65%">2</tspan>
+            ⟩
+          </text>
         </g>
         <g class="wires">
-          <line x1="40" x2="420" y1="96" y2="96" class="qubit-wire" />
+          <line x1="40" x2="600" y1="96" y2="96" class="qubit-wire" />
+          <line x1="40" x2="600" y1="176" y2="176" class="qubit-wire" />
+          <line x1="40" x2="600" y1="236" y2="236" class="qubit-wire" />
           <g>
             <line
-              x1="291"
-              x2="291"
+              x1="471"
+              x2="471"
               y1="96"
               y2="135"
               class="register-classical"
             />
             <line
-              x1="289"
-              x2="289"
+              x1="469"
+              x2="469"
               y1="96"
               y2="137"
               class="register-classical"
             />
             <line
-              x1="291"
-              x2="420"
+              x1="471"
+              x2="600"
               y1="135"
               y2="135"
               class="register-classical"
             />
             <line
-              x1="289"
-              x2="420"
+              x1="469"
+              x2="600"
               y1="137"
               y2="137"
               class="register-classical"
@@ -308,8 +440,8 @@
               class="gate-unitary"
               x="60"
               y="38"
-              width="330"
-              height="128"
+              width="510"
+              height="228"
               fill-opacity="0"
               stroke-dasharray="8, 8"
             />
@@ -338,7 +470,7 @@
                     data-zoom-in="false"
                   >
                     <a href="#" class="qs-circuit-source-link">
-                      <title>functors.qs:11:9 X(q);</title>
+                      <title>functors.qs:14:9 X(q);</title>
                       <g class="oplus" data-wire-ys="[96]" data-width="30">
                         <circle cx="120" cy="96" r="15" />
                         <line x1="120" x2="120" y1="81" y2="111" />
@@ -384,27 +516,11 @@
                     data-zoom-in="false"
                   >
                     <a href="#" class="qs-circuit-source-link">
-                      <title>functors.qs:15:9 Y(q);</title>
-                      <g>
-                        <g>
-                          <rect
-                            class="gate-unitary"
-                            x="190"
-                            y="76"
-                            width="40"
-                            height="40"
-                            data-wire-ys="[96]"
-                            data-width="40"
-                          />
-                          <text
-                            font-size="14"
-                            x="210"
-                            y="96"
-                            class="qs-maintext"
-                          >
-                            <tspan class="qs-mathtext">Y</tspan>
-                          </text>
-                        </g>
+                      <title>functors.qs:18:9 X(q);</title>
+                      <g class="oplus" data-wire-ys="[96]" data-width="30">
+                        <circle cx="210" cy="96" r="15" />
+                        <line x1="210" x2="210" y1="81" y2="111" />
+                        <line x1="195" x2="225" y1="96" y2="96" />
                       </g>
                     </a>
                   </g>
@@ -424,16 +540,156 @@
               </g>
               <g
                 class="gate"
+                data-expanded="true"
                 data-location="0,0-2,0"
+                data-zoom-out="true"
+                data-zoom-in="true"
+              >
+                <rect
+                  class="gate-unitary"
+                  x="254"
+                  y="66"
+                  width="86"
+                  height="198"
+                  fill-opacity="0"
+                  stroke-dasharray="8, 8"
+                />
+                <g>
+                  <g
+                    class="gate"
+                    data-location="0,0-2,0-0,0"
+                    data-zoom-out="true"
+                    data-zoom-in="false"
+                  >
+                    <a href="#" class="qs-circuit-source-link">
+                      <title>functors.qs:22:9 Controlled X(cs, q);</title>
+                      <line
+                        x1="300"
+                        x2="300"
+                        y1="96"
+                        y2="236"
+                        class="control-line"
+                        style="pointer-events: none"
+                      />
+                      <circle
+                        cx="300"
+                        cy="176"
+                        r="5"
+                        class="control-dot"
+                        data-wire-ys="[176]"
+                        data-width="10"
+                      />
+                      <circle
+                        cx="300"
+                        cy="236"
+                        r="5"
+                        class="control-dot"
+                        data-wire-ys="[236]"
+                        data-width="10"
+                      />
+                      <g class="oplus" data-wire-ys="[96]" data-width="30">
+                        <circle cx="300" cy="96" r="15" />
+                        <line x1="300" x2="300" y1="81" y2="111" />
+                        <line x1="285" x2="315" y1="96" y2="96" />
+                      </g>
+                    </a>
+                  </g>
+                </g>
+                <text
+                  font-size="14"
+                  x="256"
+                  y="54"
+                  class="qs-group-label qs-maintext"
+                >
+                  <tspan class="qs-mathtext">Foo</tspan>
+                </text>
+                <g class="gate-control gate-collapse">
+                  <circle cx="256" cy="68" r="10" />
+                  <path d="M249,68 h14" />
+                </g>
+              </g>
+              <g
+                class="gate"
+                data-expanded="true"
+                data-location="0,0-3,0"
+                data-zoom-out="true"
+                data-zoom-in="true"
+              >
+                <rect
+                  class="gate-unitary"
+                  x="344"
+                  y="66"
+                  width="86"
+                  height="198"
+                  fill-opacity="0"
+                  stroke-dasharray="8, 8"
+                />
+                <g>
+                  <g
+                    class="gate"
+                    data-location="0,0-3,0-0,0"
+                    data-zoom-out="true"
+                    data-zoom-in="false"
+                  >
+                    <a href="#" class="qs-circuit-source-link">
+                      <title>functors.qs:18:9 X(q);</title>
+                      <line
+                        x1="390"
+                        x2="390"
+                        y1="96"
+                        y2="236"
+                        class="control-line"
+                        style="pointer-events: none"
+                      />
+                      <circle
+                        cx="390"
+                        cy="176"
+                        r="5"
+                        class="control-dot"
+                        data-wire-ys="[176]"
+                        data-width="10"
+                      />
+                      <circle
+                        cx="390"
+                        cy="236"
+                        r="5"
+                        class="control-dot"
+                        data-wire-ys="[236]"
+                        data-width="10"
+                      />
+                      <g class="oplus" data-wire-ys="[96]" data-width="30">
+                        <circle cx="390" cy="96" r="15" />
+                        <line x1="390" x2="390" y1="81" y2="111" />
+                        <line x1="375" x2="405" y1="96" y2="96" />
+                      </g>
+                    </a>
+                  </g>
+                </g>
+                <text
+                  font-size="14"
+                  x="346"
+                  y="54"
+                  class="qs-group-label qs-maintext"
+                >
+                  <tspan class="qs-mathtext">Foo</tspan>
+                </text>
+                <g class="gate-control gate-collapse">
+                  <circle cx="346" cy="68" r="10" />
+                  <path d="M339,68 h14" />
+                </g>
+              </g>
+              <g
+                class="gate"
+                data-location="0,0-4,0"
                 data-zoom-out="true"
                 data-zoom-in="false"
               >
                 <a href="#" class="qs-circuit-source-link">
-                  <title>functors.qs:5:6 [MResetZ(q)]</title>
+                  <title>functors.qs:8:6 [MResetZ(q)]</title>
                   <g>
                     <rect
                       class="gate-measure"
-                      x="270"
+                      x="450"
                       y="76"
                       width="40"
                       height="40"
@@ -442,12 +698,12 @@
                     />
                     <path
                       class="arc-measure"
-                      d="M 305 98 A 15 12 0 0 0 275 98"
+                      d="M 485 98 A 15 12 0 0 0 455 98"
                       style="pointer-events: none"
                     />
                     <line
-                      x1="290"
-                      x2="302"
+                      x1="470"
+                      x2="482"
                       y1="104"
                       y2="84"
                       class="qs-line-measure"
@@ -458,17 +714,17 @@
               </g>
               <g
                 class="gate"
-                data-location="0,0-3,0"
+                data-location="0,0-5,0"
                 data-zoom-out="true"
                 data-zoom-in="false"
               >
                 <a href="#" class="qs-circuit-source-link">
-                  <title>functors.qs:5:6 [MResetZ(q)]</title>
+                  <title>functors.qs:8:6 [MResetZ(q)]</title>
                   <g>
                     <g>
                       <rect
                         class="gate-ket"
-                        x="330"
+                        x="510"
                         y="76"
                         width="40"
                         height="40"
@@ -477,7 +733,7 @@
                       />
                       <text
                         font-size="14"
-                        x="350"
+                        x="530"
                         y="96"
                         class="qs-maintext ket-text"
                       >
@@ -509,10 +765,10 @@
       <svg
         xmlns="http://www.w3.org/2000/svg"
         class="qviz"
-        width="368.3"
-        height="148"
+        width="512.56"
+        height="268"
         style="max-width: fit-content"
-        viewBox="0 0 368 148"
+        viewBox="0 0 512 268"
       >
         <g class="qubit-input-states">
           <a href="#" class="qs-circuit-source-link">
@@ -532,34 +788,70 @@
               ⟩
             </text>
           </a>
+          <a href="#" class="qs-circuit-source-link">
+            <title>functors.qs:5:5 use controls = Qubit[2];</title>
+            <text
+              font-size="16"
+              x="20"
+              y="148"
+              text-anchor="start"
+              dominant-baseline="middle"
+              data-wire="1"
+              class="qs-maintext qs-qubit-label"
+            >
+              |
+              <tspan class="qs-mathtext">ψ</tspan>
+              <tspan baseline-shift="sub" font-size="65%">1</tspan>
+              ⟩
+            </text>
+          </a>
+          <a href="#" class="qs-circuit-source-link">
+            <title>functors.qs:5:5 use controls = Qubit[2];</title>
+            <text
+              font-size="16"
+              x="20"
+              y="208"
+              text-anchor="start"
+              dominant-baseline="middle"
+              data-wire="2"
+              class="qs-maintext qs-qubit-label"
+            >
+              |
+              <tspan class="qs-mathtext">ψ</tspan>
+              <tspan baseline-shift="sub" font-size="65%">2</tspan>
+              ⟩
+            </text>
+          </a>
         </g>
         <g class="wires">
-          <line x1="40" x2="368.3" y1="68" y2="68" class="qubit-wire" />
+          <line x1="40" x2="512.56" y1="68" y2="68" class="qubit-wire" />
+          <line x1="40" x2="512.56" y1="148" y2="148" class="qubit-wire" />
+          <line x1="40" x2="512.56" y1="208" y2="208" class="qubit-wire" />
           <g>
             <line
-              x1="239.3"
-              x2="239.3"
+              x1="383.55999999999995"
+              x2="383.55999999999995"
               y1="68"
               y2="107"
               class="register-classical"
             />
             <line
-              x1="237.3"
-              x2="237.3"
+              x1="381.55999999999995"
+              x2="381.55999999999995"
               y1="68"
               y2="109"
               class="register-classical"
             />
             <line
-              x1="239.3"
-              x2="368.3"
+              x1="383.55999999999995"
+              x2="512.56"
               y1="107"
               y2="107"
               class="register-classical"
             />
             <line
-              x1="237.3"
-              x2="368.3"
+              x1="381.55999999999995"
+              x2="512.56"
               y1="109"
               y2="109"
               class="register-classical"
@@ -578,8 +870,8 @@
               class="gate-unitary"
               x="60"
               y="38"
-              width="278.3"
-              height="100"
+              width="422.55999999999995"
+              height="200"
               fill-opacity="0"
               stroke-dasharray="8, 8"
             />
@@ -659,14 +951,87 @@
                 class="gate"
                 data-location="0,0-2,0"
                 data-zoom-out="true"
+                data-zoom-in="true"
+              >
+                <a href="#" class="qs-circuit-source-link">
+                  <title>functors.qs:6:5 Controlled Foo(controls, q);</title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="218.3"
+                        y="48"
+                        width="50.099999999999994"
+                        height="180"
+                        data-wire-ys="[68,148,208]"
+                        data-width="50.099999999999994"
+                      />
+                      <text
+                        font-size="14"
+                        x="243.35000000000002"
+                        y="138"
+                        class="qs-maintext"
+                      >
+                        <tspan class="qs-mathtext">∧Foo</tspan>
+                      </text>
+                    </g>
+                  </g>
+                </a>
+                <g class="gate-control gate-expand">
+                  <circle cx="220.3" cy="50" r="10" />
+                  <path d="M220.3,43 v14 M213.3,50 h14" />
+                </g>
+              </g>
+              <g
+                class="gate"
+                data-location="0,0-3,0"
+                data-zoom-out="true"
+                data-zoom-in="true"
+              >
+                <a href="#" class="qs-circuit-source-link">
+                  <title>
+                    functors.qs:7:5 Controlled Adjoint Foo(controls, q);
+                  </title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="288.4"
+                        y="48"
+                        width="54.160000000000004"
+                        height="180"
+                        data-wire-ys="[68,148,208]"
+                        data-width="54.160000000000004"
+                      />
+                      <text
+                        font-size="14"
+                        x="315.47999999999996"
+                        y="138"
+                        class="qs-maintext"
+                      >
+                        <tspan class="qs-mathtext">∧Foo</tspan>
+                        <tspan dx="2" dy="-3" style="font-size: 0.8em">†</tspan>
+                      </text>
+                    </g>
+                  </g>
+                </a>
+                <g class="gate-control gate-expand">
+                  <circle cx="290.4" cy="50" r="10" />
+                  <path d="M290.4,43 v14 M283.4,50 h14" />
+                </g>
+              </g>
+              <g
+                class="gate"
+                data-location="0,0-4,0"
+                data-zoom-out="true"
                 data-zoom-in="false"
               >
                 <a href="#" class="qs-circuit-source-link">
-                  <title>functors.qs:5:6 [MResetZ(q)]</title>
+                  <title>functors.qs:8:6 [MResetZ(q)]</title>
                   <g>
                     <rect
                       class="gate-measure"
-                      x="218.3"
+                      x="362.55999999999995"
                       y="48"
                       width="40"
                       height="40"
@@ -675,12 +1040,12 @@
                     />
                     <path
                       class="arc-measure"
-                      d="M 253.3 70 A 15 12 0 0 0 223.3 70"
+                      d="M 397.55999999999995 70 A 15 12 0 0 0 367.55999999999995 70"
                       style="pointer-events: none"
                     />
                     <line
-                      x1="238.3"
-                      x2="250.3"
+                      x1="382.55999999999995"
+                      x2="394.55999999999995"
                       y1="76"
                       y2="56"
                       class="qs-line-measure"
@@ -691,17 +1056,17 @@
               </g>
               <g
                 class="gate"
-                data-location="0,0-3,0"
+                data-location="0,0-5,0"
                 data-zoom-out="true"
                 data-zoom-in="false"
               >
                 <a href="#" class="qs-circuit-source-link">
-                  <title>functors.qs:5:6 [MResetZ(q)]</title>
+                  <title>functors.qs:8:6 [MResetZ(q)]</title>
                   <g>
                     <g>
                       <rect
                         class="gate-ket"
-                        x="278.3"
+                        x="422.55999999999995"
                         y="48"
                         width="40"
                         height="40"
@@ -710,7 +1075,7 @@
                       />
                       <text
                         font-size="14"
-                        x="298.3"
+                        x="442.55999999999995"
                         y="68"
                         class="qs-maintext ket-text"
                       >
@@ -742,10 +1107,10 @@
       <svg
         xmlns="http://www.w3.org/2000/svg"
         class="qviz"
-        width="420"
-        height="176"
+        width="600"
+        height="296"
         style="max-width: fit-content"
-        viewBox="0 0 420 176"
+        viewBox="0 0 600 296"
       >
         <g class="qubit-input-states">
           <a href="#" class="qs-circuit-source-link">
@@ -765,34 +1130,70 @@
               ⟩
             </text>
           </a>
+          <a href="#" class="qs-circuit-source-link">
+            <title>functors.qs:5:5 use controls = Qubit[2];</title>
+            <text
+              font-size="16"
+              x="20"
+              y="176"
+              text-anchor="start"
+              dominant-baseline="middle"
+              data-wire="1"
+              class="qs-maintext qs-qubit-label"
+            >
+              |
+              <tspan class="qs-mathtext">ψ</tspan>
+              <tspan baseline-shift="sub" font-size="65%">1</tspan>
+              ⟩
+            </text>
+          </a>
+          <a href="#" class="qs-circuit-source-link">
+            <title>functors.qs:5:5 use controls = Qubit[2];</title>
+            <text
+              font-size="16"
+              x="20"
+              y="236"
+              text-anchor="start"
+              dominant-baseline="middle"
+              data-wire="2"
+              class="qs-maintext qs-qubit-label"
+            >
+              |
+              <tspan class="qs-mathtext">ψ</tspan>
+              <tspan baseline-shift="sub" font-size="65%">2</tspan>
+              ⟩
+            </text>
+          </a>
         </g>
         <g class="wires">
-          <line x1="40" x2="420" y1="96" y2="96" class="qubit-wire" />
+          <line x1="40" x2="600" y1="96" y2="96" class="qubit-wire" />
+          <line x1="40" x2="600" y1="176" y2="176" class="qubit-wire" />
+          <line x1="40" x2="600" y1="236" y2="236" class="qubit-wire" />
           <g>
             <line
-              x1="291"
-              x2="291"
+              x1="471"
+              x2="471"
               y1="96"
               y2="135"
               class="register-classical"
             />
             <line
-              x1="289"
-              x2="289"
+              x1="469"
+              x2="469"
               y1="96"
               y2="137"
               class="register-classical"
             />
             <line
-              x1="291"
-              x2="420"
+              x1="471"
+              x2="600"
               y1="135"
               y2="135"
               class="register-classical"
             />
             <line
-              x1="289"
-              x2="420"
+              x1="469"
+              x2="600"
               y1="137"
               y2="137"
               class="register-classical"
@@ -811,8 +1212,8 @@
               class="gate-unitary"
               x="60"
               y="38"
-              width="330"
-              height="128"
+              width="510"
+              height="228"
               fill-opacity="0"
               stroke-dasharray="8, 8"
             />
@@ -841,7 +1242,7 @@
                     data-zoom-in="false"
                   >
                     <a href="#" class="qs-circuit-source-link">
-                      <title>functors.qs:11:9 X(q);</title>
+                      <title>functors.qs:14:9 X(q);</title>
                       <g class="oplus" data-wire-ys="[96]" data-width="30">
                         <circle cx="120" cy="96" r="15" />
                         <line x1="120" x2="120" y1="81" y2="111" />
@@ -887,27 +1288,11 @@
                     data-zoom-in="false"
                   >
                     <a href="#" class="qs-circuit-source-link">
-                      <title>functors.qs:15:9 Y(q);</title>
-                      <g>
-                        <g>
-                          <rect
-                            class="gate-unitary"
-                            x="190"
-                            y="76"
-                            width="40"
-                            height="40"
-                            data-wire-ys="[96]"
-                            data-width="40"
-                          />
-                          <text
-                            font-size="14"
-                            x="210"
-                            y="96"
-                            class="qs-maintext"
-                          >
-                            <tspan class="qs-mathtext">Y</tspan>
-                          </text>
-                        </g>
+                      <title>functors.qs:18:9 X(q);</title>
+                      <g class="oplus" data-wire-ys="[96]" data-width="30">
+                        <circle cx="210" cy="96" r="15" />
+                        <line x1="210" x2="210" y1="81" y2="111" />
+                        <line x1="195" x2="225" y1="96" y2="96" />
                       </g>
                     </a>
                   </g>
@@ -928,16 +1313,157 @@
               </g>
               <g
                 class="gate"
+                data-expanded="true"
                 data-location="0,0-2,0"
+                data-zoom-out="true"
+                data-zoom-in="true"
+              >
+                <rect
+                  class="gate-unitary"
+                  x="254"
+                  y="66"
+                  width="86"
+                  height="198"
+                  fill-opacity="0"
+                  stroke-dasharray="8, 8"
+                />
+                <g>
+                  <g
+                    class="gate"
+                    data-location="0,0-2,0-0,0"
+                    data-zoom-out="true"
+                    data-zoom-in="false"
+                  >
+                    <a href="#" class="qs-circuit-source-link">
+                      <title>functors.qs:22:9 Controlled X(cs, q);</title>
+                      <line
+                        x1="300"
+                        x2="300"
+                        y1="96"
+                        y2="236"
+                        class="control-line"
+                        style="pointer-events: none"
+                      />
+                      <circle
+                        cx="300"
+                        cy="176"
+                        r="5"
+                        class="control-dot"
+                        data-wire-ys="[176]"
+                        data-width="10"
+                      />
+                      <circle
+                        cx="300"
+                        cy="236"
+                        r="5"
+                        class="control-dot"
+                        data-wire-ys="[236]"
+                        data-width="10"
+                      />
+                      <g class="oplus" data-wire-ys="[96]" data-width="30">
+                        <circle cx="300" cy="96" r="15" />
+                        <line x1="300" x2="300" y1="81" y2="111" />
+                        <line x1="285" x2="315" y1="96" y2="96" />
+                      </g>
+                    </a>
+                  </g>
+                </g>
+                <text
+                  font-size="14"
+                  x="256"
+                  y="54"
+                  class="qs-group-label qs-maintext"
+                >
+                  <tspan class="qs-mathtext">∧Foo</tspan>
+                </text>
+                <g class="gate-control gate-collapse">
+                  <circle cx="256" cy="68" r="10" />
+                  <path d="M249,68 h14" />
+                </g>
+              </g>
+              <g
+                class="gate"
+                data-expanded="true"
+                data-location="0,0-3,0"
+                data-zoom-out="true"
+                data-zoom-in="true"
+              >
+                <rect
+                  class="gate-unitary"
+                  x="344"
+                  y="66"
+                  width="86"
+                  height="198"
+                  fill-opacity="0"
+                  stroke-dasharray="8, 8"
+                />
+                <g>
+                  <g
+                    class="gate"
+                    data-location="0,0-3,0-0,0"
+                    data-zoom-out="true"
+                    data-zoom-in="false"
+                  >
+                    <a href="#" class="qs-circuit-source-link">
+                      <title>functors.qs:18:9 X(q);</title>
+                      <line
+                        x1="390"
+                        x2="390"
+                        y1="96"
+                        y2="236"
+                        class="control-line"
+                        style="pointer-events: none"
+                      />
+                      <circle
+                        cx="390"
+                        cy="176"
+                        r="5"
+                        class="control-dot"
+                        data-wire-ys="[176]"
+                        data-width="10"
+                      />
+                      <circle
+                        cx="390"
+                        cy="236"
+                        r="5"
+                        class="control-dot"
+                        data-wire-ys="[236]"
+                        data-width="10"
+                      />
+                      <g class="oplus" data-wire-ys="[96]" data-width="30">
+                        <circle cx="390" cy="96" r="15" />
+                        <line x1="390" x2="390" y1="81" y2="111" />
+                        <line x1="375" x2="405" y1="96" y2="96" />
+                      </g>
+                    </a>
+                  </g>
+                </g>
+                <text
+                  font-size="14"
+                  x="346"
+                  y="54"
+                  class="qs-group-label qs-maintext"
+                >
+                  <tspan class="qs-mathtext">∧Foo</tspan>
+                  <tspan dx="2" dy="-3" style="font-size: 0.8em">†</tspan>
+                </text>
+                <g class="gate-control gate-collapse">
+                  <circle cx="346" cy="68" r="10" />
+                  <path d="M339,68 h14" />
+                </g>
+              </g>
+              <g
+                class="gate"
+                data-location="0,0-4,0"
                 data-zoom-out="true"
                 data-zoom-in="false"
               >
                 <a href="#" class="qs-circuit-source-link">
-                  <title>functors.qs:5:6 [MResetZ(q)]</title>
+                  <title>functors.qs:8:6 [MResetZ(q)]</title>
                   <g>
                     <rect
                       class="gate-measure"
-                      x="270"
+                      x="450"
                       y="76"
                       width="40"
                       height="40"
@@ -946,12 +1472,12 @@
                     />
                     <path
                       class="arc-measure"
-                      d="M 305 98 A 15 12 0 0 0 275 98"
+                      d="M 485 98 A 15 12 0 0 0 455 98"
                       style="pointer-events: none"
                     />
                     <line
-                      x1="290"
-                      x2="302"
+                      x1="470"
+                      x2="482"
                       y1="104"
                       y2="84"
                       class="qs-line-measure"
@@ -962,17 +1488,17 @@
               </g>
               <g
                 class="gate"
-                data-location="0,0-3,0"
+                data-location="0,0-5,0"
                 data-zoom-out="true"
                 data-zoom-in="false"
               >
                 <a href="#" class="qs-circuit-source-link">
-                  <title>functors.qs:5:6 [MResetZ(q)]</title>
+                  <title>functors.qs:8:6 [MResetZ(q)]</title>
                   <g>
                     <g>
                       <rect
                         class="gate-ket"
-                        x="330"
+                        x="510"
                         y="76"
                         width="40"
                         height="40"
@@ -981,7 +1507,7 @@
                       />
                       <text
                         font-size="14"
-                        x="350"
+                        x="530"
                         y="96"
                         class="qs-maintext ket-text"
                       >

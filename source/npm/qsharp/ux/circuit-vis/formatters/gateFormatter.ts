@@ -299,7 +299,7 @@ function _style_gate_text(gate: SVGTextElement) {
   // Wrap any latin or greek letters in tspan with KaTeX_Math font
   // Style the entire Greek + Coptic block (https://unicodeplus.com/block/0370)
   // Note this deliberately leaves ASCII digits [0-9] non-italic
-  const italicChars = /[a-zA-Z\u{0370}-\u{03ff}]+/gu;
+  const italicChars = /[a-zA-Z\u{0370}-\u{03ff}\u{2227}]+/gu;
 
   label = label.replace(italicChars, `<tspan class='qs-mathtext'>$&</tspan>`);
 

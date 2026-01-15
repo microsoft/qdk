@@ -671,7 +671,7 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
                 };
 
                 if controlled_count > 0 {
-                    scope_name = format!("∧_{controlled_count}{scope_name}",).into();
+                    scope_name = format!("∧{scope_name}").into();
                 }
 
                 LexicalScope {
