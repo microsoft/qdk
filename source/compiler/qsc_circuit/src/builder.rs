@@ -646,18 +646,33 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
                     .get(map_fir_local_item_to_hir(store_item_id.item))
                     .expect("item id must exist in package");
 
-                let (scope_offset, scope_name) = match &item.kind {
+                let (scope_offset, mut scope_name, controlled_count) = match &item.kind {
                     hir::ItemKind::Callable(callable_decl) => {
-                        let spec_decl = if functor_app.adjoint {
+                        let spec_decl = if functor_app.adjoint && functor_app.controlled > 0 {
+                            callable_decl
+                                .ctl_adj
+                                .as_ref()
+                                .unwrap_or(&callable_decl.body)
+                        } else if functor_app.adjoint {
                             callable_decl.adj.as_ref().unwrap_or(&callable_decl.body)
+                        } else if functor_app.controlled > 0 {
+                            callable_decl.ctl.as_ref().unwrap_or(&callable_decl.body)
                         } else {
                             &callable_decl.body
                         };
 
-                        (spec_decl.span.lo, callable_decl.name.name.clone())
+                        (
+                            spec_decl.span.lo,
+                            callable_decl.name.name.clone(),
+                            functor_app.controlled,
+                        )
                     }
                     _ => panic!("only callables should be in the stack"),
                 };
+
+                if controlled_count > 0 {
+                    scope_name = format!("∧_{controlled_count}{scope_name}",).into();
+                }
 
                 LexicalScope {
                     location: Some(PackageOffset {
