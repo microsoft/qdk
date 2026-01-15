@@ -76,19 +76,17 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
 
 /* Histogram palette overrides for dark themes.
 
-VS Code webviews can indicate the theme in a few ways:
- - Classes: .vscode-dark, .vscode-high-contrast, .vscode-high-contrast-light
- - Attribute: data-vscode-theme-kind="vscode-..." (preferred)
+Theme detection sources:
+- VS Code webviews: body[data-vscode-theme-kind="vscode-dark"|"vscode-high-contrast"].
+- JupyterLab/Notebook 7: use data-qs-color-scheme selector set by render code.
 
-Important: VS Code adds .vscode-high-contrast for backwards compatibility even
-when the theme is actually vscode-high-contrast-light, so we must explicitly
-exclude that case.
+Note: the Jupyter widgets (AnyWidget) render inside a Shadow DOM, so we include
+data-qs-color-scheme selector to allow matching in response to render done from widget
+index.
 */
-body.vscode-dark,
-body.vscode-high-contrast:not(.vscode-high-contrast-light),
 body[data-vscode-theme-kind="vscode-dark"],
 body[data-vscode-theme-kind="vscode-high-contrast"],
-body[vscode-color-theme="dark"] {
+[data-qs-color-scheme="dark"] {
   --qs-histogram-bg: #1e1e1e;
   --qs-histogram-border: #3c3c3c;
   --qs-histogram-bar-fill: #4aa3ff;
