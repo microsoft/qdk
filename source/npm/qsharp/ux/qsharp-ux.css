@@ -434,7 +434,21 @@ body[vscode-color-theme="dark"] {
 }
 
 .bar-label-ket {
-  font-family: "Courier", monospace;
+  font-family: var(
+      --vscode-editor-font-family,
+      ui-monospace,
+      "Cascadia Mono",
+      Consolas,
+      Menlo,
+      Monaco,
+      "Liberation Mono",
+      "Courier New",
+      monospace
+    ),
+    "Segoe UI Symbol";
+  font-variant-ligatures: none;
+  font-weight: 600;
+  font-size: 3.3pt;
 }
 
 .histo-label {
