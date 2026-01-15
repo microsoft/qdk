@@ -17,7 +17,9 @@
 /library @DmitryVasilevsky @swernli
 /source/npm @billti @DmitryVasilevsky @minestarks
 /source/pip @billti @idavis @minestarks
+/source/pip/qsharp/qre @msoeken @brad-lackey @jwhogabo
 /source/playground @billti @minestarks
+/source/qre @msoeken @brad-lackey @jwhogabo
 /source/resource_estimator @billti @ivanbasov @swernli
 /samples @DmitryVasilevsky @minestarks @swernli
 /source/vscode @billti @idavis @minestarks
