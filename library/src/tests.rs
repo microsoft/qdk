@@ -11,6 +11,7 @@ mod intrinsic;
 mod logical;
 mod math;
 mod measurement;
+mod openqasm;
 mod state_preparation;
 mod table_lookup;
 

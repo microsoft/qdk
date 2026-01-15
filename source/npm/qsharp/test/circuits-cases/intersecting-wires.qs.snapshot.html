@@ -11,13 +11,17 @@
     <div><h2>circuit-static-collapsed</h2></div>
     <div id="circuit-static-collapsed" class="qs-circuit">
       <pre>
-Error generating circuit: QdkDiagnostics: partial evaluation error: cannot use a dynamic value of type `(Qubit)[]` used in intrinsic callable signature at intersecting-wires.qs:50:15</pre
+Error generating circuit: QdkDiagnostics: partial evaluation error: unsupported type `(Qubit)[]` in custom intrinsic callable
+
+help: variables of type `(Qubit)[]` cannot be emitted into QIR and should not appear in custom intrinsic callable signatures at intersecting-wires.qs:50:15</pre
       >
     </div>
     <div><h2>circuit-static-expanded</h2></div>
     <div id="circuit-static-expanded" class="qs-circuit">
       <pre>
-Error generating circuit: QdkDiagnostics: partial evaluation error: cannot use a dynamic value of type `(Qubit)[]` used in intrinsic callable signature at intersecting-wires.qs:50:15</pre
+Error generating circuit: QdkDiagnostics: partial evaluation error: unsupported type `(Qubit)[]` in custom intrinsic callable
+
+help: variables of type `(Qubit)[]` cannot be emitted into QIR and should not appear in custom intrinsic callable signatures at intersecting-wires.qs:50:15</pre
       >
     </div>
     <div><h2>circuit-eval-collapsed</h2></div>
