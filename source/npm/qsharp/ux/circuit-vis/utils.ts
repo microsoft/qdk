@@ -4,7 +4,7 @@
 import { GateRenderData, GateType } from "./gateRenderData.js";
 import {
   minGateWidth,
-  labelPadding,
+  labelPaddingX,
   labelFontSize,
   argsFontSize,
 } from "./constants.js";
@@ -52,18 +52,15 @@ const deepEqual = (obj1: unknown, obj2: unknown): boolean => {
 /**
  * Calculate the width of a gate, given its render data.
  *
- * @param renderData - The rendering data of the gate, including its type, label, display arguments, and width.
+ * @param renderData - The rendering data of the gate, including its type, label, display arguments.
  *
  * @returns Width of given gate (in pixels).
  */
-const getGateWidth = ({
+const getMinGateWidth = ({
   type,
   label,
   displayArgs,
-  width,
 }: GateRenderData): number => {
-  if (width > 0) return width;
-
   switch (type) {
     case GateType.Measure:
     case GateType.Cnot:
@@ -73,7 +70,7 @@ const getGateWidth = ({
       const labelWidth = _getStringWidth(label);
       const argsWidth =
         displayArgs != null ? _getStringWidth(displayArgs, argsFontSize) : 0;
-      const textWidth = Math.max(labelWidth, argsWidth) + labelPadding * 2;
+      const textWidth = Math.max(labelWidth, argsWidth) + labelPaddingX * 2;
       return Math.max(minGateWidth, textWidth);
     }
   }
@@ -468,7 +465,7 @@ const mathChars = {
 
 export {
   deepEqual,
-  getGateWidth,
+  getMinGateWidth,
   getChildTargets,
   locationStringToIndexes,
   getGateLocationString,
