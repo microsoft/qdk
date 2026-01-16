@@ -4,6 +4,7 @@
 #![allow(clippy::unicode_not_nfc)]
 
 mod group_scopes;
+mod logical_stack_trace;
 mod prune_classical_qubits;
 
 use std::vec;
@@ -11,6 +12,8 @@ use std::vec;
 use super::*;
 use expect_test::expect;
 use qsc_data_structures::{functors::FunctorApp, span::Span};
+use qsc_eval::debug::Frame;
+use qsc_fir::fir::StoreItemId;
 use rustc_hash::FxHashMap;
 
 #[derive(Default)]
@@ -19,8 +22,8 @@ struct FakeCompilation {
 }
 
 impl SourceLookup for FakeCompilation {
-    fn resolve_location(&self, package_offset: &PackageOffset) -> ResolvedSourceLocation {
-        ResolvedSourceLocation {
+    fn resolve_package_offset(&self, package_offset: &PackageOffset) -> SourceLocation {
+        SourceLocation {
             file: match usize::from(package_offset.package_id) {
                 Self::USER_PACKAGE_ID => "user_code.qs".to_string(),
                 Self::LIBRARY_PACKAGE_ID => "library_code.qs".to_string(),
@@ -31,20 +34,35 @@ impl SourceLookup for FakeCompilation {
         }
     }
 
-    fn resolve_scope(&self, scope_id: ScopeId) -> LexicalScope {
-        let name = self
-            .scopes
-            .id_to_name
-            .get(&scope_id.0)
-            .expect("unknown scope id")
-            .clone();
-        LexicalScope::Callable {
-            name,
-            location: PackageOffset {
-                package_id: scope_id.0.package,
-                offset: 0,
-            },
-            functor_app: scope_id.1,
+    fn resolve_scope(&self, scope: Scope) -> LexicalScope {
+        match scope {
+            Scope::Callable(store_item_id, functor_app) => {
+                let name = self
+                    .scopes
+                    .id_to_name
+                    .get(&store_item_id)
+                    .expect("unknown scope id")
+                    .clone();
+                LexicalScope {
+                    name,
+                    location: Some(PackageOffset {
+                        package_id: store_item_id.package,
+                        offset: 0,
+                    }),
+                    is_adjoint: functor_app.adjoint,
+                }
+            }
+            s => panic!("unexpected scope id {s:?}"),
+        }
+    }
+
+    fn resolve_logical_stack_entry_location(
+        &self,
+        location: LogicalStackEntryLocation,
+    ) -> PackageOffset {
+        match location {
+            LogicalStackEntryLocation::Call(package_offset) => package_offset,
+            _ => todo!("location type not implemented for fake compilation"),
         }
     }
 }
@@ -78,18 +96,22 @@ impl FakeCompilation {
         Self::frame(scope_id, offset, true)
     }
 
-    fn frame(scope_item_id: ScopeId, offset: u32, is_adjoint: bool) -> Frame {
-        Frame {
-            span: Span {
-                lo: offset,
-                hi: offset + 1,
+    fn frame(scope_item_id: Scope, offset: u32, is_adjoint: bool) -> Frame {
+        match scope_item_id {
+            Scope::Callable(store_item_id, _) => Frame {
+                span: Span {
+                    lo: offset,
+                    hi: offset + 1,
+                },
+                id: store_item_id,
+                caller: PackageId::CORE, // unused in tests
+                functor: FunctorApp {
+                    adjoint: is_adjoint,
+                    controlled: 0,
+                },
+                loop_iterations: Vec::new(),
             },
-            id: scope_item_id.0,
-            caller: PackageId::CORE, // unused in tests
-            functor: FunctorApp {
-                adjoint: is_adjoint,
-                controlled: 0,
-            },
+            _ => panic!("unexpected scope id {scope_item_id:?}"),
         }
     }
 }
@@ -101,7 +123,7 @@ struct Scopes {
 }
 
 impl Scopes {
-    fn get_or_create_scope(&mut self, package_id: usize, name: &str, is_adjoint: bool) -> ScopeId {
+    fn get_or_create_scope(&mut self, package_id: usize, name: &str, is_adjoint: bool) -> Scope {
         let name: Rc<str> = name.into();
         let item_id = if let Some(item_id) = self.name_to_id.get(&name) {
             *item_id
@@ -114,7 +136,7 @@ impl Scopes {
             self.name_to_id.insert(name, item_id);
             item_id
         };
-        ScopeId(
+        Scope::Callable(
             item_id,
             FunctorApp {
                 adjoint: is_adjoint,

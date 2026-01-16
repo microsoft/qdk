@@ -39,9 +39,9 @@ use output::Receiver;
 use qsc_data_structures::{functors::FunctorApp, index_map::IndexMap, span::Span};
 use qsc_fir::fir::{
     self, BinOp, BlockId, CallableImpl, ConfiguredExecGraph, ExecGraph, ExecGraphConfig,
-    ExecGraphNode, Expr, ExprId, ExprKind, Field, FieldAssign, Global, Lit, LocalItemId,
-    LocalVarId, PackageId, PackageStoreLookup, PatId, PatKind, PrimField, Res, StmtId, StoreItemId,
-    StringComponent, UnOp,
+    ExecGraphDebugNode, ExecGraphNode, Expr, ExprId, ExprKind, Field, FieldAssign, Global, Lit,
+    LocalItemId, LocalVarId, PackageId, PackageStoreLookup, PatId, PatKind, PrimField, Res, StmtId,
+    StoreItemId, StringComponent, UnOp,
 };
 use qsc_fir::ty::Ty;
 use qsc_lowerer::map_fir_package_to_hir;
@@ -461,6 +461,20 @@ impl Env {
         self.scopes.push(scope);
     }
 
+    pub fn push_loop_scope(&mut self, frame_id: usize) {
+        let scope = Scope {
+            frame_id,
+            is_loop: true,
+            ..Default::default()
+        };
+        self.scopes.push(scope);
+    }
+
+    #[must_use]
+    pub fn last_scope_is_loop(&self) -> bool {
+        self.scopes.last().is_some_and(|scope| scope.is_loop)
+    }
+
     pub fn leave_scope(&mut self) {
         // Only pop the scope if there is more than one scope in the stack,
         // because the global/top-level scope cannot be exited.
@@ -553,6 +567,7 @@ impl Env {
 struct Scope {
     bindings: IndexMap<LocalVarId, Variable>,
     frame_id: usize,
+    is_loop: bool,
 }
 
 type CallableCountKey = (StoreItemId, bool, bool);
@@ -630,6 +645,7 @@ impl State {
             id,
             caller: self.package,
             functor,
+            loop_iterations: Vec::new(),
         });
         self.exec_graph_stack.push(exec_graph);
         self.val_stack.push(Vec::new());
@@ -649,6 +665,11 @@ impl State {
 
     fn push_scope(&mut self, env: &mut Env) {
         env.push_scope(self.current_frame_id());
+    }
+
+    fn push_loop_scope(&mut self, env: &mut Env, loop_expr: ExprId) {
+        env.push_loop_scope(self.current_frame_id());
+        self.call_stack.push_loop_iteration(loop_expr);
     }
 
     fn take_val_register(&mut self) -> Value {
@@ -766,15 +787,6 @@ impl State {
                         }
                     }
                 }
-                Some(ExecGraphNode::Stmt(stmt)) => {
-                    self.idx += 1;
-                    self.current_span = globals.get_stmt((self.package, *stmt).into()).span;
-
-                    match self.check_for_break(breakpoints, *stmt, step, current_frame) {
-                        Some(value) => value,
-                        None => continue,
-                    }
-                }
                 Some(ExecGraphNode::Jump(idx)) => {
                     self.idx = *idx;
                     continue;
@@ -812,31 +824,56 @@ impl State {
                     env.leave_scope();
                     continue;
                 }
-                Some(ExecGraphNode::RetFrame) => {
-                    self.leave_frame();
-                    env.leave_current_frame();
-                    continue;
-                }
-                Some(ExecGraphNode::PushScope) => {
-                    self.push_scope(env);
-                    self.idx += 1;
-                    continue;
-                }
-                Some(ExecGraphNode::PopScope) => {
-                    env.leave_scope();
-                    self.idx += 1;
-                    continue;
-                }
-                Some(ExecGraphNode::BlockEnd(id)) => {
-                    self.idx += 1;
-                    match self.check_for_block_exit_break(globals, *id, step, current_frame) {
-                        Some((result, span)) => {
-                            self.current_span = span;
-                            return Ok(result);
-                        }
-                        None => continue,
+                Some(ExecGraphNode::Debug(dbg_node)) => match dbg_node {
+                    ExecGraphDebugNode::PushScope => {
+                        self.push_scope(env);
+                        self.idx += 1;
+                        continue;
                     }
-                }
+                    ExecGraphDebugNode::PushLoopScope(expr) => {
+                        self.push_loop_scope(env, *expr);
+                        self.idx += 1;
+                        continue;
+                    }
+                    ExecGraphDebugNode::RetFrame => {
+                        self.leave_frame();
+                        env.leave_current_frame();
+                        continue;
+                    }
+                    ExecGraphDebugNode::LoopIteration => {
+                        // we're in an iteration, increment counter
+                        self.call_stack.increment_loop_iteration();
+                        self.idx += 1;
+                        continue;
+                    }
+                    ExecGraphDebugNode::PopScope => {
+                        if env.last_scope_is_loop() {
+                            self.call_stack.pop_loop_iteration();
+                        }
+                        env.leave_scope();
+                        self.idx += 1;
+                        continue;
+                    }
+                    ExecGraphDebugNode::BlockEnd(id) => {
+                        self.idx += 1;
+                        match self.check_for_block_exit_break(globals, *id, step, current_frame) {
+                            Some((result, span)) => {
+                                self.current_span = span;
+                                return Ok(result);
+                            }
+                            None => continue,
+                        }
+                    }
+                    ExecGraphDebugNode::Stmt(stmt) => {
+                        self.idx += 1;
+                        self.current_span = globals.get_stmt((self.package, *stmt).into()).span;
+
+                        match self.check_for_break(breakpoints, *stmt, step, current_frame) {
+                            Some(value) => value,
+                            None => continue,
+                        }
+                    }
+                },
                 None => {
                     // We have reached the end of the current graph without reaching an explicit return node,
                     // usually indicating the partial execution of a single sub-expression.
