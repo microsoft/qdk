@@ -74,9 +74,19 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   --qs-histogram-help-text-fill: #202020;
 }
 
-/* Histogram palette overrides for dark themes. */
+/* Histogram palette overrides for dark themes.
+
+Theme detection sources:
+- VS Code webviews: body[data-vscode-theme-kind="vscode-dark"|"vscode-high-contrast"].
+- JupyterLab/Notebook 7: use data-qs-color-scheme selector set by render code.
+
+Note: the Jupyter widgets (AnyWidget) render inside a Shadow DOM, so we include
+data-qs-color-scheme selector to allow matching in response to render done from widget
+index.
+*/
 body[data-vscode-theme-kind="vscode-dark"],
-body[data-vscode-theme-kind="vscode-high-contrast"] {
+body[data-vscode-theme-kind="vscode-high-contrast"],
+[data-qs-color-scheme="dark"] {
   --qs-histogram-bg: #1e1e1e;
   --qs-histogram-border: #3c3c3c;
   --qs-histogram-bar-fill: #4aa3ff;
