@@ -4,7 +4,7 @@
 use super::lint;
 use crate::linter::{Compilation, ast::declare_ast_lints};
 use qsc_ast::ast::{
-    BinOp, Block, Expr, ExprKind, Item, ItemKind, Lit, NodeId, Stmt, StmtKind, TernOp,
+    BinOp, Block, Expr, ExprKind, Item, ItemKind, Lit, Namespace, NodeId, Stmt, StmtKind, TernOp,
 };
 use qsc_data_structures::span::Span;
 use qsc_hir::ty::Ty;
@@ -35,6 +35,7 @@ declare_ast_lints! {
     (DiscourageChainAssignment, LintLevel::Warn, "discouraged use of chain assignment", "assignment expressions always return `Unit`, so chaining them may not be useful"),
     (DeprecatedAssignUpdateExpr, LintLevel::Allow, "deprecated use of update assignment expressions", "update assignment expressions \"a w/= b <- c\" are deprecated; consider using explicit assignment instead \"a[b] = c\""),
     (DeprecatedUpdateExpr, LintLevel::Allow, "deprecated use of update expressions", "update expressions \"a w/ b <- c\" are deprecated; consider using explicit assignment instead"),
+    (AvoidNamespaceBlock, LintLevel::Warn, "avoid using explicit namespace blocks", "Q# best practice is to not use namespace blocks to enclose code; the namespace is inferred from the file"),
 }
 
 #[derive(Default)]
@@ -297,6 +298,28 @@ impl AstLintPass for DeprecatedUpdateExpr {
             && let Some(Ty::Array(_)) = compilation.compile_unit.ast.tys.terms.get(record.id)
         {
             buffer.push(lint!(self, expr.span));
+        }
+    }
+}
+
+#[derive(Default)]
+struct AvoidNamespaceBlock {
+    level: LintLevel,
+}
+
+impl AstLintPass for AvoidNamespaceBlock {
+    fn check_namespace(
+        &mut self,
+        namespace: &Namespace,
+        buffer: &mut Vec<Lint>,
+        _compilation: Compilation,
+    ) {
+        if self.level == LintLevel::Allow {
+            return;
+        }
+
+        if namespace.kind == qsc_ast::ast::NamespaceKind::Block {
+            buffer.push(lint!(self, namespace.span));
         }
     }
 }

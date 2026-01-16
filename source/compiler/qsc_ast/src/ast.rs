@@ -168,6 +168,17 @@ pub struct Namespace {
     pub name: Box<[Ident]>,
     /// The items in the namespace.
     pub items: Box<[Box<Item>]>,
+    /// The namespace kind.
+    pub kind: NamespaceKind,
+}
+
+/// A namespace kind.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum NamespaceKind {
+    /// An implicit namespace.
+    Implicit,
+    /// An explicit namespace block.
+    Block,
 }
 
 impl Namespace {
@@ -183,7 +194,11 @@ impl Namespace {
 impl Display for Namespace {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let mut indent = set_indentation(indented(f), 0);
-        write!(indent, "Namespace {} {} (", self.id, self.span)?;
+        write!(
+            indent,
+            "Namespace {:?} {} {} (",
+            self.kind, self.id, self.span
+        )?;
 
         let mut buf = Vec::with_capacity(self.name.len());
 

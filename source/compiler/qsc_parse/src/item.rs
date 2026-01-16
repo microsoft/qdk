@@ -208,6 +208,7 @@ pub fn parse_implicit_namespace(source_name: &str, s: &mut ParserContext) -> Res
         doc: "".into(),
         name: namespace_name,
         items: items.into_boxed_slice(),
+        kind: qsc_ast::ast::NamespaceKind::Implicit,
     })
 }
 
@@ -291,6 +292,7 @@ fn parse_namespace(s: &mut ParserContext) -> Result<Namespace> {
         doc: doc.into(),
         name: name.into_boxed_slice(),
         items: items.into_boxed_slice(),
+        kind: qsc_ast::ast::NamespaceKind::Block,
     })
 }
 

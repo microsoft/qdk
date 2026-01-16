@@ -49,7 +49,7 @@ fn file_name_to_namespace_name() {
     check(
         |s| parse_implicit_namespace(raw, s),
         "",
-        &expect![[r#"Namespace _id_ [0-0] ([Ident _id_ [0-0] "foo", Ident _id_ [0-0] "bar"]):"#]],
+        &expect![[r#"Namespace Implicit _id_ [0-0] ([Ident _id_ [0-0] "foo", Ident _id_ [0-0] "bar"]):"#]],
     );
 }
 
@@ -1141,7 +1141,7 @@ fn namespace_function() {
         parse_namespaces,
         "namespace A { function Foo() : Unit { body intrinsic; } }",
         &expect![[r#"
-            Namespace _id_ [0-57] (Ident _id_ [10-11] "A"):
+            Namespace Block _id_ [0-57] (Ident _id_ [10-11] "A"):
                 Item _id_ [14-55]:
                     Callable _id_ [14-55] (Function):
                         name: Ident _id_ [23-26] "Foo"
@@ -1162,7 +1162,7 @@ fn namespace_doc() {
             function Foo() : () {}
         }",
         &expect![[r#"
-            Namespace _id_ [0-105] (Ident _id_ [57-58] "A"):
+            Namespace Block _id_ [0-105] (Ident _id_ [57-58] "A"):
                 doc:
                     This is a
                     doc comment.
@@ -1187,7 +1187,7 @@ fn floating_doc_comments_in_namespace() {
 }
 ",
         &expect![[r#"
-            Namespace _id_ [0-117] (Ident _id_ [10-26] "MyQuantumProgram"):
+            Namespace Block _id_ [0-117] (Ident _id_ [10-26] "MyQuantumProgram"):
                 Item _id_ [33-76]:
                     Attr _id_ [33-46] (Ident _id_ [34-44] "EntryPoint"):
                         Expr _id_ [44-46]: Unit
@@ -1218,20 +1218,20 @@ fn floating_attr_in_namespace() {
         parse_namespaces,
         "namespace MyQuantumProgram { @EntryPoint() }",
         &expect![[r#"
-        Namespace _id_ [0-44] (Ident _id_ [10-26] "MyQuantumProgram"):
-            Item _id_ [29-42]:
-                Err
+            Namespace Block _id_ [0-44] (Ident _id_ [10-26] "MyQuantumProgram"):
+                Item _id_ [29-42]:
+                    Err
 
-        [
-            Error(
-                FloatingAttr(
-                    Span {
-                        lo: 29,
-                        hi: 42,
-                    },
+            [
+                Error(
+                    FloatingAttr(
+                        Span {
+                            lo: 29,
+                            hi: 42,
+                        },
+                    ),
                 ),
-            ),
-        ]"#]],
+            ]"#]],
     );
 }
 
@@ -1241,7 +1241,7 @@ fn floating_visibility_in_namespace() {
         parse_namespaces,
         "namespace MyQuantumProgram { internal }",
         &expect![[r#"
-            Namespace _id_ [0-39] (Ident _id_ [10-26] "MyQuantumProgram"):
+            Namespace Block _id_ [0-39] (Ident _id_ [10-26] "MyQuantumProgram"):
                 Item _id_ [29-37]:
                     Err
 
@@ -1264,8 +1264,8 @@ fn two_namespaces() {
         parse_namespaces,
         "namespace A {} namespace B {}",
         &expect![[r#"
-            Namespace _id_ [0-14] (Ident _id_ [10-11] "A"):,
-            Namespace _id_ [15-29] (Ident _id_ [25-26] "B"):"#]],
+            Namespace Block _id_ [0-14] (Ident _id_ [10-11] "A"):,
+            Namespace Block _id_ [15-29] (Ident _id_ [25-26] "B"):"#]],
     );
 }
 
@@ -1278,10 +1278,10 @@ fn two_namespaces_docs() {
         /// This is the second namespace.
         namespace B {}",
         &expect![[r#"
-            Namespace _id_ [0-55] (Ident _id_ [51-52] "A"):
+            Namespace Block _id_ [0-55] (Ident _id_ [51-52] "A"):
                 doc:
                     This is the first namespace.,
-            Namespace _id_ [64-120] (Ident _id_ [116-117] "B"):
+            Namespace Block _id_ [64-120] (Ident _id_ [116-117] "B"):
                 doc:
                     This is the second namespace."#]],
     );
@@ -1293,7 +1293,7 @@ fn two_open_items() {
         parse_namespaces,
         "namespace A { open B; open C; }",
         &expect![[r#"
-            Namespace _id_ [0-31] (Ident _id_ [10-11] "A"):
+            Namespace Block _id_ [0-31] (Ident _id_ [10-11] "A"):
                 Item _id_ [14-21]:
                     Open (Path _id_ [19-20] (Ident _id_ [19-20] "B"))
                 Item _id_ [22-29]:
@@ -1307,7 +1307,7 @@ fn two_ty_items() {
         parse_namespaces,
         "namespace A { newtype B = Unit; newtype C = Unit; }",
         &expect![[r#"
-            Namespace _id_ [0-51] (Ident _id_ [10-11] "A"):
+            Namespace Block _id_ [0-51] (Ident _id_ [10-11] "A"):
                 Item _id_ [14-31]:
                     New Type (Ident _id_ [22-23] "B"): TyDef _id_ [26-30]: Field:
                         Type _id_ [26-30]: Path: Path _id_ [26-30] (Ident _id_ [26-30] "Unit")
@@ -1323,7 +1323,7 @@ fn two_callable_items() {
         parse_namespaces,
         "namespace A { operation B() : Unit {} function C() : Unit {} }",
         &expect![[r#"
-            Namespace _id_ [0-62] (Ident _id_ [10-11] "A"):
+            Namespace Block _id_ [0-62] (Ident _id_ [10-11] "A"):
                 Item _id_ [14-37]:
                     Callable _id_ [14-37] (Operation):
                         name: Ident _id_ [24-25] "B"
@@ -1350,7 +1350,7 @@ fn two_callable_items_docs() {
             operation Foo() : () {}
         }",
         &expect![[r#"
-            Namespace _id_ [0-183] (Ident _id_ [10-11] "A"):
+            Namespace Block _id_ [0-183] (Ident _id_ [10-11] "A"):
                 Item _id_ [26-92]:
                     doc:
                         This is the first callable.
@@ -1378,7 +1378,7 @@ fn doc_without_item() {
             /// This is a doc comment.
         }",
         &expect![[r#"
-            Namespace _id_ [0-62] (Ident _id_ [10-11] "A"):
+            Namespace Block _id_ [0-62] (Ident _id_ [10-11] "A"):
                 Item _id_ [26-52]:
                     Err
 
@@ -1405,7 +1405,7 @@ fn recover_callable_item() {
             operation Baz() : Double { 2.0 }
         }",
         &expect![[r#"
-            Namespace _id_ [0-141] (Ident _id_ [10-11] "A"):
+            Namespace Block _id_ [0-141] (Ident _id_ [10-11] "A"):
                 Item _id_ [26-52]:
                     Callable _id_ [26-52] (Function):
                         name: Ident _id_ [35-38] "Foo"
@@ -1452,7 +1452,7 @@ fn recover_unclosed_callable_item() {
         "namespace A {
             function Foo() : Int {",
         &expect![[r#"
-            Namespace _id_ [0-48] (Ident _id_ [10-11] "A"):
+            Namespace Block _id_ [0-48] (Ident _id_ [10-11] "A"):
                 Item _id_ [26-48]:
                     Callable _id_ [26-48] (Function):
                         name: Ident _id_ [35-38] "Foo"
@@ -1484,7 +1484,7 @@ fn recover_unclosed_namespace() {
         "namespace A {
             function Foo() : Int { 2 }",
         &expect![[r#"
-            Namespace _id_ [0-52] (Ident _id_ [10-11] "A"):
+            Namespace Block _id_ [0-52] (Ident _id_ [10-11] "A"):
                 Item _id_ [26-52]:
                     Callable _id_ [26-52] (Function):
                         name: Ident _id_ [35-38] "Foo"
@@ -1518,7 +1518,7 @@ fn callable_missing_parens() {
         function Foo x : Int : Int { x }
         }",
         &expect![[r#"
-            Namespace _id_ [0-64] (Ident _id_ [10-11] "A"):
+            Namespace Block _id_ [0-64] (Ident _id_ [10-11] "A"):
                 Item _id_ [22-54]:
                     Err
 
@@ -1543,7 +1543,7 @@ fn callable_missing_close_parens() {
         function Foo (x : Int : Int { x }
         }",
         &expect![[r#"
-            Namespace _id_ [0-65] (Ident _id_ [10-11] "A"):
+            Namespace Block _id_ [0-65] (Ident _id_ [10-11] "A"):
                 Item _id_ [22-55]:
                     Err
 
@@ -1572,7 +1572,7 @@ fn callable_missing_open_parens() {
         function Foo x : Int) : Int { x }
         }",
         &expect![[r#"
-            Namespace _id_ [0-65] (Ident _id_ [10-11] "A"):
+            Namespace Block _id_ [0-65] (Ident _id_ [10-11] "A"):
                 Item _id_ [22-55]:
                     Err
 
@@ -1595,7 +1595,7 @@ fn disallow_qubit_scoped_block() {
         parse_namespaces,
         "namespace Foo { operation Main() : Unit { use q1 = Qubit() {  };  } }",
         &expect![[r#"
-            Namespace _id_ [0-69] (Ident _id_ [10-13] "Foo"):
+            Namespace Block _id_ [0-69] (Ident _id_ [10-13] "Foo"):
                 Item _id_ [16-67]:
                     Callable _id_ [16-67] (Operation):
                         name: Ident _id_ [26-30] "Main"
@@ -1636,7 +1636,7 @@ fn reject_nested_namespace_with_items() {
             }
         }",
         &expect![[r#"
-            Namespace _id_ [0-99] (Ident _id_ [10-15] "Outer"):
+            Namespace Block _id_ [0-99] (Ident _id_ [10-15] "Outer"):
 
             [
                 Error(
@@ -1681,7 +1681,7 @@ fn reject_namespace_with_multiple_nested_levels() {
             }
         }",
         &expect![[r#"
-            Namespace _id_ [0-146] (Ident _id_ [10-18] "LevelOne"):
+            Namespace Block _id_ [0-146] (Ident _id_ [10-18] "LevelOne"):
 
             [
                 Error(
@@ -1725,7 +1725,7 @@ fn namespace_with_attributes_and_docs() {
             function InnerItem() : Unit {}
         }",
         &expect![[r#"
-            Namespace _id_ [0-225] (Ident _id_ [49-57] "LevelOne"):
+            Namespace Block _id_ [0-225] (Ident _id_ [49-57] "LevelOne"):
                 doc:
                     Documentation for LevelOne
                 Item _id_ [72-215]:
@@ -1748,7 +1748,7 @@ fn namespace_with_conflicting_names() {
             newtype Item = Int;
         }",
         &expect![[r#"
-            Namespace _id_ [0-101] (Ident _id_ [10-19] "Conflicts"):
+            Namespace Block _id_ [0-101] (Ident _id_ [10-19] "Conflicts"):
                 Item _id_ [34-59]:
                     Callable _id_ [34-59] (Function):
                         name: Ident _id_ [43-47] "Item"
@@ -1772,7 +1772,7 @@ fn helpful_error_on_dotted_alias() {
             operation Main() : Unit {}
         }",
         &expect![[r#"
-            Namespace _id_ [0-118] (Ident _id_ [10-11] "A"):
+            Namespace Block _id_ [0-118] (Ident _id_ [10-11] "A"):
                 Item _id_ [26-69]:
                     Err
                 Item _id_ [82-108]:
@@ -1804,7 +1804,7 @@ fn parse_export_basic() {
                export Bar;
         }",
         &expect![[r#"
-            Namespace _id_ [0-93] (Ident _id_ [10-13] "Foo"):
+            Namespace Block _id_ [0-93] (Ident _id_ [10-13] "Foo"):
                 Item _id_ [31-56]:
                     Callable _id_ [31-56] (Operation):
                         name: Ident _id_ [41-44] "Bar"
@@ -1826,7 +1826,7 @@ fn parse_export_list() {
                export Bar, Baz.Quux, Math.Quantum.Some.Nested, Math.Quantum.Some.Other.Nested;
         }",
         &expect![[r#"
-            Namespace _id_ [0-161] (Ident _id_ [10-13] "Foo"):
+            Namespace Block _id_ [0-161] (Ident _id_ [10-13] "Foo"):
                 Item _id_ [31-56]:
                     Callable _id_ [31-56] (Operation):
                         name: Ident _id_ [41-44] "Bar"
@@ -1936,7 +1936,7 @@ fn parse_export_empty() {
                export;
         }",
         &expect![[r#"
-            Namespace _id_ [0-89] (Ident _id_ [10-13] "Foo"):
+            Namespace Block _id_ [0-89] (Ident _id_ [10-13] "Foo"):
                 Item _id_ [31-56]:
                     Callable _id_ [31-56] (Operation):
                         name: Ident _id_ [41-44] "Bar"
@@ -2282,7 +2282,7 @@ fn missing_semi_between_items() {
         parse_namespaces,
         "namespace Foo { open Foo open Bar. open Baz }",
         &expect![[r#"
-            Namespace _id_ [0-45] (Ident _id_ [10-13] "Foo"):
+            Namespace Block _id_ [0-45] (Ident _id_ [10-13] "Foo"):
                 Item _id_ [16-24]:
                     Open (Path _id_ [21-24] (Ident _id_ [21-24] "Foo"))
                 Item _id_ [25-35]:

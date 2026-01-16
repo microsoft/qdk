@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 use crate::{
-    Lint, LintLevel, LintOrGroupConfig,
+    Lint, LintConfig, LintKind, LintLevel, LintOrGroupConfig,
     lint_groups::LintGroup,
     linter::{remove_duplicates, run_lints_without_deduplication},
 };
@@ -934,7 +934,160 @@ fn compile_and_collect_lints(source: &str, config: Option<&[LintOrGroupConfig]>)
 
     let id = store.insert(unit);
     let unit = store.get(id).expect("user package should exist");
-    run_lints_without_deduplication(&store, unit, config)
+
+    let mut actual_config = vec![LintOrGroupConfig::Lint(LintConfig {
+        kind: LintKind::Ast(crate::AstLint::AvoidNamespaceBlock),
+        level: LintLevel::Allow,
+    })];
+
+    if let Some(c) = config {
+        actual_config.extend_from_slice(c);
+    }
+
+    run_lints_without_deduplication(&store, unit, Some(&actual_config))
+}
+
+#[test]
+fn avoid_namespace_block_explicit() {
+    let source = "namespace Foo { operation Main() : Unit {} }";
+    let config: &[LintOrGroupConfig] = &[LintOrGroupConfig::Lint(LintConfig {
+        kind: LintKind::Ast(crate::AstLint::AvoidNamespaceBlock),
+        level: LintLevel::Warn,
+    })];
+    let lints = compile_and_collect_lints(source, Some(config));
+    let actual: Vec<_> = lints
+        .into_iter()
+        .map(|lint| SrcLint::from(&lint, source))
+        .collect();
+    expect![[r#"
+        [
+            SrcLint {
+                source: "namespace Foo { operation Main() : Unit {} }",
+                level: Warn,
+                message: "avoid using explicit namespace blocks",
+                help: "Q# best practice is to not use namespace blocks to enclose code; the namespace is inferred from the file",
+                code_action_edits: [],
+            },
+        ]
+    "#]]
+    .assert_debug_eq(&actual);
+}
+
+#[test]
+fn avoid_namespace_block_implicit() {
+    let source = "operation Main() : Unit {}"; // Implicit namespace, no block
+    let config: &[LintOrGroupConfig] = &[LintOrGroupConfig::Lint(LintConfig {
+        kind: LintKind::Ast(crate::AstLint::AvoidNamespaceBlock),
+        level: LintLevel::Warn,
+    })];
+    let lints = compile_and_collect_lints(source, Some(config));
+    let actual: Vec<_> = lints
+        .into_iter()
+        .map(|lint| SrcLint::from(&lint, source))
+        .collect();
+    expect![[r#"
+        []
+    "#]]
+    .assert_debug_eq(&actual);
+}
+
+#[test]
+fn avoid_namespace_block_multiple() {
+    let source = indoc! {"
+        namespace Foo { operation A() : Unit {} }
+        namespace Bar { operation B() : Unit {} }
+    "};
+    let config: &[LintOrGroupConfig] = &[LintOrGroupConfig::Lint(LintConfig {
+        kind: LintKind::Ast(crate::AstLint::AvoidNamespaceBlock),
+        level: LintLevel::Warn,
+    })];
+    let lints = compile_and_collect_lints(source, Some(config));
+    let actual: Vec<_> = lints
+        .into_iter()
+        .map(|lint| SrcLint::from(&lint, source))
+        .collect();
+    expect![[r#"
+        [
+            SrcLint {
+                source: "namespace Foo { operation A() : Unit {} }",
+                level: Warn,
+                message: "avoid using explicit namespace blocks",
+                help: "Q# best practice is to not use namespace blocks to enclose code; the namespace is inferred from the file",
+                code_action_edits: [],
+            },
+            SrcLint {
+                source: "namespace Bar { operation B() : Unit {} }",
+                level: Warn,
+                message: "avoid using explicit namespace blocks",
+                help: "Q# best practice is to not use namespace blocks to enclose code; the namespace is inferred from the file",
+                code_action_edits: [],
+            },
+        ]
+    "#]]
+    .assert_debug_eq(&actual);
+}
+
+#[test]
+fn avoid_namespace_block_with_comments() {
+    let source = indoc! {"
+        // # Sample
+        // Getting started
+        namespace Foo {
+            operation Main() : Unit {}
+        }
+    "};
+    let config: &[LintOrGroupConfig] = &[LintOrGroupConfig::Lint(LintConfig {
+        kind: LintKind::Ast(crate::AstLint::AvoidNamespaceBlock),
+        level: LintLevel::Warn,
+    })];
+    let lints = compile_and_collect_lints(source, Some(config));
+    let actual: Vec<_> = lints
+        .into_iter()
+        .map(|lint| SrcLint::from(&lint, source))
+        .collect();
+    expect![[r#"
+        [
+            SrcLint {
+                source: "namespace Foo {\n    operation Main() : Unit {}\n}",
+                level: Warn,
+                message: "avoid using explicit namespace blocks",
+                help: "Q# best practice is to not use namespace blocks to enclose code; the namespace is inferred from the file",
+                code_action_edits: [],
+            },
+        ]
+    "#]]
+    .assert_debug_eq(&actual);
+}
+
+#[test]
+fn avoid_namespace_block_with_doc_comments() {
+    let source = indoc! {"
+        /// This is a doc comment
+        namespace Foo {
+            operation Main() : Unit {}
+        }
+    "};
+    let config: &[LintOrGroupConfig] = &[LintOrGroupConfig::Lint(LintConfig {
+        kind: LintKind::Ast(crate::AstLint::AvoidNamespaceBlock),
+        level: LintLevel::Warn,
+    })];
+    let lints = compile_and_collect_lints(source, Some(config));
+    let actual: Vec<_> = lints
+        .into_iter()
+        .map(|lint| SrcLint::from(&lint, source))
+        .collect();
+    expect![[r#"
+        [
+            SrcLint {
+                source: "/// This is a doc comment\nnamespace Foo {\n    operation Main() : Unit {}\n}",
+                level: Warn,
+                message: "avoid using explicit namespace blocks",
+                help: "Q# best practice is to not use namespace blocks to enclose code; the namespace is inferred from the file",
+                code_action_edits: [],
+            },
+        ]
+    "#]]
+    .assert_debug_eq(&actual);
 }
 
 fn check(source: &str, expected: &Expect) {
