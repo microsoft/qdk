@@ -15,6 +15,7 @@ num-bigint = { workspace = true }
 num-complex = { workspace = true }
 qsc = { path = "../compiler/qsc" }
 resource_estimator = { path = "../resource_estimator" }
+qre = { path = "../qre" }
 miette = { workspace = true, features = ["fancy"] }
 rustc-hash = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

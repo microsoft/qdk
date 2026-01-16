@@ -22,6 +22,7 @@ use crate::{
         pyobj_to_value, type_ir_from_qsharp_ty, value_to_pyobj,
     },
     noisy_simulator::register_noisy_simulator_submodule,
+    qre::register_qre_submodule,
 };
 use miette::{Diagnostic, Report};
 use num_bigint::BigUint;
@@ -110,6 +111,7 @@ fn _native<'a>(py: Python<'a>, m: &Bound<'a, PyModule>) -> PyResult<()> {
     m.add("QSharpError", py.get_type::<QSharpError>())?;
     register_noisy_simulator_submodule(py, m)?;
     register_generic_estimator_submodule(m)?;
+    register_qre_submodule(m)?;
     // QASM interop
     m.add("QasmError", py.get_type::<QasmError>())?;
     m.add_function(wrap_pyfunction!(resource_estimate_qasm_program, m)?)?;

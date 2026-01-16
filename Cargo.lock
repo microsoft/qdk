@@ -988,6 +988,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "qre"
+version = "0.0.0"
+dependencies = [
+ "num-traits",
+ "rustc-hash",
+]
+
+[[package]]
 name = "qsc"
 version = "0.0.0"
 dependencies = [
@@ -1391,6 +1399,7 @@ dependencies = [
  "num-bigint",
  "num-complex",
  "pyo3",
+ "qre",
  "qsc",
  "resource_estimator",
  "rustc-hash",
