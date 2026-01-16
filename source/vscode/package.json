@@ -669,7 +669,8 @@
         "tags": [
           "azure-quantum",
           "qsharp",
-          "qdk"
+          "qdk",
+          "openqasm"
         ],
         "toolReferenceName": "azureQuantumGetJobs",
         "displayName": "Get Azure Quantum Jobs",
@@ -688,7 +689,8 @@
         "tags": [
           "azure-quantum",
           "qsharp",
-          "qdk"
+          "qdk",
+          "openqasm"
         ],
         "toolReferenceName": "azureQuantumGetJob",
         "displayName": "Get Azure Quantum Job Details",
@@ -714,7 +716,8 @@
         "tags": [
           "azure-quantum",
           "qsharp",
-          "qdk"
+          "qdk",
+          "openqasm"
         ],
         "toolReferenceName": "azureQuantumConnectToWorkspace",
         "displayName": "Connect to Azure Quantum Workspace",
@@ -733,7 +736,8 @@
         "tags": [
           "azure-quantum",
           "qsharp",
-          "qdk"
+          "qdk",
+          "openqasm"
         ],
         "toolReferenceName": "azureQuantumDownloadJobResults",
         "displayName": "Download Azure Quantum Job Results",
@@ -759,7 +763,8 @@
         "tags": [
           "azure-quantum",
           "qsharp",
-          "qdk"
+          "qdk",
+          "openqasm"
         ],
         "toolReferenceName": "azureQuantumGetWorkspaces",
         "displayName": "Get Azure Quantum Workspaces",
@@ -820,7 +825,8 @@
         "tags": [
           "azure-quantum",
           "qsharp",
-          "qdk"
+          "qdk",
+          "openqasm"
         ],
         "toolReferenceName": "azureQuantumGetActiveWorkspace",
         "displayName": "Get Active Azure Quantum Workspace",
@@ -839,7 +845,8 @@
         "tags": [
           "azure-quantum",
           "qsharp",
-          "qdk"
+          "qdk",
+          "openqasm"
         ],
         "toolReferenceName": "azureQuantumSetActiveWorkspace",
         "displayName": "Set Active Azure Quantum Workspace",
@@ -865,7 +872,8 @@
         "tags": [
           "azure-quantum",
           "qsharp",
-          "qdk"
+          "qdk",
+          "openqasm"
         ],
         "toolReferenceName": "azureQuantumGetProviders",
         "displayName": "Get Azure Quantum Providers",
@@ -884,7 +892,8 @@
         "tags": [
           "azure-quantum",
           "qsharp",
-          "qdk"
+          "qdk",
+          "openqasm"
         ],
         "toolReferenceName": "azureQuantumGetTarget",
         "displayName": "Get Azure Quantum Target",
@@ -908,7 +917,7 @@
       {
         "name": "qdk-run-program",
         "tags": [
-          "quantum",
+          "azure-quantum",
           "qsharp",
           "qdk",
           "openqasm"
@@ -940,7 +949,7 @@
       {
         "name": "qdk-generate-circuit",
         "tags": [
-          "quantum",
+          "azure-quantum",
           "qsharp",
           "qdk",
           "openqasm"
@@ -967,7 +976,7 @@
       {
         "name": "qdk-run-resource-estimator",
         "tags": [
-          "quantum",
+          "azure-quantum",
           "qsharp",
           "qdk",
           "openqasm"
@@ -1021,9 +1030,10 @@
       {
         "name": "qsharp-get-library-descriptions",
         "tags": [
-          "quantum",
+          "azure-quantum",
           "qsharp",
-          "qdk"
+          "qdk",
+          "openqasm"
         ],
         "toolReferenceName": "qsharpGetLibraryDescriptions",
         "displayName": "Get Q# Library API Descriptions",
