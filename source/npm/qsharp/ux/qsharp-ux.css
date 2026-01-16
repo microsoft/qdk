@@ -433,17 +433,15 @@ body[data-vscode-theme-kind="vscode-high-contrast"],
 
 .bar-label-ket {
   font-family: var(
-      --vscode-editor-font-family,
-      "Consolas",
-      "Menlo",
-      "Monaco",
-      "Liberation Mono",
-      "Courier New",
-      monospace
-    ),
-    "Segoe UI Symbol";
+    --vscode-editor-font-family,
+    "Consolas",
+    "Menlo",
+    "Monaco",
+    "Liberation Mono",
+    "Courier New",
+    monospace
+  );
   font-variant-ligatures: none;
-  font-weight: 600;
   font-size: 3.3pt;
 }
 
