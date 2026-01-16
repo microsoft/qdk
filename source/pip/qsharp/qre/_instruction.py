@@ -2,6 +2,7 @@
 # Licensed under the MIT License.
 
 from typing import Optional
+from enum import IntEnum
 
 from ._qre import (
     Instruction,
@@ -12,20 +13,19 @@ from ._qre import (
     ConstraintBound,
 )
 
-PHYSICAL = 0
-LOGICAL = 1
+
+class Encoding(IntEnum):
+    PHYSICAL = 0
+    LOGICAL = 1
 
 
-LESS_THAN = 0
-LESS_EQUAL = 1
-EQUAL = 2
-GREATER_THAN = 3
-GREATER_EQUAL = 4
+PHYSICAL = Encoding.PHYSICAL
+LOGICAL = Encoding.LOGICAL
 
 
 def constraint(
     id: int,
-    encoding: int = PHYSICAL,
+    encoding: Encoding = PHYSICAL,
     *,
     arity: Optional[int] = 1,
     error_rate: Optional[ConstraintBound] = None
@@ -35,7 +35,7 @@ def constraint(
 
     Args:
         id (int): The instruction ID.
-        encoding (int): The instruction encoding. 0 = Physical (default), 1 = Logical.
+        encoding (Encoding): The instruction encoding. PHYSICAL (0) or LOGICAL (1).
         arity (Optional[int]): The instruction arity. If None, instruction is
             assumed to have variable arity.  Default is 1.
         error_rate (Optional[ConstraintBound]): The constraint on the error rate.
@@ -48,7 +48,7 @@ def constraint(
 
 def instruction(
     id: int,
-    encoding: int = PHYSICAL,
+    encoding: Encoding = PHYSICAL,
     *,
     time: int | IntFunction,
     arity: Optional[int] = 1,
@@ -61,7 +61,7 @@ def instruction(
 
     Args:
         id (int): The instruction ID.
-        encoding (int): The instruction encoding. 0 = Physical (default), 1 = Logical.
+        encoding (Encoding): The instruction encoding. PHYSICAL (0) or LOGICAL (1).
         time (int | IntFunction): The instruction time in ns.
         arity (Optional[int]): The instruction arity.  If None, instruction is
             assumed to have variable arity.  Default is 1.  One can use variable arity

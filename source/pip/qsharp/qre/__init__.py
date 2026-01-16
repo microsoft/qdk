@@ -4,6 +4,7 @@
 from ._instruction import (
     LOGICAL,
     PHYSICAL,
+    Encoding,
     constraint,
     instruction,
 )
@@ -26,6 +27,7 @@ __all__ = [
     "linear_function",
     "Constraint",
     "ConstraintBound",
+    "Encoding",
     "ISA",
     "ISARequirements",
     "LOGICAL",
