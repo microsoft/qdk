@@ -33,7 +33,6 @@ const VIZ = {
   defaultMinColumnWidth: 36,
   defaultMaxColumns: 16,
   labelLongThresholdChars: 4,
-  maxColumnsWithLabels: 16,
   barHeaderPadding: 36,
   phaseHeaderPadding: 26,
   stateHeaderPadding: 26,
@@ -41,19 +40,20 @@ const VIZ = {
   phaseLabelPadding: 39,
   marginBottomMinPx: 48,
   extraBottomPaddingPx: 24,
-  columnAreaHeight: 234,
+  barAreaHeight: 234,
   minProbEpsilon: 1e-12,
   headerLabelXOffset: -8,
   headerLabelYOffset: 9,
   percentLabelOffset: 8,
   phaseRadiusBase: 12,
   phaseRadiusThreshold: 7.5,
-  padX: 2,
+  phaseCirclePaddingX: 2,
+  phaseCirclePaddingY: 10,
   phaseDotFrac: 0.25,
   phaseDotRadiusMinPx: 1.5,
   phaseTextBottomPad: 6,
-  phaseContentExtraY: 10,
-  verticalLabelLineHeight: 14,
+  verticalLabelCharHeight: 14,
+  phaseLabelLineHeight: 14,
   verticalLabelExtraBase: 12,
   stateLabelVerticalOffset: 4,
   stateLabelHorizontalOffset: 16,
@@ -64,113 +64,6 @@ const VIZ = {
 };
 
 // --- Entry Points ---
-
-// Adapter: render from a map of named states to complex amplitudes.
-export const updateStatePanelFromMap = (
-  panel: HTMLElement,
-  ampMap: AmpMap,
-  opts: RenderOptions & { nQubits?: number } = {},
-): void => {
-  const entries = Object.entries(ampMap);
-  if (entries.length === 0) {
-    const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
-    if (svg) while (svg.firstChild) svg.removeChild(svg.firstChild);
-    return;
-  }
-
-  const guessN =
-    opts.nQubits ?? entries.reduce((m, [k]) => Math.max(m, k.length), 0);
-
-  // Handle zero-qubit map by showing the empty-state message and hiding SVG
-  if (!guessN || guessN <= 0) {
-    showEmptyState(panel);
-    return;
-  }
-
-  // Ensure SVG is visible and remove any empty-state message when rendering data
-  showContentState(panel);
-
-  const raw = entries.map(([label, a]) => {
-    const { prob, phase } = toPolar(a);
-    return { label, prob, phase } as ColumnDatum;
-  });
-
-  // Normalize probabilities
-  const doNormalize = opts.normalize ?? true;
-  const states = doNormalize ? normalizeColumns(raw) : raw;
-
-  // Split columns based on threshold value
-  const { significant, small } =
-    typeof opts.minProbThreshold === "number"
-      ? splitByThreshold(states, opts.minProbThreshold)
-      : { significant: states, small: [] };
-
-  // Sort by probability and cap to max column numbers, aggregating rest into "Others"
-  significant.sort((a, b) => (b.prob ?? 0) - (a.prob ?? 0));
-  const maxColumns = opts.maxColumns ?? VIZ.defaultMaxColumns;
-  const cappedColumns = capAndAggregateColumns(significant, small, maxColumns);
-
-  // Sort by top columns by label, with "Others" last
-  const columns = sortColumnsByLabel(cappedColumns);
-
-  // Finally, render
-  renderStatePanel(panel, columns, opts);
-};
-
-// Render a default state in the visualization panel.
-// - If nQubits <= 0: hide the SVG and show a friendly message.
-// - If nQubits > 0: show the SVG and render a zero-phase |0…0⟩ state immediately.
-export const renderDefaultStatePanel = (
-  panel: HTMLElement,
-  nQubits: number,
-): void => {
-  const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
-  if (!svg) return;
-
-  if (!nQubits || nQubits <= 0) {
-    // Hide SVG graphics and show message
-    // Reset any stale height to avoid carrying over large values
-    showEmptyState(panel);
-  } else {
-    // Remove message and render the deterministic zero-state
-    showContentState(panel);
-    const zeros = "0".repeat(nQubits);
-    updateStatePanelFromMap(
-      panel,
-      { [zeros]: { re: 1, im: 0 } },
-      { normalize: true, nQubits },
-    );
-  }
-};
-
-const showEmptyState = (panel: HTMLElement): void => {
-  const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
-  if (svg) {
-    while (svg.firstChild) svg.removeChild(svg.firstChild);
-    svg.removeAttribute("height");
-  }
-  panel.classList.add("empty");
-
-  let msg = panel.querySelector(".state-empty-message") as HTMLElement | null;
-  if (!msg) {
-    msg = document.createElement("div");
-    msg.className = "state-empty-message";
-    panel.appendChild(msg);
-  }
-  msg.textContent = "The circuit is empty.";
-
-  if (!panel.classList.contains("collapsed")) {
-    panel.style.flexBasis = `${VIZ.emptyStateFlexBasisPx}px`;
-  }
-};
-
-const showContentState = (panel: HTMLElement): void => {
-  // Content visibility restored via CSS when not in empty mode
-  // Remove empty mode to reveal content via CSS
-  panel.classList.remove("empty");
-  const emptyMsg = panel.querySelector(".state-empty-message");
-  if (emptyMsg) emptyMsg.remove();
-};
 
 export const createStatePanel = (): HTMLElement => {
   const panel = document.createElement("div");
@@ -227,6 +120,106 @@ export const createStatePanel = (): HTMLElement => {
   return panel;
 };
 
+// Render a default state in the visualization panel.
+// - If nQubits <= 0: hide the SVG and show a friendly message.
+// - If nQubits > 0: show the SVG and render a zero-phase |0…0⟩ state immediately.
+export const renderDefaultStatePanel = (
+  panel: HTMLElement,
+  nQubits: number,
+): void => {
+  const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
+  if (!svg) return;
+
+  if (!nQubits || nQubits <= 0) {
+    // Hide SVG graphics and show message
+    // Reset any stale height to avoid carrying over large values
+    showEmptyState(panel);
+  } else {
+    // Remove message and render the deterministic zero-state
+    showContentState(panel);
+    const zeros = "0".repeat(nQubits);
+    updateStatePanelFromMap(panel, { [zeros]: { re: 1, im: 0 } });
+  }
+};
+
+// Adapter: render from a map of named states to complex amplitudes.
+export const updateStatePanelFromMap = (
+  panel: HTMLElement,
+  ampMap: AmpMap,
+  opts: RenderOptions = {},
+): void => {
+  const entries = Object.entries(ampMap);
+  if (entries.length === 0) {
+    const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
+    if (svg) while (svg.firstChild) svg.removeChild(svg.firstChild);
+    return;
+  }
+
+  // Handle zero-qubit map by showing the empty-state message and hiding SVG
+  if (entries.length == 0) {
+    showEmptyState(panel);
+    return;
+  }
+
+  // Ensure SVG is visible and remove any empty-state message when rendering data
+  showContentState(panel);
+
+  const raw = entries.map(([label, a]) => {
+    const { prob, phase } = toPolar(a);
+    return { label, prob, phase } as StateColumn;
+  });
+
+  // Normalize probabilities
+  const doNormalize = opts.normalize ?? true;
+  const states = doNormalize ? normalizeColumns(raw) : raw;
+
+  // Split columns based on threshold value
+  const { significant, small } =
+    typeof opts.minProbThreshold === "number"
+      ? splitByThreshold(states, opts.minProbThreshold)
+      : { significant: states, small: [] };
+
+  // Sort by probability and cap to max column numbers, aggregating rest into "Others"
+  significant.sort((a, b) => (b.prob ?? 0) - (a.prob ?? 0));
+  const maxColumns = opts.maxColumns ?? VIZ.defaultMaxColumns;
+  const cappedColumns = capAndAggregateColumns(significant, small, maxColumns);
+
+  // Sort by top columns by label, with "Others" last
+  const columns = sortColumnsByLabel(cappedColumns);
+
+  // Finally, render
+  renderStatePanel(panel, columns, opts);
+};
+
+const showEmptyState = (panel: HTMLElement): void => {
+  const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
+  if (svg) {
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    svg.removeAttribute("height");
+  }
+  panel.classList.add("empty");
+
+  let msg = panel.querySelector(".state-empty-message") as HTMLElement | null;
+  if (!msg) {
+    msg = document.createElement("div");
+    msg.className = "state-empty-message";
+    panel.appendChild(msg);
+  }
+  msg.textContent = "The circuit is empty.";
+
+  if (!panel.classList.contains("collapsed")) {
+    panel.style.flexBasis = `${VIZ.emptyStateFlexBasisPx}px`;
+  }
+};
+
+const showContentState = (panel: HTMLElement): void => {
+  // Content visibility restored via CSS when not in empty mode
+  // Remove empty mode to reveal content via CSS
+  panel.classList.remove("empty");
+  const emptyMsg = panel.querySelector(".state-empty-message");
+  if (emptyMsg) emptyMsg.remove();
+};
+
 // --- State Amplitude Preparation ---
 
 export type AmpComplex = { re: number; im: number };
@@ -251,8 +244,8 @@ const toPolar = (a: AmpLike): { prob: number; phase: number } => {
 
 // --- Data Normalization and Column Utilities ---
 
-// Normalize probabilities in-place on ColumnDatum[]
-function normalizeColumns(states: ColumnDatum[]): ColumnDatum[] {
+// Normalize probabilities in-place on StateColumn[]
+function normalizeColumns(states: StateColumn[]): StateColumn[] {
   const sum = states.reduce((acc, s) => acc + (s.prob ?? 0), 0);
   if (sum <= 0) return states;
   return states.map((s) => ({ ...s, prob: (s.prob ?? 0) / sum }));
@@ -260,12 +253,12 @@ function normalizeColumns(states: ColumnDatum[]): ColumnDatum[] {
 
 // Split columns by threshold
 function splitByThreshold(
-  states: ColumnDatum[],
+  states: StateColumn[],
   minProb: number,
-): { significant: ColumnDatum[]; small: ColumnDatum[] } {
+): { significant: StateColumn[]; small: StateColumn[] } {
   const minThresh = Math.max(0, Math.min(1, minProb));
-  const significant: ColumnDatum[] = [];
-  const small: ColumnDatum[] = [];
+  const significant: StateColumn[] = [];
+  const small: StateColumn[] = [];
   for (const s of states) {
     if ((s.prob ?? 0) >= minThresh) significant.push(s);
     else small.push(s);
@@ -275,10 +268,10 @@ function splitByThreshold(
 
 // Cap by max columns, aggregate rest into Other
 function capAndAggregateColumns(
-  significant: ColumnDatum[],
-  small: ColumnDatum[],
+  significant: StateColumn[],
+  small: StateColumn[],
   maxColumns: number,
-): ColumnDatum[] {
+): StateColumn[] {
   // Only reserve a column for 'Other' if there are small states or dropped states
   const needsOthers = small.length > 0 || significant.length > maxColumns;
   const capacity = needsOthers
@@ -303,12 +296,12 @@ function capAndAggregateColumns(
 }
 
 // Sort columns by label, with Others last
-function sortColumnsByLabel(columns: ColumnDatum[]): ColumnDatum[] {
+function sortColumnsByLabel(columns: StateColumn[]): StateColumn[] {
   const numericRegex = /^[+-]?\d+(?:\.\d+)?$/;
   const asNumber = (s: string) => (numericRegex.test(s) ? parseFloat(s) : NaN);
   const isNumeric = (s: string) => numericRegex.test(s);
   const labelCmp = (a: string, b: string) => a.localeCompare(b);
-  const labelOrderCmp = (a: ColumnDatum, b: ColumnDatum) => {
+  const labelOrderCmp = (a: StateColumn, b: StateColumn) => {
     if (a.isOthers === true) return 1;
     if (b.isOthers === true) return -1;
     const an = isNumeric(a.label);
@@ -326,8 +319,8 @@ function sortColumnsByLabel(columns: ColumnDatum[]): ColumnDatum[] {
 
 // --- Layout Computation ---
 
-// Render helper that draws the state panel directly from column data
-type ColumnDatum = {
+// The data for a single column in the state visualization
+type StateColumn = {
   label: string;
   prob: number;
   phase: number;
@@ -341,9 +334,6 @@ type LayoutMetrics = {
   contentWidthPx: number;
 
   columnWidthPx: number;
-  columnCount: number;
-  maxColumns: number;
-  minColumnWidthPx: number;
 
   maxProb: number;
 
@@ -355,9 +345,6 @@ type LayoutMetrics = {
 
   animationMs: number;
   othersColor: string;
-  scaleY: (p: number) => number;
-  clampProb: (p: number) => number;
-  displayLabel: (b: ColumnDatum) => string;
   phaseColor: (phi: number) => string;
 };
 
@@ -400,9 +387,10 @@ const parseDurationMs = (val: string): number => {
   return isFinite(v) ? v : NaN;
 };
 
+// Combines layout information from option, column data, and VIZ constants to compute finalized layout metrics.
 const computeLayoutMetrics = (
   panel: HTMLElement,
-  columnsData: ColumnDatum[],
+  columnsData: StateColumn[],
   opts: RenderOptions,
 ): LayoutMetrics => {
   const animationMs = getAnimationMs(panel, opts);
@@ -429,9 +417,9 @@ const computeLayoutMetrics = (
     minWidthPx,
     opts.maxPanelWidthPx ?? defaultMaxPanelWidthPx,
   );
-  const growthFactor = Math.min(
-    1,
-    Math.max(0, (columnCount - 1) / (maxColumns - 1)),
+  const growthFactor = Math.max(
+    0,
+    Math.min(1, (columnCount - 1) / (maxColumns - 1)),
   );
   const panelWidthPx = Math.round(
     minWidthPx + growthFactor * (maxWidthPx - minWidthPx),
@@ -445,52 +433,38 @@ const computeLayoutMetrics = (
     VIZ.phaseRadiusBase,
     Math.floor(columnWidthPx / 2) - 1,
   );
-  const displayLabel = (b: ColumnDatum) =>
-    b.isOthers === true ? `Others (${b.othersCount ?? 0})` : b.label;
   const maxLabelLen = columnsData.reduce(
     (m, b) => Math.max(m, (displayLabel(b) || "").length),
     0,
   );
   const verticalLabels = maxLabelLen > VIZ.labelLongThresholdChars;
-  const barHeaderPaddingPx = VIZ.barHeaderPadding;
-  const phaseHeaderPaddingPx = VIZ.phaseHeaderPadding;
-  const percentLabelPaddingPx = VIZ.percentLabelPadding;
-  const phaseLabelPaddingPx = VIZ.phaseLabelPadding;
 
   const maxProb = Math.max(
     VIZ.minProbEpsilon,
     Math.max(...columnsData.map((b) => b.prob ?? 0)),
   );
-  const barAreaHeightPx = VIZ.columnAreaHeight;
-  const othersColor = opts.othersColor ?? VIZ.defaultOthersColor;
-  const scaleY = (p: number) => (p / maxProb) * barAreaHeightPx;
-  const clampProb = (p: number) => Math.max(0, Math.min(p, maxProb));
+
   const phaseColor = opts.phaseColorMap ?? defaultPhaseColor;
+  const othersColor = opts.othersColor ?? VIZ.defaultOthersColor;
 
   const phaseSectionTopY =
-    barHeaderPaddingPx + barAreaHeightPx + percentLabelPaddingPx;
+    VIZ.barHeaderPadding + VIZ.barAreaHeight + VIZ.percentLabelPadding;
   const stateSectionTopY =
     phaseSectionTopY +
-    phaseHeaderPaddingPx +
+    VIZ.phaseHeaderPadding +
     2 * phaseCircleRadiusPx +
-    phaseLabelPaddingPx;
+    VIZ.phaseLabelPadding;
 
   return {
     panelWidthPx,
     contentWidthPx,
     columnWidthPx,
-    columnCount,
-    maxColumns,
-    minColumnWidthPx,
     maxProb,
     phaseSectionTopY,
     phaseCircleRadiusPx,
     stateSectionTopY,
     verticalLabels,
     animationMs,
-    scaleY,
-    clampProb,
-    displayLabel,
     phaseColor,
     othersColor,
   };
@@ -500,7 +474,7 @@ const computeLayoutMetrics = (
 
 const renderStatePanel = (
   panel: HTMLElement,
-  columnData: ColumnDatum[],
+  columnData: StateColumn[],
   opts: RenderOptions = {},
 ): void => {
   const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
@@ -527,26 +501,29 @@ const renderStatePanel = (
 // Render a full column (percentage bar + phase + label)
 const renderColumn = (
   g: SVGGElement,
-  column: ColumnDatum,
-  i: number,
+  column: StateColumn,
+  colIdx: number,
   prev: Record<string, { prob: number; phase: number }>,
   layout: LayoutMetrics,
 ) => {
   const {
     columnWidthPx,
-    columnCount,
+    maxProb,
     phaseSectionTopY,
     phaseCircleRadiusPx,
     stateSectionTopY,
     verticalLabels,
     animationMs,
-    scaleY,
-    clampProb,
-    displayLabel,
     phaseColor,
     othersColor,
   } = layout;
-  const x = i * (columnWidthPx + VIZ.columnSpacing);
+  const x = colIdx * (columnWidthPx + VIZ.columnSpacing);
+  const cx = x + columnWidthPx / 2;
+
+  // Render probability bar
+  const scaleY = (p: number) =>
+    (Math.max(0, Math.min(p, maxProb)) / maxProb) * VIZ.barAreaHeight;
+
   const bar = document.createElementNS("http://www.w3.org/2000/svg", "rect");
   bar.setAttribute("x", `${x}`);
   bar.setAttribute("width", `${columnWidthPx}`);
@@ -564,12 +541,12 @@ const renderColumn = (
   g.appendChild(bar);
 
   const prevProb = prev[column.label]?.prob ?? 0;
-  const fromH = scaleY(clampProb(prevProb));
-  const baseY = VIZ.barHeaderPadding + VIZ.columnAreaHeight;
+  const fromH = scaleY(prevProb);
+  const baseY = VIZ.barHeaderPadding + VIZ.barAreaHeight;
   bar.setAttribute("y", `${baseY - fromH}`);
   bar.setAttribute("height", `${fromH}`);
   animate(prevProb, column.prob, animationMs, (pv) => {
-    const h = scaleY(clampProb(pv));
+    const h = scaleY(pv);
     bar.setAttribute("y", `${baseY - h}`);
     bar.setAttribute("height", `${h}`);
   });
@@ -579,9 +556,9 @@ const renderColumn = (
       "http://www.w3.org/2000/svg",
       "text",
     );
-    label.setAttribute("x", `${x + columnWidthPx / 2}`);
+    label.setAttribute("x", `${cx}`);
     const labelY =
-      VIZ.barHeaderPadding + VIZ.columnAreaHeight + VIZ.percentLabelOffset;
+      VIZ.barHeaderPadding + VIZ.barAreaHeight + VIZ.percentLabelOffset;
     label.setAttribute("y", `${labelY}`);
     label.setAttribute("class", "state-bar-label");
     animate(prevProb, column.prob, animationMs, (pv) => {
@@ -592,20 +569,23 @@ const renderColumn = (
     g.appendChild(label);
   }
 
-  const cx = x + columnWidthPx / 2;
+  // Render phase diagram
   if (!column.isOthers) {
     let r = phaseCircleRadiusPx;
     if (r >= VIZ.phaseRadiusThreshold) {
       const maxR = Math.floor(
-        (columnWidthPx / 2 - VIZ.padX) / (1 + VIZ.phaseDotFrac),
+        (columnWidthPx / 2 - VIZ.phaseCirclePaddingX) / (1 + VIZ.phaseDotFrac),
       );
       r = Math.min(r, Math.max(2, maxR));
     } else {
-      const maxR = Math.floor(columnWidthPx / 2 - VIZ.padX - 1.5);
+      const maxR = Math.floor(
+        columnWidthPx / 2 - VIZ.phaseCirclePaddingX - 1.5,
+      );
       r = Math.min(r, Math.max(2, maxR));
     }
     const phaseContentYBase = phaseSectionTopY + VIZ.phaseHeaderPadding;
-    const cy = phaseContentYBase + r + VIZ.phaseContentExtraY;
+    // Center of the phase circle (cy) sits below the header by r + padding
+    const cy = phaseContentYBase + r + VIZ.phaseCirclePaddingY;
     const sx = cx + r;
     const sy = cy;
     const ex = cx + r * Math.cos(column.phase);
@@ -643,12 +623,19 @@ const renderColumn = (
       "text",
     );
     phaseText.setAttribute("x", `${cx}`);
+    // Compute the vertical space available for the phase label between the
+    // bottom of the phase circle (including the small dot) and the top of the
+    // state labels area. Then center a single-line label (height =
+    // VIZ.phaseLabelLineHeight) within that gap.
     const dotRadius = Math.max(VIZ.phaseDotRadiusMinPx, r * VIZ.phaseDotFrac);
-    const yTop = cy + r + dotRadius;
-    const yBottom = stateSectionTopY - VIZ.phaseTextBottomPad;
-    const textH = VIZ.verticalLabelLineHeight;
-    let yTextTop = Math.round((yTop + yBottom) / 2 - textH / 2);
-    yTextTop = Math.max(yTop, Math.min(yTextTop, yBottom - textH));
+    const labelAreaTopY = cy + r + dotRadius; // circle bottom, including dot
+    const labelAreaBottomY = stateSectionTopY - VIZ.phaseTextBottomPad;
+    const availableH = Math.max(0, labelAreaBottomY - labelAreaTopY);
+    const textH = VIZ.phaseLabelLineHeight;
+    // Center text within the available height; clamp so it stays inside area.
+    const yTextTop = Math.round(
+      labelAreaTopY + Math.max(0, (availableH - textH) / 2),
+    );
     phaseText.setAttribute("y", `${yTextTop}`);
     phaseText.setAttribute("class", "state-phase-text");
     const prevPhase = prev[column.label]?.phase ?? 0;
@@ -679,6 +666,7 @@ const renderColumn = (
       dot.setAttribute("cx", `${cx + dx}`);
       dot.setAttribute("cy", `${cy - dy}`);
       const fillColor = phaseColor(pv);
+      // Note: this animates the colors of the prob bars also
       wedge.setAttribute("fill", fillColor);
       dot.setAttribute("fill", fillColor);
       bar.setAttribute("fill", fillColor);
@@ -691,49 +679,44 @@ const renderColumn = (
     });
   }
 
-  if (columnCount <= VIZ.maxColumnsWithLabels) {
-    const stateContentYBase = stateSectionTopY + VIZ.stateHeaderPadding;
-    const labelX = x + columnWidthPx / 2;
-    const labelY = verticalLabels
-      ? stateContentYBase + VIZ.stateLabelVerticalOffset
-      : stateContentYBase + VIZ.stateLabelHorizontalOffset;
+  // Render state label
+  const stateContentYBase = stateSectionTopY + VIZ.stateHeaderPadding;
+  const labelY = verticalLabels
+    ? stateContentYBase + VIZ.stateLabelVerticalOffset
+    : stateContentYBase + VIZ.stateLabelHorizontalOffset;
 
-    if (verticalLabels) {
-      const lineH = VIZ.verticalLabelLineHeight;
-      const labelText = displayLabel(column);
-      const labelH = lineH * Math.max(1, (labelText || "").length);
-      const fo = document.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "foreignObject",
-      );
-      fo.setAttribute("x", `${x}`);
-      fo.setAttribute("y", `${labelY}`);
-      fo.setAttribute("width", `${columnWidthPx}`);
-      fo.setAttribute("height", `${labelH}`);
-      const div = document.createElementNS(
-        "http://www.w3.org/1999/xhtml",
-        "div",
-      );
-      div.setAttribute("class", "state-bitstring-fo");
-      div.textContent = labelText;
-      fo.appendChild(div);
-      g.appendChild(fo);
-    } else {
-      const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      t.setAttribute("x", `${labelX}`);
-      t.setAttribute("y", `${labelY}`);
-      t.setAttribute("class", "state-bitstring");
-      t.textContent = displayLabel(column);
-      g.appendChild(t);
-    }
+  if (verticalLabels) {
+    const labelText = displayLabel(column);
+    const labelH =
+      VIZ.verticalLabelCharHeight * Math.max(1, (labelText || "").length);
+    const fo = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "foreignObject",
+    );
+    fo.setAttribute("x", `${x}`);
+    fo.setAttribute("y", `${labelY}`);
+    fo.setAttribute("width", `${columnWidthPx}`);
+    fo.setAttribute("height", `${labelH}`);
+    const div = document.createElementNS("http://www.w3.org/1999/xhtml", "div");
+    div.setAttribute("class", "state-bitstring-fo");
+    div.textContent = labelText;
+    fo.appendChild(div);
+    g.appendChild(fo);
+  } else {
+    const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    t.setAttribute("x", `${cx}`);
+    t.setAttribute("y", `${labelY}`);
+    t.setAttribute("class", "state-bitstring");
+    t.textContent = displayLabel(column);
+    g.appendChild(t);
   }
 };
 
 const renderSectionHeaders = (g: SVGGElement, layout: LayoutMetrics) => {
-  const mkLabel = (text: string, x: number, y: number) => {
+  const mkLabel = (text: string, y: number) => {
     const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
-    t.setAttribute("x", `${x}`);
-    t.setAttribute("y", `${y}`);
+    t.setAttribute("x", `${VIZ.headerLabelXOffset}`);
+    t.setAttribute("y", `${y + VIZ.headerLabelYOffset}`);
     t.setAttribute("class", "state-header");
     t.textContent = text;
     return t;
@@ -747,30 +730,11 @@ const renderSectionHeaders = (g: SVGGElement, layout: LayoutMetrics) => {
     line.setAttribute("class", "state-separator");
     return line;
   };
-  const sepBarY = 0;
-  g.appendChild(
-    mkLabel(
-      "Probability Density",
-      VIZ.headerLabelXOffset,
-      sepBarY + VIZ.headerLabelYOffset,
-    ),
-  );
+  g.appendChild(mkLabel("Probability Density", 0));
   g.appendChild(mkSep(layout.phaseSectionTopY));
-  g.appendChild(
-    mkLabel(
-      "Phase",
-      VIZ.headerLabelXOffset,
-      layout.phaseSectionTopY + VIZ.headerLabelYOffset,
-    ),
-  );
+  g.appendChild(mkLabel("Phase", layout.phaseSectionTopY));
   g.appendChild(mkSep(layout.stateSectionTopY));
-  g.appendChild(
-    mkLabel(
-      "State",
-      VIZ.headerLabelXOffset,
-      layout.stateSectionTopY + VIZ.headerLabelYOffset,
-    ),
-  );
+  g.appendChild(mkLabel("State", layout.stateSectionTopY));
 };
 
 const finalizeSvgAndFlex = (
@@ -794,7 +758,7 @@ const finalizeSvgAndFlex = (
   }
 };
 
-const savePreviousValues = (panel: HTMLElement, columnData: ColumnDatum[]) => {
+const savePreviousValues = (panel: HTMLElement, columnData: StateColumn[]) => {
   const store: Record<string, { prob: number; phase: number }> = {};
   for (const col of columnData)
     store[col.label] = { prob: col.prob, phase: col.phase };
@@ -843,3 +807,7 @@ const formatPhasePiTip = (phi: number): string => {
   const sign = k >= 0 ? "+" : "";
   return `${sign}${k.toFixed(2)}π`;
 };
+
+// Display label for a state column, handling "Others" case
+const displayLabel = (b: StateColumn) =>
+  b.isOthers === true ? `Others (${b.othersCount ?? 0})` : b.label;
