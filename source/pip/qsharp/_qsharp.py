@@ -837,7 +837,7 @@ def circuit(
     generation_method: Optional[CircuitGenerationMethod] = None,
     max_operations: Optional[int] = None,
     source_locations: bool = False,
-    group_by_scope: bool = False,
+    group_by_scope: bool = True,
     prune_classical_qubits: bool = False,
 ) -> Circuit:
     """

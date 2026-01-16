@@ -39,7 +39,7 @@ fn interpreter_with_circuit_trace(code: &str, profile: Profile) -> Interpreter {
         LanguageFeatures::default(),
         store,
         &[(std_id, None)],
-        Default::default(),
+        default_test_tracer_config(),
     )
     .expect("interpreter creation should succeed")
 }
@@ -51,7 +51,7 @@ fn circuit(code: &str, entry: CircuitEntryPoint) -> String {
         Profile::Unrestricted,
         entry,
         CircuitGenerationMethod::ClassicalEval,
-        Default::default(),
+        default_test_tracer_config(),
     )
     .expect("circuit generation should succeed")
     .to_string()
@@ -77,6 +77,15 @@ fn circuit_with_options(
     let mut interpreter = interpreter(code, PackageType::Exe, profile);
     interpreter.set_quantum_seed(Some(2));
     interpreter.circuit(entry, method, config)
+}
+
+fn default_test_tracer_config() -> TracerConfig {
+    TracerConfig {
+        max_operations: TracerConfig::DEFAULT_MAX_OPERATIONS,
+        source_locations: true,
+        group_by_scope: true,
+        prune_classical_qubits: false,
+    }
 }
 
 #[test]
@@ -525,7 +534,7 @@ fn m_base_profile() {
         Profile::Base,
         CircuitEntryPoint::EntryPoint,
         CircuitGenerationMethod::ClassicalEval,
-        Default::default(),
+        default_test_tracer_config(),
     )
     .expect("circuit generation should succeed");
 
@@ -601,7 +610,7 @@ fn mresetz_base_profile() {
         Profile::Base,
         CircuitEntryPoint::EntryPoint,
         CircuitGenerationMethod::ClassicalEval,
-        Default::default(),
+        default_test_tracer_config(),
     )
     .expect("circuit generation should succeed");
 
@@ -731,7 +740,7 @@ fn unrestricted_profile_result_comparison() {
         .circuit(
             CircuitEntryPoint::EntryPoint,
             CircuitGenerationMethod::ClassicalEval,
-            Default::default(),
+            default_test_tracer_config(),
         )
         .expect_err("circuit should return error")
         .pop()
@@ -756,7 +765,7 @@ fn unrestricted_profile_result_comparison() {
         .circuit(
             CircuitEntryPoint::EntryPoint,
             CircuitGenerationMethod::Simulate,
-            Default::default(),
+            default_test_tracer_config(),
         )
         .expect("circuit generation should succeed");
 
@@ -1096,7 +1105,7 @@ fn controlled_operation() {
         }",
         CircuitEntryPoint::Operation("Controlled Test.SWAP".into()),
         CircuitGenerationMethod::ClassicalEval,
-        Default::default(),
+        default_test_tracer_config(),
     );
 
     // Controlled operations are not supported at the moment.
@@ -1151,7 +1160,7 @@ fn operation_with_non_qubit_args() {
         }",
         CircuitEntryPoint::Operation("Test.Test".into()),
         CircuitGenerationMethod::ClassicalEval,
-        Default::default(),
+        default_test_tracer_config(),
     );
 
     expect![[r"
