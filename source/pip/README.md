@@ -48,7 +48,7 @@ To disable sending telemetry from this package, set the environment variable `QS
 
 ## Support
 
-For more information about the Azure Quantum Development Kit, visit [https://aka.ms/AQ/Documentation](https://aka.ms/AQ/Documentation).
+For more information about the Microsoft Quantum Development Kit, visit [https://aka.ms/qdk](https://aka.ms/qdk).
 
 ## Contributing
 

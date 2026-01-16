@@ -30,10 +30,10 @@ export function HelpPage() {
 
   return (
     <div class="qs-help">
-      <h1>Azure Quantum Development Kit</h1>
+      <h1>Microsoft Quantum Development Kit</h1>
       <h2>Overview</h2>
       <p>
-        Welcome to the Azure Quantum Development Kit. Below you will find a
+        Welcome to the Microsoft Quantum Development Kit. Below you will find a
         quick overview of some of the features it enables in Visual Studio Code.
       </p>
       <h2>Powerful Q# editing</h2>
@@ -68,11 +68,9 @@ export function HelpPage() {
       </p>
       <h2>Learn more</h2>
       <p>
-        You can find out more about the latest features in the Azure Quantum
+        You can find out more about the latest features in the Microsoft Quantum
         Development Kit by visiting&nbsp;
-        <a href="https://aka.ms/AQ/Documentation">
-          https://aka.ms/AQ/Documentation.
-        </a>
+        <a href="https://aka.ms/qdk">https://aka.ms/qdk.</a>
         .&nbsp;Happy coding!
       </p>
     </div>

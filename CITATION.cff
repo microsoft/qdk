@@ -1,6 +1,6 @@
 cff-version: 1.2.0
 message: "If you use this software in your work, please cite it using the following metadata"
-title: "Azure Quantum Development Kit"
+title: "Microsoft Quantum Development Kit"
 repository-code: "https://github.com/microsoft/qsharp"
 license: MIT
 year: 2024

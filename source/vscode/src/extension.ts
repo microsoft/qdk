@@ -224,7 +224,7 @@ function checkForOldQdk() {
     'Extension "Microsoft Quantum Development Kit for Visual Studio" (`quantum.quantum-devkit-vscode`) found. We recommend uninstalling the prior QDK before using this release.';
 
   const bothReleaseAndPrereleaseWarningMessage =
-    'Extension "Azure Quantum Development Kit (QDK)" has both release and pre-release versions installed. We recommend uninstalling one of these versions.';
+    'Extension "Microsoft Quantum Development Kit (QDK)" has both release and pre-release versions installed. We recommend uninstalling one of these versions.';
 
   // we don't await the warnings below so we don't block extension initialization
   if (oldQdkExtension) {

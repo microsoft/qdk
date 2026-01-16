@@ -1,6 +1,6 @@
 {
   "name": "qsharp-lang-vscode-dev",
-  "displayName": "[DEV BUILD] Azure Quantum Development Kit (QDK)",
+  "displayName": "[DEV BUILD] Microsoft Quantum Development Kit (QDK)",
   "description": "Q# and OpenQASM Language Support",
   "version": "0.0.0",
   "publisher": "quantum",
@@ -31,13 +31,13 @@
     "walkthroughs": [
       {
         "id": "qsharp-vscode.welcome",
-        "title": "The Azure Quantum Development Kit",
-        "description": "Getting started with the Azure Quantum Development Kit in VS Code",
+        "title": "The Microsoft Quantum Development Kit",
+        "description": "Getting started with the Microsoft Quantum Development Kit in VS Code",
         "steps": [
           {
             "id": "qsharp-vscode.welcome.editor",
-            "title": "Welcome to the Azure Quantum Development Kit",
-            "description": "The Azure Quantum Development Kit (QDK) is an open-source SDK that you can use to write quantum programs and execute them on quantum hardware. This walkthrough will show you how to get started with the Azure Quantum Development Kit in VS Code.\n\nThe QDK gives you rich editor support for writing quantum programs, such as error checking, signature help, completion lists, safely renaming identifiers, and much more.",
+            "title": "Welcome to the Microsoft Quantum Development Kit",
+            "description": "The Microsoft Quantum Development Kit (QDK) is an open-source SDK that you can use to write quantum programs and execute them on quantum hardware. This walkthrough will show you how to get started with the Microsoft Quantum Development Kit in VS Code.\n\nThe QDK gives you rich editor support for writing quantum programs, such as error checking, signature help, completion lists, safely renaming identifiers, and much more.",
             "media": {
               "image": "resources/intellisense.png",
               "altText": "Intellisense"
@@ -502,7 +502,7 @@
       {
         "command": "qsharp-vscode.createNotebook",
         "category": "QDK",
-        "title": "Create an Azure Quantum notebook"
+        "title": "Create a Microsoft Quantum notebook"
       },
       {
         "command": "qsharp-vscode.openPlayground",
@@ -908,7 +908,7 @@
       {
         "name": "qdk-run-program",
         "tags": [
-          "azure-quantum",
+          "quantum",
           "qsharp",
           "qdk",
           "openqasm"
@@ -940,7 +940,7 @@
       {
         "name": "qdk-generate-circuit",
         "tags": [
-          "azure-quantum",
+          "quantum",
           "qsharp",
           "qdk",
           "openqasm"
@@ -967,7 +967,7 @@
       {
         "name": "qdk-run-resource-estimator",
         "tags": [
-          "azure-quantum",
+          "quantum",
           "qsharp",
           "qdk",
           "openqasm"
@@ -1021,7 +1021,7 @@
       {
         "name": "qsharp-get-library-descriptions",
         "tags": [
-          "azure-quantum",
+          "quantum",
           "qsharp",
           "qdk"
         ],

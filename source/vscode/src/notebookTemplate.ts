@@ -11,7 +11,7 @@ export const notebookTemplate: vscode.NotebookData = {
     {
       kind: vscode.NotebookCellKind.Markup,
       languageId: "markdown",
-      value: `## Azure Quantum Q# notebook
+      value: `## Microsoft Quantum Q# notebook
 
 To use Jupyter Notebooks with Q#, the "qdk" Python package should be installed with the "jupyter" extra.
 
