@@ -24,6 +24,7 @@ import {
 import { createDropzones } from "./draggable.js";
 import { enableEvents } from "./events.js";
 import { createPanel, enableRunButton } from "./panel.js";
+import { getMinMaxRegIdx } from "./utils.js";
 
 /**
  * Contains render data for visualization.
@@ -547,7 +548,7 @@ function getRowHeights(
     };
   }
 
-  updateRowHeights(componentGrid, rowHeights);
+  updateRowHeights(componentGrid, rowHeights, qubits.length);
   return rowHeights;
 }
 
@@ -561,13 +562,14 @@ function updateRowHeights(
       heightBelowWire: number;
     };
   },
+  numQubits: number,
 ) {
   for (const col of componentGrid) {
     for (const component of col.components) {
       if (component.dataAttributes?.["expanded"] === "true") {
         // We're in an expanded group. There is a dashed border above
         // the top qubit, and below the bottom qubit.
-        const { topQubit, bottomQubit } = getTopAndBottomQubits(component);
+        const [topQubit, bottomQubit] = getMinMaxRegIdx(component, numQubits);
 
         // Increment the current count of dashed group borders for
         // the top and bottom rows for this operation.
@@ -586,7 +588,7 @@ function updateRowHeights(
         );
 
         // recurse
-        updateRowHeights(component.children || [], rowHeights);
+        updateRowHeights(component.children || [], rowHeights, numQubits);
 
         // decrement
         rowHeights[topQubit].currentGroupBordersAboveWire--;
@@ -594,23 +596,4 @@ function updateRowHeights(
       }
     }
   }
-}
-
-function getTopAndBottomQubits(component: Operation) {
-  let qubits;
-  switch (component.kind) {
-    case "ket":
-      qubits = component.targets;
-      break;
-    case "measurement":
-      qubits = component.qubits;
-      break;
-    case "unitary":
-      qubits = component.targets.concat(component.controls || []);
-      break;
-  }
-
-  const minQubit = qubits.map((r) => r.qubit).reduce((a, b) => Math.min(a, b));
-  const maxQubit = qubits.map((r) => r.qubit).reduce((a, b) => Math.max(a, b));
-  return { topQubit: minQubit, bottomQubit: maxQubit };
 }
