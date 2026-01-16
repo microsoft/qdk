@@ -426,7 +426,7 @@ const computeLayoutMetrics = (
   );
   const contentWidthPx = panelWidthPx - VIZ.marginLeft - VIZ.marginRight;
   const columnWidthPx = Math.max(
-    2,
+    4,
     Math.floor(contentWidthPx / Math.max(1, columnCount)) - VIZ.columnSpacing,
   );
   const phaseCircleRadiusPx = Math.max(
@@ -498,220 +498,7 @@ const renderStatePanel = (
   savePreviousValues(panel, columnData);
 };
 
-// Render a full column (percentage bar + phase + label)
-const renderColumn = (
-  g: SVGGElement,
-  column: StateColumn,
-  colIdx: number,
-  prev: Record<string, { prob: number; phase: number }>,
-  layout: LayoutMetrics,
-) => {
-  const {
-    columnWidthPx,
-    maxProb,
-    phaseSectionTopY,
-    phaseCircleRadiusPx,
-    stateSectionTopY,
-    verticalLabels,
-    animationMs,
-    phaseColor,
-    othersColor,
-  } = layout;
-  const x = colIdx * (columnWidthPx + VIZ.columnSpacing);
-  const cx = x + columnWidthPx / 2;
-
-  // Render probability bar
-  const scaleY = (p: number) =>
-    (Math.max(0, Math.min(p, maxProb)) / maxProb) * VIZ.barAreaHeight;
-
-  const bar = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-  bar.setAttribute("x", `${x}`);
-  bar.setAttribute("width", `${columnWidthPx}`);
-  bar.setAttribute(
-    "fill",
-    column.isOthers ? othersColor : phaseColor(column.phase),
-  );
-  bar.setAttribute("class", "state-bar");
-  const tip = document.createElementNS("http://www.w3.org/2000/svg", "title");
-  const pctTipTarget = (column.prob ?? 0) * 100;
-  tip.textContent = column.isOthers
-    ? `${pctTipTarget.toFixed(1)}% • Others (${column.othersCount ?? 0} states)`
-    : `${pctTipTarget.toFixed(1)}% • φ=${formatPhasePiTip(column.phase)}`;
-  bar.appendChild(tip);
-  g.appendChild(bar);
-
-  const prevProb = prev[column.label]?.prob ?? 0;
-  const fromH = scaleY(prevProb);
-  const baseY = VIZ.barHeaderPadding + VIZ.barAreaHeight;
-  bar.setAttribute("y", `${baseY - fromH}`);
-  bar.setAttribute("height", `${fromH}`);
-  animate(prevProb, column.prob, animationMs, (pv) => {
-    const h = scaleY(pv);
-    bar.setAttribute("y", `${baseY - h}`);
-    bar.setAttribute("height", `${h}`);
-  });
-
-  if (columnWidthPx >= 4) {
-    const label = document.createElementNS(
-      "http://www.w3.org/2000/svg",
-      "text",
-    );
-    label.setAttribute("x", `${cx}`);
-    const labelY =
-      VIZ.barHeaderPadding + VIZ.barAreaHeight + VIZ.percentLabelOffset;
-    label.setAttribute("y", `${labelY}`);
-    label.setAttribute("class", "state-bar-label");
-    animate(prevProb, column.prob, animationMs, (pv) => {
-      const pct = (pv ?? 0) * 100;
-      label.textContent =
-        pct >= 1 ? `${pct.toFixed(0)}%` : `${pct.toFixed(1)}%`;
-    });
-    g.appendChild(label);
-  }
-
-  // Render phase diagram
-  if (!column.isOthers) {
-    let r = phaseCircleRadiusPx;
-    if (r >= VIZ.phaseRadiusThreshold) {
-      const maxR = Math.floor(
-        (columnWidthPx / 2 - VIZ.phaseCirclePaddingX) / (1 + VIZ.phaseDotFrac),
-      );
-      r = Math.min(r, Math.max(2, maxR));
-    } else {
-      const maxR = Math.floor(
-        columnWidthPx / 2 - VIZ.phaseCirclePaddingX - 1.5,
-      );
-      r = Math.min(r, Math.max(2, maxR));
-    }
-    const phaseContentYBase = phaseSectionTopY + VIZ.phaseHeaderPadding;
-    // Center of the phase circle (cy) sits below the header by r + padding
-    const cy = phaseContentYBase + r + VIZ.phaseCirclePaddingY;
-    const sx = cx + r;
-    const sy = cy;
-    const ex = cx + r * Math.cos(column.phase);
-    const ey = cy - r * Math.sin(column.phase);
-    const largeArc = Math.abs(column.phase) > Math.PI ? 1 : 0;
-    const sweep = column.phase < 0 ? 1 : 0;
-    const wedge = document.createElementNS(
-      "http://www.w3.org/2000/svg",
-      "path",
-    );
-    const dTarget = `M ${cx} ${cy} L ${sx} ${sy} A ${r} ${r} 0 ${largeArc} ${sweep} ${ex} ${ey} Z`;
-    wedge.setAttribute("d", dTarget);
-    wedge.setAttribute("class", "state-phase-wedge");
-    wedge.setAttribute("fill", phaseColor(column.phase));
-    g.appendChild(wedge);
-
-    const circle = document.createElementNS(
-      "http://www.w3.org/2000/svg",
-      "circle",
-    );
-    circle.setAttribute("cx", `${cx}`);
-    circle.setAttribute("cy", `${cy}`);
-    circle.setAttribute("r", `${r}`);
-    circle.setAttribute("class", "state-phase-circle");
-    const tipPhase = document.createElementNS(
-      "http://www.w3.org/2000/svg",
-      "title",
-    );
-    tipPhase.textContent = `φ=${formatPhasePiTip(column.phase)}`;
-    circle.appendChild(tipPhase);
-    g.appendChild(circle);
-
-    const phaseText = document.createElementNS(
-      "http://www.w3.org/2000/svg",
-      "text",
-    );
-    phaseText.setAttribute("x", `${cx}`);
-    // Compute the vertical space available for the phase label between the
-    // bottom of the phase circle (including the small dot) and the top of the
-    // state labels area. Then center a single-line label (height =
-    // VIZ.phaseLabelLineHeight) within that gap.
-    const dotRadius = Math.max(VIZ.phaseDotRadiusMinPx, r * VIZ.phaseDotFrac);
-    const labelAreaTopY = cy + r + dotRadius; // circle bottom, including dot
-    const labelAreaBottomY = stateSectionTopY - VIZ.phaseTextBottomPad;
-    const availableH = Math.max(0, labelAreaBottomY - labelAreaTopY);
-    const textH = VIZ.phaseLabelLineHeight;
-    // Center text within the available height; clamp so it stays inside area.
-    const yTextTop = Math.round(
-      labelAreaTopY + Math.max(0, (availableH - textH) / 2),
-    );
-    phaseText.setAttribute("y", `${yTextTop}`);
-    phaseText.setAttribute("class", "state-phase-text");
-    const prevPhase = prev[column.label]?.phase ?? 0;
-    animate(prevPhase, column.phase, animationMs, (pv) => {
-      phaseText.textContent = formatPhasePi(pv);
-    });
-    g.appendChild(phaseText);
-
-    const prevDx = r * Math.cos(prev[column.label]?.phase ?? 0);
-    const prevDy = r * Math.sin(prev[column.label]?.phase ?? 0);
-    const dot = document.createElementNS(
-      "http://www.w3.org/2000/svg",
-      "circle",
-    );
-    dot.setAttribute("cx", `${cx + prevDx}`);
-    dot.setAttribute("cy", `${cy - prevDy}`);
-    dot.setAttribute(
-      "r",
-      `${Math.max(VIZ.phaseDotRadiusMinPx, r * VIZ.phaseDotFrac)}`,
-    );
-    dot.setAttribute("fill", phaseColor(column.phase));
-    dot.setAttribute("class", "state-phase-dot");
-    g.appendChild(dot);
-
-    animate(prev[column.label]?.phase ?? 0, column.phase, animationMs, (pv) => {
-      const dx = r * Math.cos(pv);
-      const dy = r * Math.sin(pv);
-      dot.setAttribute("cx", `${cx + dx}`);
-      dot.setAttribute("cy", `${cy - dy}`);
-      const fillColor = phaseColor(pv);
-      // Note: this animates the colors of the prob bars also
-      wedge.setAttribute("fill", fillColor);
-      dot.setAttribute("fill", fillColor);
-      bar.setAttribute("fill", fillColor);
-      const exA = cx + r * Math.cos(pv);
-      const eyA = cy - r * Math.sin(pv);
-      const largeArcA = Math.abs(pv) > Math.PI ? 1 : 0;
-      const sweepA = pv < 0 ? 1 : 0;
-      const dA = `M ${cx} ${cy} L ${sx} ${sy} A ${r} ${r} 0 ${largeArcA} ${sweepA} ${exA} ${eyA} Z`;
-      wedge.setAttribute("d", dA);
-    });
-  }
-
-  // Render state label
-  const stateContentYBase = stateSectionTopY + VIZ.stateHeaderPadding;
-  const labelY = verticalLabels
-    ? stateContentYBase + VIZ.stateLabelVerticalOffset
-    : stateContentYBase + VIZ.stateLabelHorizontalOffset;
-
-  if (verticalLabels) {
-    const labelText = displayLabel(column);
-    const labelH =
-      VIZ.verticalLabelCharHeight * Math.max(1, (labelText || "").length);
-    const fo = document.createElementNS(
-      "http://www.w3.org/2000/svg",
-      "foreignObject",
-    );
-    fo.setAttribute("x", `${x}`);
-    fo.setAttribute("y", `${labelY}`);
-    fo.setAttribute("width", `${columnWidthPx}`);
-    fo.setAttribute("height", `${labelH}`);
-    const div = document.createElementNS("http://www.w3.org/1999/xhtml", "div");
-    div.setAttribute("class", "state-bitstring-fo");
-    div.textContent = labelText;
-    fo.appendChild(div);
-    g.appendChild(fo);
-  } else {
-    const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
-    t.setAttribute("x", `${cx}`);
-    t.setAttribute("y", `${labelY}`);
-    t.setAttribute("class", "state-bitstring");
-    t.textContent = displayLabel(column);
-    g.appendChild(t);
-  }
-};
-
+// Render the section headers and separators
 const renderSectionHeaders = (g: SVGGElement, layout: LayoutMetrics) => {
   const mkLabel = (text: string, y: number) => {
     const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
@@ -735,6 +522,238 @@ const renderSectionHeaders = (g: SVGGElement, layout: LayoutMetrics) => {
   g.appendChild(mkLabel("Phase", layout.phaseSectionTopY));
   g.appendChild(mkSep(layout.stateSectionTopY));
   g.appendChild(mkLabel("State", layout.stateSectionTopY));
+};
+
+// Render a full column (percentage bar + phase + label)
+const renderColumn = (
+  g: SVGGElement,
+  column: StateColumn,
+  colIdx: number,
+  prev: Record<string, { prob: number; phase: number }>,
+  layout: LayoutMetrics,
+) => {
+  const colX = colIdx * (layout.columnWidthPx + VIZ.columnSpacing);
+
+  const prevProb = prev[column.label]?.prob ?? 0;
+  const bar = renderProbSection(g, column, prevProb, colX, layout);
+
+  const prevPhase = prev[column.label]?.phase ?? 0;
+  renderPhaseSection(g, column, prevPhase, bar, colX, layout);
+
+  renderStateLabelSection(g, column, colX, layout);
+};
+
+const renderProbSection = (
+  g: SVGGElement,
+  column: StateColumn,
+  prevProb: number,
+  colX: number,
+  layout: LayoutMetrics,
+): SVGRectElement => {
+  const { columnWidthPx, maxProb, animationMs, phaseColor, othersColor } =
+    layout;
+  const cx = colX + columnWidthPx / 2;
+
+  const scaleY = (p: number) =>
+    (Math.max(0, Math.min(p, maxProb)) / maxProb) * VIZ.barAreaHeight;
+
+  const bar = document.createElementNS(
+    "http://www.w3.org/2000/svg",
+    "rect",
+  ) as unknown as SVGRectElement;
+  bar.setAttribute("x", `${colX}`);
+  bar.setAttribute("width", `${columnWidthPx}`);
+  bar.setAttribute(
+    "fill",
+    column.isOthers ? othersColor : phaseColor(column.phase),
+  );
+  bar.setAttribute("class", "state-bar");
+  const tip = document.createElementNS("http://www.w3.org/2000/svg", "title");
+  const pctTipTarget = (column.prob ?? 0) * 100;
+  tip.textContent = column.isOthers
+    ? `${pctTipTarget.toFixed(1)}% • Others (${column.othersCount ?? 0} states)`
+    : `${pctTipTarget.toFixed(1)}% • φ=${formatPhasePiTip(column.phase)}`;
+  bar.appendChild(tip);
+  g.appendChild(bar);
+
+  const fromH = scaleY(prevProb);
+  const baseY = VIZ.barHeaderPadding + VIZ.barAreaHeight;
+  bar.setAttribute("y", `${baseY - fromH}`);
+  bar.setAttribute("height", `${fromH}`);
+  animate(prevProb, column.prob, animationMs, (pv) => {
+    const h = scaleY(pv);
+    bar.setAttribute("y", `${baseY - h}`);
+    bar.setAttribute("height", `${h}`);
+  });
+
+  const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+  label.setAttribute("x", `${cx}`);
+  const labelY =
+    VIZ.barHeaderPadding + VIZ.barAreaHeight + VIZ.percentLabelOffset;
+  label.setAttribute("y", `${labelY}`);
+  label.setAttribute("class", "state-bar-label");
+  animate(prevProb, column.prob, animationMs, (pv) => {
+    const pct = (pv ?? 0) * 100;
+    label.textContent = pct >= 1 ? `${pct.toFixed(0)}%` : `${pct.toFixed(1)}%`;
+  });
+  g.appendChild(label);
+
+  return bar;
+};
+
+const renderPhaseSection = (
+  g: SVGGElement,
+  column: StateColumn,
+  prevPhase: number,
+  bar: SVGRectElement,
+  colX: number,
+  layout: LayoutMetrics,
+): void => {
+  if (column.isOthers) return;
+
+  const {
+    columnWidthPx,
+    phaseSectionTopY,
+    phaseCircleRadiusPx,
+    stateSectionTopY,
+    animationMs,
+    phaseColor,
+  } = layout;
+  const cx = colX + columnWidthPx / 2;
+
+  let r = phaseCircleRadiusPx;
+  if (r >= VIZ.phaseRadiusThreshold) {
+    const maxR = Math.floor(
+      (columnWidthPx / 2 - VIZ.phaseCirclePaddingX) / (1 + VIZ.phaseDotFrac),
+    );
+    r = Math.min(r, Math.max(2, maxR));
+  } else {
+    const maxR = Math.floor(columnWidthPx / 2 - VIZ.phaseCirclePaddingX - 1.5);
+    r = Math.min(r, Math.max(2, maxR));
+  }
+
+  const phaseContentYBase = phaseSectionTopY + VIZ.phaseHeaderPadding;
+  const cy = phaseContentYBase + r + VIZ.phaseCirclePaddingY;
+  const sx = cx + r;
+  const sy = cy;
+  const ex = cx + r * Math.cos(column.phase);
+  const ey = cy - r * Math.sin(column.phase);
+  const largeArc = Math.abs(column.phase) > Math.PI ? 1 : 0;
+  const sweep = column.phase < 0 ? 1 : 0;
+
+  const wedge = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  const dTarget = `M ${cx} ${cy} L ${sx} ${sy} A ${r} ${r} 0 ${largeArc} ${sweep} ${ex} ${ey} Z`;
+  wedge.setAttribute("d", dTarget);
+  wedge.setAttribute("class", "state-phase-wedge");
+  wedge.setAttribute("fill", phaseColor(column.phase));
+  g.appendChild(wedge);
+
+  const circle = document.createElementNS(
+    "http://www.w3.org/2000/svg",
+    "circle",
+  );
+  circle.setAttribute("cx", `${cx}`);
+  circle.setAttribute("cy", `${cy}`);
+  circle.setAttribute("r", `${r}`);
+  circle.setAttribute("class", "state-phase-circle");
+  const tipPhase = document.createElementNS(
+    "http://www.w3.org/2000/svg",
+    "title",
+  );
+  tipPhase.textContent = `φ=${formatPhasePiTip(column.phase)}`;
+  circle.appendChild(tipPhase);
+  g.appendChild(circle);
+
+  const phaseText = document.createElementNS(
+    "http://www.w3.org/2000/svg",
+    "text",
+  );
+  phaseText.setAttribute("x", `${cx}`);
+  const dotRadius = Math.max(VIZ.phaseDotRadiusMinPx, r * VIZ.phaseDotFrac);
+  const labelAreaTopY = cy + r + dotRadius;
+  const labelAreaBottomY = stateSectionTopY - VIZ.phaseTextBottomPad;
+  const availableH = Math.max(0, labelAreaBottomY - labelAreaTopY);
+  const textH = VIZ.phaseLabelLineHeight;
+  const yTextTop = Math.round(
+    labelAreaTopY + Math.max(0, (availableH - textH) / 2),
+  );
+  phaseText.setAttribute("y", `${yTextTop}`);
+  phaseText.setAttribute("class", "state-phase-text");
+  animate(prevPhase, column.phase, animationMs, (pv) => {
+    phaseText.textContent = formatPhasePi(pv);
+  });
+  g.appendChild(phaseText);
+
+  const prevDx = r * Math.cos(prevPhase);
+  const prevDy = r * Math.sin(prevPhase);
+  const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+  dot.setAttribute("cx", `${cx + prevDx}`);
+  dot.setAttribute("cy", `${cy - prevDy}`);
+  dot.setAttribute(
+    "r",
+    `${Math.max(VIZ.phaseDotRadiusMinPx, r * VIZ.phaseDotFrac)}`,
+  );
+  dot.setAttribute("fill", phaseColor(column.phase));
+  dot.setAttribute("class", "state-phase-dot");
+  g.appendChild(dot);
+
+  animate(prevPhase, column.phase, animationMs, (pv) => {
+    const dx = r * Math.cos(pv);
+    const dy = r * Math.sin(pv);
+    dot.setAttribute("cx", `${cx + dx}`);
+    dot.setAttribute("cy", `${cy - dy}`);
+    const fillColor = phaseColor(pv);
+    wedge.setAttribute("fill", fillColor);
+    dot.setAttribute("fill", fillColor);
+    bar.setAttribute("fill", fillColor);
+    const exA = cx + r * Math.cos(pv);
+    const eyA = cy - r * Math.sin(pv);
+    const largeArcA = Math.abs(pv) > Math.PI ? 1 : 0;
+    const sweepA = pv < 0 ? 1 : 0;
+    const dA = `M ${cx} ${cy} L ${sx} ${sy} A ${r} ${r} 0 ${largeArcA} ${sweepA} ${exA} ${eyA} Z`;
+    wedge.setAttribute("d", dA);
+  });
+};
+
+const renderStateLabelSection = (
+  g: SVGGElement,
+  column: StateColumn,
+  colX: number,
+  layout: LayoutMetrics,
+): void => {
+  const { columnWidthPx, stateSectionTopY, verticalLabels } = layout;
+  const cx = colX + columnWidthPx / 2;
+
+  const stateContentYBase = stateSectionTopY + VIZ.stateHeaderPadding;
+  const labelY = verticalLabels
+    ? stateContentYBase + VIZ.stateLabelVerticalOffset
+    : stateContentYBase + VIZ.stateLabelHorizontalOffset;
+
+  if (verticalLabels) {
+    const labelText = displayLabel(column);
+    const labelH =
+      VIZ.verticalLabelCharHeight * Math.max(1, (labelText || "").length);
+    const fo = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "foreignObject",
+    );
+    fo.setAttribute("x", `${colX}`);
+    fo.setAttribute("y", `${labelY}`);
+    fo.setAttribute("width", `${columnWidthPx}`);
+    fo.setAttribute("height", `${labelH}`);
+    const div = document.createElementNS("http://www.w3.org/1999/xhtml", "div");
+    div.setAttribute("class", "state-bitstring-fo");
+    div.textContent = labelText;
+    fo.appendChild(div);
+    g.appendChild(fo);
+  } else {
+    const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    t.setAttribute("x", `${cx}`);
+    t.setAttribute("y", `${labelY}`);
+    t.setAttribute("class", "state-bitstring");
+    t.textContent = displayLabel(column);
+    g.appendChild(t);
+  }
 };
 
 const finalizeSvgAndFlex = (
