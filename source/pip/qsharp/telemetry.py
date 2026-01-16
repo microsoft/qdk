@@ -39,8 +39,8 @@ AIURL = (
     or "https://westus2-2.in.applicationinsights.azure.com//v2.1/track"
 )
 
-# If explicitly disabled via either environment variable, disable telemetry.
-# Then, if explicitly enabled via either environment variable, enable telemetry.
+# If explicitly disabled via either environment variable, disable telemetry. This takes precedence.
+# If explicitly enabled via either environment variable, enable telemetry.
 # Otherwise, enable telemetry only in release builds.
 _disable_values = {"0", "false", "disabled", "none"}
 _enable_values = {"1", "true", "enabled"}
