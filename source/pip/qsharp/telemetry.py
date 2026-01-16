@@ -49,6 +49,9 @@ _env_values = {
     (os.environ.get("QDK_PYTHON_TELEMETRY") or "").lower(),
 }
 
+# `&` here is set intersection: it yields the common values between sets.
+# `not _env_values & _disable_values` is True iff no disable value is present.
+# `bool(_env_values & _enable_values)` is True iff any enable value is present.
 TELEMETRY_ENABLED = not _env_values & _disable_values and (
     bool(_env_values & _enable_values) or "dev" not in QSHARP_VERSION
 )
