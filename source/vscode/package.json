@@ -1,6 +1,6 @@
 {
   "name": "qsharp-lang-vscode-dev",
-  "displayName": "[DEV BUILD] Azure Quantum Development Kit (QDK)",
+  "displayName": "[DEV BUILD] Microsoft Quantum Development Kit (QDK)",
   "description": "Q# and OpenQASM Language Support",
   "version": "0.0.0",
   "publisher": "quantum",
@@ -31,13 +31,13 @@
     "walkthroughs": [
       {
         "id": "qsharp-vscode.welcome",
-        "title": "The Azure Quantum Development Kit",
-        "description": "Getting started with the Azure Quantum Development Kit in VS Code",
+        "title": "The Microsoft Quantum Development Kit",
+        "description": "Getting started with the Microsoft Quantum Development Kit in VS Code",
         "steps": [
           {
             "id": "qsharp-vscode.welcome.editor",
-            "title": "Welcome to the Azure Quantum Development Kit",
-            "description": "The Azure Quantum Development Kit (QDK) is an open-source SDK that you can use to write quantum programs and execute them on quantum hardware. This walkthrough will show you how to get started with the Azure Quantum Development Kit in VS Code.\n\nThe QDK gives you rich editor support for writing quantum programs, such as error checking, signature help, completion lists, safely renaming identifiers, and much more.",
+            "title": "Welcome to the Microsoft Quantum Development Kit",
+            "description": "The Microsoft Quantum Development Kit (QDK) is an open-source SDK that you can use to write quantum programs and execute them on quantum hardware. This walkthrough will show you how to get started with the Microsoft Quantum Development Kit in VS Code.\n\nThe QDK gives you rich editor support for writing quantum programs, such as error checking, signature help, completion lists, safely renaming identifiers, and much more.",
             "media": {
               "image": "resources/intellisense.png",
               "altText": "Intellisense"
@@ -500,7 +500,7 @@
       {
         "command": "qsharp-vscode.createNotebook",
         "category": "QDK",
-        "title": "Create an Azure Quantum notebook"
+        "title": "Create a Microsoft Quantum notebook"
       },
       {
         "command": "qsharp-vscode.openPlayground",
@@ -667,7 +667,8 @@
         "tags": [
           "azure-quantum",
           "qsharp",
-          "qdk"
+          "qdk",
+          "openqasm"
         ],
         "toolReferenceName": "azureQuantumGetJobs",
         "displayName": "Get Azure Quantum Jobs",
@@ -686,7 +687,8 @@
         "tags": [
           "azure-quantum",
           "qsharp",
-          "qdk"
+          "qdk",
+          "openqasm"
         ],
         "toolReferenceName": "azureQuantumGetJob",
         "displayName": "Get Azure Quantum Job Details",
@@ -712,7 +714,8 @@
         "tags": [
           "azure-quantum",
           "qsharp",
-          "qdk"
+          "qdk",
+          "openqasm"
         ],
         "toolReferenceName": "azureQuantumConnectToWorkspace",
         "displayName": "Connect to Azure Quantum Workspace",
@@ -731,7 +734,8 @@
         "tags": [
           "azure-quantum",
           "qsharp",
-          "qdk"
+          "qdk",
+          "openqasm"
         ],
         "toolReferenceName": "azureQuantumDownloadJobResults",
         "displayName": "Download Azure Quantum Job Results",
@@ -757,7 +761,8 @@
         "tags": [
           "azure-quantum",
           "qsharp",
-          "qdk"
+          "qdk",
+          "openqasm"
         ],
         "toolReferenceName": "azureQuantumGetWorkspaces",
         "displayName": "Get Azure Quantum Workspaces",
@@ -818,7 +823,8 @@
         "tags": [
           "azure-quantum",
           "qsharp",
-          "qdk"
+          "qdk",
+          "openqasm"
         ],
         "toolReferenceName": "azureQuantumGetActiveWorkspace",
         "displayName": "Get Active Azure Quantum Workspace",
@@ -837,7 +843,8 @@
         "tags": [
           "azure-quantum",
           "qsharp",
-          "qdk"
+          "qdk",
+          "openqasm"
         ],
         "toolReferenceName": "azureQuantumSetActiveWorkspace",
         "displayName": "Set Active Azure Quantum Workspace",
@@ -863,7 +870,8 @@
         "tags": [
           "azure-quantum",
           "qsharp",
-          "qdk"
+          "qdk",
+          "openqasm"
         ],
         "toolReferenceName": "azureQuantumGetProviders",
         "displayName": "Get Azure Quantum Providers",
@@ -882,7 +890,8 @@
         "tags": [
           "azure-quantum",
           "qsharp",
-          "qdk"
+          "qdk",
+          "openqasm"
         ],
         "toolReferenceName": "azureQuantumGetTarget",
         "displayName": "Get Azure Quantum Target",
@@ -1021,7 +1030,8 @@
         "tags": [
           "azure-quantum",
           "qsharp",
-          "qdk"
+          "qdk",
+          "openqasm"
         ],
         "toolReferenceName": "qsharpGetLibraryDescriptions",
         "displayName": "Get Q# Library API Descriptions",

@@ -5,7 +5,7 @@
 /// In this sample we concentrate on costing the `EstimateFrequency`
 /// operation, which is the core quantum operation in Shor's algorithm, and
 /// we omit the classical pre- and post-processing. This makes it ideal for
-/// use with the Azure Quantum Resource Estimator.
+/// use with the Microsoft Quantum Resource Estimator.
 import Std.Arrays.*;
 import Std.Canon.*;
 import Std.Convert.*;
@@ -68,7 +68,7 @@ operation EstimateFrequency(
             H(c);
         } apply {
             // `BeginEstimateCaching` and `EndEstimateCaching` are the operations
-            // exposed by Azure Quantum Resource Estimator. These will instruct
+            // exposed by Microsoft Quantum Resource Estimator. These will instruct
             // resource counting such that the if-block will be executed
             // only once, its resources will be cached, and appended in
             // every other iteration.
