@@ -77,24 +77,66 @@ const getMinGateWidth = ({
 };
 
 /**
- * Get the width of a string with font-size `fontSize` and font-family Arial.
+ * Estimate string width in pixels based on character types and font size.
+ * This may not match the true rendered width, but should be close enough for
+ * calculating layout.
  *
- * @param text     Input string.
- * @param fontSize Font size of `text`.
+ * @param text - The text string to measure.
+ * @param fontSize - The font size in pixels (default is labelFontSize).
  *
- * @returns Pixel width of given string.
+ * @returns Estimated width of the string in pixels.
  */
 const _getStringWidth = (
   text: string,
   fontSize: number = labelFontSize,
 ): number => {
-  const canvas: HTMLCanvasElement = document.createElement("canvas");
-  const context: CanvasRenderingContext2D | null = canvas.getContext("2d");
-  if (context == null) throw new Error("Null canvas");
-
-  context.font = `${fontSize}px Arial`;
-  const metrics: TextMetrics = context.measureText(text);
-  return metrics.width;
+  let units = 0;
+  for (const ch of Array.from(text)) {
+    if (ch === " ") {
+      units += 0.33;
+      continue;
+    }
+    if ("il.:;,'`!|".includes(ch)) {
+      units += 0.28;
+      continue;
+    }
+    if ("mw".includes(ch)) {
+      units += 0.72;
+      continue;
+    }
+    if ("MW@#%&".includes(ch)) {
+      units += 0.78;
+      continue;
+    }
+    if (/[0-9]/.test(ch)) {
+      units += 0.55;
+      continue;
+    }
+    if (/[A-Z]/.test(ch)) {
+      units += 0.56;
+      continue;
+    }
+    if (/[a-z]/.test(ch)) {
+      units += 0.5;
+      continue;
+    }
+    if (/[θπ]/.test(ch)) {
+      units += 0.56;
+      continue;
+    }
+    if (/[ψ]/.test(ch)) {
+      units += 0.6;
+      continue;
+    }
+    if ("-+*/=^~_<>".includes(ch)) {
+      units += 0.5;
+      continue;
+    }
+    units += 0.56;
+  }
+  const kerningFudge = Math.max(0, text.length - 1) * 0.005;
+  // Round to a whole number to keep it easy to read
+  return Math.floor((units + kerningFudge) * fontSize);
 };
 
 /**
