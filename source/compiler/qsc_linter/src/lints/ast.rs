@@ -319,7 +319,8 @@ impl AstLintPass for AvoidNamespaceBlock {
         }
 
         if namespace.kind == qsc_ast::ast::NamespaceKind::Block {
-            let span = if let (Some(first), Some(last)) = (namespace.name.first(), namespace.name.last())
+            let span = if let (Some(first), Some(last)) =
+                (namespace.name.first(), namespace.name.last())
             {
                 Span {
                     lo: first.span.lo,
