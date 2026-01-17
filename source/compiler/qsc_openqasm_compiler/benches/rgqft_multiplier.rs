@@ -1,9 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use std::hint::black_box;
 use std::sync::Arc;
 
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group, criterion_main};
 use qsc_openqasm_compiler::{
     CompilerConfig, OutputSemantics, ProgramType, QasmCompileUnit, QubitSemantics,
     compiler::parse_and_compile_to_qsharp_ast_with_config,

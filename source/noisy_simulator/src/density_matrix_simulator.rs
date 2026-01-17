@@ -193,6 +193,22 @@ impl DensityMatrixSimulator {
             Ok(())
         }
     }
+
+    /// Apply non selective evolution to the given qubit ids.
+    pub fn apply_instrument(
+        &mut self,
+        instrument: &Instrument,
+        qubits: &[usize],
+    ) -> Result<(), Error> {
+        self.check_out_of_bounds_qubits(qubits)?;
+        self.state
+            .as_mut()?
+            .apply_operation_matrix(instrument.non_selective_operation_matrix(), qubits)?;
+        if let Err(err) = self.state.as_mut()?.renormalize() {
+            handle_error!(self, err);
+        }
+        Ok(())
+    }
 }
 
 impl NoisySimulator for DensityMatrixSimulator {
@@ -227,19 +243,6 @@ impl NoisySimulator for DensityMatrixSimulator {
         self.state
             .as_mut()?
             .apply_operation_matrix(operation.matrix(), qubits)?;
-        if let Err(err) = self.state.as_mut()?.renormalize() {
-            handle_error!(self, err);
-        }
-        Ok(())
-    }
-
-    /// Apply non selective evolution to the given qubit ids.
-    fn apply_instrument(&mut self, instrument: &Instrument, qubits: &[usize]) -> Result<(), Error> {
-        self.check_out_of_bounds_qubits(qubits)?;
-
-        self.state
-            .as_mut()?
-            .apply_operation_matrix(instrument.non_selective_operation_matrix(), qubits)?;
         if let Err(err) = self.state.as_mut()?.renormalize() {
             handle_error!(self, err);
         }

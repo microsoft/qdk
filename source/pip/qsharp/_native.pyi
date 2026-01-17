@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 
 from enum import Enum
-from typing import Any, Callable, Optional, Dict, List, Tuple
+from typing import Any, Callable, Optional, Dict, List, Tuple, TypedDict, overload
 
 # pylint: disable=unused-argument
 # E302 is fighting with the formatter for number of blank lines
@@ -757,3 +757,218 @@ class UdtIR:
 
     name: str
     fields: List[Tuple[str, TypeIR]]
+
+class QirInstructionId(Enum):
+    I: QirInstructionId
+    H: QirInstructionId
+    X: QirInstructionId
+    Y: QirInstructionId
+    Z: QirInstructionId
+    S: QirInstructionId
+    SAdj: QirInstructionId
+    SX: QirInstructionId
+    SXAdj: QirInstructionId
+    T: QirInstructionId
+    TAdj: QirInstructionId
+    CNOT: QirInstructionId
+    CX: QirInstructionId
+    CY: QirInstructionId
+    CZ: QirInstructionId
+    CCX: QirInstructionId
+    SWAP: QirInstructionId
+    RX: QirInstructionId
+    RY: QirInstructionId
+    RZ: QirInstructionId
+    RXX: QirInstructionId
+    RYY: QirInstructionId
+    RZZ: QirInstructionId
+    RESET: QirInstructionId
+    M: QirInstructionId
+    MResetZ: QirInstructionId
+    MZ: QirInstructionId
+    Move: QirInstructionId
+    ReadResult: QirInstructionId
+    ResultRecordOutput: QirInstructionId
+    BoolRecordOutput: QirInstructionId
+    IntRecordOutput: QirInstructionId
+    DoubleRecordOutput: QirInstructionId
+    TupleRecordOutput: QirInstructionId
+    ArrayRecordOutput: QirInstructionId
+    CorrelatedNoise: QirInstructionId
+
+class QirInstruction: ...
+
+class IdleNoiseParams:
+    s_probability: float
+
+class NoiseTable:
+    loss: float
+
+    def __setattr__(self, name: str, value: float):
+        """
+        Defining __setattr__ allows setting noise like this
+
+        noise_table = NoiseTable()
+        noise_table.ziz = 0.005
+
+        for arbitrary pauli fields.
+        """
+
+    @overload
+    def set_pauli_noise(self, lst: list[tuple[str, float]]):
+        pass
+
+    @overload
+    def set_pauli_noise(self, pauli_string: str, value: float):
+        """
+        The correlated pauli noise to use in simulation.
+        """
+
+    def set_depolarizing(self, value: float):
+        """
+        The depolarizing noise to use in simulation.
+        """
+
+    def set_bitflip(self, value: float):
+        """
+        The bit flip noise to use in simulation.
+        """
+
+    def set_phaseflip(self, value: float):
+        """
+        The phase flip noise to use in simulation.
+        """
+
+class NoiseConfig:
+    x: NoiseTable
+    y: NoiseTable
+    z: NoiseTable
+    h: NoiseTable
+    s: NoiseTable
+    s_adj: NoiseTable
+    t: NoiseTable
+    t_adj: NoiseTable
+    sx: NoiseTable
+    sx_adj: NoiseTable
+    rx: NoiseTable
+    ry: NoiseTable
+    rz: NoiseTable
+    cx: NoiseTable
+    cz: NoiseTable
+    rxx: NoiseTable
+    ryy: NoiseTable
+    rzz: NoiseTable
+    swap: NoiseTable
+    mov: NoiseTable
+    mresetz: NoiseTable
+    # idle: IdleNoiseParams
+
+def run_clifford(
+    input: List[QirInstruction],
+    num_qubits: int,
+    num_results: int,
+    shots: int,
+    noise: NoiseConfig,
+    seed: Optional[int],
+) -> str:
+    """ """
+    ...
+
+def run_cpu_full_state(
+    input: List[QirInstruction],
+    num_qubits: int,
+    num_results: int,
+    shots: int,
+    noise: NoiseConfig,
+    seed: Optional[int],
+) -> str:
+    """ """
+    ...
+
+def try_create_gpu_adapter() -> str:
+    """
+    Checks if a compatible GPU adapter is available on the system.
+
+    This function attempts to request a GPU adapter to determine if GPU-accelerated
+    quantum simulation is supported. It's useful for capability detection before
+    attempting to run GPU-based simulations.
+
+    # Errors
+
+    Returns `Err(String)` if:
+    - No compatible GPU is found
+    - GPU drivers are missing or not functioning properly
+    """
+    pass
+
+def run_parallel_shots(
+    input: List[QirInstruction],
+    shots: int,
+    qubit_count: int,
+    result_count: int,
+    noise: Optional[NoiseConfig],
+    seed: Optional[int],
+) -> List[str]:
+    """ """
+    ...
+
+# This is a little clunky, but until we move to Python 3.11 as a minimum, the NotRequired annotation
+# for Dict fields that may be missing is not availalble. See https://peps.python.org/pep-0655/#motivation
+class _GpuShotResultsBase(TypedDict):
+    shot_results: List[str]
+    """Bit strings for each shot ('0', '1', or 'L' for lost qubits)."""
+
+    shot_result_codes: List[int]
+    """Result codes for each shot. 0 = Success, else Failure  (Specific codes are an internal detail)."""
+
+class GpuShotResults(_GpuShotResultsBase, total=False):
+    """
+    Results from running shots on the GPU simulator.
+    """
+
+    diagnostics: str
+    """Diagnostic information if available. (Useful primarly for debugging by the development team)"""
+
+class GpuContext:
+    def load_noise_tables(self, dir_path: str) -> List[Tuple[int, str, int]]:
+        """
+        Loads noise tables from the specified directory path. For each .csv file found in the directory,
+        the noise table is loaded and associated with a unique identifier. The name of the file (without the .csv extension)
+        is used as the label for the noise table, which should match the QIR instruction that will apply noise using this table.
+
+        Each line of the table should be for the format: "IXYZ,1.345e-4" where IXYZ is a string of Pauli operators
+        representing the error on each qubit (Z applying to the first qubit argument, Y to the second, etc.), and the second value
+        is the corresponding error probability for that specific Pauli string.
+
+        Blank lines, lines starting with #, or lines that start with the string "pauli" (i.e., a column header) are ignored.
+        """
+        ...
+
+    def get_noise_table_ids(self) -> List[Tuple[int, str, int]]:
+        """
+        Retrieves the currently loaded noise table as a string.
+        """
+        ...
+
+    def set_program(
+        self,
+        input: List[QirInstruction],
+        qubit_count: int,
+        result_count: int,
+    ) -> None:
+        """
+        Sets the QIR program to be executed on the GPU.
+        """
+        ...
+
+    def set_noise(self, noise: NoiseConfig) -> None:
+        """
+        Sets the noise configuration for the GPU simulation.
+        """
+        ...
+
+    def run_shots(self, shot_count: int, seed: int) -> GpuShotResults:
+        """
+        Runs the specified number of shots of the loaded program on the GPU.
+        """
+        ...

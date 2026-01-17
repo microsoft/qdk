@@ -22,6 +22,12 @@ use crate::{
         pyobj_to_value, type_ir_from_qsharp_ty, value_to_pyobj,
     },
     noisy_simulator::register_noisy_simulator_submodule,
+    qir_simulation::{
+        IdleNoiseParams, NoiseConfig, NoiseTable, QirInstruction, QirInstructionId,
+        clifford::run_clifford,
+        cpu_full_state::run_cpu_full_state,
+        gpu_full_state::{GpuContext, run_parallel_shots, try_create_gpu_adapter},
+    },
 };
 use miette::{Diagnostic, Report};
 use num_bigint::BigUint;
@@ -85,6 +91,11 @@ fn verify_classes_are_sendable() {
     is_send::<TypeKind>();
     is_send::<PrimitiveKind>();
     is_send::<UdtIR>();
+    is_send::<QirInstructionId>();
+    is_send::<QirInstruction>();
+    is_send::<NoiseConfig>();
+    is_send::<NoiseTable>();
+    is_send::<IdleNoiseParams>();
 }
 
 #[pymodule]
@@ -107,7 +118,17 @@ fn _native<'a>(py: Python<'a>, m: &Bound<'a, PyModule>) -> PyResult<()> {
     m.add_class::<TypeKind>()?;
     m.add_class::<PrimitiveKind>()?;
     m.add_class::<UdtIR>()?;
+    m.add_class::<QirInstructionId>()?;
+    m.add_class::<QirInstruction>()?;
+    m.add_class::<GpuContext>()?;
+    m.add_class::<NoiseConfig>()?;
+    m.add_class::<NoiseTable>()?;
+    m.add_class::<IdleNoiseParams>()?;
     m.add_function(wrap_pyfunction!(physical_estimates, m)?)?;
+    m.add_function(wrap_pyfunction!(run_clifford, m)?)?;
+    m.add_function(wrap_pyfunction!(try_create_gpu_adapter, m)?)?;
+    m.add_function(wrap_pyfunction!(run_cpu_full_state, m)?)?;
+    m.add_function(wrap_pyfunction!(run_parallel_shots, m)?)?;
     m.add("QSharpError", py.get_type::<QSharpError>())?;
     register_noisy_simulator_submodule(py, m)?;
     register_generic_estimator_submodule(m)?;
