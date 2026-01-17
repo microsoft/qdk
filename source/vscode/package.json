@@ -4,7 +4,7 @@
   "description": "Q# and OpenQASM Language Support",
   "version": "0.0.0",
   "publisher": "quantum",
-  "icon": "resources/qdk.png",
+  "icon": "resources/blank.png",
   "galleryBanner": {
     "color": "#252526",
     "theme": "dark"
