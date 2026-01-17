@@ -1218,20 +1218,20 @@ fn floating_attr_in_namespace() {
         parse_namespaces,
         "namespace MyQuantumProgram { @EntryPoint() }",
         &expect![[r#"
-            Namespace _id_ [0-44] (Ident _id_ [10-26] "MyQuantumProgram"):
-                Item _id_ [29-42]:
-                    Err
+        Namespace _id_ [0-44] (Ident _id_ [10-26] "MyQuantumProgram"):
+            Item _id_ [29-42]:
+                Err
 
-            [
-                Error(
-                    FloatingAttr(
-                        Span {
-                            lo: 29,
-                            hi: 42,
-                        },
-                    ),
+        [
+            Error(
+                FloatingAttr(
+                    Span {
+                        lo: 29,
+                        hi: 42,
+                    },
                 ),
-            ]"#]],
+            ),
+        ]"#]],
     );
 }
 
