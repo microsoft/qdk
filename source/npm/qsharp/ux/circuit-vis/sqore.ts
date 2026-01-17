@@ -119,8 +119,8 @@ export class Sqore {
     // Expand operations to the specified render depth
     this.expandOperationsToDepth(_circuit.componentGrid, this.renderDepth);
 
-    // Auto-expand any groups with single children
-    this.expandIfSingleOperation(_circuit.componentGrid);
+    // Auto-expand any groups with single children, and the first iterations of loops
+    this.autoExpandTrivialGroups(_circuit.componentGrid);
 
     // Create visualization components
     const composedSqore: ComposedSqore = this.compose(_circuit);
@@ -174,26 +174,30 @@ export class Sqore {
     }
   }
 
-  private expandIfSingleOperation(grid: ComponentGrid) {
-    if (grid.length == 1 && grid[0].components.length == 1) {
-      const onlyComponent = grid[0].components[0];
+  /**
+   * Auto-expand any groups with single children, and the first iterations of loops.
+   * This helps eliminate layers that add no additional information to the visualization.
+   */
+  private autoExpandTrivialGroups(grid: ComponentGrid) {
+    const firstIterationLabel = "(1)";
+    const loopContainerPrefix = "loop: ";
+    const hasOneComponent = grid.length == 1 && grid[0].components.length == 1;
+
+    for (const component of grid.flatMap((col) => col.components)) {
       if (
-        onlyComponent.dataAttributes != null &&
-        Object.prototype.hasOwnProperty.call(
-          onlyComponent.dataAttributes,
-          "location",
-        ) &&
-        onlyComponent.dataAttributes["expanded"] !== "false"
+        component.dataAttributes != null &&
+        "location" in component.dataAttributes &&
+        component.dataAttributes["expanded"] !== "false" &&
+        (hasOneComponent ||
+          component.gate.startsWith(loopContainerPrefix) ||
+          component.gate === firstIterationLabel)
       ) {
-        const location: string = onlyComponent.dataAttributes["location"];
+        const location: string = component.dataAttributes["location"];
         this.expandOperation(grid, location);
       }
-    }
-    // Recursively expand if the only child is also a single operation
-    for (const col of grid) {
-      for (const op of col.components) {
-        this.expandIfSingleOperation(op.children || []);
-      }
+
+      // Recurse into children
+      this.autoExpandTrivialGroups(component.children || []);
     }
   }
 
