@@ -962,10 +962,10 @@ fn avoid_namespace_block_explicit() {
     expect![[r#"
         [
             SrcLint {
-                source: "namespace Foo { operation Main() : Unit {} }",
+                source: "Foo",
                 level: Warn,
                 message: "avoid using explicit namespace blocks",
-                help: "Q# best practice is to not use namespace blocks to enclose code; the namespace is inferred from the file",
+                help: "Q# best practice is to not use namespace blocks to enclose code; the namespace is inferred from the file path",
                 code_action_edits: [],
             },
         ]
@@ -1009,17 +1009,17 @@ fn avoid_namespace_block_multiple() {
     expect![[r#"
         [
             SrcLint {
-                source: "namespace Foo { operation A() : Unit {} }",
+                source: "Foo",
                 level: Warn,
                 message: "avoid using explicit namespace blocks",
-                help: "Q# best practice is to not use namespace blocks to enclose code; the namespace is inferred from the file",
+                help: "Q# best practice is to not use namespace blocks to enclose code; the namespace is inferred from the file path",
                 code_action_edits: [],
             },
             SrcLint {
-                source: "namespace Bar { operation B() : Unit {} }",
+                source: "Bar",
                 level: Warn,
                 message: "avoid using explicit namespace blocks",
-                help: "Q# best practice is to not use namespace blocks to enclose code; the namespace is inferred from the file",
+                help: "Q# best practice is to not use namespace blocks to enclose code; the namespace is inferred from the file path",
                 code_action_edits: [],
             },
         ]
@@ -1048,10 +1048,10 @@ fn avoid_namespace_block_with_comments() {
     expect![[r#"
         [
             SrcLint {
-                source: "namespace Foo {\n    operation Main() : Unit {}\n}",
+                source: "Foo",
                 level: Warn,
                 message: "avoid using explicit namespace blocks",
-                help: "Q# best practice is to not use namespace blocks to enclose code; the namespace is inferred from the file",
+                help: "Q# best practice is to not use namespace blocks to enclose code; the namespace is inferred from the file path",
                 code_action_edits: [],
             },
         ]
@@ -1079,10 +1079,10 @@ fn avoid_namespace_block_with_doc_comments() {
     expect![[r#"
         [
             SrcLint {
-                source: "/// This is a doc comment\nnamespace Foo {\n    operation Main() : Unit {}\n}",
+                source: "Foo",
                 level: Warn,
                 message: "avoid using explicit namespace blocks",
-                help: "Q# best practice is to not use namespace blocks to enclose code; the namespace is inferred from the file",
+                help: "Q# best practice is to not use namespace blocks to enclose code; the namespace is inferred from the file path",
                 code_action_edits: [],
             },
         ]

@@ -35,7 +35,7 @@ declare_ast_lints! {
     (DiscourageChainAssignment, LintLevel::Warn, "discouraged use of chain assignment", "assignment expressions always return `Unit`, so chaining them may not be useful"),
     (DeprecatedAssignUpdateExpr, LintLevel::Allow, "deprecated use of update assignment expressions", "update assignment expressions \"a w/= b <- c\" are deprecated; consider using explicit assignment instead \"a[b] = c\""),
     (DeprecatedUpdateExpr, LintLevel::Allow, "deprecated use of update expressions", "update expressions \"a w/ b <- c\" are deprecated; consider using explicit assignment instead"),
-    (AvoidNamespaceBlock, LintLevel::Warn, "avoid using explicit namespace blocks", "Q# best practice is to not use namespace blocks to enclose code; the namespace is inferred from the file"),
+    (AvoidNamespaceBlock, LintLevel::Allow, "avoid using explicit namespace blocks", "Q# best practice is to not use namespace blocks to enclose code; the namespace is inferred from the file path"),
 }
 
 #[derive(Default)]
@@ -319,7 +319,16 @@ impl AstLintPass for AvoidNamespaceBlock {
         }
 
         if namespace.kind == qsc_ast::ast::NamespaceKind::Block {
-            buffer.push(lint!(self, namespace.span));
+            let span = if let (Some(first), Some(last)) = (namespace.name.first(), namespace.name.last())
+            {
+                Span {
+                    lo: first.span.lo,
+                    hi: last.span.hi,
+                }
+            } else {
+                namespace.span
+            };
+            buffer.push(lint!(self, span));
         }
     }
 }

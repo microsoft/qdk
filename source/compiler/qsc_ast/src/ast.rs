@@ -194,11 +194,7 @@ impl Namespace {
 impl Display for Namespace {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let mut indent = set_indentation(indented(f), 0);
-        write!(
-            indent,
-            "Namespace {:?} {} {} (",
-            self.kind, self.id, self.span
-        )?;
+        write!(indent, "Namespace {} {} (", self.id, self.span)?;
 
         let mut buf = Vec::with_capacity(self.name.len());
 
