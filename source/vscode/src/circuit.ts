@@ -58,7 +58,6 @@ export type CircuitOrError = {
 
 export async function showCircuitCommand(
   extensionUri: Uri,
-  prerelease: boolean,
   operation: IOperationInfo | undefined,
   telemetryInvocationType: UserTaskInvocationType,
   telemetryDocumentType?: QsharpDocumentType,
@@ -77,7 +76,7 @@ export async function showCircuitCommand(
     {},
   );
 
-  const circuitConfig = getConfig(prerelease);
+  const circuitConfig = getConfig();
   if (!programConfig) {
     const targetProfileFallback =
       circuitConfig.generationMethod === "static" ? "adaptive_rif" : undefined;
@@ -311,11 +310,12 @@ async function getCircuitOrError(
   }
 }
 
-export function getConfig(prerelease: boolean) {
+export function getConfig() {
+  // These defaults should match those in `package.json`
   const defaultConfig = {
     maxOperations: 10001,
     loopDetection: false,
-    groupByScope: prerelease,
+    groupByScope: true,
     userCodeOnly: true,
     generationMethod: "static" as const,
     collapseQubitRegisters: false,

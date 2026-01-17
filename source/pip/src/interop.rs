@@ -15,6 +15,7 @@ use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
+use qsc::circuit::TracerConfig;
 use qsc::hir::PackageId;
 use qsc::interpret::output::Receiver;
 use qsc::interpret::{CircuitEntryPoint, Interpreter, into_errors};
@@ -600,13 +601,17 @@ pub(crate) fn circuit_qasm_program(
         .set_entry_expr(&entry_expr)
         .map_err(|errors| map_entry_compilation_errors(errors, &signature))?;
 
-    let mut tracer_config = qsc::circuit::TracerConfig::default();
-    if let Some(max_ops) = config.max_operations {
-        tracer_config.max_operations = max_ops;
-    }
-    tracer_config.source_locations = config.source_locations;
-    tracer_config.group_by_scope = config.group_by_scope;
-    tracer_config.prune_classical_qubits = config.prune_classical_qubits;
+    let tracer_config = qsc::circuit::TracerConfig {
+        max_operations: config
+            .max_operations
+            .unwrap_or(TracerConfig::DEFAULT_MAX_OPERATIONS),
+        source_locations: config.source_locations,
+        group_by_scope: config.group_by_scope,
+        prune_classical_qubits: config.prune_classical_qubits,
+        collapse_qubit_registers: config.collapse_qubit_registers,
+        loop_detection: config.loop_detection,
+        user_code_only: config.user_code_only,
+    };
 
     let generation_method = if let Some(generation_method) = config.generation_method {
         generation_method.into()

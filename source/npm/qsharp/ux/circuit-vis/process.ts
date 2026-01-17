@@ -6,7 +6,9 @@ import {
   startX,
   gatePadding,
   controlBtnOffset,
-  groupBoxPadding,
+  groupPaddingX,
+  groupTopPadding,
+  groupBottomPadding,
 } from "./constants.js";
 import {
   ComponentGrid,
@@ -16,7 +18,7 @@ import {
 } from "./circuit.js";
 import { GateRenderData, GateType } from "./gateRenderData.js";
 import { Register, RegisterMap } from "./register.js";
-import { getGateWidth } from "./utils.js";
+import { getMinGateWidth } from "./utils.js";
 
 /**
  * Takes in a component grid and maps the operations to `GateRenderData` objects which
@@ -24,19 +26,37 @@ import { getGateWidth } from "./utils.js";
  *
  * @param componentGrid Grid of circuit components.
  * @param registers  Mapping from qubit IDs to register render data.
+ * @param topY y-coordinate of the topmost register involved in the operation.
+ * @param bottomY y-coordinate of the bottommost register involved in the operation.
+ * @param renderLocations Optional function to map source locations to link hrefs and titles.
  *
  * @returns An object containing `renderDataArray` (2D Array of GateRenderData objects) and
  *          `svgWidth` which is the width of the entire SVG.
  */
 const processOperations = (
   componentGrid: ComponentGrid,
+  topY: number,
+  bottomY: number,
   registers: RegisterMap,
   renderLocations?: (s: SourceLocation[]) => { title: string; href: string },
-): { renderDataArray: GateRenderData[][]; svgWidth: number } => {
+): {
+  renderDataArray: GateRenderData[][];
+  svgWidth: number;
+  maxTopPadding: number;
+  maxBottomPadding: number;
+} => {
   if (componentGrid.length === 0)
-    return { renderDataArray: [], svgWidth: startX + gatePadding * 2 };
+    return {
+      renderDataArray: [],
+      svgWidth: startX + gatePadding * 2,
+      maxTopPadding: 0,
+      maxBottomPadding: 0,
+    };
   const numColumns: number = componentGrid.length;
   const columnsWidths: number[] = new Array(numColumns).fill(minGateWidth);
+
+  let maxTopPadding = 0;
+  let maxBottomPadding = 0;
 
   // Get classical registers and their starting column index
   const classicalRegs: [number, Register][] =
@@ -51,6 +71,31 @@ const processOperations = (
           registers,
           renderLocations,
         );
+
+        let targets: Register[];
+        switch (op.kind) {
+          case "unitary":
+            targets = op.targets;
+            break;
+          case "measurement":
+            targets = op.qubits;
+            break;
+          case "ket":
+            targets = op.targets;
+            break;
+        }
+        const minTargetY = Math.min(...(renderData.targetsY as number[]));
+        const maxTargetY = Math.max(...(renderData.targetsY as number[]));
+
+        if (topY === minTargetY) {
+          maxTopPadding = Math.max(maxTopPadding, renderData.topPadding);
+        }
+        if (bottomY === maxTargetY) {
+          maxBottomPadding = Math.max(
+            maxBottomPadding,
+            renderData.bottomPadding,
+          );
+        }
 
         if (
           op != null &&
@@ -72,21 +117,8 @@ const processOperations = (
                 throw new Error(
                   `Failed to find classical registers for qubit ID ${reg.qubit}.`,
                 );
-              return children[reg.result].wireY;
+              return children[reg.result].y;
             });
-
-          let targets: Register[];
-          switch (op.kind) {
-            case "unitary":
-              targets = op.targets;
-              break;
-            case "measurement":
-              targets = op.qubits;
-              break;
-            case "ket":
-              targets = op.targets;
-              break;
-          }
 
           renderData.targetsY = _splitTargetsY(
             targets,
@@ -112,7 +144,12 @@ const processOperations = (
   // Fill in x coord of each gate
   const endX: number = _fillRenderDataX(filteredArray, columnsWidths);
 
-  return { renderDataArray: filteredArray, svgWidth: endX };
+  return {
+    renderDataArray: filteredArray,
+    svgWidth: endX,
+    maxTopPadding,
+    maxBottomPadding,
+  };
 };
 
 /**
@@ -164,9 +201,10 @@ const _opToRenderData = (
     x: 0,
     controlsY: [],
     targetsY: [],
-    topY: 0,
     label: "",
     width: -1,
+    topPadding: 0,
+    bottomPadding: 0,
   };
 
   if (op == null) return renderData;
@@ -202,14 +240,10 @@ const _opToRenderData = (
   } = op;
 
   // Set y coords
-  renderData.controlsY =
-    controls?.map((reg) => _getRegY(reg, registers).wireY) || [];
-  renderData.targetsY = targets.map((reg) => _getRegY(reg, registers).wireY);
-  renderData.topY = Math.min(
-    targets
-      .map((reg) => _getRegY(reg, registers).topY)
-      .reduce((a, b) => Math.min(a, b)),
-  );
+  renderData.controlsY = controls?.map((reg) => _getRegY(reg, registers)) || [];
+  renderData.targetsY = targets.map((reg) => _getRegY(reg, registers));
+  const topY = Math.min(...(renderData.targetsY as number[]));
+  const bottomY = Math.max(...(renderData.targetsY as number[]));
 
   if (isConditional) {
     // Classically-controlled operations
@@ -226,13 +260,18 @@ const _opToRenderData = (
         ),
       }))
       .filter((col) => col.components.length > 0);
+
     let childrenInstrs = processOperations(
       onZeroOps,
+      topY,
+      bottomY,
       registers,
       renderLocations,
     );
     const zeroGates: GateRenderData[][] = childrenInstrs.renderDataArray;
     const zeroChildWidth: number = childrenInstrs.svgWidth;
+    const zeroChildMaxTopPadding = childrenInstrs.maxTopPadding;
+    const zeroChildMaxBottomPadding = childrenInstrs.maxBottomPadding;
 
     // Gates to display when classical bit is 1.
     const onOneOps: ComponentGrid = children
@@ -242,18 +281,37 @@ const _opToRenderData = (
         ),
       }))
       .filter((col) => col.components.length > 0);
-    childrenInstrs = processOperations(onOneOps, registers, renderLocations);
+    childrenInstrs = processOperations(
+      onOneOps,
+      topY,
+      bottomY,
+      registers,
+      renderLocations,
+    );
     const oneGates: GateRenderData[][] = childrenInstrs.renderDataArray;
     const oneChildWidth: number = childrenInstrs.svgWidth;
+    const oneChildMaxTopPadding = childrenInstrs.maxTopPadding;
+    const oneChildMaxBottomPadding = childrenInstrs.maxBottomPadding;
 
     // Subtract startX (left-side) and 2*gatePadding (right-side) from nested child gates width
     const width: number =
       Math.max(zeroChildWidth, oneChildWidth) - startX - gatePadding * 2;
 
+    const maxTopPadding = Math.max(
+      zeroChildMaxTopPadding,
+      oneChildMaxTopPadding,
+    );
+    const maxBottomPadding = Math.max(
+      zeroChildMaxBottomPadding,
+      oneChildMaxBottomPadding,
+    );
+
     renderData.type = GateType.ClassicalControlled;
     renderData.children = [zeroGates, oneGates];
     // Add additional width from control button and inner box padding for dashed box
-    renderData.width = width + controlBtnOffset + groupBoxPadding * 2;
+    renderData.width = width + controlBtnOffset + groupPaddingX * 2;
+    renderData.topPadding = maxTopPadding + groupTopPadding;
+    renderData.bottomPadding = maxBottomPadding + groupBottomPadding;
 
     // Set targets to first and last quantum registers so we can render the surrounding box
     // around all quantum registers.
@@ -266,6 +324,8 @@ const _opToRenderData = (
   ) {
     const childrenInstrs = processOperations(
       children!,
+      topY,
+      bottomY,
       registers,
       renderLocations,
     );
@@ -275,9 +335,12 @@ const _opToRenderData = (
     // _zoomButton function in gateFormatter.ts relies on
     // 'expanded' attribute to render zoom button
     renderData.dataAttributes = { expanded: "true" };
-    // Subtract startX (left-side) and add inner box padding (minus nested gate padding) for dashed box
+    // Subtract startX (left-side) and add inner box padding for dashed box
     renderData.width =
-      childrenInstrs.svgWidth - startX + (groupBoxPadding - gatePadding) * 2;
+      childrenInstrs.svgWidth - startX - gatePadding * 3 + groupPaddingX * 2; // (svgWidth includes 3 extra gate paddings)
+    renderData.topPadding = childrenInstrs.maxTopPadding + groupTopPadding;
+    renderData.bottomPadding =
+      childrenInstrs.maxBottomPadding + groupBottomPadding;
   } else if (op.kind === "measurement") {
     renderData.type = GateType.Measure;
   } else if (op.kind === "ket") {
@@ -304,8 +367,9 @@ const _opToRenderData = (
   // For now, we only display the first argument
   if (args !== undefined && args.length > 0) renderData.displayArgs = args[0];
 
-  // Set gate width
-  renderData.width = getGateWidth(renderData);
+  // Minimum width is calculated based on the label and args
+  const minWidth = getMinGateWidth(renderData);
+  renderData.width = Math.max(minWidth, renderData.width);
 
   if (op.metadata?.source && renderLocations) {
     renderData.link = renderLocations([op.metadata.source]);
@@ -329,16 +393,13 @@ const _opToRenderData = (
  *
  * @returns The y coord of give register.
  */
-const _getRegY = (
-  reg: Register,
-  registers: RegisterMap,
-): { wireY: number; topY: number } => {
+const _getRegY = (reg: Register, registers: RegisterMap): number => {
   const { qubit: qId, result } = reg;
   if (!Object.prototype.hasOwnProperty.call(registers, qId))
     throw new Error(`ERROR: Qubit register with ID ${qId} not found.`);
-  const { wireY: y, topY, children } = registers[qId];
+  const { y, children } = registers[qId];
   if (result == null) {
-    return { wireY: y, topY };
+    return y;
   } else {
     if (children == null)
       throw new Error(
@@ -348,7 +409,7 @@ const _getRegY = (
       throw new Error(
         `ERROR: Classical register ID ${result} invalid for qubit ID ${qId} with ${children.length} classical register(s).`,
       );
-    return { wireY: children[result].wireY, topY: children[result].topY };
+    return children[result].y;
   }
 };
 
@@ -370,7 +431,7 @@ const _splitTargetsY = (
 
   // Get qIds sorted by ascending y value
   const orderedQIds: number[] = Object.keys(registers).map(Number);
-  orderedQIds.sort((a, b) => registers[a].wireY - registers[b].wireY);
+  orderedQIds.sort((a, b) => registers[a].y - registers[b].y);
   const qIdPosition: { [qId: number]: number } = {};
   orderedQIds.forEach((qId, i) => (qIdPosition[qId] = i));
 
@@ -389,7 +450,7 @@ const _splitTargetsY = (
   let prevY = 0;
 
   return targets.reduce((groups: number[][], target: Register) => {
-    const y = _getRegY(target, registers).wireY;
+    const y = _getRegY(target, registers);
     const pos = qIdPosition[target.qubit];
 
     // Split into new group if one of the following holds:
@@ -443,16 +504,14 @@ const _fillRenderDataX = (
         case GateType.Group:
           {
             // Subtract startX offset from nested gates and add offset and padding
-            let offset: number = x - startX + groupBoxPadding;
+            let offset: number = x - startX + groupPaddingX;
             if (renderData.type === GateType.ClassicalControlled)
               offset += controlBtnOffset;
 
             // Offset each x coord in children gates
             _offsetChildrenX(renderData.children, offset);
 
-            // We don't use the centre x coord because we only care about the rightmost x for
-            // rendering the box around the group of nested gates
-            renderData.x = x;
+            renderData.x = x + columnWidths[colIndex] / 2;
           }
           break;
 

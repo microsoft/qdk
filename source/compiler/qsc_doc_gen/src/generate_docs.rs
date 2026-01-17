@@ -545,13 +545,13 @@ fn generate_top_index(files: &mut FilesWithMetadata, toc: &mut ToC) {
     let empty_ns: Rc<str> = Rc::from(String::new().as_str());
     let metadata = Metadata {
         uid: "Microsoft.Quantum.apiref-toc".to_string(),
-        title: "Q# standard libraries for the Azure Quantum Development Kit".to_string(),
+        title: "Q# standard libraries for the Microsoft Quantum Development Kit".to_string(),
         kind: MetadataKind::TableOfContents,
         package: PackageKind::StandardLibrary,
         namespace: empty_ns.clone(),
         name: "Overview".into(),
         summary:
-            "Table of contents for the Q# standard libraries for Azure Quantum Development Kit"
+            "Table of contents for the Q# standard libraries for Microsoft Quantum Development Kit"
                 .to_string(),
         signature: String::new(),
     };

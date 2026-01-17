@@ -12,6 +12,7 @@ import {
   ComponentGrid,
   Operation,
   SourceLocation,
+  Qubit,
 } from "./circuit.js";
 import { GateRenderData } from "./gateRenderData.js";
 import {
@@ -23,6 +24,7 @@ import {
 import { createDropzones } from "./draggable.js";
 import { enableEvents } from "./events.js";
 import { createPanel, enableRunButton } from "./panel.js";
+import { getMinMaxRegIdx } from "./utils.js";
 
 /**
  * Contains render data for visualization.
@@ -117,8 +119,8 @@ export class Sqore {
     // Expand operations to the specified render depth
     this.expandOperationsToDepth(_circuit.componentGrid, this.renderDepth);
 
-    // Auto-expand any groups with single children
-    this.expandIfSingleOperation(_circuit.componentGrid);
+    // Auto-expand any groups with single children, and the first of loops
+    this.autoExpandTrivialGroups(_circuit.componentGrid);
 
     // Create visualization components
     const composedSqore: ComposedSqore = this.compose(_circuit);
@@ -171,26 +173,29 @@ export class Sqore {
       }
     }
   }
-  private expandIfSingleOperation(grid: ComponentGrid) {
-    if (grid.length == 1 && grid[0].components.length == 1) {
-      const onlyComponent = grid[0].components[0];
+
+  private autoExpandTrivialGroups(grid: ComponentGrid) {
+    const singleOperationExists =
+      grid.length == 1 && grid[0].components.length == 1;
+
+    for (const component of grid.flatMap((col) => col.components)) {
       if (
-        onlyComponent.dataAttributes != null &&
+        component.dataAttributes != null &&
         Object.prototype.hasOwnProperty.call(
-          onlyComponent.dataAttributes,
+          component.dataAttributes,
           "location",
         ) &&
-        onlyComponent.dataAttributes["expanded"] !== "false"
+        component.dataAttributes["expanded"] !== "false" &&
+        (singleOperationExists ||
+          component.gate.startsWith("loop: ") ||
+          component.gate === "(1)")
       ) {
-        const location: string = onlyComponent.dataAttributes["location"];
+        const location: string = component.dataAttributes["location"];
         this.expandOperation(grid, location);
       }
-    }
-    // Recursively expand if the only child is also a single operation
-    for (const col of grid) {
-      for (const op of col.components) {
-        this.expandIfSingleOperation(op.children || []);
-      }
+
+      // Recurse into children
+      this.autoExpandTrivialGroups(component.children || []);
     }
   }
 
@@ -233,16 +238,33 @@ export class Sqore {
     };
 
     const { qubits, componentGrid } = circuit;
-    const { qubitWires, registers, svgHeight } = formatInputs(
+
+    // Calculate the row heights, which may vary depending on how many
+    // expanded group borders need to fit between qubit wires.
+    const rowHeights = getRowHeights(qubits, componentGrid);
+
+    // Draw the qubit labels.
+    // Also calculate other register render data to be used later in the rendering.
+    const { qubitLabels, registers, svgHeight } = formatInputs(
       qubits,
-      componentGrid,
+      rowHeights,
       this.options.isEditable ? undefined : this.options.renderLocations,
     );
+
+    // Calculate the render data for the operations.
+    const topY = qubits[0] ? registers[qubits[0].id].y : -1;
+    const bottomY = qubits[qubits.length - 1]
+      ? registers[qubits[qubits.length - 1].id].y
+      : -1;
     const { renderDataArray, svgWidth } = processOperations(
       componentGrid,
+      topY,
+      bottomY,
       registers,
       this.options.isEditable ? undefined : this.options.renderLocations,
     );
+
+    // Draw the operations.
     const formattedGates: SVGElement = formatGates(renderDataArray);
 
     // Draw the lines that represent qubit and classical wires.
@@ -255,7 +277,7 @@ export class Sqore {
     const composedSqore: ComposedSqore = {
       width: svgWidth,
       height: svgHeight,
-      elements: [qubitWires, formattedRegs, formattedGates],
+      elements: [qubitLabels, formattedRegs, formattedGates],
     };
     return composedSqore;
   }
@@ -487,4 +509,93 @@ export class Sqore {
     }
     operation.dataAttributes = undefined;
   };
+}
+
+/**
+ * Recursively computes vertical space required to render group borders.
+ *
+ * The resulting `heightAboveWire` and `heightBelowWire` values per qubit are
+ * later used by `formatInputs` to leave sufficient space between qubit wires.
+ *
+ * @param qubits Array of qubits in the circuit.
+ * @param componentGrid Grid of circuit components to traverse.
+ *
+ * @returns Mapping from qubit index to required heights above and below their wires.
+ */
+function getRowHeights(
+  qubits: Qubit[],
+  componentGrid: ComponentGrid,
+): {
+  [qubitIndex: number]: {
+    heightAboveWire: number;
+    heightBelowWire: number;
+  };
+} {
+  const rowHeights: {
+    [qubitIndex: number]: {
+      currentGroupBordersAboveWire: number;
+      currentGroupBordersBelowWire: number;
+      heightAboveWire: number;
+      heightBelowWire: number;
+    };
+  } = {};
+
+  for (const q of qubits) {
+    const { id } = q;
+    rowHeights[id] = {
+      currentGroupBordersBelowWire: 0,
+      currentGroupBordersAboveWire: 0,
+      heightBelowWire: 0,
+      heightAboveWire: 0,
+    };
+  }
+
+  updateRowHeights(componentGrid, rowHeights, qubits.length);
+  return rowHeights;
+}
+
+function updateRowHeights(
+  componentGrid: ComponentGrid,
+  rowHeights: {
+    [qubitIndex: number]: {
+      currentGroupBordersAboveWire: number;
+      currentGroupBordersBelowWire: number;
+      heightAboveWire: number;
+      heightBelowWire: number;
+    };
+  },
+  numQubits: number,
+) {
+  for (const col of componentGrid) {
+    for (const component of col.components) {
+      if (component.dataAttributes?.["expanded"] === "true") {
+        // We're in an expanded group. There is a dashed border above
+        // the top qubit, and below the bottom qubit.
+        const [topQubit, bottomQubit] = getMinMaxRegIdx(component, numQubits);
+
+        // Increment the current count of dashed group borders for
+        // the top and bottom rows for this operation.
+        // If the max height for this row has been exceeded above or below the wire,
+        // update it.
+        rowHeights[topQubit].currentGroupBordersAboveWire++;
+        rowHeights[topQubit].heightAboveWire = Math.max(
+          rowHeights[topQubit].heightAboveWire,
+          rowHeights[topQubit].currentGroupBordersAboveWire,
+        );
+
+        rowHeights[bottomQubit].currentGroupBordersBelowWire++;
+        rowHeights[bottomQubit].heightBelowWire = Math.max(
+          rowHeights[bottomQubit].heightBelowWire,
+          rowHeights[bottomQubit].currentGroupBordersBelowWire,
+        );
+
+        // recurse
+        updateRowHeights(component.children || [], rowHeights, numQubits);
+
+        // decrement
+        rowHeights[topQubit].currentGroupBordersAboveWire--;
+        rowHeights[bottomQubit].currentGroupBordersBelowWire--;
+      }
+    }
+  }
 }

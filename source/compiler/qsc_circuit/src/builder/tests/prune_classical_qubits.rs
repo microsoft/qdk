@@ -4,7 +4,10 @@
 use expect_test::expect;
 use qsc_eval::{backend::Tracer, val};
 
-use crate::{CircuitTracer, TracerConfig, builder::tests::FakeCompilation};
+use crate::{
+    CircuitTracer, TracerConfig,
+    builder::tests::{FakeCompilation, default_test_tracer_config},
+};
 
 #[test]
 fn circuit_trimmed_stays_the_same() {
@@ -14,7 +17,7 @@ fn circuit_trimmed_stays_the_same() {
             source_locations: false,
             group_by_scope: false,
             prune_classical_qubits: true,
-            ..Default::default()
+            ..default_test_tracer_config()
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -46,7 +49,7 @@ fn circuit_trims_unused_qubit() {
             source_locations: false,
             group_by_scope: false,
             prune_classical_qubits: true,
-            ..Default::default()
+            ..default_test_tracer_config()
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -80,7 +83,7 @@ fn circuit_trims_unused_qubit_with_grouping() {
             source_locations: false,
             group_by_scope: true,
             prune_classical_qubits: true,
-            ..Default::default()
+            ..default_test_tracer_config()
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -134,7 +137,7 @@ fn circuit_trims_classical_qubit() {
             source_locations: false,
             group_by_scope: false,
             prune_classical_qubits: true,
-            ..Default::default()
+            ..default_test_tracer_config()
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -169,7 +172,7 @@ fn circuit_trims_classical_control_qubit() {
             source_locations: false,
             group_by_scope: false,
             prune_classical_qubits: true,
-            ..Default::default()
+            ..default_test_tracer_config()
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -204,7 +207,7 @@ fn circuit_trims_classical_qubit_when_2q_precedes_superposition() {
             source_locations: false,
             group_by_scope: false,
             prune_classical_qubits: true,
-            ..Default::default()
+            ..default_test_tracer_config()
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -239,7 +242,7 @@ fn target_qubit_trimmed_when_only_one_control_non_classical() {
             source_locations: false,
             group_by_scope: false,
             prune_classical_qubits: true,
-            ..Default::default()
+            ..default_test_tracer_config()
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -277,7 +280,7 @@ fn controlled_paulis_become_uncontrolled_when_control_is_known_classical_one() {
             source_locations: false,
             group_by_scope: false,
             prune_classical_qubits: true,
-            ..Default::default()
+            ..default_test_tracer_config()
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -313,7 +316,7 @@ fn ccx_becomes_cx_when_one_control_is_known_classical_one() {
             source_locations: false,
             group_by_scope: false,
             prune_classical_qubits: true,
-            ..Default::default()
+            ..default_test_tracer_config()
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -345,7 +348,7 @@ fn ccx_becomes_cx_when_one_control_is_known_classical_one_with_grouping() {
             source_locations: false,
             group_by_scope: true,
             prune_classical_qubits: true,
-            ..Default::default()
+            ..default_test_tracer_config()
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -402,7 +405,7 @@ fn group_with_no_remaining_operations_is_pruned() {
             source_locations: false,
             group_by_scope: true,
             prune_classical_qubits: true,
-            ..Default::default()
+            ..default_test_tracer_config()
         },
         &FakeCompilation::user_package_ids(),
     );

@@ -646,7 +646,7 @@ fn controlled_operation() {
         &expect![[r#"
             Main@A.qs:1:4 -> qubit_allocate(q_0)
             Main@A.qs:2:4 -> qubit_allocate(q_1)
-            Main@A.qs:3:4 -> ∧_1Foo@A.qs:12:8 -> CNOT@qsharp-library-source:Std/Intrinsic.qs:113:8 -> gate(X, targets=(q_0), controls=(q_1))
+            Main@A.qs:3:4 -> ∧Foo@A.qs:12:8 -> CNOT@qsharp-library-source:Std/Intrinsic.qs:113:8 -> gate(X, targets=(q_0), controls=(q_1))
             Main@A.qs:2:4 -> qubit_release(q_1)
             Main@A.qs:1:4 -> qubit_release(q_0)
         "#]],

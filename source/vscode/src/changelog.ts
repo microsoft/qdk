@@ -51,7 +51,7 @@ export async function maybeShowChangelogPrompt(
       changelogVersion: CHANGELOG_VERSION,
     });
     const choice = await vscode.window.showInformationMessage(
-      "The Azure Quantum Development Kit has been updated.",
+      "The Microsoft Quantum Development Kit has been updated.",
       ...buttons,
     );
     if (choice === buttons[0]) {

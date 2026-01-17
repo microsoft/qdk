@@ -50,10 +50,7 @@ type RunProgramResult = ProjectInfo &
   );
 
 export class QSharpTools {
-  constructor(
-    private extensionUri: vscode.Uri,
-    private prerelease: boolean,
-  ) {}
+  constructor(private extensionUri: vscode.Uri) {}
 
   /**
    * Implements the `qdk-run-program` tool call.
@@ -171,7 +168,7 @@ export class QSharpTools {
         message?: string;
       }
   > {
-    const circuitConfig = getCircuitConfig(true); // TODO: whatever
+    const circuitConfig = getCircuitConfig();
     const targetProfileFallback =
       circuitConfig.generationMethod === "static" ? "adaptive_rif" : undefined;
     const program = await this.getProgram(input.filePath, {
@@ -181,7 +178,6 @@ export class QSharpTools {
 
     const circuitOrError = await showCircuitCommand(
       this.extensionUri,
-      this.prerelease,
       undefined,
       UserTaskInvocationType.ChatToolCall,
       program.telemetryDocumentType,

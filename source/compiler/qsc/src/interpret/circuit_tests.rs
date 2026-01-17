@@ -39,7 +39,7 @@ fn interpreter_with_circuit_trace(code: &str, profile: Profile) -> Interpreter {
         LanguageFeatures::default(),
         store,
         &[(std_id, None)],
-        Default::default(),
+        default_test_tracer_config(),
     )
     .expect("interpreter creation should succeed")
 }
@@ -49,14 +49,14 @@ fn circuit_both_ways(code: &str, entry: CircuitEntryPoint) -> String {
         code,
         entry.clone(),
         CircuitGenerationMethod::ClassicalEval,
-        Default::default(),
+        default_test_tracer_config(),
     );
 
     let static_circ = circuit(
         code,
         entry,
         CircuitGenerationMethod::Static,
-        Default::default(),
+        default_test_tracer_config(),
     );
 
     format!("Eval:\n{eval_circ}\nStatic:\n{static_circ}")
@@ -104,7 +104,7 @@ fn circuit_static(code: &str) -> Circuit {
         code,
         CircuitEntryPoint::EntryPoint,
         CircuitGenerationMethod::Static,
-        Default::default(),
+        default_test_tracer_config(),
     )
 }
 
@@ -133,7 +133,7 @@ fn circuit_with_profile_both_ways(
         code,
         entry.clone(),
         CircuitGenerationMethod::ClassicalEval,
-        Default::default(),
+        default_test_tracer_config(),
         profile,
     );
 
@@ -141,7 +141,7 @@ fn circuit_with_profile_both_ways(
         code,
         entry,
         CircuitGenerationMethod::Static,
-        Default::default(),
+        default_test_tracer_config(),
         profile,
     );
 
@@ -168,6 +168,18 @@ fn circuit_inner(
     let mut interpreter = interpreter(code, PackageType::Exe, profile);
     interpreter.set_quantum_seed(Some(2));
     interpreter.circuit(entry, method, config)
+}
+
+fn default_test_tracer_config() -> TracerConfig {
+    TracerConfig {
+        max_operations: TracerConfig::DEFAULT_MAX_OPERATIONS,
+        source_locations: true,
+        group_by_scope: true,
+        prune_classical_qubits: false,
+        loop_detection: false,
+        collapse_qubit_registers: false,
+        user_code_only: true,
+    }
 }
 
 #[test]
@@ -382,7 +394,7 @@ fn classical_for_loop() {
         TracerConfig {
             loop_detection: true,
             group_by_scope: true,
-            ..Default::default()
+            ..default_test_tracer_config()
         },
     );
 
@@ -770,7 +782,7 @@ fn classical_for_loop_loop_detection() {
         CircuitEntryPoint::EntryPoint,
         TracerConfig {
             loop_detection: true,
-            ..Default::default()
+            ..default_test_tracer_config()
         },
     );
 
@@ -1128,7 +1140,7 @@ fn eval_method_result_comparison() {
         .circuit(
             CircuitEntryPoint::EntryPoint,
             CircuitGenerationMethod::ClassicalEval,
-            Default::default(),
+            default_test_tracer_config(),
         )
         .expect_err("circuit should return error")
         .pop()
@@ -1153,7 +1165,7 @@ fn eval_method_result_comparison() {
         .circuit(
             CircuitEntryPoint::EntryPoint,
             CircuitGenerationMethod::Simulate,
-            Default::default(),
+            default_test_tracer_config(),
         )
         .expect("circuit generation should succeed");
 
@@ -1374,7 +1386,7 @@ fn loop_and_scope() {
         TracerConfig {
             loop_detection: true,
             group_by_scope: true,
-            ..Default::default()
+            ..default_test_tracer_config()
         },
     );
 
@@ -1600,7 +1612,7 @@ fn custom_intrinsic_mixed_args_classical_eval() {
     }",
         CircuitEntryPoint::EntryPoint,
         CircuitGenerationMethod::ClassicalEval,
-        Default::default(),
+        default_test_tracer_config(),
     );
 
     expect![[r#"
@@ -1677,7 +1689,7 @@ fn custom_intrinsic_apply_idle_noise_classical_eval() {
     }",
         CircuitEntryPoint::EntryPoint,
         CircuitGenerationMethod::ClassicalEval,
-        Default::default(),
+        default_test_tracer_config(),
     );
 
     expect![[r#"
@@ -1926,7 +1938,7 @@ fn controlled_operation() {
         }",
         CircuitEntryPoint::Operation("Controlled Test.SWAP".into()),
         CircuitGenerationMethod::ClassicalEval,
-        Default::default(),
+        default_test_tracer_config(),
     );
 
     // Controlled operations are not supported at the moment.
@@ -1992,7 +2004,7 @@ fn operation_with_non_qubit_args() {
         }",
         CircuitEntryPoint::Operation("Test.Test".into()),
         CircuitGenerationMethod::ClassicalEval,
-        Default::default(),
+        default_test_tracer_config(),
     );
 
     expect![[r"
@@ -2305,7 +2317,7 @@ fn nested_ifs() {
         ",
         CircuitEntryPoint::EntryPoint,
         CircuitGenerationMethod::Static,
-        Default::default(),
+        default_test_tracer_config(),
     );
 
     expect![[r#"
@@ -2794,7 +2806,7 @@ fn register_grouping() {
         CircuitGenerationMethod::Static,
         TracerConfig {
             collapse_qubit_registers: true,
-            ..Default::default()
+            ..default_test_tracer_config()
         },
     );
 
@@ -2911,7 +2923,7 @@ fn branch_on_dynamic_bool() {
         ",
         CircuitEntryPoint::EntryPoint,
         CircuitGenerationMethod::Static,
-        Default::default(),
+        default_test_tracer_config(),
     );
 
     expect![[r#"
@@ -3685,7 +3697,7 @@ fn operation_declared_in_eval() {
                 max_operations: usize::MAX,
                 source_locations: false,
                 group_by_scope: true,
-                ..Default::default()
+                ..default_test_tracer_config()
             },
         )
         .expect("circuit generation should succeed");
@@ -3770,29 +3782,19 @@ mod debugger_stepping {
             step:
             q_0@test.qs:5:24
             step:
-                                ┌──────── [Main] ─────────┐
-            q_0@test.qs:5:24 ───┼──── H@test.qs:6:24 ─────┼───
-                                └─────────────────────────┘
+            q_0@test.qs:5:24 ─ H@test.qs:6:24 ──
             step:
-                                ┌──────── [Main] ────────────────────────────┐
-            q_0@test.qs:5:24 ───┼──── H@test.qs:6:24 ─── M@test.qs:7:32 ─────┼───
-                                │                               ╘════════════╪═══
-                                └────────────────────────────────────────────┘
+            q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ──
+                                                         ╘═════════
             step:
-                                ┌──────── [Main] ───────────────────────────────────────────────────┐
-            q_0@test.qs:5:24 ───┼──── H@test.qs:6:24 ─── M@test.qs:7:32 ──── |0〉@test.qs:8:24 ──────┼───
-                                │                               ╘═══════════════════════════════════╪═══
-                                └───────────────────────────────────────────────────────────────────┘
+            q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ──── |0〉@test.qs:8:24 ───
+                                                         ╘════════════════════════════════
             step:
-                                ┌──────── [Main] ───────────────────────────────────────────────────┐
-            q_0@test.qs:5:24 ───┼──── H@test.qs:6:24 ─── M@test.qs:7:32 ──── |0〉@test.qs:8:24 ──────┼───
-                                │                               ╘═══════════════════════════════════╪═══
-                                └───────────────────────────────────────────────────────────────────┘
+            q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ──── |0〉@test.qs:8:24 ───
+                                                         ╘════════════════════════════════
             step:
-                                ┌──────── [Main] ───────────────────────────────────────────────────┐
-            q_0@test.qs:5:24 ───┼──── H@test.qs:6:24 ─── M@test.qs:7:32 ──── |0〉@test.qs:8:24 ──────┼───
-                                │                               ╘═══════════════════════════════════╪═══
-                                └───────────────────────────────────────────────────────────────────┘
+            q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ──── |0〉@test.qs:8:24 ───
+                                                         ╘════════════════════════════════
         "#]]
         .assert_eq(&circs);
     }
@@ -3821,29 +3823,19 @@ mod debugger_stepping {
             step:
             q_0@test.qs:5:24
             step:
-                                ┌──────── [Main] ─────────┐
-            q_0@test.qs:5:24 ───┼──── H@test.qs:6:24 ─────┼───
-                                └─────────────────────────┘
+            q_0@test.qs:5:24 ─ H@test.qs:6:24 ──
             step:
-                                ┌──────── [Main] ────────────────────────────┐
-            q_0@test.qs:5:24 ───┼──── H@test.qs:6:24 ─── M@test.qs:7:32 ─────┼───
-                                │                               ╘════════════╪═══
-                                └────────────────────────────────────────────┘
+            q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ──
+                                                         ╘═════════
             step:
-                                ┌──────── [Main] ───────────────────────────────────────────────────┐
-            q_0@test.qs:5:24 ───┼──── H@test.qs:6:24 ─── M@test.qs:7:32 ──── |0〉@test.qs:8:24 ──────┼───
-                                │                               ╘═══════════════════════════════════╪═══
-                                └───────────────────────────────────────────────────────────────────┘
+            q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ──── |0〉@test.qs:8:24 ───
+                                                         ╘════════════════════════════════
             step:
-                                ┌──────── [Main] ───────────────────────────────────────────────────┐
-            q_0@test.qs:5:24 ───┼──── H@test.qs:6:24 ─── M@test.qs:7:32 ──── |0〉@test.qs:8:24 ──────┼───
-                                │                               ╘═══════════════════════════════════╪═══
-                                └───────────────────────────────────────────────────────────────────┘
+            q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ──── |0〉@test.qs:8:24 ───
+                                                         ╘════════════════════════════════
             step:
-                                ┌──────── [Main] ───────────────────────────────────────────────────┐
-            q_0@test.qs:5:24 ───┼──── H@test.qs:6:24 ─── M@test.qs:7:32 ──── |0〉@test.qs:8:24 ──────┼───
-                                │                               ╘═══════════════════════════════════╪═══
-                                └───────────────────────────────────────────────────────────────────┘
+            q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ──── |0〉@test.qs:8:24 ───
+                                                         ╘════════════════════════════════
         "#]]
         .assert_eq(&circs);
     }
@@ -3878,39 +3870,25 @@ mod debugger_stepping {
             step:
             q_0@test.qs:5:24
             step:
-                                ┌──────── [Main] ─────────┐
-            q_0@test.qs:5:24 ───┼──── H@test.qs:6:24 ─────┼───
-                                └─────────────────────────┘
+            q_0@test.qs:5:24 ─ H@test.qs:6:24 ──
             step:
-                                ┌──────── [Main] ────────────────────────────┐
-            q_0@test.qs:5:24 ───┼──── H@test.qs:6:24 ─── M@test.qs:7:32 ─────┼───
-                                │                               ╘════════════╪═══
-                                └────────────────────────────────────────────┘
+            q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ──
+                                                         ╘═════════
             step:
-                                ┌──────── [Main] ────────────────────────────┐
-            q_0@test.qs:5:24 ───┼──── H@test.qs:6:24 ─── M@test.qs:7:32 ─────┼───
-                                │                               ╘════════════╪═══
-                                └────────────────────────────────────────────┘
+            q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ──
+                                                         ╘═════════
             step:
-                                ┌──────── [Main] ───────────────────────────────────────────────┐
-            q_0@test.qs:5:24 ───┼──── H@test.qs:6:24 ─── M@test.qs:7:32 ─── X@test.qs:9:28 ─────┼───
-                                │                               ╘═══════════════════════════════╪═══
-                                └───────────────────────────────────────────────────────────────┘
+            q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ─── X@test.qs:9:28 ──
+                                                         ╘════════════════════════════
             step:
-                                ┌──────── [Main] ───────────────────────────────────────────────┐
-            q_0@test.qs:5:24 ───┼──── H@test.qs:6:24 ─── M@test.qs:7:32 ─── X@test.qs:9:28 ─────┼───
-                                │                               ╘═══════════════════════════════╪═══
-                                └───────────────────────────────────────────────────────────────┘
+            q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ─── X@test.qs:9:28 ──
+                                                         ╘════════════════════════════
             step:
-                                ┌──────── [Main] ───────────────────────────────────────────────┐
-            q_0@test.qs:5:24 ───┼──── H@test.qs:6:24 ─── M@test.qs:7:32 ─── X@test.qs:9:28 ─────┼───
-                                │                               ╘═══════════════════════════════╪═══
-                                └───────────────────────────────────────────────────────────────┘
+            q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ─── X@test.qs:9:28 ──
+                                                         ╘════════════════════════════
             step:
-                                ┌──────── [Main] ───────────────────────────────────────────────┐
-            q_0@test.qs:5:24 ───┼──── H@test.qs:6:24 ─── M@test.qs:7:32 ─── X@test.qs:9:28 ─────┼───
-                                │                               ╘═══════════════════════════════╪═══
-                                └───────────────────────────────────────────────────────────────┘
+            q_0@test.qs:5:24 ─ H@test.qs:6:24 ─── M@test.qs:7:32 ─── X@test.qs:9:28 ──
+                                                         ╘════════════════════════════
         "#]]
         .assert_eq(&circs);
     }

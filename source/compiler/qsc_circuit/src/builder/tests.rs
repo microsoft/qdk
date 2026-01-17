@@ -154,7 +154,7 @@ fn exceed_max_operations() {
             source_locations: false,
             loop_detection: false,
             group_by_scope: false,
-            ..Default::default()
+            ..default_test_tracer_config()
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -183,7 +183,7 @@ fn source_locations_enabled() {
             max_operations: 10,
             source_locations: true,
             group_by_scope: false,
-            ..Default::default()
+            ..default_test_tracer_config()
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -222,7 +222,7 @@ fn source_locations_disabled() {
             source_locations: false,
             loop_detection: false,
             group_by_scope: false,
-            ..Default::default()
+            ..default_test_tracer_config()
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -254,7 +254,7 @@ fn source_locations_multiple_user_frames() {
             max_operations: 10,
             source_locations: true,
             group_by_scope: false,
-            ..Default::default()
+            ..default_test_tracer_config()
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -293,7 +293,7 @@ fn source_locations_library_frames_excluded() {
             max_operations: 10,
             source_locations: true,
             group_by_scope: false,
-            ..Default::default()
+            ..default_test_tracer_config()
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -326,7 +326,7 @@ fn source_locations_only_library_frames() {
             max_operations: 10,
             source_locations: true,
             group_by_scope: false,
-            ..Default::default()
+            ..default_test_tracer_config()
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -359,7 +359,7 @@ fn source_locations_enabled_no_stack() {
             max_operations: 10,
             source_locations: true,
             group_by_scope: false,
-            ..Default::default()
+            ..default_test_tracer_config()
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -385,7 +385,7 @@ fn qubit_source_locations_via_stack() {
             max_operations: 10,
             source_locations: true,
             group_by_scope: false,
-            ..Default::default()
+            ..default_test_tracer_config()
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -410,7 +410,7 @@ fn qubit_labels_for_preallocated_qubits() {
             max_operations: 10,
             source_locations: true,
             group_by_scope: false,
-            ..Default::default()
+            ..default_test_tracer_config()
         },
         &FakeCompilation::user_package_ids(),
         Some((
@@ -450,7 +450,7 @@ fn measurement_target_propagated_to_group() {
             max_operations: usize::MAX,
             source_locations: false,
             group_by_scope: true,
-            ..Default::default()
+            ..default_test_tracer_config()
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -533,7 +533,7 @@ fn source_locations_for_groups() {
             source_locations: true,
             group_by_scope: true,
             prune_classical_qubits: false,
-            ..Default::default()
+            ..default_test_tracer_config()
         },
         &FakeCompilation::user_package_ids(),
     );
@@ -559,4 +559,16 @@ fn source_locations_for_groups() {
                   └───────────────────────────────────────────────────┘
     "#]]
     .assert_eq(&circuit.display_with_groups().to_string());
+}
+
+fn default_test_tracer_config() -> TracerConfig {
+    TracerConfig {
+        max_operations: TracerConfig::DEFAULT_MAX_OPERATIONS,
+        source_locations: true,
+        loop_detection: false,
+        group_by_scope: true,
+        collapse_qubit_registers: false,
+        prune_classical_qubits: false,
+        user_code_only: true,
+    }
 }

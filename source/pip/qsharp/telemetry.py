@@ -39,16 +39,21 @@ AIURL = (
     or "https://westus2-2.in.applicationinsights.azure.com//v2.1/track"
 )
 
-# Environment variables take precedence, else disable telemetry for non 'stable' builds
-QSHARP_PYTHON_TELEMETRY = (os.environ.get("QSHARP_PYTHON_TELEMETRY") or "").lower()
-TELEMETRY_ENABLED = (
-    True
-    if QSHARP_PYTHON_TELEMETRY in ["1", "true", "enabled"]
-    else (
-        False
-        if QSHARP_PYTHON_TELEMETRY in ["0", "false", "disabled", "none"]
-        else (not "dev" in QSHARP_VERSION)
-    )
+# If explicitly disabled via either environment variable, disable telemetry. This takes precedence.
+# If explicitly enabled via either environment variable, enable telemetry.
+# Otherwise, enable telemetry only in release builds.
+_disable_values = {"0", "false", "disabled", "none"}
+_enable_values = {"1", "true", "enabled"}
+_env_values = {
+    (os.environ.get("QSHARP_PYTHON_TELEMETRY") or "").lower(),
+    (os.environ.get("QDK_PYTHON_TELEMETRY") or "").lower(),
+}
+
+# `&` here is set intersection: it yields the common values between sets.
+# `not _env_values & _disable_values` is True iff no disable value is present.
+# `bool(_env_values & _enable_values)` is True iff any enable value is present.
+TELEMETRY_ENABLED = not _env_values & _disable_values and (
+    bool(_env_values & _enable_values) or "dev" not in QSHARP_VERSION
 )
 
 BATCH_INTERVAL_SEC = int(os.environ.get("QSHARP_PYTHON_TELEMETRY_INTERVAL") or 60)

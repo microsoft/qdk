@@ -302,7 +302,11 @@ impl Interpreter {
         .map_err(into_errors)?;
 
         // Always enable circuit tracing along with debugging.
-        let circuit_tracer_config = if dbg { Some(Default::default()) } else { None };
+        let circuit_tracer_config = if dbg {
+            Some(Debugger::circuit_config())
+        } else {
+            None
+        };
 
         let eval_config = if dbg {
             ExecGraphConfig::Debug
@@ -1436,7 +1440,7 @@ impl Debugger {
             language_features,
             store,
             dependencies,
-            TracerConfig::default(),
+            Debugger::circuit_config(),
         )?;
         let source_package_id = interpreter.source_package;
         let unit = interpreter.fir_store.get(source_package_id);
@@ -1584,6 +1588,19 @@ impl Debugger {
             .package_store()
             .get(map_fir_package_to_hir(self.interpreter.source_package))
             .expect("Could not load package")
+    }
+
+    /// Configuration used to trace the circuit while debugging.
+    fn circuit_config() -> TracerConfig {
+        TracerConfig {
+            max_operations: TracerConfig::DEFAULT_MAX_OPERATIONS,
+            source_locations: true,
+            group_by_scope: false,
+            prune_classical_qubits: false,
+            collapse_qubit_registers: false,
+            loop_detection: false,
+            user_code_only: true,
+        }
     }
 }
 

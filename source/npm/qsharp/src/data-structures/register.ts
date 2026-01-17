@@ -38,10 +38,8 @@ export function isRegister(obj: any): obj is Register {
 export interface RegisterRenderData {
   /** Type of register. */
   type: RegisterType;
-  /** y coord of top of register row */
-  topY: number;
   /** y coord of register */
-  wireY: number;
+  y: number;
   /** Nested classical registers attached to quantum register. */
   children?: RegisterRenderData[];
   /** Link href and title for clickable gate. */

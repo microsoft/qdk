@@ -34,6 +34,7 @@ use pyo3::{
 };
 use qsc::{
     LanguageFeatures, PackageType, SourceMap,
+    circuit::TracerConfig,
     error::WithSource,
     fir::{self},
     hir::ty::{Prim, Ty},
@@ -422,7 +423,18 @@ impl Interpreter {
                 buildable_program.user_code.language_features,
                 buildable_program.store,
                 &buildable_program.user_code_dependencies,
-                Default::default(),
+                // `trace_circuit` is a deprecated option, so here we pass `false`
+                // for any newer features to discourage its use.
+                // The encouraged alternative is to use the `circuit()` method.
+                TracerConfig {
+                    max_operations: TracerConfig::DEFAULT_MAX_OPERATIONS,
+                    source_locations: false,
+                    group_by_scope: false,
+                    prune_classical_qubits: false,
+                    collapse_qubit_registers: false,
+                    loop_detection: false,
+                    user_code_only: false,
+                },
             )
         } else {
             interpret::Interpreter::new(
@@ -800,13 +812,17 @@ impl Interpreter {
             }
         };
 
-        let mut tracer_config = qsc::circuit::TracerConfig::default();
-        if let Some(max_ops) = config.max_operations {
-            tracer_config.max_operations = max_ops;
-        }
-        tracer_config.source_locations = config.source_locations;
-        tracer_config.group_by_scope = config.group_by_scope;
-        tracer_config.prune_classical_qubits = config.prune_classical_qubits;
+        let tracer_config = qsc::circuit::TracerConfig {
+            max_operations: config
+                .max_operations
+                .unwrap_or(TracerConfig::DEFAULT_MAX_OPERATIONS),
+            source_locations: config.source_locations,
+            group_by_scope: config.group_by_scope,
+            prune_classical_qubits: config.prune_classical_qubits,
+            collapse_qubit_registers: config.collapse_qubit_registers,
+            loop_detection: config.loop_detection,
+            user_code_only: config.user_code_only,
+        };
 
         let generation_method = if let Some(generation_method) = config.generation_method {
             generation_method.into()
@@ -1301,6 +1317,7 @@ impl Receiver for OptionalCallbackReceiver<'_> {
     }
 }
 
+#[allow(clippy::struct_excessive_bools)]
 #[pyclass]
 pub(crate) struct CircuitConfig {
     #[pyo3(get, set)]
@@ -1313,18 +1330,29 @@ pub(crate) struct CircuitConfig {
     pub(crate) group_by_scope: bool,
     #[pyo3(get, set)]
     pub(crate) prune_classical_qubits: bool,
+    #[pyo3(get, set)]
+    pub(crate) collapse_qubit_registers: bool,
+    #[pyo3(get, set)]
+    pub(crate) loop_detection: bool,
+    #[pyo3(get, set)]
+    pub(crate) user_code_only: bool,
 }
 
+#[allow(clippy::too_many_arguments)]
+#[allow(clippy::fn_params_excessive_bools)]
 #[pymethods]
 impl CircuitConfig {
     #[new]
-    #[pyo3(signature=(*,max_operations=None, generation_method=None, source_locations=false, group_by_scope=false, prune_classical_qubits=false))]
+    #[pyo3(signature=(*,max_operations=None, generation_method=None, source_locations=false, group_by_scope=false, prune_classical_qubits=false, collapse_qubit_registers=false, loop_detection=false, user_code_only=false))]
     fn new(
         max_operations: Option<usize>,
         generation_method: Option<CircuitGenerationMethod>,
         source_locations: bool,
         group_by_scope: bool,
         prune_classical_qubits: bool,
+        collapse_qubit_registers: bool,
+        loop_detection: bool,
+        user_code_only: bool,
     ) -> Self {
         Self {
             max_operations,
@@ -1332,6 +1360,9 @@ impl CircuitConfig {
             source_locations,
             group_by_scope,
             prune_classical_qubits,
+            collapse_qubit_registers,
+            loop_detection,
+            user_code_only,
         }
     }
 }

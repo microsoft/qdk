@@ -29,9 +29,9 @@ const formatRegisters = (
     qubitRegs.push(
       line(
         regLineStart,
-        registers[qId].wireY,
+        registers[qId].y,
         endX,
-        registers[qId].wireY,
+        registers[qId].y,
         "qubit-wire",
       ),
     );
@@ -48,9 +48,7 @@ const formatRegisters = (
           continue;
         }
 
-        for (const y of gate.targetsY
-          .flat()
-          .filter((y) => y === classical.wireY)) {
+        for (const y of gate.targetsY.flat().filter((y) => y === classical.y)) {
           // Found the gate that this classical wire originates from. Draw
           // it starting at this gates x-coordinate.
 

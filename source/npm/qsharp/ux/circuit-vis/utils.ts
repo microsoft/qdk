@@ -4,7 +4,7 @@
 import { GateRenderData, GateType } from "./gateRenderData.js";
 import {
   minGateWidth,
-  labelPadding,
+  labelPaddingX,
   labelFontSize,
   argsFontSize,
 } from "./constants.js";
@@ -52,18 +52,15 @@ const deepEqual = (obj1: unknown, obj2: unknown): boolean => {
 /**
  * Calculate the width of a gate, given its render data.
  *
- * @param renderData - The rendering data of the gate, including its type, label, display arguments, and width.
+ * @param renderData - The rendering data of the gate, including its type, label, display arguments.
  *
  * @returns Width of given gate (in pixels).
  */
-const getGateWidth = ({
+const getMinGateWidth = ({
   type,
   label,
   displayArgs,
-  width,
 }: GateRenderData): number => {
-  if (width > 0) return width;
-
   switch (type) {
     case GateType.Measure:
     case GateType.Cnot:
@@ -73,7 +70,7 @@ const getGateWidth = ({
       const labelWidth = _getStringWidth(label);
       const argsWidth =
         displayArgs != null ? _getStringWidth(displayArgs, argsFontSize) : 0;
-      const textWidth = Math.max(labelWidth, argsWidth) + labelPadding * 2;
+      const textWidth = Math.max(labelWidth, argsWidth) + labelPaddingX * 2;
       return Math.max(minGateWidth, textWidth);
     }
   }
@@ -81,6 +78,8 @@ const getGateWidth = ({
 
 /**
  * Estimate string width in pixels based on character types and font size.
+ * This may not match the true rendered width, but should be close enough for
+ * calculating layout.
  *
  * @param text - The text string to measure.
  * @param fontSize - The font size in pixels (default is labelFontSize).
@@ -135,8 +134,9 @@ const _getStringWidth = (
     }
     units += 0.56;
   }
-  const kerningFudge = Math.max(0, text.length - 1) * 0.01;
-  return (units + kerningFudge) * fontSize;
+  const kerningFudge = Math.max(0, text.length - 1) * 0.005;
+  // Round to a whole number to keep it easy to read
+  return Math.floor((units + kerningFudge) * fontSize);
 };
 
 /**
@@ -465,7 +465,7 @@ const mathChars = {
 
 export {
   deepEqual,
-  getGateWidth,
+  getMinGateWidth,
   getChildTargets,
   locationStringToIndexes,
   getGateLocationString,

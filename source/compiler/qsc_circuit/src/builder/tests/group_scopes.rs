@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 use super::FakeCompilation;
-use crate::{CircuitTracer, TracerConfig};
+use crate::{CircuitTracer, TracerConfig, builder::tests::default_test_tracer_config};
 use expect_test::{Expect, expect};
 use qsc_eval::{backend::Tracer, debug::Frame};
 
@@ -12,7 +12,7 @@ fn check_groups(c: &FakeCompilation, instructions: &[(Vec<Frame>, &str)], expect
             max_operations: usize::MAX,
             source_locations: false,
             group_by_scope: true,
-            ..Default::default()
+            ..default_test_tracer_config()
         },
         &FakeCompilation::user_package_ids(),
     );

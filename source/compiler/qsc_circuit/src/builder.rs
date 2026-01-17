@@ -798,21 +798,7 @@ impl TracerConfig {
     ///
     /// A more refined way to do this might be to communicate the
     /// "limit exceeded" state up to the UI somehow.
-    const DEFAULT_MAX_OPERATIONS: usize = 10001;
-}
-
-impl Default for TracerConfig {
-    fn default() -> Self {
-        Self {
-            max_operations: Self::DEFAULT_MAX_OPERATIONS,
-            source_locations: true,
-            loop_detection: false,
-            group_by_scope: true,
-            collapse_qubit_registers: false,
-            prune_classical_qubits: false,
-            user_code_only: true,
-        }
-    }
+    pub const DEFAULT_MAX_OPERATIONS: usize = 10001;
 }
 
 /// Maps qubit IDs to their corresponding wire IDs and tracks measurement results
