@@ -102,16 +102,16 @@ fn test_prepare_package_store() {
                     ctl-adj: <none>"#]]
     .assert_eq(&package.to_string());
     expect![[r#"
-        Package 0:
-            Namespace 1 [0-40] (Ident 2 [0-40] "test"):
-                Item 3 [0-40]:
-                    Attr 4 [0-13] (Ident 5 [1-11] "EntryPoint"):
-                        Expr 6 [11-13]: Unit
-                    Callable 7 [14-40] (Operation):
-                        name: Ident 8 [24-28] "Main"
-                        input: Pat 9 [28-30]: Unit
-                        output: Type 10 [33-37]: Path: Path 11 [33-37] (Ident 12 [33-37] "Unit")
-                        body: Block: Block 13 [38-40]: <empty>"#]]
+            Package 0:
+                Namespace 1 [0-40] (Ident 2 [0-40] "test"):
+                    Item 3 [0-40]:
+                        Attr 4 [0-13] (Ident 5 [1-11] "EntryPoint"):
+                            Expr 6 [11-13]: Unit
+                        Callable 7 [14-40] (Operation):
+                            name: Ident 8 [24-28] "Main"
+                            input: Pat 9 [28-30]: Unit
+                            output: Type 10 [33-37]: Path: Path 11 [33-37] (Ident 12 [33-37] "Unit")
+                            body: Block: Block 13 [38-40]: <empty>"#]]
     .assert_eq(&ast.package.to_string());
     expect![[r"
             []
@@ -180,16 +180,16 @@ fn missing_dependency_doesnt_force_failure() {
                     ctl-adj: <none>"#]]
     .assert_eq(&package.to_string());
     expect![[r#"
-        Package 0:
-            Namespace 1 [0-40] (Ident 2 [0-40] "test"):
-                Item 3 [0-40]:
-                    Attr 4 [0-13] (Ident 5 [1-11] "EntryPoint"):
-                        Expr 6 [11-13]: Unit
-                    Callable 7 [14-40] (Operation):
-                        name: Ident 8 [24-28] "Main"
-                        input: Pat 9 [28-30]: Unit
-                        output: Type 10 [33-37]: Path: Path 11 [33-37] (Ident 12 [33-37] "Unit")
-                        body: Block: Block 13 [38-40]: <empty>"#]]
+            Package 0:
+                Namespace 1 [0-40] (Ident 2 [0-40] "test"):
+                    Item 3 [0-40]:
+                        Attr 4 [0-13] (Ident 5 [1-11] "EntryPoint"):
+                            Expr 6 [11-13]: Unit
+                        Callable 7 [14-40] (Operation):
+                            name: Ident 8 [24-28] "Main"
+                            input: Pat 9 [28-30]: Unit
+                            output: Type 10 [33-37]: Path: Path 11 [33-37] (Ident 12 [33-37] "Unit")
+                            body: Block: Block 13 [38-40]: <empty>"#]]
     .assert_eq(&ast.package.to_string());
     expect![[r"
             []
@@ -286,16 +286,16 @@ fn dependency_error() {
                     ctl-adj: <none>"#]]
     .assert_eq(&package.to_string());
     expect![[r#"
-        Package 0:
-            Namespace 1 [0-40] (Ident 2 [0-40] "test"):
-                Item 3 [0-40]:
-                    Attr 4 [0-13] (Ident 5 [1-11] "EntryPoint"):
-                        Expr 6 [11-13]: Unit
-                    Callable 7 [14-40] (Operation):
-                        name: Ident 8 [24-28] "Main"
-                        input: Pat 9 [28-30]: Unit
-                        output: Type 10 [33-37]: Path: Path 11 [33-37] (Ident 12 [33-37] "Unit")
-                        body: Block: Block 13 [38-40]: <empty>"#]]
+            Package 0:
+                Namespace 1 [0-40] (Ident 2 [0-40] "test"):
+                    Item 3 [0-40]:
+                        Attr 4 [0-13] (Ident 5 [1-11] "EntryPoint"):
+                            Expr 6 [11-13]: Unit
+                        Callable 7 [14-40] (Operation):
+                            name: Ident 8 [24-28] "Main"
+                            input: Pat 9 [28-30]: Unit
+                            output: Type 10 [33-37]: Path: Path 11 [33-37] (Ident 12 [33-37] "Unit")
+                            body: Block: Block 13 [38-40]: <empty>"#]]
     .assert_eq(&ast.package.to_string());
     expect![[r"
             []

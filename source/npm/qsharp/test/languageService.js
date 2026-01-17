@@ -43,7 +43,7 @@ test("devDiagnostics configuration works", async () => {
     await languageService.updateDocument(
       "test.qs",
       1,
-      "@EntryPoint() operation Main() : Unit {}",
+      "namespace Test { @EntryPoint() operation Main() : Unit {} }",
       "qsharp",
     );
 

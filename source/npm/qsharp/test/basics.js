@@ -736,8 +736,10 @@ test("language service configuration update", async () => {
   await languageService.updateDocument(
     "test.qs",
     1,
-    `operation Test() : Unit {
-    }`,
+    `namespace Sample {
+    operation Test() : Unit {
+    }
+}`,
     "qsharp",
   );
 
