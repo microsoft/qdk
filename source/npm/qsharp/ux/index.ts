@@ -20,4 +20,8 @@ export { EstimatesOverview } from "./estimatesOverview.js";
 export { EstimatesPanel } from "./estimatesPanel.js";
 export { Circuit, CircuitPanel } from "./circuit.js";
 export { setRenderer, Markdown } from "./renderers.js";
-export { detectThemeChange, updateGitHubTheme } from "./themeObserver.js";
+export {
+  ensureTheme,
+  detectThemeChange,
+  updateStyleSheetTheme,
+} from "./themeObserver.js";

@@ -4,13 +4,13 @@
 /*
 CSS is tricky get get right across environments we care about. This file attempts to centralize some of the nuances.
 
-It is structured into two parts:
+The approach is structured in 2 parts. This file is part 1:
 
 1. Set the variables for the color palette based on the current theme (light/dark).
-2. Set variables for the specific ux elements based on the color palette variables.
+2. Set class values or variables for the specific ux elements based on the color palette variables.
 
-Specifying ANY color values (e.g. `red`, `#ff0000`, etc) should only be done via the variables in part 1.
-Other styles that need colors should ONLY reference those variables, or via variables derived from them.
+Specifying ANY color values (e.g. `red`, `#ff0000`, etc) should only be done via the variables in this file.
+Other styles that need colors should ONLY reference these variables, or variables derived from them.
 
 This ensures that when the theme changes, all widgets automatically update to the correct colors, and
 our `palette` of colors is consistent across all widgets.
@@ -22,17 +22,20 @@ We want to set colors based on the current theme. This could be:
 1. The theme set in VS Code.
 2. The theme in Jupyter running in the browser.
 3. A theme set on the host page (e.g. the katas viewer on the playground).
-4. If none of the above, use the user system preference for light/dark mode.
+
+VS Code or Jupyter will always set an attribute on the body element indicating the current theme.
+If outside of those environments, you can use the `ensureTheme()` function in themeObserver.ts to
+detect the URL params or OS preference and set the `data-theme` attribute accordingly.
 
 The goal is to use CSS selectors and variables to ensure the right colors are applied in each case,
 with the 'cascade' ensuring the correct precedence.
 
 Note that the 'default' light mode values (no attribute set and no browser preference) are always
-on the :root selector (typically the html element), and then overridden via the media query is the
-browser preference is dark mode. This ensures that if nothing is set anywhere, the system preference is used.
+on the :root selector (typically the html element), so if all the above fails, light mode will be set.
 
-The theme attributes on the body element (set by VS Code or Jupter) will be closer to the element being
-styled than the :root selector, so will take precedence in the cascade if set.
+When a theme attribute is present on the body element, we set the variables again there to override
+the :root values. As the body element will be closer to the element being styled than the :root selector
+this will take precedence.
 
 === ENVIRONMENT SPECIFIC SELECTORS ===
 
@@ -54,9 +57,6 @@ for the notebook cells when running Jupyter in VS Code). The first 2 are light, 
 - It is also common to use a [data-theme="light"] or [data-theme="dark"] attribute on the body element
   to indicate light/dark themes, so look for that also (e.g. in the kata viewer in the playground).
 
-- If none of the above are present, then none of the theme specific values will have been set on the body
-  element, and we fall back to using the :root selector combined with a media query for the values.
-
 Note that colors that are not theme dependent should just be set on :root, with no need to add overrides
 */
 
@@ -67,7 +67,7 @@ body[data-theme="light"],
 body[data-jp-theme-light="true"],
 body[data-vscode-theme-kind="vscode-light"],
 body[data-vscode-theme-kind="vscode-high-contrast-light"] {
-  /* First set the non-theme specific values here only */
+  /* Set any non-theme specific values here only */
   --qdk-font-family-monospace: var(
     --vscode-editor-font-family,
     "Consolas",
@@ -76,6 +76,7 @@ body[data-vscode-theme-kind="vscode-high-contrast-light"] {
     monospace
   );
   --qdk-mid-gray: #888;
+  /* End non-theme specific values */
 
   /* Use the host foreground/background if available */
   --qdk-host-background: var(
@@ -86,6 +87,7 @@ body[data-vscode-theme-kind="vscode-high-contrast-light"] {
     --vscode-editor-foreground,
     var(--jp-widgets-color, #222)
   );
+  --qdk-background-accent: #ddd;
 
   /* Used for text that must stand out on various backgrounds */
   --qdk-text-high-contrast: #000;
@@ -105,44 +107,7 @@ body[data-vscode-theme-kind="vscode-high-contrast-light"] {
   --qdk-shape-stroke-hover: #6b6b6b;
 }
 
-/* Dark theme styles to use on :root if no attributes are set, but the OS/browser preferences is dark mode
-
-This has exactly the same specificity and location in the CSS cascade as the defaults set on :root above,
-but will override those :root defaults if the media query matches, as these styles come later in the file.
-*/
-@media (prefers-color-scheme: dark) {
-  :root {
-    /* Use the host foreground/background if available */
-    --qdk-host-background: var(
-      --vscode-editor-background,
-      var(--jp-layout-color0, #222)
-    );
-    --qdk-host-foreground: var(
-      --vscode-editor-foreground,
-      var(--jp-widgets-color, #eee)
-    );
-
-    /* Used for text that must stand out on various backgrounds */
-    --qdk-text-high-contrast: #fff;
-
-    /* Outline for widget borders, etc. */
-    --qdk-widget-outline: #444;
-
-    /* Use for menus */
-    --qdk-menu-fill: #444;
-    --qdk-menu-fill-hover: #468;
-    --qdk-menu-fill-selected: #47a;
-
-    /* Used for shapes in charts, etc. that may have overlapping text (which should contrast) */
-    --qdk-shape-fill: #4aa3ff;
-    --qdk-shape-fill-selected: #ffd54f;
-    --qdk-shape-stroke-selected: #ffecb3;
-    --qdk-shape-stroke-hover: #c5c5c5;
-  }
-}
-
 /* Set these variables on the body element if attributes indicate a dark theme choice */
-/* Note these should repeat the above entries in the media query for dark theme. Sadly, no way to avoid this */
 body[data-theme="dark"],
 body[data-jp-theme-light="false"],
 body[data-vscode-theme-kind="vscode-dark"],
@@ -156,6 +121,7 @@ body[data-vscode-theme-kind="vscode-high-contrast"] {
     --vscode-editor-foreground,
     var(--jp-widgets-color, #eee)
   );
+  --qdk-background-accent: #333;
 
   /* Used for text that must stand out on various backgrounds */
   --qdk-text-high-contrast: #fff;

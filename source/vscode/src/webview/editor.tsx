@@ -11,7 +11,7 @@ import {
   CircuitPanel,
   CircuitProps,
   detectThemeChange,
-  updateGitHubTheme,
+  updateStyleSheetTheme,
 } from "qsharp-lang/ux";
 
 window.addEventListener("message", onMessage);
@@ -29,7 +29,15 @@ let state: State = loadingState;
 function main() {
   state = (vscodeApi.getState() as any) || loadingState;
   render(<App state={state} />, document.body);
-  detectThemeChange(document.body, updateGitHubTheme);
+  detectThemeChange(document.body, (isDark) =>
+    updateStyleSheetTheme(
+      isDark,
+      "github-markdown-css",
+      /(light\.css)|(dark\.css)/,
+      "light.css",
+      "dark.css",
+    ),
+  );
   readFromTextDocument();
 }
 

@@ -13,7 +13,7 @@ import {
   Histogram,
   setRenderer,
   detectThemeChange,
-  updateGitHubTheme,
+  updateStyleSheetTheme,
   type ReData,
 } from "qsharp-lang/ux";
 import { HelpPage } from "./help";
@@ -76,7 +76,15 @@ let state: State = loadingState;
 function main() {
   state = (vscodeApi.getState() as any) || loadingState;
   render(<App state={state} />, document.body);
-  detectThemeChange(document.body, updateGitHubTheme);
+  detectThemeChange(document.body, (isDark: boolean) => {
+    updateStyleSheetTheme(
+      isDark,
+      "github-markdown",
+      /(light\.css)|(dark\.css)/,
+      "light.css",
+      "dark.css",
+    );
+  });
   vscodeApi.postMessage({ command: "ready" });
 }
 
