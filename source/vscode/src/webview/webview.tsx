@@ -12,6 +12,8 @@ import {
   EstimatesPanel,
   Histogram,
   setRenderer,
+  detectThemeChange,
+  updateGitHubTheme,
   type ReData,
 } from "qsharp-lang/ux";
 import { HelpPage } from "./help";
@@ -22,7 +24,6 @@ import "./webview.css";
 // @ts-ignore - there are no types for this
 import mk from "@vscode/markdown-it-katex";
 import markdownIt from "markdown-it";
-import { setThemeStylesheet } from "./theme";
 const md = markdownIt("commonmark");
 md.use(mk, {
   enableMathBlockInHtml: true,
@@ -75,7 +76,7 @@ let state: State = loadingState;
 function main() {
   state = (vscodeApi.getState() as any) || loadingState;
   render(<App state={state} />, document.body);
-  setThemeStylesheet();
+  detectThemeChange(document.body, updateGitHubTheme);
   vscodeApi.postMessage({ command: "ready" });
 }
 

@@ -7,8 +7,12 @@ const vscodeApi = acquireVsCodeApi();
 
 import { render } from "preact";
 import DOMPurify from "dompurify";
-import { CircuitPanel, CircuitProps } from "qsharp-lang/ux";
-import { setThemeStylesheet } from "./theme";
+import {
+  CircuitPanel,
+  CircuitProps,
+  detectThemeChange,
+  updateGitHubTheme,
+} from "qsharp-lang/ux";
 
 window.addEventListener("message", onMessage);
 window.addEventListener("load", main);
@@ -25,7 +29,7 @@ let state: State = loadingState;
 function main() {
   state = (vscodeApi.getState() as any) || loadingState;
   render(<App state={state} />, document.body);
-  setThemeStylesheet();
+  detectThemeChange(document.body, updateGitHubTheme);
   readFromTextDocument();
 }
 
