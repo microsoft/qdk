@@ -32,6 +32,7 @@
     "@vscode/extension-telemetry": "^0.9.8",
     "@vscode/markdown-it-katex": "^1.0.0",
     "@vscode/test-web": "^0.0.78",
+    "3dmol": "^2.5.3",
     "chai": "^4.3.10",
     "dompurify": "^3.2.5",
     "esbuild": "^0.25.0",

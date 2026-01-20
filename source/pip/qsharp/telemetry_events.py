@@ -259,3 +259,68 @@ def on_qiskit_run_re_end(duration_ms: float) -> None:
         duration_ms,
         type="histogram",
     )
+
+
+def on_neutral_atom_init(default_layout: bool) -> None:
+    log_telemetry(
+        "neutral_atom.device.init",
+        1,
+        properties={"default_layout": default_layout},
+    )
+
+
+def on_neutral_atom_compile() -> None:
+    log_telemetry(
+        "neutral_atom.device.compile",
+        1,
+    )
+
+
+def on_neutral_atom_compile_end(duration_ms: float) -> None:
+    log_telemetry(
+        "neutral_atom.device.compile.durationMs",
+        duration_ms,
+        type="histogram",
+    )
+
+
+def on_neutral_atom_trace() -> None:
+    log_telemetry(
+        "neutral_atom.device.trace",
+        1,
+    )
+
+
+def on_neutral_atom_trace_end(duration_ms: float) -> None:
+    log_telemetry(
+        "neutral_atom.device.trace.durationMs",
+        duration_ms,
+        type="histogram",
+    )
+
+
+def on_neutral_atom_simulate(shots: int, noise: bool, type: str) -> None:
+    log_telemetry(
+        "neutral_atom.device.simulate",
+        1,
+        properties={
+            "shots": get_next_power_of_ten_bucket(shots),
+            "noise": noise,
+            "type": type,
+        },
+    )
+
+
+def on_neutral_atom_simulate_end(
+    duration_ms: float, shots: int, noise: bool, type: str
+) -> None:
+    log_telemetry(
+        "neutral_atom.device.simulate.durationMs",
+        duration_ms,
+        properties={
+            "shots": get_next_power_of_ten_bucket(shots),
+            "noise": noise,
+            "type": type,
+        },
+        type="histogram",
+    )
