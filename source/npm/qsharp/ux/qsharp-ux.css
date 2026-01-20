@@ -1,6 +1,8 @@
 /* Copyright (c) Microsoft Corporation.
    Licensed under the MIT License. */
 
+@import "./qdk-theme.css";
+
 /* Styles for Q# UX components.
 
 Notes:
@@ -48,57 +50,6 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   --error-background-color: #ffe3e3;
   --warning-background-color: #fff6d7;
   --bar-selected-outline: #587ddd;
-
-  /* Histogram palette (light scheme by default; used when no VS Code theme is detected) */
-  --qs-histogram-bg: #ffffff;
-  --qs-histogram-border: #768f9c;
-  --qs-histogram-bar-fill: #8ab8ff;
-  --qs-histogram-bar-hover-stroke: #6b6b6b;
-  --qs-histogram-bar-selected-fill: #b5c5f2;
-  --qs-histogram-bar-selected-stroke: #587ddd;
-  --qs-histogram-bar-label-fill: #202020;
-  --qs-histogram-label-fill: #3b3b3b;
-  --qs-histogram-hover-text-fill: #6b6b6b;
-  --qs-histogram-menu-icon-stroke: #3b3b3b;
-  --qs-histogram-menu-icon-fill: #ffffff;
-  --qs-histogram-menu-box-fill: #ffffff;
-  --qs-histogram-menu-box-stroke: #3b3b3b;
-  --qs-histogram-menu-item-fill: #b7d5ff;
-  --qs-histogram-menu-item-hover-fill: #9fc7ff;
-  --qs-histogram-menu-item-stroke: #6b6b6b;
-  --qs-histogram-menu-item-selected-fill: #6aa9ff;
-  --qs-histogram-menu-text-fill: #202020;
-  --qs-histogram-menu-separator-stroke: #6b6b6b;
-  --qs-histogram-help-fill: #ffffff;
-  --qs-histogram-help-stroke: #6b6b6b;
-  --qs-histogram-help-text-fill: #202020;
-}
-
-/* Histogram palette overrides for dark themes. */
-body[data-vscode-theme-kind="vscode-dark"],
-body[data-vscode-theme-kind="vscode-high-contrast"] {
-  --qs-histogram-bg: #1e1e1e;
-  --qs-histogram-border: #3c3c3c;
-  --qs-histogram-bar-fill: #4aa3ff;
-  --qs-histogram-bar-hover-stroke: #c5c5c5;
-  --qs-histogram-bar-selected-fill: #ffd54f;
-  --qs-histogram-bar-selected-stroke: #ffecb3;
-  --qs-histogram-bar-label-fill: #ffffff;
-  --qs-histogram-label-fill: #ffffff;
-  --qs-histogram-hover-text-fill: #ffffff;
-  --qs-histogram-menu-icon-stroke: #d4d4d4;
-  --qs-histogram-menu-icon-fill: #1e1e1e;
-  --qs-histogram-menu-box-fill: #252526;
-  --qs-histogram-menu-box-stroke: #d4d4d4;
-  --qs-histogram-menu-item-fill: #2d2d30;
-  --qs-histogram-menu-item-hover-fill: #3e3e42;
-  --qs-histogram-menu-item-stroke: #6b6b6b;
-  --qs-histogram-menu-item-selected-fill: #094771;
-  --qs-histogram-menu-text-fill: #ffffff;
-  --qs-histogram-menu-separator-stroke: #6b6b6b;
-  --qs-histogram-help-fill: #252526;
-  --qs-histogram-help-stroke: #6b6b6b;
-  --qs-histogram-help-text-fill: #ffffff;
 }
 
 /* TODO: Make the below playground specific classes */
@@ -396,108 +347,97 @@ body[data-vscode-theme-kind="vscode-high-contrast"] {
 .histogram {
   max-height: calc(100vh - 40px);
   max-width: 600px;
-  border: 1px solid var(--qs-histogram-border);
-  background-color: var(--qs-histogram-bg);
+  border: 1px solid var(--qdk-widget-outline);
+  background-color: var(--qdk-host-background);
 }
 
 .bar {
-  fill: var(--qs-histogram-bar-fill);
+  fill: var(--qdk-shape-fill);
 }
 
 .bar:hover {
-  stroke: var(--qs-histogram-bar-hover-stroke);
+  stroke: var(--qdk-shape-stroke-hover);
   stroke-width: 0.5;
 }
 
 .bar-selected {
-  stroke: var(--qs-histogram-bar-selected-stroke);
-  fill: var(--qs-histogram-bar-selected-fill);
+  stroke: var(--qdk-shape-stroke-selected);
+  fill: var(--qdk-shape-fill-selected);
 }
 
 .bar-label {
   font-size: 3pt;
-  fill: var(--qs-histogram-bar-label-fill);
+  fill: var(--qdk-text-high-contrast);
   text-anchor: end;
   pointer-events: none;
 }
 
 .bar-label-ket {
-  font-family: var(
-    --vscode-editor-font-family,
-    "Consolas",
-    "Menlo",
-    "Monaco",
-    "Liberation Mono",
-    "Courier New",
-    monospace
-  );
+  font-family: var(--qdk-font-family-monospace);
   font-variant-ligatures: none;
-  font-size: 3.3pt;
 }
 
 .histo-label {
   font-size: 3.5pt;
-  fill: var(--qs-histogram-label-fill);
+  fill: var(--qdk-host-foreground);
 }
 
 .hover-text {
   font-size: 3.5pt;
-  fill: var(--qs-histogram-hover-text-fill);
+  fill: var(--qdk-host-foreground);
   text-anchor: middle;
 }
 
 .menu-icon * {
-  fill: var(--qs-histogram-menu-icon-fill);
-  stroke: var(--qs-histogram-menu-icon-stroke);
+  fill: var(--qdk-host-background);
+  stroke: var(--qdk-host-foreground);
 }
 
 .menu-box {
-  fill: var(--qs-histogram-menu-box-fill);
-  stroke: var(--qs-histogram-menu-box-stroke);
+  fill: var(--qdk-host-background);
+  stroke: var(--qdk-host-foreground);
   stroke-width: 0.1;
 }
 
 .menu-item {
   width: 32px;
   height: 10px;
-  fill: var(--qs-histogram-menu-item-fill);
-  stroke: var(--qs-histogram-menu-item-stroke);
+  fill: var(--qdk-menu-fill);
+  stroke: var(--qdk-mid-gray);
   stroke-width: 0.2;
 }
 
-/* --vscode-list-inactiveSelectionBackground */
-
 .menu-item:hover {
   stroke-width: 0.6;
-  fill: var(--qs-histogram-menu-item-hover-fill);
+  fill: var(--qdk-menu-fill-hover);
 }
 
 .menu-selected {
   /* stroke: #0800ff; */
-  fill: var(--qs-histogram-menu-item-selected-fill);
+  fill: var(--qdk-menu-fill-selected);
 }
 
 .menu-text {
   font-size: 4.5px;
   pointer-events: none;
-  fill: var(--qs-histogram-menu-text-fill);
+  fill: var(--qdk-host-foreground);
 }
 
 .menu-separator {
-  stroke: var(--qs-histogram-menu-separator-stroke);
+  stroke: var(--qdk-mid-gray);
   stroke-width: 0.25;
 }
 
 .help-info {
-  fill: var(--qs-histogram-help-fill);
-  stroke: var(--qs-histogram-help-stroke);
+  fill: var(--qdk-host-background);
+  stroke: var(--qdk-mid-gray);
   stroke-width: 0.5;
 }
 
 .help-info-text {
   font-size: 4.5px;
   pointer-events: none;
-  fill: var(--qs-histogram-help-text-fill);
+  fill: var(--qdk-host-foreground);
 }
 
 /* RE details */

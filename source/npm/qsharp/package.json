@@ -22,7 +22,8 @@
     "./debug-service-worker": "./dist/debug-service/worker-browser.js",
     "./katas": "./dist/katas.js",
     "./katas-md": "./dist/katas-md.js",
-    "./ux": "./ux/index.ts"
+    "./ux": "./ux/index.ts",
+    "./qdk-theme.css": "./ux/qdk-theme.css"
   },
   "scripts": {
     "build": "npm run docs && npm run generate && npm run build:tsc && npm run build:ux",

@@ -1,0 +1,142 @@
+/* Copyright (c) Microsoft Corporation.
+   Licensed under the MIT License. */
+
+/*
+CSS is tricky get get right across environments we care about. This file attempts to centralize some of the nuances.
+
+The approach is structured in 2 parts. This file is part 1:
+
+1. Set the variables for the color palette based on the current theme (light/dark).
+2. Set class values or variables for the specific ux elements based on the color palette variables.
+
+Specifying ANY color values (e.g. `red`, `#ff0000`, etc) should only be done via the variables in this file.
+Other styles that need colors should ONLY reference these variables, or variables derived from them.
+
+This ensures that when the theme changes, all widgets automatically update to the correct colors, and
+our `palette` of colors is consistent across all widgets.
+
+=== HOW THIS SETS THEME COLORS ===
+
+We want to set colors based on the current theme. This could be:
+
+1. The theme set in VS Code.
+2. The theme in Jupyter running in the browser.
+3. A theme set on the host page (e.g. the katas viewer on the playground).
+
+VS Code or Jupyter will always set an attribute on the body element indicating the current theme.
+If outside of those environments, you can use the `ensureTheme()` function in themeObserver.ts to
+detect the URL params or OS preference and set the `data-theme` attribute accordingly.
+
+The goal is to use CSS selectors and variables to ensure the right colors are applied in each case,
+with the 'cascade' ensuring the correct precedence.
+
+Note that the 'default' light mode values (no attribute set and no browser preference) are always
+on the :root selector (typically the html element), so if all the above fails, light mode will be set.
+
+When a theme attribute is present on the body element, we set the variables again there to override
+the :root values. As the body element will be closer to the element being styled than the :root selector
+this will take precedence.
+
+=== ENVIRONMENT SPECIFIC SELECTORS ===
+
+There are a number of selectors we can use for various environments:
+
+- VS Code will use one of the below attributes on the body element (including the body in the iframe
+for the notebook cells when running Jupyter in VS Code). The first 2 are light, the second 2 are dark:
+
+  - [data-vscode-theme-kind="vscode-light"]
+  - [data-vscode-theme-kind="vscode-high-contrast-light"]
+  - [data-vscode-theme-kind="vscode-dark"]
+  - [data-vscode-theme-kind="vscode-high-contrast"]
+
+- Jupyter in the browser will use one of the below attributes on the body element for light/dark themes:
+
+  - [data-jp-theme-light="true"]
+  - [data-jp-theme-light="false"]
+
+- It is also common to use a [data-theme="light"] or [data-theme="dark"] attribute on the body element
+  to indicate light/dark themes, so look for that also (e.g. in the kata viewer in the playground).
+
+Note that colors that are not theme dependent should just be set on :root, with no need to add overrides
+*/
+
+/* Default to light values set on :root if all else fails */
+:root,
+/* Set these variables on the body element if attributes indicate a light theme choice */
+body[data-theme="light"],
+body[data-jp-theme-light="true"],
+body[data-vscode-theme-kind="vscode-light"],
+body[data-vscode-theme-kind="vscode-high-contrast-light"] {
+  /* Set any non-theme specific values here only */
+  --qdk-font-family-monospace: var(
+    --vscode-editor-font-family,
+    "Consolas",
+    "Menlo",
+    "Liberation Mono",
+    monospace
+  );
+  --qdk-mid-gray: #888;
+  /* End non-theme specific values */
+
+  /* Use the host foreground/background if available */
+  --qdk-host-background: var(
+    --vscode-editor-background,
+    var(--jp-layout-color0, #eee)
+  );
+  --qdk-host-foreground: var(
+    --vscode-editor-foreground,
+    var(--jp-widgets-color, #222)
+  );
+  --qdk-background-accent: #ddd;
+
+  /* Used for text that must stand out on various backgrounds */
+  --qdk-text-high-contrast: #000;
+
+  /* Outline for widget borders, etc. */
+  --qdk-widget-outline: #ccc;
+
+  /* Use for menus */
+  --qdk-menu-fill: #ccc;
+  --qdk-menu-fill-hover: #9cf;
+  --qdk-menu-fill-selected: #7af;
+
+  /* Used for shapes in charts, etc. that may have overlapping text (which should contrast) */
+  --qdk-shape-fill: #8ab8ff;
+  --qdk-shape-fill-selected: #b5c5f2;
+  --qdk-shape-stroke-selected: #587ddd;
+  --qdk-shape-stroke-hover: #6b6b6b;
+}
+
+/* Set these variables on the body element if attributes indicate a dark theme choice */
+body[data-theme="dark"],
+body[data-jp-theme-light="false"],
+body[data-vscode-theme-kind="vscode-dark"],
+body[data-vscode-theme-kind="vscode-high-contrast"] {
+  /* Use the host foreground/background if available */
+  --qdk-host-background: var(
+    --vscode-editor-background,
+    var(--jp-layout-color0, #222)
+  );
+  --qdk-host-foreground: var(
+    --vscode-editor-foreground,
+    var(--jp-widgets-color, #eee)
+  );
+  --qdk-background-accent: #333;
+
+  /* Used for text that must stand out on various backgrounds */
+  --qdk-text-high-contrast: #fff;
+
+  /* Outline for widget borders, etc. */
+  --qdk-widget-outline: #444;
+
+  /* Use for menus */
+  --qdk-menu-fill: #444;
+  --qdk-menu-fill-hover: #468;
+  --qdk-menu-fill-selected: #47a;
+
+  /* Used for shapes in charts, etc. that may have overlapping text (which should contrast) */
+  --qdk-shape-fill: #4aa3ff;
+  --qdk-shape-fill-selected: #ffd54f;
+  --qdk-shape-stroke-selected: #ffecb3;
+  --qdk-shape-stroke-hover: #c5c5c5;
+}
