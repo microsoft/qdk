@@ -20,6 +20,20 @@ class Complex {
   static mul(a: Complex, b: Complex) {
     return new Complex(a.re * b.re - a.im * b.im, a.re * b.im + a.im * b.re);
   }
+  static conj(a: Complex) {
+    return new Complex(a.re, -a.im);
+  }
+}
+
+function adjointMat2(mat: Complex[]): Complex[] {
+  // 2x2 matrix stored as [m00, m01, m10, m11].
+  // Adjoint is conjugate transpose: [[conj(m00), conj(m10)], [conj(m01), conj(m11)]].
+  return [
+    Complex.conj(mat[0]),
+    Complex.conj(mat[2]),
+    Complex.conj(mat[1]),
+    Complex.conj(mat[3]),
+  ];
 }
 
 // Matrices for single-qubit gates
@@ -35,7 +49,7 @@ const GATE = {
     new Complex(0, -1),
     new Complex(0, 1),
     new Complex(0, 0),
-  ], // [[0,-i],[i,0]]
+  ],
   Z: [
     new Complex(1, 0),
     new Complex(0, 0),
@@ -43,10 +57,10 @@ const GATE = {
     new Complex(-1, 0),
   ],
   H: [
-    new Complex(1 / Math.SQRT2, 0),
-    new Complex(1 / Math.SQRT2, 0),
-    new Complex(1 / Math.SQRT2, 0),
-    new Complex(-1 / Math.SQRT2, 0),
+    new Complex(Math.SQRT1_2, 0),
+    new Complex(Math.SQRT1_2, 0),
+    new Complex(Math.SQRT1_2, 0),
+    new Complex(-Math.SQRT1_2, 0),
   ],
   S: [
     new Complex(1, 0),
@@ -58,14 +72,14 @@ const GATE = {
     new Complex(1, 0),
     new Complex(0, 0),
     new Complex(0, 0),
-    new Complex(Math.cos(Math.PI / 4), Math.sin(Math.PI / 4)),
+    new Complex(Math.SQRT1_2, Math.SQRT1_2),
   ],
   SX: [
     // sqrt(X)
-    new Complex(0.5 + 0, 0.5),
-    new Complex(0.5 - 0, -0.5),
-    new Complex(0.5 - 0, -0.5),
-    new Complex(0.5 + 0, 0.5),
+    new Complex(0.5, 0.5),
+    new Complex(0.5, -0.5),
+    new Complex(0.5, -0.5),
+    new Complex(0.5, 0.5),
   ],
 };
 
@@ -308,6 +322,7 @@ export function computeAmpMapForCircuit(
         case "unitary": {
           const targetQubits = op.targets.map((r) => r.qubit);
           const controls = (op.controls ?? []).map((r) => r.qubit);
+          const isAdjoint = op.isAdjoint ?? false;
           if (targetQubits.length !== 1) {
             // Unsupported multi-qubit unitary: skip
             continue;
@@ -354,7 +369,10 @@ export function computeAmpMapForCircuit(
             default:
               break;
           }
-          if (mat) applySingleQubit(state, t, mat, controls);
+          if (mat) {
+            mat = isAdjoint ? adjointMat2(mat) : mat;
+            applySingleQubit(state, t, mat, controls);
+          }
           break;
         }
         case "ket": {
