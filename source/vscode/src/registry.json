@@ -6,7 +6,7 @@
       "dependency": {
         "github": {
           "owner": "microsoft",
-          "repo": "qsharp",
+          "repo": "qdk",
           "refs": [
             { "ref": "v1.23.0", "notes": "latest stable" },
             { "ref": "main", "notes": "nightly, unstable" }
@@ -21,7 +21,7 @@
       "dependency": {
         "github": {
           "owner": "microsoft",
-          "repo": "qsharp",
+          "repo": "qdk",
           "refs": [
             { "ref": "v1.23.0", "notes": "latest stable" },
             { "ref": "main", "notes": "nightly, unstable" }
@@ -36,7 +36,7 @@
       "dependency": {
         "github": {
           "owner": "microsoft",
-          "repo": "qsharp",
+          "repo": "qdk",
           "refs": [
             { "ref": "v1.23.0", "notes": "latest stable" },
             { "ref": "main", "notes": "nightly, unstable" }
@@ -51,7 +51,7 @@
       "dependency": {
         "github": {
           "owner": "microsoft",
-          "repo": "qsharp",
+          "repo": "qdk",
           "refs": [
             { "ref": "v1.23.0", "notes": "latest stable" },
             { "ref": "main", "notes": "nightly, unstable" }
@@ -66,12 +66,27 @@
       "dependency": {
         "github": {
           "owner": "microsoft",
-          "repo": "qsharp",
+          "repo": "qdk",
           "refs": [
             { "ref": "v1.23.0", "notes": "latest stable" },
             { "ref": "main", "notes": "nightly, unstable" }
           ],
           "path": "library/qtest"
+        }
+      }
+    },
+    {
+      "name": "TableLookup",
+      "description": "Primitives useful to perform computation and uncomputation of table lookup",
+      "dependency": {
+        "github": {
+          "owner": "microsoft",
+          "repo": "qdk",
+          "refs": [
+            { "ref": "v1.23.0", "notes": "latest stable" },
+            { "ref": "main", "notes": "nightly, unstable" }
+          ],
+          "path": "library/table_lookup"
         }
       }
     },
