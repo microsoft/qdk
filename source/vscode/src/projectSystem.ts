@@ -106,6 +106,8 @@ export async function listDirectory(
   const fileSearchResult = await vscode.workspace.fs.readDirectory(uriToQuery);
   const mappedFiles: [string, vscode.FileType][] = fileSearchResult.map(
     ([name, type]) => [
+      // Rust expects paths, not encoded URIs, so we need to decode here.
+      // We need to decode the components and then the URI.
       decodeURI(
         decodeURIComponent(Utils.joinPath(uriToQuery, name).toString()),
       ),
