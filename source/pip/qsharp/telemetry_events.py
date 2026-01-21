@@ -299,6 +299,13 @@ def on_neutral_atom_trace_end(duration_ms: float) -> None:
     )
 
 
+def on_neutral_atom_cpu_fallback() -> None:
+    log_telemetry(
+        "neutral_atom.device.cpu_fallback",
+        1,
+    )
+
+
 def on_neutral_atom_simulate(shots: int, noise: bool, type: str) -> None:
     log_telemetry(
         "neutral_atom.device.simulate",
