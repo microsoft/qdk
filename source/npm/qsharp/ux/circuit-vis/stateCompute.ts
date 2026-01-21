@@ -275,6 +275,7 @@ export function computeAmpMapForCircuit(
   endianness: Endianness = "big",
 ): AmpMap {
   const n = qubits.length;
+  if (n === 0) return {};
   const dim = 1 << n;
   const state: Complex[] = new Array(dim);
   for (let i = 0; i < dim; i++) state[i] = new Complex(0, 0);
@@ -387,5 +388,6 @@ export function computeAmpMapFromCurrentModel(
 ): AmpMap | null {
   const model = getCurrentCircuitModel();
   if (!model) return null;
+  if (model.qubits.length === 0) return null;
   return computeAmpMapForCircuit(model.qubits, model.componentGrid, endianness);
 }

@@ -157,13 +157,6 @@ export const updateStatePanelFromMap = (
 ): void => {
   const entries = Object.entries(ampMap);
   if (entries.length === 0) {
-    const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
-    if (svg) while (svg.firstChild) svg.removeChild(svg.firstChild);
-    return;
-  }
-
-  // Handle zero-qubit map by showing the empty-state message and hiding SVG
-  if (entries.length == 0) {
     showEmptyState(panel);
     return;
   }
