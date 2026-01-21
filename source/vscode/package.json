@@ -183,11 +183,11 @@
           "default": false,
           "description": "Suppress notifications about new QDK updates. If true, you will not be prompted about new features after updates."
         },
-        "Q#.azure.experimental.uploadSupplementalData": {
+        "Q#.azure.uploadSupplementalData": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "tags": [
-            "experimental"
+            "hidden"
           ],
           "description": "Upload supplemental input data (circuit diagram) to the storage container when submitting jobs to Azure Quantum."
         }
