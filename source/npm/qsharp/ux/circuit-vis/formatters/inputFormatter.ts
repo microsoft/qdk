@@ -132,7 +132,7 @@ const formatInputs = (
       return clsReg;
     });
 
-    currY += gatePadding;
+    currY += gatePadding + gateHeight / 2;
 
     //             ┌╌╌╌╌╌╌╌┐
     //             ╎┌╌╌╌╌╌┐╎

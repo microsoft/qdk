@@ -22,7 +22,7 @@ export const labelFontSize = 14;
 /** Horizontal padding on each side of gate label. */
 export const labelPaddingX = 10;
 /** Height between classical registers. */
-export const classicalRegHeight = 20;
+export const classicalRegHeight = 24;
 /** Horizontal padding inside group box. */
 export const groupPaddingX = 10;
 /** Vertical padding above and below a group label. */
