@@ -266,6 +266,7 @@ class NeutralAtomDevice(Device):
                 try_create_gpu_adapter()
                 type = "gpu"
             except OSError:
+                telemetry_events.on_neutral_atom_cpu_fallback()
                 type = "cpu"
 
         telemetry_events.on_neutral_atom_simulate(shots, using_noise, type)
