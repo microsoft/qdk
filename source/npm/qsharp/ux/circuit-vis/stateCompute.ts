@@ -5,6 +5,13 @@ import { ComponentGrid, Operation, Qubit } from "./circuit.js";
 import { AmpMap } from "./stateViz.js";
 import { getCurrentCircuitModel } from "./events.js";
 
+class UnsupportedStateComputeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UnsupportedStateComputeError";
+  }
+}
+
 // Endianness here controls only bitstring labeling for visualization.
 export type Endianness = "big" | "little";
 
@@ -262,49 +269,6 @@ function applySingleQubit(
   }
 }
 
-function applyResetZero(state: Complex[], target: number): void {
-  const mask = 1 << target;
-  const N = state.length;
-  for (let i = 0; i < N; i += 2 * mask) {
-    for (let j = 0; j < mask; j++) {
-      const i0 = i + j;
-      const i1 = i + j + mask;
-      const a0 = state[i0];
-      const a1 = state[i1];
-      const p = a0.re * a0.re + a0.im * a0.im + a1.re * a1.re + a1.im * a1.im;
-      const newMag = Math.sqrt(p);
-
-      // Choose a phase direction to preserve: prefer the larger component's phase;
-      // if magnitudes tie, prefer the sum's direction if nonzero.
-      const mag0 = Math.hypot(a0.re, a0.im);
-      const mag1 = Math.hypot(a1.re, a1.im);
-      const sumRe = a0.re + a1.re;
-      const sumIm = a0.im + a1.im;
-      const sumMag = Math.hypot(sumRe, sumIm);
-
-      let dirRe = 1;
-      let dirIm = 0;
-      if (mag0 === 0 && mag1 === 0) {
-        dirRe = 1;
-        dirIm = 0;
-      } else if (Math.abs(mag0 - mag1) < 1e-12 && sumMag > 1e-15) {
-        dirRe = sumRe / sumMag;
-        dirIm = sumIm / sumMag;
-      } else {
-        const t = mag0 >= mag1 ? a0 : a1;
-        const tMag = Math.hypot(t.re, t.im);
-        if (tMag > 0) {
-          dirRe = t.re / tMag;
-          dirIm = t.im / tMag;
-        }
-      }
-
-      state[i0] = new Complex(dirRe * newMag, dirIm * newMag);
-      state[i1] = new Complex(0, 0);
-    }
-  }
-}
-
 export function computeAmpMapForCircuit(
   qubits: Qubit[],
   componentGrid: ComponentGrid,
@@ -376,9 +340,12 @@ export function computeAmpMapForCircuit(
           break;
         }
         case "ket": {
-          // Only support resetting to |0⟩ for now
-          if (op.gate === "0" && op.targets.length === 1) {
-            applyResetZero(state, op.targets[0].qubit);
+          // Reset is non-unitary and generally produces mixed states.
+          // The state visualizer currently only supports pure state vectors.
+          if (op.gate === "0") {
+            throw new UnsupportedStateComputeError(
+              "State visualization does not currently support ResetZ / |0⟩ reset operations.",
+            );
           }
           break;
         }

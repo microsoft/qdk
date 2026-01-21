@@ -142,6 +142,13 @@ export const renderDefaultStatePanel = (
   }
 };
 
+export const renderUnsupportedStatePanel = (
+  panel: HTMLElement,
+  message: string,
+): void => {
+  showEmptyState(panel, message);
+};
+
 // Adapter: render from a map of named states to complex amplitudes.
 export const updateStatePanelFromMap = (
   panel: HTMLElement,
@@ -191,7 +198,10 @@ export const updateStatePanelFromMap = (
   renderStatePanel(panel, columns, opts);
 };
 
-const showEmptyState = (panel: HTMLElement): void => {
+const showEmptyState = (
+  panel: HTMLElement,
+  message = "The circuit is empty.",
+): void => {
   const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
   if (svg) {
     while (svg.firstChild) svg.removeChild(svg.firstChild);
@@ -205,7 +215,7 @@ const showEmptyState = (panel: HTMLElement): void => {
     msg.className = "state-empty-message";
     panel.appendChild(msg);
   }
-  msg.textContent = "The circuit is empty.";
+  msg.textContent = message;
 
   if (!panel.classList.contains("collapsed")) {
     panel.style.flexBasis = `${VIZ.emptyStateFlexBasisPx}px`;

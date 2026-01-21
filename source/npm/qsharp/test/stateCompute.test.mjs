@@ -59,10 +59,6 @@ test("invalid inputs return undefined", () => {
   assert.equal(evaluateAngleExpression("-.5"), undefined);
 });
 
-// --------------------
-// Reset phase-preservation tests
-// --------------------
-
 const getAmp = (ampMap, label) => ampMap[label] ?? { re: 0, im: 0 };
 const mkQubit = (n = 1) => Array.from({ length: n }, (_, id) => ({ id }));
 const colUnitaryAt = (gate, target, args, opts) => ({
@@ -196,58 +192,11 @@ test("Single adjoint: controlled Rz† no-ops when control is |0⟩", () => {
   assertAmp(getAmp(ampMap, "01"), 1, 0);
 });
 
-test("Reset preserves phase after X", () => {
-  const qubits = mkQubit();
-  const componentGrid = [colUnitary("X"), colReset0()];
-  const ampMap = computeAmpMapForCircuit(qubits, componentGrid, "big");
-  const a0 = getAmp(ampMap, "0");
-  assert.ok(approxEq(a0.re, 1));
-  assert.ok(approxEq(a0.im, 0));
-});
-
-test("Reset preserves phase after Y", () => {
-  const qubits = mkQubit();
-  const componentGrid = [colUnitary("Y"), colReset0()];
-  const ampMap = computeAmpMapForCircuit(qubits, componentGrid, "big");
-  const a0 = getAmp(ampMap, "0");
-  assert.ok(approxEq(a0.re, 0));
-  assert.ok(approxEq(a0.im, 1));
-});
-
-test("Reset after H yields real +1", () => {
+test("Reset is unsupported by stateCompute", () => {
   const qubits = mkQubit();
   const componentGrid = [colUnitary("H"), colReset0()];
-  const ampMap = computeAmpMapForCircuit(qubits, componentGrid, "big");
-  const a0 = getAmp(ampMap, "0");
-  assert.ok(approxEq(a0.re, 1));
-  assert.ok(approxEq(a0.im, 0));
-});
-
-test("Reset tie-case uses sum direction when magnitudes tie", () => {
-  const qubits = mkQubit();
-  const componentGrid = [colUnitary("H"), colUnitary("Z"), colReset0()];
-  const ampMap = computeAmpMapForCircuit(qubits, componentGrid, "big");
-  const a0 = getAmp(ampMap, "0");
-  assert.ok(approxEq(a0.re, 1));
-  assert.ok(approxEq(a0.im, 0));
-});
-
-test("Reset after Ry(π/2) yields real +1", () => {
-  const qubits = mkQubit();
-  const componentGrid = [colUnitary("Ry", ["π/2"]), colReset0()];
-  const ampMap = computeAmpMapForCircuit(qubits, componentGrid, "big");
-  const a0 = getAmp(ampMap, "0");
-  assert.ok(approxEq(a0.re, 1));
-  assert.ok(approxEq(a0.im, 0));
-});
-
-test("Reset after Rz(π/2) preserves phase e^{-iπ/4}", () => {
-  const qubits = mkQubit();
-  const componentGrid = [colUnitary("Rz", ["π/2"]), colReset0()];
-  const ampMap = computeAmpMapForCircuit(qubits, componentGrid, "big");
-  const a0 = getAmp(ampMap, "0");
-  const re = Math.SQRT1_2; // √2/2
-  const im = -Math.SQRT1_2; // -√2/2
-  assert.ok(approxEq(a0.re, re));
-  assert.ok(approxEq(a0.im, im));
+  assert.throws(
+    () => computeAmpMapForCircuit(qubits, componentGrid, "big"),
+    /reset/i,
+  );
 });

@@ -6,6 +6,7 @@ import {
   createStatePanel,
   updateStatePanelFromMap,
   renderDefaultStatePanel,
+  renderUnsupportedStatePanel,
 } from "./stateViz.js";
 import { computeAmpMapFromCurrentModel } from "./stateCompute.js";
 import {
@@ -95,20 +96,33 @@ const createPanel = (
         });
         return true;
       }
-      const ampMap = computeAmpMapFromCurrentModel(state.endianness);
-      if (ampMap) {
-        updateStatePanelFromMap(panel, ampMap, {
-          normalize: true,
-          minProbThreshold: state.minProbThreshold,
-        });
-        return true;
-      } else {
+      try {
+        const ampMap = computeAmpMapFromCurrentModel(state.endianness);
+        if (ampMap) {
+          updateStatePanelFromMap(panel, ampMap, {
+            normalize: true,
+            minProbThreshold: state.minProbThreshold,
+          });
+          return true;
+        }
+
         // Determine current wire count from the circuit DOM
         const circuit = container.querySelector("svg.qviz");
         const wiresGroup = circuit?.querySelector(".wires");
         const wireCount = wiresGroup ? wiresGroup.children.length : 0;
         renderDefaultStatePanel(panel, wireCount);
         return false;
+      } catch (e) {
+        const err = e as Error;
+        if (err?.name === "UnsupportedStateComputeError") {
+          renderUnsupportedStatePanel(panel, err.message);
+          return true;
+        }
+        renderUnsupportedStatePanel(
+          panel,
+          "State visualization is unavailable for this circuit.",
+        );
+        return true;
       }
     };
 
