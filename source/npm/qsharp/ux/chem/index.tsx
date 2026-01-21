@@ -78,14 +78,14 @@ export function MoleculeViewer(props: {
         currViewer.addVolumetricData(cubeData.trim(), "cube", {
           isoval,
           opacity: 1,
-          color: "red",
+          color: "#0072B2",
         }),
       );
       activeCubeData.current.push(
         currViewer.addVolumetricData(cubeData.trim(), "cube", {
           isoval: -1 * isoval,
           opacity: 1,
-          color: "green",
+          color: "#FFA500",
         }),
       );
     }
