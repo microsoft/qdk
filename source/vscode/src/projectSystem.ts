@@ -105,7 +105,12 @@ export async function listDirectory(
 
   const fileSearchResult = await vscode.workspace.fs.readDirectory(uriToQuery);
   const mappedFiles: [string, vscode.FileType][] = fileSearchResult.map(
-    ([name, type]) => [Utils.joinPath(uriToQuery, name).toString(), type],
+    ([name, type]) => [
+      decodeURI(
+        decodeURIComponent(Utils.joinPath(uriToQuery, name).toString()),
+      ),
+      type,
+    ],
   );
 
   return mappedFiles;

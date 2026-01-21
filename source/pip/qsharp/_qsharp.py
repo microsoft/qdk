@@ -161,7 +161,7 @@ class Config:
             # In the future, we may support other schemes, such as github, if/when
             # we have VS Code Web + Jupyter support.
             normalized_root = os.path.normpath(os.path.join(os.getcwd(), project_root))
-            self._config["projectRoot"] = "file://" + normalized_root
+            self._config["projectRoot"] = "file:///" + normalized_root
 
     def __repr__(self) -> str:
         return "Q# initialized with configuration: " + str(self._config)
