@@ -55,7 +55,7 @@ export function EstimatesPanel(props: {
         {props.calculating ? (
           <Spinner style="position: absolute; top: 11px; left: 4px;" />
         ) : null}
-        <h1>Azure Quantum Resource Estimator</h1>
+        <h1>Microsoft Quantum Resource Estimator</h1>
       </div>
       <EstimatesOverview
         estimatesData={props.estimatesData}

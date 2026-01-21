@@ -365,7 +365,7 @@ function renderLocations(locations: SourceLocation[]) {
   });
   const title = titles.length > 1 ? `${titles[0]}, ...` : titles[0];
 
-  const argsStr = encodeURIComponent(JSON.stringify([qdkLocations]));
+  const argsStr = encodeURI(encodeURIComponent(JSON.stringify([qdkLocations])));
   const href = `command:qsharp-vscode.gotoLocations?${argsStr}`;
   return {
     title,

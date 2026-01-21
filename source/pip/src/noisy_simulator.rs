@@ -352,6 +352,7 @@ impl StateVectorSimulator {
     ) -> PyResult<()> {
         self.0
             .apply_instrument(&instrument.0, &qubits)
+            .map(|_| ())
             .map_err(|e| NoisySimulatorError::new_err(e.to_string()))
     }
 

@@ -1,4 +1,4 @@
-# Azure Quantum Development Kit (QDK)
+# Microsoft Quantum Development Kit (QDK)
 
 This extension brings rich Q# language support to VS Code. Develop, build, and run your Q# code from VS Code either locally on simulators, or by submitting a job to Azure Quantum.
 
@@ -19,7 +19,7 @@ The Q# extension currently supports:
 - Snippet and sample support
 - Completions
 
-For more information about the QDK and Azure Quantum, visit [https://aka.ms/AQ/Documentation](https://aka.ms/AQ/Documentation).
+For more information about the QDK and Microsoft Quantum, visit [https://aka.ms/qdk](https://aka.ms/qdk).
 
 ## Contributing
 

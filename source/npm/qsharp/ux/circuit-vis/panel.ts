@@ -17,7 +17,7 @@ import {
 } from "./constants.js";
 import { formatGate } from "./formatters/gateFormatter.js";
 import { GateType, GateRenderData } from "./gateRenderData.js";
-import { getGateWidth } from "./utils.js";
+import { getMinGateWidth } from "./utils.js";
 import {
   attachStateDevToolbar,
   createDefaultDevToolbarState,
@@ -336,6 +336,8 @@ const toRenderData = (
     targetsY: [target],
     label: "",
     width: -1,
+    topPadding: 0,
+    bottomPadding: 0,
   };
 
   if (operation === undefined) return renderData;
@@ -377,7 +379,7 @@ const toRenderData = (
   if (operation.args !== undefined && operation.args.length > 0)
     renderData.displayArgs = operation.args[0];
 
-  renderData.width = getGateWidth(renderData);
+  renderData.width = getMinGateWidth(renderData);
   renderData.x = x + 1 + renderData.width / 2; // offset by 1 for left padding
 
   return renderData;

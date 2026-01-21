@@ -1,0 +1,13 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc c33fea26aaa8cbaa607f32edcecbbc467d346bfc97133731f20857c9f40055d8 # shrinks to matrix = BitMatrix { rows: [00] }
+cc 071d36a7a48c1f8eed4a97ef0bb972cd30af40a3f5f34d840d6d4e117c29e2ee # shrinks to matrix = BitMatrix { rows: [] }
+cc 35c9ae8f18e663d05200739c28d572913b1b90dc2a9f41122588462ac8fcc69b # shrinks to rowcount = 0, columncount = 1
+cc dce72d1bfb8a0e2988c9f9e518d888a909bf75ada0a192284ed84d8820b6ab8b # shrinks to mut matrix = BitMatrix { blocks: [BitBlock([6, 0, 0, 0, 0, 0, 0, 0]), BitBlock([0, 0, 0, 0, 0, 0, 0, 0]), BitBlock([9, 0, 0, 0, 0, 0, 0, 0])], rows: [0x7fa2f4002840, 0x7fa2f4002880, 0x7fa2f40028c0], columncount: 4 }
+cc 9be9ec04ba2d054c43b373ee55cc64ca9a1bde2128adc7a162d59fc184f4fecb # shrinks to matrix = BitMatrix { blocks: [BitBlock { blocks: [3, 0, 0, 0, 0, 0, 0, 0] }, BitBlock { blocks: [2, 0, 0, 0, 0, 0, 0, 0] }], rows: [0x127b493ba80, 0x127b493ba40], columncount: 2 }
+cc ec754a1a295ea19b35f679e1922e9710badff156bd679eac11487741973e3738 # shrinks to matrix = BitMatrix { blocks: [BitBlock { blocks: [1, 0, 0, 0, 0, 0, 0, 0] }, BitBlock { blocks: [1, 0, 0, 0, 0, 0, 0, 0] }], rows: [0x1b7dd165200, 0x1b7dd165240], columncount: 2 }
+cc 1833a449cf1e22a3e71fc5515a25b05834254860b4e64507310b10ef8b662ff1 # shrinks to matrix = BitMatrix { blocks: [BitBlock { blocks: [1, 0, 0, 0, 0, 0, 0, 0] }, BitBlock { blocks: [2, 0, 0, 0, 0, 0, 0, 0] }], rows: [0x229e5980080, 0x229e5980040], columncount: 2 }

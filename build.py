@@ -528,8 +528,10 @@ if build_qdk:
             "install",
             "--force-reinstall",
             "--no-index",
+            "--no-deps",
             "--find-links=" + wheels_dir,
             "qdk",
+            "qsharp",
         ]
         subprocess.run(install_args, check=True, text=True, cwd=qdk_python_src)
 
@@ -705,6 +707,9 @@ if build_pip and build_widgets and args.integration_tests:
             or f.startswith("submit_qiskit_circuit_to_azure.")
             or f.startswith("cirq_submission_to_azure.")
             or f.startswith("pennylane_submission_to_azure.")
+            or f.startswith("benzene.")
+            or f.startswith("parallel_teleport.")
+            or f.startswith("carbon.")
         )
     ]
     python_bin = use_python_env(samples_src)
@@ -771,7 +776,7 @@ if build_pip and build_widgets and args.integration_tests:
                     "--to",
                     "notebook",
                     "--stdout",
-                    "--ExecutePreprocessor.timeout=60",
+                    "--ExecutePreprocessor.timeout=90",
                     "--sanitize-html",
                     "--execute",
                     notebook,

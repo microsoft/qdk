@@ -74,9 +74,6 @@ pub trait NoisySimulator {
     /// Apply an operation to the given qubit ids.
     fn apply_operation(&mut self, operation: &Operation, qubits: &[usize]) -> Result<(), Error>;
 
-    /// Apply non selective evolution to the given qubit ids.
-    fn apply_instrument(&mut self, instrument: &Instrument, qubits: &[usize]) -> Result<(), Error>;
-
     /// Performs selective evolution under the given instrument.
     /// Returns the index of the observed outcome.
     ///
@@ -192,12 +189,12 @@ impl From<&mut Error> for Error {
 /// If an error is unrecoverable, it will set the state of the simulator to that error,
 /// invalidating any further evolution of the quantum system.
 macro_rules! handle_error {
-    ($self:expr, $err:expr) => {
+    ($self:expr, $err:expr) => {{
         if $err.is_unrecoverable() {
             $self.state = Err($err.clone());
         }
-        return Err($err)
-    };
+        return Err($err);
+    }};
 }
 
 pub(crate) use handle_error;
