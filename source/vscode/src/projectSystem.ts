@@ -105,14 +105,7 @@ export async function listDirectory(
 
   const fileSearchResult = await vscode.workspace.fs.readDirectory(uriToQuery);
   const mappedFiles: [string, vscode.FileType][] = fileSearchResult.map(
-    ([name, type]) => [
-      // Rust expects paths, not encoded URIs, so we need to decode here.
-      // We need to decode the components and then the URI.
-      decodeURI(
-        decodeURIComponent(Utils.joinPath(uriToQuery, name).toString()),
-      ),
-      type,
-    ],
+    ([name, type]) => [Utils.joinPath(uriToQuery, name).toString(), type],
   );
 
   return mappedFiles;
@@ -194,6 +187,8 @@ export async function loadProject(
     });
   }
 
+  log.info(`loadQSharpProject(${manifestDocument.directory})`);
+  log.info(`loadQSharpProject(${manifestDocument.directory.toString()})`);
   const project = await projectLoader!.loadQSharpProject(
     manifestDocument.directory.toString(),
   );

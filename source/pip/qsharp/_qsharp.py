@@ -38,6 +38,7 @@ from .estimator._estimator import (
 )
 import json
 import os
+import pathlib
 import sys
 import types
 from time import monotonic
@@ -160,8 +161,10 @@ class Config:
             # For now, we only support local project roots, so use a file schema in the URI.
             # In the future, we may support other schemes, such as github, if/when
             # we have VS Code Web + Jupyter support.
-            normalized_root = os.path.normpath(os.path.join(os.getcwd(), project_root))
-            self._config["projectRoot"] = "file:///" + normalized_root
+            # Python and VS-Code have different normalization logics,
+            # so, we will re-normalize this URI once it gets hand to VS-Code.
+            normalized_root = pathlib.Path(os.getcwd(), project_root).resolve()
+            self._config["projectRoot"] = normalized_root.as_uri()
 
     def __repr__(self) -> str:
         return "Q# initialized with configuration: " + str(self._config)
