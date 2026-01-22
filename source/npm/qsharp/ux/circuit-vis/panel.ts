@@ -80,7 +80,7 @@ const createPanel = (
     container.appendChild(statePanel);
   }
 
-  // Render static mock data in the state panel immediately.
+  // Render default state in panel immediately.
   const panelElem = container.querySelector(
     ".state-panel",
   ) as HTMLElement | null;
@@ -163,6 +163,7 @@ const enableRunButton = (
 
 /**
  * Function to produce panel element
+ * @returns             HTML element for panel
  */
 const _panel = (): HTMLElement => {
   const panelElem = _elem("div");
