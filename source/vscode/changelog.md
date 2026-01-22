@@ -1,13 +1,5 @@
 # QDK Changelog
 
-## v1.25.0
-
-Below are some of the highlights for the 1.25 release of the QDK.
-
-TODO
-
-**Full Changelog**: <https://github.com/microsoft/qdk/compare/v1.23.0...v1.25.0>
-
 ## v1.23.0
 
 Below are some of the highlights for the 1.23 release of the QDK.
