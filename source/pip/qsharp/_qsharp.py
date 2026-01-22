@@ -38,9 +38,9 @@ from .estimator._estimator import (
 )
 import json
 import os
-import pathlib
 import sys
 import types
+from pathlib import Path
 from time import monotonic
 from dataclasses import make_dataclass
 
@@ -161,8 +161,7 @@ class Config:
             # For now, we only support local project roots, so use a file schema in the URI.
             # In the future, we may support other schemes, such as github, if/when
             # we have VS Code Web + Jupyter support.
-            abs_project_root = pathlib.Path(os.getcwd(), project_root)
-            self._config["projectRoot"] = abs_project_root.as_uri()
+            self._config["projectRoot"] = Path(os.getcwd(), project_root).as_uri()
 
     def __repr__(self) -> str:
         return "Q# initialized with configuration: " + str(self._config)
