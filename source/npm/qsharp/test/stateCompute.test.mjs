@@ -1,9 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {
-  evaluateAngleExpression,
-  computeAmpMapForCircuit,
-} from "../dist/ux/circuit-vis/stateCompute.js";
+import { computeAmpMapForCircuit } from "../dist/ux/circuit-vis/stateCompute.js";
+import { evaluateAngleExpression } from "../dist/ux/circuit-vis/angleExpression.js";
 
 const approxEq = (a, b, eps = 1e-12) => Math.abs(a - b) <= eps;
 
