@@ -24,6 +24,9 @@ serde_json = { workspace = true }
 rayon = { workspace = true }
 rand = { workspace = true }
 
+[dev-dependencies]
+expect-test = { workspace = true }
+
 [lints]
 workspace = true
 
