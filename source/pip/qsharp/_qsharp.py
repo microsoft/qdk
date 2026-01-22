@@ -161,10 +161,8 @@ class Config:
             # For now, we only support local project roots, so use a file schema in the URI.
             # In the future, we may support other schemes, such as github, if/when
             # we have VS Code Web + Jupyter support.
-            # Python and VS-Code have different normalization logics,
-            # so, we will re-normalize this URI once it gets handed to VS-Code.
-            normalized_root = pathlib.Path(os.getcwd(), project_root).resolve()
-            self._config["projectRoot"] = normalized_root.as_uri()
+            abs_project_root = pathlib.Path(os.getcwd(), project_root)
+            self._config["projectRoot"] = abs_project_root.as_uri()
 
     def __repr__(self) -> str:
         return "Q# initialized with configuration: " + str(self._config)
