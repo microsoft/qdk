@@ -29,10 +29,12 @@ import {
  * Create a panel for the circuit visualization.
  * @param container         HTML element for rendering visualization into
  * @param showDevToolbar    Optional boolean controlling dev toolbar visibility
+ * @param statePanelInitiallyExpanded Optional boolean controlling whether the state panel starts expanded
  */
 const createPanel = (
   container: HTMLElement,
   showDevToolbar?: boolean,
+  statePanelInitiallyExpanded?: boolean,
 ): void => {
   // Find or create the wrapper
   let wrapper: HTMLElement | null = container.querySelector(".circuit-wrapper");
@@ -76,7 +78,7 @@ const createPanel = (
 
   // Ensure a right-side state panel exists
   if (container.querySelector(".state-panel") == null) {
-    const statePanel = createStatePanel();
+    const statePanel = createStatePanel(statePanelInitiallyExpanded === true);
     container.appendChild(statePanel);
   }
 

@@ -65,21 +65,22 @@ const VIZ = {
 
 // --- Entry Points ---
 
-export const createStatePanel = (): HTMLElement => {
+export const createStatePanel = (initiallyExpanded = false): HTMLElement => {
   const panel = document.createElement("div");
   panel.className = "state-panel";
-  // Start collapsed by default
-  panel.classList.add("collapsed");
+  if (!initiallyExpanded) {
+    panel.classList.add("collapsed");
+  }
 
   const edge = document.createElement("div");
   edge.className = "state-edge";
   edge.setAttribute("role", "button");
   edge.setAttribute("tabindex", "0");
   edge.setAttribute("aria-label", "Toggle state panel");
-  edge.setAttribute("aria-expanded", "false");
+  edge.setAttribute("aria-expanded", initiallyExpanded.toString());
   const edgeText = document.createElement("span");
   edgeText.className = "state-edge-text";
-  edgeText.textContent = "State Vizualization";
+  edgeText.textContent = "State Visualization";
   edge.appendChild(edgeText);
 
   const mkEdgeIcon = (cls: string): SVGSVGElement => {
@@ -345,6 +346,7 @@ type LayoutMetrics = {
 
   stateSectionTopY: number;
   verticalLabels: boolean;
+  maxLabelLen: number;
 
   animationMs: number;
   othersColor: string;
@@ -360,7 +362,7 @@ const getAnimationMs = (panel: HTMLElement, opts: RenderOptions): number => {
   if (
     typeof opts.animationMs === "number" &&
     isFinite(opts.animationMs) &&
-    opts.animationMs > 0
+    opts.animationMs >= 0
   ) {
     animationMs = Math.round(opts.animationMs);
   }
@@ -369,7 +371,7 @@ const getAnimationMs = (panel: HTMLElement, opts: RenderOptions): number => {
       .getPropertyValue("--stateAnimMs")
       .trim();
     const parsed = parseDurationMs(cssDur);
-    if (!isNaN(parsed) && parsed > 0) animationMs = parsed;
+    if (!isNaN(parsed) && parsed >= 0) animationMs = parsed;
   }
   return animationMs;
 };
@@ -467,6 +469,7 @@ const computeLayoutMetrics = (
     phaseCircleRadiusPx,
     stateSectionTopY,
     verticalLabels,
+    maxLabelLen,
     animationMs,
     phaseColor,
     othersColor,
@@ -774,9 +777,30 @@ const finalizeSvgAndFlex = (
     const edgePad = VIZ.edgePad;
     panel.style.flexBasis = `${Math.ceil(layout.panelWidthPx + edgePad)}px`;
   } catch {
-    // If getBBox fails (e.g., element not rendered), set conservative defaults
-    svg.setAttribute("height", VIZ.baseHeight.toString());
+    // If getBBox fails (e.g., JSDOM/SVG not fully rendered), fall back to a
+    // deterministic height based on our layout constants so snapshots still
+    // include the whole visualization.
+    const labelTextHeightPx = layout.verticalLabels
+      ? VIZ.verticalLabelCharHeight * Math.max(1, layout.maxLabelLen)
+      : VIZ.phaseLabelLineHeight;
+    const labelBottomY =
+      layout.stateSectionTopY +
+      VIZ.stateHeaderPadding +
+      (layout.verticalLabels
+        ? VIZ.stateLabelVerticalOffset
+        : VIZ.stateLabelHorizontalOffset) +
+      labelTextHeightPx;
+
+    const svgHeight = Math.max(
+      VIZ.baseHeight,
+      Math.ceil(
+        labelBottomY + VIZ.extraBottomPaddingPx + VIZ.marginBottomMinPx,
+      ),
+    );
+    svg.setAttribute("height", svgHeight.toString());
     svg.setAttribute("width", layout.panelWidthPx.toString());
+    const edgePad = VIZ.edgePad;
+    panel.style.flexBasis = `${Math.ceil(layout.panelWidthPx + edgePad)}px`;
   }
 };
 
@@ -795,6 +819,15 @@ const animate = (
   onUpdate: (v: number) => void,
   onDone?: () => void,
 ) => {
+  if (!isFinite(durationMs) || durationMs <= 0) {
+    try {
+      onUpdate(to);
+    } catch {
+      // Ignore update errors
+    }
+    if (onDone) onDone();
+    return;
+  }
   const start = performance.now();
   const tick = (now: number) => {
     const t = Math.min(1, (now - start) / durationMs);

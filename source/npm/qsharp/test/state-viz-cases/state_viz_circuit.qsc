@@ -1,0 +1,126 @@
+{
+  "version": 1,
+  "circuits": [
+    {
+      "qubits": [
+        {
+          "id": 0
+        },
+        {
+          "id": 1
+        },
+        {
+          "id": 2
+        }
+      ],
+      "componentGrid": [
+        {
+          "components": [
+            {
+              "gate": "H",
+              "kind": "unitary",
+              "targets": [
+                {
+                  "qubit": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "components": [
+            {
+              "kind": "unitary",
+              "gate": "Ry",
+              "targets": [
+                {
+                  "qubit": 1
+                }
+              ],
+              "params": [
+                {
+                  "name": "theta",
+                  "type": "Double"
+                }
+              ],
+              "args": [
+                "π / 3"
+              ]
+            }
+          ]
+        },
+        {
+          "components": [
+            {
+              "kind": "unitary",
+              "gate": "Rz",
+              "targets": [
+                {
+                  "qubit": 2
+                }
+              ],
+              "params": [
+                {
+                  "name": "theta",
+                  "type": "Double"
+                }
+              ],
+              "args": [
+                "π / 2"
+              ]
+            }
+          ]
+        },
+        {
+          "components": [
+            {
+              "kind": "unitary",
+              "gate": "Z",
+              "targets": [
+                {
+                  "qubit": 2
+                }
+              ],
+              "controls": [
+                {
+                  "qubit": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "components": [
+            {
+              "kind": "unitary",
+              "gate": "X",
+              "targets": [
+                {
+                  "qubit": 1
+                }
+              ],
+              "controls": [
+                {
+                  "qubit": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "components": [
+            {
+              "kind": "unitary",
+              "gate": "SX",
+              "targets": [
+                {
+                  "qubit": 2
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
