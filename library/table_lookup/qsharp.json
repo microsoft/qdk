@@ -1,4 +1,6 @@
 {
+  "author": "Microsoft",
+  "license": "MIT",
   "files": [
     "src/Lookup.qs",
     "src/LookupViaPP.qs",

@@ -6,7 +6,7 @@
       "github": {
         "owner": "Microsoft",
         "repo": "qsharp",
-        "ref": "v1.23.0",
+        "ref": "v1.25.0",
         "path": "library/signed"
       }
     }
