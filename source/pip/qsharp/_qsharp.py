@@ -162,7 +162,7 @@ class Config:
             # In the future, we may support other schemes, such as github, if/when
             # we have VS Code Web + Jupyter support.
             # Python and VS-Code have different normalization logics,
-            # so, we will re-normalize this URI once it gets hand to VS-Code.
+            # so, we will re-normalize this URI once it gets handed to VS-Code.
             normalized_root = pathlib.Path(os.getcwd(), project_root).resolve()
             self._config["projectRoot"] = normalized_root.as_uri()
 
