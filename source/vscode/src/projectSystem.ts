@@ -187,8 +187,6 @@ export async function loadProject(
     });
   }
 
-  log.info(`loadQSharpProject(${manifestDocument.directory})`);
-  log.info(`loadQSharpProject(${manifestDocument.directory.toString()})`);
   const project = await projectLoader!.loadQSharpProject(
     manifestDocument.directory.toString(),
   );
