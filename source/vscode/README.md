@@ -1,17 +1,17 @@
 # Microsoft Quantum Development Kit (QDK)
 
-This extension brings rich Q# language support to VS Code. Develop, build, and run your Q# code from VS Code either locally on simulators, or by submitting a job to Azure Quantum.
+This extension brings rich language support for Q# and OpenQASM to VS Code. Develop, build, and run your quantum code from VS Code either locally on simulators, or by submitting a job to Azure Quantum.
 
 You can also try out this extension in VS Code for Web at [vscode.dev/quantum](https://vscode.dev/quantum).
 
 ## Features
 
-The Q# extension currently supports:
+The QDK extension currently supports:
 
-- Syntax highlighting and basic syntax features (e.g. brace matching)
+- Syntax highlighting and basic syntax features (e.g. brace matching) for Q# and OpenQASM
 - Q# cell support in Jupyter notebooks. The extension will detect `%%qsharp` magic cells and automatically update the cell language to Q#
-- Error checking in Q# source files
-- Breakpoint debugging and script execution for Q# source files
+- Error checking in Q# and OpenQASM source files
+- Breakpoint debugging and script execution for Q# and OpenQASM
 - Integration with Azure Quantum for job submission to quantum hardware providers
 - Hover-definition and docs
 - Go-to-definition
