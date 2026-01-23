@@ -62,11 +62,11 @@ parameters:
         arch: x86_64
         envVars:
           QDK_GPU_TESTS: "1"
-      - name: windows_aarch64
-        poolName: "Azure-Pipelines-DevTools-ARM64-EO"
-        imageName: "Windows-2022-ARM64"
-        os: windows
-        arch: aarch64
+      # - name: windows_aarch64
+      #   poolName: "Azure-Pipelines-DevTools-ARM64-EO"
+      #   imageName: "Windows-2022-ARM64"
+      #   os: windows
+      #   arch: aarch64
 
 # variables set by pipeline
 # - BASE_IMAGE
@@ -439,9 +439,9 @@ extends:
                 - input: pipelineArtifact
                   artifactName: Wheels.Win.x86_64
                   targetPath: $(System.DefaultWorkingDirectory)/artifacts/win-x86_64
-                - input: pipelineArtifact
-                  artifactName: Wheels.Win.aarch64
-                  targetPath: $(System.DefaultWorkingDirectory)/artifacts/win-aarch64
+                # - input: pipelineArtifact
+                #   artifactName: Wheels.Win.aarch64
+                #   targetPath: $(System.DefaultWorkingDirectory)/artifacts/win-aarch64
                 - input: pipelineArtifact
                   artifactName: Wheels.Mac.x86_64
                   targetPath: $(System.DefaultWorkingDirectory)/artifacts/mac-x86_64
