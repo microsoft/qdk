@@ -39,6 +39,8 @@ def get_installed_msrust_targets() -> str:
                 f"Unable to determine installed rust targets using msrustup: {str(e)}"
             )
             raise Exception(message) from e
+    else:
+        return ""
 
 
 def get_installed_rust_targets() -> str:
@@ -84,6 +86,13 @@ def check_prereqs(install=False, skip_wasm=False):
         print(
             f"Python {python_ver[0]}.{python_ver[1]} or later is required. Please update"
         )
+        exit(1)
+
+    ### Check that pip is installed ###
+    try:
+        subprocess.run(["pip", "--version"], check=True)
+    except FileNotFoundError:
+        print("pip not found. Please install pip for your Python installation.")
         exit(1)
 
     ### Check the Node.js version ###
