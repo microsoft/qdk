@@ -4,7 +4,7 @@
             "github": {
                 "ref": "v1.25.0",
                 "owner": "microsoft",
-                "repo": "qsharp",
+                "repo": "qdk",
                 "path": "library/chemistry"
             }
         }
