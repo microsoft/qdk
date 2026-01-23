@@ -8,16 +8,15 @@ You can also try out this extension in VS Code for Web at [vscode.dev/quantum](h
 
 The QDK extension currently supports:
 
-- Syntax highlighting and basic syntax features (e.g. brace matching) for Q# and OpenQASM
-- Q# cell support in Jupyter notebooks. The extension will detect `%%qsharp` magic cells and automatically update the cell language to Q#
+- Syntax highlighting and syntax features (e.g. brace matching) for Q# and OpenQASM
+- Editing features such as go-to-definition, suggestions and signature help for Q# and OpenQASM
 - Error checking in Q# and OpenQASM source files
-- Breakpoint debugging and script execution for Q# and OpenQASM
+- Local quantum simulation, including support for Pauli noise and qubit loss
+- Breakpoint debugging for Q# and OpenQASM
+- Code samples for Q# and OpenQASM demonstrating well known algorithms
+- Circuit visualization
+- Q# cell support in Jupyter notebooks. The extension will detect `%%qsharp` magic cells and automatically update the cell language to Q#
 - Integration with Azure Quantum for job submission to quantum hardware providers
-- Hover-definition and docs
-- Go-to-definition
-- Function signature help
-- Snippet and sample support
-- Completions
 
 For more information about the QDK and Microsoft Quantum, visit [https://aka.ms/qdk](https://aka.ms/qdk).
 
