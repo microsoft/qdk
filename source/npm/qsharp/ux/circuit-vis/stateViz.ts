@@ -63,20 +63,6 @@ const VIZ = {
   rowLabelFallbackPx: 24,
 };
 
-// Stable numeric formatting for SVG attributes.
-// Avoids snapshot drift from tiny floating-point differences across JS engines.
-const fmt = (n: number, digits = 3): string => {
-  if (!isFinite(n)) return "0";
-  const d = Math.max(0, Math.min(10, Math.floor(digits)));
-  const pow = Math.pow(10, d);
-  const rounded = Math.round(n * pow) / pow;
-  const v = Object.is(rounded, -0) ? 0 : rounded;
-  let s = v.toFixed(d);
-  s = s.replace(/\.0+$/, "");
-  s = s.replace(/(\.\d*?)0+$/, "$1");
-  return s;
-};
-
 // --- Entry Points ---
 
 export const createStatePanel = (initiallyExpanded = false): HTMLElement => {
@@ -598,19 +584,19 @@ const renderProbSection = (
 
   const fromH = scaleY(prevProb);
   const baseY = VIZ.barHeaderPadding + VIZ.barAreaHeight;
-  bar.setAttribute("y", fmt(baseY - fromH));
-  bar.setAttribute("height", fmt(fromH));
+  bar.setAttribute("y", `${baseY - fromH}`);
+  bar.setAttribute("height", `${fromH}`);
   animate(prevProb, column.prob, animationMs, (pv) => {
     const h = scaleY(pv);
-    bar.setAttribute("y", fmt(baseY - h));
-    bar.setAttribute("height", fmt(h));
+    bar.setAttribute("y", `${baseY - h}`);
+    bar.setAttribute("height", `${h}`);
   });
 
   const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
-  label.setAttribute("x", fmt(cx));
+  label.setAttribute("x", `${cx}`);
   const labelY =
     VIZ.barHeaderPadding + VIZ.barAreaHeight + VIZ.percentLabelOffset;
-  label.setAttribute("y", fmt(labelY));
+  label.setAttribute("y", `${labelY}`);
   label.setAttribute("class", "state-bar-label");
   animate(prevProb, column.prob, animationMs, (pv) => {
     const pct = (pv ?? 0) * 100;
@@ -662,7 +648,7 @@ const renderPhaseSection = (
   const sweep = column.phase < 0 ? 1 : 0;
 
   const wedge = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  const dTarget = `M ${fmt(cx)} ${fmt(cy)} L ${fmt(sx)} ${fmt(sy)} A ${fmt(r)} ${fmt(r)} 0 ${largeArc} ${sweep} ${fmt(ex)} ${fmt(ey)} Z`;
+  const dTarget = `M ${cx} ${cy} L ${sx} ${sy} A ${r} ${r} 0 ${largeArc} ${sweep} ${ex} ${ey} Z`;
   wedge.setAttribute("d", dTarget);
   wedge.setAttribute("class", "state-phase-wedge");
   wedge.setAttribute("fill", phaseColor(column.phase));
@@ -672,9 +658,9 @@ const renderPhaseSection = (
     "http://www.w3.org/2000/svg",
     "circle",
   );
-  circle.setAttribute("cx", fmt(cx));
-  circle.setAttribute("cy", fmt(cy));
-  circle.setAttribute("r", fmt(r));
+  circle.setAttribute("cx", `${cx}`);
+  circle.setAttribute("cy", `${cy}`);
+  circle.setAttribute("r", `${r}`);
   circle.setAttribute("class", "state-phase-circle");
   const tipPhase = document.createElementNS(
     "http://www.w3.org/2000/svg",
@@ -688,7 +674,7 @@ const renderPhaseSection = (
     "http://www.w3.org/2000/svg",
     "text",
   );
-  phaseText.setAttribute("x", fmt(cx));
+  phaseText.setAttribute("x", `${cx}`);
   const dotRadius = Math.max(VIZ.phaseDotRadiusMinPx, r * VIZ.phaseDotFrac);
   const labelAreaTopY = cy + r + dotRadius;
   const labelAreaBottomY = stateSectionTopY - VIZ.phaseTextBottomPad;
@@ -697,7 +683,7 @@ const renderPhaseSection = (
   const yTextTop = Math.round(
     labelAreaTopY + Math.max(0, (availableH - textH) / 2),
   );
-  phaseText.setAttribute("y", fmt(yTextTop));
+  phaseText.setAttribute("y", `${yTextTop}`);
   phaseText.setAttribute("class", "state-phase-text");
   animate(prevPhase, column.phase, animationMs, (pv) => {
     phaseText.textContent = formatPhasePi(pv);
@@ -707,8 +693,8 @@ const renderPhaseSection = (
   const prevDx = r * Math.cos(prevPhase);
   const prevDy = r * Math.sin(prevPhase);
   const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-  dot.setAttribute("cx", fmt(cx + prevDx));
-  dot.setAttribute("cy", fmt(cy - prevDy));
+  dot.setAttribute("cx", `${cx + prevDx}`);
+  dot.setAttribute("cy", `${cy - prevDy}`);
   dot.setAttribute(
     "r",
     `${Math.max(VIZ.phaseDotRadiusMinPx, r * VIZ.phaseDotFrac)}`,
@@ -720,8 +706,8 @@ const renderPhaseSection = (
   animate(prevPhase, column.phase, animationMs, (pv) => {
     const dx = r * Math.cos(pv);
     const dy = r * Math.sin(pv);
-    dot.setAttribute("cx", fmt(cx + dx));
-    dot.setAttribute("cy", fmt(cy - dy));
+    dot.setAttribute("cx", `${cx + dx}`);
+    dot.setAttribute("cy", `${cy - dy}`);
     const fillColor = phaseColor(pv);
     wedge.setAttribute("fill", fillColor);
     dot.setAttribute("fill", fillColor);
@@ -730,7 +716,7 @@ const renderPhaseSection = (
     const eyA = cy - r * Math.sin(pv);
     const largeArcA = Math.abs(pv) > Math.PI ? 1 : 0;
     const sweepA = pv < 0 ? 1 : 0;
-    const dA = `M ${fmt(cx)} ${fmt(cy)} L ${fmt(sx)} ${fmt(sy)} A ${fmt(r)} ${fmt(r)} 0 ${largeArcA} ${sweepA} ${fmt(exA)} ${fmt(eyA)} Z`;
+    const dA = `M ${cx} ${cy} L ${sx} ${sy} A ${r} ${r} 0 ${largeArcA} ${sweepA} ${exA} ${eyA} Z`;
     wedge.setAttribute("d", dA);
   });
 };
@@ -757,8 +743,8 @@ const renderStateLabelSection = (
       "http://www.w3.org/2000/svg",
       "foreignObject",
     );
-    fo.setAttribute("x", fmt(colX));
-    fo.setAttribute("y", fmt(labelY));
+    fo.setAttribute("x", `${colX}`);
+    fo.setAttribute("y", `${labelY}`);
     fo.setAttribute("width", `${columnWidthPx}`);
     fo.setAttribute("height", `${labelH}`);
     const div = document.createElementNS("http://www.w3.org/1999/xhtml", "div");
@@ -768,8 +754,8 @@ const renderStateLabelSection = (
     g.appendChild(fo);
   } else {
     const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
-    t.setAttribute("x", fmt(cx));
-    t.setAttribute("y", fmt(labelY));
+    t.setAttribute("x", `${cx}`);
+    t.setAttribute("y", `${labelY}`);
     t.setAttribute("class", "state-bitstring");
     t.textContent = displayLabel(column);
     g.appendChild(t);
@@ -782,26 +768,40 @@ const finalizeSvgAndFlex = (
   g: SVGGElement,
   layout: LayoutMetrics,
 ) => {
-  void g;
-  const labelTextHeightPx = layout.verticalLabels
-    ? VIZ.verticalLabelCharHeight * Math.max(1, layout.maxLabelLen)
-    : VIZ.phaseLabelLineHeight;
-  const labelBottomY =
-    layout.stateSectionTopY +
-    VIZ.stateHeaderPadding +
-    (layout.verticalLabels
-      ? VIZ.stateLabelVerticalOffset
-      : VIZ.stateLabelHorizontalOffset) +
-    labelTextHeightPx;
+  try {
+    const bbox = g.getBBox();
+    const contentHeight = Math.ceil(bbox.height + VIZ.contentHeightExtra);
+    const svgHeight = Math.max(VIZ.baseHeight, contentHeight);
+    svg.setAttribute("height", svgHeight.toString());
+    svg.setAttribute("width", layout.panelWidthPx.toString());
+    const edgePad = VIZ.edgePad;
+    panel.style.flexBasis = `${Math.ceil(layout.panelWidthPx + edgePad)}px`;
+  } catch {
+    // If getBBox fails (e.g., JSDOM/SVG not fully rendered), fall back to a
+    // deterministic height based on our layout constants so snapshots still
+    // include the whole visualization.
+    const labelTextHeightPx = layout.verticalLabels
+      ? VIZ.verticalLabelCharHeight * Math.max(1, layout.maxLabelLen)
+      : VIZ.phaseLabelLineHeight;
+    const labelBottomY =
+      layout.stateSectionTopY +
+      VIZ.stateHeaderPadding +
+      (layout.verticalLabels
+        ? VIZ.stateLabelVerticalOffset
+        : VIZ.stateLabelHorizontalOffset) +
+      labelTextHeightPx;
 
-  const svgHeight = Math.max(
-    VIZ.baseHeight,
-    Math.ceil(labelBottomY + VIZ.extraBottomPaddingPx + VIZ.marginBottomMinPx),
-  );
-  svg.setAttribute("height", svgHeight.toString());
-  svg.setAttribute("width", layout.panelWidthPx.toString());
-  const edgePad = VIZ.edgePad;
-  panel.style.flexBasis = `${Math.ceil(layout.panelWidthPx + edgePad)}px`;
+    const svgHeight = Math.max(
+      VIZ.baseHeight,
+      Math.ceil(
+        labelBottomY + VIZ.extraBottomPaddingPx + VIZ.marginBottomMinPx,
+      ),
+    );
+    svg.setAttribute("height", svgHeight.toString());
+    svg.setAttribute("width", layout.panelWidthPx.toString());
+    const edgePad = VIZ.edgePad;
+    panel.style.flexBasis = `${Math.ceil(layout.panelWidthPx + edgePad)}px`;
+  }
 };
 
 const savePreviousValues = (panel: HTMLElement, columnData: StateColumn[]) => {

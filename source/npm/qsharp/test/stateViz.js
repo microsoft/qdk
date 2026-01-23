@@ -149,19 +149,7 @@ function htmlSnapshotPath(name) {
 async function checkDocumentSnapshot(t, name) {
   const rawHtml = new XMLSerializer().serializeToString(document) + "\n";
 
-  await checkHtmlSnapshot(t, name, rawHtml);
-}
-
-/**
- * Check an HTML string against the stored snapshot.
- *
- * @param {import("node:test").TestContext} t
- * @param {string} name
- * @param {string} rawHtml
- */
-async function checkHtmlSnapshot(t, name, rawHtml) {
-  const html = (rawHtml || "").endsWith("\n") ? rawHtml : rawHtml + "\n";
-  const formattedHtml = await prettier.format(html, {
+  const formattedHtml = await prettier.format(rawHtml, {
     parser: "html",
     printWidth: 80,
     tabWidth: 2,
