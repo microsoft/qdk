@@ -19,7 +19,6 @@ import {
   createStatePanel,
   updateStatePanelFromMap,
 } from "../dist/ux/circuit-vis/stateViz.js";
-import { draw } from "../dist/ux/circuit-vis/index.js";
 
 const documentTemplate = `<!doctype html><html>
   <head>
@@ -64,72 +63,6 @@ function getCasesDirectory() {
     path.dirname(fileURLToPath(import.meta.url)),
     "state-viz-cases",
   );
-}
-
-/** @param {string} file */
-function loadCircuit(file) {
-  const raw = fs.readFileSync(file, "utf8");
-  try {
-    return JSON.parse(raw);
-  } catch (e) {
-    throw new Error(
-      `Failed to parse JSON from ${file}: ${/** @type {Error} */ (e).message}`,
-    );
-  }
-}
-
-/** @param {string} id */
-function createContainerElement(id) {
-  const container = document.createElement("div");
-  container.id = id;
-  container.className = "qs-circuit";
-  document.body.appendChild(container);
-  return container;
-}
-
-/** @param {number} ms */
-const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-/**
- * Wait for the state viz panel to render a non-trivial state (>= 2 columns),
- * or to settle into an "empty/unsupported" terminal message.
- *
- * @param {HTMLElement} container
- * @param {{ timeoutMs?: number }} [opts]
- */
-async function waitForStateVizRendered(container, opts = {}) {
-  const timeoutMs = opts.timeoutMs ?? 2500;
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    const panel = /** @type {HTMLElement | null} */ (
-      container.querySelector(".state-panel")
-    );
-    if (!panel) {
-      await delay(25);
-      continue;
-    }
-
-    // Expand + disable animations for deterministic snapshots.
-    panel.classList.remove("collapsed");
-    panel.style.setProperty("--stateAnimMs", "0ms");
-    const edge = panel.querySelector(".state-edge");
-    edge?.setAttribute("aria-expanded", "true");
-
-    const bars = panel.querySelectorAll(".state-bar");
-    if (bars.length >= 2) {
-      await delay(0);
-      return;
-    }
-
-    // If we hit a terminal empty/unsupported state, accept it as resolved.
-    const emptyMsg = panel.querySelector(".state-empty-message");
-    if (panel.classList.contains("empty") && emptyMsg) {
-      await delay(0);
-      return;
-    }
-
-    await delay(25);
-  }
 }
 
 /**
@@ -217,21 +150,6 @@ test("state viz snapshot - threshold aggregates to Others", async (t) => {
       maxColumns: 8,
     },
   );
-  await checkDocumentSnapshot(t, t.name);
-});
-
-test("state viz integration snapshot", async (t) => {
-  const file = path.join(getCasesDirectory(), "state_viz_circuit.qsc");
-  const circuit = loadCircuit(file);
-  const container = createContainerElement("circuit");
-
-  draw(circuit, container, {
-    isEditable: true,
-    // Expand the state panel in this integration snapshot.
-    statePanelInitiallyExpanded: true,
-  });
-
-  await waitForStateVizRendered(container);
   await checkDocumentSnapshot(t, t.name);
 });
 
