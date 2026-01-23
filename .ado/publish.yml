@@ -106,7 +106,7 @@ extends:
               # common init steps
               - task: UseNode@1
                 inputs:
-                  version: "24.x"
+                  version: "24.9.0"
 
               - task: RustInstaller@1
                 inputs:
@@ -153,7 +153,7 @@ extends:
               # common init steps
               - task: UseNode@1
                 inputs:
-                  version: "24.x"
+                  version: "24.9.0"
 
               - task: RustInstaller@1
                 inputs:
@@ -215,7 +215,7 @@ extends:
               # common init steps
               - task: UseNode@1
                 inputs:
-                  version: "24.x"
+                  version: "24.9.0"
 
               - task: RustInstaller@1
                 inputs:
@@ -279,11 +279,11 @@ extends:
                       artifactName: Wheels.Linux.${{ target.arch }}
                 steps:
                   # common init steps
-                  # if we have additional rust targets, we need to install them
                   - task: UseNode@1
                     inputs:
-                      version: "24.x"
+                      version: "24.9.0"
 
+                  # if we have additional rust targets, we need to install them
                   - task: RustInstaller@1
                     inputs:
                       rustVersion: ms-prod-$(RUST_TOOLCHAIN_VERSION)
