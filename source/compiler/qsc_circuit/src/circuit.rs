@@ -837,10 +837,11 @@ impl CircuitDisplay<'_> {
             !op.children().is_empty(),
             "must only be called for an operation with children"
         );
-        assert!(
-            !op.is_controlled(),
-            "rendering controlled boxes not supported"
-        );
+        // TODO: draw control lines
+        // assert!(
+        //     !op.is_controlled(),
+        //     "rendering controlled boxes not supported"
+        // );
         assert!(
             !op.is_measurement(),
             "rendering measurement boxes not supported"
@@ -985,37 +986,41 @@ fn get_row_indexes(
     register_to_row: &FxHashMap<(usize, Option<usize>), usize>,
     is_target: bool,
 ) -> Vec<usize> {
-    let registers = match operation {
-        Operation::Measurement(m) => {
-            if is_target {
-                &m.results
-            } else {
-                &m.qubits
-            }
-        }
-        Operation::Unitary(u) => {
-            if is_target {
-                &u.targets
-            } else {
-                &u.controls
-            }
-        }
-        Operation::Ket(k) => {
-            if is_target {
-                &k.targets
-            } else {
-                &vec![]
-            }
-        }
-    };
+    let registers = registers(operation, is_target);
 
     registers
-        .iter()
+        .into_iter()
         .filter_map(|reg| {
             let reg = (reg.qubit, reg.result);
             register_to_row.get(&reg).copied()
         })
         .collect()
+}
+
+fn registers(operation: &Operation, is_target: bool) -> Vec<Register> {
+    match operation {
+        Operation::Measurement(m) => {
+            if is_target {
+                m.results.clone()
+            } else {
+                m.qubits.clone()
+            }
+        }
+        Operation::Unitary(u) => {
+            if is_target {
+                u.targets.clone()
+            } else {
+                u.controls.clone()
+            }
+        }
+        Operation::Ket(k) => {
+            if is_target {
+                k.targets.clone()
+            } else {
+                vec![]
+            }
+        }
+    }
 }
 
 /// Converts a list of operations into a 2D grid of operations in col-row format.

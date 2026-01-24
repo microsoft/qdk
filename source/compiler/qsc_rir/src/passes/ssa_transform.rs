@@ -5,7 +5,7 @@
 mod tests;
 
 use crate::{
-    rir::{Block, BlockId, Instruction, Operand, Program, Variable, VariableId},
+    rir::{BlockId, BlockWithMetadata, Instruction, Operand, Program, Variable, VariableId},
     utils::get_variable_assignments,
 };
 use qsc_data_structures::index_map::IndexMap;
@@ -107,7 +107,8 @@ pub fn transform_to_ssa(program: &mut Program, preds: &IndexMap<BlockId, Vec<Blo
                         ty: operand.get_type(),
                     };
                     let phi_node = Instruction::Phi(args, new_var);
-                    block.0.insert(0, phi_node);
+                    let metadata = block.0.first().and_then(|instr| instr.metadata);
+                    block.0.insert(0, phi_node.with_metadata(metadata));
                     var_map_updates.insert(variable_id, Operand::Variable(new_var));
                     next_var_id = next_var_id.successor();
                 }
@@ -165,11 +166,14 @@ fn map_store_to_dominated_ssa(
 
 // Propagates stored variables through a block, tracking the latest stored value and replacing
 // usage of the variable with the stored value.
-fn map_variable_use_in_block(block: &mut Block, var_map: &mut FxHashMap<VariableId, Operand>) {
+fn map_variable_use_in_block(
+    block: &mut BlockWithMetadata,
+    var_map: &mut FxHashMap<VariableId, Operand>,
+) {
     let instrs = block.0.drain(..).collect::<Vec<_>>();
 
     for mut instr in instrs {
-        match &mut instr {
+        match &mut instr.instruction {
             // Track the new value of the variable and omit the store instruction.
             Instruction::Store(operand, var) => {
                 // Note this uses the mapped operand to make sure this variable points to whatever root literal or variable

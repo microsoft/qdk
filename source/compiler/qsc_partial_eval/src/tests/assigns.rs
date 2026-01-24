@@ -58,7 +58,7 @@ fn assigning_result_register_updates_value() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -84,9 +84,9 @@ fn assigning_result_register_updates_value() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Call id(3), args( Result(0), Tag(0, 3), )
-                Return"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Call id(3), args( Result(0), Tag(0, 3), ) 
+                Return "#]],
     );
 }
 
@@ -110,7 +110,7 @@ fn assigning_classical_bool_updates_value_and_adds_store_instructions() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -122,10 +122,10 @@ fn assigning_classical_bool_updates_value_and_adds_store_instructions() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Boolean) = Store Bool(true)
-                Variable(0, Boolean) = Store Bool(false)
-                Call id(2), args( Bool(false), Tag(0, 3), )
-                Return"#]],
+                Variable(0, Boolean) = Store Bool(true) !dbg dbg_location=0
+                Variable(0, Boolean) = Store Bool(false) !dbg dbg_location=0
+                Call id(2), args( Bool(false), Tag(0, 3), ) 
+                Return "#]],
     );
 }
 
@@ -149,7 +149,7 @@ fn assigning_dynamic_bool_updates_value_and_adds_store_instructions() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -188,14 +188,14 @@ fn assigning_dynamic_bool_updates_value_and_adds_store_instructions() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Boolean) = Store Bool(false)
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(1, Boolean) = Call id(3), args( Result(0), )
-                Variable(2, Boolean) = Store Variable(1, Boolean)
-                Variable(0, Boolean) = Store Variable(2, Boolean)
-                Variable(3, Boolean) = Store Variable(0, Boolean)
-                Call id(4), args( Variable(3, Boolean), Tag(0, 3), )
-                Return"#]],
+                Variable(0, Boolean) = Store Bool(false) !dbg dbg_location=0
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=1
+                Variable(0, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=1
+                Variable(3, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=1
+                Call id(4), args( Variable(3, Boolean), Tag(0, 3), ) 
+                Return "#]],
     );
 }
 
@@ -219,7 +219,7 @@ fn assigning_classical_int_updates_value_and_adds_store_instructions() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -231,10 +231,10 @@ fn assigning_classical_int_updates_value_and_adds_store_instructions() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Integer) = Store Integer(0)
-                Variable(0, Integer) = Store Integer(1)
-                Call id(2), args( Integer(1), Tag(0, 3), )
-                Return"#]],
+                Variable(0, Integer) = Store Integer(0) !dbg dbg_location=0
+                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=0
+                Call id(2), args( Integer(1), Tag(0, 3), ) 
+                Return "#]],
     );
 }
 
@@ -258,7 +258,7 @@ fn assigning_dynamic_int_updates_value_and_adds_store_instructions() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -297,22 +297,22 @@ fn assigning_dynamic_int_updates_value_and_adds_store_instructions() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Integer) = Store Integer(0)
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(1, Boolean) = Call id(3), args( Result(0), )
-                Variable(2, Boolean) = Store Variable(1, Boolean)
-                Branch Variable(2, Boolean), 2, 3
+                Variable(0, Integer) = Store Integer(0) !dbg dbg_location=0
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=1
+                Branch Variable(2, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(0, Integer) = Store Variable(3, Integer)
-                Variable(4, Integer) = Store Variable(0, Integer)
-                Call id(4), args( Variable(4, Integer), Tag(0, 3), )
-                Return
+                Variable(0, Integer) = Store Variable(3, Integer) !dbg dbg_location=1
+                Variable(4, Integer) = Store Variable(0, Integer) !dbg dbg_location=1
+                Call id(4), args( Variable(4, Integer), Tag(0, 3), ) 
+                Return 
             Block 2:Block:
-                Variable(3, Integer) = Store Integer(1)
-                Jump(1)
+                Variable(3, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(3, Integer) = Store Integer(2)
-                Jump(1)"#]],
+                Variable(3, Integer) = Store Integer(2) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -338,7 +338,7 @@ fn assigning_classical_bool_within_dynamic_if_expression_adds_store_instruction(
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -377,18 +377,18 @@ fn assigning_classical_bool_within_dynamic_if_expression_adds_store_instruction(
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Boolean) = Store Bool(false)
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(1, Boolean) = Call id(3), args( Result(0), )
-                Variable(2, Boolean) = Store Variable(1, Boolean)
-                Branch Variable(2, Boolean), 2, 1
+                Variable(0, Boolean) = Store Bool(false) !dbg dbg_location=0
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=1
+                Branch Variable(2, Boolean), 2, 1 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Boolean) = Store Variable(0, Boolean)
-                Call id(4), args( Variable(3, Boolean), Tag(0, 3), )
-                Return
+                Variable(3, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=1
+                Call id(4), args( Variable(3, Boolean), Tag(0, 3), ) 
+                Return 
             Block 2:Block:
-                Variable(0, Boolean) = Store Bool(true)
-                Jump(1)"#]],
+                Variable(0, Boolean) = Store Bool(true) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -416,7 +416,7 @@ fn assigning_classical_int_within_dynamic_if_else_expression_adds_store_instruct
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -455,21 +455,21 @@ fn assigning_classical_int_within_dynamic_if_else_expression_adds_store_instruct
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Integer) = Store Integer(0)
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(1, Boolean) = Call id(3), args( Result(0), )
-                Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false)
-                Branch Variable(2, Boolean), 2, 3
+                Variable(0, Integer) = Store Integer(0) !dbg dbg_location=0
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(2, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(0, Integer)
-                Call id(4), args( Variable(3, Integer), Tag(0, 3), )
-                Return
+                Variable(3, Integer) = Store Variable(0, Integer) !dbg dbg_location=1
+                Call id(4), args( Variable(3, Integer), Tag(0, 3), ) 
+                Return 
             Block 2:Block:
-                Variable(0, Integer) = Store Integer(1)
-                Jump(1)
+                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(0, Integer) = Store Integer(2)
-                Jump(1)"#]],
+                Variable(0, Integer) = Store Integer(2) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -516,7 +516,7 @@ fn array_of_results_update_element_at_index_with_dynamic_content() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -556,12 +556,12 @@ fn array_of_results_update_element_at_index_with_dynamic_content() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Call id(2), args( Qubit(1), Result(1), )
-                Call id(3), args( Integer(2), EmptyTag, )
-                Call id(4), args( Result(0), Tag(0, 5), )
-                Call id(4), args( Result(1), Tag(1, 5), )
-                Return"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=5
+                Call id(3), args( Integer(2), EmptyTag, ) 
+                Call id(4), args( Result(0), Tag(0, 5), ) 
+                Call id(4), args( Result(1), Tag(1, 5), ) 
+                Return "#]],
     );
 }
 
@@ -585,7 +585,7 @@ fn array_of_bools_update_element_at_index_with_dynamic_content() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -638,16 +638,16 @@ fn array_of_bools_update_element_at_index_with_dynamic_content() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
-                Call id(2), args( Qubit(1), Result(1), )
-                Variable(2, Boolean) = Call id(3), args( Result(1), )
-                Variable(3, Boolean) = Store Variable(2, Boolean)
-                Call id(4), args( Integer(2), EmptyTag, )
-                Call id(5), args( Variable(1, Boolean), Tag(0, 5), )
-                Call id(5), args( Variable(3, Boolean), Tag(1, 5), )
-                Return"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=5
+                Variable(2, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=4
+                Variable(3, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=4
+                Call id(4), args( Integer(2), EmptyTag, ) 
+                Call id(5), args( Variable(1, Boolean), Tag(0, 5), ) 
+                Call id(5), args( Variable(3, Boolean), Tag(1, 5), ) 
+                Return "#]],
     );
 }
 
@@ -714,7 +714,7 @@ fn array_of_results_update_slice_with_explicit_range() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -754,21 +754,21 @@ fn array_of_results_update_slice_with_explicit_range() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Call id(2), args( Qubit(1), Result(1), )
-                Call id(2), args( Qubit(2), Result(2), )
-                Call id(2), args( Qubit(3), Result(3), )
-                Call id(2), args( Qubit(4), Result(4), )
-                Call id(2), args( Qubit(5), Result(5), )
-                Call id(2), args( Qubit(6), Result(6), )
-                Call id(2), args( Qubit(7), Result(7), )
-                Call id(3), args( Integer(5), EmptyTag, )
-                Call id(4), args( Result(5), Tag(0, 5), )
-                Call id(4), args( Result(1), Tag(1, 5), )
-                Call id(4), args( Result(6), Tag(2, 5), )
-                Call id(4), args( Result(3), Tag(3, 5), )
-                Call id(4), args( Result(7), Tag(4, 5), )
-                Return"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=9
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=11
+                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=13
+                Call id(2), args( Qubit(3), Result(3), ) !dbg dbg_location=15
+                Call id(2), args( Qubit(4), Result(4), ) !dbg dbg_location=17
+                Call id(2), args( Qubit(5), Result(5), ) !dbg dbg_location=19
+                Call id(2), args( Qubit(6), Result(6), ) !dbg dbg_location=21
+                Call id(2), args( Qubit(7), Result(7), ) !dbg dbg_location=23
+                Call id(3), args( Integer(5), EmptyTag, ) 
+                Call id(4), args( Result(5), Tag(0, 5), ) 
+                Call id(4), args( Result(1), Tag(1, 5), ) 
+                Call id(4), args( Result(6), Tag(2, 5), ) 
+                Call id(4), args( Result(3), Tag(3, 5), ) 
+                Call id(4), args( Result(7), Tag(4, 5), ) 
+                Return "#]],
     );
 }
 
@@ -792,7 +792,7 @@ fn array_of_results_update_slice_with_open_start_range() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -832,16 +832,16 @@ fn array_of_results_update_slice_with_open_start_range() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Call id(2), args( Qubit(1), Result(1), )
-                Call id(2), args( Qubit(2), Result(2), )
-                Call id(2), args( Qubit(3), Result(3), )
-                Call id(2), args( Qubit(4), Result(4), )
-                Call id(3), args( Integer(3), EmptyTag, )
-                Call id(4), args( Result(3), Tag(0, 5), )
-                Call id(4), args( Result(4), Tag(1, 5), )
-                Call id(4), args( Result(2), Tag(2, 5), )
-                Return"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=6
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=8
+                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=10
+                Call id(2), args( Qubit(3), Result(3), ) !dbg dbg_location=12
+                Call id(2), args( Qubit(4), Result(4), ) !dbg dbg_location=14
+                Call id(3), args( Integer(3), EmptyTag, ) 
+                Call id(4), args( Result(3), Tag(0, 5), ) 
+                Call id(4), args( Result(4), Tag(1, 5), ) 
+                Call id(4), args( Result(2), Tag(2, 5), ) 
+                Return "#]],
     );
 }
 
@@ -865,7 +865,7 @@ fn array_of_results_update_slice_with_open_ended_range() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -905,16 +905,16 @@ fn array_of_results_update_slice_with_open_ended_range() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Call id(2), args( Qubit(1), Result(1), )
-                Call id(2), args( Qubit(2), Result(2), )
-                Call id(2), args( Qubit(3), Result(3), )
-                Call id(2), args( Qubit(4), Result(4), )
-                Call id(3), args( Integer(3), EmptyTag, )
-                Call id(4), args( Result(0), Tag(0, 5), )
-                Call id(4), args( Result(3), Tag(1, 5), )
-                Call id(4), args( Result(4), Tag(2, 5), )
-                Return"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=6
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=8
+                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=10
+                Call id(2), args( Qubit(3), Result(3), ) !dbg dbg_location=12
+                Call id(2), args( Qubit(4), Result(4), ) !dbg dbg_location=14
+                Call id(3), args( Integer(3), EmptyTag, ) 
+                Call id(4), args( Result(0), Tag(0, 5), ) 
+                Call id(4), args( Result(3), Tag(1, 5), ) 
+                Call id(4), args( Result(4), Tag(2, 5), ) 
+                Return "#]],
     );
 }
 
@@ -938,7 +938,7 @@ fn array_of_results_update_slice_with_open_two_step_range() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -978,16 +978,16 @@ fn array_of_results_update_slice_with_open_two_step_range() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Call id(2), args( Qubit(1), Result(1), )
-                Call id(2), args( Qubit(2), Result(2), )
-                Call id(2), args( Qubit(3), Result(3), )
-                Call id(2), args( Qubit(4), Result(4), )
-                Call id(3), args( Integer(3), EmptyTag, )
-                Call id(4), args( Result(3), Tag(0, 5), )
-                Call id(4), args( Result(1), Tag(1, 5), )
-                Call id(4), args( Result(4), Tag(2, 5), )
-                Return"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=6
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=8
+                Call id(2), args( Qubit(2), Result(2), ) !dbg dbg_location=10
+                Call id(2), args( Qubit(3), Result(3), ) !dbg dbg_location=12
+                Call id(2), args( Qubit(4), Result(4), ) !dbg dbg_location=14
+                Call id(3), args( Integer(3), EmptyTag, ) 
+                Call id(4), args( Result(3), Tag(0, 5), ) 
+                Call id(4), args( Result(1), Tag(1, 5), ) 
+                Call id(4), args( Result(4), Tag(2, 5), ) 
+                Return "#]],
     );
 }
 
@@ -1033,7 +1033,7 @@ fn empty_array_of_results_in_place_concatenation() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -1073,12 +1073,12 @@ fn empty_array_of_results_in_place_concatenation() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Call id(2), args( Qubit(1), Result(1), )
-                Call id(3), args( Integer(2), EmptyTag, )
-                Call id(4), args( Result(0), Tag(0, 5), )
-                Call id(4), args( Result(1), Tag(1, 5), )
-                Return"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=5
+                Call id(3), args( Integer(2), EmptyTag, ) 
+                Call id(4), args( Result(0), Tag(0, 5), ) 
+                Call id(4), args( Result(1), Tag(1, 5), ) 
+                Return "#]],
     );
 }
 
@@ -1102,7 +1102,7 @@ fn non_empty_array_of_results_in_place_concatenation() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -1142,12 +1142,12 @@ fn non_empty_array_of_results_in_place_concatenation() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Call id(2), args( Qubit(1), Result(1), )
-                Call id(3), args( Integer(2), EmptyTag, )
-                Call id(4), args( Result(0), Tag(0, 5), )
-                Call id(4), args( Result(1), Tag(1, 5), )
-                Return"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=5
+                Call id(3), args( Integer(2), EmptyTag, ) 
+                Call id(4), args( Result(0), Tag(0, 5), ) 
+                Call id(4), args( Result(1), Tag(1, 5), ) 
+                Return "#]],
     );
 }
 
@@ -1174,7 +1174,7 @@ fn logical_and_assign_with_lhs_classical_true_is_optimized_as_store() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -1213,15 +1213,15 @@ fn logical_and_assign_with_lhs_classical_true_is_optimized_as_store() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Store Variable(0, Boolean)
-                Variable(2, Boolean) = Store Variable(1, Boolean)
-                Variable(3, Boolean) = Store Bool(true)
-                Variable(3, Boolean) = Store Variable(2, Boolean)
-                Variable(4, Boolean) = Store Variable(3, Boolean)
-                Call id(4), args( Variable(4, Boolean), Tag(0, 3), )
-                Return"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=1
+                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=1
+                Variable(3, Boolean) = Store Bool(true) !dbg dbg_location=1
+                Variable(3, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=1
+                Variable(4, Boolean) = Store Variable(3, Boolean) !dbg dbg_location=1
+                Call id(4), args( Variable(4, Boolean), Tag(0, 3), ) 
+                Return "#]],
     );
 }
 
@@ -1248,7 +1248,7 @@ fn logical_and_assign_with_lhs_classical_false_short_circuits_evaluation() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -1287,14 +1287,14 @@ fn logical_and_assign_with_lhs_classical_false_short_circuits_evaluation() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Store Variable(0, Boolean)
-                Variable(2, Boolean) = Store Variable(1, Boolean)
-                Variable(3, Boolean) = Store Bool(false)
-                Variable(3, Boolean) = Store Bool(false)
-                Call id(4), args( Bool(false), Tag(0, 3), )
-                Return"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=1
+                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=1
+                Variable(3, Boolean) = Store Bool(false) !dbg dbg_location=1
+                Variable(3, Boolean) = Store Bool(false) !dbg dbg_location=1
+                Call id(4), args( Bool(false), Tag(0, 3), ) 
+                Return "#]],
     );
 }
 
@@ -1320,7 +1320,7 @@ fn logical_and_assign_with_dynamic_lhs_and_dynamic_rhs_short_circuits_when_rhs_i
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -1359,23 +1359,23 @@ fn logical_and_assign_with_dynamic_lhs_and_dynamic_rhs_short_circuits_when_rhs_i
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true)
-                Variable(2, Boolean) = Store Variable(1, Boolean)
-                Variable(3, Boolean) = Store Bool(false)
-                Branch Variable(2, Boolean), 2, 1
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true) !dbg dbg_location=1
+                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=1
+                Variable(3, Boolean) = Store Bool(false) !dbg dbg_location=1
+                Branch Variable(2, Boolean), 2, 1 !dbg dbg_location=3
             Block 1:Block:
-                Variable(2, Boolean) = Store Variable(3, Boolean)
-                Variable(6, Boolean) = Store Variable(2, Boolean)
-                Call id(4), args( Variable(6, Boolean), Tag(0, 3), )
-                Return
+                Variable(2, Boolean) = Store Variable(3, Boolean) !dbg dbg_location=3
+                Variable(6, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=3
+                Call id(4), args( Variable(6, Boolean), Tag(0, 3), ) 
+                Return 
             Block 2:Block:
-                Call id(2), args( Qubit(0), Result(1), )
-                Variable(4, Boolean) = Call id(3), args( Result(1), )
-                Variable(5, Boolean) = Icmp Ne, Variable(4, Boolean), Bool(true)
-                Variable(3, Boolean) = Store Variable(5, Boolean)
-                Jump(1)"#]],
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=4
+                Variable(4, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=3
+                Variable(5, Boolean) = Icmp Ne, Variable(4, Boolean), Bool(true) !dbg dbg_location=3
+                Variable(3, Boolean) = Store Variable(5, Boolean) !dbg dbg_location=3
+                Jump(1) !dbg dbg_location=3"#]],
     );
 }
 
@@ -1402,7 +1402,7 @@ fn logical_or_assign_with_lhs_classical_true_short_circuits_evaluation() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -1441,14 +1441,14 @@ fn logical_or_assign_with_lhs_classical_true_short_circuits_evaluation() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Store Variable(0, Boolean)
-                Variable(2, Boolean) = Store Variable(1, Boolean)
-                Variable(3, Boolean) = Store Bool(true)
-                Variable(3, Boolean) = Store Bool(true)
-                Call id(4), args( Bool(true), Tag(0, 3), )
-                Return"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=1
+                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=1
+                Variable(3, Boolean) = Store Bool(true) !dbg dbg_location=1
+                Variable(3, Boolean) = Store Bool(true) !dbg dbg_location=1
+                Call id(4), args( Bool(true), Tag(0, 3), ) 
+                Return "#]],
     );
 }
 
@@ -1475,7 +1475,7 @@ fn logical_or_assign_with_lhs_classical_false_is_optimized_as_store() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -1514,15 +1514,15 @@ fn logical_or_assign_with_lhs_classical_false_is_optimized_as_store() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Store Variable(0, Boolean)
-                Variable(2, Boolean) = Store Variable(1, Boolean)
-                Variable(3, Boolean) = Store Bool(false)
-                Variable(3, Boolean) = Store Variable(2, Boolean)
-                Variable(4, Boolean) = Store Variable(3, Boolean)
-                Call id(4), args( Variable(4, Boolean), Tag(0, 3), )
-                Return"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=1
+                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=1
+                Variable(3, Boolean) = Store Bool(false) !dbg dbg_location=1
+                Variable(3, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=1
+                Variable(4, Boolean) = Store Variable(3, Boolean) !dbg dbg_location=1
+                Call id(4), args( Variable(4, Boolean), Tag(0, 3), ) 
+                Return "#]],
     );
 }
 
@@ -1548,7 +1548,7 @@ fn logical_or_assign_with_dynamic_lhs_and_dynamic_rhs_short_circuits_when_rhs_is
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -1587,23 +1587,23 @@ fn logical_or_assign_with_dynamic_lhs_and_dynamic_rhs_short_circuits_when_rhs_is
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true)
-                Variable(2, Boolean) = Store Variable(1, Boolean)
-                Variable(3, Boolean) = Store Bool(true)
-                Branch Variable(2, Boolean), 1, 2
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true) !dbg dbg_location=1
+                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=1
+                Variable(3, Boolean) = Store Bool(true) !dbg dbg_location=1
+                Branch Variable(2, Boolean), 1, 2 !dbg dbg_location=3
             Block 1:Block:
-                Variable(2, Boolean) = Store Variable(3, Boolean)
-                Variable(6, Boolean) = Store Variable(2, Boolean)
-                Call id(4), args( Variable(6, Boolean), Tag(0, 3), )
-                Return
+                Variable(2, Boolean) = Store Variable(3, Boolean) !dbg dbg_location=3
+                Variable(6, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=3
+                Call id(4), args( Variable(6, Boolean), Tag(0, 3), ) 
+                Return 
             Block 2:Block:
-                Call id(2), args( Qubit(0), Result(1), )
-                Variable(4, Boolean) = Call id(3), args( Result(1), )
-                Variable(5, Boolean) = Icmp Ne, Variable(4, Boolean), Bool(true)
-                Variable(3, Boolean) = Store Variable(5, Boolean)
-                Jump(1)"#]],
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=4
+                Variable(4, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=3
+                Variable(5, Boolean) = Icmp Ne, Variable(4, Boolean), Bool(true) !dbg dbg_location=3
+                Variable(3, Boolean) = Store Variable(5, Boolean) !dbg dbg_location=3
+                Jump(1) !dbg dbg_location=3"#]],
     );
 }
 
@@ -1629,7 +1629,7 @@ fn integer_assign_add_with_lhs_classical_integer_and_rhs_dynamic_integer() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -1668,23 +1668,23 @@ fn integer_assign_add_with_lhs_classical_integer_and_rhs_dynamic_integer() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Integer) = Store Integer(0)
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(1, Boolean) = Call id(3), args( Result(0), )
-                Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false)
-                Branch Variable(2, Boolean), 2, 3
+                Variable(0, Integer) = Store Integer(0) !dbg dbg_location=0
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(2, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(4, Integer) = Add Integer(0), Variable(3, Integer)
-                Variable(0, Integer) = Store Variable(4, Integer)
-                Variable(5, Integer) = Store Variable(0, Integer)
-                Call id(4), args( Variable(5, Integer), Tag(0, 3), )
-                Return
+                Variable(4, Integer) = Add Integer(0), Variable(3, Integer) !dbg dbg_location=1
+                Variable(0, Integer) = Store Variable(4, Integer) !dbg dbg_location=1
+                Variable(5, Integer) = Store Variable(0, Integer) !dbg dbg_location=1
+                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) 
+                Return 
             Block 2:Block:
-                Variable(3, Integer) = Store Integer(0)
-                Jump(1)
+                Variable(3, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(3, Integer) = Store Integer(1)
-                Jump(1)"#]],
+                Variable(3, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -1710,7 +1710,7 @@ fn integer_assign_sub_with_lhs_dynamic_integer_and_rhs_classical_integer() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -1749,23 +1749,23 @@ fn integer_assign_sub_with_lhs_dynamic_integer_and_rhs_classical_integer() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
-                Branch Variable(1, Boolean), 2, 3
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer)
-                Variable(4, Integer) = Sub Variable(3, Integer), Integer(1)
-                Variable(3, Integer) = Store Variable(4, Integer)
-                Variable(5, Integer) = Store Variable(3, Integer)
-                Call id(4), args( Variable(5, Integer), Tag(0, 3), )
-                Return
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=1
+                Variable(4, Integer) = Sub Variable(3, Integer), Integer(1) !dbg dbg_location=1
+                Variable(3, Integer) = Store Variable(4, Integer) !dbg dbg_location=1
+                Variable(5, Integer) = Store Variable(3, Integer) !dbg dbg_location=1
+                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) 
+                Return 
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0)
-                Jump(1)
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1)
-                Jump(1)"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -1791,7 +1791,7 @@ fn integer_assign_mul_with_lhs_dynamic_integer_and_rhs_dynamic_integer() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -1830,34 +1830,34 @@ fn integer_assign_mul_with_lhs_dynamic_integer_and_rhs_dynamic_integer() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
-                Branch Variable(1, Boolean), 2, 3
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer)
-                Call id(2), args( Qubit(0), Result(1), )
-                Variable(4, Boolean) = Call id(3), args( Result(1), )
-                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false)
-                Branch Variable(5, Boolean), 5, 6
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=1
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=4
+                Variable(4, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=3
+                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg dbg_location=3
+                Branch Variable(5, Boolean), 5, 6 !dbg dbg_location=3
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0)
-                Jump(1)
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1)
-                Jump(1)
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 4:Block:
-                Variable(7, Integer) = Mul Variable(3, Integer), Variable(6, Integer)
-                Variable(3, Integer) = Store Variable(7, Integer)
-                Variable(8, Integer) = Store Variable(3, Integer)
-                Call id(4), args( Variable(8, Integer), Tag(0, 3), )
-                Return
+                Variable(7, Integer) = Mul Variable(3, Integer), Variable(6, Integer) !dbg dbg_location=3
+                Variable(3, Integer) = Store Variable(7, Integer) !dbg dbg_location=3
+                Variable(8, Integer) = Store Variable(3, Integer) !dbg dbg_location=3
+                Call id(4), args( Variable(8, Integer), Tag(0, 3), ) 
+                Return 
             Block 5:Block:
-                Variable(6, Integer) = Store Integer(1)
-                Jump(4)
+                Variable(6, Integer) = Store Integer(1) !dbg dbg_location=3
+                Jump(4) !dbg dbg_location=3
             Block 6:Block:
-                Variable(6, Integer) = Store Integer(0)
-                Jump(4)"#]],
+                Variable(6, Integer) = Store Integer(0) !dbg dbg_location=3
+                Jump(4) !dbg dbg_location=3"#]],
     );
 }
 
@@ -1883,7 +1883,7 @@ fn integer_assign_div_with_lhs_classical_integer_and_rhs_dynamic_integer() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -1922,23 +1922,23 @@ fn integer_assign_div_with_lhs_classical_integer_and_rhs_dynamic_integer() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Integer) = Store Integer(0)
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(1, Boolean) = Call id(3), args( Result(0), )
-                Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false)
-                Branch Variable(2, Boolean), 2, 3
+                Variable(0, Integer) = Store Integer(0) !dbg dbg_location=0
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(2, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(4, Integer) = Sdiv Integer(0), Variable(3, Integer)
-                Variable(0, Integer) = Store Variable(4, Integer)
-                Variable(5, Integer) = Store Variable(0, Integer)
-                Call id(4), args( Variable(5, Integer), Tag(0, 3), )
-                Return
+                Variable(4, Integer) = Sdiv Integer(0), Variable(3, Integer) !dbg dbg_location=1
+                Variable(0, Integer) = Store Variable(4, Integer) !dbg dbg_location=1
+                Variable(5, Integer) = Store Variable(0, Integer) !dbg dbg_location=1
+                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) 
+                Return 
             Block 2:Block:
-                Variable(3, Integer) = Store Integer(0)
-                Jump(1)
+                Variable(3, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(3, Integer) = Store Integer(1)
-                Jump(1)"#]],
+                Variable(3, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -1964,7 +1964,7 @@ fn integer_assign_mod_with_lhs_dynamic_integer_and_rhs_classical_integer() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -2003,23 +2003,23 @@ fn integer_assign_mod_with_lhs_dynamic_integer_and_rhs_classical_integer() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
-                Branch Variable(1, Boolean), 2, 3
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer)
-                Variable(4, Integer) = Srem Variable(3, Integer), Integer(1)
-                Variable(3, Integer) = Store Variable(4, Integer)
-                Variable(5, Integer) = Store Variable(3, Integer)
-                Call id(4), args( Variable(5, Integer), Tag(0, 3), )
-                Return
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=1
+                Variable(4, Integer) = Srem Variable(3, Integer), Integer(1) !dbg dbg_location=1
+                Variable(3, Integer) = Store Variable(4, Integer) !dbg dbg_location=1
+                Variable(5, Integer) = Store Variable(3, Integer) !dbg dbg_location=1
+                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) 
+                Return 
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0)
-                Jump(1)
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1)
-                Jump(1)"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -2091,7 +2091,7 @@ fn integer_assign_exp_with_lhs_dynamic_integer_and_rhs_classical_zero_integer() 
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -2130,23 +2130,23 @@ fn integer_assign_exp_with_lhs_dynamic_integer_and_rhs_classical_zero_integer() 
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
-                Branch Variable(1, Boolean), 2, 3
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer)
-                Variable(4, Integer) = Store Integer(1)
-                Variable(3, Integer) = Store Variable(4, Integer)
-                Variable(5, Integer) = Store Variable(3, Integer)
-                Call id(4), args( Variable(5, Integer), Tag(0, 3), )
-                Return
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=1
+                Variable(4, Integer) = Store Integer(1) !dbg dbg_location=1
+                Variable(3, Integer) = Store Variable(4, Integer) !dbg dbg_location=1
+                Variable(5, Integer) = Store Variable(3, Integer) !dbg dbg_location=1
+                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) 
+                Return 
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0)
-                Jump(1)
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1)
-                Jump(1)"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -2172,7 +2172,7 @@ fn integer_assign_exp_with_lhs_dynamic_integer_and_rhs_classical_positive_intege
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -2211,26 +2211,26 @@ fn integer_assign_exp_with_lhs_dynamic_integer_and_rhs_classical_positive_intege
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
-                Branch Variable(1, Boolean), 2, 3
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer)
-                Variable(4, Integer) = Store Integer(1)
-                Variable(5, Integer) = Mul Variable(4, Integer), Variable(3, Integer)
-                Variable(6, Integer) = Mul Variable(5, Integer), Variable(3, Integer)
-                Variable(7, Integer) = Mul Variable(6, Integer), Variable(3, Integer)
-                Variable(3, Integer) = Store Variable(7, Integer)
-                Variable(8, Integer) = Store Variable(3, Integer)
-                Call id(4), args( Variable(8, Integer), Tag(0, 3), )
-                Return
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=1
+                Variable(4, Integer) = Store Integer(1) !dbg dbg_location=1
+                Variable(5, Integer) = Mul Variable(4, Integer), Variable(3, Integer) !dbg dbg_location=1
+                Variable(6, Integer) = Mul Variable(5, Integer), Variable(3, Integer) !dbg dbg_location=1
+                Variable(7, Integer) = Mul Variable(6, Integer), Variable(3, Integer) !dbg dbg_location=1
+                Variable(3, Integer) = Store Variable(7, Integer) !dbg dbg_location=1
+                Variable(8, Integer) = Store Variable(3, Integer) !dbg dbg_location=1
+                Call id(4), args( Variable(8, Integer), Tag(0, 3), ) 
+                Return 
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0)
-                Jump(1)
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1)
-                Jump(1)"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -2279,7 +2279,7 @@ fn integer_assign_bitwise_and_with_lhs_dynamic_integer_and_rhs_dynamic_integer()
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -2318,34 +2318,34 @@ fn integer_assign_bitwise_and_with_lhs_dynamic_integer_and_rhs_dynamic_integer()
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
-                Branch Variable(1, Boolean), 2, 3
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer)
-                Call id(2), args( Qubit(0), Result(1), )
-                Variable(4, Boolean) = Call id(3), args( Result(1), )
-                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false)
-                Branch Variable(5, Boolean), 5, 6
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=1
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=4
+                Variable(4, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=3
+                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg dbg_location=3
+                Branch Variable(5, Boolean), 5, 6 !dbg dbg_location=3
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0)
-                Jump(1)
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1)
-                Jump(1)
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 4:Block:
-                Variable(7, Integer) = BitwiseAnd Variable(3, Integer), Variable(6, Integer)
-                Variable(3, Integer) = Store Variable(7, Integer)
-                Variable(8, Integer) = Store Variable(3, Integer)
-                Call id(4), args( Variable(8, Integer), Tag(0, 3), )
-                Return
+                Variable(7, Integer) = BitwiseAnd Variable(3, Integer), Variable(6, Integer) !dbg dbg_location=3
+                Variable(3, Integer) = Store Variable(7, Integer) !dbg dbg_location=3
+                Variable(8, Integer) = Store Variable(3, Integer) !dbg dbg_location=3
+                Call id(4), args( Variable(8, Integer), Tag(0, 3), ) 
+                Return 
             Block 5:Block:
-                Variable(6, Integer) = Store Integer(1)
-                Jump(4)
+                Variable(6, Integer) = Store Integer(1) !dbg dbg_location=3
+                Jump(4) !dbg dbg_location=3
             Block 6:Block:
-                Variable(6, Integer) = Store Integer(0)
-                Jump(4)"#]],
+                Variable(6, Integer) = Store Integer(0) !dbg dbg_location=3
+                Jump(4) !dbg dbg_location=3"#]],
     );
 }
 
@@ -2371,7 +2371,7 @@ fn integer_assign_bitwise_or_with_lhs_classical_integer_and_rhs_dynamic_integer(
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -2410,23 +2410,23 @@ fn integer_assign_bitwise_or_with_lhs_classical_integer_and_rhs_dynamic_integer(
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Integer) = Store Integer(0)
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(1, Boolean) = Call id(3), args( Result(0), )
-                Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false)
-                Branch Variable(2, Boolean), 2, 3
+                Variable(0, Integer) = Store Integer(0) !dbg dbg_location=0
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(2, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(4, Integer) = BitwiseOr Integer(0), Variable(3, Integer)
-                Variable(0, Integer) = Store Variable(4, Integer)
-                Variable(5, Integer) = Store Variable(0, Integer)
-                Call id(4), args( Variable(5, Integer), Tag(0, 3), )
-                Return
+                Variable(4, Integer) = BitwiseOr Integer(0), Variable(3, Integer) !dbg dbg_location=1
+                Variable(0, Integer) = Store Variable(4, Integer) !dbg dbg_location=1
+                Variable(5, Integer) = Store Variable(0, Integer) !dbg dbg_location=1
+                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) 
+                Return 
             Block 2:Block:
-                Variable(3, Integer) = Store Integer(0)
-                Jump(1)
+                Variable(3, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(3, Integer) = Store Integer(1)
-                Jump(1)"#]],
+                Variable(3, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -2452,7 +2452,7 @@ fn integer_bitwise_xor_with_lhs_dynamic_integer_and_rhs_classical_integer() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -2491,23 +2491,23 @@ fn integer_bitwise_xor_with_lhs_dynamic_integer_and_rhs_classical_integer() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
-                Branch Variable(1, Boolean), 2, 3
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer)
-                Variable(4, Integer) = BitwiseXor Variable(3, Integer), Integer(1)
-                Variable(3, Integer) = Store Variable(4, Integer)
-                Variable(5, Integer) = Store Variable(3, Integer)
-                Call id(4), args( Variable(5, Integer), Tag(0, 3), )
-                Return
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=1
+                Variable(4, Integer) = BitwiseXor Variable(3, Integer), Integer(1) !dbg dbg_location=1
+                Variable(3, Integer) = Store Variable(4, Integer) !dbg dbg_location=1
+                Variable(5, Integer) = Store Variable(3, Integer) !dbg dbg_location=1
+                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) 
+                Return 
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0)
-                Jump(1)
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1)
-                Jump(1)"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -2533,7 +2533,7 @@ fn integer_assign_bitwise_left_shift_with_lhs_dynamic_integer_and_rhs_dynamic_in
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -2572,34 +2572,34 @@ fn integer_assign_bitwise_left_shift_with_lhs_dynamic_integer_and_rhs_dynamic_in
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
-                Branch Variable(1, Boolean), 2, 3
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer)
-                Call id(2), args( Qubit(0), Result(1), )
-                Variable(4, Boolean) = Call id(3), args( Result(1), )
-                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false)
-                Branch Variable(5, Boolean), 5, 6
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=1
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=4
+                Variable(4, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=3
+                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg dbg_location=3
+                Branch Variable(5, Boolean), 5, 6 !dbg dbg_location=3
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0)
-                Jump(1)
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1)
-                Jump(1)
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 4:Block:
-                Variable(7, Integer) = Shl Variable(3, Integer), Variable(6, Integer)
-                Variable(3, Integer) = Store Variable(7, Integer)
-                Variable(8, Integer) = Store Variable(3, Integer)
-                Call id(4), args( Variable(8, Integer), Tag(0, 3), )
-                Return
+                Variable(7, Integer) = Shl Variable(3, Integer), Variable(6, Integer) !dbg dbg_location=3
+                Variable(3, Integer) = Store Variable(7, Integer) !dbg dbg_location=3
+                Variable(8, Integer) = Store Variable(3, Integer) !dbg dbg_location=3
+                Call id(4), args( Variable(8, Integer), Tag(0, 3), ) 
+                Return 
             Block 5:Block:
-                Variable(6, Integer) = Store Integer(1)
-                Jump(4)
+                Variable(6, Integer) = Store Integer(1) !dbg dbg_location=3
+                Jump(4) !dbg dbg_location=3
             Block 6:Block:
-                Variable(6, Integer) = Store Integer(0)
-                Jump(4)"#]],
+                Variable(6, Integer) = Store Integer(0) !dbg dbg_location=3
+                Jump(4) !dbg dbg_location=3"#]],
     );
 }
 
@@ -2625,7 +2625,7 @@ fn integer_assign_bitwise_right_shift_with_lhs_classical_integer_and_rhs_dynamic
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -2664,23 +2664,23 @@ fn integer_assign_bitwise_right_shift_with_lhs_classical_integer_and_rhs_dynamic
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Integer) = Store Integer(0)
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(1, Boolean) = Call id(3), args( Result(0), )
-                Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false)
-                Branch Variable(2, Boolean), 2, 3
+                Variable(0, Integer) = Store Integer(0) !dbg dbg_location=0
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(2, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(4, Integer) = Ashr Integer(0), Variable(3, Integer)
-                Variable(0, Integer) = Store Variable(4, Integer)
-                Variable(5, Integer) = Store Variable(0, Integer)
-                Call id(4), args( Variable(5, Integer), Tag(0, 3), )
-                Return
+                Variable(4, Integer) = Ashr Integer(0), Variable(3, Integer) !dbg dbg_location=1
+                Variable(0, Integer) = Store Variable(4, Integer) !dbg dbg_location=1
+                Variable(5, Integer) = Store Variable(0, Integer) !dbg dbg_location=1
+                Call id(4), args( Variable(5, Integer), Tag(0, 3), ) 
+                Return 
             Block 2:Block:
-                Variable(3, Integer) = Store Integer(0)
-                Jump(1)
+                Variable(3, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(3, Integer) = Store Integer(1)
-                Jump(1)"#]],
+                Variable(3, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -2706,7 +2706,7 @@ fn double_assign_add_with_lhs_classical_double_and_rhs_dynamic_double() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -2745,23 +2745,23 @@ fn double_assign_add_with_lhs_classical_double_and_rhs_dynamic_double() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Double) = Store Double(0)
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(1, Boolean) = Call id(3), args( Result(0), )
-                Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false)
-                Branch Variable(2, Boolean), 2, 3
+                Variable(0, Double) = Store Double(0) !dbg dbg_location=0
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(2, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(4, Double) = Fadd Double(0), Variable(3, Double)
-                Variable(0, Double) = Store Variable(4, Double)
-                Variable(5, Double) = Store Variable(0, Double)
-                Call id(4), args( Variable(5, Double), Tag(0, 3), )
-                Return
+                Variable(4, Double) = Fadd Double(0), Variable(3, Double) !dbg dbg_location=1
+                Variable(0, Double) = Store Variable(4, Double) !dbg dbg_location=1
+                Variable(5, Double) = Store Variable(0, Double) !dbg dbg_location=1
+                Call id(4), args( Variable(5, Double), Tag(0, 3), ) 
+                Return 
             Block 2:Block:
-                Variable(3, Double) = Store Double(0)
-                Jump(1)
+                Variable(3, Double) = Store Double(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(3, Double) = Store Double(1)
-                Jump(1)"#]],
+                Variable(3, Double) = Store Double(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -2787,7 +2787,7 @@ fn double_assign_sub_with_lhs_dynamic_double_and_rhs_classical_double() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -2826,23 +2826,23 @@ fn double_assign_sub_with_lhs_dynamic_double_and_rhs_classical_double() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
-                Branch Variable(1, Boolean), 2, 3
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Double) = Store Variable(2, Double)
-                Variable(4, Double) = Fsub Variable(3, Double), Double(1)
-                Variable(3, Double) = Store Variable(4, Double)
-                Variable(5, Double) = Store Variable(3, Double)
-                Call id(4), args( Variable(5, Double), Tag(0, 3), )
-                Return
+                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=1
+                Variable(4, Double) = Fsub Variable(3, Double), Double(1) !dbg dbg_location=1
+                Variable(3, Double) = Store Variable(4, Double) !dbg dbg_location=1
+                Variable(5, Double) = Store Variable(3, Double) !dbg dbg_location=1
+                Call id(4), args( Variable(5, Double), Tag(0, 3), ) 
+                Return 
             Block 2:Block:
-                Variable(2, Double) = Store Double(0)
-                Jump(1)
+                Variable(2, Double) = Store Double(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Double) = Store Double(1)
-                Jump(1)"#]],
+                Variable(2, Double) = Store Double(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -2868,7 +2868,7 @@ fn double_assign_mul_with_lhs_dynamic_double_and_rhs_dynamic_double() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -2907,34 +2907,34 @@ fn double_assign_mul_with_lhs_dynamic_double_and_rhs_dynamic_double() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
-                Branch Variable(1, Boolean), 2, 3
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Double) = Store Variable(2, Double)
-                Call id(2), args( Qubit(0), Result(1), )
-                Variable(4, Boolean) = Call id(3), args( Result(1), )
-                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false)
-                Branch Variable(5, Boolean), 5, 6
+                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=1
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=4
+                Variable(4, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=3
+                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg dbg_location=3
+                Branch Variable(5, Boolean), 5, 6 !dbg dbg_location=3
             Block 2:Block:
-                Variable(2, Double) = Store Double(0)
-                Jump(1)
+                Variable(2, Double) = Store Double(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Double) = Store Double(1)
-                Jump(1)
+                Variable(2, Double) = Store Double(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 4:Block:
-                Variable(7, Double) = Fmul Variable(3, Double), Variable(6, Double)
-                Variable(3, Double) = Store Variable(7, Double)
-                Variable(8, Double) = Store Variable(3, Double)
-                Call id(4), args( Variable(8, Double), Tag(0, 3), )
-                Return
+                Variable(7, Double) = Fmul Variable(3, Double), Variable(6, Double) !dbg dbg_location=3
+                Variable(3, Double) = Store Variable(7, Double) !dbg dbg_location=3
+                Variable(8, Double) = Store Variable(3, Double) !dbg dbg_location=3
+                Call id(4), args( Variable(8, Double), Tag(0, 3), ) 
+                Return 
             Block 5:Block:
-                Variable(6, Double) = Store Double(1.1)
-                Jump(4)
+                Variable(6, Double) = Store Double(1.1) !dbg dbg_location=3
+                Jump(4) !dbg dbg_location=3
             Block 6:Block:
-                Variable(6, Double) = Store Double(0.1)
-                Jump(4)"#]],
+                Variable(6, Double) = Store Double(0.1) !dbg dbg_location=3
+                Jump(4) !dbg dbg_location=3"#]],
     );
 }
 
@@ -2960,7 +2960,7 @@ fn double_assign_div_with_lhs_classical_double_and_rhs_dynamic_double() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -2999,22 +2999,22 @@ fn double_assign_div_with_lhs_classical_double_and_rhs_dynamic_double() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Double) = Store Double(0)
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(1, Boolean) = Call id(3), args( Result(0), )
-                Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false)
-                Branch Variable(2, Boolean), 2, 3
+                Variable(0, Double) = Store Double(0) !dbg dbg_location=0
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(2, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(4, Double) = Fdiv Double(0), Variable(3, Double)
-                Variable(0, Double) = Store Variable(4, Double)
-                Variable(5, Double) = Store Variable(0, Double)
-                Call id(4), args( Variable(5, Double), Tag(0, 3), )
-                Return
+                Variable(4, Double) = Fdiv Double(0), Variable(3, Double) !dbg dbg_location=1
+                Variable(0, Double) = Store Variable(4, Double) !dbg dbg_location=1
+                Variable(5, Double) = Store Variable(0, Double) !dbg dbg_location=1
+                Call id(4), args( Variable(5, Double), Tag(0, 3), ) 
+                Return 
             Block 2:Block:
-                Variable(3, Double) = Store Double(0)
-                Jump(1)
+                Variable(3, Double) = Store Double(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(3, Double) = Store Double(1)
-                Jump(1)"#]],
+                Variable(3, Double) = Store Double(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }

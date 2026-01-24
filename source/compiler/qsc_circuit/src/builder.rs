@@ -2,13 +2,12 @@
 // Licensed under the MIT License.
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use crate::{
-    ComponentColumn,
     circuit::{
-        Circuit, Ket, Measurement, Metadata, Operation, Qubit, Register, SourceLocation, Unitary,
-        operation_list_to_grid,
+        Circuit, ComponentColumn, Ket, Measurement, Metadata, Operation, Qubit, Register,
+        SourceLocation, Unitary, operation_list_to_grid,
     },
     operations::QubitParam,
 };
@@ -27,8 +26,10 @@ use qsc_frontend::compile::{self};
 use qsc_hir::hir;
 use qsc_lowerer::{map_fir_local_item_to_hir, map_fir_package_to_hir};
 use rustc_hash::FxHashSet;
+#[cfg(test)]
+use std::fmt::Display;
 use std::{
-    fmt::{Debug, Display, Write},
+    fmt::{Debug, Write},
     hash::Hash,
     mem::{replace, take},
     rc::Rc,
@@ -82,7 +83,11 @@ impl Tracer for CircuitTracer {
             self.wire_map_builder.current(),
             name,
             is_adjoint,
-            &GateInputs { targets, controls },
+            &GateInputs {
+                targets,
+                control_qubits: controls,
+                control_results: &[],
+            },
             display_args,
             called_at,
         );
@@ -103,7 +108,7 @@ impl Tracer for CircuitTracer {
             self.classical_one_qubits
                 .remove(&self.wire_map_builder.wire_map.qubit_wire(q));
             self.circuit_builder
-                .mresetz(self.wire_map_builder.current(), q, r, called_at);
+                .mresetz(self.wire_map_builder.current(), q, r, called_at.clone());
         } else {
             self.circuit_builder
                 .m(self.wire_map_builder.current(), q, r, called_at);
@@ -135,7 +140,8 @@ impl Tracer for CircuitTracer {
             false, // is_adjoint
             &GateInputs {
                 targets: &qubit_args,
-                controls: &[],
+                control_qubits: &[],
+                control_results: &[],
             },
             if classical_args.is_empty() {
                 vec![]
@@ -180,20 +186,24 @@ impl CircuitTracer {
         // input parameters. These will get allocated during execution, but
         // the declaration locations inferred from the callstacks will be meaningless
         // since those will be in the generated entry expression.
-        let params = operation_qubit_params
-            .map(|(package_id, info)| {
-                let mut decls = vec![];
-                for param in &info {
-                    for _ in 0..param.num_qubits() {
-                        decls.push(PackageOffset {
-                            package_id,
-                            offset: param.source_offset,
-                        });
+        let params = if config.source_locations {
+            operation_qubit_params
+                .map(|(package_id, info)| {
+                    let mut decls = vec![];
+                    for param in &info {
+                        for _ in 0..param.num_qubits() {
+                            decls.push(PackageOffset {
+                                package_id,
+                                offset: param.source_offset,
+                            });
+                        }
                     }
-                }
-                decls
-            })
-            .unwrap_or_default();
+                    decls
+                })
+                .unwrap_or_default()
+        } else {
+            vec![]
+        };
 
         CircuitTracer {
             config,
@@ -255,16 +265,7 @@ impl CircuitTracer {
             collapse_unnecessary_loop_scopes(&mut operations);
         }
 
-        let operations = operations
-            .into_iter()
-            .map(|o| o.into_operation(source_lookup))
-            .collect();
-
-        let component_grid = operation_list_to_grid(operations, num_qubits);
-        Circuit {
-            qubits,
-            component_grid,
-        }
+        finish_circuit(source_lookup, operations, qubits, num_qubits)
     }
 
     fn should_keep_operation_mut(&self, op: &mut OperationOrGroup) -> bool {
@@ -497,6 +498,24 @@ impl CircuitTracer {
     }
 }
 
+pub(crate) fn finish_circuit(
+    source_lookup: &impl SourceLookup,
+    operations: Vec<OperationOrGroup>,
+    qubits: Vec<Qubit>,
+    num_qubits: usize,
+) -> Circuit {
+    let operations = operations
+        .into_iter()
+        .map(|o| o.into_operation(source_lookup))
+        .collect();
+
+    let component_grid = operation_list_to_grid(operations, num_qubits);
+    Circuit {
+        qubits,
+        component_grid,
+    }
+}
+
 /// Removes any loop scopes that are unnecessary and replaces them with their children operations.
 /// An unnecessary loop scope is one that either has a single child iteration,
 /// or has multiple iterations that each operate on distinct sets of qubits (i.e. a "vertical" loop).
@@ -505,7 +524,8 @@ fn collapse_unnecessary_loop_scopes(operations: &mut Vec<OperationOrGroup>) {
     for mut op in operations.drain(..) {
         match &mut op.kind {
             OperationOrGroupKind::Single => {}
-            OperationOrGroupKind::Group { children, .. } => {
+            OperationOrGroupKind::ScopeGroup { children, .. }
+            | OperationOrGroupKind::ConditionalGroup { children, .. } => {
                 collapse_unnecessary_loop_scopes(children);
             }
         }
@@ -522,7 +542,7 @@ fn collapse_unnecessary_loop_scopes(operations: &mut Vec<OperationOrGroup>) {
 /// If the given operation or group is an outer loop scope that can be collapsed,
 /// returns its children operations or groups.
 fn collapse_if_unnecessary(op: &mut OperationOrGroup) -> Option<Vec<OperationOrGroup>> {
-    if let OperationOrGroupKind::Group {
+    if let OperationOrGroupKind::ScopeGroup {
         scope_stack,
         children,
     } = &mut op.kind
@@ -531,7 +551,7 @@ fn collapse_if_unnecessary(op: &mut OperationOrGroup) -> Option<Vec<OperationOrG
         if children.len() == 1 {
             // remove the loop scope
             let mut only_child = children.remove(0);
-            let OperationOrGroupKind::Group { children, .. } = &mut only_child.kind else {
+            let OperationOrGroupKind::ScopeGroup { children, .. } = &mut only_child.kind else {
                 panic!("only child of an outer loop scope should be a group");
             };
             return Some(take(children));
@@ -548,7 +568,7 @@ fn collapse_if_unnecessary(op: &mut OperationOrGroup) -> Option<Vec<OperationOrG
         }
         let mut all_children = vec![];
         for mut child_op in children.drain(..) {
-            let OperationOrGroupKind::Group { children, .. } = &mut child_op.kind else {
+            let OperationOrGroupKind::ScopeGroup { children, .. } = &mut child_op.kind else {
                 panic!("only child of an outer loop scope should be a group");
             };
             all_children.extend(take(children));
@@ -610,8 +630,15 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
 
                 let (scope_offset, scope_name) = match &item.kind {
                     hir::ItemKind::Callable(callable_decl) => {
-                        let spec_decl = if functor_app.adjoint {
+                        let spec_decl = if functor_app.adjoint && functor_app.controlled > 0 {
+                            callable_decl
+                                .ctl_adj
+                                .as_ref()
+                                .unwrap_or(&callable_decl.body)
+                        } else if functor_app.adjoint {
                             callable_decl.adj.as_ref().unwrap_or(&callable_decl.body)
+                        } else if functor_app.controlled > 0 {
+                            callable_decl.ctl.as_ref().unwrap_or(&callable_decl.body)
                         } else {
                             &callable_decl.body
                         };
@@ -745,7 +772,7 @@ impl TracerConfig {
 /// Maps qubit IDs to their corresponding wire IDs and tracks measurement results
 /// along with their source locations.
 #[derive(Default)]
-struct WireMap {
+pub(crate) struct WireMap {
     /// Maps qubit IDs to their assigned wire IDs.
     qubits: IndexMap<usize, QubitWire>,
     /// Maps wire IDs to their declaration locations and measurement result IDs.
@@ -753,14 +780,14 @@ struct WireMap {
 }
 
 impl WireMap {
-    fn qubit_wire(&self, qubit_id: usize) -> QubitWire {
+    pub fn qubit_wire(&self, qubit_id: usize) -> QubitWire {
         self.qubits
             .get(qubit_id)
-            .expect("qubit should already be mapped")
+            .unwrap_or_else(|| panic!("qubit {qubit_id} should already be mapped"))
             .to_owned()
     }
 
-    fn result_wire(&self, result_id: usize) -> ResultWire {
+    pub fn result_wire(&self, result_id: usize) -> ResultWire {
         self.qubit_wires
             .iter()
             .find_map(|(QubitWire(qubit_wire), (_, results))| {
@@ -770,7 +797,7 @@ impl WireMap {
             .expect("result should already be mapped")
     }
 
-    fn to_qubits(&self, source_lookup: &impl SourceLookup) -> Vec<Qubit> {
+    pub(crate) fn to_qubits(&self, source_lookup: &impl SourceLookup) -> Vec<Qubit> {
         let mut qubits = vec![];
         for (QubitWire(wire_id), (declarations, results)) in self.qubit_wires.iter() {
             qubits.push(Qubit {
@@ -788,10 +815,10 @@ impl WireMap {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-struct ResultWire(usize, usize);
+pub(crate) struct ResultWire(pub(crate) usize, pub(crate) usize);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-struct QubitWire(usize);
+pub(crate) struct QubitWire(pub(crate) usize);
 
 impl From<usize> for QubitWire {
     fn from(value: usize) -> Self {
@@ -813,9 +840,18 @@ impl From<QubitWire> for usize {
 /// This implementation is similar to the partial evaluation resource manager,
 /// which is used in RIR/QIR generation, in its Qubit ID and Result ID management.
 /// (see `source/compiler/qsc_partial_eval/src/management.rs`)
-struct WireMapBuilder {
+pub(crate) struct WireMapBuilder {
     next_qubit_wire_id: QubitWire,
     wire_map: WireMap,
+}
+
+impl Default for WireMapBuilder {
+    fn default() -> Self {
+        Self {
+            next_qubit_wire_id: QubitWire(0),
+            wire_map: WireMap::default(),
+        }
+    }
 }
 
 impl WireMapBuilder {
@@ -834,11 +870,11 @@ impl WireMapBuilder {
         new
     }
 
-    fn current(&self) -> &WireMap {
+    pub fn current(&self) -> &WireMap {
         &self.wire_map
     }
 
-    fn map_qubit(&mut self, qubit: usize, declared_at: Option<PackageOffset>) {
+    pub fn map_qubit(&mut self, qubit: usize, declared_at: Option<PackageOffset>) {
         let mapped = self.next_qubit_wire_id;
         self.next_qubit_wire_id.0 += 1;
         self.wire_map.qubits.insert(qubit, mapped);
@@ -853,13 +889,17 @@ impl WireMapBuilder {
         }
     }
 
+    pub(crate) fn into_wire_map(self) -> WireMap {
+        self.wire_map
+    }
+
     fn unmap_qubit(&mut self, q: usize) {
         // Simple behavior assuming qubits are always released in reverse order of allocation
         self.next_qubit_wire_id.0 -= 1;
         self.wire_map.qubits.remove(q);
     }
 
-    fn link_result_to_qubit(&mut self, q: usize, r: usize) {
+    pub fn link_result_to_qubit(&mut self, q: usize, r: usize) {
         let mapped_q = self.wire_map.qubit_wire(q);
         let Some((_, measurements)) = self.wire_map.qubit_wires.get_mut(mapped_q) else {
             panic!("qubit should already be mapped");
@@ -877,24 +917,29 @@ impl WireMapBuilder {
     }
 }
 
-#[derive(Clone)]
-struct OperationOrGroup {
+#[derive(Clone, Debug)]
+pub(crate) struct OperationOrGroup {
     kind: OperationOrGroupKind,
     location: Option<LogicalStackEntryLocation>,
     op: Operation,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum OperationOrGroupKind {
     Single,
-    Group {
+    ScopeGroup {
         scope_stack: ScopeStack,
         children: Vec<OperationOrGroup>,
+    },
+    ConditionalGroup {
+        label: String,
+        children: Vec<OperationOrGroup>,
+        scope_location: Option<PackageOffset>,
     },
 }
 
 impl OperationOrGroup {
-    fn new_single(op: Operation) -> Self {
+    pub(crate) fn new_single(op: Operation) -> Self {
         Self {
             kind: OperationOrGroupKind::Single,
             op,
@@ -902,11 +947,12 @@ impl OperationOrGroup {
         }
     }
 
-    fn new_unitary(
+    pub(crate) fn new_unitary(
         name: &str,
         is_adjoint: bool,
         targets: &[QubitWire],
         controls: &[QubitWire],
+        control_results: &[ResultWire],
         args: Vec<String>,
     ) -> Self {
         Self::new_single(Operation::Unitary(Unitary {
@@ -926,16 +972,17 @@ impl OperationOrGroup {
                     qubit: q.0,
                     result: None,
                 })
+                .chain(control_results.iter().map(|r| Register {
+                    qubit: r.0,
+                    result: Some(r.1),
+                }))
                 .collect(),
             is_adjoint,
-            metadata: Some(Metadata {
-                source: None,
-                scope_location: None,
-            }),
+            metadata: None,
         }))
     }
 
-    fn new_measurement(label: &str, qubit: QubitWire, result: ResultWire) -> Self {
+    pub(crate) fn new_measurement(label: &str, qubit: QubitWire, result: ResultWire) -> Self {
         Self::new_single(Operation::Measurement(Measurement {
             gate: label.to_string(),
             args: vec![],
@@ -952,7 +999,7 @@ impl OperationOrGroup {
         }))
     }
 
-    fn new_ket(qubit: QubitWire) -> Self {
+    pub(crate) fn new_ket(qubit: QubitWire) -> Self {
         Self::new_single(Operation::Ket(Ket {
             gate: "0".to_string(),
             args: vec![],
@@ -965,7 +1012,7 @@ impl OperationOrGroup {
         }))
     }
 
-    fn all_qubits(&self) -> Vec<QubitWire> {
+    pub(crate) fn all_qubits(&self) -> Vec<QubitWire> {
         let qubits: FxHashSet<QubitWire> = match &self.op {
             Operation::Measurement(measurement) => measurement.qubits.clone(),
             Operation::Unitary(unitary) => unitary
@@ -983,7 +1030,7 @@ impl OperationOrGroup {
         qubits.into_iter().collect()
     }
 
-    fn all_results(&self) -> Vec<ResultWire> {
+    pub(crate) fn all_results(&self) -> Vec<ResultWire> {
         let results: FxHashSet<ResultWire> = match &self.op {
             Operation::Measurement(measurement) => measurement
                 .results
@@ -1007,14 +1054,14 @@ impl OperationOrGroup {
     where
         Self: std::marker::Sized,
     {
-        if let OperationOrGroupKind::Group { children, .. } = &mut self.kind {
+        if let OperationOrGroupKind::ScopeGroup { children, .. } = &mut self.kind {
             Some(children)
         } else {
             None
         }
     }
 
-    fn new_group(scope_stack: ScopeStack, children: Vec<Self>) -> Self {
+    pub(crate) fn new_scope_group(scope_stack: ScopeStack, children: Vec<Self>) -> Self {
         let all_qubits = children
             .iter()
             .flat_map(OperationOrGroup::all_qubits)
@@ -1030,12 +1077,12 @@ impl OperationOrGroup {
             .collect::<Vec<ResultWire>>();
 
         Self {
-            kind: OperationOrGroupKind::Group {
+            kind: OperationOrGroupKind::ScopeGroup {
                 scope_stack,
                 children,
             },
             op: Operation::Unitary(Unitary {
-                gate: String::new(), // to be filled in later
+                gate: String::new(), // TODO: to be filled in later
                 args: vec![],
                 children: vec![],
                 targets: all_qubits
@@ -1050,6 +1097,44 @@ impl OperationOrGroup {
                     }))
                     .collect(),
                 controls: vec![],
+                is_adjoint: false,
+                metadata: None,
+            }),
+            location: None,
+        }
+    }
+
+    pub(crate) fn new_conditional_group(
+        label: String,
+        scope_location: Option<PackageOffset>,
+        children: Vec<Self>,
+        control_results: Vec<ResultWire>,
+        targets: Vec<QubitWire>,
+    ) -> Self {
+        Self {
+            kind: OperationOrGroupKind::ConditionalGroup {
+                label: label.clone(),
+                children,
+                scope_location,
+            },
+            op: Operation::Unitary(Unitary {
+                gate: label,
+                args: vec![],
+                children: vec![],
+                targets: targets
+                    .into_iter()
+                    .map(|q| Register {
+                        qubit: q.0,
+                        result: None,
+                    })
+                    .collect(),
+                controls: control_results
+                    .into_iter()
+                    .map(|r| Register {
+                        qubit: r.0,
+                        result: Some(r.1),
+                    })
+                    .collect(),
                 is_adjoint: false,
                 metadata: Some(Metadata {
                     source: None,
@@ -1085,44 +1170,46 @@ impl OperationOrGroup {
     }
 
     fn extend_target_results(&mut self, target_results: &[ResultWire]) {
-        match &mut self.op {
-            Operation::Measurement(measurement) => {
-                measurement
-                    .results
-                    .extend(target_results.iter().map(|r| Register {
-                        qubit: r.0,
-                        result: Some(r.1),
-                    }));
-                measurement
-                    .results
-                    .sort_unstable_by_key(|reg| (reg.qubit, reg.result));
-                measurement.results.dedup();
+        {
+            match &mut self.op {
+                Operation::Measurement(measurement) => {
+                    measurement
+                        .results
+                        .extend(target_results.iter().map(|r| Register {
+                            qubit: r.0,
+                            result: Some(r.1),
+                        }));
+                    measurement
+                        .results
+                        .sort_unstable_by_key(|reg| (reg.qubit, reg.result));
+                    measurement.results.dedup();
+                }
+                Operation::Unitary(unitary) => {
+                    unitary
+                        .targets
+                        .extend(target_results.iter().map(|r| Register {
+                            qubit: r.0,
+                            result: Some(r.1),
+                        }));
+                    unitary
+                        .targets
+                        .sort_unstable_by_key(|r| (r.qubit, r.result));
+                    unitary.targets.dedup();
+                }
+                Operation::Ket(_) => {}
             }
-            Operation::Unitary(unitary) => {
-                unitary
-                    .targets
-                    .extend(target_results.iter().map(|r| Register {
-                        qubit: r.0,
-                        result: Some(r.1),
-                    }));
-                unitary
-                    .targets
-                    .sort_unstable_by_key(|r| (r.qubit, r.result));
-                unitary.targets.dedup();
-            }
-            Operation::Ket(_) => {}
         }
     }
 
-    fn scope_stack_if_group(&self) -> Option<&ScopeStack> {
-        if let OperationOrGroupKind::Group { scope_stack, .. } = &self.kind {
+    pub(crate) fn scope_stack_if_group(&self) -> Option<&ScopeStack> {
+        if let OperationOrGroupKind::ScopeGroup { scope_stack, .. } = &self.kind {
             Some(scope_stack)
         } else {
             None
         }
     }
 
-    fn into_operation(mut self, source_lookup: &impl SourceLookup) -> Operation {
+    pub(crate) fn into_operation(mut self, source_lookup: &impl SourceLookup) -> Operation {
         if let Some(location) = self.location {
             let package_offset = source_lookup.resolve_logical_stack_entry_location(location);
             let location = source_lookup.resolve_package_offset(&package_offset);
@@ -1132,7 +1219,7 @@ impl OperationOrGroup {
 
         match self.kind {
             OperationOrGroupKind::Single => self.op,
-            OperationOrGroupKind::Group {
+            OperationOrGroupKind::ScopeGroup {
                 scope_stack,
                 children,
             } => {
@@ -1145,6 +1232,34 @@ impl OperationOrGroup {
                 let scope_location = scope
                     .location
                     .map(|loc| source_lookup.resolve_package_offset(&loc));
+
+                if let Some(metadata) = &mut u.metadata {
+                    metadata.scope_location = scope_location;
+                } else {
+                    u.metadata = Some(Metadata {
+                        source: None,
+                        scope_location,
+                    });
+                }
+                u.children = vec![ComponentColumn {
+                    components: children
+                        .into_iter()
+                        .map(|o| o.into_operation(source_lookup))
+                        .collect(),
+                }];
+                self.op
+            }
+            OperationOrGroupKind::ConditionalGroup {
+                label,
+                children,
+                scope_location,
+            } => {
+                let Operation::Unitary(u) = &mut self.op else {
+                    panic!("group operation should be a unitary")
+                };
+                u.gate = label;
+                let scope_location =
+                    scope_location.map(|loc| source_lookup.resolve_package_offset(&loc));
                 if let Some(metadata) = &mut u.metadata {
                     metadata.scope_location = scope_location;
                 } else {
@@ -1170,17 +1285,22 @@ impl OperationOrGroup {
 ///
 /// Methods take `WireMap` as a parameter to resolve qubit and result IDs
 /// to their corresponding wire positions in the circuit diagram.
-struct OperationListBuilder {
+pub(crate) struct OperationListBuilder {
     max_ops: usize,
     max_ops_exceeded: bool,
     operations: Vec<OperationOrGroup>,
-    source_locations: bool,
     user_package_ids: Vec<PackageId>,
-    group_by_scope: bool,
+    grouping_config: GroupingConfig,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct GroupingConfig {
+    pub(crate) source_locations: bool,
+    pub(crate) group_by_scope: bool,
 }
 
 impl OperationListBuilder {
-    fn new(
+    pub fn new(
         max_operations: usize,
         user_package_ids: Vec<PackageId>,
         group_by_scope: bool,
@@ -1190,9 +1310,11 @@ impl OperationListBuilder {
             max_ops: max_operations,
             max_ops_exceeded: false,
             operations: vec![],
-            source_locations,
+            grouping_config: GroupingConfig {
+                source_locations,
+                group_by_scope,
+            },
             user_package_ids,
-            group_by_scope,
         }
     }
 
@@ -1203,19 +1325,20 @@ impl OperationListBuilder {
             return;
         }
 
-        let op_call_stack = if self.group_by_scope || self.source_locations {
-            retain_user_frames(&self.user_package_ids, unfiltered_call_stack)
-        } else {
-            LogicalStack::default()
-        };
+        let op_call_stack =
+            if self.grouping_config.group_by_scope || self.grouping_config.source_locations {
+                retain_user_frames(&self.user_package_ids, unfiltered_call_stack)
+            } else {
+                LogicalStack::default()
+            };
 
         add_scoped_op(
             &mut self.operations,
             &ScopeStack::top(),
             op,
             &op_call_stack,
-            self.group_by_scope,
-            self.source_locations,
+            self.grouping_config.group_by_scope,
+            self.grouping_config.source_locations,
         );
     }
 
@@ -1223,7 +1346,7 @@ impl OperationListBuilder {
         &self.operations
     }
 
-    fn into_operations(self) -> Vec<OperationOrGroup> {
+    pub(crate) fn into_operations(self) -> Vec<OperationOrGroup> {
         self.operations
     }
 
@@ -1242,12 +1365,12 @@ impl OperationListBuilder {
             .map(|q| wire_map.qubit_wire(*q))
             .collect::<Vec<_>>();
         let controls = inputs
-            .controls
+            .control_qubits
             .iter()
             .map(|q| wire_map.qubit_wire(*q))
             .collect::<Vec<_>>();
         self.push_op(
-            OperationOrGroup::new_unitary(name, is_adjoint, &targets, &controls, args),
+            OperationOrGroup::new_unitary(name, is_adjoint, &targets, &controls, &[], args),
             call_stack,
         );
     }
@@ -1283,9 +1406,10 @@ impl OperationListBuilder {
     }
 }
 
-struct GateInputs<'a> {
-    targets: &'a [usize],
-    controls: &'a [usize],
+pub(crate) struct GateInputs<'a> {
+    pub(crate) targets: &'a [usize],
+    pub(crate) control_qubits: &'a [usize],
+    pub(crate) control_results: &'a [usize],
 }
 
 pub struct LexicalScope {
@@ -1298,7 +1422,7 @@ pub struct LexicalScope {
     is_adjoint: bool,
 }
 
-fn add_scoped_op(
+pub(crate) fn add_scoped_op(
     current_container: &mut Vec<OperationOrGroup>,
     current_scope_stack: &ScopeStack,
     mut op: OperationOrGroup,
@@ -1349,10 +1473,10 @@ fn add_scoped_op(
             }
         }
 
-        let op_scope_stack = scope_stack(&op_call_stack.0);
+        let op_scope_stack = scope_stack(op_call_stack);
         if *current_scope_stack != op_scope_stack {
             // Need to create a new scope group
-            let scope_group = OperationOrGroup::new_group(op_scope_stack, vec![op]);
+            let scope_group = OperationOrGroup::new_scope_group(op_scope_stack, vec![op]);
 
             let parent = LogicalStack(
                 op_call_stack
@@ -1380,7 +1504,7 @@ fn add_scoped_op(
     current_container.push(op);
 }
 
-fn retain_user_frames(
+pub(crate) fn retain_user_frames(
     user_package_ids: &[PackageId],
     mut location_stack: LogicalStack,
 ) -> LogicalStack {
@@ -1388,13 +1512,12 @@ fn retain_user_frames(
         let package_id = location.package_id();
         user_package_ids.is_empty() || user_package_ids.contains(&package_id)
     });
-
     LogicalStack(location_stack.0)
 }
 
 /// Represents a scope in the call stack, tracking the caller chain and current scope identifier.
-#[derive(Clone, PartialEq)]
-struct ScopeStack {
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ScopeStack {
     caller: LogicalStack,
     scope: Scope,
 }
@@ -1413,7 +1536,7 @@ impl ScopeStack {
         self.caller.0.is_empty() && self.scope == Scope::default()
     }
 
-    fn top() -> Self {
+    pub(crate) fn top() -> Self {
         ScopeStack {
             caller: LogicalStack::default(),
             scope: Scope::default(),
@@ -1435,7 +1558,7 @@ impl ScopeStack {
 /// If it is a prefix, this function returns the remainder of `full_call_stack` after removing
 /// the prefix, starting from the first location in the call stack that is in the scope of
 /// `prefix_scope_stack.scope`.
-fn strip_scope_stack_prefix(
+pub(crate) fn strip_scope_stack_prefix(
     full_call_stack: &LogicalStack,
     prefix_scope_stack: &ScopeStack,
 ) -> Option<LogicalStack> {
@@ -1453,8 +1576,9 @@ fn strip_scope_stack_prefix(
     None
 }
 
-fn scope_stack(instruction_stack: &[LogicalStackEntry]) -> ScopeStack {
+pub(crate) fn scope_stack(instruction_stack: &LogicalStack) -> ScopeStack {
     instruction_stack
+        .0
         .split_last()
         .map_or(ScopeStack::top(), |(youngest, prefix)| ScopeStack {
             caller: LogicalStack(prefix.to_vec()),
@@ -1462,7 +1586,7 @@ fn scope_stack(instruction_stack: &[LogicalStackEntry]) -> ScopeStack {
         })
 }
 
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 /// A "logical" stack trace. This is a processed version of a raw stack trace
 /// captured from the evaluator.
 /// This stack trace doesn't only contain calls to callables, but also entries into scopes
@@ -1553,7 +1677,7 @@ impl LogicalStackEntry {
         }
     }
 
-    fn new_call_site(package_offset: PackageOffset, scope: Scope) -> Self {
+    pub(crate) fn new_call_site(package_offset: PackageOffset, scope: Scope) -> Self {
         Self {
             location: LogicalStackEntryLocation::Call(package_offset),
             scope,
@@ -1590,23 +1714,6 @@ pub enum Scope {
     /// A loop body.  The `ExprId` identifies the loop expression.
     /// The `usize` is the iteration count.
     LoopIteration(PackageId, ExprId, usize),
-}
-
-impl Display for Scope {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Scope::Top => write!(f, "top"),
-            Scope::Callable(i, _) => {
-                write!(f, "callable{}-{}", i.package, i.item)
-            }
-            Scope::LoopIteration(_, _, i) => {
-                write!(f, "loop-iter({i})")
-            }
-            Scope::Loop(..) => {
-                write!(f, "loop-container")
-            }
-        }
-    }
 }
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]

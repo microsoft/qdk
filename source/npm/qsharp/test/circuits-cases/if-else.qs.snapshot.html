@@ -1,0 +1,722 @@
+<!doctype html>
+<html
+  xmlns="http://www.w3.org/1999/xhtml"
+  style="--minToolboxHeight: 150px; --minGateWidth: 40px; --gateHeight: 40px"
+>
+  <head>
+    <link rel="stylesheet" href="../../ux/qsharp-ux.css" />
+    <link rel="stylesheet" href="../../ux/qsharp-circuit.css" />
+  </head>
+  <body>
+    <div><h2>circuit-static-collapsed</h2></div>
+    <div id="circuit-static-collapsed" class="qs-circuit">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="qviz"
+        width="395"
+        height="292"
+        style="max-width: fit-content"
+        viewBox="0 0 395 292"
+      >
+        <g class="qubit-input-states">
+          <text
+            font-size="16"
+            x="20"
+            y="92"
+            text-anchor="start"
+            dominant-baseline="middle"
+            data-wire="0"
+            class="qs-maintext qs-qubit-label"
+          >
+            |
+            <tspan class="qs-mathtext">ψ</tspan>
+            <tspan baseline-shift="sub" font-size="65%">0</tspan>
+            ⟩
+          </text>
+          <text
+            font-size="16"
+            x="20"
+            y="188"
+            text-anchor="start"
+            dominant-baseline="middle"
+            data-wire="1"
+            class="qs-maintext qs-qubit-label"
+          >
+            |
+            <tspan class="qs-mathtext">ψ</tspan>
+            <tspan baseline-shift="sub" font-size="65%">1</tspan>
+            ⟩
+          </text>
+        </g>
+        <g class="wires">
+          <line x1="40" x2="395" y1="92" y2="92" class="qubit-wire" />
+          <line x1="40" x2="395" y1="188" y2="188" class="qubit-wire" />
+          <g>
+            <line
+              x1="163"
+              x2="163"
+              y1="92"
+              y2="135"
+              class="register-classical"
+            />
+            <line
+              x1="161"
+              x2="161"
+              y1="92"
+              y2="137"
+              class="register-classical"
+            />
+            <line
+              x1="163"
+              x2="395"
+              y1="135"
+              y2="135"
+              class="register-classical"
+            />
+            <line
+              x1="161"
+              x2="395"
+              y1="137"
+              y2="137"
+              class="register-classical"
+            />
+          </g>
+          <g>
+            <line
+              x1="348"
+              x2="348"
+              y1="188"
+              y2="231"
+              class="register-classical"
+            />
+            <line
+              x1="346"
+              x2="346"
+              y1="188"
+              y2="233"
+              class="register-classical"
+            />
+            <line
+              x1="348"
+              x2="395"
+              y1="231"
+              y2="231"
+              class="register-classical"
+            />
+            <line
+              x1="346"
+              x2="395"
+              y1="233"
+              y2="233"
+              class="register-classical"
+            />
+          </g>
+        </g>
+        <g>
+          <g
+            class="gate"
+            data-expanded="true"
+            data-location="0,0"
+            data-zoom-out="false"
+            data-zoom-in="true"
+          >
+            <rect
+              class="gate-unitary"
+              x="80"
+              y="46"
+              width="297"
+              height="216"
+              fill-opacity="0"
+              stroke-dasharray="8, 8"
+            />
+            <g>
+              <g
+                class="gate"
+                data-location="0,0-0,0"
+                data-zoom-out="true"
+                data-zoom-in="false"
+              >
+                <a href="#" class="qs-circuit-source-link">
+                  <title>if-else.qs:6:5 H(q0);</title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="90"
+                        y="72"
+                        width="40"
+                        height="40"
+                        data-wire-ys="[92]"
+                        data-width="40"
+                      />
+                      <text font-size="14" x="110" y="92" class="qs-maintext">
+                        <tspan class="qs-mathtext">H</tspan>
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+              <g
+                class="gate"
+                data-location="0,0-1,0"
+                data-zoom-out="true"
+                data-zoom-in="false"
+              >
+                <a href="#" class="qs-circuit-source-link">
+                  <title>if-else.qs:7:13 let r = M(q0);</title>
+                  <g>
+                    <rect
+                      class="gate-measure"
+                      x="142"
+                      y="72"
+                      width="40"
+                      height="40"
+                      data-wire-ys="[92]"
+                      data-width="40"
+                    />
+                    <path
+                      class="arc-measure"
+                      d="M 177 94 A 15 12 0 0 0 147 94"
+                      style="pointer-events: none"
+                    />
+                    <line
+                      x1="162"
+                      x2="174"
+                      y1="100"
+                      y2="80"
+                      class="qs-line-measure"
+                      style="pointer-events: none"
+                    />
+                  </g>
+                </a>
+              </g>
+              <g
+                class="gate"
+                data-location="0,0-2,0"
+                data-zoom-out="true"
+                data-zoom-in="true"
+              >
+                <a href="#" class="qs-circuit-source-link">
+                  <title>if-else.qs:11:9 Y(q1);</title>
+                  <line
+                    x1="254.5"
+                    x2="254.5"
+                    y1="136"
+                    y2="188"
+                    class="control-line"
+                    style="pointer-events: none"
+                  />
+                  <circle
+                    cx="254.5"
+                    cy="136"
+                    r="5"
+                    class="control-dot"
+                    data-wire-ys="[136]"
+                    data-width="10"
+                  />
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="194"
+                        y="168"
+                        width="121"
+                        height="40"
+                        data-wire-ys="[188]"
+                        data-width="121"
+                      />
+                      <text
+                        font-size="14"
+                        x="254.5"
+                        y="188"
+                        class="qs-maintext"
+                      >
+                        <tspan class="qs-mathtext">check</tspan>
+                        :
+                        <tspan class="qs-mathtext">c</tspan>
+                        _0 = |1〉
+                      </text>
+                    </g>
+                  </g>
+                </a>
+                <g class="gate-control gate-expand">
+                  <circle cx="196" cy="170" r="10" />
+                  <path d="M196,163 v14 M189,170 h14" />
+                </g>
+              </g>
+              <g
+                class="gate"
+                data-location="0,0-3,0"
+                data-zoom-out="true"
+                data-zoom-in="false"
+              >
+                <a href="#" class="qs-circuit-source-link">
+                  <title>if-else.qs:13:14 let r1 = M(q1);</title>
+                  <g>
+                    <rect
+                      class="gate-measure"
+                      x="327"
+                      y="168"
+                      width="40"
+                      height="40"
+                      data-wire-ys="[188]"
+                      data-width="40"
+                    />
+                    <path
+                      class="arc-measure"
+                      d="M 362 190 A 15 12 0 0 0 332 190"
+                      style="pointer-events: none"
+                    />
+                    <line
+                      x1="347"
+                      x2="359"
+                      y1="196"
+                      y2="176"
+                      class="qs-line-measure"
+                      style="pointer-events: none"
+                    />
+                  </g>
+                </a>
+              </g>
+            </g>
+            <text
+              font-size="14"
+              x="90"
+              y="61"
+              class="qs-maintext qs-group-label"
+            >
+              <tspan class="qs-mathtext">Main</tspan>
+            </text>
+            <g class="gate-control gate-collapse">
+              <circle cx="82" cy="48" r="10" />
+              <path d="M75,48 h14" />
+            </g>
+          </g>
+        </g>
+      </svg>
+    </div>
+    <div><h2>circuit-static-expanded</h2></div>
+    <div id="circuit-static-expanded" class="qs-circuit">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="qviz"
+        width="426"
+        height="364"
+        style="max-width: fit-content"
+        viewBox="0 0 426 364"
+      >
+        <g class="qubit-input-states">
+          <text
+            font-size="16"
+            x="20"
+            y="144"
+            text-anchor="start"
+            dominant-baseline="middle"
+            data-wire="0"
+            class="qs-maintext qs-qubit-label"
+          >
+            |
+            <tspan class="qs-mathtext">ψ</tspan>
+            <tspan baseline-shift="sub" font-size="65%">0</tspan>
+            ⟩
+          </text>
+          <text
+            font-size="16"
+            x="20"
+            y="240"
+            text-anchor="start"
+            dominant-baseline="middle"
+            data-wire="1"
+            class="qs-maintext qs-qubit-label"
+          >
+            |
+            <tspan class="qs-mathtext">ψ</tspan>
+            <tspan baseline-shift="sub" font-size="65%">1</tspan>
+            ⟩
+          </text>
+        </g>
+        <g class="wires">
+          <line x1="40" x2="426" y1="144" y2="144" class="qubit-wire" />
+          <line x1="40" x2="426" y1="240" y2="240" class="qubit-wire" />
+          <g>
+            <line
+              x1="163"
+              x2="163"
+              y1="144"
+              y2="187"
+              class="register-classical"
+            />
+            <line
+              x1="161"
+              x2="161"
+              y1="144"
+              y2="189"
+              class="register-classical"
+            />
+            <line
+              x1="163"
+              x2="426"
+              y1="187"
+              y2="187"
+              class="register-classical"
+            />
+            <line
+              x1="161"
+              x2="426"
+              y1="189"
+              y2="189"
+              class="register-classical"
+            />
+          </g>
+          <g>
+            <line
+              x1="379"
+              x2="379"
+              y1="240"
+              y2="283"
+              class="register-classical"
+            />
+            <line
+              x1="377"
+              x2="377"
+              y1="240"
+              y2="285"
+              class="register-classical"
+            />
+            <line
+              x1="379"
+              x2="426"
+              y1="283"
+              y2="283"
+              class="register-classical"
+            />
+            <line
+              x1="377"
+              x2="426"
+              y1="285"
+              y2="285"
+              class="register-classical"
+            />
+          </g>
+        </g>
+        <g>
+          <g
+            class="gate"
+            data-expanded="true"
+            data-location="0,0"
+            data-zoom-out="false"
+            data-zoom-in="true"
+          >
+            <rect
+              class="gate-unitary"
+              x="80"
+              y="98"
+              width="328"
+              height="216"
+              fill-opacity="0"
+              stroke-dasharray="8, 8"
+            />
+            <g>
+              <g
+                class="gate"
+                data-location="0,0-0,0"
+                data-zoom-out="true"
+                data-zoom-in="false"
+              >
+                <a href="#" class="qs-circuit-source-link">
+                  <title>if-else.qs:6:5 H(q0);</title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="90"
+                        y="124"
+                        width="40"
+                        height="40"
+                        data-wire-ys="[144]"
+                        data-width="40"
+                      />
+                      <text font-size="14" x="110" y="144" class="qs-maintext">
+                        <tspan class="qs-mathtext">H</tspan>
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+              <g
+                class="gate"
+                data-location="0,0-1,0"
+                data-zoom-out="true"
+                data-zoom-in="false"
+              >
+                <a href="#" class="qs-circuit-source-link">
+                  <title>if-else.qs:7:13 let r = M(q0);</title>
+                  <g>
+                    <rect
+                      class="gate-measure"
+                      x="142"
+                      y="124"
+                      width="40"
+                      height="40"
+                      data-wire-ys="[144]"
+                      data-width="40"
+                    />
+                    <path
+                      class="arc-measure"
+                      d="M 177 146 A 15 12 0 0 0 147 146"
+                      style="pointer-events: none"
+                    />
+                    <line
+                      x1="162"
+                      x2="174"
+                      y1="152"
+                      y2="132"
+                      class="qs-line-measure"
+                      style="pointer-events: none"
+                    />
+                  </g>
+                </a>
+              </g>
+              <g
+                class="gate"
+                data-expanded="true"
+                data-location="0,0-2,0"
+                data-zoom-out="true"
+                data-zoom-in="true"
+              >
+                <rect
+                  class="gate-unitary"
+                  x="194"
+                  y="168"
+                  width="152"
+                  height="112"
+                  fill-opacity="0"
+                  stroke-dasharray="8, 8"
+                />
+                <g>
+                  <g
+                    class="gate"
+                    data-expanded="true"
+                    data-location="0,0-2,0-0,0"
+                    data-zoom-out="true"
+                    data-zoom-in="true"
+                  >
+                    <rect
+                      class="gate-unitary"
+                      x="204"
+                      y="194"
+                      width="60"
+                      height="76"
+                      fill-opacity="0"
+                      stroke-dasharray="8, 8"
+                    />
+                    <g>
+                      <g
+                        class="gate"
+                        data-location="0,0-2,0-0,0-0,0"
+                        data-zoom-out="true"
+                        data-zoom-in="false"
+                      >
+                        <a href="#" class="qs-circuit-source-link">
+                          <title>if-else.qs:9:9 X(q1);</title>
+                          <line
+                            x1="234"
+                            x2="234"
+                            y1="188"
+                            y2="240"
+                            class="control-line"
+                            style="pointer-events: none"
+                          />
+                          <circle
+                            cx="234"
+                            cy="188"
+                            r="5"
+                            class="control-dot"
+                            data-wire-ys="[188]"
+                            data-width="10"
+                          />
+                          <g class="oplus" data-wire-ys="[240]" data-width="30">
+                            <circle cx="234" cy="240" r="15" />
+                            <line x1="234" x2="234" y1="225" y2="255" />
+                            <line x1="219" x2="249" y1="240" y2="240" />
+                          </g>
+                        </a>
+                      </g>
+                    </g>
+                    <text
+                      font-size="14"
+                      x="214"
+                      y="209"
+                      class="qs-maintext qs-group-label"
+                    >
+                      <tspan class="qs-mathtext">true</tspan>
+                    </text>
+                    <g class="gate-control gate-collapse">
+                      <circle cx="206" cy="196" r="10" />
+                      <path d="M199,196 h14" />
+                    </g>
+                  </g>
+                  <g
+                    class="gate"
+                    data-expanded="true"
+                    data-location="0,0-2,0-1,0"
+                    data-zoom-out="true"
+                    data-zoom-in="true"
+                  >
+                    <rect
+                      class="gate-unitary"
+                      x="276"
+                      y="194"
+                      width="60"
+                      height="76"
+                      fill-opacity="0"
+                      stroke-dasharray="8, 8"
+                    />
+                    <g>
+                      <g
+                        class="gate"
+                        data-location="0,0-2,0-1,0-0,0"
+                        data-zoom-out="true"
+                        data-zoom-in="false"
+                      >
+                        <a href="#" class="qs-circuit-source-link">
+                          <title>if-else.qs:11:9 Y(q1);</title>
+                          <line
+                            x1="306"
+                            x2="306"
+                            y1="188"
+                            y2="240"
+                            class="control-line"
+                            style="pointer-events: none"
+                          />
+                          <circle
+                            cx="306"
+                            cy="188"
+                            r="5"
+                            class="control-dot"
+                            data-wire-ys="[188]"
+                            data-width="10"
+                          />
+                          <g>
+                            <g>
+                              <rect
+                                class="gate-unitary"
+                                x="286"
+                                y="220"
+                                width="40"
+                                height="40"
+                                data-wire-ys="[240]"
+                                data-width="40"
+                              />
+                              <text
+                                font-size="14"
+                                x="306"
+                                y="240"
+                                class="qs-maintext"
+                              >
+                                <tspan class="qs-mathtext">Y</tspan>
+                              </text>
+                            </g>
+                          </g>
+                        </a>
+                      </g>
+                    </g>
+                    <text
+                      font-size="14"
+                      x="286"
+                      y="209"
+                      class="qs-maintext qs-group-label"
+                    >
+                      <tspan class="qs-mathtext">false</tspan>
+                    </text>
+                    <g class="gate-control gate-collapse">
+                      <circle cx="278" cy="196" r="10" />
+                      <path d="M271,196 h14" />
+                    </g>
+                  </g>
+                </g>
+                <text
+                  font-size="14"
+                  x="204"
+                  y="183"
+                  class="qs-maintext qs-group-label"
+                >
+                  <tspan class="qs-mathtext">check</tspan>
+                  :
+                  <tspan class="qs-mathtext">c</tspan>
+                  _0 = |1〉
+                </text>
+                <g class="gate-control gate-collapse">
+                  <circle cx="196" cy="170" r="10" />
+                  <path d="M189,170 h14" />
+                </g>
+              </g>
+              <g
+                class="gate"
+                data-location="0,0-3,0"
+                data-zoom-out="true"
+                data-zoom-in="false"
+              >
+                <a href="#" class="qs-circuit-source-link">
+                  <title>if-else.qs:13:14 let r1 = M(q1);</title>
+                  <g>
+                    <rect
+                      class="gate-measure"
+                      x="358"
+                      y="220"
+                      width="40"
+                      height="40"
+                      data-wire-ys="[240]"
+                      data-width="40"
+                    />
+                    <path
+                      class="arc-measure"
+                      d="M 393 242 A 15 12 0 0 0 363 242"
+                      style="pointer-events: none"
+                    />
+                    <line
+                      x1="378"
+                      x2="390"
+                      y1="248"
+                      y2="228"
+                      class="qs-line-measure"
+                      style="pointer-events: none"
+                    />
+                  </g>
+                </a>
+              </g>
+            </g>
+            <text
+              font-size="14"
+              x="90"
+              y="113"
+              class="qs-maintext qs-group-label"
+            >
+              <tspan class="qs-mathtext">Main</tspan>
+            </text>
+            <g class="gate-control gate-collapse">
+              <circle cx="82" cy="100" r="10" />
+              <path d="M75,100 h14" />
+            </g>
+          </g>
+        </g>
+      </svg>
+    </div>
+    <div><h2>circuit-eval-collapsed</h2></div>
+    <div id="circuit-eval-collapsed" class="qs-circuit">
+      <pre>
+Error generating circuit: QdkDiagnostics: runtime error: cannot compare measurement results
+
+help: comparing measurement results is not supported when performing circuit synthesis or base profile QIR generation at if-else.qs:8:13</pre
+      >
+    </div>
+    <div><h2>circuit-eval-expanded</h2></div>
+    <div id="circuit-eval-expanded" class="qs-circuit">
+      <pre>
+Error generating circuit: QdkDiagnostics: runtime error: cannot compare measurement results
+
+help: comparing measurement results is not supported when performing circuit synthesis or base profile QIR generation at if-else.qs:8:13</pre
+      >
+    </div>
+  </body>
+</html>

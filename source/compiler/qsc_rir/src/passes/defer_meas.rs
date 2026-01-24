@@ -29,7 +29,7 @@ pub fn defer_measurements(program: &mut Program) {
             CallableType::OutputRecording => {
                 output_recording_ids.insert(id);
             }
-            CallableType::Regular => {}
+            CallableType::Regular | CallableType::Initialize => {}
             CallableType::Reset => panic!(
                 "Reset callables should not be present in the RIR when deferring measurements"
             ),
@@ -37,51 +37,54 @@ pub fn defer_measurements(program: &mut Program) {
     }
 
     for (_, block) in program.blocks.iter_mut() {
-        block.0.sort_by(|a, b| match (a, b) {
-            // Return, branch, and jump instructions are terminators and should come last.
-            (Instruction::Return | Instruction::Branch(..) | Instruction::Jump(..), _) => {
-                std::cmp::Ordering::Greater
-            }
-            (_, Instruction::Return | Instruction::Branch(..) | Instruction::Jump(..)) => {
-                std::cmp::Ordering::Less
-            }
+        block
+            .0
+            .sort_by(|a, b| match (&a.instruction, &b.instruction) {
+                // Return, branch, and jump instructions are terminators and should come last.
+                (Instruction::Return | Instruction::Branch(..) | Instruction::Jump(..), _) => {
+                    std::cmp::Ordering::Greater
+                }
+                (_, Instruction::Return | Instruction::Branch(..) | Instruction::Jump(..)) => {
+                    std::cmp::Ordering::Less
+                }
 
-            // Measurements and output recordings should maintain their order relative to the same type.
-            (Instruction::Call(a_id, _, _), Instruction::Call(b_id, _, _))
-                if measure_call_ids.contains(a_id) && measure_call_ids.contains(b_id) =>
-            {
-                std::cmp::Ordering::Equal
-            }
-            (Instruction::Call(a_id, _, _), Instruction::Call(b_id, _, _))
-                if output_recording_ids.contains(a_id) && output_recording_ids.contains(b_id) =>
-            {
-                std::cmp::Ordering::Equal
-            }
+                // Measurements and output recordings should maintain their order relative to the same type.
+                (Instruction::Call(a_id, _, _), Instruction::Call(b_id, _, _))
+                    if measure_call_ids.contains(a_id) && measure_call_ids.contains(b_id) =>
+                {
+                    std::cmp::Ordering::Equal
+                }
+                (Instruction::Call(a_id, _, _), Instruction::Call(b_id, _, _))
+                    if output_recording_ids.contains(a_id)
+                        && output_recording_ids.contains(b_id) =>
+                {
+                    std::cmp::Ordering::Equal
+                }
 
-            // Output recording should come after any other instruction except for terminator instructions,
-            // which are handled above.
-            (Instruction::Call(a_id, _, _), _) if output_recording_ids.contains(a_id) => {
-                std::cmp::Ordering::Greater
-            }
-            (_, Instruction::Call(b_id, _, _)) if output_recording_ids.contains(b_id) => {
-                std::cmp::Ordering::Less
-            }
+                // Output recording should come after any other instruction except for terminator instructions,
+                // which are handled above.
+                (Instruction::Call(a_id, _, _), _) if output_recording_ids.contains(a_id) => {
+                    std::cmp::Ordering::Greater
+                }
+                (_, Instruction::Call(b_id, _, _)) if output_recording_ids.contains(b_id) => {
+                    std::cmp::Ordering::Less
+                }
 
-            // Measurements should come after any other instruction except for terminator instructions,
-            // and output recording instructions, which are handled above.
-            (Instruction::Call(a_id, _, _), Instruction::Call(..))
-                if measure_call_ids.contains(a_id) =>
-            {
-                std::cmp::Ordering::Greater
-            }
-            (Instruction::Call(..), Instruction::Call(b_id, _, _))
-                if measure_call_ids.contains(b_id) =>
-            {
-                std::cmp::Ordering::Less
-            }
+                // Measurements should come after any other instruction except for terminator instructions,
+                // and output recording instructions, which are handled above.
+                (Instruction::Call(a_id, _, _), Instruction::Call(..))
+                    if measure_call_ids.contains(a_id) =>
+                {
+                    std::cmp::Ordering::Greater
+                }
+                (Instruction::Call(..), Instruction::Call(b_id, _, _))
+                    if measure_call_ids.contains(b_id) =>
+                {
+                    std::cmp::Ordering::Less
+                }
 
-            // All other instructions should maintain their relative order.
-            _ => std::cmp::Ordering::Equal,
-        });
+                // All other instructions should maintain their relative order.
+                _ => std::cmp::Ordering::Equal,
+            });
     }
 }

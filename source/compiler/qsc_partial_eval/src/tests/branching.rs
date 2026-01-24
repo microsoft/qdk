@@ -37,7 +37,7 @@ fn if_expression_with_true_condition() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -49,9 +49,9 @@ fn if_expression_with_true_condition() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), )
-                Call id(3), args( Integer(0), EmptyTag, )
-                Return"#]],
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=1
+                Call id(3), args( Integer(0), EmptyTag, ) 
+                Return "#]],
     );
 }
 
@@ -77,8 +77,8 @@ fn if_expression_with_false_condition() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Integer(0), EmptyTag, )
-                Return"#]],
+                Call id(2), args( Integer(0), EmptyTag, ) 
+                Return "#]],
     );
 }
 
@@ -108,7 +108,7 @@ fn if_else_expression_with_true_condition() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -120,9 +120,9 @@ fn if_else_expression_with_true_condition() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), )
-                Call id(3), args( Integer(0), EmptyTag, )
-                Return"#]],
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=1
+                Call id(3), args( Integer(0), EmptyTag, ) 
+                Return "#]],
     );
 }
 
@@ -152,7 +152,7 @@ fn if_else_expression_with_false_condition() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -164,9 +164,9 @@ fn if_else_expression_with_false_condition() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), )
-                Call id(3), args( Integer(0), EmptyTag, )
-                Return"#]],
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=1
+                Call id(3), args( Integer(0), EmptyTag, ) 
+                Return "#]],
     );
 }
 
@@ -199,7 +199,7 @@ fn if_elif_else_expression_with_true_elif_condition() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -211,9 +211,9 @@ fn if_elif_else_expression_with_true_elif_condition() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), )
-                Call id(3), args( Integer(0), EmptyTag, )
-                Return"#]],
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=1
+                Call id(3), args( Integer(0), EmptyTag, ) 
+                Return "#]],
     );
 }
 
@@ -243,7 +243,7 @@ fn if_expression_with_dynamic_condition() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -283,16 +283,16 @@ fn if_expression_with_dynamic_condition() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
-                Branch Variable(1, Boolean), 2, 1
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=1
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 1 !dbg dbg_location=2
             Block 1:Block:
-                Call id(5), args( Integer(0), EmptyTag, )
-                Return
+                Call id(5), args( Integer(0), EmptyTag, ) 
+                Return 
             Block 2:Block:
-                Call id(4), args( Qubit(0), )
-                Jump(1)"#]],
+                Call id(4), args( Qubit(0), ) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2"#]],
     );
 }
 
@@ -325,7 +325,7 @@ fn if_else_expression_with_dynamic_condition() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -378,19 +378,19 @@ fn if_else_expression_with_dynamic_condition() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Store Variable(0, Boolean)
-                Branch Variable(1, Boolean), 2, 3
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=1
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=3
             Block 1:Block:
-                Call id(6), args( Integer(0), EmptyTag, )
-                Return
+                Call id(6), args( Integer(0), EmptyTag, ) 
+                Return 
             Block 2:Block:
-                Call id(4), args( Qubit(0), )
-                Jump(1)
+                Call id(4), args( Qubit(0), ) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Call id(5), args( Qubit(0), )
-                Jump(1)"#]],
+                Call id(5), args( Qubit(0), ) !dbg dbg_location=3
+                Jump(1) !dbg dbg_location=3"#]],
     );
 }
 
@@ -427,7 +427,7 @@ fn if_elif_else_expression_with_dynamic_condition() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -493,29 +493,29 @@ fn if_elif_else_expression_with_dynamic_condition() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Call id(2), args( Qubit(1), Result(1), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Store Variable(0, Boolean)
-                Branch Variable(1, Boolean), 2, 3
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=4
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=4
+                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=4
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=7
             Block 1:Block:
-                Call id(7), args( Integer(0), EmptyTag, )
-                Return
+                Call id(7), args( Integer(0), EmptyTag, ) 
+                Return 
             Block 2:Block:
-                Call id(4), args( Qubit(2), )
-                Jump(1)
+                Call id(4), args( Qubit(2), ) !dbg dbg_location=5
+                Jump(1) !dbg dbg_location=5
             Block 3:Block:
-                Variable(2, Boolean) = Call id(3), args( Result(1), )
-                Variable(3, Boolean) = Store Variable(2, Boolean)
-                Branch Variable(3, Boolean), 5, 6
+                Variable(2, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=5
+                Variable(3, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=5
+                Branch Variable(3, Boolean), 5, 6 !dbg dbg_location=7
             Block 4:Block:
-                Jump(1)
+                Jump(1) !dbg dbg_location=7
             Block 5:Block:
-                Call id(5), args( Qubit(2), )
-                Jump(4)
+                Call id(5), args( Qubit(2), ) !dbg dbg_location=6
+                Jump(4) !dbg dbg_location=6
             Block 6:Block:
-                Call id(6), args( Qubit(2), )
-                Jump(4)"#]],
+                Call id(6), args( Qubit(2), ) !dbg dbg_location=7
+                Jump(4) !dbg dbg_location=7"#]],
     );
 }
 
@@ -547,7 +547,7 @@ fn if_expression_with_dynamic_condition_and_nested_if_expression_with_true_condi
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -587,16 +587,16 @@ fn if_expression_with_dynamic_condition_and_nested_if_expression_with_true_condi
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
-                Branch Variable(1, Boolean), 2, 1
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=1
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 1 !dbg dbg_location=2
             Block 1:Block:
-                Call id(5), args( Integer(0), EmptyTag, )
-                Return
+                Call id(5), args( Integer(0), EmptyTag, ) 
+                Return 
             Block 2:Block:
-                Call id(4), args( Qubit(0), )
-                Jump(1)"#]],
+                Call id(4), args( Qubit(0), ) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2"#]],
     );
 }
 
@@ -628,7 +628,7 @@ fn if_expression_with_dynamic_condition_and_nested_if_expression_with_false_cond
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -655,15 +655,15 @@ fn if_expression_with_dynamic_condition_and_nested_if_expression_with_false_cond
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
-                Branch Variable(1, Boolean), 2, 1
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=1
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 1 !dbg dbg_location=1
             Block 1:Block:
-                Call id(4), args( Integer(0), EmptyTag, )
-                Return
+                Call id(4), args( Integer(0), EmptyTag, ) 
+                Return 
             Block 2:Block:
-                Jump(1)"#]],
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -698,7 +698,7 @@ fn if_else_expression_with_dynamic_condition_and_nested_if_expression_with_true_
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -751,19 +751,19 @@ fn if_else_expression_with_dynamic_condition_and_nested_if_expression_with_true_
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Store Variable(0, Boolean)
-                Branch Variable(1, Boolean), 2, 3
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=1
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=3
             Block 1:Block:
-                Call id(6), args( Integer(0), EmptyTag, )
-                Return
+                Call id(6), args( Integer(0), EmptyTag, ) 
+                Return 
             Block 2:Block:
-                Call id(4), args( Qubit(0), )
-                Jump(1)
+                Call id(4), args( Qubit(0), ) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Call id(5), args( Qubit(0), )
-                Jump(1)"#]],
+                Call id(5), args( Qubit(0), ) !dbg dbg_location=3
+                Jump(1) !dbg dbg_location=3"#]],
     );
 }
 
@@ -798,7 +798,7 @@ fn if_else_expression_with_dynamic_condition_and_nested_if_expression_with_false
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -838,18 +838,18 @@ fn if_else_expression_with_dynamic_condition_and_nested_if_expression_with_false
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Store Variable(0, Boolean)
-                Branch Variable(1, Boolean), 2, 3
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=1
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Call id(5), args( Integer(0), EmptyTag, )
-                Return
+                Call id(5), args( Integer(0), EmptyTag, ) 
+                Return 
             Block 2:Block:
-                Call id(4), args( Qubit(0), )
-                Jump(1)
+                Call id(4), args( Qubit(0), ) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Jump(1)"#]],
+                Jump(1) !dbg dbg_location=2"#]],
     );
 }
 
@@ -882,7 +882,7 @@ fn if_expression_with_dynamic_condition_and_nested_if_expression_with_dynamic_co
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -922,23 +922,23 @@ fn if_expression_with_dynamic_condition_and_nested_if_expression_with_dynamic_co
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Call id(2), args( Qubit(1), Result(1), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
-                Branch Variable(1, Boolean), 2, 1
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=4
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=4
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=4
+                Branch Variable(1, Boolean), 2, 1 !dbg dbg_location=5
             Block 1:Block:
-                Call id(5), args( Integer(0), EmptyTag, )
-                Return
+                Call id(5), args( Integer(0), EmptyTag, ) 
+                Return 
             Block 2:Block:
-                Variable(2, Boolean) = Call id(3), args( Result(1), )
-                Variable(3, Boolean) = Store Variable(2, Boolean)
-                Branch Variable(3, Boolean), 4, 3
+                Variable(2, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=4
+                Variable(3, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=4
+                Branch Variable(3, Boolean), 4, 3 !dbg dbg_location=5
             Block 3:Block:
-                Jump(1)
+                Jump(1) !dbg dbg_location=5
             Block 4:Block:
-                Call id(4), args( Qubit(2), )
-                Jump(3)"#]],
+                Call id(4), args( Qubit(2), ) !dbg dbg_location=5
+                Jump(3) !dbg dbg_location=5"#]],
     );
 }
 
@@ -983,7 +983,7 @@ fn doubly_nested_if_else_expressions_with_dynamic_conditions() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -1062,38 +1062,38 @@ fn doubly_nested_if_else_expressions_with_dynamic_conditions() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Call id(2), args( Qubit(1), Result(1), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
-                Branch Variable(1, Boolean), 2, 6
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=4
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=4
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=4
+                Branch Variable(1, Boolean), 2, 6 !dbg dbg_location=8
             Block 1:Block:
-                Call id(8), args( Integer(0), EmptyTag, )
-                Return
+                Call id(8), args( Integer(0), EmptyTag, ) 
+                Return 
             Block 2:Block:
-                Variable(2, Boolean) = Call id(3), args( Result(1), )
-                Variable(3, Boolean) = Icmp Eq, Variable(2, Boolean), Bool(false)
-                Branch Variable(3, Boolean), 4, 5
+                Variable(2, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=4
+                Variable(3, Boolean) = Icmp Eq, Variable(2, Boolean), Bool(false) !dbg dbg_location=4
+                Branch Variable(3, Boolean), 4, 5 !dbg dbg_location=6
             Block 3:Block:
-                Jump(1)
+                Jump(1) !dbg dbg_location=6
             Block 4:Block:
-                Call id(4), args( Qubit(2), )
-                Jump(3)
+                Call id(4), args( Qubit(2), ) !dbg dbg_location=5
+                Jump(3) !dbg dbg_location=5
             Block 5:Block:
-                Call id(5), args( Qubit(2), )
-                Jump(3)
+                Call id(5), args( Qubit(2), ) !dbg dbg_location=6
+                Jump(3) !dbg dbg_location=6
             Block 6:Block:
-                Variable(4, Boolean) = Call id(3), args( Result(1), )
-                Variable(5, Boolean) = Store Variable(4, Boolean)
-                Branch Variable(5, Boolean), 8, 9
+                Variable(4, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=6
+                Variable(5, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=6
+                Branch Variable(5, Boolean), 8, 9 !dbg dbg_location=8
             Block 7:Block:
-                Jump(1)
+                Jump(1) !dbg dbg_location=8
             Block 8:Block:
-                Call id(6), args( Qubit(2), )
-                Jump(7)
+                Call id(6), args( Qubit(2), ) !dbg dbg_location=7
+                Jump(7) !dbg dbg_location=7
             Block 9:Block:
-                Call id(7), args( Qubit(2), )
-                Jump(7)"#]],
+                Call id(7), args( Qubit(2), ) !dbg dbg_location=8
+                Jump(7) !dbg dbg_location=8"#]],
     );
 }
 
@@ -1125,7 +1125,7 @@ fn if_expression_with_dynamic_condition_and_subsequent_call_to_operation() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -1178,17 +1178,17 @@ fn if_expression_with_dynamic_condition_and_subsequent_call_to_operation() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
-                Branch Variable(1, Boolean), 2, 1
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=1
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 1 !dbg dbg_location=2
             Block 1:Block:
-                Call id(5), args( Qubit(0), )
-                Call id(6), args( Integer(0), EmptyTag, )
-                Return
+                Call id(5), args( Qubit(0), ) !dbg dbg_location=3
+                Call id(6), args( Integer(0), EmptyTag, ) 
+                Return 
             Block 2:Block:
-                Call id(4), args( Qubit(0), )
-                Jump(1)"#]],
+                Call id(4), args( Qubit(0), ) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2"#]],
     );
 }
 
@@ -1223,7 +1223,7 @@ fn if_else_expression_with_dynamic_condition_and_subsequent_call_to_operation() 
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -1289,20 +1289,20 @@ fn if_else_expression_with_dynamic_condition_and_subsequent_call_to_operation() 
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Store Variable(0, Boolean)
-                Branch Variable(1, Boolean), 2, 3
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=1
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=3
             Block 1:Block:
-                Call id(6), args( Qubit(0), )
-                Call id(7), args( Integer(0), EmptyTag, )
-                Return
+                Call id(6), args( Qubit(0), ) !dbg dbg_location=4
+                Call id(7), args( Integer(0), EmptyTag, ) 
+                Return 
             Block 2:Block:
-                Call id(4), args( Qubit(0), )
-                Jump(1)
+                Call id(4), args( Qubit(0), ) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Call id(5), args( Qubit(0), )
-                Jump(1)"#]],
+                Call id(5), args( Qubit(0), ) !dbg dbg_location=3
+                Jump(1) !dbg dbg_location=3"#]],
     );
 }
 
@@ -1354,7 +1354,7 @@ fn if_expression_with_classical_operand_from_hybrid_results_array_comparing_to_l
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -1407,13 +1407,13 @@ fn if_expression_with_classical_operand_from_hybrid_results_array_comparing_to_l
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Call id(3), args( Qubit(1), )
-                Call id(2), args( Qubit(1), Result(1), )
-                Call id(4), args( Integer(2), EmptyTag, )
-                Call id(5), args( Result(0), Tag(0, 5), )
-                Call id(5), args( Result(1), Tag(1, 5), )
-                Return"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Call id(3), args( Qubit(1), ) !dbg dbg_location=5
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=7
+                Call id(4), args( Integer(2), EmptyTag, ) 
+                Call id(5), args( Result(0), Tag(0, 5), ) 
+                Call id(5), args( Result(1), Tag(1, 5), ) 
+                Return "#]],
     );
 }
 
@@ -1443,7 +1443,7 @@ fn if_expression_with_classical_operand_from_hybrid_results_array_comparing_to_l
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -1496,13 +1496,13 @@ fn if_expression_with_classical_operand_from_hybrid_results_array_comparing_to_l
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Call id(3), args( Qubit(1), )
-                Call id(2), args( Qubit(1), Result(1), )
-                Call id(4), args( Integer(2), EmptyTag, )
-                Call id(5), args( Result(0), Tag(0, 5), )
-                Call id(5), args( Result(1), Tag(1, 5), )
-                Return"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Call id(3), args( Qubit(1), ) !dbg dbg_location=5
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=7
+                Call id(4), args( Integer(2), EmptyTag, ) 
+                Call id(5), args( Result(0), Tag(0, 5), ) 
+                Call id(5), args( Result(1), Tag(1, 5), ) 
+                Return "#]],
     );
 }
 
@@ -1532,7 +1532,7 @@ fn if_expression_with_dynamic_operand_from_hybrid_results_array() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -1598,19 +1598,19 @@ fn if_expression_with_dynamic_operand_from_hybrid_results_array() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
-                Branch Variable(1, Boolean), 2, 1
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 1 !dbg dbg_location=4
             Block 1:Block:
-                Call id(2), args( Qubit(1), Result(1), )
-                Call id(5), args( Integer(2), EmptyTag, )
-                Call id(6), args( Result(0), Tag(0, 5), )
-                Call id(6), args( Result(1), Tag(1, 5), )
-                Return
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=7
+                Call id(5), args( Integer(2), EmptyTag, ) 
+                Call id(6), args( Result(0), Tag(0, 5), ) 
+                Call id(6), args( Result(1), Tag(1, 5), ) 
+                Return 
             Block 2:Block:
-                Call id(4), args( Qubit(1), )
-                Jump(1)"#]],
+                Call id(4), args( Qubit(1), ) !dbg dbg_location=5
+                Jump(1) !dbg dbg_location=4"#]],
     );
 }
 
@@ -1640,7 +1640,7 @@ fn if_expression_with_classical_operand_from_hybrid_booleans_array() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -1706,17 +1706,17 @@ fn if_expression_with_classical_operand_from_hybrid_booleans_array() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Store Variable(0, Boolean)
-                Call id(4), args( Qubit(1), )
-                Call id(2), args( Qubit(1), Result(1), )
-                Variable(2, Boolean) = Call id(3), args( Result(1), )
-                Variable(3, Boolean) = Store Variable(2, Boolean)
-                Call id(5), args( Integer(2), EmptyTag, )
-                Call id(6), args( Variable(1, Boolean), Tag(0, 5), )
-                Call id(6), args( Variable(3, Boolean), Tag(1, 5), )
-                Return"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=2
+                Call id(4), args( Qubit(1), ) !dbg dbg_location=5
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=7
+                Variable(2, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=6
+                Variable(3, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=6
+                Call id(5), args( Integer(2), EmptyTag, ) 
+                Call id(6), args( Variable(1, Boolean), Tag(0, 5), ) 
+                Call id(6), args( Variable(3, Boolean), Tag(1, 5), ) 
+                Return "#]],
     );
 }
 
@@ -1746,7 +1746,7 @@ fn if_expression_with_dynamic_operand_from_hybrid_booleans_array() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -1812,21 +1812,21 @@ fn if_expression_with_dynamic_operand_from_hybrid_booleans_array() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Store Variable(0, Boolean)
-                Branch Variable(1, Boolean), 2, 1
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 1 !dbg dbg_location=4
             Block 1:Block:
-                Call id(2), args( Qubit(1), Result(1), )
-                Variable(2, Boolean) = Call id(3), args( Result(1), )
-                Variable(3, Boolean) = Store Variable(2, Boolean)
-                Call id(5), args( Integer(2), EmptyTag, )
-                Call id(6), args( Variable(1, Boolean), Tag(0, 5), )
-                Call id(6), args( Variable(3, Boolean), Tag(1, 5), )
-                Return
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=7
+                Variable(2, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=6
+                Variable(3, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=6
+                Call id(5), args( Integer(2), EmptyTag, ) 
+                Call id(6), args( Variable(1, Boolean), Tag(0, 5), ) 
+                Call id(6), args( Variable(3, Boolean), Tag(1, 5), ) 
+                Return 
             Block 2:Block:
-                Call id(4), args( Qubit(1), )
-                Jump(1)"#]],
+                Call id(4), args( Qubit(1), ) !dbg dbg_location=5
+                Jump(1) !dbg dbg_location=4"#]],
     );
 }
 
@@ -1856,7 +1856,7 @@ fn if_expression_with_classical_operand_from_hybrid_integers_array() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -1922,33 +1922,33 @@ fn if_expression_with_classical_operand_from_hybrid_integers_array() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
-                Branch Variable(1, Boolean), 2, 3
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Call id(4), args( Qubit(1), )
-                Call id(2), args( Qubit(1), Result(1), )
-                Variable(3, Boolean) = Call id(3), args( Result(1), )
-                Variable(4, Boolean) = Icmp Eq, Variable(3, Boolean), Bool(false)
-                Branch Variable(4, Boolean), 5, 6
+                Call id(4), args( Qubit(1), ) !dbg dbg_location=5
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=7
+                Variable(3, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=6
+                Variable(4, Boolean) = Icmp Eq, Variable(3, Boolean), Bool(false) !dbg dbg_location=6
+                Branch Variable(4, Boolean), 5, 6 !dbg dbg_location=6
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0)
-                Jump(1)
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1)
-                Jump(1)
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 4:Block:
-                Call id(5), args( Integer(2), EmptyTag, )
-                Call id(6), args( Variable(2, Integer), Tag(0, 5), )
-                Call id(6), args( Variable(5, Integer), Tag(1, 5), )
-                Return
+                Call id(5), args( Integer(2), EmptyTag, ) 
+                Call id(6), args( Variable(2, Integer), Tag(0, 5), ) 
+                Call id(6), args( Variable(5, Integer), Tag(1, 5), ) 
+                Return 
             Block 5:Block:
-                Variable(5, Integer) = Store Integer(0)
-                Jump(4)
+                Variable(5, Integer) = Store Integer(0) !dbg dbg_location=6
+                Jump(4) !dbg dbg_location=6
             Block 6:Block:
-                Variable(5, Integer) = Store Integer(1)
-                Jump(4)"#]],
+                Variable(5, Integer) = Store Integer(1) !dbg dbg_location=6
+                Jump(4) !dbg dbg_location=6"#]],
     );
 }
 
@@ -1978,7 +1978,7 @@ fn if_expression_with_dynamic_operand_from_hybrid_integers_array() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -2044,38 +2044,38 @@ fn if_expression_with_dynamic_operand_from_hybrid_integers_array() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
-                Branch Variable(1, Boolean), 2, 3
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Boolean) = Icmp Eq, Variable(2, Integer), Integer(0)
-                Branch Variable(3, Boolean), 5, 4
+                Variable(3, Boolean) = Icmp Eq, Variable(2, Integer), Integer(0) !dbg dbg_location=2
+                Branch Variable(3, Boolean), 5, 4 !dbg dbg_location=4
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0)
-                Jump(1)
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1)
-                Jump(1)
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 4:Block:
-                Call id(2), args( Qubit(1), Result(1), )
-                Variable(4, Boolean) = Call id(3), args( Result(1), )
-                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false)
-                Branch Variable(5, Boolean), 7, 8
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=7
+                Variable(4, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=6
+                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg dbg_location=6
+                Branch Variable(5, Boolean), 7, 8 !dbg dbg_location=6
             Block 5:Block:
-                Call id(4), args( Qubit(1), )
-                Jump(4)
+                Call id(4), args( Qubit(1), ) !dbg dbg_location=5
+                Jump(4) !dbg dbg_location=4
             Block 6:Block:
-                Call id(5), args( Integer(2), EmptyTag, )
-                Call id(6), args( Variable(2, Integer), Tag(0, 5), )
-                Call id(6), args( Variable(6, Integer), Tag(1, 5), )
-                Return
+                Call id(5), args( Integer(2), EmptyTag, ) 
+                Call id(6), args( Variable(2, Integer), Tag(0, 5), ) 
+                Call id(6), args( Variable(6, Integer), Tag(1, 5), ) 
+                Return 
             Block 7:Block:
-                Variable(6, Integer) = Store Integer(0)
-                Jump(6)
+                Variable(6, Integer) = Store Integer(0) !dbg dbg_location=6
+                Jump(6) !dbg dbg_location=6
             Block 8:Block:
-                Variable(6, Integer) = Store Integer(1)
-                Jump(6)"#]],
+                Variable(6, Integer) = Store Integer(1) !dbg dbg_location=6
+                Jump(6) !dbg dbg_location=6"#]],
     );
 }
 
@@ -2105,7 +2105,7 @@ fn if_expression_with_classical_operand_from_hybrid_doubles_array() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -2171,33 +2171,33 @@ fn if_expression_with_classical_operand_from_hybrid_doubles_array() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
-                Branch Variable(1, Boolean), 2, 3
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Call id(4), args( Qubit(1), )
-                Call id(2), args( Qubit(1), Result(1), )
-                Variable(3, Boolean) = Call id(3), args( Result(1), )
-                Variable(4, Boolean) = Icmp Eq, Variable(3, Boolean), Bool(false)
-                Branch Variable(4, Boolean), 5, 6
+                Call id(4), args( Qubit(1), ) !dbg dbg_location=5
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=7
+                Variable(3, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=6
+                Variable(4, Boolean) = Icmp Eq, Variable(3, Boolean), Bool(false) !dbg dbg_location=6
+                Branch Variable(4, Boolean), 5, 6 !dbg dbg_location=6
             Block 2:Block:
-                Variable(2, Double) = Store Double(0.1)
-                Jump(1)
+                Variable(2, Double) = Store Double(0.1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Double) = Store Double(1.1)
-                Jump(1)
+                Variable(2, Double) = Store Double(1.1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 4:Block:
-                Call id(5), args( Integer(2), EmptyTag, )
-                Call id(6), args( Variable(2, Double), Tag(0, 5), )
-                Call id(6), args( Variable(5, Double), Tag(1, 5), )
-                Return
+                Call id(5), args( Integer(2), EmptyTag, ) 
+                Call id(6), args( Variable(2, Double), Tag(0, 5), ) 
+                Call id(6), args( Variable(5, Double), Tag(1, 5), ) 
+                Return 
             Block 5:Block:
-                Variable(5, Double) = Store Double(0.1)
-                Jump(4)
+                Variable(5, Double) = Store Double(0.1) !dbg dbg_location=6
+                Jump(4) !dbg dbg_location=6
             Block 6:Block:
-                Variable(5, Double) = Store Double(1.1)
-                Jump(4)"#]],
+                Variable(5, Double) = Store Double(1.1) !dbg dbg_location=6
+                Jump(4) !dbg dbg_location=6"#]],
     );
 }
 
@@ -2227,7 +2227,7 @@ fn if_expression_with_dynamic_operand_from_hybrid_doubles_array() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -2293,38 +2293,38 @@ fn if_expression_with_dynamic_operand_from_hybrid_doubles_array() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
-                Branch Variable(1, Boolean), 2, 3
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=3
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Boolean) = Fcmp Oeq, Variable(2, Double), Double(0)
-                Branch Variable(3, Boolean), 5, 4
+                Variable(3, Boolean) = Fcmp Oeq, Variable(2, Double), Double(0) !dbg dbg_location=2
+                Branch Variable(3, Boolean), 5, 4 !dbg dbg_location=4
             Block 2:Block:
-                Variable(2, Double) = Store Double(0.1)
-                Jump(1)
+                Variable(2, Double) = Store Double(0.1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Double) = Store Double(1.1)
-                Jump(1)
+                Variable(2, Double) = Store Double(1.1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 4:Block:
-                Call id(2), args( Qubit(1), Result(1), )
-                Variable(4, Boolean) = Call id(3), args( Result(1), )
-                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false)
-                Branch Variable(5, Boolean), 7, 8
+                Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=7
+                Variable(4, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=6
+                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg dbg_location=6
+                Branch Variable(5, Boolean), 7, 8 !dbg dbg_location=6
             Block 5:Block:
-                Call id(4), args( Qubit(1), )
-                Jump(4)
+                Call id(4), args( Qubit(1), ) !dbg dbg_location=5
+                Jump(4) !dbg dbg_location=4
             Block 6:Block:
-                Call id(5), args( Integer(2), EmptyTag, )
-                Call id(6), args( Variable(2, Double), Tag(0, 5), )
-                Call id(6), args( Variable(6, Double), Tag(1, 5), )
-                Return
+                Call id(5), args( Integer(2), EmptyTag, ) 
+                Call id(6), args( Variable(2, Double), Tag(0, 5), ) 
+                Call id(6), args( Variable(6, Double), Tag(1, 5), ) 
+                Return 
             Block 7:Block:
-                Variable(6, Double) = Store Double(0.1)
-                Jump(6)
+                Variable(6, Double) = Store Double(0.1) !dbg dbg_location=6
+                Jump(6) !dbg dbg_location=6
             Block 8:Block:
-                Variable(6, Double) = Store Double(1.1)
-                Jump(6)"#]],
+                Variable(6, Double) = Store Double(1.1) !dbg dbg_location=6
+                Jump(6) !dbg dbg_location=6"#]],
     );
 }
 
@@ -2352,20 +2352,20 @@ fn if_expression_with_implicit_return_in_callable_supported() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Store Variable(0, Boolean)
-                Branch Variable(1, Boolean), 2, 3
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) 
+                Variable(1, Boolean) = Store Variable(0, Boolean) 
+                Branch Variable(1, Boolean), 2, 3 
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer)
-                Call id(4), args( Variable(3, Integer), Tag(0, 3), )
-                Return
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=3
+                Call id(4), args( Variable(3, Integer), Tag(0, 3), ) 
+                Return 
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(1)
-                Jump(1)
+                Variable(2, Integer) = Store Integer(1) 
+                Jump(1) 
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(0)
-                Jump(1)"#]],
+                Variable(2, Integer) = Store Integer(0) 
+                Jump(1) "#]],
     );
 }
 

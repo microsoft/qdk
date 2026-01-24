@@ -480,6 +480,9 @@ fn qubit_reindexed_across_branches() {
                 capabilities: Base
             num_qubits: 1
             num_results: 3
+            dbg_metadata_scopes:
+                0 = SubProgram name=entry location=(0-0) item_id=((0, 0))
+            dbg_locations:
             tags:
     "#]]
     .assert_eq(&program.to_string());

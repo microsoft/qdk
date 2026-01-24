@@ -31,7 +31,7 @@ fn dynamic_int_from_if_expression_with_single_measurement_comparison_and_classic
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -58,20 +58,20 @@ fn dynamic_int_from_if_expression_with_single_measurement_comparison_and_classic
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
-                Branch Variable(1, Boolean), 2, 3
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=1
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer)
-                Call id(4), args( Integer(0), EmptyTag, )
-                Return
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=1
+                Call id(4), args( Integer(0), EmptyTag, ) 
+                Return 
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0)
-                Jump(1)
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1)
-                Jump(1)"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -106,7 +106,7 @@ fn dynamic_int_from_if_expression_with_single_measurement_comparison_and_non_cla
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -158,22 +158,22 @@ fn dynamic_int_from_if_expression_with_single_measurement_comparison_and_non_cla
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
-                Branch Variable(1, Boolean), 2, 3
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=4
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer)
-                Call id(6), args( Integer(0), EmptyTag, )
-                Return
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=4
+                Call id(6), args( Integer(0), EmptyTag, ) 
+                Return 
             Block 2:Block:
-                Call id(4), args( Qubit(1), )
-                Variable(2, Integer) = Store Integer(0)
-                Jump(1)
+                Call id(4), args( Qubit(1), ) !dbg dbg_location=3
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=3
+                Jump(1) !dbg dbg_location=3
             Block 3:Block:
-                Call id(5), args( Qubit(1), )
-                Variable(2, Integer) = Store Integer(1)
-                Jump(1)"#]],
+                Call id(5), args( Qubit(1), ) !dbg dbg_location=4
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=4
+                Jump(1) !dbg dbg_location=4"#]],
     );
 }
 
@@ -203,20 +203,20 @@ fn dynamic_var_across_if_else_static_in_both_branches_constant_folded() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Integer) = Store Integer(0)
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(1, Boolean) = Call id(3), args( Result(0), )
-                Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false)
-                Branch Variable(2, Boolean), 2, 3
+                Variable(0, Integer) = Store Integer(0) 
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(2, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Call id(4), args( Integer(0), EmptyTag, )
-                Return
+                Call id(4), args( Integer(0), EmptyTag, ) 
+                Return 
             Block 2:Block:
-                Variable(0, Integer) = Store Integer(-1)
-                Jump(1)
+                Variable(0, Integer) = Store Integer(-1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(0, Integer) = Store Integer(1)
-                Jump(1)"#]],
+                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -248,35 +248,35 @@ fn dynamic_var_across_if_else_in_loop_constant_folded_in_first_iteration() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Integer) = Store Integer(0)
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(1, Integer) = Store Integer(0)
-                Variable(2, Boolean) = Call id(3), args( Result(0), )
-                Variable(3, Boolean) = Icmp Eq, Variable(2, Boolean), Bool(false)
-                Branch Variable(3, Boolean), 2, 3
+                Variable(0, Integer) = Store Integer(0) 
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(1, Integer) = Store Integer(0) !dbg dbg_location=1
+                Variable(2, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(3, Boolean) = Icmp Eq, Variable(2, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(3, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(1, Integer) = Store Integer(1)
-                Variable(4, Boolean) = Call id(3), args( Result(0), )
-                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false)
-                Branch Variable(5, Boolean), 5, 6
+                Variable(1, Integer) = Store Integer(1) !dbg dbg_location=1
+                Variable(4, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(5, Boolean), 5, 6 !dbg dbg_location=1
             Block 2:Block:
-                Variable(0, Integer) = Store Integer(-1)
-                Jump(1)
+                Variable(0, Integer) = Store Integer(-1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(0, Integer) = Store Integer(1)
-                Jump(1)
+                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 4:Block:
-                Variable(1, Integer) = Store Integer(2)
-                Call id(4), args( Integer(0), EmptyTag, )
-                Return
+                Variable(1, Integer) = Store Integer(2) !dbg dbg_location=1
+                Call id(4), args( Integer(0), EmptyTag, ) 
+                Return 
             Block 5:Block:
-                Variable(6, Integer) = Sub Variable(0, Integer), Integer(1)
-                Variable(0, Integer) = Store Variable(6, Integer)
-                Jump(4)
+                Variable(6, Integer) = Sub Variable(0, Integer), Integer(1) !dbg dbg_location=1
+                Variable(0, Integer) = Store Variable(6, Integer) !dbg dbg_location=1
+                Jump(4) !dbg dbg_location=1
             Block 6:Block:
-                Variable(7, Integer) = Add Variable(0, Integer), Integer(1)
-                Variable(0, Integer) = Store Variable(7, Integer)
-                Jump(4)"#]],
+                Variable(7, Integer) = Add Variable(0, Integer), Integer(1) !dbg dbg_location=1
+                Variable(0, Integer) = Store Variable(7, Integer) !dbg dbg_location=1
+                Jump(4) !dbg dbg_location=1"#]],
     );
 }
 
@@ -308,34 +308,34 @@ fn dynamic_var_within_if_else_in_loop_constant_folded_in_every_iteration() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Integer) = Store Integer(0)
-                Variable(1, Integer) = Store Integer(0)
-                Variable(2, Boolean) = Call id(3), args( Result(0), )
-                Variable(3, Boolean) = Icmp Eq, Variable(2, Boolean), Bool(false)
-                Branch Variable(3, Boolean), 2, 3
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Integer) = Store Integer(0) !dbg dbg_location=1
+                Variable(1, Integer) = Store Integer(0) !dbg dbg_location=1
+                Variable(2, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(3, Boolean) = Icmp Eq, Variable(2, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(3, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(0, Integer) = Store Integer(1)
-                Variable(4, Integer) = Store Integer(0)
-                Variable(5, Boolean) = Call id(3), args( Result(0), )
-                Variable(6, Boolean) = Icmp Eq, Variable(5, Boolean), Bool(false)
-                Branch Variable(6, Boolean), 5, 6
+                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=1
+                Variable(4, Integer) = Store Integer(0) !dbg dbg_location=1
+                Variable(5, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(6, Boolean) = Icmp Eq, Variable(5, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(6, Boolean), 5, 6 !dbg dbg_location=1
             Block 2:Block:
-                Variable(1, Integer) = Store Integer(-1)
-                Jump(1)
+                Variable(1, Integer) = Store Integer(-1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(1, Integer) = Store Integer(1)
-                Jump(1)
+                Variable(1, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 4:Block:
-                Variable(0, Integer) = Store Integer(2)
-                Call id(4), args( Integer(0), EmptyTag, )
-                Return
+                Variable(0, Integer) = Store Integer(2) !dbg dbg_location=1
+                Call id(4), args( Integer(0), EmptyTag, ) 
+                Return 
             Block 5:Block:
-                Variable(4, Integer) = Store Integer(-1)
-                Jump(4)
+                Variable(4, Integer) = Store Integer(-1) !dbg dbg_location=1
+                Jump(4) !dbg dbg_location=1
             Block 6:Block:
-                Variable(4, Integer) = Store Integer(1)
-                Jump(4)"#]],
+                Variable(4, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(4) !dbg dbg_location=1"#]],
     );
 }
 
@@ -367,22 +367,22 @@ fn dynamic_var_updated_twice_in_same_branch_constant_folded() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Integer) = Store Integer(0)
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(1, Boolean) = Call id(3), args( Result(0), )
-                Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false)
-                Branch Variable(2, Boolean), 2, 3
+                Variable(0, Integer) = Store Integer(0) 
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(2, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Call id(4), args( Integer(0), EmptyTag, )
-                Return
+                Call id(4), args( Integer(0), EmptyTag, ) 
+                Return 
             Block 2:Block:
-                Variable(0, Integer) = Store Integer(-1)
-                Variable(0, Integer) = Store Integer(2)
-                Jump(1)
+                Variable(0, Integer) = Store Integer(-1) !dbg dbg_location=1
+                Variable(0, Integer) = Store Integer(2) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(0, Integer) = Store Integer(1)
-                Variable(0, Integer) = Store Integer(-2)
-                Jump(1)"#]],
+                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=1
+                Variable(0, Integer) = Store Integer(-2) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -415,23 +415,23 @@ fn dynamic_var_updated_to_same_value_in_different_branches_constant_folded_after
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Integer) = Store Integer(0)
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(1, Boolean) = Call id(3), args( Result(0), )
-                Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false)
-                Branch Variable(2, Boolean), 2, 3
+                Variable(0, Integer) = Store Integer(0) 
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(2, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(0, Integer) = Store Integer(2)
-                Call id(4), args( Integer(0), EmptyTag, )
-                Return
+                Variable(0, Integer) = Store Integer(2) !dbg dbg_location=1
+                Call id(4), args( Integer(0), EmptyTag, ) 
+                Return 
             Block 2:Block:
-                Variable(0, Integer) = Store Integer(-1)
-                Variable(0, Integer) = Store Integer(1)
-                Jump(1)
+                Variable(0, Integer) = Store Integer(-1) !dbg dbg_location=1
+                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(0, Integer) = Store Integer(1)
-                Variable(0, Integer) = Store Integer(1)
-                Jump(1)"#]],
+                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=1
+                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -476,44 +476,44 @@ fn dynamic_var_updated_in_nested_branches_constant_folded_when_value_matches_acr
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Integer) = Store Integer(0)
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(1, Boolean) = Call id(3), args( Result(0), )
-                Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false)
-                Branch Variable(2, Boolean), 2, 6
+                Variable(0, Integer) = Store Integer(0) 
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(2, Boolean), 2, 6 !dbg dbg_location=1
             Block 1:Block:
-                Call id(4), args( Integer(1), Tag(0, 3), )
-                Return
+                Call id(4), args( Integer(1), Tag(0, 3), ) 
+                Return 
             Block 2:Block:
-                Variable(0, Integer) = Store Integer(-1)
-                Variable(3, Boolean) = Call id(3), args( Result(0), )
-                Variable(4, Boolean) = Icmp Eq, Variable(3, Boolean), Bool(false)
-                Branch Variable(4, Boolean), 4, 5
+                Variable(0, Integer) = Store Integer(-1) !dbg dbg_location=1
+                Variable(3, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(4, Boolean) = Icmp Eq, Variable(3, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(4, Boolean), 4, 5 !dbg dbg_location=1
             Block 3:Block:
-                Jump(1)
+                Jump(1) !dbg dbg_location=1
             Block 4:Block:
-                Variable(0, Integer) = Store Integer(1)
-                Jump(3)
+                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(3) !dbg dbg_location=1
             Block 5:Block:
-                Variable(0, Integer) = Store Integer(-3)
-                Variable(0, Integer) = Store Integer(-1)
-                Variable(0, Integer) = Store Integer(1)
-                Jump(3)
+                Variable(0, Integer) = Store Integer(-3) !dbg dbg_location=1
+                Variable(0, Integer) = Store Integer(-1) !dbg dbg_location=1
+                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(3) !dbg dbg_location=1
             Block 6:Block:
-                Variable(0, Integer) = Store Integer(1)
-                Variable(5, Boolean) = Call id(3), args( Result(0), )
-                Variable(6, Boolean) = Icmp Eq, Variable(5, Boolean), Bool(false)
-                Branch Variable(6, Boolean), 8, 9
+                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=1
+                Variable(5, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(6, Boolean) = Icmp Eq, Variable(5, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(6, Boolean), 8, 9 !dbg dbg_location=1
             Block 7:Block:
-                Jump(1)
+                Jump(1) !dbg dbg_location=1
             Block 8:Block:
-                Variable(0, Integer) = Store Integer(3)
-                Variable(0, Integer) = Store Integer(1)
-                Jump(7)
+                Variable(0, Integer) = Store Integer(3) !dbg dbg_location=1
+                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(7) !dbg dbg_location=1
             Block 9:Block:
-                Variable(0, Integer) = Store Integer(-1)
-                Variable(0, Integer) = Store Integer(1)
-                Jump(7)"#]],
+                Variable(0, Integer) = Store Integer(-1) !dbg dbg_location=1
+                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(7) !dbg dbg_location=1"#]],
     );
 }
 
@@ -544,21 +544,21 @@ fn dynamic_var_set_to_static_after_dynamism_still_constant_folded() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Integer) = Store Integer(0)
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(1, Boolean) = Call id(3), args( Result(0), )
-                Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false)
-                Branch Variable(2, Boolean), 2, 1
+                Variable(0, Integer) = Store Integer(0) 
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(2, Boolean), 2, 1 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Mul Variable(0, Integer), Integer(2)
-                Variable(0, Integer) = Store Variable(3, Integer)
-                Variable(0, Integer) = Store Integer(3)
-                Variable(0, Integer) = Store Integer(4)
-                Call id(4), args( Integer(0), EmptyTag, )
-                Return
+                Variable(3, Integer) = Mul Variable(0, Integer), Integer(2) !dbg dbg_location=1
+                Variable(0, Integer) = Store Variable(3, Integer) !dbg dbg_location=1
+                Variable(0, Integer) = Store Integer(3) !dbg dbg_location=1
+                Variable(0, Integer) = Store Integer(4) !dbg dbg_location=1
+                Call id(4), args( Integer(0), EmptyTag, ) 
+                Return 
             Block 2:Block:
-                Variable(0, Integer) = Store Integer(-1)
-                Jump(1)"#]],
+                Variable(0, Integer) = Store Integer(-1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -593,37 +593,37 @@ fn dynamic_var_updated_in_loop_constant_folded_when_every_iteration_results_in_s
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Integer) = Store Integer(0)
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(1, Integer) = Store Integer(0)
-                Variable(2, Boolean) = Call id(3), args( Result(0), )
-                Variable(3, Boolean) = Icmp Eq, Variable(2, Boolean), Bool(false)
-                Branch Variable(3, Boolean), 2, 3
+                Variable(0, Integer) = Store Integer(0) 
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(1, Integer) = Store Integer(0) !dbg dbg_location=1
+                Variable(2, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(3, Boolean) = Icmp Eq, Variable(2, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(3, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(0, Integer) = Store Integer(0)
-                Variable(1, Integer) = Store Integer(1)
-                Variable(4, Boolean) = Call id(3), args( Result(0), )
-                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false)
-                Branch Variable(5, Boolean), 5, 6
+                Variable(0, Integer) = Store Integer(0) !dbg dbg_location=1
+                Variable(1, Integer) = Store Integer(1) !dbg dbg_location=1
+                Variable(4, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(5, Boolean), 5, 6 !dbg dbg_location=1
             Block 2:Block:
-                Variable(0, Integer) = Store Integer(-1)
-                Variable(0, Integer) = Store Integer(1)
-                Jump(1)
+                Variable(0, Integer) = Store Integer(-1) !dbg dbg_location=1
+                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(0, Integer) = Store Integer(1)
-                Jump(1)
+                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 4:Block:
-                Variable(0, Integer) = Store Integer(0)
-                Variable(1, Integer) = Store Integer(2)
-                Call id(4), args( Integer(0), Tag(0, 3), )
-                Return
+                Variable(0, Integer) = Store Integer(0) !dbg dbg_location=1
+                Variable(1, Integer) = Store Integer(2) !dbg dbg_location=1
+                Call id(4), args( Integer(0), Tag(0, 3), ) 
+                Return 
             Block 5:Block:
-                Variable(0, Integer) = Store Integer(-1)
-                Variable(0, Integer) = Store Integer(1)
-                Jump(4)
+                Variable(0, Integer) = Store Integer(-1) !dbg dbg_location=1
+                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(4) !dbg dbg_location=1
             Block 6:Block:
-                Variable(0, Integer) = Store Integer(1)
-                Jump(4)"#]],
+                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(4) !dbg dbg_location=1"#]],
     );
 }
 
@@ -654,22 +654,22 @@ fn immutable_bind_of_dynamic_var_should_be_point_in_time_copy() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Integer) = Store Integer(0)
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(1, Boolean) = Call id(3), args( Result(0), )
-                Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false)
-                Branch Variable(2, Boolean), 2, 1
+                Variable(0, Integer) = Store Integer(0) 
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(2, Boolean), 2, 1 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(0, Integer)
-                Variable(4, Integer) = Add Variable(0, Integer), Integer(1)
-                Variable(0, Integer) = Store Variable(4, Integer)
-                Call id(4), args( Integer(2), EmptyTag, )
-                Call id(5), args( Variable(3, Integer), Tag(0, 5), )
-                Call id(5), args( Variable(0, Integer), Tag(1, 5), )
-                Return
+                Variable(3, Integer) = Store Variable(0, Integer) !dbg dbg_location=1
+                Variable(4, Integer) = Add Variable(0, Integer), Integer(1) !dbg dbg_location=1
+                Variable(0, Integer) = Store Variable(4, Integer) !dbg dbg_location=1
+                Call id(4), args( Integer(2), EmptyTag, ) 
+                Call id(5), args( Variable(3, Integer), Tag(0, 5), ) 
+                Call id(5), args( Variable(0, Integer), Tag(1, 5), ) 
+                Return 
             Block 2:Block:
-                Variable(0, Integer) = Store Integer(-1)
-                Jump(1)"#]],
+                Variable(0, Integer) = Store Integer(-1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -696,7 +696,7 @@ fn dynamic_double_from_if_expression_with_single_measurement_comparison_and_clas
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -723,20 +723,20 @@ fn dynamic_double_from_if_expression_with_single_measurement_comparison_and_clas
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
-                Branch Variable(1, Boolean), 2, 3
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=1
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Double) = Store Variable(2, Double)
-                Call id(4), args( Integer(0), EmptyTag, )
-                Return
+                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=1
+                Call id(4), args( Integer(0), EmptyTag, ) 
+                Return 
             Block 2:Block:
-                Variable(2, Double) = Store Double(0.1)
-                Jump(1)
+                Variable(2, Double) = Store Double(0.1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Double) = Store Double(1.1)
-                Jump(1)"#]],
+                Variable(2, Double) = Store Double(1.1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -771,7 +771,7 @@ fn dynamic_double_from_if_expression_with_single_measurement_comparison_and_non_
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -823,22 +823,22 @@ fn dynamic_double_from_if_expression_with_single_measurement_comparison_and_non_
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
-                Branch Variable(1, Boolean), 2, 3
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=4
             Block 1:Block:
-                Variable(3, Double) = Store Variable(2, Double)
-                Call id(6), args( Integer(0), EmptyTag, )
-                Return
+                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=4
+                Call id(6), args( Integer(0), EmptyTag, ) 
+                Return 
             Block 2:Block:
-                Call id(4), args( Qubit(1), )
-                Variable(2, Double) = Store Double(0.1)
-                Jump(1)
+                Call id(4), args( Qubit(1), ) !dbg dbg_location=3
+                Variable(2, Double) = Store Double(0.1) !dbg dbg_location=3
+                Jump(1) !dbg dbg_location=3
             Block 3:Block:
-                Call id(5), args( Qubit(1), )
-                Variable(2, Double) = Store Double(1.1)
-                Jump(1)"#]],
+                Call id(5), args( Qubit(1), ) !dbg dbg_location=4
+                Variable(2, Double) = Store Double(1.1) !dbg dbg_location=4
+                Jump(1) !dbg dbg_location=4"#]],
     );
 }
 
@@ -872,7 +872,7 @@ fn dynamic_double_from_if_expression_with_single_measurement_comparison_pass_dyn
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -925,20 +925,20 @@ fn dynamic_double_from_if_expression_with_single_measurement_comparison_pass_dyn
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
-                Branch Variable(1, Boolean), 2, 3
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false) !dbg dbg_location=2
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=2
             Block 1:Block:
-                Variable(3, Double) = Store Variable(2, Double)
-                Call id(4), args( Variable(3, Double), Qubit(1), )
-                Call id(5), args( Integer(0), EmptyTag, )
-                Return
+                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=2
+                Call id(4), args( Variable(3, Double), Qubit(1), ) !dbg dbg_location=3
+                Call id(5), args( Integer(0), EmptyTag, ) 
+                Return 
             Block 2:Block:
-                Variable(2, Double) = Store Double(0.1)
-                Jump(1)
+                Variable(2, Double) = Store Double(0.1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2
             Block 3:Block:
-                Variable(2, Double) = Store Double(1.1)
-                Jump(1)"#]],
+                Variable(2, Double) = Store Double(1.1) !dbg dbg_location=2
+                Jump(1) !dbg dbg_location=2"#]],
     );
 }

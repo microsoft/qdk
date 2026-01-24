@@ -6,7 +6,7 @@ use std::collections::VecDeque;
 use rustc_hash::FxHashMap;
 
 use crate::{
-    rir::{BlockId, Instruction, Program},
+    rir::{BlockId, Instruction, InstructionWithMetadata, Program},
     utils::{get_all_block_successors, get_block_successors},
 };
 
@@ -78,7 +78,9 @@ pub fn remap_block_ids(program: &mut Program) {
                 .last_mut()
                 .expect("block should have at least one instruction"),
         );
-        program.blocks.insert(new_block_id.into(), block);
+        program
+            .blocks
+            .insert_with_metadata(new_block_id.into(), block);
     }
     program
         .callables
@@ -96,9 +98,12 @@ fn check_acyclic(program: &Program) -> bool {
     true
 }
 
-fn update_phi_nodes(block_id_map: &FxHashMap<BlockId, usize>, instrs: &mut [Instruction]) {
+fn update_phi_nodes(
+    block_id_map: &FxHashMap<BlockId, usize>,
+    instrs: &mut [InstructionWithMetadata],
+) {
     for instr in instrs.iter_mut() {
-        if let Instruction::Phi(args, _) = instr {
+        if let Instruction::Phi(args, _) = &mut instr.instruction {
             for arg in args.iter_mut() {
                 arg.1 = (*block_id_map
                     .get(&arg.1)
@@ -112,8 +117,11 @@ fn update_phi_nodes(block_id_map: &FxHashMap<BlockId, usize>, instrs: &mut [Inst
     }
 }
 
-fn update_terminator(block_id_map: &FxHashMap<BlockId, usize>, instruction: &mut Instruction) {
-    match instruction {
+fn update_terminator(
+    block_id_map: &FxHashMap<BlockId, usize>,
+    instruction: &mut InstructionWithMetadata,
+) {
+    match &mut instruction.instruction {
         Instruction::Jump(target) => {
             *target = block_id_map[target].into();
         }

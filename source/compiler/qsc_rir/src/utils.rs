@@ -1,19 +1,20 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::rir::{Block, BlockId, Instruction, Program, VariableId};
+use crate::rir::{BlockId, BlockWithMetadata, Instruction, Program, VariableId};
 use qsc_data_structures::index_map::IndexMap;
 use rustc_hash::FxHashSet;
 
 /// Given a block, return the block IDs of its successors.
 #[must_use]
-pub fn get_block_successors(block: &Block) -> Vec<BlockId> {
+pub fn get_block_successors(block: &BlockWithMetadata) -> Vec<BlockId> {
     let mut successors = Vec::new();
     // Assume that the block is well-formed and that terminators only appear as the last instruction.
-    match block
+    match &block
         .0
         .last()
         .expect("block should have at least one instruction")
+        .instruction
     {
         Instruction::Branch(_, target1, target2) => {
             successors.push(*target1);
@@ -76,7 +77,7 @@ pub fn get_variable_assignments(program: &Program) -> IndexMap<VariableId, (Bloc
     let mut has_phi = false;
     for (block_id, block) in program.blocks.iter() {
         for (idx, instr) in block.0.iter().enumerate() {
-            match instr {
+            match &instr.instruction {
                 Instruction::Call(_, _, Some(var))
                 | Instruction::Add(_, _, var)
                 | Instruction::Sub(_, _, var)
@@ -104,7 +105,7 @@ pub fn get_variable_assignments(program: &Program) -> IndexMap<VariableId, (Bloc
                         "Duplicate assignment to {:?} in {block_id:?}, instruction {idx}",
                         var.variable_id
                     );
-                    has_phi |= matches!(instr, Instruction::Phi(_, _));
+                    has_phi |= matches!(&instr.instruction, Instruction::Phi(_, _));
                     assignments.insert(var.variable_id, (block_id, idx));
                 }
                 Instruction::Store(_, var) => {

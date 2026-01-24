@@ -30,7 +30,7 @@ fn unitary_call_within_a_for_loop() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -42,15 +42,15 @@ fn unitary_call_within_a_for_loop() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Integer) = Store Integer(1)
-                Call id(2), args( Qubit(0), )
-                Variable(0, Integer) = Store Integer(2)
-                Call id(2), args( Qubit(0), )
-                Variable(0, Integer) = Store Integer(3)
-                Call id(2), args( Qubit(0), )
-                Variable(0, Integer) = Store Integer(4)
-                Call id(3), args( Integer(0), EmptyTag, )
-                Return"#]],
+                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=0
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=1
+                Variable(0, Integer) = Store Integer(2) !dbg dbg_location=1
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=2
+                Variable(0, Integer) = Store Integer(3) !dbg dbg_location=2
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=3
+                Variable(0, Integer) = Store Integer(4) !dbg dbg_location=3
+                Call id(3), args( Integer(0), EmptyTag, ) 
+                Return "#]],
     );
 }
 
@@ -80,7 +80,7 @@ fn unitary_call_within_a_while_loop() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -92,15 +92,15 @@ fn unitary_call_within_a_while_loop() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Integer) = Store Integer(0)
-                Call id(2), args( Qubit(0), )
-                Variable(0, Integer) = Store Integer(1)
-                Call id(2), args( Qubit(0), )
-                Variable(0, Integer) = Store Integer(2)
-                Call id(2), args( Qubit(0), )
-                Variable(0, Integer) = Store Integer(3)
-                Call id(3), args( Integer(0), EmptyTag, )
-                Return"#]],
+                Variable(0, Integer) = Store Integer(0) !dbg dbg_location=0
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=1
+                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=1
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=2
+                Variable(0, Integer) = Store Integer(2) !dbg dbg_location=2
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=3
+                Variable(0, Integer) = Store Integer(3) !dbg dbg_location=3
+                Call id(3), args( Integer(0), EmptyTag, ) 
+                Return "#]],
     );
 }
 
@@ -130,7 +130,7 @@ fn unitary_call_within_a_repeat_until_loop() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -142,19 +142,19 @@ fn unitary_call_within_a_repeat_until_loop() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Integer) = Store Integer(0)
-                Variable(1, Boolean) = Store Bool(true)
-                Call id(2), args( Qubit(0), )
-                Variable(0, Integer) = Store Integer(1)
-                Variable(1, Boolean) = Store Bool(true)
-                Call id(2), args( Qubit(0), )
-                Variable(0, Integer) = Store Integer(2)
-                Variable(1, Boolean) = Store Bool(true)
-                Call id(2), args( Qubit(0), )
-                Variable(0, Integer) = Store Integer(3)
-                Variable(1, Boolean) = Store Bool(false)
-                Call id(3), args( Integer(0), EmptyTag, )
-                Return"#]],
+                Variable(0, Integer) = Store Integer(0) !dbg dbg_location=0
+                Variable(1, Boolean) = Store Bool(true) !dbg dbg_location=0
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=1
+                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=1
+                Variable(1, Boolean) = Store Bool(true) !dbg dbg_location=1
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=2
+                Variable(0, Integer) = Store Integer(2) !dbg dbg_location=2
+                Variable(1, Boolean) = Store Bool(true) !dbg dbg_location=2
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=3
+                Variable(0, Integer) = Store Integer(3) !dbg dbg_location=3
+                Variable(1, Boolean) = Store Bool(false) !dbg dbg_location=3
+                Call id(3), args( Integer(0), EmptyTag, ) 
+                Return "#]],
     );
 }
 
@@ -182,7 +182,7 @@ fn rotation_call_within_a_for_loop() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -194,15 +194,15 @@ fn rotation_call_within_a_for_loop() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Integer) = Store Integer(0)
-                Call id(2), args( Double(0), Qubit(0), )
-                Variable(0, Integer) = Store Integer(1)
-                Call id(2), args( Double(1), Qubit(0), )
-                Variable(0, Integer) = Store Integer(2)
-                Call id(2), args( Double(2), Qubit(0), )
-                Variable(0, Integer) = Store Integer(3)
-                Call id(3), args( Integer(0), EmptyTag, )
-                Return"#]],
+                Variable(0, Integer) = Store Integer(0) !dbg dbg_location=0
+                Call id(2), args( Double(0), Qubit(0), ) !dbg dbg_location=1
+                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=1
+                Call id(2), args( Double(1), Qubit(0), ) !dbg dbg_location=2
+                Variable(0, Integer) = Store Integer(2) !dbg dbg_location=2
+                Call id(2), args( Double(2), Qubit(0), ) !dbg dbg_location=3
+                Variable(0, Integer) = Store Integer(3) !dbg dbg_location=3
+                Call id(3), args( Integer(0), EmptyTag, ) 
+                Return "#]],
     );
 }
 
@@ -233,7 +233,7 @@ fn rotation_call_within_a_while_loop() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -245,15 +245,15 @@ fn rotation_call_within_a_while_loop() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Integer) = Store Integer(0)
-                Call id(2), args( Double(0), Qubit(0), )
-                Variable(0, Integer) = Store Integer(1)
-                Call id(2), args( Double(1), Qubit(0), )
-                Variable(0, Integer) = Store Integer(2)
-                Call id(2), args( Double(2), Qubit(0), )
-                Variable(0, Integer) = Store Integer(3)
-                Call id(3), args( Integer(0), EmptyTag, )
-                Return"#]],
+                Variable(0, Integer) = Store Integer(0) !dbg dbg_location=0
+                Call id(2), args( Double(0), Qubit(0), ) !dbg dbg_location=1
+                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=1
+                Call id(2), args( Double(1), Qubit(0), ) !dbg dbg_location=2
+                Variable(0, Integer) = Store Integer(2) !dbg dbg_location=2
+                Call id(2), args( Double(2), Qubit(0), ) !dbg dbg_location=3
+                Variable(0, Integer) = Store Integer(3) !dbg dbg_location=3
+                Call id(3), args( Integer(0), EmptyTag, ) 
+                Return "#]],
     );
 }
 
@@ -284,7 +284,7 @@ fn rotation_call_within_a_repeat_until_loop() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -296,19 +296,19 @@ fn rotation_call_within_a_repeat_until_loop() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Integer) = Store Integer(0)
-                Variable(1, Boolean) = Store Bool(true)
-                Call id(2), args( Double(0), Qubit(0), )
-                Variable(0, Integer) = Store Integer(1)
-                Variable(1, Boolean) = Store Bool(true)
-                Call id(2), args( Double(1), Qubit(0), )
-                Variable(0, Integer) = Store Integer(2)
-                Variable(1, Boolean) = Store Bool(true)
-                Call id(2), args( Double(2), Qubit(0), )
-                Variable(0, Integer) = Store Integer(3)
-                Variable(1, Boolean) = Store Bool(false)
-                Call id(3), args( Integer(0), EmptyTag, )
-                Return"#]],
+                Variable(0, Integer) = Store Integer(0) !dbg dbg_location=0
+                Variable(1, Boolean) = Store Bool(true) !dbg dbg_location=0
+                Call id(2), args( Double(0), Qubit(0), ) !dbg dbg_location=1
+                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=1
+                Variable(1, Boolean) = Store Bool(true) !dbg dbg_location=1
+                Call id(2), args( Double(1), Qubit(0), ) !dbg dbg_location=2
+                Variable(0, Integer) = Store Integer(2) !dbg dbg_location=2
+                Variable(1, Boolean) = Store Bool(true) !dbg dbg_location=2
+                Call id(2), args( Double(2), Qubit(0), ) !dbg dbg_location=3
+                Variable(0, Integer) = Store Integer(3) !dbg dbg_location=3
+                Variable(1, Boolean) = Store Bool(false) !dbg dbg_location=3
+                Call id(3), args( Integer(0), EmptyTag, ) 
+                Return "#]],
     );
 }
 
@@ -337,15 +337,15 @@ fn mutable_bool_updated_in_loop() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Boolean) = Store Bool(false)
-                Variable(1, Integer) = Store Integer(1)
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(2, Boolean) = Call id(3), args( Result(0), )
-                Variable(3, Boolean) = Store Variable(2, Boolean)
-                Variable(0, Boolean) = Store Variable(3, Boolean)
-                Variable(1, Integer) = Store Integer(2)
-                Variable(4, Boolean) = LogicalNot Variable(0, Boolean)
-                Branch Variable(4, Boolean), 2, 1"#]],
+                Variable(0, Boolean) = Store Bool(false) !dbg dbg_location=0
+                Variable(1, Integer) = Store Integer(1) !dbg dbg_location=0
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(2, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(3, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=1
+                Variable(0, Boolean) = Store Variable(3, Boolean) !dbg dbg_location=1
+                Variable(1, Integer) = Store Integer(2) !dbg dbg_location=1
+                Variable(4, Boolean) = LogicalNot Variable(0, Boolean) !dbg dbg_location=1
+                Branch Variable(4, Boolean), 2, 1 !dbg dbg_location=3"#]],
     );
 }
 
@@ -374,12 +374,12 @@ fn mutable_int_updated_in_loop() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Integer) = Store Integer(1)
-                Variable(1, Integer) = Store Integer(1)
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(2, Boolean) = Call id(3), args( Result(0), )
-                Variable(3, Boolean) = Store Variable(2, Boolean)
-                Branch Variable(3, Boolean), 2, 1"#]],
+                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=0
+                Variable(1, Integer) = Store Integer(1) !dbg dbg_location=0
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(2, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(3, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=1
+                Branch Variable(3, Boolean), 2, 1 !dbg dbg_location=1"#]],
     );
 }
 
@@ -408,56 +408,57 @@ fn mutable_double_updated_in_loop() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Double) = Store Double(1.1)
-                Variable(1, Integer) = Store Integer(1)
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(2, Boolean) = Call id(3), args( Result(0), )
-                Variable(3, Boolean) = Store Variable(2, Boolean)
-                Branch Variable(3, Boolean), 2, 1
+                Variable(0, Double) = Store Double(1.1) !dbg dbg_location=0
+                Variable(1, Integer) = Store Integer(1) !dbg dbg_location=0
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(2, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(3, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=1
+                Branch Variable(3, Boolean), 2, 1 !dbg dbg_location=1
             Block 1:Block:
-                Variable(1, Integer) = Store Integer(2)
-                Variable(4, Boolean) = Fcmp Ogt, Variable(0, Double), Double(0.1)
-                Variable(5, Boolean) = Store Bool(false)
-                Branch Variable(4, Boolean), 4, 3
+                Variable(1, Integer) = Store Integer(2) !dbg dbg_location=1
+                Variable(4, Boolean) = Fcmp Ogt, Variable(0, Double), Double(0.1) !dbg dbg_location=1
+                Variable(5, Boolean) = Store Bool(false) !dbg dbg_location=1
+                Branch Variable(4, Boolean), 4, 3 !dbg dbg_location=3
             Block 2:Block:
-                Variable(0, Double) = Store Double(-1.1)
-                Jump(1)
+                Variable(0, Double) = Store Double(-1.1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Branch Variable(5, Boolean), 6, 5
+                Branch Variable(5, Boolean), 6, 5 !dbg dbg_location=3
             Block 4:Block:
-                Call id(2), args( Qubit(0), Result(1), )
-                Variable(6, Boolean) = Call id(3), args( Result(1), )
-                Variable(7, Boolean) = Store Variable(6, Boolean)
-                Variable(5, Boolean) = Store Variable(7, Boolean)
-                Jump(3)
+                Call id(2), args( Qubit(0), Result(1), ) !dbg dbg_location=4
+                Variable(6, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=3
+                Variable(7, Boolean) = Store Variable(6, Boolean) !dbg dbg_location=3
+                Variable(5, Boolean) = Store Variable(7, Boolean) !dbg dbg_location=3
+                Jump(3) !dbg dbg_location=3
             Block 5:Block:
-                Variable(1, Integer) = Store Integer(3)
-                Variable(9, Boolean) = Fcmp Ogt, Variable(0, Double), Double(0.1)
-                Variable(10, Boolean) = Store Bool(false)
-                Branch Variable(9, Boolean), 8, 7
+                Variable(1, Integer) = Store Integer(3) !dbg dbg_location=3
+                Variable(9, Boolean) = Fcmp Ogt, Variable(0, Double), Double(0.1) !dbg dbg_location=3
+                Variable(10, Boolean) = Store Bool(false) !dbg dbg_location=3
+                Branch Variable(9, Boolean), 8, 7 !dbg dbg_location=5
             Block 6:Block:
-                Variable(8, Double) = Fmul Double(-1), Variable(0, Double)
-                Variable(0, Double) = Store Variable(8, Double)
-                Jump(5)
+                Variable(8, Double) = Fmul Double(-1), Variable(0, Double) !dbg dbg_location=3
+                Variable(0, Double) = Store Variable(8, Double) !dbg dbg_location=3
+                Jump(5) !dbg dbg_location=3
             Block 7:Block:
-                Branch Variable(10, Boolean), 10, 9
+                Branch Variable(10, Boolean), 10, 9 !dbg dbg_location=5
             Block 8:Block:
-                Call id(2), args( Qubit(0), Result(2), )
-                Variable(11, Boolean) = Call id(3), args( Result(2), )
-                Variable(12, Boolean) = Store Variable(11, Boolean)
-                Variable(10, Boolean) = Store Variable(12, Boolean)
-                Jump(7)
+                Call id(2), args( Qubit(0), Result(2), ) !dbg dbg_location=6
+                Variable(11, Boolean) = Call id(3), args( Result(2), ) !dbg dbg_location=5
+                Variable(12, Boolean) = Store Variable(11, Boolean) !dbg dbg_location=5
+                Variable(10, Boolean) = Store Variable(12, Boolean) !dbg dbg_location=5
+                Jump(7) !dbg dbg_location=5
             Block 9:Block:
-                Variable(1, Integer) = Store Integer(4)
-                Call id(4), args( Integer(0), EmptyTag, )
-                Return
+                Variable(1, Integer) = Store Integer(4) !dbg dbg_location=5
+                Call id(4), args( Integer(0), EmptyTag, ) 
+                Return 
             Block 10:Block:
-                Variable(13, Double) = Fmul Double(-1), Variable(0, Double)
-                Variable(0, Double) = Store Variable(13, Double)
-                Jump(9)"#]],
+                Variable(13, Double) = Fmul Double(-1), Variable(0, Double) !dbg dbg_location=5
+                Variable(0, Double) = Store Variable(13, Double) !dbg dbg_location=5
+                Jump(9) !dbg dbg_location=5"#]],
     );
 }
 
+#[allow(clippy::too_many_lines)]
 #[test]
 fn result_array_index_range_in_for_loop() {
     let program = get_rir_program(indoc! {r#"
@@ -488,7 +489,7 @@ fn result_array_index_range_in_for_loop() {
                     body: 0
                 Callable 1: Callable:
                     name: __quantum__rt__initialize
-                    call_type: Regular
+                    call_type: Initialize
                     input_type:
                         [0]: Pointer
                     output_type: <VOID>
@@ -519,43 +520,63 @@ fn result_array_index_range_in_for_loop() {
             blocks:
                 Block 0: Block:
                     Call id(1), args( Pointer, )
-                    Variable(0, Integer) = Store Integer(0)
-                    Variable(0, Integer) = Store Integer(1)
-                    Variable(0, Integer) = Store Integer(2)
-                    Variable(1, Integer) = Store Integer(0)
-                    Call id(2), args( Qubit(0), Result(0), )
-                    Variable(1, Integer) = Store Integer(1)
-                    Call id(2), args( Qubit(1), Result(1), )
-                    Variable(1, Integer) = Store Integer(2)
-                    Variable(2, Integer) = Store Integer(0)
-                    Variable(3, Integer) = Store Integer(0)
-                    Variable(4, Boolean) = Call id(3), args( Result(0), )
-                    Variable(5, Boolean) = Store Variable(4, Boolean)
-                    Branch Variable(5, Boolean), 2, 1
+                    Variable(0, Integer) = Store Integer(0) 
+                    Variable(0, Integer) = Store Integer(1) !dbg dbg_location=1
+                    Variable(0, Integer) = Store Integer(2) !dbg dbg_location=2
+                    Variable(1, Integer) = Store Integer(0) 
+                    Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=5
+                    Variable(1, Integer) = Store Integer(1) !dbg dbg_location=4
+                    Call id(2), args( Qubit(1), Result(1), ) !dbg dbg_location=7
+                    Variable(1, Integer) = Store Integer(2) !dbg dbg_location=6
+                    Variable(2, Integer) = Store Integer(0) !dbg dbg_location=3
+                    Variable(3, Integer) = Store Integer(0) !dbg dbg_location=8
+                    Variable(4, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=8
+                    Variable(5, Boolean) = Store Variable(4, Boolean) !dbg dbg_location=8
+                    Branch Variable(5, Boolean), 2, 1 !dbg dbg_location=8
                 Block 1: Block:
-                    Variable(3, Integer) = Store Integer(1)
-                    Variable(6, Boolean) = Call id(3), args( Result(1), )
-                    Variable(7, Boolean) = Store Variable(6, Boolean)
-                    Branch Variable(7, Boolean), 4, 3
+                    Variable(3, Integer) = Store Integer(1) !dbg dbg_location=8
+                    Variable(6, Boolean) = Call id(3), args( Result(1), ) !dbg dbg_location=8
+                    Variable(7, Boolean) = Store Variable(6, Boolean) !dbg dbg_location=8
+                    Branch Variable(7, Boolean), 4, 3 !dbg dbg_location=8
                 Block 2: Block:
-                    Variable(2, Integer) = Store Integer(1)
-                    Jump(1)
+                    Variable(2, Integer) = Store Integer(1) !dbg dbg_location=8
+                    Jump(1) !dbg dbg_location=8
                 Block 3: Block:
-                    Variable(3, Integer) = Store Integer(2)
-                    Variable(9, Integer) = Store Variable(2, Integer)
-                    Variable(10, Integer) = Store Integer(0)
-                    Variable(10, Integer) = Store Integer(1)
-                    Variable(10, Integer) = Store Integer(2)
-                    Call id(4), args( Variable(9, Integer), Tag(0, 3), )
-                    Return
+                    Variable(3, Integer) = Store Integer(2) !dbg dbg_location=8
+                    Variable(9, Integer) = Store Variable(2, Integer) !dbg dbg_location=8
+                    Variable(10, Integer) = Store Integer(0) 
+                    Variable(10, Integer) = Store Integer(1) !dbg dbg_location=10
+                    Variable(10, Integer) = Store Integer(2) !dbg dbg_location=11
+                    Call id(4), args( Variable(9, Integer), Tag(0, 3), ) 
+                    Return 
                 Block 4: Block:
-                    Variable(8, Integer) = Add Variable(2, Integer), Integer(1)
-                    Variable(2, Integer) = Store Variable(8, Integer)
-                    Jump(3)
+                    Variable(8, Integer) = Add Variable(2, Integer), Integer(1) !dbg dbg_location=8
+                    Variable(2, Integer) = Store Variable(8, Integer) !dbg dbg_location=8
+                    Jump(3) !dbg dbg_location=8
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | HigherLevelConstructs)
             num_qubits: 2
             num_results: 2
+            dbg_metadata_scopes:
+                0 = SubProgram name=entry location=(0-0) item_id=((0, 0))
+                1 = SubProgram name=Main location=(2-40) item_id=((2, 1))
+                2 = SubProgram name=AllocateQubitArray location=(0-2577) item_id=((0, 10))
+                3 = SubProgram name=MResetEachZ location=(1-179774) item_id=((1, 503))
+                4 = SubProgram name=MResetZ location=(1-181274) item_id=((1, 506))
+                5 = SubProgram name=ReleaseQubitArray location=(0-2878) item_id=((0, 11))
+            dbg_locations:
+                [0]:  scope=1location=(2-73)
+                [1]:  scope=2location=(0-2812) inlined_at=0
+                [2]:  scope=2location=(0-2812) inlined_at=0
+                [3]:  scope=1location=(2-114)
+                [4]:  scope=3location=(1-179907) inlined_at=3
+                [5]:  scope=4location=(1-181323) inlined_at=4
+                [6]:  scope=3location=(1-179907) inlined_at=3
+                [7]:  scope=4location=(1-181323) inlined_at=6
+                [8]:  scope=1location=(2-175)
+                [9]:  scope=1location=(2-73)
+                [10]:  scope=5location=(0-2963) inlined_at=9
+                [11]:  scope=5location=(0-2963) inlined_at=9
             tags:
                 [0]: 0_i
     "#]].assert_eq(&program.to_string());

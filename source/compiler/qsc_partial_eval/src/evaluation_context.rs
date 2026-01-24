@@ -1,12 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use qsc_data_structures::functors::FunctorApp;
+use qsc_data_structures::{debug::DbgLocationId, functors::FunctorApp};
 use qsc_eval::{
-    Env, Variable,
+    Env, PackageSpan, Variable,
     val::{Result, Value},
 };
-use qsc_fir::fir::{LocalItemId, LocalVarId, PackageId};
+use qsc_fir::fir::{ExprId, LocalItemId, LocalVarId, PackageId};
 use qsc_rca::{RuntimeKind, ValueKind};
 use qsc_rir::rir::{BlockId, Literal, VariableId};
 use rustc_hash::FxHashMap;
@@ -17,18 +17,24 @@ use std::collections::hash_map::Entry;
 pub struct EvaluationContext {
     active_blocks: Vec<BlockNode>,
     scopes: Vec<Scope>,
+    pub current_user_source_block: Vec<qsc_fir::fir::BlockId>,
+    pub current_iteration: Option<usize>, // TODO: maybe use this later for loops
+    pub dbg_callable_to_scope: FxHashMap<LocalItemId, usize>,
 }
 
 impl EvaluationContext {
     /// Creates a new evaluation context.
     pub fn new(package_id: PackageId, initial_block: BlockId) -> Self {
-        let entry_callable_scope = Scope::new(package_id, None, Vec::new(), None);
+        let entry_callable_scope = Scope::new(package_id, None, Vec::new(), None, None);
         Self {
             active_blocks: vec![BlockNode {
                 id: initial_block,
                 successor: None,
             }],
             scopes: vec![entry_callable_scope],
+            current_user_source_block: vec![],
+            current_iteration: None,
+            dbg_callable_to_scope: Default::default(),
         }
     }
 
@@ -42,6 +48,11 @@ impl EvaluationContext {
         self.scopes
             .last()
             .expect("the evaluation context does not have a current scope")
+    }
+
+    /// Gets an immutable reference to the current (call) scope.
+    pub fn get_caller_scope(&self) -> Option<&Scope> {
+        self.scopes.iter().rev().nth(1)
     }
 
     /// Gets a mutable reference to the current (call) scope.
@@ -83,9 +94,15 @@ impl EvaluationContext {
             .iter()
             .any(Scope::is_currently_evaluating_branch)
     }
+
+    pub fn is_current_scope_user_scope(&self) -> bool {
+        let scope = self.get_current_scope();
+        scope.package_id != PackageId::CORE && scope.package_id != PackageId::from(1)
+    }
 }
 
-/// Struct that represents a block node when we interpret an RIR program as a graph.
+/// Struct that represents a block node when we intepret an RIR program as a graph.
+#[derive(Debug)]
 pub struct BlockNode {
     /// The ID of the block.
     pub id: BlockId,
@@ -109,6 +126,12 @@ pub struct Scope {
     static_vars: FxHashMap<VariableId, Literal>,
     /// Number of currently active blocks (starting from where this scope was created).
     active_block_count: usize,
+    /// The current expression being evaluated, if any.
+    /// index into `dbg_locations` in `Program`
+    pub current_distinct_dbg_location: Option<DbgLocationId>,
+    /// The current expression being evaluated, if any.
+    pub current_expr: Option<ExprId>,
+    _caller_expr_span: Option<PackageSpan>,
 }
 
 impl Scope {
@@ -118,6 +141,7 @@ impl Scope {
         callable: Option<(LocalItemId, FunctorApp)>,
         args: Vec<Arg>,
         ctls_arg: Option<Arg>,
+        caller_expr_span: Option<PackageSpan>,
     ) -> Self {
         // Create the environment for the classical evaluator.
         // A default classical evaluator environment is created with one scope. However, we need to push an additional
@@ -167,6 +191,9 @@ impl Scope {
             active_block_count: 1,
             hybrid_vars,
             static_vars: FxHashMap::default(),
+            _caller_expr_span: caller_expr_span,
+            current_distinct_dbg_location: None,
+            current_expr: None,
         }
     }
 

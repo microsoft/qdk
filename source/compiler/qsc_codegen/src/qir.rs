@@ -645,6 +645,16 @@ impl ToQir<String> for rir::Block {
     }
 }
 
+impl ToQir<String> for rir::BlockWithMetadata {
+    fn to_qir(&self, program: &rir::Program) -> String {
+        self.0
+            .iter()
+            .map(|instr| ToQir::<String>::to_qir(&instr.instruction, program))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
 impl ToQir<String> for rir::Callable {
     fn to_qir(&self, program: &rir::Program) -> String {
         let input_type = self

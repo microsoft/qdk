@@ -114,7 +114,7 @@ pub fn initialize_decl() -> Callable {
         input_type: vec![Ty::Pointer],
         output_type: None,
         body: None,
-        call_type: CallableType::Regular,
+        call_type: CallableType::Initialize,
     }
 }
 

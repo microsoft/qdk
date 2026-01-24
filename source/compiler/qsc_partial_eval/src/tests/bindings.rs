@@ -31,7 +31,7 @@ fn immutable_result_binding_does_not_generate_store_instruction() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -57,9 +57,9 @@ fn immutable_result_binding_does_not_generate_store_instruction() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Call id(3), args( Result(0), Tag(0, 3), )
-                Return"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Call id(3), args( Result(0), Tag(0, 3), ) 
+                Return "#]],
     );
 }
 
@@ -82,7 +82,7 @@ fn mutable_result_binding_does_not_generate_store_instruction() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -108,9 +108,9 @@ fn mutable_result_binding_does_not_generate_store_instruction() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Call id(3), args( Result(0), Tag(0, 3), )
-                Return"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Call id(3), args( Result(0), Tag(0, 3), ) 
+                Return "#]],
     );
 }
 
@@ -133,7 +133,7 @@ fn immutable_bool_binding_does_not_generate_store_instruction() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -172,13 +172,13 @@ fn immutable_bool_binding_does_not_generate_store_instruction() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Store Variable(0, Boolean)
-                Variable(2, Boolean) = Store Variable(1, Boolean)
-                Variable(3, Boolean) = Store Variable(2, Boolean)
-                Call id(4), args( Variable(3, Boolean), Tag(0, 3), )
-                Return"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=1
+                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=1
+                Variable(3, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=1
+                Call id(4), args( Variable(3, Boolean), Tag(0, 3), ) 
+                Return "#]],
     );
 }
 
@@ -201,7 +201,7 @@ fn mutable_bool_binding_generates_store_instruction() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -240,13 +240,13 @@ fn mutable_bool_binding_generates_store_instruction() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Store Variable(0, Boolean)
-                Variable(2, Boolean) = Store Variable(1, Boolean)
-                Variable(3, Boolean) = Store Variable(2, Boolean)
-                Call id(4), args( Variable(3, Boolean), Tag(0, 3), )
-                Return"#]],
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=1
+                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=1
+                Variable(3, Boolean) = Store Variable(2, Boolean) !dbg dbg_location=1
+                Call id(4), args( Variable(3, Boolean), Tag(0, 3), ) 
+                Return "#]],
     );
 }
 
@@ -269,7 +269,7 @@ fn immutable_int_binding_does_not_generate_store_instruction() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -308,21 +308,21 @@ fn immutable_int_binding_does_not_generate_store_instruction() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Store Variable(0, Boolean)
-                Branch Variable(1, Boolean), 2, 3
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer)
-                Variable(4, Integer) = Store Variable(3, Integer)
-                Call id(4), args( Variable(4, Integer), Tag(0, 3), )
-                Return
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=1
+                Variable(4, Integer) = Store Variable(3, Integer) !dbg dbg_location=1
+                Call id(4), args( Variable(4, Integer), Tag(0, 3), ) 
+                Return 
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0)
-                Jump(1)
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1)
-                Jump(1)"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -345,7 +345,7 @@ fn mutable_int_binding_does_generate_store_instruction() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -384,21 +384,21 @@ fn mutable_int_binding_does_generate_store_instruction() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Store Variable(0, Boolean)
-                Branch Variable(1, Boolean), 2, 3
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Integer) = Store Variable(2, Integer)
-                Variable(4, Integer) = Store Variable(3, Integer)
-                Call id(4), args( Variable(4, Integer), Tag(0, 3), )
-                Return
+                Variable(3, Integer) = Store Variable(2, Integer) !dbg dbg_location=1
+                Variable(4, Integer) = Store Variable(3, Integer) !dbg dbg_location=1
+                Call id(4), args( Variable(4, Integer), Tag(0, 3), ) 
+                Return 
             Block 2:Block:
-                Variable(2, Integer) = Store Integer(0)
-                Jump(1)
+                Variable(2, Integer) = Store Integer(0) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Integer) = Store Integer(1)
-                Jump(1)"#]],
+                Variable(2, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -431,7 +431,7 @@ fn mutable_variable_in_outer_scope_set_to_mutable_from_inner_scope() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -470,22 +470,22 @@ fn mutable_variable_in_outer_scope_set_to_mutable_from_inner_scope() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(0, Integer) = Store Integer(0)
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(1, Boolean) = Call id(3), args( Result(0), )
-                Variable(2, Boolean) = Store Variable(1, Boolean)
-                Branch Variable(2, Boolean), 2, 3
+                Variable(0, Integer) = Store Integer(0) !dbg dbg_location=0
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(1, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(2, Boolean) = Store Variable(1, Boolean) !dbg dbg_location=1
+                Branch Variable(2, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(4, Integer) = Store Variable(0, Integer)
-                Call id(4), args( Variable(4, Integer), Tag(0, 3), )
-                Return
+                Variable(4, Integer) = Store Variable(0, Integer) !dbg dbg_location=1
+                Call id(4), args( Variable(4, Integer), Tag(0, 3), ) 
+                Return 
             Block 2:Block:
-                Variable(3, Integer) = Store Integer(1)
-                Variable(0, Integer) = Store Integer(1)
-                Jump(1)
+                Variable(3, Integer) = Store Integer(1) !dbg dbg_location=1
+                Variable(0, Integer) = Store Integer(1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(0, Integer) = Store Integer(2)
-                Jump(1)"#]],
+                Variable(0, Integer) = Store Integer(2) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }
 
@@ -508,7 +508,7 @@ fn mutable_double_binding_does_generate_store_instruction() {
         &expect![[r#"
             Callable:
                 name: __quantum__rt__initialize
-                call_type: Regular
+                call_type: Initialize
                 input_type:
                     [0]: Pointer
                 output_type: <VOID>
@@ -547,20 +547,20 @@ fn mutable_double_binding_does_generate_store_instruction() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Qubit(0), Result(0), )
-                Variable(0, Boolean) = Call id(3), args( Result(0), )
-                Variable(1, Boolean) = Store Variable(0, Boolean)
-                Branch Variable(1, Boolean), 2, 3
+                Call id(2), args( Qubit(0), Result(0), ) !dbg dbg_location=2
+                Variable(0, Boolean) = Call id(3), args( Result(0), ) !dbg dbg_location=1
+                Variable(1, Boolean) = Store Variable(0, Boolean) !dbg dbg_location=1
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=1
             Block 1:Block:
-                Variable(3, Double) = Store Variable(2, Double)
-                Variable(4, Double) = Store Variable(3, Double)
-                Call id(4), args( Variable(4, Double), Tag(0, 3), )
-                Return
+                Variable(3, Double) = Store Variable(2, Double) !dbg dbg_location=1
+                Variable(4, Double) = Store Variable(3, Double) !dbg dbg_location=1
+                Call id(4), args( Variable(4, Double), Tag(0, 3), ) 
+                Return 
             Block 2:Block:
-                Variable(2, Double) = Store Double(0.1)
-                Jump(1)
+                Variable(2, Double) = Store Double(0.1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1
             Block 3:Block:
-                Variable(2, Double) = Store Double(1.1)
-                Jump(1)"#]],
+                Variable(2, Double) = Store Double(1.1) !dbg dbg_location=1
+                Jump(1) !dbg dbg_location=1"#]],
     );
 }

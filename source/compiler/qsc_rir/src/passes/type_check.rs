@@ -9,7 +9,7 @@ mod tests;
 pub fn check_types(program: &Program) {
     for (_, block) in program.blocks.iter() {
         for instr in &block.0 {
-            check_instr_types(program, instr);
+            check_instr_types(program, &instr.instruction);
         }
     }
 }

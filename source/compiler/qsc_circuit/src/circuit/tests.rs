@@ -264,3 +264,63 @@ fn respect_column_info() {
     "#]]
     .assert_eq(&c.to_string());
 }
+
+#[test]
+fn classical_controlled_group() {
+    // TODO: draw classical control lines
+    let c = Circuit {
+        qubits: vec![qubit_with_results(0, 1), qubit_with_results(1, 1)],
+        component_grid: vec![
+            ComponentColumn {
+                components: vec![unitary("H", vec![q_reg(0)])],
+            },
+            ComponentColumn {
+                components: vec![measurement(0, 0)],
+            },
+            ComponentColumn {
+                components: vec![measurement(1, 0)],
+            },
+            ComponentColumn {
+                components: vec![Component::Unitary(Unitary {
+                    gate: "group".into(),
+                    args: vec![],
+                    children: vec![
+                        ComponentColumn {
+                            components: vec![unitary("X", vec![q_reg(0)])],
+                        },
+                        ComponentColumn {
+                            components: vec![unitary("Y", vec![q_reg(1)])],
+                        },
+                    ],
+                    targets: vec![
+                        Register {
+                            qubit: 0,
+                            result: None,
+                        },
+                        Register {
+                            qubit: 1,
+                            result: None,
+                        },
+                    ],
+                    controls: vec![Register {
+                        qubit: 1,
+                        result: Some(0),
+                    }],
+                    is_adjoint: false,
+                    metadata: None,
+                })],
+            },
+            ComponentColumn {
+                components: vec![unitary("Z", vec![q_reg(0)])],
+            },
+        ],
+    };
+
+    expect![[r#"
+        q_0    ── H ──── M ────────── [ [group] ─── X ─────────── ] ──── Z ──
+                         ╘═══════════════════════════════════════════════════
+        q_1    ──────────────── M ─────── [ ────────────── Y ──── ] ─────────
+                                ╘════════ [ ═════════════════════ ] ═════════
+    "#]]
+    .assert_eq(&c.display_with_groups().to_string());
+}

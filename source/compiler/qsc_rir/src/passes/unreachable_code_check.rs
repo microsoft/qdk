@@ -30,7 +30,7 @@ pub fn check_unreachable_instrs(program: &Program) {
     for (block_id, block) in program.blocks.iter() {
         match block.0.iter().position(|i| {
             matches!(
-                i,
+                &i.instruction,
                 Instruction::Return | Instruction::Jump(..) | Instruction::Branch(..)
             )
         }) {
@@ -92,7 +92,7 @@ pub fn check_unreachable_callable(program: &Program) {
         {
             let block = program.get_block(*block_id);
             for instr in &block.0 {
-                if let Instruction::Call(callable_id, ..) = instr {
+                if let Instruction::Call(callable_id, ..) = &instr.instruction {
                     callables_to_check.push(*callable_id);
                 }
             }

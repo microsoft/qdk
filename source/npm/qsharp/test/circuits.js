@@ -209,10 +209,27 @@ test("circuit snapshot tests - .qs files", async (t) => {
     return;
   }
 
+  // TODO: test base profile too
   for (const file of files) {
     const relName = path.basename(file);
     await t.test(`${relName}`, async (tt) => {
       const circuitSource = fs.readFileSync(file, "utf8");
+      await generateAndDrawCircuit(
+        relName,
+        circuitSource,
+        "circuit-static-collapsed",
+        "static",
+        0,
+      );
+
+      await generateAndDrawCircuit(
+        relName,
+        circuitSource,
+        "circuit-static-expanded",
+        "static",
+        999999,
+      );
+
       await generateAndDrawCircuit(
         relName,
         circuitSource,
@@ -238,7 +255,7 @@ test("circuit snapshot tests - .qs files", async (t) => {
  * @param {string} name
  * @param {string} circuitSource
  * @param {string} id
- * @param { "classicalEval" | "simulate"} generationMethod
+ * @param {"static" | "classicalEval" | "simulate"} generationMethod
  * @param {number} renderDepth
  */
 async function generateAndDrawCircuit(

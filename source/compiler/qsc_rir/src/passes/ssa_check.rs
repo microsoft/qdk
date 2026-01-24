@@ -63,13 +63,13 @@ fn check_phi_nodes(program: &Program, preds: &IndexMap<BlockId, Vec<BlockId>>) {
                 block
                     .0
                     .iter()
-                    .all(|instr| !matches!(instr, Instruction::Phi(..))),
+                    .all(|instr| !matches!(instr.instruction, Instruction::Phi(..))),
                 "{block_id:?} has phi nodes but no predecessors"
             );
             continue;
         };
         for instr in &block.0 {
-            if let Instruction::Phi(args, res) = instr {
+            if let Instruction::Phi(args, res) = &instr.instruction {
                 assert!(
                     block_preds.len() == args.len(),
                     "Phi node in {block_id:?} has {} arguments but {} predecessors",
@@ -109,7 +109,7 @@ fn get_variable_uses(program: &Program) -> IndexMap<VariableId, Vec<(BlockId, us
     };
     for (block_id, block) in program.blocks.iter() {
         for (idx, instr) in block.0.iter().enumerate() {
-            match instr {
+            match &instr.instruction {
                 // Single variable
                 Instruction::Add(Operand::Variable(var), Operand::Literal(_), _)
                 | Instruction::Add(Operand::Literal(_), Operand::Variable(var), _)
