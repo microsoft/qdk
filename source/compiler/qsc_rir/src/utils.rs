@@ -1,13 +1,13 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::rir::{BlockId, BlockWithMetadata, Instruction, Program, VariableId};
+use crate::rir::{BlockId, Block, Instruction, Program, VariableId};
 use qsc_data_structures::index_map::IndexMap;
 use rustc_hash::FxHashSet;
 
 /// Given a block, return the block IDs of its successors.
 #[must_use]
-pub fn get_block_successors(block: &BlockWithMetadata) -> Vec<BlockId> {
+pub fn get_block_successors(block: &Block) -> Vec<BlockId> {
     let mut successors = Vec::new();
     // Assume that the block is well-formed and that terminators only appear as the last instruction.
     match &block

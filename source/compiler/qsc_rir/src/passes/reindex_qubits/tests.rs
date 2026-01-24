@@ -8,8 +8,8 @@ use expect_test::expect;
 use crate::{
     builder::{cx_decl, h_decl, m_decl, mresetz_decl, read_result_decl, reset_decl, x_decl},
     rir::{
-        Block, BlockId, CallableId, CallableType, Instruction, Literal, Operand, Program, Ty,
-        Variable, VariableId,
+        BlockId, Block, CallableId, CallableType, Instruction, Literal, Operand,
+        Program, Ty, Variable, VariableId,
     },
 };
 
@@ -25,7 +25,7 @@ fn qubit_reindexed_after_reset_removes_reset() {
     program.callables.insert(RESET, reset_decl());
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None),
             Instruction::Call(RESET, vec![Operand::Literal(Literal::Qubit(0))], None),
             Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None),
@@ -70,7 +70,7 @@ fn qubit_reindex_removes_initial_reset_without_reindexing() {
     program.callables.insert(RESET, reset_decl());
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(RESET, vec![Operand::Literal(Literal::Qubit(0))], None),
             Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None),
             Instruction::Return,
@@ -110,7 +110,7 @@ fn qubit_reindexed_after_mz() {
     program.callables.insert(M, m_decl());
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None),
             Instruction::Call(
                 M,
@@ -167,7 +167,7 @@ fn qubit_reindexed_after_mresetz_and_changed_to_mz() {
     program.callables.insert(MRESETZ, mresetz_decl());
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None),
             Instruction::Call(
                 MRESETZ,
@@ -225,7 +225,7 @@ fn multiple_qubit_reindex() {
     program.callables.insert(CX, cx_decl());
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(H, vec![Operand::Literal(Literal::Qubit(0))], None),
             Instruction::Call(
                 MRESETZ,
@@ -278,7 +278,7 @@ fn qubit_reindexed_multiple_times_with_mz_inserts_multiple_cx() {
     program.callables.insert(M, m_decl());
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None),
             Instruction::Call(
                 M,
@@ -368,7 +368,7 @@ fn qubit_reindexed_across_branches() {
 
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None),
             Instruction::Call(
                 M,
@@ -398,7 +398,7 @@ fn qubit_reindexed_across_branches() {
     );
     program.blocks.insert(
         BlockId(1),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None),
             Instruction::Call(
                 M,
@@ -413,7 +413,7 @@ fn qubit_reindexed_across_branches() {
     );
     program.blocks.insert(
         BlockId(2),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(
                 M,
                 vec![
@@ -427,7 +427,7 @@ fn qubit_reindexed_across_branches() {
     );
     program.blocks.insert(
         BlockId(3),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None),
             Instruction::Return,
         ]),

@@ -232,7 +232,7 @@ impl<'a> PartialEvaluator<'a> {
         let entry_block_id = resource_manager.next_block();
         program
             .blocks
-            .insert_with_metadata(entry_block_id, rir::BlockWithMetadata::default());
+            .insert_with_metadata(entry_block_id, rir::Block::default());
         let entry_point_id = resource_manager.next_callable();
         let entry_point = rir::Callable {
             name: "main".into(),
@@ -430,7 +430,7 @@ impl<'a> PartialEvaluator<'a> {
         let block_id = self.resource_manager.next_block();
         self.program
             .blocks
-            .insert_with_metadata(block_id, rir::BlockWithMetadata::default());
+            .insert_with_metadata(block_id, rir::Block::default());
         block_id
     }
 
@@ -2826,7 +2826,7 @@ impl<'a> PartialEvaluator<'a> {
         self.eval_context.get_current_scope().package_id
     }
 
-    fn get_current_rir_block_mut(&mut self) -> &mut rir::BlockWithMetadata {
+    fn get_current_rir_block_mut(&mut self) -> &mut rir::Block {
         self.get_program_block_mut(self.eval_context.get_current_block_id())
     }
 
@@ -2962,7 +2962,7 @@ impl<'a> PartialEvaluator<'a> {
             .expect("callable not present")
     }
 
-    fn get_program_block_mut(&mut self, id: rir::BlockId) -> &mut rir::BlockWithMetadata {
+    fn get_program_block_mut(&mut self, id: rir::BlockId) -> &mut rir::Block {
         self.program
             .blocks
             .get_mut(id)

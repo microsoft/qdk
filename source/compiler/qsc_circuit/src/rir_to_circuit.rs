@@ -27,7 +27,7 @@ use qsc_frontend::compile::PackageStore;
 use qsc_partial_eval::{
     Callable, CallableType, ConditionCode, FcmpConditionCode, Instruction, Literal, Operand,
     VariableId,
-    rir::{BlockId, BlockWithMetadata, InstructionWithMetadata, Program, Ty, Variable},
+    rir::{Block, BlockId, InstructionWithMetadata, Program, Ty, Variable},
 };
 use rustc_hash::FxHashSet;
 
@@ -555,7 +555,7 @@ fn process_block_vars(
     variables: &mut IndexMap<VariableId, Expr>,
     register_map: &mut FixedQubitRegisterMapBuilder,
     callables: &IndexMap<qsc_partial_eval::CallableId, Callable>,
-    block: &BlockWithMetadata,
+    block: &Block,
 ) -> Result<CircuitBlock, Error> {
     // TODO: use get_block_successors from utils
     let mut terminator = None;
@@ -961,7 +961,7 @@ fn operations_in_block(
     register_map: &WireMap,
     dbg_info: &DbgInfo,
     callables: &IndexMap<qsc_partial_eval::CallableId, Callable>,
-    block: &BlockWithMetadata,
+    block: &Block,
     ops_remaining: usize,
 ) -> Result<CircuitBlock, Error> {
     // TODO: use get_block_successors from utils

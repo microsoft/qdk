@@ -5,7 +5,7 @@
 mod tests;
 
 use crate::{
-    rir::{BlockId, BlockWithMetadata, Instruction, Operand, Program, Variable, VariableId},
+    rir::{BlockId, Block, Instruction, Operand, Program, Variable, VariableId},
     utils::get_variable_assignments,
 };
 use qsc_data_structures::index_map::IndexMap;
@@ -167,7 +167,7 @@ fn map_store_to_dominated_ssa(
 // Propagates stored variables through a block, tracking the latest stored value and replacing
 // usage of the variable with the stored value.
 fn map_variable_use_in_block(
-    block: &mut BlockWithMetadata,
+    block: &mut Block,
     var_map: &mut FxHashMap<VariableId, Operand>,
 ) {
     let instrs = block.0.drain(..).collect::<Vec<_>>();

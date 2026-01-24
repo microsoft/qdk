@@ -6,8 +6,8 @@
 use expect_test::expect;
 
 use crate::rir::{
-    Block, BlockId, Callable, CallableId, CallableType, Instruction, Program, Ty, Variable,
-    VariableId,
+    BlockId, Block, Callable, CallableId, CallableType, Instruction, Program, Ty,
+    Variable, VariableId,
 };
 
 use super::remap_block_ids;
@@ -25,15 +25,18 @@ fn remap_block_ids_no_changes() {
             call_type: CallableType::Regular,
         },
     );
-    program
-        .blocks
-        .insert(BlockId(0), Block(vec![Instruction::Jump(BlockId(1))]));
-    program
-        .blocks
-        .insert(BlockId(1), Block(vec![Instruction::Jump(BlockId(2))]));
-    program
-        .blocks
-        .insert(BlockId(2), Block(vec![Instruction::Return]));
+    program.blocks.insert(
+        BlockId(0),
+        Block::from_instructions(vec![Instruction::Jump(BlockId(1))]),
+    );
+    program.blocks.insert(
+        BlockId(1),
+        Block::from_instructions(vec![Instruction::Jump(BlockId(2))]),
+    );
+    program.blocks.insert(
+        BlockId(2),
+        Block::from_instructions(vec![Instruction::Return]),
+    );
 
     // Before
     expect![[r#"
@@ -107,15 +110,18 @@ fn remap_block_ids_out_of_order_no_branches() {
             call_type: CallableType::Regular,
         },
     );
-    program
-        .blocks
-        .insert(BlockId(5), Block(vec![Instruction::Jump(BlockId(3))]));
-    program
-        .blocks
-        .insert(BlockId(3), Block(vec![Instruction::Jump(BlockId(7))]));
-    program
-        .blocks
-        .insert(BlockId(7), Block(vec![Instruction::Return]));
+    program.blocks.insert(
+        BlockId(5),
+        Block::from_instructions(vec![Instruction::Jump(BlockId(3))]),
+    );
+    program.blocks.insert(
+        BlockId(3),
+        Block::from_instructions(vec![Instruction::Jump(BlockId(7))]),
+    );
+    program.blocks.insert(
+        BlockId(7),
+        Block::from_instructions(vec![Instruction::Return]),
+    );
 
     // Before
     expect![[r#"
@@ -191,7 +197,7 @@ fn remap_block_ids_out_of_order_with_one_branch() {
     );
     program.blocks.insert(
         BlockId(2),
-        Block(vec![Instruction::Branch(
+        Block::from_instructions(vec![Instruction::Branch(
             Variable {
                 variable_id: VariableId(0),
                 ty: Ty::Boolean,
@@ -200,15 +206,18 @@ fn remap_block_ids_out_of_order_with_one_branch() {
             BlockId(1),
         )]),
     );
-    program
-        .blocks
-        .insert(BlockId(1), Block(vec![Instruction::Jump(BlockId(0))]));
-    program
-        .blocks
-        .insert(BlockId(3), Block(vec![Instruction::Jump(BlockId(1))]));
-    program
-        .blocks
-        .insert(BlockId(0), Block(vec![Instruction::Return]));
+    program.blocks.insert(
+        BlockId(1),
+        Block::from_instructions(vec![Instruction::Jump(BlockId(0))]),
+    );
+    program.blocks.insert(
+        BlockId(3),
+        Block::from_instructions(vec![Instruction::Jump(BlockId(1))]),
+    );
+    program.blocks.insert(
+        BlockId(0),
+        Block::from_instructions(vec![Instruction::Return]),
+    );
 
     // Before
     expect![[r#"
@@ -289,7 +298,7 @@ fn remap_block_ids_simple_loop() {
     );
     program.blocks.insert(
         BlockId(4),
-        Block(vec![Instruction::Branch(
+        Block::from_instructions(vec![Instruction::Branch(
             Variable {
                 variable_id: VariableId(0),
                 ty: Ty::Boolean,
@@ -298,12 +307,14 @@ fn remap_block_ids_simple_loop() {
             BlockId(2),
         )]),
     );
-    program
-        .blocks
-        .insert(BlockId(6), Block(vec![Instruction::Jump(BlockId(4))]));
-    program
-        .blocks
-        .insert(BlockId(2), Block(vec![Instruction::Return]));
+    program.blocks.insert(
+        BlockId(6),
+        Block::from_instructions(vec![Instruction::Jump(BlockId(4))]),
+    );
+    program.blocks.insert(
+        BlockId(2),
+        Block::from_instructions(vec![Instruction::Return]),
+    );
 
     // Before
     expect![[r#"
@@ -378,12 +389,14 @@ fn remap_block_ids_infinite_loop() {
             call_type: CallableType::Regular,
         },
     );
-    program
-        .blocks
-        .insert(BlockId(4), Block(vec![Instruction::Jump(BlockId(0))]));
-    program
-        .blocks
-        .insert(BlockId(0), Block(vec![Instruction::Jump(BlockId(4))]));
+    program.blocks.insert(
+        BlockId(4),
+        Block::from_instructions(vec![Instruction::Jump(BlockId(0))]),
+    );
+    program.blocks.insert(
+        BlockId(0),
+        Block::from_instructions(vec![Instruction::Jump(BlockId(4))]),
+    );
 
     // Before
     expect![[r#"
@@ -456,7 +469,7 @@ fn remap_block_ids_nested_branching_loops() {
     );
     program.blocks.insert(
         BlockId(4),
-        Block(vec![Instruction::Branch(
+        Block::from_instructions(vec![Instruction::Branch(
             Variable {
                 variable_id: VariableId(0),
                 ty: Ty::Boolean,
@@ -467,7 +480,7 @@ fn remap_block_ids_nested_branching_loops() {
     );
     program.blocks.insert(
         BlockId(6),
-        Block(vec![Instruction::Branch(
+        Block::from_instructions(vec![Instruction::Branch(
             Variable {
                 variable_id: VariableId(1),
                 ty: Ty::Boolean,
@@ -476,9 +489,10 @@ fn remap_block_ids_nested_branching_loops() {
             BlockId(2),
         )]),
     );
-    program
-        .blocks
-        .insert(BlockId(2), Block(vec![Instruction::Return]));
+    program.blocks.insert(
+        BlockId(2),
+        Block::from_instructions(vec![Instruction::Return]),
+    );
 
     // Before
     expect![[r#"
@@ -556,7 +570,7 @@ fn remap_block_ids_ensures_acyclic_program_gets_topological_ordering() {
 
     program.blocks.insert(
         BlockId(4),
-        Block(vec![Instruction::Branch(
+        Block::from_instructions(vec![Instruction::Branch(
             Variable {
                 variable_id: VariableId(0),
                 ty: Ty::Boolean,
@@ -565,12 +579,13 @@ fn remap_block_ids_ensures_acyclic_program_gets_topological_ordering() {
             BlockId(2),
         )]),
     );
-    program
-        .blocks
-        .insert(BlockId(6), Block(vec![Instruction::Jump(BlockId(2))]));
+    program.blocks.insert(
+        BlockId(6),
+        Block::from_instructions(vec![Instruction::Jump(BlockId(2))]),
+    );
     program.blocks.insert(
         BlockId(2),
-        Block(vec![Instruction::Branch(
+        Block::from_instructions(vec![Instruction::Branch(
             Variable {
                 variable_id: VariableId(1),
                 ty: Ty::Boolean,
@@ -579,12 +594,13 @@ fn remap_block_ids_ensures_acyclic_program_gets_topological_ordering() {
             BlockId(3),
         )]),
     );
-    program
-        .blocks
-        .insert(BlockId(1), Block(vec![Instruction::Jump(BlockId(7))]));
+    program.blocks.insert(
+        BlockId(1),
+        Block::from_instructions(vec![Instruction::Jump(BlockId(7))]),
+    );
     program.blocks.insert(
         BlockId(3),
-        Block(vec![Instruction::Branch(
+        Block::from_instructions(vec![Instruction::Branch(
             Variable {
                 variable_id: VariableId(2),
                 ty: Ty::Boolean,
@@ -593,18 +609,22 @@ fn remap_block_ids_ensures_acyclic_program_gets_topological_ordering() {
             BlockId(0),
         )]),
     );
-    program
-        .blocks
-        .insert(BlockId(5), Block(vec![Instruction::Jump(BlockId(8))]));
-    program
-        .blocks
-        .insert(BlockId(0), Block(vec![Instruction::Jump(BlockId(8))]));
-    program
-        .blocks
-        .insert(BlockId(8), Block(vec![Instruction::Jump(BlockId(7))]));
-    program
-        .blocks
-        .insert(BlockId(7), Block(vec![Instruction::Return]));
+    program.blocks.insert(
+        BlockId(5),
+        Block::from_instructions(vec![Instruction::Jump(BlockId(8))]),
+    );
+    program.blocks.insert(
+        BlockId(0),
+        Block::from_instructions(vec![Instruction::Jump(BlockId(8))]),
+    );
+    program.blocks.insert(
+        BlockId(8),
+        Block::from_instructions(vec![Instruction::Jump(BlockId(7))]),
+    );
+    program.blocks.insert(
+        BlockId(7),
+        Block::from_instructions(vec![Instruction::Return]),
+    );
 
     // Before
     expect![[r#"

@@ -23,54 +23,35 @@ pub struct Program {
 }
 
 #[derive(Default, Clone)]
-pub struct Blocks(
-    IndexMap<BlockId, BlockWithMetadata>,
-    IndexMap<BlockId, Block>,
-);
+pub struct Blocks(IndexMap<BlockId, Block>);
 
 impl Blocks {
     pub fn insert(&mut self, id: BlockId, block: Block) {
-        self.0.insert(
-            id,
-            BlockWithMetadata(
-                block
-                    .0
-                    .iter()
-                    .cloned()
-                    .map(|i| i.with_metadata(None))
-                    .collect(),
-            ),
-        );
-        self.1.insert(id, block);
+        self.0.insert(id, block);
     }
 
-    #[allow(clippy::needless_pass_by_value)]
-    pub fn insert_with_metadata(&mut self, id: BlockId, block: BlockWithMetadata) {
-        self.0.insert(id, block.clone());
-        self.1.insert(
-            id,
-            Block(block.0.iter().map(|im| im.instruction.clone()).collect()),
-        );
+    pub fn insert_with_metadata(&mut self, id: BlockId, block: Block) {
+        self.0.insert(id, block);
     }
 
     #[must_use]
-    pub fn get(&self, id: BlockId) -> Option<&BlockWithMetadata> {
+    pub fn get(&self, id: BlockId) -> Option<&Block> {
         self.0.get(id)
     }
 
-    pub fn get_mut(&mut self, id: BlockId) -> Option<&mut BlockWithMetadata> {
+    pub fn get_mut(&mut self, id: BlockId) -> Option<&mut Block> {
         self.0.get_mut(id)
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (BlockId, &BlockWithMetadata)> {
+    pub fn iter(&self) -> impl Iterator<Item = (BlockId, &Block)> {
         self.0.iter()
     }
 
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = (BlockId, &mut BlockWithMetadata)> {
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (BlockId, &mut Block)> {
         self.0.iter_mut()
     }
 
-    pub fn drain(&mut self) -> impl Iterator<Item = (BlockId, BlockWithMetadata)> {
+    pub fn drain(&mut self) -> impl Iterator<Item = (BlockId, Block)> {
         self.0.drain()
     }
 
@@ -79,25 +60,21 @@ impl Blocks {
     }
 }
 
+// impl FromIterator<(BlockId, Block)> for Blocks {
+//     fn from_iter<T: IntoIterator<Item = (BlockId, Block)>>(iter: T) -> Self {
+//         let mut blocks = Blocks::default();
+//         for (id, block) in iter {
+//             blocks.insert(id, block);
+//         }
+//         blocks
+//     }
+// }
+
 impl FromIterator<(BlockId, Block)> for Blocks {
     fn from_iter<T: IntoIterator<Item = (BlockId, Block)>>(iter: T) -> Self {
         let mut blocks = Blocks::default();
         for (id, block) in iter {
-            blocks.insert(id, block);
-        }
-        blocks
-    }
-}
-
-impl FromIterator<(BlockId, BlockWithMetadata)> for Blocks {
-    fn from_iter<T: IntoIterator<Item = (BlockId, BlockWithMetadata)>>(iter: T) -> Self {
-        let mut blocks = Blocks::default();
-        for (id, block) in iter {
             blocks.0.insert(id, block.clone());
-            blocks.1.insert(
-                id,
-                Block(block.0.iter().map(|im| im.instruction.clone()).collect()),
-            );
         }
         blocks
     }
@@ -168,12 +145,12 @@ impl Program {
     }
 
     #[must_use]
-    pub fn get_block(&self, id: BlockId) -> &BlockWithMetadata {
+    pub fn get_block(&self, id: BlockId) -> &Block {
         self.blocks.get(id).expect("block should be present")
     }
 
     #[must_use]
-    pub fn get_block_mut(&mut self, id: BlockId) -> &mut BlockWithMetadata {
+    pub fn get_block_mut(&mut self, id: BlockId) -> &mut Block {
         self.blocks.get_mut(id).expect("block should be present")
     }
 }
@@ -261,27 +238,22 @@ impl Display for InstructionWithMetadata {
 
 /// A block is a collection of instructions.
 #[derive(Default, Clone)]
-pub struct BlockWithMetadata(pub Vec<InstructionWithMetadata>);
+pub struct Block(pub Vec<InstructionWithMetadata>);
 
-impl Display for BlockWithMetadata {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        let mut indent = set_indentation(indented(f), 0);
-        write!(indent, "Block:",)?;
-        if self.0.is_empty() {
-            write!(indent, " <EMPTY>")?;
-        } else {
-            indent = set_indentation(indent, 1);
-            for instruction in &self.0 {
-                write!(indent, "\n{instruction}")?;
-            }
-        }
-        Ok(())
+impl Block {
+    #[must_use]
+    pub fn from_instructions(instructions: Vec<Instruction>) -> Self {
+        Self(
+            instructions
+                .into_iter()
+                .map(|instruction| InstructionWithMetadata {
+                    instruction,
+                    metadata: None,
+                })
+                .collect(),
+        )
     }
 }
-
-/// A block is a collection of instructions.
-#[derive(Default, Clone)]
-pub struct Block(pub Vec<Instruction>);
 
 /// A unique identifier for a callable in a RIR program.
 #[derive(Clone, Copy, Debug, Default, Hash, Eq, PartialEq, PartialOrd, Ord)]

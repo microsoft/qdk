@@ -7,7 +7,10 @@ use expect_test::expect;
 
 use crate::{
     builder::{bell_program, teleport_program},
-    rir::{Block, BlockId, Instruction, Literal, Operand, Program, Ty, Variable, VariableId},
+    rir::{
+        BlockId, Block, Instruction, Literal, Operand, Program, Ty, Variable,
+        VariableId,
+    },
 };
 
 use super::simplify_control_flow;
@@ -33,7 +36,7 @@ fn simplify_control_flow_removes_single_redundant_block() {
     let mut program = Program::new();
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
@@ -46,7 +49,7 @@ fn simplify_control_flow_removes_single_redundant_block() {
     );
     program.blocks.insert(
         BlockId(1),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
@@ -109,7 +112,7 @@ fn simplify_control_flow_removes_multiple_redundant_blocks() {
     let mut program = Program::new();
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
@@ -122,7 +125,7 @@ fn simplify_control_flow_removes_multiple_redundant_blocks() {
     );
     program.blocks.insert(
         BlockId(1),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
@@ -135,7 +138,7 @@ fn simplify_control_flow_removes_multiple_redundant_blocks() {
     );
     program.blocks.insert(
         BlockId(2),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
@@ -202,7 +205,7 @@ fn simplify_control_flow_removes_redundant_blocks_across_branches() {
     let mut program = Program::new();
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
@@ -222,7 +225,7 @@ fn simplify_control_flow_removes_redundant_blocks_across_branches() {
     );
     program.blocks.insert(
         BlockId(1),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
@@ -235,7 +238,7 @@ fn simplify_control_flow_removes_redundant_blocks_across_branches() {
     );
     program.blocks.insert(
         BlockId(2),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
@@ -248,7 +251,7 @@ fn simplify_control_flow_removes_redundant_blocks_across_branches() {
     );
     program.blocks.insert(
         BlockId(4),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
@@ -261,7 +264,7 @@ fn simplify_control_flow_removes_redundant_blocks_across_branches() {
     );
     program.blocks.insert(
         BlockId(6),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
@@ -274,7 +277,7 @@ fn simplify_control_flow_removes_redundant_blocks_across_branches() {
     );
     program.blocks.insert(
         BlockId(7),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
@@ -363,7 +366,7 @@ fn simplify_control_flow_removes_redundant_blocks_across_out_of_order_branches()
     // 7 -> 5
     program.blocks.insert(
         BlockId(3),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
@@ -383,7 +386,7 @@ fn simplify_control_flow_removes_redundant_blocks_across_out_of_order_branches()
     );
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
@@ -396,7 +399,7 @@ fn simplify_control_flow_removes_redundant_blocks_across_out_of_order_branches()
     );
     program.blocks.insert(
         BlockId(1),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
@@ -409,7 +412,7 @@ fn simplify_control_flow_removes_redundant_blocks_across_out_of_order_branches()
     );
     program.blocks.insert(
         BlockId(4),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
@@ -422,7 +425,7 @@ fn simplify_control_flow_removes_redundant_blocks_across_out_of_order_branches()
     );
     program.blocks.insert(
         BlockId(2),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
@@ -435,7 +438,7 @@ fn simplify_control_flow_removes_redundant_blocks_across_out_of_order_branches()
     );
     program.blocks.insert(
         BlockId(5),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {

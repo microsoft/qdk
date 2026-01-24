@@ -6,8 +6,8 @@
 use crate::{
     builder,
     rir::{
-        Block, BlockId, CallableId, Instruction, Literal, Operand, Program, Ty, Variable,
-        VariableId,
+        BlockId, Block, CallableId, Instruction, Literal, Operand, Program, Ty,
+        Variable, VariableId,
     },
 };
 use expect_test::expect;
@@ -90,7 +90,7 @@ fn add_simple_measurement_block(program: &mut Program) {
         .insert(CallableId(4), builder::result_record_decl());
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(
                 CallableId(0),
                 vec![
@@ -167,7 +167,7 @@ fn add_branching_measurement_block(program: &mut Program) {
         .insert(CallableId(3), builder::read_result_decl());
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(
                 CallableId(0),
                 vec![

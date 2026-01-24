@@ -10,7 +10,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
     builder,
-    rir::{BlockWithMetadata, CallableId, CallableType, Instruction, Literal, Operand, Program},
+    rir::{Block, CallableId, CallableType, Instruction, Literal, Operand, Program},
 };
 
 /// Reindexes qubits after they have been measured or reset. This ensures there is no qubit reuse in
@@ -79,7 +79,7 @@ struct ReindexQubitPass {
 }
 
 impl ReindexQubitPass {
-    fn reindex_qubits_in_block(&mut self, program: &Program, block: &mut BlockWithMetadata) {
+    fn reindex_qubits_in_block(&mut self, program: &Program, block: &mut Block) {
         let mut map = FxHashMap::default();
         let mut used_qubits: FxHashSet<u32> = FxHashSet::default();
         let mut next_qubit_id = self.highest_used_id + 1;

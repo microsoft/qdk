@@ -10,8 +10,8 @@ use crate::{
     builder::{bell_program, new_program, teleport_program},
     passes::check_and_transform,
     rir::{
-        Block, BlockId, Callable, CallableId, CallableType, Instruction, Literal, Operand, Program,
-        Ty, Variable, VariableId,
+        BlockId, Block, Callable, CallableId, CallableType, Instruction, Literal,
+        Operand, Program, Ty, Variable, VariableId,
     },
 };
 fn transform_program(program: &mut Program) {
@@ -55,7 +55,7 @@ fn ssa_transform_removes_store_in_single_block_program() {
 
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(
                 CallableId(1),
                 Vec::new(),
@@ -173,7 +173,7 @@ fn ssa_transform_removes_multiple_stores_in_single_block_program() {
 
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(
                 CallableId(1),
                 Vec::new(),
@@ -337,7 +337,7 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks() {
 
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(
                 CallableId(1),
                 Vec::new(),
@@ -368,7 +368,7 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks() {
     );
     program.blocks.insert(
         BlockId(1),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
@@ -384,7 +384,7 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks() {
     );
     program.blocks.insert(
         BlockId(2),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
@@ -400,7 +400,7 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks() {
     );
     program.blocks.insert(
         BlockId(3),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
@@ -517,7 +517,7 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks_without_i
 
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(
                 CallableId(1),
                 Vec::new(),
@@ -546,15 +546,17 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks_without_i
             ),
         ]),
     );
-    program
-        .blocks
-        .insert(BlockId(1), Block(vec![Instruction::Jump(BlockId(3))]));
-    program
-        .blocks
-        .insert(BlockId(2), Block(vec![Instruction::Jump(BlockId(3))]));
+    program.blocks.insert(
+        BlockId(1),
+        Block::from_instructions(vec![Instruction::Jump(BlockId(3))]),
+    );
+    program.blocks.insert(
+        BlockId(2),
+        Block::from_instructions(vec![Instruction::Jump(BlockId(3))]),
+    );
     program.blocks.insert(
         BlockId(3),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
@@ -666,7 +668,7 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage() {
 
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(
                 CallableId(1),
                 Vec::new(),
@@ -697,7 +699,7 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage() {
     );
     program.blocks.insert(
         BlockId(1),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
@@ -723,7 +725,7 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage() {
     );
     program.blocks.insert(
         BlockId(2),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
@@ -749,7 +751,7 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage() {
     );
     program.blocks.insert(
         BlockId(3),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
@@ -867,7 +869,7 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage_in_one_branch() {
 
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(
                 CallableId(1),
                 Vec::new(),
@@ -898,7 +900,7 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage_in_one_branch() {
     );
     program.blocks.insert(
         BlockId(1),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
@@ -922,12 +924,13 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage_in_one_branch() {
             Instruction::Jump(BlockId(3)),
         ]),
     );
-    program
-        .blocks
-        .insert(BlockId(2), Block(vec![Instruction::Jump(BlockId(3))]));
+    program.blocks.insert(
+        BlockId(2),
+        Block::from_instructions(vec![Instruction::Jump(BlockId(3))]),
+    );
     program.blocks.insert(
         BlockId(3),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
@@ -1042,7 +1045,7 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
 
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(
                 CallableId(1),
                 Vec::new(),
@@ -1073,7 +1076,7 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
     );
     program.blocks.insert(
         BlockId(1),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
@@ -1106,7 +1109,7 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
     );
     program.blocks.insert(
         BlockId(2),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
@@ -1137,18 +1140,21 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
             ),
         ]),
     );
-    program
-        .blocks
-        .insert(BlockId(3), Block(vec![Instruction::Jump(BlockId(7))]));
-    program
-        .blocks
-        .insert(BlockId(4), Block(vec![Instruction::Jump(BlockId(7))]));
-    program
-        .blocks
-        .insert(BlockId(5), Block(vec![Instruction::Jump(BlockId(7))]));
+    program.blocks.insert(
+        BlockId(3),
+        Block::from_instructions(vec![Instruction::Jump(BlockId(7))]),
+    );
+    program.blocks.insert(
+        BlockId(4),
+        Block::from_instructions(vec![Instruction::Jump(BlockId(7))]),
+    );
+    program.blocks.insert(
+        BlockId(5),
+        Block::from_instructions(vec![Instruction::Jump(BlockId(7))]),
+    );
     program.blocks.insert(
         BlockId(6),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
@@ -1174,7 +1180,7 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
     );
     program.blocks.insert(
         BlockId(7),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
@@ -1311,7 +1317,7 @@ fn ssa_transform_inserts_phi_for_multiple_stored_values() {
 
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(
                 CallableId(1),
                 Vec::new(),
@@ -1352,7 +1358,7 @@ fn ssa_transform_inserts_phi_for_multiple_stored_values() {
     );
     program.blocks.insert(
         BlockId(1),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
@@ -1378,7 +1384,7 @@ fn ssa_transform_inserts_phi_for_multiple_stored_values() {
     );
     program.blocks.insert(
         BlockId(2),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(2),
@@ -1404,7 +1410,7 @@ fn ssa_transform_inserts_phi_for_multiple_stored_values() {
     );
     program.blocks.insert(
         BlockId(3),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
@@ -1536,7 +1542,7 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
 
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(
                 CallableId(1),
                 Vec::new(),
@@ -1567,7 +1573,7 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
     );
     program.blocks.insert(
         BlockId(1),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
@@ -1600,7 +1606,7 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
     );
     program.blocks.insert(
         BlockId(2),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
@@ -1626,7 +1632,7 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
     );
     program.blocks.insert(
         BlockId(3),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
@@ -1652,7 +1658,7 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
     );
     program.blocks.insert(
         BlockId(4),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
@@ -1678,7 +1684,7 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
     );
     program.blocks.insert(
         BlockId(5),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
@@ -1704,7 +1710,7 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
     );
     program.blocks.insert(
         BlockId(6),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
@@ -1730,7 +1736,7 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
     );
     program.blocks.insert(
         BlockId(7),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
@@ -1875,7 +1881,7 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
 
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(
                 CallableId(1),
                 Vec::new(),
@@ -1906,7 +1912,7 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
     );
     program.blocks.insert(
         BlockId(1),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
@@ -1932,7 +1938,7 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
     );
     program.blocks.insert(
         BlockId(2),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
@@ -1965,7 +1971,7 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
     );
     program.blocks.insert(
         BlockId(3),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
@@ -1981,7 +1987,7 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
     );
     program.blocks.insert(
         BlockId(4),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
@@ -2007,7 +2013,7 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
     );
     program.blocks.insert(
         BlockId(5),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
@@ -2033,7 +2039,7 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
     );
     program.blocks.insert(
         BlockId(6),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
@@ -2177,7 +2183,7 @@ fn ssa_transform_propagates_updates_from_multiple_predecessors_to_later_single_s
     // maps used for updates.
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(
                 CallableId(1),
                 Vec::new(),
@@ -2206,12 +2212,13 @@ fn ssa_transform_propagates_updates_from_multiple_predecessors_to_later_single_s
             ),
         ]),
     );
-    program
-        .blocks
-        .insert(BlockId(1), Block(vec![Instruction::Jump(BlockId(2))]));
+    program.blocks.insert(
+        BlockId(1),
+        Block::from_instructions(vec![Instruction::Jump(BlockId(2))]),
+    );
     program.blocks.insert(
         BlockId(2),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(
                 CallableId(1),
                 Vec::new(),
@@ -2240,12 +2247,14 @@ fn ssa_transform_propagates_updates_from_multiple_predecessors_to_later_single_s
             ),
         ]),
     );
-    program
-        .blocks
-        .insert(BlockId(3), Block(vec![Instruction::Jump(BlockId(4))]));
-    program
-        .blocks
-        .insert(BlockId(4), Block(vec![Instruction::Return]));
+    program.blocks.insert(
+        BlockId(3),
+        Block::from_instructions(vec![Instruction::Jump(BlockId(4))]),
+    );
+    program.blocks.insert(
+        BlockId(4),
+        Block::from_instructions(vec![Instruction::Return]),
+    );
 
     // Before
     expect![[r#"
@@ -2348,7 +2357,7 @@ fn ssa_transform_maps_store_instrs_that_use_values_from_other_store_instrs() {
 
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(
                 CallableId(1),
                 Vec::new(),
@@ -2476,7 +2485,7 @@ fn ssa_transform_maps_store_with_variable_from_store_in_conditional_to_phi_node(
 
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(
                 CallableId(1),
                 Vec::new(),
@@ -2514,7 +2523,7 @@ fn ssa_transform_maps_store_with_variable_from_store_in_conditional_to_phi_node(
     );
     program.blocks.insert(
         BlockId(1),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
@@ -2530,7 +2539,7 @@ fn ssa_transform_maps_store_with_variable_from_store_in_conditional_to_phi_node(
     );
     program.blocks.insert(
         BlockId(2),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(2),
@@ -2640,7 +2649,7 @@ fn ssa_transform_allows_point_in_time_copy_of_dynamic_variable() {
 
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(
                 CallableId(1),
                 Vec::new(),
@@ -2813,7 +2822,7 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
 
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(
                 CallableId(1),
                 Vec::new(),
@@ -2841,7 +2850,7 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
     );
     program.blocks.insert(
         BlockId(1),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
@@ -2864,7 +2873,7 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
     );
     program.blocks.insert(
         BlockId(2),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(
                 CallableId(1),
                 Vec::new(),
@@ -2888,7 +2897,7 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
     );
     program.blocks.insert(
         BlockId(3),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(
                 CallableId(2),
                 vec![Operand::Variable(Variable {
@@ -2900,12 +2909,14 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
             Instruction::Return,
         ]),
     );
-    program
-        .blocks
-        .insert(BlockId(4), Block(vec![Instruction::Jump(BlockId(3))]));
-    program
-        .blocks
-        .insert(BlockId(5), Block(vec![Instruction::Jump(BlockId(3))]));
+    program.blocks.insert(
+        BlockId(4),
+        Block::from_instructions(vec![Instruction::Jump(BlockId(3))]),
+    );
+    program.blocks.insert(
+        BlockId(5),
+        Block::from_instructions(vec![Instruction::Jump(BlockId(3))]),
+    );
 
     // Before
     expect![[r#"

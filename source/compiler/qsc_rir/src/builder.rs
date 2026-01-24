@@ -4,8 +4,8 @@
 use qsc_data_structures::target::TargetCapabilityFlags;
 
 use crate::rir::{
-    Block, BlockId, Callable, CallableId, CallableType, Instruction, Literal, Operand, Program, Ty,
-    Variable, VariableId,
+    BlockId, Block, Callable, CallableId, CallableType, Instruction, Literal, Operand,
+    Program, Ty, Variable, VariableId,
 };
 
 #[must_use]
@@ -226,7 +226,7 @@ pub fn bell_program() -> Program {
     program.entry = CallableId(5);
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(
                 CallableId(0),
                 vec![Operand::Literal(Literal::Qubit(0))],
@@ -316,7 +316,7 @@ pub fn teleport_program() -> Program {
     program.entry = CallableId(7);
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(
                 CallableId(2),
                 vec![Operand::Literal(Literal::Qubit(0))],
@@ -376,7 +376,7 @@ pub fn teleport_program() -> Program {
     );
     program.blocks.insert(
         BlockId(1),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(
                 CallableId(1),
                 vec![Operand::Literal(Literal::Qubit(1))],
@@ -387,7 +387,7 @@ pub fn teleport_program() -> Program {
     );
     program.blocks.insert(
         BlockId(2),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(
                 CallableId(4),
                 vec![
@@ -416,7 +416,7 @@ pub fn teleport_program() -> Program {
     );
     program.blocks.insert(
         BlockId(3),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(
                 CallableId(2),
                 vec![Operand::Literal(Literal::Qubit(1))],
@@ -427,7 +427,7 @@ pub fn teleport_program() -> Program {
     );
     program.blocks.insert(
         BlockId(4),
-        Block(vec![
+        Block::from_instructions(vec![
             Instruction::Call(
                 CallableId(4),
                 vec![
