@@ -14,70 +14,12 @@ use std::fmt::{self, Display, Formatter, Write};
 pub struct Program {
     pub entry: CallableId,
     pub callables: IndexMap<CallableId, Callable>,
-    pub blocks: Blocks,
+    pub blocks: IndexMap<BlockId, Block>,
     pub config: Config,
     pub num_qubits: u32,
     pub num_results: u32,
     pub tags: Vec<String>,
     pub dbg_info: DbgInfo,
-}
-
-#[derive(Default, Clone)]
-pub struct Blocks(IndexMap<BlockId, Block>);
-
-impl Blocks {
-    pub fn insert(&mut self, id: BlockId, block: Block) {
-        self.0.insert(id, block);
-    }
-
-    pub fn insert_with_metadata(&mut self, id: BlockId, block: Block) {
-        self.0.insert(id, block);
-    }
-
-    #[must_use]
-    pub fn get(&self, id: BlockId) -> Option<&Block> {
-        self.0.get(id)
-    }
-
-    pub fn get_mut(&mut self, id: BlockId) -> Option<&mut Block> {
-        self.0.get_mut(id)
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = (BlockId, &Block)> {
-        self.0.iter()
-    }
-
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = (BlockId, &mut Block)> {
-        self.0.iter_mut()
-    }
-
-    pub fn drain(&mut self) -> impl Iterator<Item = (BlockId, Block)> {
-        self.0.drain()
-    }
-
-    pub fn remove(&mut self, block_id: BlockId) {
-        self.0.remove(block_id);
-    }
-}
-
-// impl FromIterator<(BlockId, Block)> for Blocks {
-//     fn from_iter<T: IntoIterator<Item = (BlockId, Block)>>(iter: T) -> Self {
-//         let mut blocks = Blocks::default();
-//         for (id, block) in iter {
-//             blocks.insert(id, block);
-//         }
-//         blocks
-//     }
-// }
-
-impl FromIterator<(BlockId, Block)> for Blocks {
-    fn from_iter<T: IntoIterator<Item = (BlockId, Block)>>(iter: T) -> Self {
-        let mut blocks = Blocks::default();
-        for (id, block) in iter {
-            blocks.0.insert(id, block.clone());
-        }
-        blocks
-    }
 }
 
 impl Display for Program {

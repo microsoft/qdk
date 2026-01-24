@@ -230,9 +230,7 @@ impl<'a> PartialEvaluator<'a> {
         let mut program = Program::new();
         program.config.capabilities = capabilities;
         let entry_block_id = resource_manager.next_block();
-        program
-            .blocks
-            .insert_with_metadata(entry_block_id, rir::Block::default());
+        program.blocks.insert(entry_block_id, rir::Block::default());
         let entry_point_id = resource_manager.next_callable();
         let entry_point = rir::Callable {
             name: "main".into(),
@@ -428,9 +426,7 @@ impl<'a> PartialEvaluator<'a> {
 
     fn create_program_block(&mut self) -> rir::BlockId {
         let block_id = self.resource_manager.next_block();
-        self.program
-            .blocks
-            .insert_with_metadata(block_id, rir::Block::default());
+        self.program.blocks.insert(block_id, rir::Block::default());
         block_id
     }
 

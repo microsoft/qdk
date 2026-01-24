@@ -78,9 +78,7 @@ pub fn remap_block_ids(program: &mut Program) {
                 .last_mut()
                 .expect("block should have at least one instruction"),
         );
-        program
-            .blocks
-            .insert_with_metadata(new_block_id.into(), block);
+        program.blocks.insert(new_block_id.into(), block);
     }
     program
         .callables
