@@ -90,8 +90,8 @@ def check_prereqs(install=False, skip_wasm=False):
 
     ### Check that pip is installed ###
     try:
-        subprocess.run(["pip", "--version"], check=True)
-    except FileNotFoundError:
+        import pip  # noqa: F401
+    except ImportError:
         print("pip not found. Please install pip for your Python installation.")
         exit(1)
 
