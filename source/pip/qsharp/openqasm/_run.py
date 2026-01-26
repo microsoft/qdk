@@ -91,7 +91,9 @@ def run(
         if output.is_matrix():
             results[-1]["matrices"].append(output)
         elif output.is_state_dump():
-            results[-1]["dumps"].append(StateDump(output.state_dump()))
+            dump_data = output.state_dump()
+            if dump_data is not None:
+                results[-1]["dumps"].append(StateDump(dump_data))
         elif output.is_message():
             results[-1]["messages"].append(str(output))
 

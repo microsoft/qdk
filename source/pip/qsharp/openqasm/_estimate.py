@@ -70,7 +70,7 @@ def estimate(
     if isinstance(source, Callable) and hasattr(source, "__global_callable"):
         args = python_args_to_interpreter_args(args)
         res_str = get_interpreter().estimate(
-            param_str, callable=source.__global_callable, args=args
+            param_str, entry_expr=None, callable=source.__global_callable, args=args
         )
     else:
         # remove any entries from kwargs with a None key or None value

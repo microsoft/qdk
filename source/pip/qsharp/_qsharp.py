@@ -435,7 +435,7 @@ class ShotResult(TypedDict):
     A single result of a shot.
     """
 
-    events: List[Output]
+    events: List[Any]
     result: Any
     messages: List[str]
     matrices: List[Output]
@@ -473,9 +473,11 @@ def eval(
             results["events"].append(output)
             results["matrices"].append(output)
         elif output.is_state_dump():
-            state_dump = StateDump(output.state_dump())
-            results["events"].append(state_dump)
-            results["dumps"].append(state_dump)
+            dump_data = output.state_dump()
+            if dump_data is not None:
+                state_dump = StateDump(dump_data)
+                results["events"].append(state_dump)
+                results["dumps"].append(state_dump)
         elif output.is_message():
             stringified = str(output)
             results["events"].append(stringified)
@@ -731,22 +733,26 @@ def run(
         if output.is_matrix():
             results[-1]["matrices"].append(output)
         elif output.is_state_dump():
-            results[-1]["dumps"].append(StateDump(output.state_dump()))
+            dump_data = output.state_dump()
+            if dump_data is not None:
+                results[-1]["dumps"].append(StateDump(dump_data))
         elif output.is_message():
             results[-1]["messages"].append(str(output))
 
     callable = None
+    entry_expr_str: Optional[str] = None
     if isinstance(entry_expr, Callable) and hasattr(entry_expr, "__global_callable"):
         args = python_args_to_interpreter_args(args)
         callable = entry_expr.__global_callable
-        entry_expr = None
+    elif isinstance(entry_expr, str):
+        entry_expr_str = entry_expr
 
     for shot in range(shots):
         results.append(
             {"result": None, "events": [], "messages": [], "matrices": [], "dumps": []}
         )
         run_results = get_interpreter().run(
-            entry_expr,
+            entry_expr_str,
             on_save_events if save_events else print_output,
             noise,
             qubit_loss,
@@ -760,7 +766,7 @@ def run(
         # For every shot after the first, treat the entry expression as None to trigger
         # a rerun of the last executed expression without paying the cost for any additional
         # compilation.
-        entry_expr = None
+        entry_expr_str = None
 
     durationMs = (monotonic() - start_time) * 1000
     telemetry_events.on_run_end(durationMs, shots)
@@ -826,7 +832,7 @@ def compile(entry_expr: Union[str, Callable], *args) -> QirInputData:
             entry_expr=None, callable=entry_expr.__global_callable, args=args
         )
     else:
-        ll_str = interpreter.qir(entry_expr=entry_expr)
+        ll_str = interpreter.qir(entry_expr=entry_expr, callable=None, args=None)
     res = QirInputData("main", ll_str)
     durationMs = (monotonic() - start) * 1000
     telemetry_events.on_compile_end(durationMs, target_profile)
@@ -922,10 +928,12 @@ def estimate(
     if isinstance(entry_expr, Callable) and hasattr(entry_expr, "__global_callable"):
         args = python_args_to_interpreter_args(args)
         res_str = get_interpreter().estimate(
-            param_str, callable=entry_expr.__global_callable, args=args
+            param_str, entry_expr=None, callable=entry_expr.__global_callable, args=args
         )
     else:
-        res_str = get_interpreter().estimate(param_str, entry_expr=entry_expr)
+        res_str = get_interpreter().estimate(
+            param_str, entry_expr=entry_expr, callable=None, args=None
+        )
     res = json.loads(res_str)
 
     try:
@@ -957,10 +965,12 @@ def logical_counts(
     if isinstance(entry_expr, Callable) and hasattr(entry_expr, "__global_callable"):
         args = python_args_to_interpreter_args(args)
         res_dict = get_interpreter().logical_counts(
-            callable=entry_expr.__global_callable, args=args
+            entry_expr=None, callable=entry_expr.__global_callable, args=args
         )
     else:
-        res_dict = get_interpreter().logical_counts(entry_expr=entry_expr)
+        res_dict = get_interpreter().logical_counts(
+            entry_expr=entry_expr, callable=None, args=None
+        )
     return LogicalCounts(res_dict)
 
 
