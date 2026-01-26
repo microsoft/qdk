@@ -132,8 +132,9 @@ class QsSimJob(QsJob):
 
     def _submit_duration(self, _future: Future):
         end_time = monotonic()
-        start_time = self._submit_start_time or end_time
-        duration_in_sec = end_time - start_time
+        # _submit_start_time is set in submit() before adding this callback
+        assert self._submit_start_time is not None
+        duration_in_sec = end_time - self._submit_start_time
         duration_in_ms = duration_in_sec * 1000
 
         shots = self._input_params.get("shots", -1)
@@ -158,8 +159,9 @@ class ReJob(QsJob):
 
     def _submit_duration(self, _future: Future):
         end_time = monotonic()
-        start_time = self._submit_start_time or end_time
-        duration_in_sec = end_time - start_time
+        # _submit_start_time is set in submit() before adding this callback
+        assert self._submit_start_time is not None
+        duration_in_sec = end_time - self._submit_start_time
         duration_in_ms = duration_in_sec * 1000
 
         telemetry_events.on_qiskit_run_re_end(duration_in_ms)
