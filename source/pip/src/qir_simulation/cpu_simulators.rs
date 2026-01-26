@@ -566,7 +566,6 @@ mod tests {
         /// - `histogram_percent`: Shows percentages for each result
         /// - `top_n(n)`: Shows only top N results by count (descending)
         /// - `top_n_percent(n)`: Shows only top N results with percentages (descending)
-        /// - `unique`: Shows only unique results, sorted
         /// - `count`: Shows the total number of shots
         /// - `summary`: Shows shots, unique count, and loss count
         /// - `loss_count`: Counts results with qubit loss
@@ -768,16 +767,6 @@ mod tests {
             }
         }
 
-        /// Unique format: shows only unique results, sorted, one per line.
-        /// Useful for verifying that specific outcomes are possible.
-        /// Example: "001\n010\n110"
-        pub fn unique(output: &[String]) -> String {
-            use std::collections::BTreeSet;
-            let output = normalize_output(output);
-            let unique_results: BTreeSet<&str> = output.iter().map(String::as_str).collect();
-            unique_results.into_iter().collect::<Vec<_>>().join("\n")
-        }
-
         /// Count format: shows the total number of shots.
         /// Useful for quick sanity checks on shot count.
         /// Example: "100"
@@ -826,9 +815,12 @@ mod tests {
     mod full_state_noiseless {
         use super::{super::*, test_utils::*};
         use expect_test::expect;
+        use std::f64::consts::PI;
+
+        // ==================== Single-Qubit Gate Tests ====================
 
         #[test]
-        fn simple_x_gate_noiseless() {
+        fn x_gate_flips_qubit() {
             check_sim! {
                 simulator: NoiselessSimulator,
                 program: qir! {
@@ -842,7 +834,67 @@ mod tests {
         }
 
         #[test]
-        fn simple_h_gate_with_seed() {
+        fn double_x_gate_returns_to_zero() {
+            check_sim! {
+                simulator: NoiselessSimulator,
+                program: qir! {
+                    x(0);
+                    x(0);
+                    mresetz(0, 0);
+                },
+                num_qubits: 1,
+                num_results: 1,
+                expect: expect![[r#"0"#]],
+            }
+        }
+
+        #[test]
+        fn y_gate_flips_qubit() {
+            check_sim! {
+                simulator: NoiselessSimulator,
+                program: qir! {
+                    y(0);
+                    mresetz(0, 0);
+                },
+                num_qubits: 1,
+                num_results: 1,
+                expect: expect![[r#"1"#]],
+            }
+        }
+
+        #[test]
+        fn z_gate_preserves_zero_state() {
+            check_sim! {
+                simulator: NoiselessSimulator,
+                program: qir! {
+                    z(0);
+                    mresetz(0, 0);
+                },
+                num_qubits: 1,
+                num_results: 1,
+                expect: expect![[r#"0"#]],
+            }
+        }
+
+        #[test]
+        fn z_gate_applies_phase() {
+            // H·Z·H = X, which flips |0⟩ to |1⟩
+            check_sim! {
+                simulator: NoiselessSimulator,
+                program: qir! {
+                    h(0);
+                    z(0);
+                    h(0);
+                    mresetz(0, 0);
+                },
+                num_qubits: 1,
+                num_results: 1,
+                expect: expect![[r#"1"#]],
+            }
+        }
+
+        #[test]
+        fn h_gate_creates_superposition() {
             check_sim! {
                 simulator: NoiselessSimulator,
                 program: qir! {
@@ -851,24 +903,290 @@ mod tests {
                 },
                 num_qubits: 1,
                 num_results: 1,
-                shots: 10,
+                shots: 100,
                 seed: 42,
+                format: histogram,
                 expect: expect![[r#"
-                0
-                1
-                0
-                1
-                1
-                1
-                1
-                0
-                0
-                0"#]],
+                    0: 46
+                    1: 54"#]],
             }
         }
 
         #[test]
-        fn swap_gate_test() {
+        fn double_h_gate_returns_to_zero() {
+            check_sim! {
+                simulator: NoiselessSimulator,
+                program: qir! {
+                    h(0);
+                    h(0);
+                    mresetz(0, 0);
+                },
+                num_qubits: 1,
+                num_results: 1,
+                expect: expect![[r#"0"#]],
+            }
+        }
+
+        #[test]
+        fn s_gate_preserves_computational_basis() {
+            check_sim! {
+                simulator: NoiselessSimulator,
+                program: qir! {
+                    s(0);
+                    mresetz(0, 0);
+                },
+                num_qubits: 1,
+                num_results: 1,
+                expect: expect![[r#"0"#]],
+            }
+        }
+
+        #[test]
+        fn s_gate_applies_phase() {
+            // S = sqrt(Z), so S·S = Z
+            // H·Z·H = X, which flips |0⟩ to |1⟩
+            // Therefore H·S·S·H|0⟩ = |1⟩
+            check_sim! {
+                simulator: NoiselessSimulator,
+                program: qir! {
+                    h(0);
+                    s(0);
+                    s(0);
+                    h(0);
+                    mresetz(0, 0);
+                },
+                num_qubits: 1,
+                num_results: 1,
+                expect: expect![[r#"1"#]],
+            }
+        }
+
+        #[test]
+        fn s_adj_cancels_s() {
+            check_sim! {
+                simulator: NoiselessSimulator,
+                program: qir! {
+                    h(0);
+                    s(0);
+                    s_adj(0);
+                    h(0);
+                    mresetz(0, 0);
+                },
+                num_qubits: 1,
+                num_results: 1,
+                expect: expect![[r#"0"#]],
+            }
+        }
+
+        #[test]
+        fn t_gate_preserves_computational_basis() {
+            check_sim! {
+                simulator: NoiselessSimulator,
+                program: qir! {
+                    t(0);
+                    mresetz(0, 0);
+                },
+                num_qubits: 1,
+                num_results: 1,
+                expect: expect![[r#"0"#]],
+            }
+        }
+
+        #[test]
+        fn t_gate_applies_phase() {
+            // T = sqrt(S) = fourth root of Z, so T^4 = Z
+            // H·Z·H = X, which flips |0⟩ to |1⟩
+            // Therefore H·T·T·T·T·H|0⟩ = |1⟩
+            check_sim! {
+                simulator: NoiselessSimulator,
+                program: qir! {
+                    h(0);
+                    t(0);
+                    t(0);
+                    t(0);
+                    t(0);
+                    h(0);
+                    mresetz(0, 0);
+                },
+                num_qubits: 1,
+                num_results: 1,
+                expect: expect![[r#"1"#]],
+            }
+        }
+
+        #[test]
+        fn t_adj_cancels_t() {
+            check_sim! {
+                simulator: NoiselessSimulator,
+                program: qir! {
+                    h(0);
+                    t(0);
+                    t_adj(0);
+                    h(0);
+                    mresetz(0, 0);
+                },
+                num_qubits: 1,
+                num_results: 1,
+                expect: expect![[r#"0"#]],
+            }
+        }
+
+        // ==================== Rotation Gate Tests ====================
+
+        #[test]
+        fn rx_pi_flips_qubit() {
+            check_sim! {
+                simulator: NoiselessSimulator,
+                program: qir! {
+                    rx(PI, 0);
+                    mresetz(0, 0);
+                },
+                num_qubits: 1,
+                num_results: 1,
+                expect: expect![[r#"1"#]],
+            }
+        }
+
+        #[test]
+        fn ry_pi_flips_qubit() {
+            check_sim! {
+                simulator: NoiselessSimulator,
+                program: qir! {
+                    ry(PI, 0);
+                    mresetz(0, 0);
+                },
+                num_qubits: 1,
+                num_results: 1,
+                expect: expect![[r#"1"#]],
+            }
+        }
+
+        #[test]
+        fn rz_preserves_zero_state() {
+            check_sim! {
+                simulator: NoiselessSimulator,
+                program: qir! {
+                    rz(PI, 0);
+                    mresetz(0, 0);
+                },
+                num_qubits: 1,
+                num_results: 1,
+                expect: expect![[r#"0"#]],
+            }
+        }
+
+        #[test]
+        fn rz_pi_equivalent_to_z() {
+            // RZ(π) applies a π phase, equivalent to Z (up to global phase)
+            // H·RZ(π)·H should flip |0⟩ to |1⟩
+            check_sim! {
+                simulator: NoiselessSimulator,
+                program: qir! {
+                    h(0);
+                    rz(PI, 0);
+                    h(0);
+                    mresetz(0, 0);
+                },
+                num_qubits: 1,
+                num_results: 1,
+                expect: expect![[r#"1"#]],
+            }
+        }
+
+        #[test]
+        fn rx_half_pi_creates_superposition() {
+            check_sim! {
+                simulator: NoiselessSimulator,
+                program: qir! {
+                    rx(PI / 2.0, 0);
+                    mresetz(0, 0);
+                },
+                num_qubits: 1,
+                num_results: 1,
+                shots: 100,
+                seed: 42,
+                format: histogram,
+                expect: expect![[r#"
+                    0: 46
+                    1: 54"#]],
+            }
+        }
+
+        // ==================== Two-Qubit Gate Tests ====================
+
+        #[test]
+        fn cx_gate_entangles_qubits() {
+            check_sim! {
+                simulator: NoiselessSimulator,
+                program: qir! {
+                    x(0);
+                    cx(0, 1);
+                    mresetz(0, 0);
+                    mresetz(1, 1);
+                },
+                num_qubits: 2,
+                num_results: 2,
+                expect: expect![[r#"11"#]],
+            }
+        }
+
+        #[test]
+        fn cx_gate_no_flip_when_control_is_zero() {
+            check_sim! {
+                simulator: NoiselessSimulator,
+                program: qir! {
+                    cx(0, 1);
+                    mresetz(0, 0);
+                    mresetz(1, 1);
+                },
+                num_qubits: 2,
+                num_results: 2,
+                expect: expect![[r#"00"#]],
+            }
+        }
+
+        #[test]
+        fn cz_gate_preserves_computational_basis() {
+            check_sim! {
+                simulator: NoiselessSimulator,
+                program: qir! {
+                    x(0);
+                    x(1);
+                    cz(0, 1);
+                    mresetz(0, 0);
+                    mresetz(1, 1);
+                },
+                num_qubits: 2,
+                num_results: 2,
+                expect: expect![[r#"11"#]],
+            }
+        }
+
+        #[test]
+        fn cz_gate_applies_phase() {
+            // CZ applies a phase flip when both qubits are |1⟩
+            // Start with Bell state |00⟩ + |11⟩, apply CZ to get |00⟩ - |11⟩
+            // Then reverse Bell circuit: CX followed by H on control
+            // |00⟩ - |11⟩ → CX → |00⟩ - |10⟩ → H⊗I → |10⟩
+            check_sim! {
+                simulator: NoiselessSimulator,
+                program: qir! {
+                    h(0);
+                    cx(0, 1);
+                    cz(0, 1);
+                    cx(0, 1);
+                    h(0);
+                    mresetz(0, 0);
+                    mresetz(1, 1);
+                },
+                num_qubits: 2,
+                num_results: 2,
+                expect: expect![[r#"10"#]],
+            }
+        }
+
+        #[test]
+        fn swap_gate_exchanges_qubit_states() {
             check_sim! {
                 simulator: NoiselessSimulator,
                 program: qir! {
@@ -882,14 +1200,194 @@ mod tests {
                 expect: expect![[r#"01"#]],
             }
         }
+
+        #[test]
+        fn double_swap_returns_to_original() {
+            check_sim! {
+                simulator: NoiselessSimulator,
+                program: qir! {
+                    x(0);
+                    swap(0, 1);
+                    swap(0, 1);
+                    mresetz(0, 0);
+                    mresetz(1, 1);
+                },
+                num_qubits: 2,
+                num_results: 2,
+                expect: expect![[r#"10"#]],
+            }
+        }
+
+        // ==================== Two-Qubit Rotation Gate Tests ====================
+
+        #[test]
+        fn rxx_pi_creates_bell_state() {
+            check_sim! {
+                simulator: NoiselessSimulator,
+                program: qir! {
+                    rxx(PI / 2.0, 0, 1);
+                    mresetz(0, 0);
+                    mresetz(1, 1);
+                },
+                num_qubits: 2,
+                num_results: 2,
+                shots: 100,
+                seed: 42,
+                format: histogram,
+                expect: expect![[r#"
+                    00: 46
+                    11: 54"#]],
+            }
+        }
+
+        #[test]
+        fn ryy_pi_creates_bell_state() {
+            check_sim! {
+                simulator: NoiselessSimulator,
+                program: qir! {
+                    ryy(PI / 2.0, 0, 1);
+                    mresetz(0, 0);
+                    mresetz(1, 1);
+                },
+                num_qubits: 2,
+                num_results: 2,
+                shots: 100,
+                seed: 42,
+                format: histogram,
+                expect: expect![[r#"
+                    00: 46
+                    11: 54"#]],
+            }
+        }
+
+        #[test]
+        fn rzz_preserves_computational_basis() {
+            check_sim! {
+                simulator: NoiselessSimulator,
+                program: qir! {
+                    rzz(PI, 0, 1);
+                    mresetz(0, 0);
+                    mresetz(1, 1);
+                },
+                num_qubits: 2,
+                num_results: 2,
+                expect: expect![[r#"00"#]],
+            }
+        }
+
+        #[test]
+        fn rzz_applies_phase() {
+            // Start with |01⟩, apply H⊗H to get |+⟩|-⟩
+            // RZZ(π) transforms |+⟩|-⟩ to |-⟩|+⟩ (with global phase)
+            // H⊗H transforms |-⟩|+⟩ to |10⟩
+            // Without RZZ, H⊗H would return |+−⟩ back to |01⟩
+            check_sim! {
+                simulator: NoiselessSimulator,
+                program: qir! {
+                    x(1);
+                    h(0);
+                    h(1);
+                    rzz(PI, 0, 1);
+                    h(0);
+                    h(1);
+                    mresetz(0, 0);
+                    mresetz(1, 1);
+                },
+                num_qubits: 2,
+                num_results: 2,
+                expect: expect![[r#"10"#]],
+            }
+        }
+
+        // ==================== Bell State Tests ====================
+
+        #[test]
+        fn bell_state_produces_correlated_measurements() {
+            check_sim! {
+                simulator: NoiselessSimulator,
+                program: qir! {
+                    h(0);
+                    cx(0, 1);
+                    mresetz(0, 0);
+                    mresetz(1, 1);
+                },
+                num_qubits: 2,
+                num_results: 2,
+                shots: 100,
+                seed: 42,
+                format: histogram,
+                expect: expect![[r#"
+                    00: 49
+                    11: 51"#]],
+            }
+        }
+
+        // ==================== Reset Tests ====================
+
+        #[test]
+        fn reset_returns_qubit_to_zero() {
+            check_sim! {
+                simulator: NoiselessSimulator,
+                program: qir! {
+                    x(0);
+                    reset(0);
+                    mresetz(0, 0);
+                },
+                num_qubits: 1,
+                num_results: 1,
+                expect: expect![[r#"0"#]],
+            }
+        }
+
+        #[test]
+        fn mresetz_resets_after_measurement() {
+            check_sim! {
+                simulator: NoiselessSimulator,
+                program: qir! {
+                    x(0);
+                    mresetz(0, 0);
+                    mresetz(0, 1);
+                },
+                num_qubits: 1,
+                num_results: 2,
+                expect: expect![[r#"10"#]],
+            }
+        }
+
+        // ==================== Multi-Qubit Tests ====================
+
+        #[test]
+        fn ghz_state_three_qubits() {
+            check_sim! {
+                simulator: NoiselessSimulator,
+                program: qir! {
+                    h(0);
+                    cx(0, 1);
+                    cx(1, 2);
+                    mresetz(0, 0);
+                    mresetz(1, 1);
+                    mresetz(2, 2);
+                },
+                num_qubits: 3,
+                num_results: 3,
+                shots: 100,
+                seed: 42,
+                format: histogram,
+                expect: expect![[r#"
+                    000: 51
+                    111: 49"#]],
+            }
+        }
     }
 
     mod full_state_noisy {
         use super::{super::*, test_utils::*};
         use expect_test::expect;
 
+        // ==================== Basic Noisy Tests ====================
+
         #[test]
-        fn noisy_simulator_with_noise_config() {
+        fn noiseless_config_produces_clean_results() {
             check_sim! {
                 simulator: NoisySimulator,
                 program: qir! {
@@ -898,24 +1396,174 @@ mod tests {
                 },
                 num_qubits: 1,
                 num_results: 1,
-                shots: 10,
+                shots: 100,
+                noise: noise_config! {},
+                format: histogram,
+                expect: expect![[r#"1: 100"#]],
+            }
+        }
+
+        #[test]
+        fn x_noise_causes_bit_flips() {
+            // High X noise on X gate should cause some results to flip back to 0
+            check_sim! {
+                simulator: NoisySimulator,
+                program: qir! {
+                    x(0);
+                    mresetz(0, 0);
+                },
+                num_qubits: 1,
+                num_results: 1,
+                shots: 1000,
+                seed: 42,
                 noise: noise_config! {
                     x: {
-                        x: 1e-10,
-                        z: 1e-10,
+                        x: 0.1,
                     },
                 },
+                format: histogram,
                 expect: expect![[r#"
-                1
-                1
-                1
-                1
-                1
-                1
-                1
-                1
-                1
-                1"#]],
+                    0: 97
+                    1: 903"#]],
+            }
+        }
+
+        #[test]
+        fn z_noise_does_not_affect_computational_basis() {
+            // Z noise should not change measurement outcomes in computational basis
+            check_sim! {
+                simulator: NoisySimulator,
+                program: qir! {
+                    x(0);
+                    mresetz(0, 0);
+                },
+                num_qubits: 1,
+                num_results: 1,
+                shots: 100,
+                seed: 42,
+                noise: noise_config! {
+                    x: {
+                        z: 0.5,
+                    },
+                },
+                format: histogram,
+                expect: expect![[r#"1: 100"#]],
+            }
+        }
+
+        #[test]
+        fn loss_noise_produces_loss_marker() {
+            check_sim! {
+                simulator: NoisySimulator,
+                program: qir! {
+                    x(0);
+                    mresetz(0, 0);
+                },
+                num_qubits: 1,
+                num_results: 1,
+                shots: 1000,
+                seed: 42,
+                noise: noise_config! {
+                    x: {
+                        loss: 0.1,
+                    },
+                },
+                format: summary,
+                expect: expect![[r#"
+                    shots: 1000
+                    unique: 2
+                    loss: 119"#]],
+            }
+        }
+
+        // ==================== Two-Qubit Noise Tests ====================
+
+        #[test]
+        fn cx_noise_affects_entangled_qubits() {
+            check_sim! {
+                simulator: NoisySimulator,
+                program: qir! {
+                    x(0);
+                    cx(0, 1);
+                    mresetz(0, 0);
+                    mresetz(1, 1);
+                },
+                num_qubits: 2,
+                num_results: 2,
+                shots: 1000,
+                seed: 42,
+                noise: noise_config! {
+                    cx: {
+                        xi: 0.05,
+                        ix: 0.05,
+                    },
+                },
+                format: top_n(4),
+                expect: expect![[r#"
+                    11: 908
+                    10: 56
+                    01: 36"#]],
+            }
+        }
+
+        // ==================== Hadamard with Noise ====================
+
+        #[test]
+        fn hadamard_with_noise_still_produces_superposition() {
+            check_sim! {
+                simulator: NoisySimulator,
+                program: qir! {
+                    h(0);
+                    mresetz(0, 0);
+                },
+                num_qubits: 1,
+                num_results: 1,
+                shots: 100,
+                seed: 42,
+                noise: noise_config! {
+                    h: {
+                        x: 0.01,
+                        z: 0.01,
+                    },
+                },
+                format: histogram,
+                expect: expect![[r#"
+                    0: 46
+                    1: 54"#]],
+            }
+        }
+
+        // ==================== Multiple Gates with Noise ====================
+
+        #[test]
+        fn bell_state_with_noise_produces_errors() {
+            check_sim! {
+                simulator: NoisySimulator,
+                program: qir! {
+                    h(0);
+                    cx(0, 1);
+                    mresetz(0, 0);
+                    mresetz(1, 1);
+                },
+                num_qubits: 2,
+                num_results: 2,
+                shots: 1000,
+                seed: 42,
+                noise: noise_config! {
+                    h: {
+                        x: 0.02,
+                    },
+                    cx: {
+                        xi: 0.02,
+                        ix: 0.02,
+                    },
+                },
+                format: top_n(4),
+                expect: expect![[r#"
+                    00: 491
+                    11: 481
+                    01: 18
+                    10: 10"#]],
             }
         }
     }
@@ -924,8 +1572,141 @@ mod tests {
         use super::{super::*, test_utils::*};
         use expect_test::expect;
 
+        // ==================== Single-Qubit Clifford Gate Tests ====================
+
         #[test]
-        fn stabilizer_simulator_test() {
+        fn x_gate_flips_qubit() {
+            check_sim! {
+                simulator: StabilizerSimulator,
+                program: qir! {
+                    x(0);
+                    mresetz(0, 0);
+                },
+                num_qubits: 1,
+                num_results: 1,
+                expect: expect![[r#"1"#]],
+            }
+        }
+
+        #[test]
+        fn y_gate_flips_qubit() {
+            check_sim! {
+                simulator: StabilizerSimulator,
+                program: qir! {
+                    y(0);
+                    mresetz(0, 0);
+                },
+                num_qubits: 1,
+                num_results: 1,
+                expect: expect![[r#"1"#]],
+            }
+        }
+
+        #[test]
+        fn z_gate_preserves_zero() {
+            check_sim! {
+                simulator: StabilizerSimulator,
+                program: qir! {
+                    z(0);
+                    mresetz(0, 0);
+                },
+                num_qubits: 1,
+                num_results: 1,
+                expect: expect![[r#"0"#]],
+            }
+        }
+
+        #[test]
+        fn z_gate_applies_phase() {
+            // H·Z·H = X, which flips |0⟩ to |1⟩
+            check_sim! {
+                simulator: StabilizerSimulator,
+                program: qir! {
+                    h(0);
+                    z(0);
+                    h(0);
+                    mresetz(0, 0);
+                },
+                num_qubits: 1,
+                num_results: 1,
+                expect: expect![[r#"1"#]],
+            }
+        }
+
+        #[test]
+        fn h_gate_creates_superposition() {
+            check_sim! {
+                simulator: StabilizerSimulator,
+                program: qir! {
+                    h(0);
+                    mresetz(0, 0);
+                },
+                num_qubits: 1,
+                num_results: 1,
+                shots: 100,
+                seed: 42,
+                format: histogram,
+                expect: expect![[r#"
+                    0: 50
+                    1: 50"#]],
+            }
+        }
+
+        #[test]
+        fn s_gate_preserves_computational_basis() {
+            check_sim! {
+                simulator: StabilizerSimulator,
+                program: qir! {
+                    s(0);
+                    mresetz(0, 0);
+                },
+                num_qubits: 1,
+                num_results: 1,
+                expect: expect![[r#"0"#]],
+            }
+        }
+
+        #[test]
+        fn s_gate_applies_phase() {
+            // S = sqrt(Z), so S·S = Z
+            // H·Z·H = X, which flips |0⟩ to |1⟩
+            // Therefore H·S·S·H|0⟩ = |1⟩
+            check_sim! {
+                simulator: StabilizerSimulator,
+                program: qir! {
+                    h(0);
+                    s(0);
+                    s(0);
+                    h(0);
+                    mresetz(0, 0);
+                },
+                num_qubits: 1,
+                num_results: 1,
+                expect: expect![[r#"1"#]],
+            }
+        }
+
+        #[test]
+        fn s_adj_cancels_s() {
+            check_sim! {
+                simulator: StabilizerSimulator,
+                program: qir! {
+                    h(0);
+                    s(0);
+                    s_adj(0);
+                    h(0);
+                    mresetz(0, 0);
+                },
+                num_qubits: 1,
+                num_results: 1,
+                expect: expect![[r#"0"#]],
+            }
+        }
+
+        // ==================== Two-Qubit Clifford Gate Tests ====================
+
+        #[test]
+        fn cx_gate_entangles_qubits() {
             check_sim! {
                 simulator: StabilizerSimulator,
                 program: qir! {
@@ -937,6 +1718,172 @@ mod tests {
                 num_qubits: 2,
                 num_results: 2,
                 expect: expect![[r#"11"#]],
+            }
+        }
+
+        #[test]
+        fn cz_gate_preserves_computational_basis() {
+            check_sim! {
+                simulator: StabilizerSimulator,
+                program: qir! {
+                    x(0);
+                    x(1);
+                    cz(0, 1);
+                    mresetz(0, 0);
+                    mresetz(1, 1);
+                },
+                num_qubits: 2,
+                num_results: 2,
+                expect: expect![[r#"11"#]],
+            }
+        }
+
+        #[test]
+        fn cz_gate_applies_phase() {
+            // CZ applies a phase flip when both qubits are |1⟩
+            // Start with Bell state |00⟩ + |11⟩, apply CZ to get |00⟩ - |11⟩
+            // Then reverse Bell circuit: CX followed by H on control
+            // |00⟩ - |11⟩ → CX → |00⟩ - |10⟩ → H⊗I → |10⟩
+            check_sim! {
+                simulator: StabilizerSimulator,
+                program: qir! {
+                    h(0);
+                    cx(0, 1);
+                    cz(0, 1);
+                    cx(0, 1);
+                    h(0);
+                    mresetz(0, 0);
+                    mresetz(1, 1);
+                },
+                num_qubits: 2,
+                num_results: 2,
+                expect: expect![[r#"10"#]],
+            }
+        }
+
+        #[test]
+        fn swap_gate_exchanges_qubit_states() {
+            check_sim! {
+                simulator: StabilizerSimulator,
+                program: qir! {
+                    x(0);
+                    swap(0, 1);
+                    mresetz(0, 0);
+                    mresetz(1, 1);
+                },
+                num_qubits: 2,
+                num_results: 2,
+                expect: expect![[r#"01"#]],
+            }
+        }
+
+        // ==================== Bell State Tests ====================
+
+        #[test]
+        fn bell_state_produces_correlated_measurements() {
+            check_sim! {
+                simulator: StabilizerSimulator,
+                program: qir! {
+                    h(0);
+                    cx(0, 1);
+                    mresetz(0, 0);
+                    mresetz(1, 1);
+                },
+                num_qubits: 2,
+                num_results: 2,
+                shots: 100,
+                seed: 42,
+                format: histogram,
+                expect: expect![[r#"
+                    00: 58
+                    11: 42"#]],
+            }
+        }
+
+        // ==================== GHZ State Test ====================
+
+        #[test]
+        fn ghz_state_three_qubits() {
+            check_sim! {
+                simulator: StabilizerSimulator,
+                program: qir! {
+                    h(0);
+                    cx(0, 1);
+                    cx(1, 2);
+                    mresetz(0, 0);
+                    mresetz(1, 1);
+                    mresetz(2, 2);
+                },
+                num_qubits: 3,
+                num_results: 3,
+                shots: 100,
+                seed: 42,
+                format: histogram,
+                expect: expect![[r#"
+                    000: 56
+                    111: 44"#]],
+            }
+        }
+
+        // ==================== Reset Tests ====================
+
+        #[test]
+        fn reset_returns_qubit_to_zero() {
+            check_sim! {
+                simulator: StabilizerSimulator,
+                program: qir! {
+                    x(0);
+                    reset(0);
+                    mresetz(0, 0);
+                },
+                num_qubits: 1,
+                num_results: 1,
+                expect: expect![[r#"0"#]],
+            }
+        }
+
+        #[test]
+        fn mresetz_resets_after_measurement() {
+            check_sim! {
+                simulator: StabilizerSimulator,
+                program: qir! {
+                    x(0);
+                    mresetz(0, 0);
+                    mresetz(0, 1);
+                },
+                num_qubits: 1,
+                num_results: 2,
+                expect: expect![[r#"10"#]],
+            }
+        }
+
+        // ==================== Noisy Stabilizer Tests ====================
+
+        #[test]
+        fn stabilizer_with_noise() {
+            check_sim! {
+                simulator: StabilizerSimulator,
+                program: qir! {
+                    x(0);
+                    cx(0, 1);
+                    mresetz(0, 0);
+                    mresetz(1, 1);
+                },
+                num_qubits: 2,
+                num_results: 2,
+                shots: 1000,
+                seed: 42,
+                noise: noise_config! {
+                    cx: {
+                        xi: 0.05,
+                        ix: 0.05,
+                    },
+                },
+                format: top_n(4),
+                expect: expect![[r#"
+                    11: 908
+                    10: 56
+                    01: 36"#]],
             }
         }
     }
