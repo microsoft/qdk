@@ -6,7 +6,7 @@
 import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { build, context } from "esbuild";
+import { build as esbuildBuild, context } from "esbuild";
 
 const thisDir = dirname(fileURLToPath(import.meta.url));
 const libsDir = join(thisDir, "..", "..", "node_modules");
@@ -31,6 +31,54 @@ const buildOptions = {
   sourcemap: "linked",
   //logLevel: "debug",
   define: { "import.meta.url": "undefined" },
+};
+
+/** @type {import("esbuild").Plugin} */
+const inlineCircuitHelloWorkerPlugin = {
+  name: "Inline Circuit Hello Worker",
+  setup(builder) {
+    builder.onResolve({ filter: /circuitHelloWorker\.inline$/ }, (args) => {
+      // Replace the placeholder TypeScript module with a generated module
+      // that exports the bundled worker JS as a string.
+      return {
+        path: join(args.resolveDir, args.path),
+        namespace: "inline-circuit-hello-worker",
+      };
+    });
+
+    builder.onLoad(
+      { filter: /.*/, namespace: "inline-circuit-hello-worker" },
+      async () => {
+        const workerEntry = join(
+          thisDir,
+          "src",
+          "webview",
+          "circuitHelloWorker.ts",
+        );
+
+        const result = await esbuildBuild({
+          entryPoints: [workerEntry],
+          bundle: true,
+          write: false,
+          platform: "browser",
+          // Blob workers are classic scripts by default (not ESM), so emit an IIFE.
+          format: "iife",
+          target: buildOptions.target,
+          sourcemap: false,
+          define: buildOptions.define,
+          logLevel: "silent",
+        });
+
+        const workerSource = result.outputFiles?.[0]?.text ?? "";
+        const contents = `const workerSource = ${JSON.stringify(workerSource)};\nexport default workerSource;\n`;
+
+        return {
+          contents,
+          loader: "ts",
+        };
+      },
+    );
+  },
 };
 
 function getTimeStr() {
@@ -122,9 +170,10 @@ export function copyKatex(destDir) {
 function buildBundle() {
   console.log("Running esbuild");
 
-  build(buildOptions).then(() =>
-    console.log(`Built bundle to ${join(thisDir, "out")}`),
-  );
+  esbuildBuild({
+    ...buildOptions,
+    plugins: [inlineCircuitHelloWorkerPlugin],
+  }).then(() => console.log(`Built bundle to ${join(thisDir, "out")}`));
 }
 
 export async function watchVsCode() {
@@ -145,7 +194,7 @@ export async function watchVsCode() {
   };
   let ctx = await context({
     ...buildOptions,
-    plugins: [buildPlugin],
+    plugins: [inlineCircuitHelloWorkerPlugin, buildPlugin],
     color: false,
   });
 

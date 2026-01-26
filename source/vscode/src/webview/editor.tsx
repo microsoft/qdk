@@ -14,6 +14,8 @@ import {
   updateStyleSheetTheme,
 } from "qsharp-lang/ux";
 
+import circuitHelloWorkerSource from "./circuitHelloWorker.inline";
+
 window.addEventListener("message", onMessage);
 window.addEventListener("load", main);
 
@@ -26,9 +28,101 @@ type State = { viewType: "loading" } | CircuitState;
 const loadingState: State = { viewType: "loading" };
 let state: State = loadingState;
 
+type CircuitHelloWorkerRequest =
+  | { command: "hello"; reason?: string }
+  | { command: "ping" };
+type CircuitHelloWorkerResponse =
+  | { command: "hello"; message: string; reason?: string }
+  | { command: "pong" }
+  | { command: "error"; error: { name: string; message: string } };
+
+type ActiveHelloWorker = {
+  requestId: number;
+  worker: Worker;
+  blobUrl?: string;
+};
+
+let activeHelloWorker: ActiveHelloWorker | null = null;
+let helloRequestId = 0;
+
+let lastSentCircuitJson: string | null = null;
+let suppressNextCircuitHello = false;
+
+function terminateActiveHelloWorker() {
+  if (!activeHelloWorker) return;
+  try {
+    console.log("[qsharp] Terminating active circuit hello worker");
+    activeHelloWorker.worker.terminate();
+  } catch {
+    // ignore
+  }
+  if (activeHelloWorker.blobUrl) {
+    try {
+      URL.revokeObjectURL(activeHelloWorker.blobUrl);
+    } catch {
+      // ignore
+    }
+  }
+  activeHelloWorker = null;
+}
+
+function createHelloWorker(): { worker: Worker; blobUrl?: string } {
+  const blobUrl = URL.createObjectURL(
+    new Blob([circuitHelloWorkerSource], { type: "text/javascript" }),
+  );
+  return { worker: new Worker(blobUrl), blobUrl };
+}
+
+function requestHelloFromWorker(reason?: string) {
+  // Cancel any in-flight worker work by terminating the previous worker.
+  terminateActiveHelloWorker();
+
+  const requestId = ++helloRequestId;
+  const created = createHelloWorker();
+  activeHelloWorker = {
+    requestId,
+    worker: created.worker,
+    blobUrl: created.blobUrl,
+  };
+
+  created.worker.onmessage = (ev: MessageEvent<CircuitHelloWorkerResponse>) => {
+    // Ignore late messages from cancelled workers.
+    if (!activeHelloWorker || activeHelloWorker.requestId !== requestId) return;
+    const msg = ev.data as any;
+    if (!msg || typeof msg !== "object") return;
+    switch (msg.command) {
+      case "hello":
+        console.log(
+          `[qsharp] worker says: ${msg.message}${msg.reason ? ` (reason: ${msg.reason})` : ""}`,
+        );
+        terminateActiveHelloWorker();
+        return;
+      case "pong":
+        // Keep the worker alive for now; currently unused.
+        return;
+      case "error":
+        console.error("[qsharp] worker error", msg.error);
+        terminateActiveHelloWorker();
+        return;
+    }
+  };
+
+  created.worker.postMessage({
+    command: "hello",
+    reason,
+  } satisfies CircuitHelloWorkerRequest);
+}
+
 function main() {
   state = (vscodeApi.getState() as any) || loadingState;
   render(<App state={state} />, document.body);
+
+  // The worker is created lazily; we only message it when the circuit changes.
+
+  window.addEventListener("unload", () => {
+    terminateActiveHelloWorker();
+  });
+
   detectThemeChange(document.body, (isDark) =>
     updateStyleSheetTheme(
       isDark,
@@ -62,6 +156,12 @@ function onMessage(event: any) {
     }
     case "circuit":
       {
+        const prevCircuitJson =
+          state.viewType === "circuit"
+            ? JSON.stringify(state.props.circuit)
+            : null;
+        const nextCircuitJson = JSON.stringify(message.props.circuit);
+
         // Only short-circuit if both the circuit AND the dev toolbar flag are unchanged
         if (state.viewType === "circuit") {
           const sameCircuit =
@@ -72,6 +172,20 @@ function onMessage(event: any) {
           const sameToolbar = prevToolbar === nextToolbar;
           if (sameCircuit && sameToolbar) {
             return;
+          }
+        }
+
+        // Trigger the worker only when the circuit changes.
+        // Suppress the ping if this update is the echo of our own editCallback update.
+        if (prevCircuitJson !== nextCircuitJson) {
+          if (
+            suppressNextCircuitHello &&
+            lastSentCircuitJson === nextCircuitJson
+          ) {
+            suppressNextCircuitHello = false;
+            lastSentCircuitJson = null;
+          } else {
+            requestHelloFromWorker("circuit changed");
           }
         }
 
@@ -95,6 +209,12 @@ function readFromTextDocument() {
 }
 
 function updateTextDocument(circuit: any) {
+  // Only use the worker when the circuit is changing.
+  // Mark this as a local change so we can avoid duplicating the hello
+  // when VS Code echoes the updated circuit back to us.
+  lastSentCircuitJson = JSON.stringify(circuit);
+  suppressNextCircuitHello = true;
+  requestHelloFromWorker("circuit changed");
   vscodeApi.postMessage({
     command: "update",
     text: JSON.stringify(circuit, null, 2),
