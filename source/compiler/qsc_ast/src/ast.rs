@@ -168,6 +168,17 @@ pub struct Namespace {
     pub name: Box<[Ident]>,
     /// The items in the namespace.
     pub items: Box<[Box<Item>]>,
+    /// The namespace kind.
+    pub kind: NamespaceKind,
+}
+
+/// A namespace kind.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum NamespaceKind {
+    /// An implicit namespace.
+    Implicit,
+    /// An explicit namespace block.
+    Block,
 }
 
 impl Namespace {
