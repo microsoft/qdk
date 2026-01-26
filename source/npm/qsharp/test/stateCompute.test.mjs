@@ -57,10 +57,6 @@ test("invalid inputs return undefined", () => {
   assert.equal(evaluateAngleExpression("-.5"), undefined);
 });
 
-// --------------------
-// Adjoint tests
-// --------------------
-
 const colUnitaryAt = (gate, target, args, opts) => ({
   components: [
     {
@@ -79,6 +75,16 @@ const colUnitary = (gate, args, opts) => colUnitaryAt(gate, 0, args, opts);
 const colReset0 = () => ({
   components: [{ kind: "ket", gate: "0", targets: [{ qubit: 0 }] }],
 });
+const colMeasure0 = () => ({
+  components: [
+    {
+      kind: "measurement",
+      gate: "M",
+      qubits: [{ qubit: 0 }],
+      results: [{ qubit: 0, result: 0 }],
+    },
+  ],
+});
 
 const assertAmp = (amp, re, im) => {
   assert.ok(approxEq(amp.re, re, 1e-11), `re expected ${re} got ${amp.re}`);
@@ -92,7 +98,7 @@ test("Single adjoint: S† on |1⟩ yields -i|1⟩", () => {
     colUnitary("X"),
     colUnitary("S", undefined, { isAdjoint: true }),
   ];
-  const ampMap = computeAmpMapForCircuit(qubits, componentGrid, "big");
+  const ampMap = computeAmpMapForCircuit(qubits, componentGrid);
   assertAmp(ampMap["1"], 0, -1);
 });
 
@@ -103,14 +109,14 @@ test("Single adjoint: T† on |1⟩ yields e^{-iπ/4}|1⟩", () => {
     colUnitary("X"),
     colUnitary("T", undefined, { isAdjoint: true }),
   ];
-  const ampMap = computeAmpMapForCircuit(qubits, componentGrid, "big");
+  const ampMap = computeAmpMapForCircuit(qubits, componentGrid);
   assertAmp(ampMap["1"], Math.SQRT1_2, -Math.SQRT1_2);
 });
 
 test("Single adjoint: SX† on |0⟩ matches expected amplitudes", () => {
   const qubits = [{ id: 0 }];
   const componentGrid = [colUnitary("SX", undefined, { isAdjoint: true })];
-  const ampMap = computeAmpMapForCircuit(qubits, componentGrid, "big");
+  const ampMap = computeAmpMapForCircuit(qubits, componentGrid);
   // SX†|0⟩ = (0.5-0.5i)|0⟩ + (0.5+0.5i)|1⟩
   assertAmp(ampMap["0"], 0.5, -0.5);
   assertAmp(ampMap["1"], 0.5, 0.5);
@@ -122,14 +128,14 @@ test("Gate then adjoint returns |0⟩ (Rx(π/3))", () => {
     colUnitary("Rx", ["π/3"]),
     colUnitary("Rx", ["π/3"], { isAdjoint: true }),
   ];
-  const ampMap = computeAmpMapForCircuit(qubits, componentGrid, "big");
+  const ampMap = computeAmpMapForCircuit(qubits, componentGrid);
   assertAmp(ampMap["0"], 1, 0);
 });
 
 test("Single adjoint: Ry†(π/3) from |0⟩ flips |1⟩ sign", () => {
   const qubits = [{ id: 0 }];
   const componentGrid = [colUnitary("Ry", ["π/3"], { isAdjoint: true })];
-  const ampMap = computeAmpMapForCircuit(qubits, componentGrid, "big");
+  const ampMap = computeAmpMapForCircuit(qubits, componentGrid);
   const c = Math.cos(Math.PI / 6);
   const s = Math.sin(Math.PI / 6);
   assertAmp(ampMap["0"], c, 0);
@@ -142,7 +148,7 @@ test("Single adjoint: Rz†(π/3) on |1⟩ applies e^{-iπ/6}", () => {
     colUnitary("X"),
     colUnitary("Rz", ["π/3"], { isAdjoint: true }),
   ];
-  const ampMap = computeAmpMapForCircuit(qubits, componentGrid, "big");
+  const ampMap = computeAmpMapForCircuit(qubits, componentGrid);
   assertAmp(ampMap["1"], Math.cos(-Math.PI / 6), Math.sin(-Math.PI / 6));
 });
 
@@ -152,7 +158,7 @@ test("Single adjoint: S† after H gives |0⟩ - i|1⟩ over √2", () => {
     colUnitary("H"),
     colUnitary("S", undefined, { isAdjoint: true }),
   ];
-  const ampMap = computeAmpMapForCircuit(qubits, componentGrid, "big");
+  const ampMap = computeAmpMapForCircuit(qubits, componentGrid);
   assertAmp(ampMap["0"], Math.SQRT1_2, 0);
   assertAmp(ampMap["1"], 0, -Math.SQRT1_2);
 });
@@ -164,7 +170,7 @@ test("Single adjoint: controlled S† phases |11⟩ by -i", () => {
     colUnitaryAt("X", 1),
     colUnitaryAt("S", 1, undefined, { controls: [0], isAdjoint: true }),
   ];
-  const ampMap = computeAmpMapForCircuit(qubits, componentGrid, "big");
+  const ampMap = computeAmpMapForCircuit(qubits, componentGrid);
   assertAmp(ampMap["11"], 0, -1);
 });
 
@@ -175,7 +181,7 @@ test("Single adjoint: controlled Rz† no-ops when control is |0⟩", () => {
     colUnitaryAt("X", 1),
     colUnitaryAt("Rz", 1, ["π/3"], { controls: [0], isAdjoint: true }),
   ];
-  const ampMap = computeAmpMapForCircuit(qubits, componentGrid, "big");
+  const ampMap = computeAmpMapForCircuit(qubits, componentGrid);
   assertAmp(ampMap["01"], 1, 0);
 });
 
@@ -183,7 +189,30 @@ test("Reset is unsupported by stateCompute", () => {
   const qubits = [{ id: 0 }];
   const componentGrid = [colUnitary("H"), colReset0()];
   assert.throws(
-    () => computeAmpMapForCircuit(qubits, componentGrid, "big"),
-    /reset/i,
+    () => computeAmpMapForCircuit(qubits, componentGrid),
+    (err) => {
+      assert.equal(err?.name, "UnsupportedStateComputeError");
+      assert.equal(
+        err?.message,
+        "State visualization does not currently support measurement or ResetZ / |0⟩ reset operations.",
+      );
+      return true;
+    },
+  );
+});
+
+test("Measurement is unsupported by stateCompute", () => {
+  const qubits = [{ id: 0 }];
+  const componentGrid = [colUnitary("H"), colMeasure0()];
+  assert.throws(
+    () => computeAmpMapForCircuit(qubits, componentGrid),
+    (err) => {
+      assert.equal(err?.name, "UnsupportedStateComputeError");
+      assert.equal(
+        err?.message,
+        "State visualization does not currently support measurement or ResetZ / |0⟩ reset operations.",
+      );
+      return true;
+    },
   );
 });

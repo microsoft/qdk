@@ -210,10 +210,7 @@ const showEmptyState = (
     panel.appendChild(msg);
   }
   msg.textContent = message;
-
-  if (!panel.classList.contains("collapsed")) {
-    panel.style.flexBasis = `${VIZ.emptyStateFlexBasisPx}px`;
-  }
+  panel.style.flexBasis = `${VIZ.emptyStateFlexBasisPx}px`;
 };
 
 const showContentState = (panel: HTMLElement): void => {

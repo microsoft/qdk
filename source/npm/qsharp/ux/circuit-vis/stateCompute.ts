@@ -224,14 +224,17 @@ export function computeAmpMapForCircuit(
           // The state visualizer currently only supports pure state vectors.
           if (op.gate === "0") {
             throw new UnsupportedStateComputeError(
-              "State visualization does not currently support ResetZ / |0⟩ reset operations.",
+              "State visualization does not currently support measurement or ResetZ / |0⟩ reset operations.",
             );
           }
           break;
         }
         case "measurement": {
-          // Ignore measurement for amplitude computation
-          break;
+          // Measurement is non-unitary and generally produces mixed states.
+          // The state visualizer currently only supports pure state vectors.
+          throw new UnsupportedStateComputeError(
+            "State visualization does not currently support measurement or ResetZ / |0⟩ reset operations.",
+          );
         }
       }
     }
