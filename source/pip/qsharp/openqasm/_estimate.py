@@ -72,7 +72,7 @@ def estimate(
         res_str = get_interpreter().estimate(
             param_str, entry_expr=None, callable=source.__global_callable, args=args
         )
-    else:
+    elif isinstance(source, str):
         # remove any entries from kwargs with a None key or None value
         kwargs = {k: v for k, v in kwargs.items() if k is not None and v is not None}
 
@@ -88,6 +88,8 @@ def estimate(
             fetch_github,
             **kwargs,
         )
+    else:
+        raise ValueError("source must be a string or a callable with __global_callable attribute")
     res = json.loads(res_str)
 
     try:

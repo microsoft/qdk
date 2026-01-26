@@ -98,10 +98,12 @@ def run(
             results[-1]["messages"].append(str(output))
 
     callable = None
+    source_str: Optional[str] = None
     if isinstance(source, Callable) and hasattr(source, "__global_callable"):
         args = python_args_to_interpreter_args(args)
         callable = source.__global_callable
-        source = None
+    elif isinstance(source, str):
+        source_str = source
 
     if callable:
         for _ in range(shots):
@@ -115,7 +117,7 @@ def run(
                 }
             )
             run_results = get_interpreter().run(
-                source,
+                source_str,
                 on_save_events if save_events else display_or_print,
                 noise,
                 qubit_loss=qubit_loss,
@@ -143,6 +145,9 @@ def run(
                 "The `on_result` and `save_events` parameters are not supported when running QASM programs."
             )
 
+        if source_str is None:
+            raise QasmError("source must be a string or a callable with __global_callable attribute")
+
         # remove any entries from kwargs with a None key or None value
         kwargs = {k: v for k, v in kwargs.items() if k is not None and v is not None}
 
@@ -152,7 +157,7 @@ def run(
         kwargs["shots"] = shots
 
         results = run_qasm_program(
-            source,
+            source_str,
             display_or_print,
             noise,
             qubit_loss,

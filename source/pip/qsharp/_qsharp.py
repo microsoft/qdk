@@ -831,8 +831,10 @@ def compile(entry_expr: Union[str, Callable], *args) -> QirInputData:
         ll_str = interpreter.qir(
             entry_expr=None, callable=entry_expr.__global_callable, args=args
         )
-    else:
+    elif isinstance(entry_expr, str):
         ll_str = interpreter.qir(entry_expr=entry_expr, callable=None, args=None)
+    else:
+        ll_str = interpreter.qir(entry_expr=None, callable=None, args=None)
     res = QirInputData("main", ll_str)
     durationMs = (monotonic() - start) * 1000
     telemetry_events.on_compile_end(durationMs, target_profile)
@@ -880,8 +882,10 @@ def circuit(
         res = get_interpreter().circuit(
             config=config, callable=entry_expr.__global_callable, args=args
         )
-    else:
+    elif isinstance(entry_expr, str):
         res = get_interpreter().circuit(config, entry_expr, operation=operation)
+    else:
+        res = get_interpreter().circuit(config, None, operation=operation)
 
     durationMs = (monotonic() - start) * 1000
     telemetry_events.on_circuit_end(durationMs)
@@ -930,9 +934,13 @@ def estimate(
         res_str = get_interpreter().estimate(
             param_str, entry_expr=None, callable=entry_expr.__global_callable, args=args
         )
-    else:
+    elif isinstance(entry_expr, str):
         res_str = get_interpreter().estimate(
             param_str, entry_expr=entry_expr, callable=None, args=None
+        )
+    else:
+        res_str = get_interpreter().estimate(
+            param_str, entry_expr=None, callable=None, args=None
         )
     res = json.loads(res_str)
 
@@ -967,9 +975,13 @@ def logical_counts(
         res_dict = get_interpreter().logical_counts(
             entry_expr=None, callable=entry_expr.__global_callable, args=args
         )
-    else:
+    elif isinstance(entry_expr, str):
         res_dict = get_interpreter().logical_counts(
             entry_expr=entry_expr, callable=None, args=None
+        )
+    else:
+        res_dict = get_interpreter().logical_counts(
+            entry_expr=None, callable=None, args=None
         )
     return LogicalCounts(res_dict)
 
