@@ -9,6 +9,28 @@ import {
   type Endianness,
 } from "./stateComputeCore.js";
 
+const STATE_COMPUTE_LOG_PREFIX = "[qsharp][state-compute]";
+let didLogMainThreadFallback = false;
+
+function logMainThreadFallback(details: {
+  endianness: Endianness;
+  qubits: number;
+  columns: number;
+}) {
+  if (didLogMainThreadFallback) return;
+  didLogMainThreadFallback = true;
+
+  if (typeof console === "undefined" || typeof console.debug !== "function") {
+    return;
+  }
+
+  console.debug(
+    STATE_COMPUTE_LOG_PREFIX,
+    "falling back to main-thread state compute (no host worker API)",
+    details,
+  );
+}
+
 export { computeAmpMapForCircuit } from "./stateComputeCore.js";
 export type { AmpMap, Endianness } from "./stateComputeCore.js";
 
@@ -54,5 +76,10 @@ export async function computeAmpMapFromCurrentModelAsync(
   }
 
   // Fallback: compute on the main thread if no host worker API is present.
+  logMainThreadFallback({
+    endianness,
+    qubits: model.qubits.length,
+    columns: model.componentGrid.length,
+  });
   return computeAmpMapForCircuit(model.qubits, model.componentGrid, endianness);
 }

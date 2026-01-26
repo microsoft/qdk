@@ -3,6 +3,12 @@
 
 import { computeAmpMapForCircuit } from "../../../npm/qsharp/ux/circuit-vis/stateComputeCore";
 
+const LOG_PREFIX = "[qsharp][state-compute-worker]";
+function log(...args: unknown[]) {
+  // Intentionally using console.debug so this can be filtered easily.
+  console.debug(LOG_PREFIX, ...args);
+}
+
 type Endianness = "big" | "little";
 
 type CircuitModelSnapshot = {
@@ -47,10 +53,17 @@ function respondError(requestId: number, err: unknown) {
   if (msg.command !== "compute") return;
 
   const requestId = typeof msg.requestId === "number" ? msg.requestId : 0;
+  const startedAt = performance.now();
 
   try {
     const model = msg.model as CircuitModelSnapshot;
     const endianness = (msg.endianness as Endianness) ?? "big";
+
+    const qubits = Array.isArray(model?.qubits) ? model.qubits.length : 0;
+    const columns = Array.isArray(model?.componentGrid)
+      ? model.componentGrid.length
+      : 0;
+    log("compute started", { requestId, endianness, qubits, columns });
 
     const ampMap = computeAmpMapForCircuit(
       model.qubits as any,
@@ -58,12 +71,26 @@ function respondError(requestId: number, err: unknown) {
       endianness,
     );
 
+    const elapsedMs = Math.round(performance.now() - startedAt);
+    const ampCount =
+      ampMap && typeof ampMap === "object" ? Object.keys(ampMap).length : 0;
+    log("compute finished", { requestId, elapsedMs, ampCount });
+
     (self as any).postMessage({
       command: "result",
       requestId,
       ampMap,
     } satisfies ComputeResponse);
   } catch (err) {
+    const elapsedMs = Math.round(performance.now() - startedAt);
+    log("compute failed", {
+      requestId,
+      elapsedMs,
+      error:
+        err instanceof Error
+          ? { name: err.name, message: err.message }
+          : { name: "Error", message: String(err) },
+    });
     respondError(requestId, err);
   }
 };

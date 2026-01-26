@@ -28,6 +28,12 @@ type State = { viewType: "loading" } | CircuitState;
 const loadingState: State = { viewType: "loading" };
 let state: State = loadingState;
 
+const STATE_COMPUTE_LOG_PREFIX = "[qsharp][state-compute]";
+function logStateCompute(...args: unknown[]) {
+  // Intentionally using console.debug so this can be filtered easily.
+  console.debug(STATE_COMPUTE_LOG_PREFIX, ...args);
+}
+
 type Endianness = "big" | "little";
 type CircuitModelSnapshot = { qubits: any[]; componentGrid: any[] };
 type WorkerComputeRequest = {
@@ -48,6 +54,8 @@ type ActiveStateComputeWorker = {
   requestId: number;
   worker: Worker;
   blobUrl: string;
+  startedAt: number;
+  modelSummary?: { qubits: number; columns: number };
   reject?: (err: unknown) => void;
 };
 
@@ -69,8 +77,18 @@ function disposeActiveStateComputeWorker() {
   activeStateComputeWorker = null;
 }
 
-function cancelActiveStateComputeWorker() {
+function cancelActiveStateComputeWorker(reason: string) {
   if (!activeStateComputeWorker) return;
+
+  const { requestId, startedAt, modelSummary } = activeStateComputeWorker;
+  const elapsedMs = Math.round(performance.now() - startedAt);
+  logStateCompute("worker cancelled", {
+    requestId,
+    elapsedMs,
+    reason,
+    modelSummary,
+  });
+
   const reject = activeStateComputeWorker.reject;
   // Prevent any later cleanup from changing the settled promise.
   activeStateComputeWorker.reject = undefined;
@@ -93,16 +111,55 @@ function computeAmpMapInWorker(
   model: CircuitModelSnapshot,
   endianness: Endianness,
 ) {
-  cancelActiveStateComputeWorker();
+  cancelActiveStateComputeWorker("replaced by new compute request");
 
   const requestId = ++stateComputeRequestId;
+  const startedAt = performance.now();
   const created = createStateComputeWorker();
   return new Promise<any>((resolve, reject) => {
+    const modelSummary = {
+      qubits: Array.isArray(model?.qubits) ? model.qubits.length : 0,
+      columns: Array.isArray(model?.componentGrid)
+        ? model.componentGrid.length
+        : 0,
+    };
+
     activeStateComputeWorker = {
       requestId,
       worker: created.worker,
       blobUrl: created.blobUrl,
+      startedAt,
+      modelSummary,
       reject,
+    };
+
+    logStateCompute("worker created", {
+      requestId,
+      blobUrl: created.blobUrl,
+      endianness,
+      modelSummary,
+    });
+
+    created.worker.onerror = (ev: ErrorEvent) => {
+      if (
+        !activeStateComputeWorker ||
+        activeStateComputeWorker.requestId !== requestId
+      ) {
+        return;
+      }
+
+      const elapsedMs = Math.round(performance.now() - startedAt);
+      logStateCompute("worker onerror", {
+        requestId,
+        elapsedMs,
+        message: ev.message,
+        filename: (ev as any).filename,
+        lineno: (ev as any).lineno,
+        colno: (ev as any).colno,
+      });
+
+      disposeActiveStateComputeWorker();
+      reject(new Error(ev.message || "State compute worker error"));
     };
 
     created.worker.onmessage = (ev: MessageEvent<WorkerComputeResponse>) => {
@@ -116,6 +173,10 @@ function computeAmpMapInWorker(
       if (!msg || typeof msg !== "object") return;
       if (msg.command === "result") {
         const ampMap = msg.ampMap;
+        const elapsedMs = Math.round(performance.now() - startedAt);
+        const ampCount =
+          ampMap && typeof ampMap === "object" ? Object.keys(ampMap).length : 0;
+        logStateCompute("compute finished", { requestId, elapsedMs, ampCount });
         disposeActiveStateComputeWorker();
         resolve(ampMap);
         return;
@@ -123,10 +184,22 @@ function computeAmpMapInWorker(
       if (msg.command === "error") {
         const err = new Error(msg.error?.message ?? "Worker error");
         (err as any).name = msg.error?.name ?? "Error";
+        const elapsedMs = Math.round(performance.now() - startedAt);
+        logStateCompute("compute failed", {
+          requestId,
+          elapsedMs,
+          error: { name: (err as any).name, message: err.message },
+        });
         disposeActiveStateComputeWorker();
         reject(err);
       }
     };
+
+    logStateCompute("compute started", {
+      requestId,
+      endianness,
+      modelSummary: activeStateComputeWorker.modelSummary,
+    });
 
     created.worker.postMessage({
       command: "compute",
@@ -151,7 +224,7 @@ function main() {
   };
 
   window.addEventListener("unload", () => {
-    cancelActiveStateComputeWorker();
+    cancelActiveStateComputeWorker("webview unload");
   });
 
   detectThemeChange(document.body, (isDark) =>
