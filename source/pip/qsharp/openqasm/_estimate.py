@@ -3,7 +3,7 @@
 
 import json
 from time import monotonic
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union, cast
 from .._fs import read_file, list_directory, resolve
 from .._http import fetch_github
 from .._native import (  # type: ignore
@@ -22,8 +22,8 @@ from .. import telemetry_events
 def estimate(
     source: Union[str, Callable],
     params: Optional[Union[Dict[str, Any], List, EstimatorParams]] = None,
-    *args,
-    **kwargs: Optional[Dict[str, Any]],
+    *args: Any,
+    **kwargs: Any,
 ) -> EstimatorResult:
     """
     Estimates the resource requirements for executing OpenQASM source code.
@@ -53,15 +53,15 @@ def estimate(
         params: Optional[Union[Dict[str, Any], List, EstimatorParams]] = None,
     ) -> List[Dict[str, Any]]:
         if params is None:
-            params = [{}]
+            return [{}]
         elif isinstance(params, EstimatorParams):
             if params.has_items:
-                params = params.as_dict()["items"]
+                return cast(List[Dict[str, Any]], params.as_dict()["items"])
             else:
-                params = [params.as_dict()]
+                return [params.as_dict()]
         elif isinstance(params, dict):
-            params = [params]
-        return params
+            return [params]
+        return cast(List[Dict[str, Any]], params)
 
     params = _coerce_estimator_params(params)
     param_str = json.dumps(params)

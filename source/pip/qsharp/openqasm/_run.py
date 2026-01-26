@@ -24,7 +24,7 @@ from ._ipython import display_or_print
 def run(
     source: Union[str, Callable],
     shots: int = 1024,
-    *args,
+    *args: Any,
     on_result: Optional[Callable[[ShotResult], None]] = None,
     save_events: bool = False,
     noise: Optional[
@@ -38,7 +38,7 @@ def run(
     ] = None,
     qubit_loss: Optional[float] = None,
     as_bitstring: bool = False,
-    **kwargs: Optional[Dict[str, Any]],
+    **kwargs: Any,
 ) -> List[Any]:
     """
     Runs the given OpenQASM program for the given number of shots.

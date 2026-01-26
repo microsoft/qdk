@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 
 from time import monotonic
-from typing import Any, Dict, Optional
+from typing import Any
 
 from ._ipython import display_or_print
 from .._fs import read_file, list_directory, resolve
@@ -16,7 +16,7 @@ from .. import telemetry_events
 
 def import_openqasm(
     source: str,
-    **kwargs: Optional[Dict[str, Any]],
+    **kwargs: Any,
 ) -> Any:
     """
     Imports OpenQASM source code into the active Q# interpreter.

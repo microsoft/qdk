@@ -30,6 +30,7 @@ from typing import (
     List,
     Set,
     Iterable,
+    cast,
 )
 from .estimator._estimator import (
     EstimatorResult,
@@ -134,7 +135,7 @@ def ipython_helper():
 
 
 class Config:
-    _config: Dict[str, str]
+    _config: Dict[str, Any]
     """
     Configuration hints for the language service.
     """
@@ -155,8 +156,10 @@ class Config:
         elif target_profile == TargetProfile.Unrestricted:
             self._config = {"targetProfile": "unrestricted"}
 
-        self._config["languageFeatures"] = language_features
-        self._config["manifest"] = manifest
+        if language_features is not None:
+            self._config["languageFeatures"] = language_features
+        if manifest is not None:
+            self._config["manifest"] = manifest
         if project_root:
             # For now, we only support local project roots, so use a file schema in the URI.
             # In the future, we may support other schemes, such as github, if/when
@@ -175,7 +178,7 @@ class Config:
     # (i.e. the language service) can read and interpret the data.
     def _repr_mimebundle_(
         self, include: Union[Any, None] = None, exclude: Union[Any, None] = None
-    ) -> Dict[str, Dict[str, str]]:
+    ) -> Dict[str, Dict[str, Any]]:
         return {"application/x.qsharp-config": self._config}
 
     def get_target_profile(self) -> str:
@@ -902,15 +905,15 @@ def estimate(
         params: Optional[Union[Dict[str, Any], List, EstimatorParams]] = None,
     ) -> List[Dict[str, Any]]:
         if params is None:
-            params = [{}]
+            return [{}]
         elif isinstance(params, EstimatorParams):
             if params.has_items:
-                params = params.as_dict()["items"]
+                return cast(List[Dict[str, Any]], params.as_dict()["items"])
             else:
-                params = [params.as_dict()]
+                return [params.as_dict()]
         elif isinstance(params, dict):
-            params = [params]
-        return params
+            return [params]
+        return cast(List[Dict[str, Any]], params)
 
     params = _coerce_estimator_params(params)
     param_str = json.dumps(params)

@@ -40,11 +40,11 @@ class QsJob(JobV1, ABC):
 
         self._run_input = run_input
         self._input_params = input_params
-        self._future = None
+        self._future: Optional[Future] = None
         self._executor: Executor = executor or DetaultExecutor()
         self._job_callable = job_callable
         self._status = JobStatus.INITIALIZING
-        self._submit_start_time = None
+        self._submit_start_time: Optional[float] = None
 
     def submit(self):
         """Submit the job to the backend for execution.
@@ -110,7 +110,8 @@ class QsJob(JobV1, ABC):
 
     def add_done_callback(self, fn: Callable[[Future[Result]], object]) -> None:
         """Attaches a callable that will be called when the job finishes."""
-        self._future.add_done_callback(fn)
+        if self._future is not None:
+            self._future.add_done_callback(fn)
 
 
 class QsSimJob(QsJob):
@@ -131,7 +132,8 @@ class QsSimJob(QsJob):
 
     def _submit_duration(self, _future: Future):
         end_time = monotonic()
-        duration_in_sec = end_time - self._submit_start_time
+        start_time = self._submit_start_time or end_time
+        duration_in_sec = end_time - start_time
         duration_in_ms = duration_in_sec * 1000
 
         shots = self._input_params.get("shots", -1)
@@ -156,7 +158,8 @@ class ReJob(QsJob):
 
     def _submit_duration(self, _future: Future):
         end_time = monotonic()
-        duration_in_sec = end_time - self._submit_start_time
+        start_time = self._submit_start_time or end_time
+        duration_in_sec = end_time - start_time
         duration_in_ms = duration_in_sec * 1000
 
         telemetry_events.on_qiskit_run_re_end(duration_in_ms)

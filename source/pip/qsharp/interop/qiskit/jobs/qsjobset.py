@@ -43,8 +43,8 @@ class QsJobSet(Job):
         self._job_indexes: List[int] = []
         self._executor: Executor = executor or DetaultExecutor()
         self._job_callable = job_callable
-        self._start_time: float = None
-        self._end_time: float = None
+        self._start_time: Optional[float] = None
+        self._end_time: Optional[float] = None
 
     def submit(self):
         """Submit the job to the backend for execution.
@@ -79,7 +79,8 @@ class QsJobSet(Job):
         if all(job.in_final_state() for job in self._jobs):
             # all jobs are done, so we can log the telemetry event
             shots = self._input_params.get("shots", -1)
-            duration_in_ms = (self._end_time - self._start_time) * 1000
+            start_time = self._start_time or self._end_time
+            duration_in_ms = (self._end_time - start_time) * 1000
             num_circuits = len(self._run_input)
             telemetry_events.on_qiskit_run_end(shots, num_circuits, duration_in_ms)
 
@@ -119,7 +120,9 @@ class QsJobSet(Job):
         output["backend_name"] = self.backend().name
         output["backend_version"] = self.backend().backend_version
 
-        duration = self._end_time - self._start_time
+        end_time = self._end_time or monotonic()
+        start_time = self._start_time or end_time
+        duration = end_time - start_time
         output["time_taken"] = str(duration)
         output["header"] = {
             "metadata": {},
