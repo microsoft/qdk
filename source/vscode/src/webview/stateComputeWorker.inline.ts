@@ -3,7 +3,7 @@
 
 // This module exists to satisfy TypeScript during `tsc -p src/webview/tsconfig.json`.
 // During bundling, `source/vscode/build.mjs` replaces this module with an inlined
-// (bundled) string containing the contents of `circuitHelloWorker.ts`.
+// (bundled) string containing the contents of `stateComputeWorker.ts`.
 
 const placeholderWorkerSource = "";
 export default placeholderWorkerSource;

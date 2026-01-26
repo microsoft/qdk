@@ -8,7 +8,7 @@ import {
   renderDefaultStatePanel,
   renderUnsupportedStatePanel,
 } from "./stateViz.js";
-import { computeAmpMapFromCurrentModel } from "./stateCompute.js";
+import { computeAmpMapFromCurrentModelAsync } from "./stateCompute.js";
 import {
   gateHeight,
   horizontalGap,
@@ -89,7 +89,10 @@ const createPanel = (
   if (panelElem) {
     const state: DevToolbarState = createDefaultDevToolbarState();
 
-    const renderState = (panel: HTMLElement) => {
+    let renderRequestId = 0;
+
+    const renderState = async (panel: HTMLElement) => {
+      const requestId = ++renderRequestId;
       if (state.dataMode === "mock") {
         const ampMap = getStaticMockAmpMap(state.mockSet);
         updateStatePanelFromMap(panel, ampMap, {
@@ -99,7 +102,13 @@ const createPanel = (
         return true;
       }
       try {
-        const ampMap = computeAmpMapFromCurrentModel(state.endianness);
+        const ampMap = await computeAmpMapFromCurrentModelAsync(
+          state.endianness,
+        );
+
+        // Ignore late results if a newer render request started.
+        if (requestId !== renderRequestId) return true;
+
         if (ampMap) {
           updateStatePanelFromMap(panel, ampMap, {
             normalize: true,
@@ -115,7 +124,13 @@ const createPanel = (
         renderDefaultStatePanel(panel, wireCount);
         return false;
       } catch (e) {
+        // Ignore cancellation from host worker termination.
+        if (requestId !== renderRequestId) return true;
+
         const err = e as Error;
+        if (err?.name === "AbortError") {
+          return true;
+        }
         if (err?.name === "UnsupportedStateComputeError") {
           renderUnsupportedStatePanel(panel, err.message);
           return true;
@@ -130,19 +145,23 @@ const createPanel = (
 
     // Attach dev toolbar if enabled
     if (showDevToolbar) {
-      attachStateDevToolbar(panelElem, state, () => renderState(panelElem));
+      attachStateDevToolbar(panelElem, state, () => {
+        void renderState(panelElem);
+      });
     }
 
     // Initial render; if the circuit model isn't ready yet, retry briefly until available
-    const gotReal = renderState(panelElem);
-    if (!gotReal) {
+    void renderState(panelElem).then((gotReal) => {
+      if (gotReal) return;
       let attempts = 20; // try for ~2 seconds total
       const retry = () => {
-        if (renderState(panelElem)) return; // success swaps mock for real
-        if (--attempts > 0) setTimeout(retry, 100);
+        void renderState(panelElem).then((ok) => {
+          if (ok) return;
+          if (--attempts > 0) setTimeout(retry, 100);
+        });
       };
       setTimeout(retry, 100);
-    }
+    });
   }
 };
 

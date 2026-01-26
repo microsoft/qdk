@@ -34,26 +34,26 @@ const buildOptions = {
 };
 
 /** @type {import("esbuild").Plugin} */
-const inlineCircuitHelloWorkerPlugin = {
-  name: "Inline Circuit Hello Worker",
+const inlineStateComputeWorkerPlugin = {
+  name: "Inline State Compute Worker",
   setup(builder) {
-    builder.onResolve({ filter: /circuitHelloWorker\.inline$/ }, (args) => {
+    builder.onResolve({ filter: /stateComputeWorker.inline\.ts$/ }, (args) => {
       // Replace the placeholder TypeScript module with a generated module
       // that exports the bundled worker JS as a string.
       return {
         path: join(args.resolveDir, args.path),
-        namespace: "inline-circuit-hello-worker",
+        namespace: "inline-state-compute-worker",
       };
     });
 
     builder.onLoad(
-      { filter: /.*/, namespace: "inline-circuit-hello-worker" },
+      { filter: /.*/, namespace: "inline-state-compute-worker" },
       async () => {
         const workerEntry = join(
           thisDir,
           "src",
           "webview",
-          "circuitHelloWorker.ts",
+          "stateComputeWorker.ts",
         );
 
         const result = await esbuildBuild({
@@ -172,7 +172,7 @@ function buildBundle() {
 
   esbuildBuild({
     ...buildOptions,
-    plugins: [inlineCircuitHelloWorkerPlugin],
+    plugins: [inlineStateComputeWorkerPlugin],
   }).then(() => console.log(`Built bundle to ${join(thisDir, "out")}`));
 }
 
@@ -194,7 +194,7 @@ export async function watchVsCode() {
   };
   let ctx = await context({
     ...buildOptions,
-    plugins: [inlineCircuitHelloWorkerPlugin, buildPlugin],
+    plugins: [inlineStateComputeWorkerPlugin, buildPlugin],
     color: false,
   });
 
