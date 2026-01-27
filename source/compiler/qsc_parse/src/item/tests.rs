@@ -203,9 +203,9 @@ fn allow_docs_on_struct_fields() {
             Item _id_ [0-118]:
                 Struct _id_ [0-118] (Ident _id_ [7-10] "Foo"):
                     FieldDef _id_ [51-58] (Ident _id_ [51-52] "x"): Type _id_ [55-58]: Path: Path _id_ [55-58] (Ident _id_ [55-58] "Int")
-                        doc: doc for x
+                        Doc: doc for x
                     FieldDef _id_ [98-108] (Ident _id_ [98-99] "y"): Type _id_ [102-108]: Path: Path _id_ [102-108] (Ident _id_ [102-108] "Double")
-                        doc: doc for y"#]],
+                        Doc: doc for y"#]],
     );
 }
 
@@ -217,7 +217,7 @@ fn ty_decl() {
         &expect![[r#"
             Item _id_ [0-19]:
                 New Type (Ident _id_ [8-11] "Foo"): TyDef _id_ [14-18]: Field:
-                    Type _id_ [14-18]: Path: Path _id_ [14-18] (Ident _id_ [14-18] "Unit")"#]],
+                    Type: Type _id_ [14-18]: Path: Path _id_ [14-18] (Ident _id_ [14-18] "Unit")"#]],
     );
 }
 
@@ -229,8 +229,8 @@ fn ty_decl_field_name() {
         &expect![[r#"
             Item _id_ [0-24]:
                 New Type (Ident _id_ [8-11] "Foo"): TyDef _id_ [14-23]: Field:
-                    Ident _id_ [14-17] "Bar"
-                    Type _id_ [20-23]: Path: Path _id_ [20-23] (Ident _id_ [20-23] "Int")"#]],
+                    Name: Ident _id_ [14-17] "Bar"
+                    Type: Type _id_ [20-23]: Path: Path _id_ [20-23] (Ident _id_ [20-23] "Int")"#]],
     );
 }
 
@@ -247,7 +247,7 @@ fn ty_decl_doc() {
                     This is a
                     doc comment.
                 New Type (Ident _id_ [55-58] "Foo"): TyDef _id_ [61-64]: Field:
-                    Type _id_ [61-64]: Path: Path _id_ [61-64] (Ident _id_ [61-64] "Int")"#]],
+                    Type: Type _id_ [61-64]: Path: Path _id_ [61-64] (Ident _id_ [61-64] "Int")"#]],
     );
 }
 
@@ -265,13 +265,13 @@ fn udt_item_doc() {
             Item _id_ [0-125]:
                 New Type (Ident _id_ [8-11] "Foo"): TyDef _id_ [14-124]: Tuple:
                     TyDef _id_ [56-66]: Field:
-                        Ident _id_ [56-60] "arg1"
-                        Type _id_ [63-66]: Path: Path _id_ [63-66] (Ident _id_ [63-66] "Int")
-                        doc-string for arg1
+                        Name: Ident _id_ [56-60] "arg1"
+                        Type: Type _id_ [63-66]: Path: Path _id_ [63-66] (Ident _id_ [63-66] "Int")
+                        Doc: doc-string for arg1
                     TyDef _id_ [108-118]: Field:
-                        Ident _id_ [108-112] "arg2"
-                        Type _id_ [115-118]: Path: Path _id_ [115-118] (Ident _id_ [115-118] "Int")
-                        doc-string for arg2"#]],
+                        Name: Ident _id_ [108-112] "arg2"
+                        Type: Type _id_ [115-118]: Path: Path _id_ [115-118] (Ident _id_ [115-118] "Int")
+                        Doc: doc-string for arg2"#]],
     );
 }
 
@@ -339,20 +339,20 @@ fn nested_udt_item_doc() {
             Item _id_ [0-299]:
                 New Type (Ident _id_ [8-14] "Nested"): TyDef _id_ [17-298]: Tuple:
                     TyDef _id_ [18-24]: Field:
-                        Type _id_ [18-24]: Path: Path _id_ [18-24] (Ident _id_ [18-24] "Double")
+                        Type: Type _id_ [18-24]: Path: Path _id_ [18-24] (Ident _id_ [18-24] "Double")
                     TyDef _id_ [38-288]: Tuple:
                         TyDef _id_ [90-104]: Field:
-                            Ident _id_ [90-98] "ItemName"
-                            Type _id_ [101-104]: Path: Path _id_ [101-104] (Ident _id_ [101-104] "Int")
-                            Doc comment 1
+                            Name: Ident _id_ [90-98] "ItemName"
+                            Type: Type _id_ [101-104]: Path: Path _id_ [101-104] (Ident _id_ [101-104] "Int")
+                            Doc: Doc comment 1
                         TyDef _id_ [156-162]: Field:
-                            Type _id_ [156-162]: Path: Path _id_ [156-162] (Ident _id_ [156-162] "String")
-                            Doc comment 2
+                            Type: Type _id_ [156-162]: Path: Path _id_ [156-162] (Ident _id_ [156-162] "String")
+                            Doc: Doc comment 2
                         TyDef _id_ [180-274]: Paren:
                             TyDef _id_ [240-256]: Field:
-                                Ident _id_ [240-248] "ItemName"
-                                Type _id_ [250-256]: Path: Path _id_ [250-256] (Ident _id_ [250-256] "String")
-                                Doc comment 3"#]],
+                                Name: Ident _id_ [240-248] "ItemName"
+                                Type: Type _id_ [250-256]: Path: Path _id_ [250-256] (Ident _id_ [250-256] "String")
+                                Doc: Doc comment 3"#]],
     );
 }
 
@@ -371,11 +371,11 @@ fn allow_docstring_basic_type() {
             Item _id_ [0-141]:
                 New Type (Ident _id_ [8-14] "Nested"): TyDef _id_ [17-140]: Tuple:
                     TyDef _id_ [18-24]: Field:
-                        Type _id_ [18-24]: Path: Path _id_ [18-24] (Ident _id_ [18-24] "Double")
+                        Type: Type _id_ [18-24]: Path: Path _id_ [18-24] (Ident _id_ [18-24] "Double")
                     TyDef _id_ [38-130]: Paren:
                         TyDef _id_ [52-116]: Field:
-                            Ident _id_ [52-60] "ItemName"
-                            Type _id_ [110-116]: Path: Path _id_ [110-116] (Ident _id_ [110-116] "String")"#]],
+                            Name: Ident _id_ [52-60] "ItemName"
+                            Type: Type _id_ [110-116]: Path: Path _id_ [110-116] (Ident _id_ [110-116] "String")"#]],
     );
 }
 
@@ -407,7 +407,7 @@ fn ty_def_tuple() {
         &expect![[r#"
             Item _id_ [0-25]:
                 New Type (Ident _id_ [8-11] "Foo"): TyDef _id_ [14-24]: Field:
-                    Type _id_ [14-24]: Tuple:
+                    Type: Type _id_ [14-24]: Tuple:
                         Type _id_ [15-18]: Path: Path _id_ [15-18] (Ident _id_ [15-18] "Int")
                         Type _id_ [20-23]: Path: Path _id_ [20-23] (Ident _id_ [20-23] "Int")"#]],
     );
@@ -422,10 +422,10 @@ fn ty_def_tuple_one_named() {
             Item _id_ [0-29]:
                 New Type (Ident _id_ [8-11] "Foo"): TyDef _id_ [14-28]: Tuple:
                     TyDef _id_ [15-22]: Field:
-                        Ident _id_ [15-16] "X"
-                        Type _id_ [19-22]: Path: Path _id_ [19-22] (Ident _id_ [19-22] "Int")
+                        Name: Ident _id_ [15-16] "X"
+                        Type: Type _id_ [19-22]: Path: Path _id_ [19-22] (Ident _id_ [19-22] "Int")
                     TyDef _id_ [24-27]: Field:
-                        Type _id_ [24-27]: Path: Path _id_ [24-27] (Ident _id_ [24-27] "Int")"#]],
+                        Type: Type _id_ [24-27]: Path: Path _id_ [24-27] (Ident _id_ [24-27] "Int")"#]],
     );
 }
 
@@ -438,11 +438,11 @@ fn ty_def_tuple_both_named() {
             Item _id_ [0-33]:
                 New Type (Ident _id_ [8-11] "Foo"): TyDef _id_ [14-32]: Tuple:
                     TyDef _id_ [15-22]: Field:
-                        Ident _id_ [15-16] "X"
-                        Type _id_ [19-22]: Path: Path _id_ [19-22] (Ident _id_ [19-22] "Int")
+                        Name: Ident _id_ [15-16] "X"
+                        Type: Type _id_ [19-22]: Path: Path _id_ [19-22] (Ident _id_ [19-22] "Int")
                     TyDef _id_ [24-31]: Field:
-                        Ident _id_ [24-25] "Y"
-                        Type _id_ [28-31]: Path: Path _id_ [28-31] (Ident _id_ [28-31] "Int")"#]],
+                        Name: Ident _id_ [24-25] "Y"
+                        Type: Type _id_ [28-31]: Path: Path _id_ [28-31] (Ident _id_ [28-31] "Int")"#]],
     );
 }
 
@@ -456,14 +456,14 @@ fn ty_def_nested_tuple() {
                 New Type (Ident _id_ [8-11] "Foo"): TyDef _id_ [14-43]: Tuple:
                     TyDef _id_ [15-33]: Tuple:
                         TyDef _id_ [16-23]: Field:
-                            Ident _id_ [16-17] "X"
-                            Type _id_ [20-23]: Path: Path _id_ [20-23] (Ident _id_ [20-23] "Int")
+                            Name: Ident _id_ [16-17] "X"
+                            Type: Type _id_ [20-23]: Path: Path _id_ [20-23] (Ident _id_ [20-23] "Int")
                         TyDef _id_ [25-32]: Field:
-                            Ident _id_ [25-26] "Y"
-                            Type _id_ [29-32]: Path: Path _id_ [29-32] (Ident _id_ [29-32] "Int")
+                            Name: Ident _id_ [25-26] "Y"
+                            Type: Type _id_ [29-32]: Path: Path _id_ [29-32] (Ident _id_ [29-32] "Int")
                     TyDef _id_ [35-42]: Field:
-                        Ident _id_ [35-36] "Z"
-                        Type _id_ [39-42]: Path: Path _id_ [39-42] (Ident _id_ [39-42] "Int")"#]],
+                        Name: Ident _id_ [35-36] "Z"
+                        Type: Type _id_ [39-42]: Path: Path _id_ [39-42] (Ident _id_ [39-42] "Int")"#]],
     );
 }
 
@@ -475,8 +475,8 @@ fn ty_def_tuple_with_name() {
         &expect![[r#"
             Item _id_ [0-32]:
                 New Type (Ident _id_ [8-11] "Foo"): TyDef _id_ [14-31]: Field:
-                    Ident _id_ [14-18] "Pair"
-                    Type _id_ [21-31]: Tuple:
+                    Name: Ident _id_ [14-18] "Pair"
+                    Type: Type _id_ [21-31]: Tuple:
                         Type _id_ [22-25]: Path: Path _id_ [22-25] (Ident _id_ [22-25] "Int")
                         Type _id_ [27-30]: Path: Path _id_ [27-30] (Ident _id_ [27-30] "Int")"#]],
     );
@@ -488,11 +488,11 @@ fn ty_def_tuple_array() {
         parse,
         "newtype Foo = (Int, Int)[];",
         &expect![[r#"
-        Item _id_ [0-27]:
-            New Type (Ident _id_ [8-11] "Foo"): TyDef _id_ [14-26]: Field:
-                Type _id_ [14-26]: Array: Type _id_ [14-24]: Tuple:
-                    Type _id_ [15-18]: Path: Path _id_ [15-18] (Ident _id_ [15-18] "Int")
-                    Type _id_ [20-23]: Path: Path _id_ [20-23] (Ident _id_ [20-23] "Int")"#]],
+            Item _id_ [0-27]:
+                New Type (Ident _id_ [8-11] "Foo"): TyDef _id_ [14-26]: Field:
+                    Type: Type _id_ [14-26]: Array: Type _id_ [14-24]: Tuple:
+                        Type _id_ [15-18]: Path: Path _id_ [15-18] (Ident _id_ [15-18] "Int")
+                        Type _id_ [20-23]: Path: Path _id_ [20-23] (Ident _id_ [20-23] "Int")"#]],
     );
 }
 
@@ -504,7 +504,7 @@ fn ty_def_tuple_lambda_args() {
         &expect![[r#"
             Item _id_ [0-32]:
                 New Type (Ident _id_ [8-11] "Foo"): TyDef _id_ [14-31]: Field:
-                    Type _id_ [14-31]: Arrow (Function):
+                    Type: Type _id_ [14-31]: Arrow (Function):
                         param: Type _id_ [14-24]: Tuple:
                             Type _id_ [15-18]: Path: Path _id_ [15-18] (Ident _id_ [15-18] "Int")
                             Type _id_ [20-23]: Path: Path _id_ [20-23] (Ident _id_ [20-23] "Int")
@@ -521,10 +521,10 @@ fn ty_def_duplicate_comma() {
             Item _id_ [0-26]:
                 New Type (Ident _id_ [8-11] "Foo"): TyDef _id_ [14-25]: Tuple:
                     TyDef _id_ [15-18]: Field:
-                        Type _id_ [15-18]: Path: Path _id_ [15-18] (Ident _id_ [15-18] "Int")
+                        Type: Type _id_ [15-18]: Path: Path _id_ [15-18] (Ident _id_ [15-18] "Int")
                     TyDef _id_ [19-19]: Err
                     TyDef _id_ [21-24]: Field:
-                        Type _id_ [21-24]: Path: Path _id_ [21-24] (Ident _id_ [21-24] "Int")
+                        Type: Type _id_ [21-24]: Path: Path _id_ [21-24] (Ident _id_ [21-24] "Int")
 
             [
                 Error(
@@ -549,7 +549,7 @@ fn ty_def_initial_comma() {
                 New Type (Ident _id_ [8-11] "Foo"): TyDef _id_ [14-21]: Tuple:
                     TyDef _id_ [15-15]: Err
                     TyDef _id_ [17-20]: Field:
-                        Type _id_ [17-20]: Path: Path _id_ [17-20] (Ident _id_ [17-20] "Int")
+                        Type: Type _id_ [17-20]: Path: Path _id_ [17-20] (Ident _id_ [17-20] "Int")
 
             [
                 Error(
@@ -573,11 +573,11 @@ fn ty_def_named_duplicate_comma() {
             Item _id_ [0-30]:
                 New Type (Ident _id_ [8-11] "Foo"): TyDef _id_ [14-29]: Tuple:
                     TyDef _id_ [15-22]: Field:
-                        Ident _id_ [15-16] "X"
-                        Type _id_ [19-22]: Path: Path _id_ [19-22] (Ident _id_ [19-22] "Int")
+                        Name: Ident _id_ [15-16] "X"
+                        Type: Type _id_ [19-22]: Path: Path _id_ [19-22] (Ident _id_ [19-22] "Int")
                     TyDef _id_ [23-23]: Err
                     TyDef _id_ [25-28]: Field:
-                        Type _id_ [25-28]: Path: Path _id_ [25-28] (Ident _id_ [25-28] "Int")
+                        Type: Type _id_ [25-28]: Path: Path _id_ [25-28] (Ident _id_ [25-28] "Int")
 
             [
                 Error(
@@ -985,7 +985,7 @@ fn internal_ty() {
         &expect![[r#"
             Item _id_ [0-28]:
                 New Type (Ident _id_ [17-20] "Foo"): TyDef _id_ [23-27]: Field:
-                    Type _id_ [23-27]: Path: Path _id_ [23-27] (Ident _id_ [23-27] "Unit")"#]],
+                    Type: Type _id_ [23-27]: Path: Path _id_ [23-27] (Ident _id_ [23-27] "Unit")"#]],
     );
 }
 
@@ -1097,7 +1097,7 @@ fn newtype_attr() {
                 Attr _id_ [0-6] (Ident _id_ [1-4] "Foo"):
                     Expr _id_ [4-6]: Unit
                 New Type (Ident _id_ [15-18] "Bar"): TyDef _id_ [21-25]: Field:
-                    Type _id_ [21-25]: Path: Path _id_ [21-25] (Ident _id_ [21-25] "Unit")"#]],
+                    Type: Type _id_ [21-25]: Path: Path _id_ [21-25] (Ident _id_ [21-25] "Unit")"#]],
     );
 }
 
@@ -1335,10 +1335,10 @@ fn two_ty_items() {
             Namespace _id_ [0-51] (Ident _id_ [10-11] "A"):
                 Item _id_ [14-31]:
                     New Type (Ident _id_ [22-23] "B"): TyDef _id_ [26-30]: Field:
-                        Type _id_ [26-30]: Path: Path _id_ [26-30] (Ident _id_ [26-30] "Unit")
+                        Type: Type _id_ [26-30]: Path: Path _id_ [26-30] (Ident _id_ [26-30] "Unit")
                 Item _id_ [32-49]:
                     New Type (Ident _id_ [40-41] "C"): TyDef _id_ [44-48]: Field:
-                        Type _id_ [44-48]: Path: Path _id_ [44-48] (Ident _id_ [44-48] "Unit")"#]],
+                        Type: Type _id_ [44-48]: Path: Path _id_ [44-48] (Ident _id_ [44-48] "Unit")"#]],
     );
 }
 
@@ -1782,7 +1782,7 @@ fn namespace_with_conflicting_names() {
                         body: Block: Block _id_ [57-59]: <empty>
                 Item _id_ [72-91]:
                     New Type (Ident _id_ [80-84] "Item"): TyDef _id_ [87-90]: Field:
-                        Type _id_ [87-90]: Path: Path _id_ [87-90] (Ident _id_ [87-90] "Int")"#]],
+                        Type: Type _id_ [87-90]: Path: Path _id_ [87-90] (Ident _id_ [87-90] "Int")"#]],
     );
 }
 

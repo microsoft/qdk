@@ -395,11 +395,11 @@ impl Display for TyDefKind {
                 write!(indent, "Field:")?;
                 indent = set_indentation(indent, 1);
                 if let Some(n) = name {
-                    write!(indent, "\n{n}")?;
+                    write!(indent, "\nName: {n}")?;
                 }
-                write!(indent, "\n{t}")?;
+                write!(indent, "\nType: {t}")?;
                 if let Some(d) = doc {
-                    write!(indent, "\n{d}")?;
+                    write!(indent, "\nDoc: {d}")?;
                 }
             }
             TyDefKind::Paren(t) => {
@@ -484,7 +484,7 @@ impl Display for FieldDef {
         )?;
         if let Some(doc) = &self.doc {
             indent = set_indentation(indent, 1);
-            write!(indent, "\ndoc: {doc}")?;
+            write!(indent, "\nDoc: {doc}")?;
         }
         Ok(())
     }
