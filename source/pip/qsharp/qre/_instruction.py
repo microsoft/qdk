@@ -1,16 +1,21 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from typing import Optional, overload, cast
+from abc import ABC, abstractmethod
+from typing import Generator, Iterable, Optional, overload, cast
 from enum import IntEnum
 
+from ._enumeration import _enumerate_instances
+from ._isa_enumeration import ISA_ROOT, BindingNode, ISAQuery, Node
 from ._qre import (
-    Instruction,
+    ISA,
     Constraint,
-    FloatFunction,
-    IntFunction,
-    constant_function,
     ConstraintBound,
+    FloatFunction,
+    Instruction,
+    IntFunction,
+    ISARequirements,
+    constant_function,
 )
 
 
@@ -28,7 +33,7 @@ def constraint(
     encoding: Encoding = PHYSICAL,
     *,
     arity: Optional[int] = 1,
-    error_rate: Optional[ConstraintBound] = None
+    error_rate: Optional[ConstraintBound] = None,
 ) -> Constraint:
     """
     Creates an instruction constraint.
@@ -55,7 +60,7 @@ def instruction(
     arity: int = 1,
     space: Optional[int] = None,
     length: Optional[int] = None,
-    error_rate: float
+    error_rate: float,
 ) -> Instruction: ...
 @overload
 def instruction(
@@ -66,7 +71,7 @@ def instruction(
     arity: None = ...,
     space: Optional[IntFunction] = None,
     length: Optional[IntFunction] = None,
-    error_rate: FloatFunction
+    error_rate: FloatFunction,
 ) -> Instruction: ...
 def instruction(
     id: int,
@@ -76,7 +81,7 @@ def instruction(
     arity: Optional[int] = 1,
     space: Optional[int] | IntFunction = None,
     length: Optional[int | IntFunction] = None,
-    error_rate: float | FloatFunction
+    error_rate: float | FloatFunction,
 ) -> Instruction:
     """
     Creates an instruction.
@@ -125,3 +130,36 @@ def instruction(
             cast(FloatFunction, error_rate),
             length,
         )
+
+
+class ISATransform(ABC):
+    @staticmethod
+    @abstractmethod
+    def required_isa() -> ISARequirements: ...
+
+    @abstractmethod
+    def provided_isa(self, impl_isa: ISA) -> Generator[ISA, None, None]: ...
+
+    @classmethod
+    def enumerate_isas(
+        cls,
+        impl_isa: ISA | Iterable[ISA],
+        **kwargs,
+    ) -> Generator[ISA, None, None]:
+        isas = [impl_isa] if isinstance(impl_isa, ISA) else impl_isa
+        for isa in isas:
+            if not isa.satisfies(cls.required_isa()):
+                continue
+
+            for component in _enumerate_instances(cls, **kwargs):
+                yield from component.provided_isa(isa)
+
+    @classmethod
+    def q(cls, *, source: Node | None = None, **kwargs) -> ISAQuery:
+        return ISAQuery(
+            cls, source=source if source is not None else ISA_ROOT, kwargs=kwargs
+        )
+
+    @classmethod
+    def bind(cls, name: str, node: Node) -> BindingNode:
+        return cls.q().bind(name, node)
