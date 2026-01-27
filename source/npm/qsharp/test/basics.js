@@ -802,12 +802,7 @@ test("language service in notebook", async () => {
   assert.deepStrictEqual(
     [
       {
-        messages: [
-          "name error: `Foo` not found",
-          "type error: insufficient type information to infer type\n" +
-            "\n" +
-            "help: provide a type annotation",
-        ],
+        messages: ["name error: `Foo` not found"],
       },
       {
         messages: [],
