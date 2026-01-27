@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from typing import Optional, overload
+from typing import Optional, overload, cast
 from enum import IntEnum
 
 from ._qre import (
@@ -55,18 +55,18 @@ def instruction(
     arity: int = 1,
     space: Optional[int] = None,
     length: Optional[int] = None,
-    error_rate: Optional[float] = None
+    error_rate: float
 ) -> Instruction: ...
 @overload
 def instruction(
     id: int,
     encoding: Encoding = PHYSICAL,
     *,
-    time: IntFunction,
+    time: int | IntFunction,
     arity: None = ...,
     space: Optional[IntFunction] = None,
     length: Optional[IntFunction] = None,
-    error_rate: Optional[FloatFunction] = None
+    error_rate: FloatFunction
 ) -> Instruction: ...
 def instruction(
     id: int,
@@ -76,7 +76,7 @@ def instruction(
     arity: Optional[int] = 1,
     space: Optional[int] | IntFunction = None,
     length: Optional[int | IntFunction] = None,
-    error_rate: float | FloatFunction = None
+    error_rate: float | FloatFunction
 ) -> Instruction:
     """
     Creates an instruction.
@@ -99,7 +99,13 @@ def instruction(
     """
     if arity is not None:
         return Instruction.fixed_arity(
-            id, encoding, arity, time, space, length, error_rate
+            id,
+            encoding,
+            arity,
+            cast(int, time),
+            cast(int | None, space),
+            cast(int | None, length),
+            cast(float, error_rate),
         )
     else:
         if isinstance(time, int):
@@ -111,4 +117,11 @@ def instruction(
         if isinstance(error_rate, float):
             error_rate = constant_function(error_rate)
 
-        return Instruction.variable_arity(id, encoding, time, space, error_rate, length)
+        return Instruction.variable_arity(
+            id,
+            encoding,
+            time,
+            cast(IntFunction, space),
+            cast(FloatFunction, error_rate),
+            length,
+        )
