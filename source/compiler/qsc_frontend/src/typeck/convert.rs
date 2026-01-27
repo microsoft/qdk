@@ -139,7 +139,11 @@ pub(super) fn ast_struct_decl_as_ty_def(decl: &StructDecl) -> TyDef {
                     Box::new(TyDef {
                         id: f.id,
                         span: f.span,
-                        kind: Box::new(TyDefKind::Field(Some(f.name.clone()), f.ty.clone())),
+                        kind: Box::new(TyDefKind::Field(
+                            Some(f.name.clone()),
+                            f.ty.clone(),
+                            f.doc.as_ref().map(Rc::clone),
+                        )),
                     })
                 })
                 .collect(),
@@ -166,7 +170,7 @@ pub(super) fn ast_ty_def_cons(
 
 fn ast_ty_def_base(names: &Names, def: &TyDef) -> (Ty, Vec<TyConversionError>) {
     match &*def.kind {
-        TyDefKind::Field(_, ty) => ty_from_ast(names, ty, &mut Default::default()),
+        TyDefKind::Field(_, ty, _) => ty_from_ast(names, ty, &mut Default::default()),
         TyDefKind::Paren(inner) => ast_ty_def_base(names, inner),
         TyDefKind::Tuple(items) => {
             let mut tys = Vec::new();
@@ -194,7 +198,7 @@ pub(super) fn ast_ty_def(names: &Names, def: &TyDef) -> (UdtDef, Vec<TyConversio
     let def = UdtDef {
         span: def.span,
         kind: match &*def.kind {
-            TyDefKind::Field(name, ty) => {
+            TyDefKind::Field(name, ty, doc) => {
                 let (ty, item_errors) = ty_from_ast(names, ty, &mut Default::default());
                 errors.extend(item_errors);
                 let (name_span, name) = match name {
@@ -205,6 +209,7 @@ pub(super) fn ast_ty_def(names: &Names, def: &TyDef) -> (UdtDef, Vec<TyConversio
                     name_span,
                     name,
                     ty,
+                    doc: doc.as_ref().map(Rc::clone),
                 };
                 UdtDefKind::Field(field)
             }
@@ -223,6 +228,7 @@ pub(super) fn ast_ty_def(names: &Names, def: &TyDef) -> (UdtDef, Vec<TyConversio
                 name_span: None,
                 name: None,
                 ty: Ty::Err,
+                doc: None,
             }),
         },
     };

@@ -190,6 +190,26 @@ fn struct_decl_multiple_fields() {
 }
 
 #[test]
+fn allow_docs_on_struct_fields() {
+    check(
+        parse,
+        "struct Foo {
+            /// doc for x
+            x : Int,
+            /// doc for y
+            y : Double
+        }",
+        &expect![[r#"
+            Item _id_ [0-118]:
+                Struct _id_ [0-118] (Ident _id_ [7-10] "Foo"):
+                    FieldDef _id_ [51-58] (Ident _id_ [51-52] "x"): Type _id_ [55-58]: Path: Path _id_ [55-58] (Ident _id_ [55-58] "Int")
+                        doc: doc for x
+                    FieldDef _id_ [98-108] (Ident _id_ [98-99] "y"): Type _id_ [102-108]: Path: Path _id_ [102-108] (Ident _id_ [102-108] "Double")
+                        doc: doc for y"#]],
+    );
+}
+
+#[test]
 fn ty_decl() {
     check(
         parse,
@@ -247,9 +267,11 @@ fn udt_item_doc() {
                     TyDef _id_ [56-66]: Field:
                         Ident _id_ [56-60] "arg1"
                         Type _id_ [63-66]: Path: Path _id_ [63-66] (Ident _id_ [63-66] "Int")
+                        doc-string for arg1
                     TyDef _id_ [108-118]: Field:
                         Ident _id_ [108-112] "arg2"
-                        Type _id_ [115-118]: Path: Path _id_ [115-118] (Ident _id_ [115-118] "Int")"#]],
+                        Type _id_ [115-118]: Path: Path _id_ [115-118] (Ident _id_ [115-118] "Int")
+                        doc-string for arg2"#]],
     );
 }
 
@@ -322,12 +344,15 @@ fn nested_udt_item_doc() {
                         TyDef _id_ [90-104]: Field:
                             Ident _id_ [90-98] "ItemName"
                             Type _id_ [101-104]: Path: Path _id_ [101-104] (Ident _id_ [101-104] "Int")
+                            Doc comment 1
                         TyDef _id_ [156-162]: Field:
                             Type _id_ [156-162]: Path: Path _id_ [156-162] (Ident _id_ [156-162] "String")
+                            Doc comment 2
                         TyDef _id_ [180-274]: Paren:
                             TyDef _id_ [240-256]: Field:
                                 Ident _id_ [240-248] "ItemName"
-                                Type _id_ [250-256]: Path: Path _id_ [250-256] (Ident _id_ [250-256] "String")"#]],
+                                Type _id_ [250-256]: Path: Path _id_ [250-256] (Ident _id_ [250-256] "String")
+                                Doc comment 3"#]],
     );
 }
 
