@@ -88,11 +88,36 @@ const createPanel = (
     ".state-panel",
   ) as HTMLElement | null;
   if (panelElem) {
+    // Sqore calls createPanel() on every edit (it re-renders the SVG). Keep a
+    // single state-viz controller per panel element so in-flight renders from
+    // previous calls can't toggle loading off underneath new renders.
+    (panelElem as any)._stateVizContainer = container;
+
+    const existingController = (panelElem as any)
+      ._stateVizController as
+      | {
+          state: DevToolbarState;
+          requestRenderState: () => void;
+        }
+      | undefined;
+
+    if (existingController) {
+      if (showDevToolbar) {
+        attachStateDevToolbar(panelElem, existingController.state, () => {
+          existingController.requestRenderState();
+        });
+      }
+      existingController.requestRenderState();
+      return;
+    }
+
     const state: DevToolbarState = createDefaultDevToolbarState();
 
     let renderRequestId = 0;
     let loadingTimer: number | null = null;
+    let hideLoadingTimer: number | null = null;
     let activeLoadingRequestId = 0;
+    let loadingShownAtMs = 0;
 
     const clearLoadingTimer = () => {
       if (loadingTimer != null) {
@@ -101,10 +126,18 @@ const createPanel = (
       }
     };
 
+    const clearHideLoadingTimer = () => {
+      if (hideLoadingTimer != null) {
+        clearTimeout(hideLoadingTimer);
+        hideLoadingTimer = null;
+      }
+    };
+
     const beginLoadingForRequest = (requestId: number) => {
       // Always point loading at the newest request.
       activeLoadingRequestId = requestId;
       clearLoadingTimer();
+      clearHideLoadingTimer();
 
       // If we're already showing loading (e.g., rapid edits), keep it on.
       if (panelElem.classList.contains("loading")) return;
@@ -112,15 +145,34 @@ const createPanel = (
       // Avoid flicker for fast computations by delaying the spinner.
       loadingTimer = setTimeout(() => {
         if (activeLoadingRequestId !== requestId) return;
+        loadingShownAtMs = performance.now();
         setStatePanelLoading(panelElem, true);
       }, 200) as unknown as number;
     };
 
     const endLoadingForRequest = (requestId: number) => {
       if (activeLoadingRequestId !== requestId) return;
-      activeLoadingRequestId = 0;
       clearLoadingTimer();
-      setStatePanelLoading(panelElem, false);
+
+      // If loading was never shown (fast compute), there's nothing to hide.
+      if (!panelElem.classList.contains("loading")) {
+        activeLoadingRequestId = 0;
+        return;
+      }
+
+      // Avoid flicker: once visible, keep loading on briefly, and debounce the
+      // hide so rapid successive edits don't flash the spinner.
+      const minVisibleMs = 250;
+      const hideDebounceMs = 150;
+      const elapsed = performance.now() - (loadingShownAtMs || 0);
+      const remainingVisible = Math.max(0, minVisibleMs - elapsed);
+
+      clearHideLoadingTimer();
+      hideLoadingTimer = setTimeout(() => {
+        if (activeLoadingRequestId !== requestId) return;
+        activeLoadingRequestId = 0;
+        setStatePanelLoading(panelElem, false);
+      }, remainingVisible + hideDebounceMs) as unknown as number;
     };
 
     const renderState = async (panel: HTMLElement) => {
@@ -128,6 +180,7 @@ const createPanel = (
       if (state.dataMode === "mock") {
         activeLoadingRequestId = 0;
         clearLoadingTimer();
+        clearHideLoadingTimer();
         setStatePanelLoading(panelElem, false);
         const ampMap = getStaticMockAmpMap(state.mockSet);
         updateStatePanelFromMap(panel, ampMap, {
@@ -154,7 +207,10 @@ const createPanel = (
         }
 
         // Determine current wire count from the circuit DOM
-        const circuit = container.querySelector("svg.qviz");
+        const hostContainer =
+          ((panelElem as any)._stateVizContainer as HTMLElement | undefined) ??
+          container;
+        const circuit = hostContainer.querySelector("svg.qviz");
         const wiresGroup = circuit?.querySelector(".wires");
         const wireCount = wiresGroup ? wiresGroup.children.length : 0;
         renderDefaultStatePanel(panel, wireCount);
@@ -181,10 +237,19 @@ const createPanel = (
       }
     };
 
+    const requestRenderState = () => {
+      void renderState(panelElem);
+    };
+
+    (panelElem as any)._stateVizController = {
+      state,
+      requestRenderState,
+    };
+
     // Attach dev toolbar if enabled
     if (showDevToolbar) {
       attachStateDevToolbar(panelElem, state, () => {
-        void renderState(panelElem);
+        requestRenderState();
       });
     }
 
