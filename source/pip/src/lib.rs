@@ -10,3 +10,4 @@ mod interop;
 mod interpreter;
 mod noisy_simulator;
 mod qir_simulation;
+mod qre;

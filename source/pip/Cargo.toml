@@ -17,6 +17,7 @@ num-traits = { workspace = true }
 qsc = { path = "../compiler/qsc" }
 qdk_simulators = { path = "../simulators" }
 resource_estimator = { path = "../resource_estimator" }
+qre = { path = "../qre" }
 miette = { workspace = true, features = ["fancy"] }
 rustc-hash = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
