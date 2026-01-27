@@ -133,12 +133,37 @@ def instruction(
 
 
 class ISATransform(ABC):
+    """
+    Abstract base class for transformations between ISAs (e.g., QEC schemes).
+
+    An ISA transform defines a mapping from a required input ISA (e.g.,
+    architecture constraints) to a provided output ISA (logical instructions).
+    It supports enumeration of configuration parameters.
+    """
+
     @staticmethod
     @abstractmethod
-    def required_isa() -> ISARequirements: ...
+    def required_isa() -> ISARequirements:
+        """
+        Returns the requirements that an implementation ISA must satisfy.
+
+        Returns:
+            ISARequirements: The requirements for the underlying ISA.
+        """
+        ...
 
     @abstractmethod
-    def provided_isa(self, impl_isa: ISA) -> Generator[ISA, None, None]: ...
+    def provided_isa(self, impl_isa: ISA) -> Generator[ISA, None, None]:
+        """
+        Yields ISAs provided by this transform given an implementation ISA.
+
+        Args:
+            impl_isa (ISA): The implementation ISA that satisfies requirements.
+
+        Yields:
+            ISA: A provided logical ISA.
+        """
+        ...
 
     @classmethod
     def enumerate_isas(
@@ -146,6 +171,19 @@ class ISATransform(ABC):
         impl_isa: ISA | Iterable[ISA],
         **kwargs,
     ) -> Generator[ISA, None, None]:
+        """
+        Enumerates all valid ISAs for this transform given implementation ISAs.
+
+        This method iterates over all instances of the transform class (enumerating
+        hypterparameters) and filters implementation ISAs against requirements.
+
+        Args:
+            impl_isa (ISA | Iterable[ISA]): One or more implementation ISAs.
+            **kwargs: Arguments passed to parameter enumeration.
+
+        Yields:
+            ISA: Valid provided ISAs.
+        """
         isas = [impl_isa] if isinstance(impl_isa, ISA) else impl_isa
         for isa in isas:
             if not isa.satisfies(cls.required_isa()):
@@ -156,10 +194,33 @@ class ISATransform(ABC):
 
     @classmethod
     def q(cls, *, source: Node | None = None, **kwargs) -> ISAQuery:
+        """
+        Creates an ISAQuery node for this transform.
+
+        Args:
+            source (Node | None): The source node providing implementation ISAs.
+                Defaults to ISA_ROOT.
+            **kwargs: Additional arguments for parameter enumeration.
+
+        Returns:
+            ISAQuery: An enumeration node representing this transform.
+        """
         return ISAQuery(
             cls, source=source if source is not None else ISA_ROOT, kwargs=kwargs
         )
 
     @classmethod
     def bind(cls, name: str, node: Node) -> BindingNode:
+        """
+        Creates a BindingNode for this transform.
+
+        This is a convenience method equivalent to `cls.q().bind(name, node)`.
+
+        Args:
+            name (str): The name to bind the transform's output to.
+            node (Node): The child node that can reference this binding.
+
+        Returns:
+            BindingNode: A binding node enclosing this transform.
+        """
         return cls.q().bind(name, node)

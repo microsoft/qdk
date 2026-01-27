@@ -51,13 +51,13 @@ def _enumerate_instances(cls: Type[T], **kwargs) -> Generator[T, None, None]:
     values = []
     fixed_kwargs = {}
 
-    if not hasattr(cls, "__dataclass_fields__"):
+    if (fields := getattr(cls, "__dataclass_fields__", None)) is None:
         # There are no fields defined for this class, so just yield a single
         # instance
         yield cls(**kwargs)
         return
 
-    for field in cls.__dataclass_fields__.values():
+    for field in fields.values():
         name = field.name
 
         if name in kwargs:
