@@ -7,6 +7,7 @@ from ._instruction import (
     Encoding,
     constraint,
     instruction,
+    ISATransform,
 )
 from ._qre import (
     ISA,
@@ -17,19 +18,21 @@ from ._qre import (
     constant_function,
     linear_function,
 )
+from ._architecture import Architecture
 
 __all__ = [
     "block_linear_function",
     "constant_function",
     "constraint",
     "instruction",
-    "isa_constraints",
     "linear_function",
+    "Architecture",
     "Constraint",
     "ConstraintBound",
     "Encoding",
     "ISA",
     "ISARequirements",
+    "ISATransform",
     "LOGICAL",
     "PHYSICAL",
 ]
