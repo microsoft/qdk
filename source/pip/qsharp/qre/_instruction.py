@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from typing import Optional
+from typing import Optional, overload
 from enum import IntEnum
 
 from ._qre import (
@@ -46,6 +46,28 @@ def constraint(
     return Constraint(id, encoding, arity, error_rate)
 
 
+@overload
+def instruction(
+    id: int,
+    encoding: Encoding = PHYSICAL,
+    *,
+    time: int,
+    arity: int = 1,
+    space: Optional[int] = None,
+    length: Optional[int] = None,
+    error_rate: Optional[float] = None
+) -> Instruction: ...
+@overload
+def instruction(
+    id: int,
+    encoding: Encoding = PHYSICAL,
+    *,
+    time: IntFunction,
+    arity: None = ...,
+    space: Optional[IntFunction] = None,
+    length: Optional[IntFunction] = None,
+    error_rate: Optional[FloatFunction] = None
+) -> Instruction: ...
 def instruction(
     id: int,
     encoding: Encoding = PHYSICAL,
