@@ -154,6 +154,7 @@ fn parse_qubit(s: &mut ParserContext) -> Result<Box<StmtKind>> {
 }
 
 fn parse_qubit_init(s: &mut ParserContext) -> Result<Box<QubitInit>> {
+    let help_text = "to allocate qubits, use syntax like `use q = Qubit();` or `use qs = Qubit[N];` or `use (q1, q2) = (Qubit(), Qubit());`";
     let lo = s.peek().span.lo;
     s.expect(WordKinds::Qubit);
     let kind = if let Ok(name) = ident(s) {
@@ -162,33 +163,32 @@ fn parse_qubit_init(s: &mut ParserContext) -> Result<Box<QubitInit>> {
                 "qubit initializer",
                 "identifier",
                 name.span,
-            )));
+            ))
+            .with_help(help_text));
         } else if token(s, TokenKind::Open(Delim::Paren)).is_ok() {
-            token(s, TokenKind::Close(Delim::Paren))?;
+            token(s, TokenKind::Close(Delim::Paren)).map_err(|e| e.with_help(help_text))?;
             QubitInitKind::Single
         } else if token(s, TokenKind::Open(Delim::Bracket)).is_ok() {
-            let size = expr(s)?;
-            token(s, TokenKind::Close(Delim::Bracket))?;
+            let size = expr(s).map_err(|e| e.with_help(help_text))?;
+            token(s, TokenKind::Close(Delim::Bracket)).map_err(|e| e.with_help(help_text))?;
             QubitInitKind::Array(size)
         } else {
             let token = s.peek();
-            return Err(Error::new(ErrorKind::Rule(
-                "qubit suffix",
-                token.kind,
-                token.span,
-            )));
+            return Err(
+                Error::new(ErrorKind::Rule("qubit suffix", token.kind, token.span))
+                    .with_help(help_text),
+            );
         }
     } else if token(s, TokenKind::Open(Delim::Paren)).is_ok() {
-        let (inits, final_sep) = seq(s, parse_qubit_init)?;
-        token(s, TokenKind::Close(Delim::Paren))?;
+        let (inits, final_sep) = seq(s, parse_qubit_init).map_err(|e| e.with_help(help_text))?;
+        token(s, TokenKind::Close(Delim::Paren)).map_err(|e| e.with_help(help_text))?;
         final_sep.reify(inits, QubitInitKind::Paren, QubitInitKind::Tuple)
     } else {
         let token = s.peek();
-        return Err(Error::new(ErrorKind::Rule(
-            "qubit initializer",
-            token.kind,
-            token.span,
-        )));
+        return Err(
+            Error::new(ErrorKind::Rule("qubit initializer", token.kind, token.span))
+                .with_help(help_text),
+        );
     };
 
     Ok(Box::new(QubitInit {
