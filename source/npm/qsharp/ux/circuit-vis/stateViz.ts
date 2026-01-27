@@ -66,7 +66,6 @@ const VIZ = {
 // --- Entry Points ---
 
 export const createStatePanel = (initiallyExpanded = false): HTMLElement => {
-  console.log("[qsharp] State visualization panel created");
   try {
     // Allows host environments (e.g., VS Code webview) to react to panel creation
     // without needing a direct import hook.
