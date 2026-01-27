@@ -155,9 +155,8 @@ impl<'a> Analyzer<'a> {
             // Create a parameter application depending on the parameter type.
             let param_application = match &param.ty {
                 Ty::Array(_) => ParamApplication::Array(ArrayParamApplication {
-                    static_content_dynamic_size: param_compute_kind,
-                    dynamic_content_static_size: param_compute_kind,
-                    dynamic_content_dynamic_size: param_compute_kind,
+                    static_size: param_compute_kind,
+                    dynamic_size: param_compute_kind,
                 }),
                 _ => ParamApplication::Element(param_compute_kind),
             };
@@ -290,9 +289,8 @@ fn create_operation_specialization_application_generator_set(
         // Create a parameter application depending on the parameter type.
         let param_application = match &param.ty {
             Ty::Array(_) => ParamApplication::Array(ArrayParamApplication {
-                static_content_dynamic_size: inherent_compute_kind,
-                dynamic_content_static_size: inherent_compute_kind,
-                dynamic_content_dynamic_size: inherent_compute_kind,
+                static_size: inherent_compute_kind,
+                dynamic_size: inherent_compute_kind,
             }),
             _ => ParamApplication::Element(inherent_compute_kind),
         };
