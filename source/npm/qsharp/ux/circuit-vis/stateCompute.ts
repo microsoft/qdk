@@ -20,6 +20,12 @@ function logMainThreadFallback(details: {
   if (didLogMainThreadFallback) return;
   didLogMainThreadFallback = true;
 
+  // Keep unit tests quiet: in Node, `console.debug` is not typically filterable
+  // and will show up in test output.
+  const nodeProcess = (globalThis as any)?.process as any;
+  const isNode = typeof nodeProcess !== "undefined" && !!nodeProcess?.versions?.node;
+  if (isNode) return;
+
   if (typeof console === "undefined" || typeof console.debug !== "function") {
     return;
   }

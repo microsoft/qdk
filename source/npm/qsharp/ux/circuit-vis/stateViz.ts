@@ -130,6 +130,34 @@ export const createStatePanel = (initiallyExpanded = false): HTMLElement => {
   return panel;
 };
 
+const ensureLoadingOverlay = (panel: HTMLElement): HTMLElement => {
+  let overlay = panel.querySelector(
+    ".state-loading-overlay",
+  ) as HTMLElement | null;
+  if (overlay) return overlay;
+
+  overlay = document.createElement("div");
+  overlay.className = "state-loading-overlay";
+  overlay.setAttribute("aria-hidden", "true");
+
+  const spinner = document.createElement("div");
+  spinner.className = "state-loading-spinner";
+  overlay.appendChild(spinner);
+
+  panel.appendChild(overlay);
+  return overlay;
+};
+
+export const setStatePanelLoading = (panel: HTMLElement, loading: boolean) => {
+  if (!panel) return;
+  if (loading) {
+    ensureLoadingOverlay(panel);
+    panel.classList.add("loading");
+  } else {
+    panel.classList.remove("loading");
+  }
+};
+
 // Render a default state in the visualization panel.
 // - If nQubits <= 0: hide the SVG and show a friendly message.
 // - If nQubits > 0: show the SVG and render a zero-phase |0…0⟩ state immediately.

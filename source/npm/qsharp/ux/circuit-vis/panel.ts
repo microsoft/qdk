@@ -7,6 +7,7 @@ import {
   updateStatePanelFromMap,
   renderDefaultStatePanel,
   renderUnsupportedStatePanel,
+  setStatePanelLoading,
 } from "./stateViz.js";
 import { computeAmpMapFromCurrentModelAsync } from "./stateCompute.js";
 import {
@@ -90,10 +91,44 @@ const createPanel = (
     const state: DevToolbarState = createDefaultDevToolbarState();
 
     let renderRequestId = 0;
+    let loadingTimer: number | null = null;
+    let activeLoadingRequestId = 0;
+
+    const clearLoadingTimer = () => {
+      if (loadingTimer != null) {
+        clearTimeout(loadingTimer);
+        loadingTimer = null;
+      }
+    };
+
+    const beginLoadingForRequest = (requestId: number) => {
+      // Always point loading at the newest request.
+      activeLoadingRequestId = requestId;
+      clearLoadingTimer();
+
+      // If we're already showing loading (e.g., rapid edits), keep it on.
+      if (panelElem.classList.contains("loading")) return;
+
+      // Avoid flicker for fast computations by delaying the spinner.
+      loadingTimer = setTimeout(() => {
+        if (activeLoadingRequestId !== requestId) return;
+        setStatePanelLoading(panelElem, true);
+      }, 200) as unknown as number;
+    };
+
+    const endLoadingForRequest = (requestId: number) => {
+      if (activeLoadingRequestId !== requestId) return;
+      activeLoadingRequestId = 0;
+      clearLoadingTimer();
+      setStatePanelLoading(panelElem, false);
+    };
 
     const renderState = async (panel: HTMLElement) => {
       const requestId = ++renderRequestId;
       if (state.dataMode === "mock") {
+        activeLoadingRequestId = 0;
+        clearLoadingTimer();
+        setStatePanelLoading(panelElem, false);
         const ampMap = getStaticMockAmpMap(state.mockSet);
         updateStatePanelFromMap(panel, ampMap, {
           normalize: false,
@@ -102,6 +137,7 @@ const createPanel = (
         return true;
       }
       try {
+        beginLoadingForRequest(requestId);
         const ampMap = await computeAmpMapFromCurrentModelAsync(
           state.endianness,
         );
@@ -140,6 +176,8 @@ const createPanel = (
           "State visualization is unavailable for this circuit.",
         );
         return true;
+      } finally {
+        endLoadingForRequest(requestId);
       }
     };
 
