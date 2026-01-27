@@ -25,7 +25,6 @@ __all__ = [
     "constant_function",
     "constraint",
     "instruction",
-    "isa_constraints",
     "linear_function",
     "Architecture",
     "Constraint",
