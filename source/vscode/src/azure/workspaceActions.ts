@@ -91,11 +91,8 @@ export function getPythonCodeForWorkspace(
   const idRegex =
     /\/subscriptions\/(?<subscriptionId>[^/]+)\/resourceGroups\/(?<resourceGroup>[^/]+)/;
 
-  // Regular expression to extract the first part of the endpointUri
-  const endpointRegex = /https:\/\/(?<location>[^.]+)\./;
-
   const idMatch = id.match(idRegex);
-  const endpointMatch = endpointUri.match(endpointRegex);
+  const endpointMatch = endpointUri.match(QuantumUris.endpointRegExp);
 
   const subscriptionId = idMatch?.groups?.subscriptionId;
   const resourceGroup = idMatch?.groups?.resourceGroup;

@@ -3,9 +3,9 @@
 
 import { ComponentGrid, Operation } from "./circuit.js";
 import {
+  gateHeight,
   gatePadding,
   minGateWidth,
-  registerHeight,
   regLineStart,
   startX,
 } from "./constants.js";
@@ -22,6 +22,9 @@ import {
   getWireData,
   locationStringToIndexes,
 } from "./utils.js";
+
+/** Register height is the height of a single gate including the padding on the top and bottom. */
+const registerHeight: number = gateHeight + gatePadding * 2;
 
 interface Context {
   container: HTMLElement;

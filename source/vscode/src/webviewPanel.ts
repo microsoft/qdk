@@ -187,7 +187,6 @@ export function registerWebViewCommands(context: ExtensionContext) {
       async (resource?: vscode.Uri, operation?: IOperationInfo) => {
         await showCircuitCommand(
           context.extensionUri,
-          context.extension.id.includes("-dev"),
           operation,
           UserTaskInvocationType.Command,
         );

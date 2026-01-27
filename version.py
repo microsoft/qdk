@@ -8,7 +8,7 @@ import re
 import sys
 
 # To be updated every time we start a new major.minor version.
-major_minor = "1.23"
+major_minor = "1.25"
 
 root_dir = os.path.dirname(os.path.abspath(__file__))
 source_dir = os.path.join(root_dir, "source")
@@ -180,8 +180,8 @@ if BUILD_TYPE != "dev":
     )
     update_file(
         os.path.join(source_dir, "vscode/package.json"),
-        r"[DEV BUILD] Azure Quantum Development Kit",
-        r"Azure Quantum Development Kit",
+        r"[DEV BUILD] Microsoft Quantum Development Kit",
+        r"Microsoft Quantum Development Kit",
     )
 
 else:

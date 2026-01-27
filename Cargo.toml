@@ -45,7 +45,7 @@ version = "0.0.0"
 [workspace.dependencies]
 bitflags = "2.4"
 clap = "4.4"
-criterion = { version = "0.5", default-features = false }
+criterion = { version = "0.7", default-features = false }
 difference = "2.0"
 enum-iterator = "2.1"
 env_logger = "0.11"
@@ -54,6 +54,7 @@ futures = "0.3"
 futures-util = "0.3"
 fasteval = "0.2"
 getrandom = "0.2"
+iai-callgrind = "0.16.1"
 indoc = "2.0"
 js-sys = "0.3"
 libfuzzer-sys = "0.4"
@@ -64,13 +65,18 @@ nalgebra = { version = "0.33" }
 ndarray = "0.15.4"
 num-bigint = "0.4"
 num-complex = "0.4"
+num-derive = "0.4"
 num-traits = "0.2"
+pprof = { version = "0.14", features = ["criterion", "flamegraph"] }
 probability = "0.20"
+proptest = "1.0"
 indenter = "0.3"
 regex-lite = "0.1"
 rustc-hash = "1"
 serde = { version = "1.0", features = ["derive"] }
 serde-wasm-bindgen = "0.6"
+sorted-vec = "0.8"
+sorted-iter = "0.1"
 wasm-bindgen = "0.2.100"
 wasm-bindgen-futures = "0.4"
 rand = "0.8"
@@ -79,6 +85,9 @@ pyo3 = "0.27.2"
 quantum-sparse-sim = { git = "https://github.com/qir-alliance/qir-runner", rev = "8cd6fa698521ecf96d459f88254e53dd6e5d6877" }
 async-trait = "0.1"
 tokio = { version = "1.44", features = ["macros", "rt"] }
+rayon = "1.11.0"
+bytemuck = "1.23.2"
+wgpu = { version = "27.0.1" }
 
 [workspace.lints.clippy]
 mod_module_files = "warn"
@@ -100,3 +109,9 @@ codegen-units = 1
 
 [profile.release.package.fuzz]
 codegen-units = 16
+
+[profile.bench]
+debug = true
+strip = false
+lto = "fat"
+codegen-units = 1

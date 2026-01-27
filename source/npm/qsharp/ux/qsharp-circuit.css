@@ -52,6 +52,11 @@
     font-style: normal;
   }
 
+  .gate .qs-group-label {
+    fill: var(--main-color);
+    text-anchor: start;
+  }
+
   .qs-mathtext {
     font-family: "KaTeX_Math", "MJXZERO", "MJXTEX-I", serif;
   }
@@ -64,12 +69,12 @@
 
   /* Background for gates */
   .gate-unitary {
-    fill: var(--vscode-button-secondaryBackground, #333333);
+    fill: var(--vscode-input-background, #333333);
   }
 
   /* Text for gates */
   .gate text {
-    fill: var(--vscode-button-secondaryForeground, #ffffff);
+    fill: var(--vscode-input-foreground, #ffffff);
   }
 
   a.qs-circuit-source-link .qs-qubit-label {
@@ -233,15 +238,22 @@
   .qviz .gate-collapse,
   .qviz .gate-expand {
     opacity: 0;
-    transition: opacity 1s;
+    transition: opacity 0.2s;
   }
 
   .qviz:hover .gate-collapse,
   .qviz:hover .gate-expand {
     visibility: visible;
     opacity: 0.2;
-    transition: visibility 1s;
-    transition: opacity 1s;
+    transition: visibility 0.2s;
+    transition: opacity 0.2s;
+  }
+
+  .qviz:hover .gate-collapse:hover,
+  .qviz:hover .gate-expand:hover {
+    visibility: visible;
+    opacity: 1;
+    transition: opacity 0.2s;
   }
 
   .gate-expand,
@@ -260,13 +272,6 @@
   .gate-expand path {
     stroke-width: 4px;
     stroke: black;
-  }
-
-  .gate:hover > .gate-collapse,
-  .gate:hover > .gate-expand {
-    visibility: visible;
-    opacity: 1;
-    transition: opacity 0.2s;
   }
 
   .dropzone-layer {

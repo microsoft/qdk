@@ -40,6 +40,7 @@ import json
 import os
 import sys
 import types
+from pathlib import Path
 from time import monotonic
 from dataclasses import make_dataclass
 
@@ -160,8 +161,7 @@ class Config:
             # For now, we only support local project roots, so use a file schema in the URI.
             # In the future, we may support other schemes, such as github, if/when
             # we have VS Code Web + Jupyter support.
-            normalized_root = os.path.normpath(os.path.join(os.getcwd(), project_root))
-            self._config["projectRoot"] = "file://" + normalized_root
+            self._config["projectRoot"] = Path(os.getcwd(), project_root).as_uri()
 
     def __repr__(self) -> str:
         return "Q# initialized with configuration: " + str(self._config)
@@ -837,7 +837,7 @@ def circuit(
     generation_method: Optional[CircuitGenerationMethod] = None,
     max_operations: Optional[int] = None,
     source_locations: bool = False,
-    group_by_scope: bool = False,
+    group_by_scope: bool = True,
     prune_classical_qubits: bool = False,
 ) -> Circuit:
     """

@@ -1,6 +1,8 @@
 /* Copyright (c) Microsoft Corporation.
    Licensed under the MIT License. */
 
+@import "./qdk-theme.css";
+
 /* Styles for Q# UX components.
 
 Notes:
@@ -345,102 +347,97 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
 .histogram {
   max-height: calc(100vh - 40px);
   max-width: 600px;
-  border: 1px solid var(--border-color);
-  background-color: var(--vscode-sideBar-background, white);
+  border: 1px solid var(--qdk-widget-outline);
+  background-color: var(--qdk-host-background);
 }
 
 .bar {
-  fill: var(--vscode-editorInfo-foreground, var(--nav-background));
+  fill: var(--qdk-shape-fill);
 }
 
 .bar:hover {
-  stroke: gray;
+  stroke: var(--qdk-shape-stroke-hover);
   stroke-width: 0.5;
 }
 
 .bar-selected {
-  stroke: var(--bar-selected-outline);
-  fill: var(--nav-current-background);
+  stroke: var(--qdk-shape-stroke-selected);
+  fill: var(--qdk-shape-fill-selected);
 }
 
 .bar-label {
   font-size: 3pt;
-  fill: var(--vscode-icon-foreground, var(--main-color));
+  fill: var(--qdk-text-high-contrast);
   text-anchor: end;
   pointer-events: none;
 }
 
 .bar-label-ket {
-  font-family: "Courier", monospace;
+  font-family: var(--qdk-font-family-monospace);
+  font-variant-ligatures: none;
 }
 
 .histo-label {
   font-size: 3.5pt;
-  fill: var(--vscode-foreground, #3b3b3b);
+  fill: var(--qdk-host-foreground);
 }
 
 .hover-text {
   font-size: 3.5pt;
-  fill: gray;
+  fill: var(--qdk-host-foreground);
   text-anchor: middle;
 }
 
 .menu-icon * {
-  stroke: black;
-  fill: var(--vscode-sideBar-background, white);
-  stroke: var(--vscode-icon-foreground, #3b3b3b);
+  fill: var(--qdk-host-background);
+  stroke: var(--qdk-host-foreground);
 }
 
 .menu-box {
-  fill: var(--menu-box-fill);
-  stroke: black;
+  fill: var(--qdk-host-background);
+  stroke: var(--qdk-host-foreground);
   stroke-width: 0.1;
 }
 
 .menu-item {
   width: 32px;
   height: 10px;
-  fill: var(--vscode-list-inactiveSelectionBackground, var(--nav-background));
-  stroke: gray;
+  fill: var(--qdk-menu-fill);
+  stroke: var(--qdk-mid-gray);
   stroke-width: 0.2;
 }
 
-/* --vscode-list-inactiveSelectionBackground */
-
 .menu-item:hover {
   stroke-width: 0.6;
-  fill: var(--vscode-list-hoverBackground, var(--nav-hover-background));
+  fill: var(--qdk-menu-fill-hover);
 }
 
 .menu-selected {
   /* stroke: #0800ff; */
-  fill: var(
-    --vscode-list-activeSelectionBackground,
-    var(--nav-current-background)
-  );
+  fill: var(--qdk-menu-fill-selected);
 }
 
 .menu-text {
   font-size: 4.5px;
   pointer-events: none;
-  fill: var(--main-color);
+  fill: var(--qdk-host-foreground);
 }
 
 .menu-separator {
-  stroke: gray;
+  stroke: var(--qdk-mid-gray);
   stroke-width: 0.25;
 }
 
 .help-info {
-  fill: var(--menu-box-fill);
-  stroke: gray;
+  fill: var(--qdk-host-background);
+  stroke: var(--qdk-mid-gray);
   stroke-width: 0.5;
 }
 
 .help-info-text {
   font-size: 4.5px;
   pointer-events: none;
-  fill: var(--main-color);
+  fill: var(--qdk-host-foreground);
 }
 
 /* RE details */

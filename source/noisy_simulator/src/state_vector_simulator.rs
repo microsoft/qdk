@@ -141,7 +141,7 @@ impl StateVector {
         qubits: &[usize],
         renormalization_factor: f64,
         random_sample: f64,
-    ) -> Result<(), Error> {
+    ) -> Result<usize, Error> {
         let mut summed_probability = 0.0;
         let mut last_non_zero_probability = 0.0;
         let mut last_non_zero_probability_index = 0;
@@ -158,7 +158,7 @@ impl StateVector {
                 if summed_probability > random_sample {
                     self.data = state_copy;
                     self.renormalize_with_norm_squared(norm_squared)?;
-                    return Ok(());
+                    return Ok(last_non_zero_probability_index);
                 }
             }
         }
@@ -174,7 +174,9 @@ impl StateVector {
             qubits,
         )?;
 
-        self.renormalize()
+        self.renormalize()?;
+
+        Ok(last_non_zero_probability_index)
     }
 }
 
@@ -196,6 +198,31 @@ impl StateVectorSimulator {
             Err(Error::QubitIdOutOfBounds(*id))
         } else {
             Ok(())
+        }
+    }
+
+    /// Apply non selective evolution.
+    pub fn apply_instrument(
+        &mut self,
+        instrument: &Instrument,
+        qubits: &[usize],
+    ) -> Result<usize, Error> {
+        self.check_out_of_bounds_qubits(qubits)?;
+
+        let renormalization_factor = self
+            .state
+            .as_mut()?
+            .effect_probability(instrument.total_effect(), qubits)?;
+        self.state.as_mut()?.trace_change *= renormalization_factor;
+
+        match self.state.as_mut()?.sample_kraus_operators(
+            instrument.non_selective_kraus_operators(),
+            qubits,
+            renormalization_factor,
+            self.rng.r#gen(),
+        ) {
+            Ok(choice) => Ok(choice),
+            Err(err) => handle_error!(self, err),
         }
     }
 }
@@ -237,28 +264,6 @@ impl NoisySimulator for StateVectorSimulator {
 
         if let Err(err) = self.state.as_mut()?.sample_kraus_operators(
             operation.kraus_operators(),
-            qubits,
-            renormalization_factor,
-            self.rng.r#gen(),
-        ) {
-            handle_error!(self, err);
-        }
-
-        Ok(())
-    }
-
-    /// Apply non selective evolution.
-    fn apply_instrument(&mut self, instrument: &Instrument, qubits: &[usize]) -> Result<(), Error> {
-        self.check_out_of_bounds_qubits(qubits)?;
-
-        let renormalization_factor = self
-            .state
-            .as_mut()?
-            .effect_probability(instrument.total_effect(), qubits)?;
-        self.state.as_mut()?.trace_change *= renormalization_factor;
-
-        if let Err(err) = self.state.as_mut()?.sample_kraus_operators(
-            instrument.non_selective_kraus_operators(),
             qubits,
             renormalization_factor,
             self.rng.r#gen(),

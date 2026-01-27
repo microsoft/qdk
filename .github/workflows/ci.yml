@@ -116,7 +116,7 @@ jobs:
       - name: Prereqs
         run: python ./prereqs.py --install
       - name: Build and Test
-        run: python ./build.py --no-check --wasm --npm --vscode --play --pip --widgets --jupyterlab --qdk --manylinux
+        run: python ./build.py --no-check --wasm --npm --vscode --play --pip --widgets --jupyterlab --qdk
 
   unit-tests:
     name: Rust Unit tests
@@ -153,7 +153,7 @@ jobs:
 
   integration-tests:
     name: Integration tests
-    timeout-minutes: 30
+    timeout-minutes: 40
     strategy:
       matrix:
         os: [windows-latest, ubuntu-latest, macos-latest]
@@ -183,7 +183,7 @@ jobs:
       - name: Prereqs
         run: python ./prereqs.py --install
       - name: Run integration tests
-        run: python ./build.py --no-check --no-test --wasm --npm --vscode --pip --widgets --qdk --integration-tests --manylinux
+        run: python ./build.py --no-check --no-test --wasm --npm --vscode --pip --widgets --qdk --integration-tests
 
   status-check:
     name: Status Check

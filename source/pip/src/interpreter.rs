@@ -22,6 +22,11 @@ use crate::{
         pyobj_to_value, type_ir_from_qsharp_ty, value_to_pyobj,
     },
     noisy_simulator::register_noisy_simulator_submodule,
+    qir_simulation::{
+        IdleNoiseParams, NoiseConfig, NoiseTable, QirInstruction, QirInstructionId,
+        cpu_simulators::{run_clifford, run_cpu_full_state},
+        gpu_full_state::{GpuContext, run_parallel_shots, try_create_gpu_adapter},
+    },
     qre::register_qre_submodule,
 };
 use miette::{Diagnostic, Report};
@@ -35,6 +40,7 @@ use pyo3::{
 };
 use qsc::{
     LanguageFeatures, PackageType, SourceMap,
+    circuit::TracerConfig,
     error::WithSource,
     fir::{self},
     hir::ty::{Prim, Ty},
@@ -85,6 +91,11 @@ fn verify_classes_are_sendable() {
     is_send::<TypeKind>();
     is_send::<PrimitiveKind>();
     is_send::<UdtIR>();
+    is_send::<QirInstructionId>();
+    is_send::<QirInstruction>();
+    is_send::<NoiseConfig>();
+    is_send::<NoiseTable>();
+    is_send::<IdleNoiseParams>();
 }
 
 #[pymodule]
@@ -107,7 +118,17 @@ fn _native<'a>(py: Python<'a>, m: &Bound<'a, PyModule>) -> PyResult<()> {
     m.add_class::<TypeKind>()?;
     m.add_class::<PrimitiveKind>()?;
     m.add_class::<UdtIR>()?;
+    m.add_class::<QirInstructionId>()?;
+    m.add_class::<QirInstruction>()?;
+    m.add_class::<GpuContext>()?;
+    m.add_class::<NoiseConfig>()?;
+    m.add_class::<NoiseTable>()?;
+    m.add_class::<IdleNoiseParams>()?;
     m.add_function(wrap_pyfunction!(physical_estimates, m)?)?;
+    m.add_function(wrap_pyfunction!(run_clifford, m)?)?;
+    m.add_function(wrap_pyfunction!(try_create_gpu_adapter, m)?)?;
+    m.add_function(wrap_pyfunction!(run_cpu_full_state, m)?)?;
+    m.add_function(wrap_pyfunction!(run_parallel_shots, m)?)?;
     m.add("QSharpError", py.get_type::<QSharpError>())?;
     register_noisy_simulator_submodule(py, m)?;
     register_generic_estimator_submodule(m)?;
@@ -424,7 +445,15 @@ impl Interpreter {
                 buildable_program.user_code.language_features,
                 buildable_program.store,
                 &buildable_program.user_code_dependencies,
-                Default::default(),
+                // `trace_circuit` is a deprecated option, so here we pass `false`
+                // for any newer features to discourage its use.
+                // The encouraged alternative is to use the `circuit()` method.
+                TracerConfig {
+                    max_operations: TracerConfig::DEFAULT_MAX_OPERATIONS,
+                    source_locations: false,
+                    group_by_scope: false,
+                    prune_classical_qubits: false,
+                },
             )
         } else {
             interpret::Interpreter::new(
@@ -802,13 +831,14 @@ impl Interpreter {
             }
         };
 
-        let mut tracer_config = qsc::circuit::TracerConfig::default();
-        if let Some(max_ops) = config.max_operations {
-            tracer_config.max_operations = max_ops;
-        }
-        tracer_config.source_locations = config.source_locations;
-        tracer_config.group_by_scope = config.group_by_scope;
-        tracer_config.prune_classical_qubits = config.prune_classical_qubits;
+        let tracer_config = qsc::circuit::TracerConfig {
+            max_operations: config
+                .max_operations
+                .unwrap_or(TracerConfig::DEFAULT_MAX_OPERATIONS),
+            source_locations: config.source_locations,
+            group_by_scope: config.group_by_scope,
+            prune_classical_qubits: config.prune_classical_qubits,
+        };
 
         let generation_method = if let Some(generation_method) = config.generation_method {
             generation_method.into()

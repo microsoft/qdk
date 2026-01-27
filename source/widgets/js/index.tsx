@@ -12,6 +12,10 @@ import {
   ReData,
   Circuit,
   setRenderer,
+  Atoms,
+  type MachineLayout,
+  type TraceData,
+  MoleculeViewer,
 } from "qsharp-lang/ux";
 import markdownIt from "markdown-it";
 import "./widgets.css";
@@ -75,6 +79,12 @@ function render({ model, el }: RenderArgs) {
       break;
     case "Circuit":
       renderCircuit({ model, el });
+      break;
+    case "Atoms":
+      renderAtoms({ model, el });
+      break;
+    case "MoleculeViewer":
+      renderMoleculeViewer({ model, el });
       break;
     default:
       throw new Error(`Unknown component type ${componentType}`);
@@ -273,4 +283,41 @@ function renderCircuit({ model, el }: RenderArgs) {
 
   onChange();
   model.on("change:circuit_json", onChange);
+}
+
+function renderAtoms({ model, el }: RenderArgs) {
+  const onChange = () => {
+    const machineLayout = model.get("machine_layout") as MachineLayout;
+    const traceData = model.get("trace_data") as TraceData;
+
+    if (!machineLayout || !traceData) {
+      return;
+    }
+
+    Atoms(el, machineLayout, traceData);
+  };
+
+  onChange();
+  model.on("change:machine_layout", onChange);
+  model.on("change:trace_data", onChange);
+}
+
+function renderMoleculeViewer({ model, el }: RenderArgs) {
+  const onChange = () => {
+    const moleculeData = model.get("molecule_data") as string;
+    const cubeData = model.get("cube_data") as { [key: string]: string };
+    const isoval = model.get("isoval") as number;
+    prender(
+      <MoleculeViewer
+        moleculeData={moleculeData}
+        cubeData={cubeData || {}}
+        isoValue={isoval}
+      ></MoleculeViewer>,
+      el,
+    );
+  };
+  onChange();
+  model.on("change:molecule_data", onChange);
+  model.on("change:cube_data", onChange);
+  model.on("change:isoval", onChange);
 }

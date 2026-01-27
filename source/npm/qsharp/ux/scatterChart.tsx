@@ -272,7 +272,7 @@ export function ScatterChart(props: {
           x={xLeftMargin - axisTitleHeight}
           y={-svgHeight + yMargin}
         >
-          Created with Azure Quantum Resource Estimator
+          Created with Microsoft Quantum Resource Estimator
         </text>
         <g>
           {props.data.map((series, seriesIdx) => {
