@@ -217,6 +217,14 @@ export class AzureUris {
 export class QuantumUris {
   readonly apiVersion = "2022-09-12-preview";
 
+  // Regular expression to extract the first part of the endpointUri
+  // - Captures only an exact "-v2" suffix (as versionSuffix) if present
+  // - Otherwise, keeps any other suffix as part of the location
+  // e.g. "https://westus.quantum.azure.com" -> location="westus", versionSuffix=undefined
+  // e.g. "https://eastus2-v2.quantum.azure.com" -> location="eastus2", versionSuffix="-v2"
+  public static readonly endpointRegExp =
+    /https:\/\/(?<location>[^.]+?)(?<versionSuffix>-v2)?\./;
+
   constructor(
     public endpoint: string, // e.g. "https://westus.quantum.azure.com"
     public id: string, // e.g. "/subscriptions/00000000-1111-2222-3333-444444444444/resourceGroups/quantumResourcegroup/providers/Microsoft.Quantum/Workspaces/quantumworkspace1"

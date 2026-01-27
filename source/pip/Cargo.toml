@@ -13,12 +13,16 @@ license.workspace = true
 noisy_simulator = { path = "../noisy_simulator" }
 num-bigint = { workspace = true }
 num-complex = { workspace = true }
+num-traits = { workspace = true }
 qsc = { path = "../compiler/qsc" }
+qdk_simulators = { path = "../simulators" }
 resource_estimator = { path = "../resource_estimator" }
 miette = { workspace = true, features = ["fancy"] }
 rustc-hash = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+rayon = { workspace = true }
+rand = { workspace = true }
 
 [lints]
 workspace = true
@@ -27,12 +31,23 @@ workspace = true
 allocator = { path = "../allocator" }
 
 [target.'cfg(not(any(target_os = "windows")))'.dependencies]
-pyo3 = { workspace = true, features = ["abi3-py310", "extension-module", "num-bigint", "num-complex"] }
+pyo3 = { workspace = true, features = [
+    "abi3-py310",
+    "extension-module",
+    "num-bigint",
+    "num-complex",
+] }
 
 [target.'cfg(any(target_os = "windows"))'.dependencies]
 # generate-import-lib: skip requiring Python 3 distribution
 # files to be present on the (cross-)compile host system.
-pyo3 = { workspace = true, features = ["abi3-py310", "extension-module", "generate-import-lib", "num-bigint", "num-complex"] }
+pyo3 = { workspace = true, features = [
+    "abi3-py310",
+    "extension-module",
+    "generate-import-lib",
+    "num-bigint",
+    "num-complex",
+] }
 
 [lib]
 crate-type = ["cdylib"]

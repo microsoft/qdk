@@ -6,8 +6,11 @@ import { RegisterType, RegisterMap, RegisterRenderData } from "../register.js";
 import {
   leftPadding,
   startY,
-  registerHeight,
   classicalRegHeight,
+  groupTopPadding,
+  groupBottomPadding,
+  gateHeight,
+  gatePadding,
 } from "../constants.js";
 import { createSvgElement, group, text } from "./formatUtils.js";
 import { mathChars } from "../utils.js";
@@ -23,46 +26,145 @@ import { mathChars } from "../utils.js";
  */
 const formatInputs = (
   qubits: Qubit[],
+  rowHeights: {
+    [qubitIndex: number]: {
+      heightAboveWire: number;
+      heightBelowWire: number;
+    };
+  },
   renderLocations?: (s: SourceLocation[]) => { title: string; href: string },
-): { qubitWires: SVGElement; registers: RegisterMap; svgHeight: number } => {
-  const qubitWires: SVGElement[] = [];
+): { qubitLabels: SVGElement; registers: RegisterMap; svgHeight: number } => {
+  const qubitLabels: SVGElement[] = [];
   const registers: RegisterMap = {};
 
   let currY: number = startY;
+
+  // currY ->    ┌╌╌╌╌╌╌╌┐
+  //             ╎┌╌╌╌╌╌┐╎
+  //             ╎╎     ╎╎
+  //             ╎╎ ┌─┐ ╎╎
+  //          ───┼┼─│X│─┼┼──
+  //             ╎╎ └╥┘ ╎╎
+  //             ╎╎  ╚══╪╪══
+  //             ╎╎     ╎╎
+  //             ╎└╌╌╌╌╌┘╎
+  //             └╌╌╌╌╌╌╌┘
+
   qubits.forEach(({ id, numResults, declarations }, wireIndex) => {
+    const { heightAboveWire, heightBelowWire } = rowHeights[wireIndex] || {
+      heightAboveWire: 0,
+      heightBelowWire: 0,
+    };
+    currY += heightAboveWire * groupTopPadding;
+
+    //             ┌╌╌╌╌╌╌╌┐
+    //             ╎┌╌╌╌╌╌┐╎
+    // currY ->    ╎╎     ╎╎
+    //             ╎╎ ┌─┐ ╎╎
+    //          ───┼┼─│X│─┼┼──
+    //             ╎╎ └╥┘ ╎╎
+    //             ╎╎  ╚══╪╪══
+    //             ╎╎     ╎╎
+    //             ╎└╌╌╌╌╌┘╎
+    //             └╌╌╌╌╌╌╌┘
+
+    currY += gatePadding + gateHeight / 2;
+
+    //             ┌╌╌╌╌╌╌╌┐
+    //             ╎┌╌╌╌╌╌┐╎
+    //             ╎╎     ╎╎
+    //             ╎╎ ┌─┐ ╎╎
+    // currY -> ───┼┼─│X│─┼┼──
+    //             ╎╎ └╥┘ ╎╎
+    //             ╎╎  ╚══╪╪══
+    //             ╎╎     ╎╎
+    //             ╎└╌╌╌╌╌┘╎
+    //             └╌╌╌╌╌╌╌┘
+
     const link: { link?: { href: string; title: string } } = {};
     if (renderLocations && declarations && declarations.length > 0) {
       link.link = renderLocations(declarations);
     }
 
     // Add qubit wire to list of qubit wires
-    qubitWires.push(qubitInput(currY, wireIndex, id.toString(), link.link));
+    qubitLabels.push(qubitInput(currY, wireIndex, id.toString(), link.link));
 
     // Create qubit register
-    registers[id] = { type: RegisterType.Qubit, y: currY };
+    registers[id] = {
+      type: RegisterType.Qubit,
+      y: currY,
+    };
 
-    // If there are no attached classical registers, increment y by fixed register height
-    if (numResults == null || numResults === 0) {
-      currY += registerHeight;
-      return;
-    }
+    currY += gateHeight / 2;
+
+    //             ┌╌╌╌╌╌╌╌┐
+    //             ╎┌╌╌╌╌╌┐╎
+    //             ╎╎     ╎╎
+    //             ╎╎ ┌─┐ ╎╎
+    //          ───┼┼─│X│─┼┼──
+    // currY ->    ╎╎ └╥┘ ╎╎
+    //             ╎╎  ╚══╪╪══
+    //             ╎╎     ╎╎
+    //             ╎└╌╌╌╌╌┘╎
+    //             └╌╌╌╌╌╌╌┘
 
     // Increment current height by classical register height for attached classical registers
-    currY += classicalRegHeight;
 
     // Add classical wires
     registers[id].children = Array.from(Array(numResults), () => {
+      currY += classicalRegHeight;
+
+      //             ┌╌╌╌╌╌╌╌┐
+      //             ╎┌╌╌╌╌╌┐╎
+      //             ╎╎     ╎╎
+      //             ╎╎ ┌─┐ ╎╎
+      //          ───┼┼─│X│─┼┼──
+      //             ╎╎ └╥┘ ╎╎
+      // currY ->    ╎╎  ╚══╪╪══
+      //             ╎╎     ╎╎
+      //             ╎└╌╌╌╌╌┘╎
+      //             └╌╌╌╌╌╌╌┘
+
       const clsReg: RegisterRenderData = {
         type: RegisterType.Classical,
         y: currY,
       };
-      currY += classicalRegHeight;
       return clsReg;
     });
+
+    currY += gatePadding + gateHeight / 2;
+
+    //             ┌╌╌╌╌╌╌╌┐
+    //             ╎┌╌╌╌╌╌┐╎
+    //             ╎╎     ╎╎
+    //             ╎╎ ┌─┐ ╎╎
+    //          ───┼┼─│X│─┼┼──
+    //             ╎╎ └╥┘ ╎╎
+    //             ╎╎  ╚══╪╪══
+    // currY ->    ╎╎     ╎╎
+    //             ╎└╌╌╌╌╌┘╎
+    //             └╌╌╌╌╌╌╌┘
+
+    currY += heightBelowWire * groupBottomPadding;
+
+    //             ┌╌╌╌╌╌╌╌┐
+    //             ╎┌╌╌╌╌╌┐╎
+    //             ╎╎     ╎╎
+    //             ╎╎ ┌─┐ ╎╎
+    //          ───┼┼─│X│─┼┼──
+    //             ╎╎ └╥┘ ╎╎
+    //             ╎╎  ║  ╎╎
+    //             ╎╎  ╚══╪╪══
+    //             ╎└╌╌╌╌╌┘╎
+    //             └╌╌╌╌╌╌╌┘
+    // currY ->
   });
 
+  // Additional padding at the very bottom
+  currY += classicalRegHeight;
+
   return {
-    qubitWires: group(qubitWires, { class: "qubit-input-states" }),
+    qubitLabels: group(qubitLabels, { class: "qubit-input-states" }),
     registers,
     svgHeight: currY,
   };

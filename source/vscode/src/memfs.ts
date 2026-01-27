@@ -13,9 +13,9 @@ const playgroundRootUri = vscode.Uri.parse(
 );
 
 const playgroundReadme = `
-# Azure Quantum Playground
+# Microsoft Quantum Playground
 
-Welcome to the Azure Quantum Development Kit playground! An online environment to
+Welcome to the Microsoft Quantum Development Kit playground! An online environment to
 safely learn and explore quantum computing with the Q# language.
 
 The 'Samples (Q#)' folder contains a set of common quantum algorithms written in Q#.
@@ -30,8 +30,8 @@ will be lost when the editor window is closed. You should use the 'File: Save
 As...' command in the VS Code Command Palette (accessed by pressing F1) to save
 your work elsewhere if you wish to keep it.
 
-For more information about the Azure Quantum Development Kit,
-visit <https://aka.ms/AQ/Documentation>.
+For more information about the Microsoft Quantum Development Kit,
+visit <https://aka.ms/qdk>.
 `;
 
 // Type of a generated sample entry.

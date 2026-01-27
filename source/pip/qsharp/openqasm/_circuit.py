@@ -48,7 +48,7 @@ def circuit(
     max_operations = kwargs.pop("max_operations", None)
     generation_method = kwargs.pop("generation_method", None)
     source_locations = kwargs.pop("source_locations", False)
-    group_by_scope = kwargs.pop("group_by_scope", False)
+    group_by_scope = kwargs.pop("group_by_scope", True)
     prune_classical_qubits = kwargs.pop("prune_classical_qubits", False)
     config = CircuitConfig(
         max_operations=max_operations,

@@ -6,7 +6,7 @@ import { EventType, sendTelemetryEvent } from "./telemetry";
 import { getRandomGuid } from "./utils";
 
 // The latest version for which we want to show the changelog page
-const CHANGELOG_VERSION = "v1.23.0"; // <-- Update this when you want to show a new changelog to users
+const CHANGELOG_VERSION = "v1.25.1"; // <-- Update this when you want to show a new changelog to users
 
 export function registerChangelogCommand(
   context: vscode.ExtensionContext,
@@ -51,7 +51,7 @@ export async function maybeShowChangelogPrompt(
       changelogVersion: CHANGELOG_VERSION,
     });
     const choice = await vscode.window.showInformationMessage(
-      "The Azure Quantum Development Kit has been updated.",
+      "The Microsoft Quantum Development Kit has been updated.",
       ...buttons,
     );
     if (choice === buttons[0]) {

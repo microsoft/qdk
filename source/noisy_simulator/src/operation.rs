@@ -25,7 +25,7 @@ use crate::{Error, SquareMatrix};
 #[macro_export]
 macro_rules! operation {
     ($([$($($v:expr),* );*]),*) => {
-        Operation::new(vec![
+        $crate::Operation::new(vec![
             $(nalgebra::dmatrix![
                 $($(num_complex::Complex::<f64>::from($v)),* );*
             ]),*

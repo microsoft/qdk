@@ -210,3 +210,36 @@ class Circuit(anywidget.AnyWidget):
     def __init__(self, circuit):
         super().__init__(circuit_json=circuit.json())
         self.layout.overflow = "visible scroll"
+
+
+class Atoms(anywidget.AnyWidget):
+    _esm = pathlib.Path(__file__).parent / "static" / "index.js"
+    _css = pathlib.Path(__file__).parent / "static" / "index.css"
+
+    comp = traitlets.Unicode("Atoms").tag(sync=True)
+    machine_layout = traitlets.Dict().tag(sync=True)
+    trace_data = traitlets.Dict().tag(sync=True)
+
+    def __init__(self, machine_layout, trace_data):
+        super().__init__(machine_layout=machine_layout, trace_data=trace_data)
+
+
+class MoleculeViewer(anywidget.AnyWidget):
+    _esm = pathlib.Path(__file__).parent / "static" / "index.js"
+    _css = pathlib.Path(__file__).parent / "static" / "index.css"
+
+    comp = traitlets.Unicode("MoleculeViewer").tag(sync=True)
+    molecule_data = traitlets.Unicode().tag(sync=True)
+    cube_data = traitlets.Dict().tag(sync=True)
+    isoval = traitlets.Float(0.02).tag(sync=True)
+
+    def __init__(self, molecule_data, cube_data={}, isoval=0.02):
+        """
+        This function generates a 3D molecule viewer for the provided molecular data in XYZ format.
+
+        Parameters:
+        - molecule_data: string containing the molecular data in XYZ format.
+        """
+        super().__init__(
+            molecule_data=molecule_data, cube_data=cube_data, isoval=isoval
+        )

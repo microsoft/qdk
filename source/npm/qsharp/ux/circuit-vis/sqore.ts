@@ -11,8 +11,8 @@ import {
   CircuitGroup,
   ComponentGrid,
   Operation,
-  Column,
   SourceLocation,
+  Qubit,
 } from "./circuit.js";
 import { GateRenderData } from "./gateRenderData.js";
 import {
@@ -24,6 +24,7 @@ import {
 import { createDropzones } from "./draggable.js";
 import { enableEvents } from "./events.js";
 import { createPanel, enableRunButton } from "./panel.js";
+import { getMinMaxRegIdx } from "./utils.js";
 
 /**
  * Contains render data for visualization.
@@ -115,13 +116,10 @@ export class Sqore {
       ),
     );
 
-    // Render operations starting at given depth
-    _circuit.componentGrid = this.selectOpsAtDepth(
-      _circuit.componentGrid,
-      this.renderDepth,
-    );
+    // Expand operations to the specified render depth
+    this.expandOperationsToDepth(_circuit.componentGrid, this.renderDepth);
 
-    // If only one top-level operation, expand automatically:
+    // Auto-expand any groups with single children
     this.expandIfSingleOperation(_circuit.componentGrid);
 
     // Create visualization components
@@ -151,6 +149,27 @@ export class Sqore {
       enableEvents(container, this, () => this.renderCircuit(container));
       if (this.options.editCallback != undefined) {
         this.options.editCallback(this.minimizeCircuits(this.circuitGroup));
+      }
+    }
+  }
+
+  private expandOperationsToDepth(
+    componentGrid: ComponentGrid,
+    targetDepth: number,
+    currentDepth: number = 0,
+  ) {
+    for (const col of componentGrid) {
+      for (const op of col.components) {
+        if (currentDepth < targetDepth && op.children != null) {
+          op.conditionalRender = ConditionalRender.AsGroup;
+          op.dataAttributes = op.dataAttributes || {};
+          op.dataAttributes["expanded"] = "true";
+          this.expandOperationsToDepth(
+            op.children,
+            targetDepth,
+            currentDepth + 1,
+          );
+        }
       }
     }
   }
@@ -217,15 +236,33 @@ export class Sqore {
     };
 
     const { qubits, componentGrid } = circuit;
-    const { qubitWires, registers, svgHeight } = formatInputs(
+
+    // Calculate the row heights, which may vary depending on how many
+    // expanded group borders need to fit between qubit wires.
+    const rowHeights = getRowHeights(qubits, componentGrid);
+
+    // Draw the qubit labels.
+    // Also calculate other register render data to be used later in the rendering.
+    const { qubitLabels, registers, svgHeight } = formatInputs(
       qubits,
+      rowHeights,
       this.options.isEditable ? undefined : this.options.renderLocations,
     );
+
+    // Calculate the render data for the operations.
+    const topY = qubits[0] ? registers[qubits[0].id].y : -1;
+    const bottomY = qubits[qubits.length - 1]
+      ? registers[qubits[qubits.length - 1].id].y
+      : -1;
     const { renderDataArray, svgWidth } = processOperations(
       componentGrid,
+      topY,
+      bottomY,
       registers,
       this.options.isEditable ? undefined : this.options.renderLocations,
     );
+
+    // Draw the operations.
     const formattedGates: SVGElement = formatGates(renderDataArray);
 
     // Draw the lines that represent qubit and classical wires.
@@ -238,7 +275,7 @@ export class Sqore {
     const composedSqore: ComposedSqore = {
       width: svgWidth,
       height: svgHeight,
-      elements: [qubitWires, formattedRegs, formattedGates],
+      elements: [qubitLabels, formattedRegs, formattedGates],
     };
     return composedSqore;
   }
@@ -307,53 +344,6 @@ export class Sqore {
     operation.dataAttributes["zoom-in"] = (
       operation.children != null
     ).toString();
-  }
-
-  /**
-   * Pick out operations that are at or below `renderDepth`.
-   *
-   * @param componentGrid Circuit components.
-   * @param renderDepth Initial layer depth at which to render gates.
-   *
-   * @returns Grid of components at or below specified depth.
-   */
-  private selectOpsAtDepth(
-    componentGrid: ComponentGrid,
-    renderDepth: number,
-  ): ComponentGrid {
-    if (renderDepth < 0)
-      throw new Error(
-        `Invalid renderDepth of ${renderDepth}. Needs to be >= 0.`,
-      );
-    if (renderDepth === 0) return componentGrid;
-    const selectedOps: ComponentGrid = [];
-    componentGrid.forEach((col) => {
-      const selectedCol: Operation[] = [];
-      const extraCols: Column[] = [];
-      col.components.forEach((op) => {
-        if (op.children != null) {
-          const selectedChildren = this.selectOpsAtDepth(
-            op.children,
-            renderDepth - 1,
-          );
-          if (selectedChildren.length > 0) {
-            selectedCol.push(...selectedChildren[0].components);
-            selectedChildren.slice(1).forEach((col, colIndex) => {
-              if (extraCols[colIndex] == null) extraCols[colIndex] = col;
-              // NOTE: I'm unsure if this is a safe way to combine column arrays
-              else extraCols[colIndex].components.push(...col.components);
-            });
-          }
-        } else {
-          selectedCol.push(op);
-        }
-      });
-      selectedOps.push({ components: selectedCol });
-      if (extraCols.length > 0) {
-        selectedOps.push(...extraCols);
-      }
-    });
-    return selectedOps;
   }
 
   /**
@@ -517,4 +507,93 @@ export class Sqore {
     }
     operation.dataAttributes = undefined;
   };
+}
+
+/**
+ * Recursively computes vertical space required to render group borders.
+ *
+ * The resulting `heightAboveWire` and `heightBelowWire` values per qubit are
+ * later used by `formatInputs` to leave sufficient space between qubit wires.
+ *
+ * @param qubits Array of qubits in the circuit.
+ * @param componentGrid Grid of circuit components to traverse.
+ *
+ * @returns Mapping from qubit index to required heights above and below their wires.
+ */
+function getRowHeights(
+  qubits: Qubit[],
+  componentGrid: ComponentGrid,
+): {
+  [qubitIndex: number]: {
+    heightAboveWire: number;
+    heightBelowWire: number;
+  };
+} {
+  const rowHeights: {
+    [qubitIndex: number]: {
+      currentGroupBordersAboveWire: number;
+      currentGroupBordersBelowWire: number;
+      heightAboveWire: number;
+      heightBelowWire: number;
+    };
+  } = {};
+
+  for (const q of qubits) {
+    const { id } = q;
+    rowHeights[id] = {
+      currentGroupBordersBelowWire: 0,
+      currentGroupBordersAboveWire: 0,
+      heightBelowWire: 0,
+      heightAboveWire: 0,
+    };
+  }
+
+  updateRowHeights(componentGrid, rowHeights, qubits.length);
+  return rowHeights;
+}
+
+function updateRowHeights(
+  componentGrid: ComponentGrid,
+  rowHeights: {
+    [qubitIndex: number]: {
+      currentGroupBordersAboveWire: number;
+      currentGroupBordersBelowWire: number;
+      heightAboveWire: number;
+      heightBelowWire: number;
+    };
+  },
+  numQubits: number,
+) {
+  for (const col of componentGrid) {
+    for (const component of col.components) {
+      if (component.dataAttributes?.["expanded"] === "true") {
+        // We're in an expanded group. There is a dashed border above
+        // the top qubit, and below the bottom qubit.
+        const [topQubit, bottomQubit] = getMinMaxRegIdx(component, numQubits);
+
+        // Increment the current count of dashed group borders for
+        // the top and bottom rows for this operation.
+        // If the max height for this row has been exceeded above or below the wire,
+        // update it.
+        rowHeights[topQubit].currentGroupBordersAboveWire++;
+        rowHeights[topQubit].heightAboveWire = Math.max(
+          rowHeights[topQubit].heightAboveWire,
+          rowHeights[topQubit].currentGroupBordersAboveWire,
+        );
+
+        rowHeights[bottomQubit].currentGroupBordersBelowWire++;
+        rowHeights[bottomQubit].heightBelowWire = Math.max(
+          rowHeights[bottomQubit].heightBelowWire,
+          rowHeights[bottomQubit].currentGroupBordersBelowWire,
+        );
+
+        // recurse
+        updateRowHeights(component.children || [], rowHeights, numQubits);
+
+        // decrement
+        rowHeights[topQubit].currentGroupBordersAboveWire--;
+        rowHeights[bottomQubit].currentGroupBordersBelowWire--;
+      }
+    }
+  }
 }

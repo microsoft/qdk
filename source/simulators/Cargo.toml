@@ -10,9 +10,49 @@ repository.workspace = true
 
 [dependencies]
 quantum-sparse-sim = { workspace = true }
+bytemuck = { workspace = true }
+futures = { workspace = true }
+wgpu = { workspace = true }
+rand = { workspace = true }
+nalgebra = { workspace = true }
+num-bigint = { workspace = true }
+num-complex = { workspace = true }
+num-traits = { workspace = true }
+regex-lite = { workspace = true }
+rustc-hash = { workspace = true }
+paulimer = { path = "../paulimer" }
+noisy_simulator = { path = "../noisy_simulator" }
+
+[dev-dependencies]
+expect-test = { workspace = true }
+criterion = { workspace = true }
+
 
 [lints]
 workspace = true
 
 [lib]
 doctest = false
+
+[target.'cfg(target_os="linux")'.dev-dependencies]
+iai-callgrind = { workspace = true }
+
+[[bench]]
+name = "sim_time"
+harness = false
+
+[[bench]]
+name = "sim_time_noisy"
+harness = false
+
+[[bench]]
+name = "sim_mem"
+harness = false
+
+# [[bench]]
+# name = "gpu"
+# harness = false
+
+[[bin]]
+name = "gpu-runner"
+path = "src/bin/gpu-runner.rs"

@@ -1,0 +1,83 @@
+#viewer {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+#viewer-container {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  /* border: 1px solid gray; */
+}
+
+#viewer {
+  width: 100%;
+  height: 100%;
+}
+
+#view-dropdown-container {
+  position: absolute;
+  top: 10px; /* distance from bottom */
+  left: 10px; /* distance from right */
+  height: 20px;
+  padding: 10px;
+  border-radius: 4px;
+  z-index: 10;
+  font-family: system-ui;
+}
+
+#viewSelector {
+  padding-left: 4px;
+}
+
+.view-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.view-option label {
+  margin-right: 0;
+  white-space: nowrap;
+  min-width: 120px;
+}
+
+.view-option select,
+.view-option input[type="range"] {
+  color: var(--vscode-editor-foreground);
+  background-color: var(--vscode-editor-background);
+}
+
+#cube-dropdown-container {
+  position: absolute;
+  top: 40px; /* distance from bottom */
+  left: 10px; /* distance from right */
+  padding: 10px;
+  height: 20px;
+  border-radius: 4px;
+  z-index: 10;
+  font-family: system-ui;
+}
+
+#isoval-slider-container {
+  position: absolute;
+  top: 70px; /* distance from bottom */
+  left: 10px; /* distance from right */
+  padding: 10px;
+  height: 40px;
+  border-radius: 4px;
+  z-index: 10;
+  font-family: system-ui;
+}
+
+#isovalSlider {
+  width: 100px;
+  outline: none;
+}
+
+#isovalInput {
+  width: 64px;
+}

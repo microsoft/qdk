@@ -44,7 +44,7 @@ A typical `qsharp.json` will be a JSON file with an empty JSON object in it.
 {}
 ```
 
-Modern Q# does not use `namespace` blocks to enclose code.
+Q# best practice is to _NOT_ use `namespace` blocks to enclose code.
 Each function or operation is in a namespace which is the name of the containing file.
 For example, if `Main.qs` has an operation `Foo`, then `Tests.qs` could reference the
 operation as `Main.Foo`, or bring `Foo` into scope by adding `import Main.Foo;` in the file.
@@ -79,7 +79,7 @@ file might appear as:
       "github": {
         "ref": "v1.15.0",
         "owner": "microsoft",
-        "repo": "qsharp",
+        "repo": "qdk",
         "path": "library/chemistry"
       }
     }
