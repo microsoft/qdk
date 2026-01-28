@@ -21,8 +21,8 @@ from .. import telemetry_events
 
 def compile(
     source: Union[str, Callable],
-    *args,
-    **kwargs: Optional[Dict[str, Any]],
+    *args: Any,
+    **kwargs: Any,
 ) -> QirInputData:
     """
     Compiles the OpenQASM source code into a program that can be submitted to a
