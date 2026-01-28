@@ -1062,3 +1062,12 @@ const _createConfirmPrompt = (
 };
 
 export { enableEvents, CircuitEvents };
+
+// Provide access to the current circuit model for external modules
+export function getCurrentCircuitModel(): {
+  qubits: Qubit[];
+  componentGrid: ComponentGrid;
+} | null {
+  if (events == null) return null;
+  return { qubits: events.qubits, componentGrid: events.componentGrid };
+}

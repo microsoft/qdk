@@ -3,6 +3,13 @@
 
 import { Ket, Measurement, Operation, Unitary } from "./circuit.js";
 import {
+  createStatePanel,
+  updateStatePanelFromMap,
+  renderDefaultStatePanel,
+  renderUnsupportedStatePanel,
+} from "./stateViz.js";
+import { computeAmpMapFromCurrentModel } from "./stateCompute.js";
+import {
   gateHeight,
   horizontalGap,
   minGateWidth,
@@ -11,12 +18,24 @@ import {
 import { formatGate } from "./formatters/gateFormatter.js";
 import { GateType, GateRenderData } from "./gateRenderData.js";
 import { getMinGateWidth } from "./utils.js";
+import {
+  attachStateDevToolbar,
+  createDefaultDevToolbarState,
+  DevToolbarState,
+  getStaticMockAmpMap,
+} from "./devToolbar.js";
 
 /**
  * Create a panel for the circuit visualization.
- * @param container     HTML element for rendering visualization into
+ * @param container         HTML element for rendering visualization into
+ * @param showDevToolbar    Optional boolean controlling dev toolbar visibility
+ * @param statePanelInitiallyExpanded Optional boolean controlling whether the state panel starts expanded
  */
-const createPanel = (container: HTMLElement): void => {
+const createPanel = (
+  container: HTMLElement,
+  showDevToolbar?: boolean,
+  statePanelInitiallyExpanded?: boolean,
+): void => {
   // Find or create the wrapper
   let wrapper: HTMLElement | null = container.querySelector(".circuit-wrapper");
   const circuit = container.querySelector("svg.qviz");
@@ -26,9 +45,6 @@ const createPanel = (container: HTMLElement): void => {
   if (!wrapper) {
     wrapper = _elem("div", "");
     wrapper.className = "circuit-wrapper";
-    wrapper.style.display = "block";
-    wrapper.style.overflow = "auto";
-    wrapper.style.width = "100%";
     wrapper.appendChild(circuit);
     container.appendChild(wrapper);
   } else if (circuit.parentElement !== wrapper) {
@@ -40,6 +56,12 @@ const createPanel = (container: HTMLElement): void => {
   const prevMsg = wrapper.querySelector(".empty-circuit-message");
   if (prevMsg) prevMsg.remove();
 
+  // Ensure the toolbox panel exists on the left
+  if (container.querySelector(".panel") == null) {
+    const panelElem = _panel();
+    container.prepend(panelElem);
+  }
+
   // Check if the circuit is empty by inspecting the .wires group
   const wiresGroup = circuit?.querySelector(".wires");
   if (!wiresGroup || wiresGroup.children.length === 0) {
@@ -47,19 +69,80 @@ const createPanel = (container: HTMLElement): void => {
     emptyMsg.className = "empty-circuit-message";
     emptyMsg.textContent =
       "Your circuit is empty. Drag gates from the toolbox to get started!";
-    emptyMsg.style.padding = "2em";
-    emptyMsg.style.textAlign = "center";
-    emptyMsg.style.color = "#888";
-    emptyMsg.style.fontSize = "1.1em";
     wrapper.appendChild(emptyMsg);
   }
 
-  if (container.querySelector(".panel") == null) {
-    const panelElem = _panel();
-    container.prepend(panelElem);
-    container.style.display = "flex";
-    container.style.height = "80vh";
-    container.style.width = "95vw";
+  // Ensure flex layout via CSS classes
+  container.classList.add("circuit-editor-container");
+  wrapper.classList.add("circuit-wrapper");
+
+  // Ensure a right-side state panel exists
+  if (container.querySelector(".state-panel") == null) {
+    const statePanel = createStatePanel(statePanelInitiallyExpanded === true);
+    container.appendChild(statePanel);
+  }
+
+  // Render default state in panel immediately.
+  const panelElem = container.querySelector(
+    ".state-panel",
+  ) as HTMLElement | null;
+  if (panelElem) {
+    const state: DevToolbarState = createDefaultDevToolbarState();
+
+    const renderState = (panel: HTMLElement) => {
+      if (state.dataMode === "mock") {
+        const ampMap = getStaticMockAmpMap(state.mockSet);
+        updateStatePanelFromMap(panel, ampMap, {
+          normalize: false,
+          minProbThreshold: state.minProbThreshold,
+        });
+        return true;
+      }
+      try {
+        const ampMap = computeAmpMapFromCurrentModel(state.endianness);
+        if (ampMap) {
+          updateStatePanelFromMap(panel, ampMap, {
+            normalize: true,
+            minProbThreshold: state.minProbThreshold,
+          });
+          return true;
+        }
+
+        // Determine current wire count from the circuit DOM
+        const circuit = container.querySelector("svg.qviz");
+        const wiresGroup = circuit?.querySelector(".wires");
+        const wireCount = wiresGroup ? wiresGroup.children.length : 0;
+        renderDefaultStatePanel(panel, wireCount);
+        return false;
+      } catch (e) {
+        const err = e as Error;
+        if (err?.name === "UnsupportedStateComputeError") {
+          renderUnsupportedStatePanel(panel, err.message);
+          return true;
+        }
+        renderUnsupportedStatePanel(
+          panel,
+          "State visualization is unavailable for this circuit.",
+        );
+        return true;
+      }
+    };
+
+    // Attach dev toolbar if enabled
+    if (showDevToolbar) {
+      attachStateDevToolbar(panelElem, state, () => renderState(panelElem));
+    }
+
+    // Initial render; if the circuit model isn't ready yet, retry briefly until available
+    const gotReal = renderState(panelElem);
+    if (!gotReal) {
+      let attempts = 20; // try for ~2 seconds total
+      const retry = () => {
+        if (renderState(panelElem)) return; // success swaps mock for real
+        if (--attempts > 0) setTimeout(retry, 100);
+      };
+      setTimeout(retry, 100);
+    }
   }
 };
 
@@ -82,7 +165,6 @@ const enableRunButton = (
 
 /**
  * Function to produce panel element
- * @param context       Context object to manage extension state
  * @returns             HTML element for panel
  */
 const _panel = (): HTMLElement => {
@@ -94,7 +176,6 @@ const _panel = (): HTMLElement => {
 
 /**
  * Function to produce toolbox element
- * @param context       Context object to manage extension state
  * @returns             HTML element for toolbox
  */
 const _createToolbox = (): HTMLElement => {
@@ -128,6 +209,11 @@ const _createToolbox = (): HTMLElement => {
   // Append run button
   const runButtonGroup = _createRunButton(prefixY + gateHeight + 20);
   svgElem.appendChild(runButtonGroup);
+
+  // Size SVG to content height so the toolbox panel can scroll when window is short
+  const totalSvgHeight = prefixY + 2 * gateHeight + 32; // gates + button + padding
+  svgElem.setAttribute("height", totalSvgHeight.toString());
+  svgElem.setAttribute("width", "100%");
 
   // Generate toolbox panel
   const toolboxElem = _elem("div", "toolbox-panel");

@@ -24,6 +24,7 @@ export function Circuit(props: {
   editCallback?: (fileData: qviz.CircuitGroup) => void;
   runCallback?: () => void;
   renderLocations: (s: SourceLocation[]) => { title: string; href: string };
+  showStateDevToolbar?: boolean;
 }) {
   let unrenderable = false;
   let qubits = 0;
@@ -69,6 +70,7 @@ function ZoomableCircuit(props: {
   editCallback?: (fileData: qviz.CircuitGroup) => void;
   runCallback?: () => void;
   renderLocations: (s: SourceLocation[]) => { title: string; href: string };
+  showStateDevToolbar?: boolean;
 }) {
   const circuitDiv = useRef<HTMLDivElement>(null);
   const [zoomLevel, setZoomLevel] = useState(100);
@@ -186,6 +188,7 @@ function ZoomableCircuit(props: {
       editCallback,
       runCallback,
       renderLocations,
+      showStateDevToolbar: props.showStateDevToolbar === true,
     });
     return container.getElementsByClassName("qviz")[0]!;
   }
@@ -332,6 +335,7 @@ export function CircuitPanel(props: CircuitProps) {
           editCallback={props.editCallback}
           runCallback={props.runCallback}
           renderLocations={renderLocations}
+          showStateDevToolbar={props.showStateDevToolbar}
         ></Circuit>
       ) : null}
     </div>
