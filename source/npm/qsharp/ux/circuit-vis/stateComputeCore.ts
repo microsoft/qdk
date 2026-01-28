@@ -1,6 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
+// Core state computation for circuit-vis.
+// Implements a small statevector simulator that evaluates the circuit model and
+// produces an amplitude map. Intentionally avoids DOM/visualization concerns so
+// it can run on the main thread or in a Web Worker.
+
 import type { ComponentGrid, Operation, Qubit } from "./circuit.js";
 import { evaluateAngleExpression } from "./angleExpression.js";
 

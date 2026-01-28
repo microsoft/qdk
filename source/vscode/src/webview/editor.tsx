@@ -42,8 +42,20 @@ type WorkerComputeRequest = {
   model: CircuitModelSnapshot;
   endianness: Endianness;
 };
+type WorkerComputeVizRequest = {
+  command: "computeViz";
+  requestId: number;
+  model: CircuitModelSnapshot;
+  endianness: Endianness;
+  opts?: {
+    normalize?: boolean;
+    minProbThreshold?: number;
+    maxColumns?: number;
+  };
+};
 type WorkerComputeResponse =
   | { command: "result"; requestId: number; ampMap: any }
+  | { command: "resultViz"; requestId: number; columns: any }
   | {
       command: "error";
       requestId: number;
@@ -210,6 +222,125 @@ function computeAmpMapInWorker(
   });
 }
 
+function computeStateVizColumnsInWorker(
+  model: CircuitModelSnapshot,
+  endianness: Endianness,
+  opts?: {
+    normalize?: boolean;
+    minProbThreshold?: number;
+    maxColumns?: number;
+  },
+) {
+  cancelActiveStateComputeWorker("replaced by new compute request");
+
+  const requestId = ++stateComputeRequestId;
+  const startedAt = performance.now();
+  const created = createStateComputeWorker();
+  return new Promise<any>((resolve, reject) => {
+    const modelSummary = {
+      qubits: Array.isArray(model?.qubits) ? model.qubits.length : 0,
+      columns: Array.isArray(model?.componentGrid)
+        ? model.componentGrid.length
+        : 0,
+    };
+
+    activeStateComputeWorker = {
+      requestId,
+      worker: created.worker,
+      blobUrl: created.blobUrl,
+      startedAt,
+      modelSummary,
+      reject,
+    };
+
+    logStateCompute("worker created", {
+      requestId,
+      blobUrl: created.blobUrl,
+      endianness,
+      modelSummary,
+      mode: "viz",
+    });
+
+    created.worker.onerror = (ev: ErrorEvent) => {
+      if (
+        !activeStateComputeWorker ||
+        activeStateComputeWorker.requestId !== requestId
+      ) {
+        return;
+      }
+
+      const elapsedMs = Math.round(performance.now() - startedAt);
+      logStateCompute("worker onerror", {
+        requestId,
+        elapsedMs,
+        message: ev.message,
+        filename: (ev as any).filename,
+        lineno: (ev as any).lineno,
+        colno: (ev as any).colno,
+      });
+
+      disposeActiveStateComputeWorker();
+      reject(new Error(ev.message || "State compute worker error"));
+    };
+
+    created.worker.onmessage = (ev: MessageEvent<WorkerComputeResponse>) => {
+      if (
+        !activeStateComputeWorker ||
+        activeStateComputeWorker.requestId !== requestId
+      ) {
+        return;
+      }
+      const msg = ev.data as any;
+      if (!msg || typeof msg !== "object") return;
+      if (msg.command === "resultViz") {
+        const columns = msg.columns;
+        const elapsedMs = Math.round(performance.now() - startedAt);
+        const colCount = Array.isArray(columns) ? columns.length : 0;
+        const others =
+          Array.isArray(columns) &&
+          columns.some((c: any) => c && c.isOthers === true);
+        logStateCompute("compute finished", {
+          requestId,
+          elapsedMs,
+          colCount,
+          others,
+        });
+        disposeActiveStateComputeWorker();
+        resolve(columns);
+        return;
+      }
+      if (msg.command === "error") {
+        const err = new Error(msg.error?.message ?? "Worker error");
+        (err as any).name = msg.error?.name ?? "Error";
+        const elapsedMs = Math.round(performance.now() - startedAt);
+        logStateCompute("compute failed", {
+          requestId,
+          elapsedMs,
+          error: { name: (err as any).name, message: err.message },
+        });
+        disposeActiveStateComputeWorker();
+        reject(err);
+      }
+    };
+
+    logStateCompute("compute started", {
+      requestId,
+      endianness,
+      modelSummary: activeStateComputeWorker.modelSummary,
+      mode: "viz",
+      opts,
+    });
+
+    created.worker.postMessage({
+      command: "computeViz",
+      requestId,
+      model,
+      endianness,
+      opts,
+    } satisfies WorkerComputeVizRequest);
+  });
+}
+
 function main() {
   state = (vscodeApi.getState() as any) || loadingState;
   render(<App state={state} />, document.body);
@@ -221,6 +352,15 @@ function main() {
       model: CircuitModelSnapshot,
       endianness: Endianness,
     ) => computeAmpMapInWorker(model, endianness),
+    computeStateVizColumnsForCircuitModel: (
+      model: CircuitModelSnapshot,
+      endianness: Endianness,
+      opts?: {
+        normalize?: boolean;
+        minProbThreshold?: number;
+        maxColumns?: number;
+      },
+    ) => computeStateVizColumnsInWorker(model, endianness, opts),
   };
 
   window.addEventListener("unload", () => {

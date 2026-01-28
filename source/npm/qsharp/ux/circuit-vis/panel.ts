@@ -2,14 +2,7 @@
 // Licensed under the MIT license.
 
 import { Ket, Measurement, Operation, Unitary } from "./circuit.js";
-import {
-  createStatePanel,
-  updateStatePanelFromMap,
-  renderDefaultStatePanel,
-  renderUnsupportedStatePanel,
-  setStatePanelLoading,
-} from "./stateViz.js";
-import { computeAmpMapFromCurrentModelAsync } from "./stateCompute.js";
+import { ensureStateVisualization } from "./stateVizController.js";
 import {
   gateHeight,
   horizontalGap,
@@ -19,12 +12,60 @@ import {
 import { formatGate } from "./formatters/gateFormatter.js";
 import { GateType, GateRenderData } from "./gateRenderData.js";
 import { getMinGateWidth } from "./utils.js";
-import {
-  attachStateDevToolbar,
-  createDefaultDevToolbarState,
-  DevToolbarState,
-  getStaticMockAmpMap,
-} from "./devToolbar.js";
+
+const getOrCreateCircuitWrapper = (container: HTMLElement) => {
+  let wrapper: HTMLElement | null = container.querySelector(".circuit-wrapper");
+  const circuit = container.querySelector("svg.qviz") as SVGElement | null;
+  if (circuit == null) {
+    throw new Error("No circuit found in the container");
+  }
+
+  if (!wrapper) {
+    wrapper = document.createElement("div");
+    wrapper.className = "circuit-wrapper";
+    wrapper.appendChild(circuit);
+    container.appendChild(wrapper);
+  } else if (circuit.parentElement !== wrapper) {
+    wrapper.appendChild(circuit);
+  }
+
+  return { wrapper, circuit };
+};
+
+const attachToolboxPanelIfMissing = (
+  container: HTMLElement,
+  createToolboxPanel: () => HTMLElement,
+): void => {
+  if (container.querySelector(".panel") != null) return;
+  container.prepend(createToolboxPanel());
+};
+
+const removeEmptyCircuitMessage = (wrapper: HTMLElement): void => {
+  const prevMsg = wrapper.querySelector(".empty-circuit-message");
+  if (prevMsg) prevMsg.remove();
+};
+
+const addEmptyCircuitMessageIfEmpty = (
+  wrapper: HTMLElement,
+  circuit: SVGElement,
+): void => {
+  const wiresGroup = circuit?.querySelector(".wires");
+  if (!wiresGroup || wiresGroup.children.length === 0) {
+    const emptyMsg = document.createElement("div");
+    emptyMsg.className = "empty-circuit-message";
+    emptyMsg.textContent =
+      "Your circuit is empty. Drag gates from the toolbox to get started!";
+    wrapper.appendChild(emptyMsg);
+  }
+};
+
+const applyCircuitEditorLayoutClasses = (
+  container: HTMLElement,
+  wrapper: HTMLElement,
+): void => {
+  container.classList.add("circuit-editor-container");
+  wrapper.classList.add("circuit-wrapper");
+};
 
 /**
  * Create a panel for the circuit visualization.
@@ -37,235 +78,17 @@ const createPanel = (
   showDevToolbar?: boolean,
   statePanelInitiallyExpanded?: boolean,
 ): void => {
-  // Find or create the wrapper
-  let wrapper: HTMLElement | null = container.querySelector(".circuit-wrapper");
-  const circuit = container.querySelector("svg.qviz");
-  if (circuit == null) {
-    throw new Error("No circuit found in the container");
-  }
-  if (!wrapper) {
-    wrapper = _elem("div", "");
-    wrapper.className = "circuit-wrapper";
-    wrapper.appendChild(circuit);
-    container.appendChild(wrapper);
-  } else if (circuit.parentElement !== wrapper) {
-    // If wrapper exists but SVG is not inside, ensure it's appended
-    wrapper.appendChild(circuit);
-  }
+  const { wrapper, circuit } = getOrCreateCircuitWrapper(container);
+  removeEmptyCircuitMessage(wrapper);
+  attachToolboxPanelIfMissing(container, _panel);
+  addEmptyCircuitMessageIfEmpty(wrapper, circuit);
+  applyCircuitEditorLayoutClasses(container, wrapper);
 
-  // Remove any previous message
-  const prevMsg = wrapper.querySelector(".empty-circuit-message");
-  if (prevMsg) prevMsg.remove();
-
-  // Ensure the toolbox panel exists on the left
-  if (container.querySelector(".panel") == null) {
-    const panelElem = _panel();
-    container.prepend(panelElem);
-  }
-
-  // Check if the circuit is empty by inspecting the .wires group
-  const wiresGroup = circuit?.querySelector(".wires");
-  if (!wiresGroup || wiresGroup.children.length === 0) {
-    const emptyMsg = document.createElement("div");
-    emptyMsg.className = "empty-circuit-message";
-    emptyMsg.textContent =
-      "Your circuit is empty. Drag gates from the toolbox to get started!";
-    wrapper.appendChild(emptyMsg);
-  }
-
-  // Ensure flex layout via CSS classes
-  container.classList.add("circuit-editor-container");
-  wrapper.classList.add("circuit-wrapper");
-
-  // Ensure a right-side state panel exists
-  if (container.querySelector(".state-panel") == null) {
-    const statePanel = createStatePanel(statePanelInitiallyExpanded === true);
-    container.appendChild(statePanel);
-  }
-
-  // Render default state in panel immediately.
-  const panelElem = container.querySelector(
-    ".state-panel",
-  ) as HTMLElement | null;
-  if (panelElem) {
-    // Sqore calls createPanel() on every edit (it re-renders the SVG). Keep a
-    // single state-viz controller per panel element so in-flight renders from
-    // previous calls can't toggle loading off underneath new renders.
-    (panelElem as any)._stateVizContainer = container;
-
-    const existingController = (panelElem as any)
-      ._stateVizController as
-      | {
-          state: DevToolbarState;
-          requestRenderState: () => void;
-        }
-      | undefined;
-
-    if (existingController) {
-      if (showDevToolbar) {
-        attachStateDevToolbar(panelElem, existingController.state, () => {
-          existingController.requestRenderState();
-        });
-      }
-      existingController.requestRenderState();
-      return;
-    }
-
-    const state: DevToolbarState = createDefaultDevToolbarState();
-
-    let renderRequestId = 0;
-    let loadingTimer: number | null = null;
-    let hideLoadingTimer: number | null = null;
-    let activeLoadingRequestId = 0;
-    let loadingShownAtMs = 0;
-
-    const clearLoadingTimer = () => {
-      if (loadingTimer != null) {
-        clearTimeout(loadingTimer);
-        loadingTimer = null;
-      }
-    };
-
-    const clearHideLoadingTimer = () => {
-      if (hideLoadingTimer != null) {
-        clearTimeout(hideLoadingTimer);
-        hideLoadingTimer = null;
-      }
-    };
-
-    const beginLoadingForRequest = (requestId: number) => {
-      // Always point loading at the newest request.
-      activeLoadingRequestId = requestId;
-      clearLoadingTimer();
-      clearHideLoadingTimer();
-
-      // If we're already showing loading (e.g., rapid edits), keep it on.
-      if (panelElem.classList.contains("loading")) return;
-
-      // Avoid flicker for fast computations by delaying the spinner.
-      loadingTimer = setTimeout(() => {
-        if (activeLoadingRequestId !== requestId) return;
-        loadingShownAtMs = performance.now();
-        setStatePanelLoading(panelElem, true);
-      }, 200) as unknown as number;
-    };
-
-    const endLoadingForRequest = (requestId: number) => {
-      if (activeLoadingRequestId !== requestId) return;
-      clearLoadingTimer();
-
-      // If loading was never shown (fast compute), there's nothing to hide.
-      if (!panelElem.classList.contains("loading")) {
-        activeLoadingRequestId = 0;
-        return;
-      }
-
-      // Avoid flicker: once visible, keep loading on briefly, and debounce the
-      // hide so rapid successive edits don't flash the spinner.
-      const minVisibleMs = 250;
-      const hideDebounceMs = 150;
-      const elapsed = performance.now() - (loadingShownAtMs || 0);
-      const remainingVisible = Math.max(0, minVisibleMs - elapsed);
-
-      clearHideLoadingTimer();
-      hideLoadingTimer = setTimeout(() => {
-        if (activeLoadingRequestId !== requestId) return;
-        activeLoadingRequestId = 0;
-        setStatePanelLoading(panelElem, false);
-      }, remainingVisible + hideDebounceMs) as unknown as number;
-    };
-
-    const renderState = async (panel: HTMLElement) => {
-      const requestId = ++renderRequestId;
-      if (state.dataMode === "mock") {
-        activeLoadingRequestId = 0;
-        clearLoadingTimer();
-        clearHideLoadingTimer();
-        setStatePanelLoading(panelElem, false);
-        const ampMap = getStaticMockAmpMap(state.mockSet);
-        updateStatePanelFromMap(panel, ampMap, {
-          normalize: false,
-          minProbThreshold: state.minProbThreshold,
-        });
-        return true;
-      }
-      try {
-        beginLoadingForRequest(requestId);
-        const ampMap = await computeAmpMapFromCurrentModelAsync(
-          state.endianness,
-        );
-
-        // Ignore late results if a newer render request started.
-        if (requestId !== renderRequestId) return true;
-
-        if (ampMap) {
-          updateStatePanelFromMap(panel, ampMap, {
-            normalize: true,
-            minProbThreshold: state.minProbThreshold,
-          });
-          return true;
-        }
-
-        // Determine current wire count from the circuit DOM
-        const hostContainer =
-          ((panelElem as any)._stateVizContainer as HTMLElement | undefined) ??
-          container;
-        const circuit = hostContainer.querySelector("svg.qviz");
-        const wiresGroup = circuit?.querySelector(".wires");
-        const wireCount = wiresGroup ? wiresGroup.children.length : 0;
-        renderDefaultStatePanel(panel, wireCount);
-        return false;
-      } catch (e) {
-        // Ignore cancellation from host worker termination.
-        if (requestId !== renderRequestId) return true;
-
-        const err = e as Error;
-        if (err?.name === "AbortError") {
-          return true;
-        }
-        if (err?.name === "UnsupportedStateComputeError") {
-          renderUnsupportedStatePanel(panel, err.message);
-          return true;
-        }
-        renderUnsupportedStatePanel(
-          panel,
-          "State visualization is unavailable for this circuit.",
-        );
-        return true;
-      } finally {
-        endLoadingForRequest(requestId);
-      }
-    };
-
-    const requestRenderState = () => {
-      void renderState(panelElem);
-    };
-
-    (panelElem as any)._stateVizController = {
-      state,
-      requestRenderState,
-    };
-
-    // Attach dev toolbar if enabled
-    if (showDevToolbar) {
-      attachStateDevToolbar(panelElem, state, () => {
-        requestRenderState();
-      });
-    }
-
-    // Initial render; if the circuit model isn't ready yet, retry briefly until available
-    void renderState(panelElem).then((gotReal) => {
-      if (gotReal) return;
-      let attempts = 20; // try for ~2 seconds total
-      const retry = () => {
-        void renderState(panelElem).then((ok) => {
-          if (ok) return;
-          if (--attempts > 0) setTimeout(retry, 100);
-        });
-      };
-      setTimeout(retry, 100);
-    });
-  }
+  ensureStateVisualization(
+    container,
+    showDevToolbar,
+    statePanelInitiallyExpanded,
+  );
 };
 
 /**

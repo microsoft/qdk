@@ -1,6 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
+// State visualization renderer.
+// Defines the renderable column/types and updates the `.state-panel` DOM
+// (SVG/HTML) to display probabilities/phases, given either an amp map or
+// pre-prepared columns.
+
 export type RenderOptions = {
   maxColumns?: number;
   phaseColorMap?: (phaseRad: number) => string;
@@ -17,6 +22,8 @@ export type RenderOptions = {
   // Default: 0 (thresholding off)
   minProbThreshold?: number;
 };
+
+import { prepareStateVizColumnsFromAmpMap } from "./stateVizPrep.js";
 
 // Visualization config constants
 const VIZ = {
@@ -193,39 +200,25 @@ export const updateStatePanelFromMap = (
   ampMap: AmpMap,
   opts: RenderOptions = {},
 ): void => {
-  const entries = Object.entries(ampMap);
-  if (entries.length === 0) {
+  const columns = prepareStateVizColumnsFromAmpMap(ampMap, {
+    normalize: opts.normalize,
+    minProbThreshold: opts.minProbThreshold,
+    maxColumns: opts.maxColumns,
+  });
+  updateStatePanelFromColumns(panel, columns, opts);
+};
+
+// Render from precomputed columns (e.g., prepared in a Web Worker).
+export const updateStatePanelFromColumns = (
+  panel: HTMLElement,
+  columns: StateColumn[],
+  opts: RenderOptions = {},
+): void => {
+  if (!columns || columns.length === 0) {
     showEmptyState(panel);
     return;
   }
-
-  // Ensure SVG is visible and remove any empty-state message when rendering data
   showContentState(panel);
-
-  const raw = entries.map(([label, a]) => {
-    const { prob, phase } = toPolar(a);
-    return { label, prob, phase } as StateColumn;
-  });
-
-  // Normalize probabilities
-  const doNormalize = opts.normalize ?? true;
-  const states = doNormalize ? normalizeColumns(raw) : raw;
-
-  // Split columns based on threshold value
-  const { significant, small } =
-    typeof opts.minProbThreshold === "number"
-      ? splitByThreshold(states, opts.minProbThreshold)
-      : { significant: states, small: [] };
-
-  // Sort by probability and cap to max column numbers, aggregating rest into "Others"
-  significant.sort((a, b) => (b.prob ?? 0) - (a.prob ?? 0));
-  const maxColumns = opts.maxColumns ?? VIZ.defaultMaxColumns;
-  const cappedColumns = capAndAggregateColumns(significant, small, maxColumns);
-
-  // Sort by top columns by label, with "Others" last
-  const columns = sortColumnsByLabel(cappedColumns);
-
-  // Finally, render
   renderStatePanel(panel, columns, opts);
 };
 
@@ -265,100 +258,10 @@ export type AmpPolar = { prob?: number; phase?: number };
 export type AmpLike = AmpComplex | AmpPolar;
 export type AmpMap = Record<string, AmpLike>;
 
-// Convert amplitude to polar `{ prob, phase }`.
-const toPolar = (a: AmpLike): { prob: number; phase: number } => {
-  const maybe = a as Partial<AmpComplex & AmpPolar>;
-  const hasPolar =
-    typeof maybe.prob === "number" || typeof maybe.phase === "number";
-  if (hasPolar) {
-    const prob = typeof maybe.prob === "number" ? maybe.prob : 0;
-    const phase = typeof maybe.phase === "number" ? maybe.phase : 0;
-    return { prob, phase };
-  }
-  const re = typeof maybe.re === "number" ? maybe.re : 0;
-  const im = typeof maybe.im === "number" ? maybe.im : 0;
-  return { prob: re * re + im * im, phase: Math.atan2(im, re) };
-};
-
-// --- Data Normalization and Column Utilities ---
-
-// Normalize probabilities in-place on StateColumn[]
-function normalizeColumns(states: StateColumn[]): StateColumn[] {
-  const sum = states.reduce((acc, s) => acc + (s.prob ?? 0), 0);
-  if (sum <= 0) return states;
-  return states.map((s) => ({ ...s, prob: (s.prob ?? 0) / sum }));
-}
-
-// Split columns by threshold
-function splitByThreshold(
-  states: StateColumn[],
-  minProb: number,
-): { significant: StateColumn[]; small: StateColumn[] } {
-  const minThresh = Math.max(0, Math.min(1, minProb));
-  const significant: StateColumn[] = [];
-  const small: StateColumn[] = [];
-  for (const s of states) {
-    if ((s.prob ?? 0) >= minThresh) significant.push(s);
-    else small.push(s);
-  }
-  return { significant, small };
-}
-
-// Cap by max columns, aggregate rest into Other
-function capAndAggregateColumns(
-  significant: StateColumn[],
-  small: StateColumn[],
-  maxColumns: number,
-): StateColumn[] {
-  // Only reserve a column for 'Other' if there are small states or dropped states
-  const needsOthers = small.length > 0 || significant.length > maxColumns;
-  const capacity = needsOthers
-    ? Math.max(0, maxColumns - 1)
-    : Math.max(1, maxColumns);
-  const topColumns = significant.slice(0, capacity);
-  const dropped = significant.slice(capacity);
-  const othersList = [...small, ...dropped];
-  const columns = [...topColumns];
-  if (othersList.length > 0) {
-    const othersProb = othersList.reduce((s, r) => s + (r.prob ?? 0), 0);
-    const othersCount = othersList.length;
-    columns.push({
-      label: "__OTHERS__",
-      prob: othersProb,
-      phase: 0,
-      isOthers: true,
-      othersCount,
-    });
-  }
-  return columns;
-}
-
-// Sort columns by label, with Others last
-function sortColumnsByLabel(columns: StateColumn[]): StateColumn[] {
-  const numericRegex = /^[+-]?\d+(?:\.\d+)?$/;
-  const asNumber = (s: string) => (numericRegex.test(s) ? parseFloat(s) : NaN);
-  const isNumeric = (s: string) => numericRegex.test(s);
-  const labelCmp = (a: string, b: string) => a.localeCompare(b);
-  const labelOrderCmp = (a: StateColumn, b: StateColumn) => {
-    if (a.isOthers === true) return 1;
-    if (b.isOthers === true) return -1;
-    const an = isNumeric(a.label);
-    const bn = isNumeric(b.label);
-    if (an && bn) {
-      const av = asNumber(a.label);
-      const bv = asNumber(b.label);
-      return av - bv;
-    }
-    if (an !== bn) return an ? -1 : 1;
-    return labelCmp(a.label, b.label);
-  };
-  return columns.slice().sort(labelOrderCmp);
-}
-
 // --- Layout Computation ---
 
 // The data for a single column in the state visualization
-type StateColumn = {
+export type StateColumn = {
   label: string;
   prob: number;
   phase: number;
