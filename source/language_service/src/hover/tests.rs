@@ -968,6 +968,32 @@ fn struct_field_ref() {
 }
 
 #[test]
+fn struct_field_ref_with_doc() {
+    check(
+        indoc! {r#"
+        namespace Test {
+            struct Pair {
+                fst : Int,
+                /// This is the second field!
+                snd : Int
+            }
+            operation Foo() : Unit {
+                let a = new Pair { fst = 3, snd = 4 };
+                let b = a::◉s↘nd◉;
+            }
+        }
+    "#},
+        &expect![[r#"
+            field of `Pair`
+            ```qsharp
+            /// This is the second field!
+            snd : Int
+            ```
+        "#]],
+    );
+}
+
+#[test]
 fn struct_field_cons_ref() {
     check(
         indoc! {r#"
