@@ -211,14 +211,25 @@ jobs:
 
       - name: "If Fuzzing Failed: Report GutHub Issue"
         if: failure()
-        uses: JasonEtco/create-an-issue@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          WORKFLOW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        with:
-          filename: ${{ env.GH_ISSUE_TEMPLATE_RFPATH }}
-          # This issue template file uses a number of env vars collected above.
         id: create-issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WORKFLOW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python - <<'PY'
+          import os, pathlib
+          template = pathlib.Path(os.environ["GH_ISSUE_TEMPLATE_RFPATH"]).read_text()
+          rendered = os.path.expandvars(template)
+          pathlib.Path("/tmp/fuzz_issue.md").write_text(rendered)
+          PY
+
+          url="$(gh issue create \
+            --title "Fuzz failure: ${{ matrix.target_name }} (${{ github.run_id }})" \
+            --body-file /tmp/fuzz_issue.md)"
+          number="$(gh issue view "$url" --json number --jq .number)"
+
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "number=$number" >> "$GITHUB_OUTPUT"
 
       - name: "If Fuzzing Failed: Log Issue Info"
         if: failure()
