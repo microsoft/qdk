@@ -213,6 +213,13 @@ pub(super) enum Error {
     #[diagnostic(code("Qsc.Resolve.NotFound"))]
     NotAvailable(String, String, #[label] Span),
 
+    #[error("`Qubit` not found")]
+    #[diagnostic(help(
+        "to allocate qubits, use syntax like `use q = Qubit();` or `use qs = Qubit[N];` or `use (q1, q2) = (Qubit(), Qubit());`"
+    ))]
+    #[diagnostic(code("Qsc.Resolve.NotFoundQubit"))]
+    NotFoundQubit(#[label] Span),
+
     #[error("use of unimplemented item `{0}`")]
     #[diagnostic(help("this item is not implemented and cannot be used"))]
     #[diagnostic(code("Qsc.Resolve.Unimplemented"))]
@@ -772,6 +779,8 @@ impl Resolver {
                             format!("{}.{}", dropped_name.namespace, dropped_name.name),
                             span,
                         ))
+                    } else if name == "Qubit" {
+                        Err(Error::NotFoundQubit(span))
                     } else {
                         Err(Error::NotFound(name, span))
                     }
