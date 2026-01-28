@@ -529,6 +529,49 @@
   transition: opacity var(--stateAnimMs, 200ms) ease;
 }
 
+/* Loading overlay for async state compute */
+.state-loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 36px; /* keep the clickable edge visible */
+  right: 0;
+  bottom: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 10;
+  background: color-mix(
+    in srgb,
+    var(--vscode-editor-background, #ffffff) 70%,
+    transparent
+  );
+  backdrop-filter: blur(0.5px);
+}
+
+.state-panel.loading:not(.collapsed):not(.empty) .state-loading-overlay {
+  display: flex;
+}
+
+.state-loading-spinner {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 3px solid var(--vscode-editor-foreground, #666);
+  border-right-color: transparent;
+  opacity: 0.8;
+  animation: stateLoadingSpin 0.85s linear infinite;
+}
+
+@keyframes stateLoadingSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* Developer toolbar above the visualizer */
 .dev-toolbar {
   display: flex;
