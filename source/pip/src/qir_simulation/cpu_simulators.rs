@@ -536,10 +536,63 @@ mod tests {
         /// }
         /// ```
         /// expands to `vec![x(0), cx(0, 1), mresetz(0, 0), mresetz(1, 1)]`
+        ///
+        /// The macro also supports the `within { } apply { }` construct for
+        /// the conjugation pattern (apply within, then apply, then reverse within):
+        /// ```ignore
+        /// qir! {
+        ///     x(0);
+        ///     within {
+        ///         x(1);
+        ///         h(1);
+        ///     } apply {
+        ///         cz(0, 1);
+        ///     }
+        ///     mresetz(0, 0);
+        /// }
+        /// ```
+        /// expands to `vec![x(0), x(1), h(1), cz(0, 1), h(1), x(1), mresetz(0, 0)]`
         macro_rules! qir {
-            ( $($inst:expr);* $(;)? ) => {{
-                vec![$($inst),*]
+            // Internal rule: base case - empty input
+            (@accum [$($acc:expr),*] ) => {
+                vec![$($acc),*]
+            };
+
+            // Match within { } apply { } followed by semicolon and more instructions
+            (@accum [$($acc:expr),*] within { $($within_tt:tt)* } apply { $($apply_tt:tt)* } ; $($rest:tt)*) => {{
+                compile_error!("semicolon after a within-apply block")
             }};
+
+            // Match within { } apply { } at the end (no trailing semicolon or more instructions)
+            (@accum [$($acc:expr),*] within { $($within_tt:tt)* } apply { $($apply_tt:tt)* } $($rest:tt)*) => {{
+                let mut result: Vec<QirInstruction> = vec![$($acc),*];
+                result.extend(qir!($($within_tt)*));  // forward within
+                result.extend(qir!($($apply_tt)*));   // apply
+                let within_rev: Vec<QirInstruction> = {
+                    let mut v = qir!($($within_tt)*); // expand tokens again for reverse
+                    v.reverse();
+                    v
+                };
+                result.extend(within_rev);
+                let remaining: Vec<QirInstruction> = qir!(@accum [] $($rest)*);
+                result.extend(remaining);
+                result
+            }};
+
+            // Match a single instruction followed by semicolon and more
+            (@accum [$($acc:expr),*] $inst:expr ; $($rest:tt)*) => {
+                qir!(@accum [$($acc,)* $inst] $($rest)*)
+            };
+
+            // Match final instruction without trailing semicolon
+            (@accum [$($acc:expr),*] $inst:expr) => {
+                qir!(@accum [$($acc,)* $inst])
+            };
+
+            // Entry point
+            ( $($tokens:tt)* ) => {
+                qir!(@accum [] $($tokens)*)
+            };
         }
 
         #[cfg(test)]
@@ -882,9 +935,7 @@ mod tests {
             check_sim! {
                 simulator: NoiselessSimulator,
                 program: qir! {
-                    h(0);
-                    z(0);
-                    h(0);
+                    within { h(0) } apply { z(0) }
                     mresetz(0, 0);
                 },
                 num_qubits: 1,
@@ -949,10 +1000,10 @@ mod tests {
             check_sim! {
                 simulator: NoiselessSimulator,
                 program: qir! {
-                    h(0);
-                    s(0);
-                    s(0);
-                    h(0);
+                    within { h(0) } apply {
+                        s(0);
+                        s(0);
+                    }
                     mresetz(0, 0);
                 },
                 num_qubits: 1,
@@ -966,10 +1017,10 @@ mod tests {
             check_sim! {
                 simulator: NoiselessSimulator,
                 program: qir! {
-                    h(0);
-                    s(0);
-                    s_adj(0);
-                    h(0);
+                    within { h(0) } apply {
+                        s(0);
+                        s_adj(0);
+                    }
                     mresetz(0, 0);
                 },
                 num_qubits: 1,
@@ -1000,12 +1051,12 @@ mod tests {
             check_sim! {
                 simulator: NoiselessSimulator,
                 program: qir! {
-                    h(0);
-                    t(0);
-                    t(0);
-                    t(0);
-                    t(0);
-                    h(0);
+                    within { h(0) } apply {
+                        t(0);
+                        t(0);
+                        t(0);
+                        t(0);
+                    }
                     mresetz(0, 0);
                 },
                 num_qubits: 1,
@@ -1019,10 +1070,10 @@ mod tests {
             check_sim! {
                 simulator: NoiselessSimulator,
                 program: qir! {
-                    h(0);
-                    t(0);
-                    t_adj(0);
-                    h(0);
+                    within { h(0) } apply {
+                        t(0);
+                        t_adj(0);
+                    }
                     mresetz(0, 0);
                 },
                 num_qubits: 1,
@@ -1082,9 +1133,7 @@ mod tests {
             check_sim! {
                 simulator: NoiselessSimulator,
                 program: qir! {
-                    h(0);
-                    rz(PI, 0);
-                    h(0);
+                    within { h(0) } apply { rz(PI, 0) }
                     mresetz(0, 0);
                 },
                 num_qubits: 1,
@@ -1171,11 +1220,11 @@ mod tests {
             check_sim! {
                 simulator: NoiselessSimulator,
                 program: qir! {
-                    h(0);
-                    cx(0, 1);
-                    cz(0, 1);
-                    cx(0, 1);
-                    h(0);
+                    within { h(0) } apply {
+                        cx(0, 1);
+                        cz(0, 1);
+                        cx(0, 1);
+                    }
                     mresetz(0, 0);
                     mresetz(1, 1);
                 },
@@ -1285,11 +1334,7 @@ mod tests {
                 simulator: NoiselessSimulator,
                 program: qir! {
                     x(1);
-                    h(0);
-                    h(1);
-                    rzz(PI, 0, 1);
-                    h(0);
-                    h(1);
+                    within { h(0); h(1); } apply { rzz(PI, 0, 1) }
                     mresetz(0, 0);
                     mresetz(1, 1);
                 },
@@ -1622,9 +1667,7 @@ mod tests {
             check_sim! {
                 simulator: StabilizerSimulator,
                 program: qir! {
-                    h(0);
-                    z(0);
-                    h(0);
+                    within { h(0) } apply { z(0) }
                     mresetz(0, 0);
                 },
                 num_qubits: 1,
@@ -1722,42 +1765,51 @@ mod tests {
         }
 
         #[test]
-        fn cz_gate_preserves_computational_basis() {
+        fn cz_gate_with_zero_as_ctrl() {
+            check_sim! {
+                simulator: StabilizerSimulator,
+                program: qir!{
+                    cz(0, 1);
+                    mresetz(1, 0);
+                    within { h(1) } apply { cz(0, 1) }
+                    mresetz(1, 1);
+                },
+                num_qubits: 2,
+                num_results: 2,
+                expect: expect![["00"]],
+            }
+        }
+
+        #[test]
+        fn cz_gate_with_one_as_ctrl() {
             check_sim! {
                 simulator: StabilizerSimulator,
                 program: qir! {
-                    x(0);
-                    x(1);
+                    x(0);           // flip control so that cz works
                     cz(0, 1);
+                    mresetz(1, 0);  // measure qubit 1
+                    within { h(1) } apply { cz(0, 1) }
+                    mresetz(1, 1);  // measure qubit 1 again
+                },
+                num_qubits: 2,
+                num_results: 2,
+                expect: expect![[r#"01"#]], // these two results are on the same qubit
+            }
+        }
+
+        #[test]
+        fn cz_gate_applies_phase() {
+            check_sim! {
+                simulator: StabilizerSimulator,
+                program: qir! {
+                    x(1);
+                    within { h(0) } apply { cz(0, 1) }
                     mresetz(0, 0);
                     mresetz(1, 1);
                 },
                 num_qubits: 2,
                 num_results: 2,
                 expect: expect![[r#"11"#]],
-            }
-        }
-
-        #[test]
-        fn cz_gate_applies_phase() {
-            // CZ applies a phase flip when both qubits are |1⟩
-            // Start with Bell state |00⟩ + |11⟩, apply CZ to get |00⟩ - |11⟩
-            // Then reverse Bell circuit: CX followed by H on control
-            // |00⟩ - |11⟩ → CX → |00⟩ - |10⟩ → H⊗I → |10⟩
-            check_sim! {
-                simulator: StabilizerSimulator,
-                program: qir! {
-                    h(0);
-                    cx(0, 1);
-                    cz(0, 1);
-                    cx(0, 1);
-                    h(0);
-                    mresetz(0, 0);
-                    mresetz(1, 1);
-                },
-                num_qubits: 2,
-                num_results: 2,
-                expect: expect![[r#"10"#]],
             }
         }
 
