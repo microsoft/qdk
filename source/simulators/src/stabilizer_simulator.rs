@@ -178,6 +178,7 @@ impl StabilizerSimulator {
 
 impl Simulator for StabilizerSimulator {
     type Noise = Arc<CumulativeNoiseConfig<Fault>>;
+    type StateDumpData = paulimer::clifford::CliffordUnitary;
 
     fn new(num_qubits: usize, num_results: usize, seed: u32, noise_config: Self::Noise) -> Self {
         Self {
@@ -395,5 +396,9 @@ impl Simulator for StabilizerSimulator {
 
     fn rzz(&mut self, _angle: f64, _q1: QubitID, _q2: QubitID) {
         unimplemented!("unssuported instruction in stabilizer simulator: Rzz")
+    }
+
+    fn state_dump(&self) -> &Self::StateDumpData {
+        self.state.clifford()
     }
 }
