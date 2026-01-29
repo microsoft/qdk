@@ -29,19 +29,20 @@
 //! | Gate    | Properties                                        |
 //! |---------|---------------------------------------------------|
 //! | I       | I ~ {} (identity does nothing)                    |
-//! | X       | X flips qubit, X X ~ I                            |
-//! | Y       | Y flips qubit, Y Y ~ I                            |
+//! | X       | X flips qubit, X X ~ I, X ~ H Z H                 |
+//! | Y       | Y flips qubit, Y Y ~ I, Y ~ X Z ~ Z X             |
 //! | Z       | Z|0⟩ = |0⟩, H Z H ~ X                             |
-//! | H       | H^2 ~ I, creates superposition                    |
+//! | H       | H^2 ~ I, H X H ~ Z, creates superposition         |
 //! | S       | S^2 ~ Z, S S_ADJ ~ I                              |
 //! | S_ADJ   | S_ADJ^2 ~ Z                                       |
 //! | SX      | SX^2 ~ X, SX SX_ADJ ~ I                           |
 //! | SX_ADJ  | SX_ADJ^2 ~ X                                      |
 //! | CX      | CX|00⟩ = |00⟩, CX|10⟩ = |11⟩                      |
 //! | CZ      | CZ|x0⟩ = |x0⟩, CZ(a,b) = CZ(b,a)                  |
-//! | SWAP    | Exchanges qubit states, SWAP SWAP ~ I             |
-//! | RESET   | Returns qubit to |0⟩                              |
-//! | MRESETZ | Measures and resets to |0⟩                        |
+//! | SWAP    | Exchanges states, SWAP^2 ~ I                      |
+//! | MZ      | MZ ~ MZ MZ (idempotent, does not reset)           |
+//! | RESET   | OP RESET ~ I (resets to |0⟩)                      |
+//! | MRESETZ | OP MRESETZ ~ I (measures and resets)              |
 //! | MOV     | MOV ~ I (no-op in noiseless simulation)           |
 //! ```
 //!
@@ -150,6 +151,20 @@ fn double_y_gate_eq_identity() {
     }
 }
 
+#[test]
+fn y_gate_eq_x_z_and_z_x() {
+    check_programs_are_eq! {
+        simulator: StabilizerSimulator,
+        programs: [
+            qir! { y(0) },
+            qir! { x(0); z(0) },
+            qir! { z(0); x(0) },
+        ],
+        num_qubits: 1,
+        num_results: 0,
+    }
+}
+
 // Z gate tests
 #[test]
 fn z_gate_preserves_zero() {
@@ -221,6 +236,32 @@ fn h_squared_eq_identity() {
         programs: [
             qir! { i(0) },
             qir! { h(0); h(0) }
+        ],
+        num_qubits: 1,
+        num_results: 0,
+    }
+}
+
+#[test]
+fn h_x_h_eq_z() {
+    check_programs_are_eq! {
+        simulator: StabilizerSimulator,
+        programs: [
+            qir! { z(0) },
+            qir! { h(0); x(0); h(0) }
+        ],
+        num_qubits: 1,
+        num_results: 0,
+    }
+}
+
+#[test]
+fn x_gate_eq_h_z_h() {
+    check_programs_are_eq! {
+        simulator: StabilizerSimulator,
+        programs: [
+            qir! { x(0) },
+            qir! { h(0); z(0); h(0) }
         ],
         num_qubits: 1,
         num_results: 0,
@@ -395,10 +436,10 @@ fn cz_applies_phase_when_control_is_one() {
 fn cz_symmetric() {
     // CZ is symmetric: CZ(a,b) = CZ(b,a)
     check_programs_are_eq! {
-        simulator: StabilizerSimulator,
+        simulator: NoiselessSimulator,
         programs: [
-            qir! { cz(0, 1) },
-            qir! { cz(1, 0) }
+            qir! { within { x(0); h(1) } apply { cz(0, 1) } },
+            qir! { within { x(0); h(1) } apply { cz(1, 0) } }
         ],
         num_qubits: 2,
         num_results: 0,

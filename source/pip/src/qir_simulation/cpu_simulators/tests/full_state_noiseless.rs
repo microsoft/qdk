@@ -29,31 +29,41 @@
 //! |---------|---------------------------------------------------|
 //! | I       | I ~ {} (identity does nothing)                    |
 //! | X       | X flips qubit, X X ~ I                            |
-//! | Y       | Y ~ X Z ~ Z X, Y Y ~ I                            |
-//! | Z       | H Z H ~ X                                         |
-//! | H       | H^2 ~ I (self-inverse), H X H ~ Z                 |
-//! | S       | S^2 ~ Z                                           |
+//! | Y       | Y flips qubit, Y ~ X Z ~ Z X, Y Y ~ I             |
+//! | Z       | Z|0⟩ = |0⟩, Z|1⟩ = |1⟩, H Z H ~ X                 |
+//! | H       | H^2 ~ I, H X H ~ Z, creates superposition         |
+//! | S       | S^2 ~ Z, S preserves computational basis          |
 //! | S_ADJ   | S S_ADJ ~ I, S_ADJ^2 ~ Z                          |
 //! | SX      | SX^2 ~ X                                          |
 //! | SX_ADJ  | SX SX_ADJ ~ I, SX_ADJ^2 ~ X                       |
 //! | T       | T^4 ~ Z                                           |
 //! | T_ADJ   | T T_ADJ ~ I, T_ADJ^4 ~ Z                          |
 //! | CX      | CX on |0⟩ control ~ I, CX on |1⟩ control ~ X      |
-//! | CZ      | CZ on |0⟩ control ~ I, CZ on |1⟩ control ~ Z      |
-//! | SWAP    | (X ⊗ Z) SWAP ~ Z ⊗ X                              |
+//! | CZ      | CZ on |0⟩ control ~ I, CZ(a,b) = CZ(b,a)          |
+//! | SWAP    | Exchanges states, SWAP SWAP ~ I                   |
 //! | Rx      | Rx(0) ~ I, Rx(π) ~ X, Rx(π/2) ~ SX                |
 //! | Ry      | Ry(0) ~ I, Ry(π) ~ Y                              |
 //! | Rz      | Rz(0) ~ I, Rz(π) ~ Z, Rz(π/2) ~ S, Rz(π/4) ~ T    |
 //! | Rxx     | Rxx(0) ~ I, Rxx(π) ~ X ⊗ X                        |
 //! | Ryy     | Ryy(0) ~ I, Ryy(π) ~ Y ⊗ Y                        |
 //! | Rzz     | Rzz(0) ~ I, Rzz(π) ~ Z ⊗ Z                        |
-//! | M       | M ~ M M (idempotent)                              |
+//! | M       | M ~ M M (idempotent, does not reset)              |
+//! | MZ      | MZ ~ MZ MZ (idempotent, does not reset)           |
 //! | RESET   | OP RESET ~ I (resets to |0⟩)                      |
 //! | MRESETZ | OP MRESETZ ~ I (measures and resets)              |
 //! | MOV     | MOV ~ I (no-op in noiseless simulation)           |
 //! ```
+//!
+//! # Multi-Qubit States
+//!
+//! ```text
+//! | State | Preparation                | Expected Outcomes   |
+//! |-------|----------------------------|---------------------|
+//! | Bell  | H(0); CX(0,1)              | 00 or 11 (50/50)    |
+//! | GHZ   | H(0); CX(0,1); CX(1,2)     | 000 or 111 (50/50)  |
+//! ```
 
-use super::{super::*, test_utils::*};
+use super::{super::*, SEED, test_utils::*};
 use expect_test::expect;
 use std::f64::consts::PI;
 
@@ -121,6 +131,26 @@ fn h_x_h_eq_z() {
     }
 }
 
+#[test]
+fn h_gate_creates_superposition() {
+    // H creates equal superposition - should see both 0 and 1
+    check_sim! {
+        simulator: NoiselessSimulator,
+        program: qir! {
+            h(0);
+            mresetz(0, 0);
+        },
+        num_qubits: 1,
+        num_results: 1,
+        shots: 100,
+        seed: SEED,
+        format: histogram,
+        output: expect![[r#"
+            0: 46
+            1: 54"#]],
+    }
+}
+
 // X gate tests
 #[test]
 fn x_gate_flips_qubit() {
@@ -151,6 +181,48 @@ fn double_x_gate_eq_identity() {
 
 // Z gate tests
 #[test]
+fn z_gate_preserves_zero() {
+    check_sim! {
+        simulator: NoiselessSimulator,
+        program: qir! {
+            z(0);
+            mresetz(0, 0);
+        },
+        num_qubits: 1,
+        num_results: 1,
+        output: expect![[r#"0"#]],
+    }
+}
+
+#[test]
+fn z_gate_preserves_one() {
+    check_sim! {
+        simulator: NoiselessSimulator,
+        program: qir! {
+            x(0);
+            z(0);
+            mresetz(0, 0);
+        },
+        num_qubits: 1,
+        num_results: 1,
+        output: expect![[r#"1"#]],
+    }
+}
+
+#[test]
+fn h_z_h_eq_x() {
+    check_programs_are_eq! {
+        simulator: NoiselessSimulator,
+        programs: [
+            qir! { x(0) },
+            qir! { within { h(0) } apply { z(0) } }
+        ],
+        num_qubits: 1,
+        num_results: 0,
+    }
+}
+
+#[test]
 fn x_gate_eq_h_z_h() {
     check_programs_are_eq! {
         simulator: NoiselessSimulator,
@@ -164,6 +236,33 @@ fn x_gate_eq_h_z_h() {
 }
 
 // Y gate tests
+#[test]
+fn y_gate_flips_qubit() {
+    check_sim! {
+        simulator: NoiselessSimulator,
+        program: qir! {
+            y(0);
+            mresetz(0, 0);
+        },
+        num_qubits: 1,
+        num_results: 1,
+        output: expect![[r#"1"#]],
+    }
+}
+
+#[test]
+fn double_y_gate_eq_identity() {
+    check_programs_are_eq! {
+        simulator: NoiselessSimulator,
+        programs: [
+            qir! { i(0) },
+            qir! { y(0); y(0); }
+        ],
+        num_qubits: 1,
+        num_results: 0,
+    }
+}
+
 #[test]
 fn y_gate_eq_x_z_and_z_x() {
     check_programs_are_eq! {
@@ -189,6 +288,20 @@ fn s_squared_eq_z() {
         ],
         num_qubits: 1,
         num_results: 0,
+    }
+}
+
+#[test]
+fn s_gate_preserves_computational_basis() {
+    check_sim! {
+        simulator: NoiselessSimulator,
+        program: qir! {
+            s(0);
+            mresetz(0, 0);
+        },
+        num_qubits: 1,
+        num_results: 1,
+        output: expect![[r#"0"#]],
     }
 }
 
@@ -319,9 +432,39 @@ fn mz_is_idempotent() {
     }
 }
 
+#[test]
+fn mz_does_not_reset() {
+    check_sim! {
+        simulator: NoiselessSimulator,
+        program: qir! {
+            x(0);
+            mz(0, 0);  // Measures 1, does not reset
+            mz(0, 1);  // Measures 1 again
+        },
+        num_qubits: 1,
+        num_results: 2,
+        output: expect![[r#"11"#]],
+    }
+}
+
+#[test]
+fn mresetz_resets_after_measurement() {
+    check_sim! {
+        simulator: NoiselessSimulator,
+        program: qir! {
+            x(0);
+            mresetz(0, 0);  // Measures 1, resets to 0
+            mresetz(0, 1);  // Measures 0
+        },
+        num_qubits: 1,
+        num_results: 2,
+        output: expect![[r#"10"#]],
+    }
+}
+
 // RESET gate tests
 #[test]
-fn op_reset_eq_identity() {
+fn reset_returns_qubit_to_zero() {
     check_programs_are_eq! {
         simulator: NoiselessSimulator,
         programs: [
@@ -335,7 +478,7 @@ fn op_reset_eq_identity() {
 
 // MRESETZ gate tests
 #[test]
-fn op_mresetz_eq_identity() {
+fn mresetz_returns_qubit_to_zero() {
     check_programs_are_eq! {
         simulator: NoiselessSimulator,
         programs: [
@@ -417,6 +560,38 @@ fn cz_on_one_control_eq_z() {
     }
 }
 
+#[test]
+fn cz_applies_phase_when_control_is_one() {
+    // CZ applies Z to target when control is |1⟩
+    // H·Z·H = X, so if we conjugate target by H, we see the flip
+    check_sim! {
+        simulator: NoiselessSimulator,
+        program: qir! {
+            x(0);           // Set control to |1⟩
+            within { h(1) } apply { cz(0, 1) }
+            mresetz(0, 0);
+            mresetz(1, 1);
+        },
+        num_qubits: 2,
+        num_results: 2,
+        output: expect![[r#"11"#]],
+    }
+}
+
+#[test]
+fn cz_symmetric() {
+    // CZ is symmetric: CZ(a,b) = CZ(b,a)
+    check_programs_are_eq! {
+        simulator: NoiselessSimulator,
+        programs: [
+            qir! { within { x(0); h(1) } apply { cz(0, 1) } },
+            qir! { within { x(0); h(1) } apply { cz(1, 0) } }
+        ],
+        num_qubits: 2,
+        num_results: 0,
+    }
+}
+
 // SWAP gate tests
 #[test]
 fn xz_swap_eq_zx() {
@@ -425,6 +600,35 @@ fn xz_swap_eq_zx() {
         programs: [
             qir! { z(0); x(1) },
             qir! { x(0); z(1); swap(0, 1) }
+        ],
+        num_qubits: 2,
+        num_results: 0,
+    }
+}
+
+#[test]
+fn swap_exchanges_qubit_states() {
+    check_sim! {
+        simulator: NoiselessSimulator,
+        program: qir! {
+            x(0);
+            swap(0, 1);
+            mresetz(0, 0);
+            mresetz(1, 1);
+        },
+        num_qubits: 2,
+        num_results: 2,
+        output: expect![[r#"01"#]],
+    }
+}
+
+#[test]
+fn swap_twice_eq_identity() {
+    check_programs_are_eq! {
+        simulator: NoiselessSimulator,
+        programs: [
+            qir! { x(0) },
+            qir! { x(0); swap(0, 1); swap(0, 1) }
         ],
         num_qubits: 2,
         num_results: 0,
@@ -723,5 +927,51 @@ fn rzz_pi_eq_z_tensor_z() {
         ],
         num_qubits: 2,
         num_results: 0,
+    }
+}
+
+// ==================== Multi-Qubit State Tests ====================
+
+#[test]
+fn bell_state_produces_correlated_measurements() {
+    // Bell state produces only correlated outcomes: 00 or 11
+    check_sim! {
+        simulator: NoiselessSimulator,
+        program: qir! {
+            h(0);
+            cx(0, 1);
+            mresetz(0, 0);
+            mresetz(1, 1);
+        },
+        num_qubits: 2,
+        num_results: 2,
+        shots: 100,
+        format: outcomes,
+        output: expect![[r#"
+            00
+            11"#]],
+    }
+}
+
+#[test]
+fn ghz_state_three_qubits() {
+    // GHZ state produces only 000 or 111
+    check_sim! {
+        simulator: NoiselessSimulator,
+        program: qir! {
+            h(0);
+            cx(0, 1);
+            cx(1, 2);
+            mresetz(0, 0);
+            mresetz(1, 1);
+            mresetz(2, 2);
+        },
+        num_qubits: 3,
+        num_results: 3,
+        shots: 100,
+        format: outcomes,
+        output: expect![[r#"
+            000
+            111"#]],
     }
 }
