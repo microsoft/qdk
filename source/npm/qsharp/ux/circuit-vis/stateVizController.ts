@@ -158,9 +158,7 @@ export function ensureStateVisualization(
         normalize: false,
         minProbThreshold: state.minProbThreshold,
       });
-      updateStatePanelFromColumns(panel, columns, {
-        normalize: false,
-      });
+      updateStatePanelFromColumns(panel, columns);
       return true;
     }
 

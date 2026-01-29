@@ -12,7 +12,6 @@ export type RenderOptions = {
   // Fill color for the aggregated "Others" column.
   // Default comes from VIZ.defaultOthersColor.
   othersColor?: string;
-  normalize?: boolean; // normalize probabilities to unit mass (default true)
   minColumnWidth?: number; // minimum width per column to avoid label collisions
   minPanelWidthPx?: number; // prescribed minimum panel width in pixels
   maxPanelWidthPx?: number; // prescribed maximum panel width in pixels
