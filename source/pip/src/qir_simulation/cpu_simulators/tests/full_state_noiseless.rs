@@ -100,7 +100,6 @@ fn i_gate_does_nothing() {
             qir! { i(0) }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -114,7 +113,6 @@ fn h_squared_eq_identity() {
             qir! { h(0); h(0); }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -127,7 +125,6 @@ fn h_x_h_eq_z() {
             qir! { h(0); x(0); h(0); }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -175,7 +172,6 @@ fn double_x_gate_eq_identity() {
             qir! { x(0); x(0); }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -218,7 +214,6 @@ fn h_z_h_eq_x() {
             qir! { within { h(0) } apply { z(0) } }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -231,7 +226,6 @@ fn x_gate_eq_h_z_h() {
             qir! { h(0); z(0); h(0); }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -259,7 +253,6 @@ fn double_y_gate_eq_identity() {
             qir! { y(0); y(0); }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -273,7 +266,6 @@ fn y_gate_eq_x_z_and_z_x() {
             qir! { z(0); x(0); },
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -287,7 +279,6 @@ fn s_squared_eq_z() {
             qir! { s(0); s(0); }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -316,7 +307,6 @@ fn s_and_s_adj_cancel() {
             qir! { s_adj(0); s(0); },
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -329,7 +319,6 @@ fn s_adj_squared_eq_z() {
             qir! { s_adj(0); s_adj(0); }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -343,7 +332,6 @@ fn sx_squared_eq_x() {
             qir! { sx(0); sx(0); }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -358,7 +346,6 @@ fn sx_and_sx_adj_cancel() {
             qir! { sx_adj(0); sx(0); },
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -371,7 +358,6 @@ fn sx_adj_squared_eq_x() {
             qir! { sx_adj(0); sx_adj(0); }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -385,7 +371,6 @@ fn t_fourth_eq_z() {
             qir! { t(0); t(0); t(0); t(0); }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -400,7 +385,6 @@ fn t_and_t_adj_cancel() {
             qir! { t_adj(0); t(0); },
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -413,7 +397,6 @@ fn t_adj_fourth_eq_z() {
             qir! { t_adj(0); t_adj(0); t_adj(0); t_adj(0); }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -472,7 +455,6 @@ fn reset_returns_qubit_to_zero() {
             qir! { x(0); reset(0); }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -500,7 +482,6 @@ fn mov_eq_identity() {
             qir! { mov(0) }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -516,7 +497,6 @@ fn cx_on_zero_control_eq_identity() {
             qir! { cx(0, 1) }
         ],
         num_qubits: 2,
-        num_results: 0,
     }
 }
 
@@ -529,7 +509,6 @@ fn cx_on_one_control_eq_x() {
             qir! { x(0); cx(0, 1) }
         ],
         num_qubits: 2,
-        num_results: 0,
     }
 }
 
@@ -543,7 +522,6 @@ fn cz_on_zero_control_eq_identity() {
             qir! { cz(0, 1) }
         ],
         num_qubits: 2,
-        num_results: 0,
     }
 }
 
@@ -556,7 +534,6 @@ fn cz_on_one_control_eq_z() {
             qir! { x(0); within { h(1) } apply { cz(0, 1) } }
         ],
         num_qubits: 2,
-        num_results: 0,
     }
 }
 
@@ -588,7 +565,6 @@ fn cz_symmetric() {
             qir! { within { x(0); h(1) } apply { cz(1, 0) } }
         ],
         num_qubits: 2,
-        num_results: 0,
     }
 }
 
@@ -602,7 +578,6 @@ fn xz_swap_eq_zx() {
             qir! { x(0); z(1); swap(0, 1) }
         ],
         num_qubits: 2,
-        num_results: 0,
     }
 }
 
@@ -631,7 +606,6 @@ fn swap_twice_eq_identity() {
             qir! { x(0); swap(0, 1); swap(0, 1) }
         ],
         num_qubits: 2,
-        num_results: 0,
     }
 }
 
@@ -647,7 +621,6 @@ fn rx_zero_eq_identity() {
             qir! { rx(0.0, 0) }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -660,7 +633,6 @@ fn rx_two_pi_eq_identity() {
             qir! { rx(2.0 * PI, 0) }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -673,7 +645,6 @@ fn rx_pi_eq_x() {
             qir! { rx(PI, 0) }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -686,7 +657,6 @@ fn rx_half_pi_eq_sx() {
             qir! { rx(PI / 2.0, 0) }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -699,7 +669,6 @@ fn rx_neg_half_pi_eq_sx_adj() {
             qir! { rx(-PI / 2.0, 0) }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -713,7 +682,6 @@ fn ry_zero_eq_identity() {
             qir! { ry(0.0, 0) }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -726,7 +694,6 @@ fn ry_two_pi_eq_identity() {
             qir! { ry(2.0 * PI, 0) }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -739,7 +706,6 @@ fn ry_pi_eq_y() {
             qir! { ry(PI, 0) }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -753,7 +719,6 @@ fn rz_zero_eq_identity() {
             qir! { rz(0.0, 0) }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -766,7 +731,6 @@ fn rz_two_pi_eq_identity() {
             qir! { rz(2.0 * PI, 0) }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -779,7 +743,6 @@ fn rz_pi_eq_z() {
             qir! { rz(PI, 0) }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -792,7 +755,6 @@ fn rz_half_pi_eq_s() {
             qir! { rz(PI / 2.0, 0) }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -805,7 +767,6 @@ fn rz_neg_half_pi_eq_s_adj() {
             qir! { rz(-PI / 2.0, 0) }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -818,7 +779,6 @@ fn rz_quarter_pi_eq_t() {
             qir! { rz(PI / 4.0, 0) }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -831,7 +791,6 @@ fn rz_neg_quarter_pi_eq_t_adj() {
             qir! { rz(-PI / 4.0, 0) }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -847,7 +806,6 @@ fn rxx_zero_eq_identity() {
             qir! { rxx(0.0, 0, 1) }
         ],
         num_qubits: 2,
-        num_results: 0,
     }
 }
 
@@ -860,7 +818,6 @@ fn rxx_pi_eq_x_tensor_x() {
             qir! { rxx(PI, 0, 1) }
         ],
         num_qubits: 2,
-        num_results: 0,
     }
 }
 
@@ -874,7 +831,6 @@ fn ryy_zero_eq_identity() {
             qir! { ryy(0.0, 0, 1) }
         ],
         num_qubits: 2,
-        num_results: 0,
     }
 }
 
@@ -887,7 +843,6 @@ fn ryy_pi_eq_y_tensor_y() {
             qir! { ryy(PI, 0, 1) }
         ],
         num_qubits: 2,
-        num_results: 0,
     }
 }
 
@@ -901,7 +856,6 @@ fn rzz_zero_eq_identity() {
             qir! { rzz(0.0, 0, 1) }
         ],
         num_qubits: 2,
-        num_results: 0,
     }
 }
 
@@ -916,7 +870,6 @@ fn rzz_pi_eq_z_tensor_z() {
             qir! { rzz(PI, 0, 1) }
         ],
         num_qubits: 2,
-        num_results: 0,
     }
 
     check_programs_are_eq! {
@@ -926,7 +879,6 @@ fn rzz_pi_eq_z_tensor_z() {
             qir! { within { h(0); h(1) } apply { rzz(PI, 0, 1) } }
         ],
         num_qubits: 2,
-        num_results: 0,
     }
 }
 

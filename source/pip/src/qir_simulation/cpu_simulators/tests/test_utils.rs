@@ -459,7 +459,9 @@ pub(crate) use check_sim;
 /// - `simulator`: One of `StabilizerSimulator`, `NoisySimulator`, or `NoiselessSimulator`
 /// - `programs`: An array of expressions evaluating to `Vec<QirInstruction>` (use `qir!` macro)
 /// - `num_qubits`: The number of qubits in the simulation
-/// - `num_results`: The number of measurement results
+///
+/// # Optional fields:
+/// - `num_results`: The number of measurement results (defaults to 0)
 ///
 /// # Example
 /// ```ignore
@@ -470,10 +472,24 @@ pub(crate) use check_sim;
 ///         qir! { x(0); x(0); }
 ///     ],
 ///     num_qubits: 1,
-///     num_results: 0,
 /// }
 /// ```
 macro_rules! check_programs_are_eq {
+    // Pattern without num_results - defaults to 0
+    (
+        simulator: $sim:ident,
+        programs: [ $( $program:expr ),+ $(,)? ],
+        num_qubits: $num_qubits:expr $(,)?
+    ) => {{
+        check_programs_are_eq! {
+            simulator: $sim,
+            programs: [ $( $program ),+ ],
+            num_qubits: $num_qubits,
+            num_results: 0,
+        }
+    }};
+
+    // Pattern with explicit num_results
     (
         simulator: $sim:ident,
         programs: [ $( $program:expr ),+ $(,)? ],

@@ -91,7 +91,6 @@ fn i_gate_does_nothing() {
             qir! { i(0) }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -119,7 +118,6 @@ fn double_x_gate_eq_identity() {
             qir! { x(0); x(0) }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -147,7 +145,6 @@ fn double_y_gate_eq_identity() {
             qir! { y(0); y(0) }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -161,7 +158,6 @@ fn y_gate_eq_x_z_and_z_x() {
             qir! { z(0); x(0) },
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -204,7 +200,6 @@ fn h_z_h_eq_x() {
             qir! { within { h(0) } apply { z(0) } }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -238,7 +233,6 @@ fn h_squared_eq_identity() {
             qir! { h(0); h(0) }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -251,7 +245,6 @@ fn h_x_h_eq_z() {
             qir! { h(0); x(0); h(0) }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -264,7 +257,6 @@ fn x_gate_eq_h_z_h() {
             qir! { h(0); z(0); h(0) }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -292,7 +284,6 @@ fn s_squared_eq_z() {
             qir! { s(0); s(0) }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -306,7 +297,6 @@ fn s_and_s_adj_cancel() {
             qir! { s_adj(0); s(0) }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -319,7 +309,6 @@ fn s_adj_squared_eq_z() {
             qir! { s_adj(0); s_adj(0) }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -333,7 +322,6 @@ fn sx_squared_eq_x() {
             qir! { sx(0); sx(0) }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -347,7 +335,6 @@ fn sx_and_sx_adj_cancel() {
             qir! { sx_adj(0); sx(0) }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -360,7 +347,6 @@ fn sx_adj_squared_eq_x() {
             qir! { sx_adj(0); sx_adj(0) }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -442,7 +428,6 @@ fn cz_symmetric() {
             qir! { within { x(0); h(1) } apply { cz(1, 0) } }
         ],
         num_qubits: 2,
-        num_results: 0,
     }
 }
 
@@ -472,7 +457,6 @@ fn swap_twice_eq_identity() {
             qir! { x(0); swap(0, 1); swap(0, 1) }
         ],
         num_qubits: 2,
-        num_results: 0,
     }
 }
 
@@ -487,7 +471,6 @@ fn reset_returns_qubit_to_zero() {
             qir! { x(0); reset(0) }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
 
@@ -594,6 +577,5 @@ fn mov_is_noop_without_noise() {
             qir! { mov(0) }
         ],
         num_qubits: 1,
-        num_results: 0,
     }
 }
