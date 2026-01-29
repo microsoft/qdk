@@ -41,12 +41,6 @@ type WorkerComputeRequest = {
   requestId: number;
   model: CircuitModelSnapshot;
   endianness: Endianness;
-};
-type WorkerComputeVizRequest = {
-  command: "computeViz";
-  requestId: number;
-  model: CircuitModelSnapshot;
-  endianness: Endianness;
   opts?: {
     normalize?: boolean;
     minProbThreshold?: number;
@@ -54,8 +48,7 @@ type WorkerComputeVizRequest = {
   };
 };
 type WorkerComputeResponse =
-  | { command: "result"; requestId: number; ampMap: any }
-  | { command: "resultViz"; requestId: number; columns: any }
+  | { command: "result"; requestId: number; columns: any }
   | {
       command: "error";
       requestId: number;
@@ -117,109 +110,6 @@ function createStateComputeWorker(): { worker: Worker; blobUrl: string } {
     new Blob([stateComputeWorkerSource], { type: "text/javascript" }),
   );
   return { worker: new Worker(blobUrl), blobUrl };
-}
-
-function computeAmpMapInWorker(
-  model: CircuitModelSnapshot,
-  endianness: Endianness,
-) {
-  cancelActiveStateComputeWorker("replaced by new compute request");
-
-  const requestId = ++stateComputeRequestId;
-  const startedAt = performance.now();
-  const created = createStateComputeWorker();
-  return new Promise<any>((resolve, reject) => {
-    const modelSummary = {
-      qubits: Array.isArray(model?.qubits) ? model.qubits.length : 0,
-      columns: Array.isArray(model?.componentGrid)
-        ? model.componentGrid.length
-        : 0,
-    };
-
-    activeStateComputeWorker = {
-      requestId,
-      worker: created.worker,
-      blobUrl: created.blobUrl,
-      startedAt,
-      modelSummary,
-      reject,
-    };
-
-    logStateCompute("worker created", {
-      requestId,
-      blobUrl: created.blobUrl,
-      endianness,
-      modelSummary,
-    });
-
-    created.worker.onerror = (ev: ErrorEvent) => {
-      if (
-        !activeStateComputeWorker ||
-        activeStateComputeWorker.requestId !== requestId
-      ) {
-        return;
-      }
-
-      const elapsedMs = Math.round(performance.now() - startedAt);
-      logStateCompute("worker onerror", {
-        requestId,
-        elapsedMs,
-        message: ev.message,
-        filename: (ev as any).filename,
-        lineno: (ev as any).lineno,
-        colno: (ev as any).colno,
-      });
-
-      disposeActiveStateComputeWorker();
-      reject(new Error(ev.message || "State compute worker error"));
-    };
-
-    created.worker.onmessage = (ev: MessageEvent<WorkerComputeResponse>) => {
-      if (
-        !activeStateComputeWorker ||
-        activeStateComputeWorker.requestId !== requestId
-      ) {
-        return;
-      }
-      const msg = ev.data as any;
-      if (!msg || typeof msg !== "object") return;
-      if (msg.command === "result") {
-        const ampMap = msg.ampMap;
-        const elapsedMs = Math.round(performance.now() - startedAt);
-        const ampCount =
-          ampMap && typeof ampMap === "object" ? Object.keys(ampMap).length : 0;
-        logStateCompute("compute finished", { requestId, elapsedMs, ampCount });
-        disposeActiveStateComputeWorker();
-        resolve(ampMap);
-        return;
-      }
-      if (msg.command === "error") {
-        const err = new Error(msg.error?.message ?? "Worker error");
-        (err as any).name = msg.error?.name ?? "Error";
-        const elapsedMs = Math.round(performance.now() - startedAt);
-        logStateCompute("compute failed", {
-          requestId,
-          elapsedMs,
-          error: { name: (err as any).name, message: err.message },
-        });
-        disposeActiveStateComputeWorker();
-        reject(err);
-      }
-    };
-
-    logStateCompute("compute started", {
-      requestId,
-      endianness,
-      modelSummary: activeStateComputeWorker.modelSummary,
-    });
-
-    created.worker.postMessage({
-      command: "compute",
-      requestId,
-      model,
-      endianness,
-    } satisfies WorkerComputeRequest);
-  });
 }
 
 function computeStateVizColumnsInWorker(
@@ -292,7 +182,7 @@ function computeStateVizColumnsInWorker(
       }
       const msg = ev.data as any;
       if (!msg || typeof msg !== "object") return;
-      if (msg.command === "resultViz") {
+      if (msg.command === "result") {
         const columns = msg.columns;
         const elapsedMs = Math.round(performance.now() - startedAt);
         const colCount = Array.isArray(columns) ? columns.length : 0;
@@ -327,17 +217,16 @@ function computeStateVizColumnsInWorker(
       requestId,
       endianness,
       modelSummary: activeStateComputeWorker.modelSummary,
-      mode: "viz",
       opts,
     });
 
     created.worker.postMessage({
-      command: "computeViz",
+      command: "compute",
       requestId,
       model,
       endianness,
       opts,
-    } satisfies WorkerComputeVizRequest);
+    } satisfies WorkerComputeRequest);
   });
 }
 
@@ -348,10 +237,6 @@ function main() {
   // Provide a host API so the circuit visualization can offload state computation
   // to a Web Worker without importing VS Code specific modules.
   (globalThis as any).qsharpStateComputeApi = {
-    computeAmpMapForCircuitModel: (
-      model: CircuitModelSnapshot,
-      endianness: Endianness,
-    ) => computeAmpMapInWorker(model, endianness),
     computeStateVizColumnsForCircuitModel: (
       model: CircuitModelSnapshot,
       endianness: Endianness,

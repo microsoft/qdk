@@ -17,10 +17,6 @@ export type RenderOptions = {
   minPanelWidthPx?: number; // prescribed minimum panel width in pixels
   maxPanelWidthPx?: number; // prescribed maximum panel width in pixels
   animationMs?: number; // global animation duration in ms (default 200ms)
-  // Minimum probability (0..1) for a state to be shown as its own column.
-  // States below this threshold will be aggregated into the Others bucket.
-  // Default: 0 (thresholding off)
-  minProbThreshold?: number;
 };
 
 import { prepareStateVizColumnsFromAmpMap } from "./stateVizPrep.js";
@@ -180,10 +176,10 @@ export const renderDefaultStatePanel = (
     // Reset any stale height to avoid carrying over large values
     showEmptyState(panel);
   } else {
-    // Remove message and render the deterministic zero-state
-    showContentState(panel);
     const zeros = "0".repeat(nQubits);
-    updateStatePanelFromMap(panel, { [zeros]: { re: 1, im: 0 } });
+    const defaultAmpMap = { [zeros]: { re: 1, im: 0 } };
+    const columns = prepareStateVizColumnsFromAmpMap(defaultAmpMap);
+    updateStatePanelFromColumns(panel, columns);
   }
 };
 
@@ -192,20 +188,6 @@ export const renderUnsupportedStatePanel = (
   message: string,
 ): void => {
   showEmptyState(panel, message);
-};
-
-// Adapter: render from a map of named states to complex amplitudes.
-export const updateStatePanelFromMap = (
-  panel: HTMLElement,
-  ampMap: AmpMap,
-  opts: RenderOptions = {},
-): void => {
-  const columns = prepareStateVizColumnsFromAmpMap(ampMap, {
-    normalize: opts.normalize,
-    minProbThreshold: opts.minProbThreshold,
-    maxColumns: opts.maxColumns,
-  });
-  updateStatePanelFromColumns(panel, columns, opts);
 };
 
 // Render from precomputed columns (e.g., prepared in a Web Worker).

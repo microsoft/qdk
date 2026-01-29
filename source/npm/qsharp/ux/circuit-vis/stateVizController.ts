@@ -53,7 +53,7 @@ export function ensureStateVisualization(
 ): void {
   // Ensure a right-side state panel exists.
   if (container.querySelector(".state-panel") == null) {
-    const statePanel = createStatePanel(statePanelInitiallyExpanded === true);
+    const statePanel = createStatePanel(statePanelInitiallyExpanded);
     container.appendChild(statePanel);
   }
 
@@ -160,7 +160,6 @@ export function ensureStateVisualization(
       });
       updateStatePanelFromColumns(panel, columns, {
         normalize: false,
-        minProbThreshold: state.minProbThreshold,
       });
       return true;
     }
@@ -170,7 +169,6 @@ export function ensureStateVisualization(
       const columns = await computeStateVizColumnsFromCurrentModelAsync(
         state.endianness,
         {
-          normalize: true,
           minProbThreshold: state.minProbThreshold,
         },
       );
@@ -179,10 +177,7 @@ export function ensureStateVisualization(
       if (requestId !== renderRequestId) return true;
 
       if (columns && columns.length > 0) {
-        updateStatePanelFromColumns(panel, columns, {
-          normalize: true,
-          minProbThreshold: state.minProbThreshold,
-        });
+        updateStatePanelFromColumns(panel, columns);
         return true;
       }
 

@@ -18,7 +18,7 @@ type CircuitModelSnapshot = {
 };
 
 type ComputeRequest = {
-  command: "compute" | "computeViz";
+  command: "compute";
   requestId: number;
   model: CircuitModelSnapshot;
   endianness: Endianness;
@@ -32,11 +32,6 @@ type ComputeRequest = {
 type ComputeResponse =
   | {
       command: "result";
-      requestId: number;
-      ampMap: any;
-    }
-  | {
-      command: "resultViz";
       requestId: number;
       columns: any;
     }
@@ -61,7 +56,7 @@ function respondError(requestId: number, err: unknown) {
 (self as any).onmessage = (ev: MessageEvent<ComputeRequest>) => {
   const msg = ev.data as any;
   if (!msg || typeof msg !== "object") return;
-  if (msg.command !== "compute" && msg.command !== "computeViz") return;
+  if (msg.command !== "compute") return;
 
   const requestId = typeof msg.requestId === "number" ? msg.requestId : 0;
   const startedAt = performance.now();
@@ -71,15 +66,14 @@ function respondError(requestId: number, err: unknown) {
     const endianness = (msg.endianness as Endianness) ?? "big";
 
     const qubits = Array.isArray(model?.qubits) ? model.qubits.length : 0;
-    const columns = Array.isArray(model?.componentGrid)
+    const gridColumns = Array.isArray(model?.componentGrid)
       ? model.componentGrid.length
       : 0;
     log("compute started", {
       requestId,
       endianness,
       qubits,
-      columns,
-      mode: msg.command === "computeViz" ? "viz" : "ampMap",
+      columns: gridColumns,
     });
 
     const ampMap = computeAmpMapForCircuit(
@@ -89,31 +83,17 @@ function respondError(requestId: number, err: unknown) {
     );
 
     const elapsedMs = Math.round(performance.now() - startedAt);
-
-    if (msg.command === "computeViz") {
-      const opts = (msg.opts ?? {}) as any;
-      const columns = prepareStateVizColumnsFromAmpMap(ampMap as any, opts);
-      const colCount = Array.isArray(columns) ? columns.length : 0;
-      const othersCount =
-        Array.isArray(columns) &&
-        columns.find((c: any) => c && c.isOthers === true)?.othersCount;
-      log("compute finished", { requestId, elapsedMs, colCount, othersCount });
-      (self as any).postMessage({
-        command: "resultViz",
-        requestId,
-        columns,
-      } satisfies ComputeResponse);
-      return;
-    }
-
-    const ampCount =
-      ampMap && typeof ampMap === "object" ? Object.keys(ampMap).length : 0;
-    log("compute finished", { requestId, elapsedMs, ampCount });
-
+    const opts = (msg.opts ?? {}) as any;
+    const columns = prepareStateVizColumnsFromAmpMap(ampMap as any, opts);
+    const colCount = Array.isArray(columns) ? columns.length : 0;
+    const othersCount =
+      Array.isArray(columns) &&
+      columns.find((c: any) => c && c.isOthers === true)?.othersCount;
+    log("compute finished", { requestId, elapsedMs, colCount, othersCount });
     (self as any).postMessage({
       command: "result",
       requestId,
-      ampMap,
+      columns,
     } satisfies ComputeResponse);
   } catch (err) {
     const elapsedMs = Math.round(performance.now() - startedAt);
