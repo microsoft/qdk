@@ -42,6 +42,27 @@
 use super::{super::*, SEED, test_utils::*};
 use expect_test::expect;
 
+// ==================== Generic Simulator Tests ====================
+
+#[test]
+fn simulator_completes_all_shots() {
+    check_sim! {
+        simulator: StabilizerSimulator,
+        program: qir! {
+            x(0);
+            mresetz(0, 0);
+        },
+        num_qubits: 1,
+        num_results: 1,
+        shots: 50,
+        format: summary,
+        output: expect![[r#"
+            shots: 50
+            unique: 1
+            loss: 0"#]],
+    }
+}
+
 // ==================== Noiseless Config Tests ====================
 
 #[test]
@@ -475,5 +496,192 @@ fn rxx_gate_with_noise() {
         output: expect![[r#"
                     01: 89
                     11: 911"#]],
+    }
+}
+
+// ==================== Correlated Noise Intrinsic Tests ====================
+
+#[test]
+fn noise_intrinsic_single_qubit_x_noise() {
+    // Single-qubit X noise via intrinsic
+    check_sim! {
+        simulator: NoisySimulator,
+        program: qir! {
+            noise_intrinsic(0, &[0]);
+            mresetz(0, 0);
+        },
+        num_qubits: 1,
+        num_results: 1,
+        shots: 1000,
+        seed: SEED,
+        noise: noise_config! {
+            intrinsics: {
+                0: { x: 0.1 },
+            },
+        },
+        format: histogram,
+        output: expect![[r#"
+            0: 886
+            1: 114"#]],
+    }
+}
+
+#[test]
+fn noise_intrinsic_single_qubit_z_noise_no_effect() {
+    // Z noise on |0⟩ has no observable effect
+    check_sim! {
+        simulator: NoisySimulator,
+        program: qir! {
+            noise_intrinsic(0, &[0]);
+            mresetz(0, 0);
+        },
+        num_qubits: 1,
+        num_results: 1,
+        shots: 100,
+        seed: SEED,
+        noise: noise_config! {
+            intrinsics: {
+                0: { z: 0.5 },
+            },
+        },
+        format: histogram,
+        output: expect![[r#"0: 100"#]],
+    }
+}
+
+#[test]
+fn noise_intrinsic_two_qubit_correlated_xx_noise() {
+    // Two-qubit XX noise causes correlated bit flips
+    check_sim! {
+        simulator: NoisySimulator,
+        program: qir! {
+            noise_intrinsic(0, &[0, 1]);
+            mresetz(0, 0);
+            mresetz(1, 1);
+        },
+        num_qubits: 2,
+        num_results: 2,
+        shots: 1000,
+        seed: SEED,
+        noise: noise_config! {
+            intrinsics: {
+                0: { xx: 0.1 },
+            },
+        },
+        format: histogram,
+        output: expect![[r#"
+            00: 886
+            11: 114"#]],
+    }
+}
+
+#[test]
+fn noise_intrinsic_two_qubit_independent_noise() {
+    // XI and IX noise cause independent flips on each qubit
+    check_sim! {
+        simulator: NoisySimulator,
+        program: qir! {
+            noise_intrinsic(0, &[0, 1]);
+            mresetz(0, 0);
+            mresetz(1, 1);
+        },
+        num_qubits: 2,
+        num_results: 2,
+        shots: 1000,
+        seed: SEED,
+        noise: noise_config! {
+            intrinsics: {
+                0: { xi: 0.1, ix: 0.1 },
+            },
+        },
+        format: histogram,
+        output: expect![[r#"
+            00: 783
+            01: 103
+            10: 114"#]],
+    }
+}
+
+#[test]
+fn noise_intrinsic_multiple_ids() {
+    // Multiple intrinsic IDs with different noise configurations
+    check_sim! {
+        simulator: NoisySimulator,
+        program: qir! {
+            noise_intrinsic(0, &[0]);
+            noise_intrinsic(1, &[1]);
+            mresetz(0, 0);
+            mresetz(1, 1);
+        },
+        num_qubits: 2,
+        num_results: 2,
+        shots: 1000,
+        seed: SEED,
+        noise: noise_config! {
+            intrinsics: {
+                0: { x: 0.2 },
+                1: { x: 0.1 },
+            },
+        },
+        format: histogram,
+        output: expect![[r#"
+            00: 702
+            01: 81
+            10: 191
+            11: 26"#]],
+    }
+}
+
+#[test]
+fn noise_intrinsic_three_qubit_correlated() {
+    // Three-qubit correlated noise (XXX flips all three)
+    check_sim! {
+        simulator: NoisySimulator,
+        program: qir! {
+            noise_intrinsic(0, &[0, 1, 2]);
+            mresetz(0, 0);
+            mresetz(1, 1);
+            mresetz(2, 2);
+        },
+        num_qubits: 3,
+        num_results: 3,
+        shots: 1000,
+        seed: SEED,
+        noise: noise_config! {
+            intrinsics: {
+                0: { xxx: 0.1 },
+            },
+        },
+        format: histogram,
+        output: expect![[r#"
+            000: 886
+            111: 114"#]],
+    }
+}
+
+#[test]
+fn noise_intrinsic_combined_with_gate_noise() {
+    // Intrinsic noise combined with regular gate noise
+    check_sim! {
+        simulator: NoisySimulator,
+        program: qir! {
+            x(0);
+            noise_intrinsic(0, &[0]);
+            mresetz(0, 0);
+        },
+        num_qubits: 1,
+        num_results: 1,
+        shots: 1000,
+        seed: SEED,
+        noise: noise_config! {
+            x: { x: 0.1 },
+            intrinsics: {
+                0: { x: 0.1 },
+            },
+        },
+        format: histogram,
+        output: expect![[r#"
+            0: 178
+            1: 822"#]],
     }
 }
