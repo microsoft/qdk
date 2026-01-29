@@ -6,6 +6,25 @@
 // computation + rendering, suppressing stale renders, and managing the loading
 // spinner/dev toolbar wiring.
 
+// Here is a general overview of the flow for the state visualization:
+// panel.ts
+//   └─ ensureStateVisualization(...)
+//        └─ stateVizController.ts  (loading spinner, request-id cancellation, retries)
+//             ├─ computeStateVizColumnsFromCurrentModelAsync(...)
+//             │    └─ stateCompute.ts
+//             │         ├─ getCurrentCircuitModel() from events.ts
+//             │         ├─ if host API exists:
+//             │         │     globalThis.qsharpStateComputeApi.*
+//             │         │        (VS Code webview)
+//             │         │         └─ editor.tsx → stateComputeWorker.ts
+//             │         │              ├─ stateComputeCore.ts (compute)
+//             │         │              └─ stateVizPrep.ts (prep)
+//             │         └─ else fallback:
+//             │               ├─ stateComputeCore.ts (compute ampMap)
+//             │               └─ stateVizPrep.ts (prep columns)
+//             └─ updateStatePanelFromColumns(...)  (render)
+//                  stateViz.ts
+
 import {
   createStatePanel,
   updateStatePanelFromColumns,
