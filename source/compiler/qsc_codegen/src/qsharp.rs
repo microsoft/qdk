@@ -196,7 +196,7 @@ impl<W: Write> Visitor<'_> for QSharpGen<W> {
 
     fn visit_ty_def(&mut self, def: &'_ TyDef) {
         match &*def.kind {
-            TyDefKind::Field(name, ty) => {
+            TyDefKind::Field(name, ty, _) => {
                 if let Some(n) = name {
                     self.visit_ident(n);
                     self.write(": ");

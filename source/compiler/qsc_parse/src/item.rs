@@ -383,7 +383,7 @@ fn parse_newtype(s: &mut ParserContext) -> Result<Box<ItemKind>> {
         def = Box::new(TyDef {
             id: def.id,
             span: ty.span,
-            kind: Box::new(TyDefKind::Field(None, Box::new(ty))),
+            kind: Box::new(TyDefKind::Field(None, Box::new(ty), None)),
         });
     }
     recovering_semi(s);
@@ -396,6 +396,7 @@ fn parse_struct(s: &mut ParserContext) -> Result<Box<ItemKind>> {
     let name = ident(s)?;
     token(s, TokenKind::Open(Delim::Brace))?;
     let (fields, _) = seq(s, |s| {
+        let doc = parse_doc(s);
         let lo = s.peek().span.lo;
         let name = ident(s)?;
         token(s, TokenKind::Colon)?;
@@ -403,6 +404,7 @@ fn parse_struct(s: &mut ParserContext) -> Result<Box<ItemKind>> {
         Ok(Box::new(FieldDef {
             id: NodeId::default(),
             span: s.span(lo),
+            doc: doc.map(Rc::from),
             name,
             ty: Box::new(field_ty),
         }))
@@ -420,8 +422,8 @@ fn parse_struct(s: &mut ParserContext) -> Result<Box<ItemKind>> {
 
 fn try_tydef_as_ty(tydef: &TyDef) -> Option<Ty> {
     match tydef.kind.as_ref() {
-        TyDefKind::Field(Some(_), _) | TyDefKind::Err => None,
-        TyDefKind::Field(None, ty) => Some(*ty.clone()),
+        TyDefKind::Field(Some(_), _, _) | TyDefKind::Err => None,
+        TyDefKind::Field(None, ty, _) => Some(*ty.clone()),
         TyDefKind::Paren(tydef) => try_tydef_as_ty(tydef.as_ref()),
         TyDefKind::Tuple(tup) => {
             let mut ty_tup = Vec::new();
@@ -438,7 +440,7 @@ fn try_tydef_as_ty(tydef: &TyDef) -> Option<Ty> {
 }
 
 fn parse_ty_def(s: &mut ParserContext) -> Result<Box<TyDef>> {
-    throw_away_doc(s);
+    let doc = parse_doc(s);
     let lo = s.peek().span.lo;
     let kind = if token(s, TokenKind::Open(Delim::Paren)).is_ok() {
         let (defs, final_sep) = seq(s, parse_ty_def)?;
@@ -449,9 +451,9 @@ fn parse_ty_def(s: &mut ParserContext) -> Result<Box<TyDef>> {
         if token(s, TokenKind::Colon).is_ok() {
             let name = ty_as_ident(field_ty)?;
             let field_ty = ty(s)?;
-            TyDefKind::Field(Some(name), Box::new(field_ty))
+            TyDefKind::Field(Some(name), Box::new(field_ty), doc.map(Rc::from))
         } else {
-            TyDefKind::Field(None, Box::new(field_ty))
+            TyDefKind::Field(None, Box::new(field_ty), doc.map(Rc::from))
         }
     };
 

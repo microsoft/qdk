@@ -686,8 +686,6 @@ async fn notebook_document_errors() {
               uri: "cell2" version: Some(1) errors: [
                 name error
                   [cell2] [Foo]
-                type error
-                  [cell2] [Foo()]
               ],
             ]"#]],
     );
@@ -753,8 +751,6 @@ async fn notebook_update_remove_cell_clears_errors() {
               uri: "cell2" version: Some(1) errors: [
                 name error
                   [cell2] [Foo]
-                type error
-                  [cell2] [Foo()]
               ],
             ]"#]],
     );
@@ -801,8 +797,6 @@ async fn close_notebook_clears_errors() {
               uri: "cell2" version: Some(1) errors: [
                 name error
                   [cell2] [Foo]
-                type error
-                  [cell2] [Foo()]
               ],
             ]"#]],
     );
@@ -908,8 +902,6 @@ async fn update_notebook_reports_errors_from_dependencies() {
                   [cell1] [Foo]
                 name error
                   [cell1] [Bar]
-                type error
-                  [cell1] [Bar()]
               ],
 
               uri: "project/src/file.qs" version: None errors: [
