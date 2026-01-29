@@ -63,9 +63,6 @@ pub fn cz(q1: u32, q2: u32) -> QirInstruction {
 pub fn swap(q1: u32, q2: u32) -> QirInstruction {
     QirInstruction::TwoQubitGate(QirInstructionId::SWAP, q1, q2)
 }
-pub fn m(q: u32, r: u32) -> QirInstruction {
-    QirInstruction::TwoQubitGate(QirInstructionId::M, q, r)
-}
 pub fn mz(q: u32, r: u32) -> QirInstruction {
     QirInstruction::TwoQubitGate(QirInstructionId::MZ, q, r)
 }

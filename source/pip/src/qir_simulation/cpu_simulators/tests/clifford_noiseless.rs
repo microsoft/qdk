@@ -480,6 +480,20 @@ fn mz_does_not_reset() {
     }
 }
 
+#[test]
+fn mz_is_idempotent() {
+    // M M ~ M (repeated measurement gives same result)
+    check_programs_are_eq! {
+        simulator: StabilizerSimulator,
+        programs: [
+            qir! { x(0); mz(0, 0) },
+            qir! { x(0); mz(0, 0); mz(0, 1) }
+        ],
+        num_qubits: 1,
+        num_results: 2,
+    }
+}
+
 // ==================== Multi-Qubit State Tests ====================
 
 #[test]

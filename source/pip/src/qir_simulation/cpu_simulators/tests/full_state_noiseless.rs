@@ -304,17 +304,18 @@ fn t_adj_fourth_eq_z() {
     }
 }
 
-// M gate tests
+// MZ gate tests
 #[test]
-fn m_eq_m_m() {
+fn mz_is_idempotent() {
+    // M M ~ M (repeated measurement gives same result)
     check_programs_are_eq! {
         simulator: NoiselessSimulator,
         programs: [
-            qir! { mz(0, 0) },
-            qir! { mz(0, 0); mz(0, 0); }
+            qir! { x(0); mz(0, 0) },
+            qir! { x(0); mz(0, 0); mz(0, 1) }
         ],
         num_qubits: 1,
-        num_results: 1,
+        num_results: 2,
     }
 }
 
