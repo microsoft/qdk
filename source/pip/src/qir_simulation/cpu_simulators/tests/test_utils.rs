@@ -53,6 +53,7 @@ pub fn reset(q: u32) -> QirInstruction {
 pub fn cx(q1: u32, q2: u32) -> QirInstruction {
     QirInstruction::TwoQubitGate(QirInstructionId::CX, q1, q2)
 }
+#[allow(dead_code, reason = "unimplemented")]
 pub fn cy(q1: u32, q2: u32) -> QirInstruction {
     QirInstruction::TwoQubitGate(QirInstructionId::CY, q1, q2)
 }
@@ -73,6 +74,7 @@ pub fn mresetz(q: u32, r: u32) -> QirInstruction {
 }
 
 // Three-qubit gates
+#[allow(dead_code, reason = "unimplemented")]
 pub fn ccx(q1: u32, q2: u32, q3: u32) -> QirInstruction {
     QirInstruction::ThreeQubitGate(QirInstructionId::CCX, q1, q2, q3)
 }
@@ -599,7 +601,7 @@ pub fn histogram(output: &[String]) -> String {
 /// Histogram with percentages: shows each result with its percentage.
 /// Useful for verifying probability distributions with percentages.
 /// Example: "001: 25.00%\n010: 50.00%\n110: 25.00%"
-#[allow(clippy::cast_precision_loss)]
+#[allow(clippy::cast_precision_loss, dead_code)]
 pub fn histogram_percent(output: &[String]) -> String {
     use std::collections::BTreeMap;
     let output = normalize_output(output);
@@ -640,7 +642,7 @@ pub fn top_n(n: usize) -> impl Fn(&[String]) -> String {
 /// Top N histogram with percentages: shows only the top N results by count with percentages.
 /// Useful for large quantum simulations where histograms are noisy.
 /// Example with `top_n_percent(3)`: "010: 50.00%\n001: 30.00%\n110: 15.00%"
-#[allow(clippy::cast_precision_loss)]
+#[allow(clippy::cast_precision_loss, dead_code)]
 pub fn top_n_percent(n: usize) -> impl Fn(&[String]) -> String {
     move |output: &[String]| {
         use std::collections::BTreeMap;
@@ -661,13 +663,6 @@ pub fn top_n_percent(n: usize) -> impl Fn(&[String]) -> String {
     }
 }
 
-/// Count format: shows the total number of shots.
-/// Useful for quick sanity checks on shot count.
-/// Example: "100"
-pub fn count(output: &[String]) -> String {
-    output.len().to_string()
-}
-
 /// Summary format: shows shots, unique count, and loss count.
 /// Useful for debugging and getting a quick overview of results.
 /// Example: "shots: 100\nunique: 3\nloss: 5"
@@ -681,27 +676,6 @@ pub fn summary(output: &[String]) -> String {
         output.len(),
         unique_results.len(),
         loss_count
-    )
-}
-
-/// Loss count format: counts how many results contain loss ('-').
-/// Useful for testing noisy simulations with qubit loss.
-///
-/// Example output:
-/// ```text
-/// total: 100
-/// loss: 5
-/// no_loss: 95
-/// ```
-pub fn loss_count(output: &[String]) -> String {
-    let output = normalize_output(output);
-    let loss_count = output.iter().filter(|s| s.contains('-')).count();
-    let no_loss_count = output.len() - loss_count;
-    format!(
-        "total: {}\nloss: {}\nno_loss: {}",
-        output.len(),
-        loss_count,
-        no_loss_count
     )
 }
 

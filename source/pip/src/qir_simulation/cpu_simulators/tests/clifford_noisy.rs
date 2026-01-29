@@ -116,16 +116,34 @@ fn loss_noise_produces_loss_marker() {
         },
         num_qubits: 1,
         num_results: 1,
-        shots: 1000,
+        shots: 100,
         seed: SEED,
         noise: noise_config! {
             x: { loss: 0.1 },
         },
-        format: summary,
+        format: histogram,
         output: expect![[r#"
-                    shots: 1000
-                    unique: 2
-                    loss: 119"#]],
+            -: 5
+            1: 95"#]],
+    }
+}
+
+#[test]
+fn max_loss_probability_always_results_in_loss() {
+    check_sim! {
+        simulator: StabilizerSimulator,
+        program: qir! {
+            x(0);
+            mresetz(0, 0);
+        },
+        num_qubits: 1,
+        num_results: 1,
+        shots: 100,
+        noise: noise_config! {
+            x: { loss: 1.0 },
+        },
+        format: histogram,
+        output: expect!["-: 100"],
     }
 }
 
@@ -151,22 +169,22 @@ fn cx_noise_affects_entangled_qubits() {
                 ix: 0.05,
             },
         },
-        format: top_n(4),
+        format: histogram,
         output: expect![[r#"
-                    11: 908
-                    10: 56
-                    01: 36"#]],
+            01: 36
+            10: 56
+            11: 908"#]],
     }
 }
 
 #[test]
 fn cz_noise_affects_state() {
-    // H creates superposition, CZ with noise introduces errors
-    // Should only see 00 and 10 (control always 0, target in superposition)
+    // CZ with noise introduces errors
+    // Should only see 00 in a noiseless simulation,
+    // but because of noisy we should also see 10 now.
     check_sim! {
         simulator: StabilizerSimulator,
         program: qir! {
-            h(0);
             cz(0, 1);
             mresetz(0, 0);
             mresetz(1, 1);

@@ -57,6 +57,27 @@
 use super::{super::*, SEED, test_utils::*};
 use expect_test::expect;
 
+// ==================== Generic Simulator Tests ====================
+
+#[test]
+fn simulator_completes_all_shots() {
+    check_sim! {
+        simulator: StabilizerSimulator,
+        program: qir! {
+            x(0);
+            mresetz(0, 0);
+        },
+        num_qubits: 1,
+        num_results: 1,
+        shots: 50,
+        format: summary,
+        output: expect![[r#"
+            shots: 50
+            unique: 1
+            loss: 0"#]],
+    }
+}
+
 // ==================== Single-Qubit Gate Tests ====================
 
 // I gate tests
