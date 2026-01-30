@@ -17,8 +17,9 @@ import { fileURLToPath } from "node:url";
 import prettier from "prettier";
 import {
   createStatePanel,
-  updateStatePanelFromMap,
+  updateStatePanelFromColumns,
 } from "../dist/ux/circuit-vis/stateViz.js";
+import { prepareStateVizColumnsFromAmpMap } from "../dist/ux/circuit-vis/stateVizPrep.js";
 
 const documentTemplate = `<!doctype html><html>
   <head>
@@ -99,9 +100,10 @@ async function checkDocumentSnapshot(t, name) {
  * and returns the panel.
  *
  * @param {Record<string, {re:number, im:number}>} ampMap
- * @param {import("../dist/ux/circuit-vis/stateViz.js").RenderOptions} [opts]
+ * @param {number} [maxColumns]
+ * @param {number} [minProbThreshold]
  */
-function renderStatePanel(ampMap, opts) {
+function renderStatePanel(ampMap, maxColumns = 16, minProbThreshold = 0) {
   const panel = createStatePanel();
   document.body.appendChild(panel);
 
@@ -113,7 +115,11 @@ function renderStatePanel(ampMap, opts) {
   const edge = panel.querySelector(".state-edge");
   edge?.setAttribute("aria-expanded", "true");
 
-  updateStatePanelFromMap(panel, ampMap, opts);
+  const columns = prepareStateVizColumnsFromAmpMap(ampMap, {
+    maxColumns: maxColumns,
+    minProbThreshold: minProbThreshold,
+  });
+  updateStatePanelFromColumns(panel, columns, { maxColumns: maxColumns });
   return panel;
 }
 
@@ -126,13 +132,10 @@ test("state viz snapshot - single basis state", async (t) => {
 
 test("state viz snapshot - superposition with phase", async (t) => {
   const invSqrt2 = Math.SQRT1_2;
-  renderStatePanel(
-    {
-      0: { re: invSqrt2, im: 0 },
-      1: { re: 0, im: invSqrt2 }, // phase +π/2
-    },
-    { normalize: true },
-  );
+  renderStatePanel({
+    0: { re: invSqrt2, im: 0 },
+    1: { re: 0, im: invSqrt2 }, // phase +π/2
+  });
   await checkDocumentSnapshot(t, t.name);
 });
 
@@ -144,11 +147,8 @@ test("state viz snapshot - threshold aggregates to Others", async (t) => {
       10: { re: 0.1, im: 0 },
       11: { re: 0.05, im: 0 },
     },
-    {
-      normalize: true,
-      minProbThreshold: 0.05,
-      maxColumns: 8,
-    },
+    8,
+    0.05,
   );
   await checkDocumentSnapshot(t, t.name);
 });

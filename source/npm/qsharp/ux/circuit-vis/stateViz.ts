@@ -1,21 +1,21 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
+// State visualization renderer.
+// Defines the renderable column/types and updates the `.state-panel` DOM
+// (SVG/HTML) to display probabilities/phases, given either an amp map or
+// pre-prepared columns.
+
 export type RenderOptions = {
   maxColumns?: number;
   phaseColorMap?: (phaseRad: number) => string;
   // Fill color for the aggregated "Others" column.
   // Default comes from VIZ.defaultOthersColor.
   othersColor?: string;
-  normalize?: boolean; // normalize probabilities to unit mass (default true)
   minColumnWidth?: number; // minimum width per column to avoid label collisions
   minPanelWidthPx?: number; // prescribed minimum panel width in pixels
   maxPanelWidthPx?: number; // prescribed maximum panel width in pixels
   animationMs?: number; // global animation duration in ms (default 200ms)
-  // Minimum probability (0..1) for a state to be shown as its own column.
-  // States below this threshold will be aggregated into the Others bucket.
-  // Default: 0 (thresholding off)
-  minProbThreshold?: number;
 };
 
 // Visualization config constants
@@ -66,6 +66,15 @@ const VIZ = {
 // --- Entry Points ---
 
 export const createStatePanel = (initiallyExpanded = false): HTMLElement => {
+  try {
+    // Allows host environments (e.g., VS Code webview) to react to panel creation
+    // without needing a direct import hook.
+    (globalThis as any).dispatchEvent?.(
+      new CustomEvent("qsharp:stateviz:create"),
+    );
+  } catch {
+    // Ignore environments without CustomEvent / dispatchEvent
+  }
   const panel = document.createElement("div");
   panel.className = "state-panel";
   if (!initiallyExpanded) {
@@ -121,78 +130,36 @@ export const createStatePanel = (initiallyExpanded = false): HTMLElement => {
   return panel;
 };
 
-// Render a default state in the visualization panel.
-// - If nQubits <= 0: hide the SVG and show a friendly message.
-// - If nQubits > 0: show the SVG and render a zero-phase |0…0⟩ state immediately.
-export const renderDefaultStatePanel = (
-  panel: HTMLElement,
-  nQubits: number,
-): void => {
-  const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
-  if (!svg) return;
+const ensureLoadingOverlay = (panel: HTMLElement): HTMLElement => {
+  let overlay = panel.querySelector(
+    ".state-loading-overlay",
+  ) as HTMLElement | null;
+  if (overlay) return overlay;
 
-  if (!nQubits || nQubits <= 0) {
-    // Hide SVG graphics and show message
-    // Reset any stale height to avoid carrying over large values
-    showEmptyState(panel);
+  overlay = document.createElement("div");
+  overlay.className = "state-loading-overlay";
+  overlay.setAttribute("aria-hidden", "true");
+
+  const spinner = document.createElement("div");
+  spinner.className = "state-loading-spinner";
+  overlay.appendChild(spinner);
+
+  panel.appendChild(overlay);
+  return overlay;
+};
+
+export const setStatePanelLoading = (panel: HTMLElement, loading: boolean) => {
+  if (!panel) return;
+  if (loading) {
+    ensureLoadingOverlay(panel);
+    panel.classList.add("loading");
   } else {
-    // Remove message and render the deterministic zero-state
-    showContentState(panel);
-    const zeros = "0".repeat(nQubits);
-    updateStatePanelFromMap(panel, { [zeros]: { re: 1, im: 0 } });
+    panel.classList.remove("loading");
   }
 };
 
-export const renderUnsupportedStatePanel = (
-  panel: HTMLElement,
-  message: string,
-): void => {
-  showEmptyState(panel, message);
-};
-
-// Adapter: render from a map of named states to complex amplitudes.
-export const updateStatePanelFromMap = (
-  panel: HTMLElement,
-  ampMap: AmpMap,
-  opts: RenderOptions = {},
-): void => {
-  const entries = Object.entries(ampMap);
-  if (entries.length === 0) {
-    showEmptyState(panel);
-    return;
-  }
-
-  // Ensure SVG is visible and remove any empty-state message when rendering data
-  showContentState(panel);
-
-  const raw = entries.map(([label, a]) => {
-    const { prob, phase } = toPolar(a);
-    return { label, prob, phase } as StateColumn;
-  });
-
-  // Normalize probabilities
-  const doNormalize = opts.normalize ?? true;
-  const states = doNormalize ? normalizeColumns(raw) : raw;
-
-  // Split columns based on threshold value
-  const { significant, small } =
-    typeof opts.minProbThreshold === "number"
-      ? splitByThreshold(states, opts.minProbThreshold)
-      : { significant: states, small: [] };
-
-  // Sort by probability and cap to max column numbers, aggregating rest into "Others"
-  significant.sort((a, b) => (b.prob ?? 0) - (a.prob ?? 0));
-  const maxColumns = opts.maxColumns ?? VIZ.defaultMaxColumns;
-  const cappedColumns = capAndAggregateColumns(significant, small, maxColumns);
-
-  // Sort by top columns by label, with "Others" last
-  const columns = sortColumnsByLabel(cappedColumns);
-
-  // Finally, render
-  renderStatePanel(panel, columns, opts);
-};
-
-const showEmptyState = (
+// Put the panel into a message state (e.g., empty circuit or unsupported).
+export const renderMessageStatePanel = (
   panel: HTMLElement,
   message = "The circuit is empty.",
 ): void => {
@@ -201,24 +168,47 @@ const showEmptyState = (
     while (svg.firstChild) svg.removeChild(svg.firstChild);
     svg.removeAttribute("height");
   }
-  panel.classList.add("empty");
+  panel.classList.add("message");
 
-  let msg = panel.querySelector(".state-empty-message") as HTMLElement | null;
+  let msg = panel.querySelector(".state-panel-message") as HTMLElement | null;
   if (!msg) {
     msg = document.createElement("div");
-    msg.className = "state-empty-message";
+    msg.className = "state-panel-message";
     panel.appendChild(msg);
   }
   msg.textContent = message;
   panel.style.flexBasis = `${VIZ.emptyStateFlexBasisPx}px`;
 };
 
-const showContentState = (panel: HTMLElement): void => {
+// Put the panel into a blank (non-message) state.
+// This is used when the circuit is non-empty but state data isn't available yet.
+export const renderBlankStatePanel = (panel: HTMLElement): void => {
+  const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
+  if (svg) {
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+  }
+  panel.classList.remove("message");
+  const msg = panel.querySelector(".state-panel-message");
+  if (msg) msg.remove();
+  // If we were previously in message state, restore sizing control back to CSS
+  // (or subsequent renders) instead of keeping the message-state flex-basis.
+  panel.style.flexBasis = "";
+};
+
+// Render from precomputed columns (e.g., prepared in a Web Worker).
+export const updateStatePanelFromColumns = (
+  panel: HTMLElement,
+  columns: StateColumn[],
+  opts: RenderOptions = {},
+): void => {
   // Content visibility restored via CSS when not in empty mode
   // Remove empty mode to reveal content via CSS
-  panel.classList.remove("empty");
-  const emptyMsg = panel.querySelector(".state-empty-message");
-  if (emptyMsg) emptyMsg.remove();
+  panel.classList.remove("message");
+  const msg = panel.querySelector(".state-panel-message");
+  if (msg) msg.remove();
+  panel.style.flexBasis = "";
+
+  renderStatePanel(panel, columns, opts);
 };
 
 // --- State Amplitude Preparation ---
@@ -228,100 +218,10 @@ export type AmpPolar = { prob?: number; phase?: number };
 export type AmpLike = AmpComplex | AmpPolar;
 export type AmpMap = Record<string, AmpLike>;
 
-// Convert amplitude to polar `{ prob, phase }`.
-const toPolar = (a: AmpLike): { prob: number; phase: number } => {
-  const maybe = a as Partial<AmpComplex & AmpPolar>;
-  const hasPolar =
-    typeof maybe.prob === "number" || typeof maybe.phase === "number";
-  if (hasPolar) {
-    const prob = typeof maybe.prob === "number" ? maybe.prob : 0;
-    const phase = typeof maybe.phase === "number" ? maybe.phase : 0;
-    return { prob, phase };
-  }
-  const re = typeof maybe.re === "number" ? maybe.re : 0;
-  const im = typeof maybe.im === "number" ? maybe.im : 0;
-  return { prob: re * re + im * im, phase: Math.atan2(im, re) };
-};
-
-// --- Data Normalization and Column Utilities ---
-
-// Normalize probabilities in-place on StateColumn[]
-function normalizeColumns(states: StateColumn[]): StateColumn[] {
-  const sum = states.reduce((acc, s) => acc + (s.prob ?? 0), 0);
-  if (sum <= 0) return states;
-  return states.map((s) => ({ ...s, prob: (s.prob ?? 0) / sum }));
-}
-
-// Split columns by threshold
-function splitByThreshold(
-  states: StateColumn[],
-  minProb: number,
-): { significant: StateColumn[]; small: StateColumn[] } {
-  const minThresh = Math.max(0, Math.min(1, minProb));
-  const significant: StateColumn[] = [];
-  const small: StateColumn[] = [];
-  for (const s of states) {
-    if ((s.prob ?? 0) >= minThresh) significant.push(s);
-    else small.push(s);
-  }
-  return { significant, small };
-}
-
-// Cap by max columns, aggregate rest into Other
-function capAndAggregateColumns(
-  significant: StateColumn[],
-  small: StateColumn[],
-  maxColumns: number,
-): StateColumn[] {
-  // Only reserve a column for 'Other' if there are small states or dropped states
-  const needsOthers = small.length > 0 || significant.length > maxColumns;
-  const capacity = needsOthers
-    ? Math.max(0, maxColumns - 1)
-    : Math.max(1, maxColumns);
-  const topColumns = significant.slice(0, capacity);
-  const dropped = significant.slice(capacity);
-  const othersList = [...small, ...dropped];
-  const columns = [...topColumns];
-  if (othersList.length > 0) {
-    const othersProb = othersList.reduce((s, r) => s + (r.prob ?? 0), 0);
-    const othersCount = othersList.length;
-    columns.push({
-      label: "__OTHERS__",
-      prob: othersProb,
-      phase: 0,
-      isOthers: true,
-      othersCount,
-    });
-  }
-  return columns;
-}
-
-// Sort columns by label, with Others last
-function sortColumnsByLabel(columns: StateColumn[]): StateColumn[] {
-  const numericRegex = /^[+-]?\d+(?:\.\d+)?$/;
-  const asNumber = (s: string) => (numericRegex.test(s) ? parseFloat(s) : NaN);
-  const isNumeric = (s: string) => numericRegex.test(s);
-  const labelCmp = (a: string, b: string) => a.localeCompare(b);
-  const labelOrderCmp = (a: StateColumn, b: StateColumn) => {
-    if (a.isOthers === true) return 1;
-    if (b.isOthers === true) return -1;
-    const an = isNumeric(a.label);
-    const bn = isNumeric(b.label);
-    if (an && bn) {
-      const av = asNumber(a.label);
-      const bv = asNumber(b.label);
-      return av - bv;
-    }
-    if (an !== bn) return an ? -1 : 1;
-    return labelCmp(a.label, b.label);
-  };
-  return columns.slice().sort(labelOrderCmp);
-}
-
 // --- Layout Computation ---
 
 // The data for a single column in the state visualization
-type StateColumn = {
+export type StateColumn = {
   label: string;
   prob: number;
   phase: number;
