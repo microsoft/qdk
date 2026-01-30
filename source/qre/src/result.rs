@@ -1,13 +1,16 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use std::{fmt::Display, ops::Deref};
+use std::{
+    fmt::Display,
+    ops::{Deref, DerefMut},
+};
 
 use rustc_hash::FxHashMap;
 
 use crate::{ParetoFrontier2D, ParetoItem2D};
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct EstimationResult {
     qubits: u64,
     runtime: u64,
@@ -112,13 +115,27 @@ impl ParetoItem2D for EstimationResult {
     }
 }
 
+#[derive(Default)]
 pub struct EstimationCollection(ParetoFrontier2D<EstimationResult>);
+
+impl EstimationCollection {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
 
 impl Deref for EstimationCollection {
     type Target = ParetoFrontier2D<EstimationResult>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl DerefMut for EstimationCollection {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 
