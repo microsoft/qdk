@@ -553,7 +553,7 @@
   backdrop-filter: blur(0.5px);
 }
 
-.state-panel.loading:not(.collapsed):not(.empty) .state-loading-overlay {
+.state-panel.loading:not(.collapsed):not(.message) .state-loading-overlay {
   display: flex;
 }
 
@@ -609,7 +609,7 @@
 /* Fade content while collapsing instead of instantly hiding */
 .state-panel.collapsed .state-svg,
 .state-panel.collapsed .dev-toolbar,
-.state-panel.collapsed .state-empty-message {
+.state-panel.collapsed .state-panel-message {
   opacity: 0;
   pointer-events: none;
 }
@@ -680,8 +680,8 @@
 }
 
 /* Empty state: hide SVG and toolbar */
-.state-panel.empty .state-svg,
-.state-panel.empty .dev-toolbar {
+.state-panel.message .state-svg,
+.state-panel.message .dev-toolbar {
   height: auto;
   display: none;
 }
@@ -767,7 +767,7 @@
 }
 
 /* Centered empty-state message in the panel */
-.state-empty-message {
+.state-panel-message {
   position: absolute;
   top: 50%;
   left: 50%;

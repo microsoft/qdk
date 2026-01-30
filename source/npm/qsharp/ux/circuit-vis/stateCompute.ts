@@ -68,10 +68,11 @@ function getHostStateComputeApi(): StateComputeHostApi | null {
 export async function computeStateVizColumnsFromCurrentModelAsync(
   endianness: Endianness = "big",
   opts: PrepareStateVizOptions = {},
+  expectedCircuitSvg?: SVGElement | null,
 ): Promise<StateColumn[] | null> {
-  const model = getCurrentCircuitModel();
+  const model = getCurrentCircuitModel(expectedCircuitSvg);
   if (!model) return null;
-  if (model.qubits.length === 0) return null;
+  if (model.qubits.length === 0) return [];
 
   const api = getHostStateComputeApi();
   if (api?.computeStateVizColumnsForCircuitModel) {

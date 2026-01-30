@@ -12,7 +12,7 @@
 //        └─ stateVizController.ts  (loading spinner, request-id cancellation, retries)
 //             ├─ computeStateVizColumnsFromCurrentModelAsync(...)
 //             │    └─ stateCompute.ts
-//             │         ├─ getCurrentCircuitModel() from events.ts
+//             │         ├─ getCurrentCircuitModel(...) from events.ts
 //             │         ├─ if host API exists:
 //             │         │     globalThis.qsharpStateComputeApi.*
 //             │         │        (VS Code webview)
@@ -28,8 +28,8 @@
 import {
   createStatePanel,
   updateStatePanelFromColumns,
-  renderDefaultStatePanel,
-  renderUnsupportedStatePanel,
+  renderBlankStatePanel,
+  renderMessageStatePanel,
   setStatePanelLoading,
 } from "./stateViz.js";
 import { computeStateVizColumnsFromCurrentModelAsync } from "./stateCompute.js";
@@ -145,7 +145,7 @@ export function ensureStateVisualization(
     }, remainingVisible + hideDebounceMs) as unknown as number;
   };
 
-  const renderState = async (panel: HTMLElement) => {
+  const renderState = async (panel: HTMLElement): Promise<void> => {
     const requestId = ++renderRequestId;
 
     if (state.dataMode === "mock") {
@@ -159,52 +159,71 @@ export function ensureStateVisualization(
         minProbThreshold: state.minProbThreshold,
       });
       updateStatePanelFromColumns(panel, columns);
-      return true;
+      return;
     }
 
     try {
       beginLoadingForRequest(requestId);
+
+      // Determine current wire count and SVG for this render from the DOM.
+      const hostContainer =
+        ((panelElem as any)._stateVizContainer as HTMLElement | undefined) ??
+        container;
+      const circuitSvg = hostContainer.querySelector(
+        "svg.qviz",
+      ) as SVGElement | null;
+
       const columns = await computeStateVizColumnsFromCurrentModelAsync(
         state.endianness,
         {
           minProbThreshold: state.minProbThreshold,
         },
+        circuitSvg,
       );
 
       // Ignore late results if a newer render request started.
-      if (requestId !== renderRequestId) return true;
+      if (requestId !== renderRequestId) return;
 
-      if (columns && columns.length > 0) {
-        updateStatePanelFromColumns(panel, columns);
-        return true;
+      if (columns == null) {
+        // Model isn't ready for this render yet (events not enabled), or the
+        // model corresponds to a different SVG (during a re-render). Keep the
+        // panel blank for non-empty circuits so the loading overlay can show;
+        // show a message state only when the circuit is truly empty.
+        const wiresGroup = circuitSvg?.querySelector(".wires");
+        const wireCount = wiresGroup ? wiresGroup.children.length : 0;
+        if (wireCount <= 0) {
+          renderMessageStatePanel(panel);
+        } else {
+          renderBlankStatePanel(panel);
+        }
+        return;
       }
 
-      // Determine current wire count from the circuit DOM.
-      const hostContainer =
-        ((panelElem as any)._stateVizContainer as HTMLElement | undefined) ??
-        container;
-      const circuit = hostContainer.querySelector("svg.qviz");
-      const wiresGroup = circuit?.querySelector(".wires");
-      const wireCount = wiresGroup ? wiresGroup.children.length : 0;
-      renderDefaultStatePanel(panel, wireCount);
-      return false;
+      if (columns.length > 0) {
+        updateStatePanelFromColumns(panel, columns);
+      } else {
+        // Empty model: show a message state.
+        renderMessageStatePanel(panel);
+      }
+
+      return;
     } catch (e) {
       // Ignore cancellation from host worker termination.
-      if (requestId !== renderRequestId) return true;
+      if (requestId !== renderRequestId) return;
 
       const err = e as Error;
       if (err?.name === "AbortError") {
-        return true;
+        return;
       }
       if (err?.name === "UnsupportedStateComputeError") {
-        renderUnsupportedStatePanel(panel, err.message);
-        return true;
+        renderMessageStatePanel(panel, err.message);
+        return;
       }
-      renderUnsupportedStatePanel(
+      renderMessageStatePanel(
         panel,
         "State visualization is unavailable for this circuit.",
       );
-      return true;
+      return;
     } finally {
       endLoadingForRequest(requestId);
     }
@@ -225,16 +244,17 @@ export function ensureStateVisualization(
     });
   }
 
-  // Initial render; if the circuit model isn't ready yet, retry briefly until available.
-  void renderState(panelElem).then((gotReal) => {
-    if (gotReal) return;
-    let attempts = 20; // try for ~2 seconds total
-    const retry = () => {
-      void renderState(panelElem).then((ok) => {
-        if (ok) return;
-        if (--attempts > 0) setTimeout(retry, 100);
-      });
-    };
-    setTimeout(retry, 100);
-  });
+  // Re-render when the circuit model becomes available. The circuit SVG is
+  // replaced before `enableEvents(...)` runs, so computing state immediately in
+  // `createPanel(...)` would otherwise risk using a stale model.
+  try {
+    container.addEventListener("qsharp:circuit:modelReady", () => {
+      requestRenderState();
+    });
+  } catch {
+    // ignore
+  }
+
+  // Initial render.
+  void renderState(panelElem);
 }

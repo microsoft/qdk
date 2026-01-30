@@ -158,53 +158,8 @@ export const setStatePanelLoading = (panel: HTMLElement, loading: boolean) => {
   }
 };
 
-// Render a default state in the visualization panel.
-// - If nQubits <= 0: hide the SVG and show a friendly message.
-// - If nQubits > 0: show a blank panel.
-//
-// The loading spinner overlay is responsible for conveying "work in progress".
-export const renderDefaultStatePanel = (
-  panel: HTMLElement,
-  nQubits: number,
-): void => {
-  const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
-  if (!svg) return;
-
-  if (!nQubits || nQubits <= 0) {
-    // Hide SVG graphics and show message
-    // Reset any stale height to avoid carrying over large values
-    showEmptyState(panel);
-  } else {
-    // Blank (but not "empty") so the loading overlay can be shown.
-    while (svg.firstChild) svg.removeChild(svg.firstChild);
-    panel.classList.remove("empty");
-    const emptyMsg = panel.querySelector(".state-empty-message");
-    if (emptyMsg) emptyMsg.remove();
-  }
-};
-
-export const renderUnsupportedStatePanel = (
-  panel: HTMLElement,
-  message: string,
-): void => {
-  showEmptyState(panel, message);
-};
-
-// Render from precomputed columns (e.g., prepared in a Web Worker).
-export const updateStatePanelFromColumns = (
-  panel: HTMLElement,
-  columns: StateColumn[],
-  opts: RenderOptions = {},
-): void => {
-  if (!columns || columns.length === 0) {
-    showEmptyState(panel);
-    return;
-  }
-  showContentState(panel);
-  renderStatePanel(panel, columns, opts);
-};
-
-const showEmptyState = (
+// Put the panel into a message state (e.g., empty circuit or unsupported).
+export const renderMessageStatePanel = (
   panel: HTMLElement,
   message = "The circuit is empty.",
 ): void => {
@@ -213,24 +168,47 @@ const showEmptyState = (
     while (svg.firstChild) svg.removeChild(svg.firstChild);
     svg.removeAttribute("height");
   }
-  panel.classList.add("empty");
+  panel.classList.add("message");
 
-  let msg = panel.querySelector(".state-empty-message") as HTMLElement | null;
+  let msg = panel.querySelector(".state-panel-message") as HTMLElement | null;
   if (!msg) {
     msg = document.createElement("div");
-    msg.className = "state-empty-message";
+    msg.className = "state-panel-message";
     panel.appendChild(msg);
   }
   msg.textContent = message;
   panel.style.flexBasis = `${VIZ.emptyStateFlexBasisPx}px`;
 };
 
-const showContentState = (panel: HTMLElement): void => {
+// Put the panel into a blank (non-message) state.
+// This is used when the circuit is non-empty but state data isn't available yet.
+export const renderBlankStatePanel = (panel: HTMLElement): void => {
+  const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
+  if (svg) {
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+  }
+  panel.classList.remove("message");
+  const msg = panel.querySelector(".state-panel-message");
+  if (msg) msg.remove();
+  // If we were previously in message state, restore sizing control back to CSS
+  // (or subsequent renders) instead of keeping the message-state flex-basis.
+  panel.style.flexBasis = "";
+};
+
+// Render from precomputed columns (e.g., prepared in a Web Worker).
+export const updateStatePanelFromColumns = (
+  panel: HTMLElement,
+  columns: StateColumn[],
+  opts: RenderOptions = {},
+): void => {
   // Content visibility restored via CSS when not in empty mode
   // Remove empty mode to reveal content via CSS
-  panel.classList.remove("empty");
-  const emptyMsg = panel.querySelector(".state-empty-message");
-  if (emptyMsg) emptyMsg.remove();
+  panel.classList.remove("message");
+  const msg = panel.querySelector(".state-panel-message");
+  if (msg) msg.remove();
+  panel.style.flexBasis = "";
+
+  renderStatePanel(panel, columns, opts);
 };
 
 // --- State Amplitude Preparation ---
