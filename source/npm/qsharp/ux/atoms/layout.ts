@@ -4,16 +4,54 @@
 import { appendChildren, createSvgElements, setAttributes } from "./utils.js";
 
 // Zones will be rendered from top to bottom in array order
+// Supports both old format (rows count) and new format (rowStart/rowEnd)
+type ZoneDataInput = {
+  title: string;
+  kind: "register" | "interaction" | "measurement";
+} & (
+  | { rows: number; rowStart?: never; rowEnd?: never }
+  | { rowStart: number; rowEnd: number; rows?: never }
+);
+
+// Normalized internal format always uses rowStart/rowEnd
 type ZoneData = {
   title: string;
-  rows: number;
+  rowStart: number;
+  rowEnd: number;
   kind: "register" | "interaction" | "measurement";
 };
 
 export type ZoneLayout = {
   cols: number;
-  zones: ZoneData[];
+  zones: ZoneDataInput[];
 };
+
+// Normalize zone data to always use rowStart/rowEnd format
+function normalizeZones(zones: ZoneDataInput[]): ZoneData[] {
+  let nextRowStart = 0;
+  return zones.map((zone) => {
+    if ("rowStart" in zone && zone.rowStart !== undefined) {
+      // New format with explicit rowStart/rowEnd
+      return {
+        title: zone.title,
+        rowStart: zone.rowStart,
+        rowEnd: zone.rowEnd,
+        kind: zone.kind,
+      };
+    } else {
+      // Old format with rows count - convert to rowStart/rowEnd
+      const rowStart = nextRowStart;
+      const rowEnd = nextRowStart + zone.rows - 1;
+      nextRowStart = rowEnd + 1;
+      return {
+        title: zone.title,
+        rowStart,
+        rowEnd,
+        kind: zone.kind,
+      };
+    }
+  });
+}
 
 export type TraceData = {
   metadata: any;
@@ -51,15 +89,14 @@ export function fillQubitLocations(
   layout: ZoneLayout,
 ): Array<[number, number]> {
   const qubits: Array<[number, number]> = [];
-  let currRow = 0;
-  layout.zones.forEach((zone) => {
-    for (let row = 0; row < zone.rows; ++row) {
-      if (zone.kind === "register") {
+  const normalizedZones = normalizeZones(layout.zones);
+  normalizedZones.forEach((zone) => {
+    if (zone.kind === "register") {
+      for (let row = zone.rowStart; row <= zone.rowEnd; ++row) {
         for (let col = 0; col < layout.cols; ++col) {
-          qubits.push([currRow, col]);
+          qubits.push([row, col]);
         }
       }
-      ++currRow;
     }
   });
 
@@ -221,7 +258,8 @@ export class Layout {
   height: number;
   scale: number = initialScale;
   qubits: Location[];
-  rowOffset: number[];
+  rowOffsetMap: Map<number, number>; // Maps absolute row numbers to visual Y offsets
+  normalizedZones: ZoneData[];
   currentStep = 0;
   trackParent: SVGGElement;
   activeGates: SVGElement[] = [];
@@ -248,7 +286,13 @@ export class Layout {
       "svg",
     );
 
-    const totalRows = layout.zones.reduce((prev, curr) => prev + curr.rows, 0);
+    // Normalize zones to always use rowStart/rowEnd format
+    this.normalizedZones = normalizeZones(layout.zones);
+
+    const totalRows = this.normalizedZones.reduce(
+      (prev, curr) => prev + (curr.rowEnd - curr.rowStart + 1),
+      0,
+    );
 
     this.height =
       totalRows * qubitSize + zoneSpacing * (layout.zones.length + 1);
@@ -261,15 +305,14 @@ export class Layout {
     });
 
     // Loop through the zones, calculating the row offsets, and rendering the zones
-    this.rowOffset = [];
+    // Maps absolute row numbers to visual Y offsets
+    this.rowOffsetMap = new Map();
     let nextOffset = zoneSpacing;
-    let nextRowNum = 0;
-    layout.zones.forEach((zone, index) => {
-      this.renderZone(index, nextOffset, nextRowNum);
-      for (let i = 0; i < zone.rows; ++i) {
-        this.rowOffset.push(nextOffset);
+    this.normalizedZones.forEach((zone, index) => {
+      this.renderZone(index, nextOffset);
+      for (let row = zone.rowStart; row <= zone.rowEnd; ++row) {
+        this.rowOffsetMap.set(row, nextOffset);
         nextOffset += qubitSize;
-        ++nextRowNum;
       }
       nextOffset += zoneSpacing; // Add spacing after each zone
     });
@@ -319,8 +362,9 @@ export class Layout {
     return this.trace.steps[step].ops;
   }
 
-  private renderZone(zoneIndex: number, offset: number, firstRowNum = 0) {
-    const zoneData = this.layout.zones[zoneIndex];
+  private renderZone(zoneIndex: number, offset: number) {
+    const zoneData = this.normalizedZones[zoneIndex];
+    const zoneRows = zoneData.rowEnd - zoneData.rowStart + 1;
     const g = createSvgElements("g")[0];
     setAttributes(g, {
       transform: `translate(0 ${offset})`,
@@ -334,13 +378,13 @@ export class Layout {
         x: "0",
         y: "0",
         width: `${this.layout.cols * qubitSize}`,
-        height: `${zoneData.rows * qubitSize}`,
+        height: `${zoneRows * qubitSize}`,
         rx: `${zoneBoxCornerRadius}`,
       });
       appendChildren(g, [rect]);
 
       // Draw the lines between the rows
-      for (let i = 1; i < zoneData.rows; i++) {
+      for (let i = 1; i < zoneRows; i++) {
         const path = createSvgElements("path")[0];
         setAttributes(path, {
           d: `M 0,${i * qubitSize} h${this.layout.cols * qubitSize}`,
@@ -351,13 +395,13 @@ export class Layout {
       for (let i = 1; i < this.layout.cols; i++) {
         const path = createSvgElements("path")[0];
         setAttributes(path, {
-          d: `M ${i * qubitSize},0 v${zoneData.rows * qubitSize}`,
+          d: `M ${i * qubitSize},0 v${zoneRows * qubitSize}`,
         });
         appendChildren(g, [path]);
       }
     } else {
       // For the interaction zone draw each doublon
-      for (let row = 0; row < zoneData.rows; ++row) {
+      for (let row = 0; row < zoneRows; ++row) {
         for (let i = 0; i < this.layout.cols; i += 2) {
           const rect = createSvgElements("rect")[0];
           setAttributes(rect, {
@@ -376,9 +420,9 @@ export class Layout {
       }
     }
 
-    // Number the rows
-    for (let i = 0; i < zoneData.rows; ++i) {
-      const rowNum = firstRowNum + i;
+    // Number the rows using the absolute row numbers from rowStart to rowEnd
+    for (let i = 0; i < zoneRows; ++i) {
+      const rowNum = zoneData.rowStart + i;
       const label = createSvgElements("text")[0];
       setAttributes(label, {
         x: `${this.layout.cols * qubitSize + 5}`,
@@ -588,7 +632,11 @@ export class Layout {
   }
 
   getQubitRowOffset(row: number) {
-    return this.rowOffset[row];
+    const offset = this.rowOffsetMap.get(row);
+    if (offset === undefined) {
+      throw `Row ${row} not found in layout`;
+    }
+    return offset;
   }
 
   getLocationCenter(row: number, col: number): [number, number] {
