@@ -55,6 +55,22 @@ type WorkerComputeResponse =
       error: { name: string; message: string };
     };
 
+type QsharpStateComputeApi = {
+  computeStateVizColumnsForCircuitModel: (
+    model: CircuitModelSnapshot,
+    endianness: Endianness,
+    opts?: {
+      normalize?: boolean;
+      minProbThreshold?: number;
+      maxColumns?: number;
+    },
+  ) => Promise<any>;
+
+  // Optional cleanup hook so new webview instances (or setting-driven redraws)
+  // can dispose any previously-installed API and terminate its in-flight worker.
+  dispose?: (reason?: string) => void;
+};
+
 type ActiveStateComputeWorker = {
   requestId: number;
   worker: Worker;
@@ -103,6 +119,39 @@ function cancelActiveStateComputeWorker(reason: string) {
   } catch {
     // ignore
   }
+}
+
+function installQsharpStateComputeApi() {
+  const prev = (globalThis as any).qsharpStateComputeApi as
+    | QsharpStateComputeApi
+    | undefined;
+
+  // If this webview script is re-initialized without a full page unload
+  // (e.g., setting-driven recreation), ensure any previously-created worker is
+  // cancelled/terminated so it can't deliver stale results later.
+  try {
+    prev?.dispose?.("replaced by new state compute API instance");
+  } catch {
+    // ignore
+  }
+
+  const api: QsharpStateComputeApi = {
+    computeStateVizColumnsForCircuitModel: (
+      model: CircuitModelSnapshot,
+      endianness: Endianness,
+      opts?: {
+        normalize?: boolean;
+        minProbThreshold?: number;
+        maxColumns?: number;
+      },
+    ) => computeStateVizColumnsInWorker(model, endianness, opts),
+
+    dispose: (reason?: string) => {
+      cancelActiveStateComputeWorker(reason ?? "disposed");
+    },
+  };
+
+  (globalThis as any).qsharpStateComputeApi = api;
 }
 
 function createStateComputeWorker(): { worker: Worker; blobUrl: string } {
@@ -236,17 +285,7 @@ function main() {
 
   // Provide a host API so the circuit visualization can offload state computation
   // to a Web Worker without importing VS Code specific modules.
-  (globalThis as any).qsharpStateComputeApi = {
-    computeStateVizColumnsForCircuitModel: (
-      model: CircuitModelSnapshot,
-      endianness: Endianness,
-      opts?: {
-        normalize?: boolean;
-        minProbThreshold?: number;
-        maxColumns?: number;
-      },
-    ) => computeStateVizColumnsInWorker(model, endianness, opts),
-  };
+  installQsharpStateComputeApi();
 
   window.addEventListener("unload", () => {
     cancelActiveStateComputeWorker("webview unload");

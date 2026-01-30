@@ -18,8 +18,6 @@ export type RenderOptions = {
   animationMs?: number; // global animation duration in ms (default 200ms)
 };
 
-import { prepareStateVizColumnsFromAmpMap } from "./stateVizPrep.js";
-
 // Visualization config constants
 const VIZ = {
   defaultAnimationMs: 200,
@@ -162,7 +160,9 @@ export const setStatePanelLoading = (panel: HTMLElement, loading: boolean) => {
 
 // Render a default state in the visualization panel.
 // - If nQubits <= 0: hide the SVG and show a friendly message.
-// - If nQubits > 0: show the SVG and render a zero-phase |0…0⟩ state immediately.
+// - If nQubits > 0: show a blank panel.
+//
+// The loading spinner overlay is responsible for conveying "work in progress".
 export const renderDefaultStatePanel = (
   panel: HTMLElement,
   nQubits: number,
@@ -175,10 +175,11 @@ export const renderDefaultStatePanel = (
     // Reset any stale height to avoid carrying over large values
     showEmptyState(panel);
   } else {
-    const zeros = "0".repeat(nQubits);
-    const defaultAmpMap = { [zeros]: { re: 1, im: 0 } };
-    const columns = prepareStateVizColumnsFromAmpMap(defaultAmpMap);
-    updateStatePanelFromColumns(panel, columns);
+    // Blank (but not "empty") so the loading overlay can be shown.
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    panel.classList.remove("empty");
+    const emptyMsg = panel.querySelector(".state-empty-message");
+    if (emptyMsg) emptyMsg.remove();
   }
 };
 
