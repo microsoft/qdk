@@ -106,7 +106,6 @@ class QsJob(JobV1, ABC):
         """Return the error that occurred during the execution of the job."""
         if self._future is not None:
             return self._future.exception()
-        return None
 
     def add_done_callback(self, fn: Callable[[Future[Result]], object]) -> None:
         """Attaches a callable that will be called when the job finishes."""

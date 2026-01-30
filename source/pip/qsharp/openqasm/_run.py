@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 
 from time import monotonic
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, cast, Dict, List, Optional, Tuple, Union
 from .._fs import read_file, list_directory, resolve
 from .._http import fetch_github
 from .._native import QasmError, Output, run_qasm_program  # type: ignore
@@ -13,6 +13,7 @@ from .._qsharp import (
     PhaseFlipNoise,
     ShotResult,
     StateDump,
+    StateDumpData,
     get_interpreter,
     ipython_helper,
     python_args_to_interpreter_args,
@@ -91,9 +92,8 @@ def run(
         if output.is_matrix():
             results[-1]["matrices"].append(output)
         elif output.is_state_dump():
-            dump_data = output.state_dump()
-            if dump_data is not None:
-                results[-1]["dumps"].append(StateDump(dump_data))
+            dump_data = cast(StateDumpData, output.state_dump())
+            results[-1]["dumps"].append(StateDump(dump_data))
         elif output.is_message():
             results[-1]["messages"].append(str(output))
 
@@ -146,7 +146,9 @@ def run(
             )
 
         if source_str is None:
-            raise QasmError("source must be a string or a callable with __global_callable attribute")
+            raise QasmError(
+                "source must be a string or a callable with __global_callable attribute"
+            )
 
         # remove any entries from kwargs with a None key or None value
         kwargs = {k: v for k, v in kwargs.items() if k is not None and v is not None}

@@ -50,7 +50,9 @@ def estimate(
     ipython_helper()
 
     def _coerce_estimator_params(
-        params: Optional[Union[Dict[str, Any], List, EstimatorParams]] = None,
+        params: Optional[
+            Union[Dict[str, Any], List[Dict[str, Any]], EstimatorParams]
+        ] = None,
     ) -> List[Dict[str, Any]]:
         if params is None:
             return [{}]
@@ -61,7 +63,7 @@ def estimate(
                 return [params.as_dict()]
         elif isinstance(params, dict):
             return [params]
-        return cast(List[Dict[str, Any]], params)
+        return params
 
     params = _coerce_estimator_params(params)
     param_str = json.dumps(params)
@@ -89,7 +91,9 @@ def estimate(
             **kwargs,
         )
     else:
-        raise ValueError("source must be a string or a callable with __global_callable attribute")
+        raise ValueError(
+            "source must be a string or a callable with __global_callable attribute"
+        )
     res = json.loads(res_str)
 
     try:

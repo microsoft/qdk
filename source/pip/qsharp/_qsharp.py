@@ -473,11 +473,10 @@ def eval(
             results["events"].append(output)
             results["matrices"].append(output)
         elif output.is_state_dump():
-            dump_data = output.state_dump()
-            if dump_data is not None:
-                state_dump = StateDump(dump_data)
-                results["events"].append(state_dump)
-                results["dumps"].append(state_dump)
+            dump_data = cast(StateDumpData, output.state_dump())
+            state_dump = StateDump(dump_data)
+            results["events"].append(state_dump)
+            results["dumps"].append(state_dump)
         elif output.is_message():
             stringified = str(output)
             results["events"].append(stringified)
@@ -733,9 +732,8 @@ def run(
         if output.is_matrix():
             results[-1]["matrices"].append(output)
         elif output.is_state_dump():
-            dump_data = output.state_dump()
-            if dump_data is not None:
-                results[-1]["dumps"].append(StateDump(dump_data))
+            dump_data = cast(StateDumpData, output.state_dump())
+            results[-1]["dumps"].append(StateDump(dump_data))
         elif output.is_message():
             results[-1]["messages"].append(str(output))
 
@@ -912,7 +910,9 @@ def estimate(
     ipython_helper()
 
     def _coerce_estimator_params(
-        params: Optional[Union[Dict[str, Any], List, EstimatorParams]] = None,
+        params: Optional[
+            Union[Dict[str, Any], List[Dict[str, Any]], EstimatorParams]
+        ] = None,
     ) -> List[Dict[str, Any]]:
         if params is None:
             return [{}]
@@ -923,7 +923,7 @@ def estimate(
                 return [params.as_dict()]
         elif isinstance(params, dict):
             return [params]
-        return cast(List[Dict[str, Any]], params)
+        return params
 
     params = _coerce_estimator_params(params)
     param_str = json.dumps(params)

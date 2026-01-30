@@ -122,9 +122,9 @@ class QsJobSet(Job):
         output["backend_version"] = self.backend().backend_version
 
         # Times are set in submit() and _job_done() which must be called before result()
-        end_time = self._end_time if self._end_time is not None else monotonic()
-        start_time = self._start_time if self._start_time is not None else end_time
-        duration = end_time - start_time
+        assert self._start_time is not None
+        assert self._end_time is not None
+        duration = self._end_time - self._start_time
         output["time_taken"] = str(duration)
         output["header"] = {
             "metadata": {},
@@ -133,6 +133,8 @@ class QsJobSet(Job):
         output["success"] = all(result.success for result in results)
         agg_result: List[ExperimentResult] = []
         for result in results:
+            # The results of an experiment should not be empty
+            assert result.results is not None
             for experiment_result in result.results:
                 agg_result.append(experiment_result.to_dict())
         output["results"] = agg_result
