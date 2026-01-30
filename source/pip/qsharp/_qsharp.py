@@ -561,7 +561,8 @@ def _make_callable(callable: GlobalCallable, namespace: List[str], callable_name
         # Preserve any existing attributes on the attribute with the matching name,
         # since this could be a collision with an existing namespace/module.
         for key, val in module.__dict__.get(callable_name).__dict__.items():
-            _callable.__dict__[key] = val
+            if key != "__global_callable":
+                _callable.__dict__[key] = val
         module.__setattr__(callable_name, _callable)
 
 
