@@ -1869,6 +1869,8 @@ version = "0.0.0"
 dependencies = [
  "num-traits",
  "rustc-hash",
+ "serde",
+ "thiserror 1.0.63",
 ]
 
 [[package]]
