@@ -18,8 +18,8 @@ import prettier from "prettier";
 import {
   createStatePanel,
   updateStatePanelFromColumns,
-} from "../dist/ux/circuit-vis/stateViz.js";
-import { prepareStateVizColumnsFromAmpMap } from "../dist/ux/circuit-vis/stateVizPrep.js";
+} from "../dist/ux/circuit-vis/state-viz/stateViz.js";
+import { prepareStateVizColumnsFromAmpMap } from "../dist/ux/circuit-vis/state-viz/stateVizPrep.js";
 
 const documentTemplate = `<!doctype html><html>
   <head>

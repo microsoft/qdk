@@ -47,9 +47,6 @@ function logMainThreadFallback(details: {
   );
 }
 
-export { computeAmpMapForCircuit } from "./stateComputeCore.js";
-export type { AmpMap, Endianness } from "./stateComputeCore.js";
-
 type CircuitModelSnapshot = { qubits: Qubit[]; componentGrid: ComponentGrid };
 type StateComputeHostApi = {
   computeStateVizColumnsForCircuitModel?: (

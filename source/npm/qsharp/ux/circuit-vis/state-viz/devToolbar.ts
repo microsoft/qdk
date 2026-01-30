@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import type { Endianness } from "./stateCompute.js";
+import type { Endianness } from "./stateComputeCore.js";
 import type { AmpMap } from "./stateViz.js";
 
 export type DataMode = "live" | "mock";
