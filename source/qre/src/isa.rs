@@ -8,6 +8,7 @@ use std::{
 
 use num_traits::FromPrimitive;
 use rustc_hash::FxHashMap;
+use serde::{Deserialize, Serialize};
 
 #[cfg(test)]
 mod tests;
@@ -158,7 +159,7 @@ impl FromIterator<InstructionConstraint> for ISARequirements {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Instruction {
     id: u64,
     encoding: Encoding,
@@ -328,13 +329,14 @@ impl InstructionConstraint {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Encoding {
+    #[default]
     Physical,
     Logical,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum Metrics {
     FixedArity {
         arity: u64,
@@ -351,7 +353,7 @@ pub enum Metrics {
     },
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum VariableArityFunction<T> {
     Constant { value: T },
     Linear { slope: T },
