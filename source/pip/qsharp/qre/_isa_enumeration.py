@@ -39,16 +39,25 @@ class Node(ABC):
 
     def __add__(self, other: Node) -> SumNode:
         """
-        Combines two enumeration nodes in an additive manner.
+        Performs a union of two enumeration nodes.
 
-        Enumerating the sum node yields all ISAs from this node, followed by
-        all ISAs from the other node.
+        Enumerating the sum node yields all ISAs from this node, followed by all
+        ISAs from the other node.  Duplicate ISAs may be produced if both nodes
+        yield the same ISA.
 
         Args:
             other (Node): The other enumeration node.
 
         Returns:
             SumNode: A node representing the union of both enumerations.
+
+        Example:
+
+            The following enumerates ISAs from both SurfaceCode and ColorCode:
+
+        .. code-block:: python
+            for isa in SurfaceCode.q() + ColorCode.q():
+                ...
         """
         if isinstance(self, SumNode) and isinstance(other, SumNode):
             sources = self.sources + other.sources
@@ -64,17 +73,29 @@ class Node(ABC):
 
     def __mul__(self, other: Node) -> ProductNode:
         """
-        Combines two enumeration nodes in a multiplicative manner.
+        Performs the cross product of two enumeration nodes.
 
         Enumerating the product node yields ISAs resulting from the Cartesian
         product of ISAs from both nodes. The ISAs are combined using
-        concatenation (logical union).
+        concatenation (logical union).  This means that instructions in the
+        other enumeration node with the same ID as an instruction in this
+        enumeration node will overwrite the instruction from this node.
 
         Args:
             other (Node): The other enumeration node.
 
         Returns:
             ProductNode: A node representing the product of both enumerations.
+
+        Example:
+
+            The following enumerates ISAs formed by combining ISAs from a
+            surface code and a factory:
+
+        .. code-block:: python
+
+            for isa in SurfaceCode.q() * Factory.q():
+                ...
         """
         if isinstance(self, ProductNode) and isinstance(other, ProductNode):
             sources = self.sources + other.sources
@@ -99,6 +120,8 @@ class Node(ABC):
             A BindingNode with self as the component.
 
         Example:
+
+        .. code-block:: python
             ExampleErrorCorrection.q().bind("c", ISARefNode("c") * ISARefNode("c"))
         """
         return BindingNode(name=name, component=self, node=node)
@@ -287,6 +310,8 @@ class BindingNode(Node):
         node: The child enumeration node that may contain ISARefNodes.
 
     Example:
+
+    .. code-block:: python
         ctx = EnumerationContext(architecture=arch)
 
         # Bind a code and reference it multiple times
