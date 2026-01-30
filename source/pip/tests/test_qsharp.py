@@ -862,6 +862,14 @@ def test_namespace_defined_before_function_keeps_both_accessible() -> None:
     assert Two() == 42
 
 
+def test_callables_can_be_shadowed() -> None:
+    qsharp.init()
+    qsharp.eval("function Foo() : Int { 1 }")
+    assert qsharp.code.Foo() == 1
+    qsharp.eval("function Foo() : Int { 2 }")
+    assert qsharp.code.Foo() == 2
+
+
 def test_circuit_from_callable() -> None:
     qsharp.init()
     qsharp.eval(
