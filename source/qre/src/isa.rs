@@ -12,7 +12,7 @@ use rustc_hash::FxHashMap;
 #[cfg(test)]
 mod tests;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ISA {
     instructions: FxHashMap<u64, Instruction>,
 }

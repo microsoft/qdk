@@ -48,6 +48,10 @@ impl ISA {
             .map(ISA)
     }
 
+    pub fn __add__(&self, other: &ISA) -> PyResult<ISA> {
+        Ok(ISA(self.0.clone() + other.0.clone()))
+    }
+
     pub fn satisfies(&self, requirements: &ISARequirements) -> PyResult<bool> {
         Ok(self.0.satisfies(&requirements.0))
     }
@@ -68,7 +72,7 @@ impl ISA {
     #[allow(clippy::needless_pass_by_value)]
     pub fn __iter__(slf: PyRef<'_, Self>) -> PyResult<Py<ISAIterator>> {
         let iter = ISAIterator {
-            iter: slf.0.clone().into_iter(),
+            iter: (*slf.0).clone().into_iter(),
         };
         Py::new(slf.py(), iter)
     }

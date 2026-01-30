@@ -18,6 +18,14 @@ class ISA:
         """
         ...
 
+    def __add__(self, other: ISA) -> ISA:
+        """
+        Concatenates two ISAs (logical union). Instructions in the second
+        operand overwrite instructions in the first operand if they have the
+        same ID.
+        """
+        ...
+
     def satisfies(self, requirements: ISARequirements) -> bool:
         """
         Checks if the ISA satisfies the given ISA requirements.
