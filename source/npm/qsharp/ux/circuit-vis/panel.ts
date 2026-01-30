@@ -2,7 +2,7 @@
 // Licensed under the MIT license.
 
 import { Ket, Measurement, Operation, Unitary } from "./circuit.js";
-import { ensureStateVisualization } from "./stateVizController.js";
+import { ensureStateVisualization } from "./state-viz/stateVizController.js";
 import {
   gateHeight,
   horizontalGap,

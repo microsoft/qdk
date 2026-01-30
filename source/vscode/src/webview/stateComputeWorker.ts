@@ -1,8 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { computeAmpMapForCircuit } from "../../../npm/qsharp/ux/circuit-vis/stateComputeCore";
-import { prepareStateVizColumnsFromAmpMap } from "../../../npm/qsharp/ux/circuit-vis/stateVizPrep";
+import { computeAmpMapForCircuit } from "../../../npm/qsharp/ux/circuit-vis/state-viz/stateComputeCore";
+import { prepareStateVizColumnsFromAmpMap } from "../../../npm/qsharp/ux/circuit-vis/state-viz/stateVizPrep";
 
 const LOG_PREFIX = "[qsharp][state-compute-worker]";
 function log(...args: unknown[]) {

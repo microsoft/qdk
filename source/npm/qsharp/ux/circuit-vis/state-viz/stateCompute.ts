@@ -6,8 +6,8 @@
 // delegates async computation to a host-provided API (e.g. VS Code webview
 // worker) with a main-thread fallback.
 
-import { getCurrentCircuitModel } from "./events.js";
-import type { ComponentGrid, Qubit } from "./circuit.js";
+import { getCurrentCircuitModel } from "../events.js";
+import type { ComponentGrid, Qubit } from "../circuit.js";
 import {
   computeAmpMapForCircuit,
   type Endianness,
