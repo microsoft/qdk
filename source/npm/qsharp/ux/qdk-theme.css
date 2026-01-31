@@ -98,7 +98,7 @@ body[data-vscode-theme-kind="vscode-high-contrast-light"] {
   --qdk-widget-outline: #ccc;
 
   /* Use for menus */
-  --qdk-menu-fill: #ccc;
+  --qdk-menu-fill: #c4dbeb;
   --qdk-menu-fill-hover: #9cf;
   --qdk-menu-fill-selected: #7af;
 
@@ -109,10 +109,10 @@ body[data-vscode-theme-kind="vscode-high-contrast-light"] {
   --qdk-shape-stroke-hover: #6b6b6b;
 
   --qdk-gate-generic: #66d;
-  --qdk-gate-pair: #ec4;
+  --qdk-gate-pair: #eae753;
   --qdk-gate-measure: #822;
   --qdk-gate-reset: #282;
-  --qdk-atom-fill: #338;
+  --qdk-atom-fill: #0078d4;
   --qdk-atom-trail: #fa0;
 }
 

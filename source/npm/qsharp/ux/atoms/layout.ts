@@ -148,7 +148,21 @@ function parseGate(
 
 function parseZoneOp(
   op: string,
+  layout: ZoneLayout,
 ): { op: "zone_cz" | "zone_mresetz"; zoneIndex: number } | undefined {
+  // If we get a naked 'cz' or 'mresetz', treat it as a zone op for the first zone of the matching type
+  if (op === "cz") {
+    return {
+      op: "zone_cz",
+      zoneIndex: layout.zones.findIndex((z) => z.kind === "interaction"),
+    };
+  }
+  if (op === "mresetz") {
+    return {
+      op: "zone_mresetz",
+      zoneIndex: layout.zones.findIndex((z) => z.kind === "measurement"),
+    };
+  }
   const match = op.match(/^(zone_cz|zone_mresetz)\s+(\d+)$/);
   if (match) {
     return {
@@ -522,16 +536,20 @@ export class Layout {
     setAttributes(g, {
       transform: `translate(0 ${offset})`,
     });
-    // Number the columns
-    for (let i = 0; i < cols; ++i) {
+    // Number the columns, showing original column numbers (skipping those in skipCols)
+    const skipCols = this.layout.skipCols ?? [];
+    let visualCol = 0;
+    for (let origCol = 0; visualCol < cols; ++origCol) {
+      if (skipCols.includes(origCol)) continue;
       const label = createSvgElements("text")[0];
       setAttributes(label, {
-        x: `${i * qubitSize + 5}`,
+        x: `${visualCol * qubitSize + 5}`,
         y: `5`,
         class: "qs-atoms-label",
       });
-      label.textContent = `${i}`;
+      label.textContent = `${origCol}`;
       appendChildren(g, [label]);
+      ++visualCol;
     }
     appendChildren(this.container, [g]);
   }
@@ -826,7 +844,7 @@ export class Layout {
           // TODO: Check if you can/should cancel when scrubbing
         } else {
           // Check if it's a zone operation
-          const zoneOp = parseZoneOp(op);
+          const zoneOp = parseZoneOp(op, this.layout);
           if (zoneOp) {
             const qubitsInZone = this.getQubitsInZone(zoneOp.zoneIndex);
             if (zoneOp.op === "zone_cz") {
