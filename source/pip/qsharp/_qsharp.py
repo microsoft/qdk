@@ -519,6 +519,11 @@ def _make_callable(callable: GlobalCallable, namespace: List[str], callable_name
         # Use the existing entry, which should already be a module.
         if hasattr(module, name):
             module = module.__getattribute__(name)
+            if sys.modules.get(accumulated_namespace) is None:
+                # This is an existing entry that is not yet registered in sys.modules, so add it.
+                # This can happen if a callable with the same name as this namespace is already
+                # defined.
+                sys.modules[accumulated_namespace] = module
         else:
             # This namespace entry doesn't exist as a module yet, so create it, add it to the environment, and
             # add it to sys.modules so it supports import properly.
@@ -550,7 +555,15 @@ def _make_callable(callable: GlobalCallable, namespace: List[str], callable_name
     _callable.__global_callable = callable
 
     # Add the callable to the module.
-    module.__setattr__(callable_name, _callable)
+    if module.__dict__.get(callable_name) is None:
+        module.__setattr__(callable_name, _callable)
+    else:
+        # Preserve any existing attributes on the attribute with the matching name,
+        # since this could be a collision with an existing namespace/module.
+        for key, val in module.__dict__.get(callable_name).__dict__.items():
+            if key != "__global_callable":
+                _callable.__dict__[key] = val
+        module.__setattr__(callable_name, _callable)
 
 
 def qsharp_value_to_python_value(obj):

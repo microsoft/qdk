@@ -838,6 +838,38 @@ def test_lambdas_not_exposed_into_env() -> None:
     assert not hasattr(qsharp.code, "<lambda>")
 
 
+def test_function_defined_before_namespace_keeps_both_accessible() -> None:
+    qsharp.init()
+    qsharp.eval("function Four() : Int { 4 }")
+    qsharp.eval("namespace Four { function Two() : Int { 42 } }")
+    assert qsharp.code.Four() == 4
+    assert qsharp.code.Four.Two() == 42
+    from qsharp.code import Four
+    from qsharp.code.Four import Two
+    assert Four() == 4
+    assert Two() == 42
+
+
+def test_namespace_defined_before_function_keeps_both_accessible() -> None:
+    qsharp.init()
+    qsharp.eval("namespace Four { function Two() : Int { 42 } }")
+    qsharp.eval("function Four() : Int { 4 }")
+    assert qsharp.code.Four() == 4
+    assert qsharp.code.Four.Two() == 42
+    from qsharp.code import Four
+    from qsharp.code.Four import Two
+    assert Four() == 4
+    assert Two() == 42
+
+
+def test_callables_can_be_shadowed() -> None:
+    qsharp.init()
+    qsharp.eval("function Foo() : Int { 1 }")
+    assert qsharp.code.Foo() == 1
+    qsharp.eval("function Foo() : Int { 2 }")
+    assert qsharp.code.Foo() == 2
+
+
 def test_circuit_from_callable() -> None:
     qsharp.init()
     qsharp.eval(
