@@ -13,7 +13,7 @@ import {
   Circuit,
   setRenderer,
   Atoms,
-  type MachineLayout,
+  type ZoneLayout,
   type TraceData,
   MoleculeViewer,
 } from "qsharp-lang/ux";
@@ -287,7 +287,7 @@ function renderCircuit({ model, el }: RenderArgs) {
 
 function renderAtoms({ model, el }: RenderArgs) {
   const onChange = () => {
-    const machineLayout = model.get("machine_layout") as MachineLayout;
+    const machineLayout = model.get("machine_layout") as ZoneLayout;
     const traceData = model.get("trace_data") as TraceData;
 
     if (!machineLayout || !traceData) {

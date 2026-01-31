@@ -68,6 +68,7 @@ body[data-jp-theme-light="true"],
 body[data-vscode-theme-kind="vscode-light"],
 body[data-vscode-theme-kind="vscode-high-contrast-light"] {
   /* Set any non-theme specific values here only */
+  --qdk-font-family: system-ui, "Segoe UI", "Roboto", sans-serif;
   --qdk-font-family-monospace: var(
     --vscode-editor-font-family,
     "Consolas",
@@ -88,6 +89,7 @@ body[data-vscode-theme-kind="vscode-high-contrast-light"] {
     var(--jp-widgets-color, #222)
   );
   --qdk-background-accent: #ddd;
+  --qdk-foreground-muted: #aaa;
 
   /* Used for text that must stand out on various backgrounds */
   --qdk-text-high-contrast: #000;
@@ -96,7 +98,7 @@ body[data-vscode-theme-kind="vscode-high-contrast-light"] {
   --qdk-widget-outline: #ccc;
 
   /* Use for menus */
-  --qdk-menu-fill: #ccc;
+  --qdk-menu-fill: #c4dbeb;
   --qdk-menu-fill-hover: #9cf;
   --qdk-menu-fill-selected: #7af;
 
@@ -105,6 +107,13 @@ body[data-vscode-theme-kind="vscode-high-contrast-light"] {
   --qdk-shape-fill-selected: #b5c5f2;
   --qdk-shape-stroke-selected: #587ddd;
   --qdk-shape-stroke-hover: #6b6b6b;
+
+  --qdk-gate-generic: #66d;
+  --qdk-gate-pair: #eae753;
+  --qdk-gate-measure: #822;
+  --qdk-gate-reset: #282;
+  --qdk-atom-fill: #0078d4;
+  --qdk-atom-trail: #fa0;
 }
 
 /* Set these variables on the body element if attributes indicate a dark theme choice */
@@ -122,6 +131,7 @@ body[data-vscode-theme-kind="vscode-high-contrast"] {
     var(--jp-widgets-color, #eee)
   );
   --qdk-background-accent: #333;
+  --qdk-foreground-muted: #666;
 
   /* Used for text that must stand out on various backgrounds */
   --qdk-text-high-contrast: #fff;
@@ -139,4 +149,11 @@ body[data-vscode-theme-kind="vscode-high-contrast"] {
   --qdk-shape-fill-selected: #ffd54f;
   --qdk-shape-stroke-selected: #ffecb3;
   --qdk-shape-stroke-hover: #c5c5c5;
+
+  --qdk-gate-generic: #ccf;
+  --qdk-gate-pair: #b91;
+  --qdk-gate-measure: #e88;
+  --qdk-gate-reset: #8e8;
+  --qdk-atom-fill: #9df;
+  --qdk-atom-trail: #fa0;
 }
