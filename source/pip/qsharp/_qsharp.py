@@ -30,6 +30,7 @@ from typing import (
     List,
     Set,
     Iterable,
+    cast,
 )
 from .estimator._estimator import (
     EstimatorResult,
@@ -134,7 +135,7 @@ def ipython_helper():
 
 
 class Config:
-    _config: Dict[str, str]
+    _config: Dict[str, Any]
     """
     Configuration hints for the language service.
     """
@@ -155,8 +156,10 @@ class Config:
         elif target_profile == TargetProfile.Unrestricted:
             self._config = {"targetProfile": "unrestricted"}
 
-        self._config["languageFeatures"] = language_features
-        self._config["manifest"] = manifest
+        if language_features is not None:
+            self._config["languageFeatures"] = language_features
+        if manifest is not None:
+            self._config["manifest"] = manifest
         if project_root:
             # For now, we only support local project roots, so use a file schema in the URI.
             # In the future, we may support other schemes, such as github, if/when
@@ -175,7 +178,7 @@ class Config:
     # (i.e. the language service) can read and interpret the data.
     def _repr_mimebundle_(
         self, include: Union[Any, None] = None, exclude: Union[Any, None] = None
-    ) -> Dict[str, Dict[str, str]]:
+    ) -> Dict[str, Dict[str, Any]]:
         return {"application/x.qsharp-config": self._config}
 
     def get_target_profile(self) -> str:
@@ -432,7 +435,7 @@ class ShotResult(TypedDict):
     A single result of a shot.
     """
 
-    events: List[Output]
+    events: List[Any]
     result: Any
     messages: List[str]
     matrices: List[Output]
@@ -470,7 +473,8 @@ def eval(
             results["events"].append(output)
             results["matrices"].append(output)
         elif output.is_state_dump():
-            state_dump = StateDump(output.state_dump())
+            dump_data = cast(StateDumpData, output.state_dump())
+            state_dump = StateDump(dump_data)
             results["events"].append(state_dump)
             results["dumps"].append(state_dump)
         elif output.is_message():
@@ -741,22 +745,25 @@ def run(
         if output.is_matrix():
             results[-1]["matrices"].append(output)
         elif output.is_state_dump():
-            results[-1]["dumps"].append(StateDump(output.state_dump()))
+            dump_data = cast(StateDumpData, output.state_dump())
+            results[-1]["dumps"].append(StateDump(dump_data))
         elif output.is_message():
             results[-1]["messages"].append(str(output))
 
     callable = None
+    entry_expr_str: Optional[str] = None
     if isinstance(entry_expr, Callable) and hasattr(entry_expr, "__global_callable"):
         args = python_args_to_interpreter_args(args)
         callable = entry_expr.__global_callable
-        entry_expr = None
+    elif isinstance(entry_expr, str):
+        entry_expr_str = entry_expr
 
     for shot in range(shots):
         results.append(
             {"result": None, "events": [], "messages": [], "matrices": [], "dumps": []}
         )
         run_results = get_interpreter().run(
-            entry_expr,
+            entry_expr_str,
             on_save_events if save_events else print_output,
             noise,
             qubit_loss,
@@ -770,7 +777,7 @@ def run(
         # For every shot after the first, treat the entry expression as None to trigger
         # a rerun of the last executed expression without paying the cost for any additional
         # compilation.
-        entry_expr = None
+        entry_expr_str = None
 
     durationMs = (monotonic() - start_time) * 1000
     telemetry_events.on_run_end(durationMs, shots)
@@ -835,8 +842,10 @@ def compile(entry_expr: Union[str, Callable], *args) -> QirInputData:
         ll_str = interpreter.qir(
             entry_expr=None, callable=entry_expr.__global_callable, args=args
         )
+    elif isinstance(entry_expr, str):
+        ll_str = interpreter.qir(entry_expr=entry_expr, callable=None, args=None)
     else:
-        ll_str = interpreter.qir(entry_expr=entry_expr)
+        ll_str = interpreter.qir(entry_expr=None, callable=None, args=None)
     res = QirInputData("main", ll_str)
     durationMs = (monotonic() - start) * 1000
     telemetry_events.on_compile_end(durationMs, target_profile)
@@ -884,8 +893,10 @@ def circuit(
         res = get_interpreter().circuit(
             config=config, callable=entry_expr.__global_callable, args=args
         )
-    else:
+    elif isinstance(entry_expr, str):
         res = get_interpreter().circuit(config, entry_expr, operation=operation)
+    else:
+        res = get_interpreter().circuit(config, None, operation=operation)
 
     durationMs = (monotonic() - start) * 1000
     telemetry_events.on_circuit_end(durationMs)
@@ -912,17 +923,19 @@ def estimate(
     ipython_helper()
 
     def _coerce_estimator_params(
-        params: Optional[Union[Dict[str, Any], List, EstimatorParams]] = None,
+        params: Optional[
+            Union[Dict[str, Any], List[Dict[str, Any]], EstimatorParams]
+        ] = None,
     ) -> List[Dict[str, Any]]:
         if params is None:
-            params = [{}]
+            return [{}]
         elif isinstance(params, EstimatorParams):
             if params.has_items:
-                params = params.as_dict()["items"]
+                return cast(List[Dict[str, Any]], params.as_dict()["items"])
             else:
-                params = [params.as_dict()]
+                return [params.as_dict()]
         elif isinstance(params, dict):
-            params = [params]
+            return [params]
         return params
 
     params = _coerce_estimator_params(params)
@@ -932,10 +945,16 @@ def estimate(
     if isinstance(entry_expr, Callable) and hasattr(entry_expr, "__global_callable"):
         args = python_args_to_interpreter_args(args)
         res_str = get_interpreter().estimate(
-            param_str, callable=entry_expr.__global_callable, args=args
+            param_str, entry_expr=None, callable=entry_expr.__global_callable, args=args
+        )
+    elif isinstance(entry_expr, str):
+        res_str = get_interpreter().estimate(
+            param_str, entry_expr=entry_expr, callable=None, args=None
         )
     else:
-        res_str = get_interpreter().estimate(param_str, entry_expr=entry_expr)
+        res_str = get_interpreter().estimate(
+            param_str, entry_expr=None, callable=None, args=None
+        )
     res = json.loads(res_str)
 
     try:
@@ -967,10 +986,16 @@ def logical_counts(
     if isinstance(entry_expr, Callable) and hasattr(entry_expr, "__global_callable"):
         args = python_args_to_interpreter_args(args)
         res_dict = get_interpreter().logical_counts(
-            callable=entry_expr.__global_callable, args=args
+            entry_expr=None, callable=entry_expr.__global_callable, args=args
+        )
+    elif isinstance(entry_expr, str):
+        res_dict = get_interpreter().logical_counts(
+            entry_expr=entry_expr, callable=None, args=None
         )
     else:
-        res_dict = get_interpreter().logical_counts(entry_expr=entry_expr)
+        res_dict = get_interpreter().logical_counts(
+            entry_expr=None, callable=None, args=None
+        )
     return LogicalCounts(res_dict)
 
 
