@@ -154,7 +154,10 @@ body[data-vscode-theme-kind="vscode-high-contrast"] {
   --qdk-focus-border: var(--vscode-focusBorder, var(--qdk-atom-fill));
 
   /* Use for subdued explanatory text */
-  --qdk-description-foreground: var(--vscode-descriptionForeground, var(--qdk-foreground-muted));
+  --qdk-description-foreground: var(
+    --vscode-descriptionForeground,
+    var(--qdk-foreground-muted)
+  );
 
   /* Used for shapes in charts, etc. that may have overlapping text (which should contrast) */
   --qdk-shape-fill: #4aa3ff;
