@@ -15,34 +15,6 @@ import {
 } from "./stateVizPrep.js";
 import type { StateColumn } from "./stateViz.js";
 
-const STATE_COMPUTE_LOG_PREFIX = "[qdk][state-compute]";
-let didLogMainThreadFallback = false;
-
-function logMainThreadFallback(details: {
-  qubits: number;
-  columns: number;
-}) {
-  if (didLogMainThreadFallback) return;
-  didLogMainThreadFallback = true;
-
-  // Keep unit tests quiet: in Node, `console.debug` is not typically filterable
-  // and will show up in test output.
-  const nodeProcess = (globalThis as any)?.process as any;
-  const isNode =
-    typeof nodeProcess !== "undefined" && !!nodeProcess?.versions?.node;
-  if (isNode) return;
-
-  if (typeof console === "undefined" || typeof console.debug !== "function") {
-    return;
-  }
-
-  console.debug(
-    STATE_COMPUTE_LOG_PREFIX,
-    "falling back to main-thread state compute (no host worker API)",
-    details,
-  );
-}
-
 type CircuitModelSnapshot = { qubits: Qubit[]; componentGrid: ComponentGrid };
 type StateComputeHostApi = {
   computeStateVizColumnsForCircuitModel?: (
@@ -77,10 +49,6 @@ export async function computeStateVizColumnsFromCurrentModelAsync(
   }
 
   // Fallback: compute and prepare on the main thread.
-  logMainThreadFallback({
-    qubits: model.qubits.length,
-    columns: model.componentGrid.length,
-  });
   const ampMap = computeAmpMapForCircuit(model.qubits, model.componentGrid);
   return prepareStateVizColumnsFromAmpMap(ampMap as any, opts);
 }

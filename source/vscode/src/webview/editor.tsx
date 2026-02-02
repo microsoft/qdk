@@ -28,12 +28,6 @@ type State = { viewType: "loading" } | CircuitState;
 const loadingState: State = { viewType: "loading" };
 let state: State = loadingState;
 
-const STATE_COMPUTE_LOG_PREFIX = "[qdk][state-compute]";
-function logStateCompute(...args: unknown[]) {
-  // Intentionally using console.debug so this can be filtered easily.
-  console.debug(STATE_COMPUTE_LOG_PREFIX, ...args);
-}
-
 type CircuitModelSnapshot = { qubits: any[]; componentGrid: any[] };
 type WorkerComputeRequest = {
   command: "compute";
@@ -72,8 +66,6 @@ type ActiveStateComputeWorker = {
   requestId: number;
   worker: Worker;
   blobUrl: string;
-  startedAt: number;
-  modelSummary?: { qubits: number; columns: number };
   reject?: (err: unknown) => void;
 };
 
@@ -98,21 +90,14 @@ function disposeActiveStateComputeWorker() {
 function cancelActiveStateComputeWorker(reason: string) {
   if (!activeStateComputeWorker) return;
 
-  const { requestId, startedAt, modelSummary } = activeStateComputeWorker;
-  const elapsedMs = Math.round(performance.now() - startedAt);
-  logStateCompute("worker cancelled", {
-    requestId,
-    elapsedMs,
-    reason,
-    modelSummary,
-  });
-
   const reject = activeStateComputeWorker.reject;
   // Prevent any later cleanup from changing the settled promise.
   activeStateComputeWorker.reject = undefined;
   disposeActiveStateComputeWorker();
   try {
-    reject?.(new DOMException("State compute cancelled", "AbortError"));
+    reject?.(
+      new DOMException(`State compute cancelled (${reason})`, "AbortError"),
+    );
   } catch {
     // ignore
   }
@@ -168,31 +153,14 @@ function computeStateVizColumnsInWorker(
   cancelActiveStateComputeWorker("replaced by new compute request");
 
   const requestId = ++stateComputeRequestId;
-  const startedAt = performance.now();
   const created = createStateComputeWorker();
   return new Promise<any>((resolve, reject) => {
-    const modelSummary = {
-      qubits: Array.isArray(model?.qubits) ? model.qubits.length : 0,
-      columns: Array.isArray(model?.componentGrid)
-        ? model.componentGrid.length
-        : 0,
-    };
-
     activeStateComputeWorker = {
       requestId,
       worker: created.worker,
       blobUrl: created.blobUrl,
-      startedAt,
-      modelSummary,
       reject,
     };
-
-    logStateCompute("worker created", {
-      requestId,
-      blobUrl: created.blobUrl,
-      modelSummary,
-      mode: "viz",
-    });
 
     created.worker.onerror = (ev: ErrorEvent) => {
       if (
@@ -201,16 +169,6 @@ function computeStateVizColumnsInWorker(
       ) {
         return;
       }
-
-      const elapsedMs = Math.round(performance.now() - startedAt);
-      logStateCompute("worker onerror", {
-        requestId,
-        elapsedMs,
-        message: ev.message,
-        filename: (ev as any).filename,
-        lineno: (ev as any).lineno,
-        colno: (ev as any).colno,
-      });
 
       disposeActiveStateComputeWorker();
       reject(new Error(ev.message || "State compute worker error"));
@@ -227,17 +185,6 @@ function computeStateVizColumnsInWorker(
       if (!msg || typeof msg !== "object") return;
       if (msg.command === "result") {
         const columns = msg.columns;
-        const elapsedMs = Math.round(performance.now() - startedAt);
-        const colCount = Array.isArray(columns) ? columns.length : 0;
-        const others =
-          Array.isArray(columns) &&
-          columns.some((c: any) => c && c.isOthers === true);
-        logStateCompute("compute finished", {
-          requestId,
-          elapsedMs,
-          colCount,
-          others,
-        });
         disposeActiveStateComputeWorker();
         resolve(columns);
         return;
@@ -245,22 +192,10 @@ function computeStateVizColumnsInWorker(
       if (msg.command === "error") {
         const err = new Error(msg.error?.message ?? "Worker error");
         (err as any).name = msg.error?.name ?? "Error";
-        const elapsedMs = Math.round(performance.now() - startedAt);
-        logStateCompute("compute failed", {
-          requestId,
-          elapsedMs,
-          error: { name: (err as any).name, message: err.message },
-        });
         disposeActiveStateComputeWorker();
         reject(err);
       }
     };
-
-    logStateCompute("compute started", {
-      requestId,
-      modelSummary: activeStateComputeWorker.modelSummary,
-      opts,
-    });
 
     created.worker.postMessage({
       command: "compute",

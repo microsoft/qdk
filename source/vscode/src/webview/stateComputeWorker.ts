@@ -4,12 +4,6 @@
 import { computeAmpMapForCircuit } from "../../../npm/qsharp/ux/circuit-vis/state-viz/stateComputeCore";
 import { prepareStateVizColumnsFromAmpMap } from "../../../npm/qsharp/ux/circuit-vis/state-viz/stateVizPrep";
 
-const LOG_PREFIX = "[qdk][state-compute-worker]";
-function log(...args: unknown[]) {
-  // Intentionally using console.debug so this can be filtered easily.
-  console.debug(LOG_PREFIX, ...args);
-}
-
 type CircuitModelSnapshot = {
   qubits: any[];
   componentGrid: any[];
@@ -56,46 +50,19 @@ function respondError(requestId: number, err: unknown) {
   if (msg.command !== "compute") return;
 
   const requestId = typeof msg.requestId === "number" ? msg.requestId : 0;
-  const startedAt = performance.now();
 
   try {
     const model = msg.model as CircuitModelSnapshot;
 
-    const qubits = Array.isArray(model?.qubits) ? model.qubits.length : 0;
-    const gridColumns = Array.isArray(model?.componentGrid)
-      ? model.componentGrid.length
-      : 0;
-    log("compute started", {
-      requestId,
-      qubits,
-      columns: gridColumns,
-    });
-
     const ampMap = computeAmpMapForCircuit(model.qubits as any, model.componentGrid as any);
-
-    const elapsedMs = Math.round(performance.now() - startedAt);
     const opts = (msg.opts ?? {}) as any;
     const columns = prepareStateVizColumnsFromAmpMap(ampMap as any, opts);
-    const colCount = Array.isArray(columns) ? columns.length : 0;
-    const othersCount =
-      Array.isArray(columns) &&
-      columns.find((c: any) => c && c.isOthers === true)?.othersCount;
-    log("compute finished", { requestId, elapsedMs, colCount, othersCount });
     (self as any).postMessage({
       command: "result",
       requestId,
       columns,
     } satisfies ComputeResponse);
   } catch (err) {
-    const elapsedMs = Math.round(performance.now() - startedAt);
-    log("compute failed", {
-      requestId,
-      elapsedMs,
-      error:
-        err instanceof Error
-          ? { name: err.name, message: err.message }
-          : { name: "Error", message: String(err) },
-    });
     respondError(requestId, err);
   }
 };
