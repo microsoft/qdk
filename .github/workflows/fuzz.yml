@@ -11,6 +11,8 @@ env:
   ARTIFACTS_RDPATH: fuzz/artifacts # Fuzzing artifacts rel dir path.
   SEEDS_RDPATH: fuzz/seed_inputs # Fuzzing seed inputs rel dir path.
   SEEDS_FNAME: list.txt # Fuzzing seed inputs list file name.
+  PYTHON_VERSION: "3.11"
+
 on:
   workflow_dispatch: # Manual runs.
   push:
@@ -50,6 +52,9 @@ jobs:
         uses: actions/checkout@v6
         with:
           submodules: "true"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Gather the Seed Inputs
         if: matrix.target_name == 'qsharp'
@@ -211,14 +216,25 @@ jobs:
 
       - name: "If Fuzzing Failed: Report GutHub Issue"
         if: failure()
-        uses: JasonEtco/create-an-issue@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          WORKFLOW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        with:
-          filename: ${{ env.GH_ISSUE_TEMPLATE_RFPATH }}
-          # This issue template file uses a number of env vars collected above.
         id: create-issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WORKFLOW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python - <<'PY'
+          import os, pathlib
+          template = pathlib.Path(os.environ["GH_ISSUE_TEMPLATE_RFPATH"]).read_text()
+          rendered = os.path.expandvars(template)
+          pathlib.Path("/tmp/fuzz_issue.md").write_text(rendered)
+          PY
+
+          url="$(gh issue create \
+            --title "Fuzz failure: ${{ matrix.target_name }} (${{ github.run_id }})" \
+            --body-file /tmp/fuzz_issue.md)"
+          number="$(gh issue view "$url" --json number --jq .number)"
+
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "number=$number" >> "$GITHUB_OUTPUT"
 
       - name: "If Fuzzing Failed: Log Issue Info"
         if: failure()

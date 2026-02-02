@@ -485,7 +485,7 @@ type Buckets = {
   buckets: [string, number][];
   shotCount: number;
 };
-function getHistogramBucketsFromData(
+export function getHistogramBucketsFromData(
   file: string,
   shotCount?: number,
 ): Buckets | undefined {
@@ -672,17 +672,22 @@ async function uploadSupplementalData(
   token: string,
   associationId: string,
 ) {
-  const circuitDiagram = await getCircuitJson(program);
+  const endpointMatch = quantumUris.endpoint.match(QuantumUris.endpointRegExp);
+  const isV2Workspace = endpointMatch?.groups?.versionSuffix === "-v2";
 
-  await uploadBlob(
-    storageUris,
-    quantumUris,
-    token,
-    "circuitDiagram",
-    circuitDiagram,
-    "application/json",
-    associationId,
-  );
+  if (isV2Workspace) {
+    const circuitDiagram = await getCircuitJson(program);
+
+    await uploadBlob(
+      storageUris,
+      quantumUris,
+      token,
+      "circuitDiagram",
+      circuitDiagram,
+      "application/json",
+      associationId,
+    );
+  }
 }
 
 /**

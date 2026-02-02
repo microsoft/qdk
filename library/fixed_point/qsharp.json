@@ -5,8 +5,8 @@
     "Signed": {
       "github": {
         "owner": "Microsoft",
-        "repo": "qsharp",
-        "ref": "v1.23.0",
+        "repo": "qdk",
+        "ref": "v1.25.0",
         "path": "library/signed"
       }
     }

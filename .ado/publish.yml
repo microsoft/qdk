@@ -115,6 +115,7 @@ extends:
               - task: UsePythonVersion@0
                 inputs:
                   versionSpec: "3.11"
+                  githubToken: "$(GH_PACKAGE_READ_TOKEN)"
 
               - task: UseNode@1
                 inputs:
@@ -162,6 +163,7 @@ extends:
               - task: UsePythonVersion@0
                 inputs:
                   versionSpec: "3.11"
+                  githubToken: "$(GH_PACKAGE_READ_TOKEN)"
 
               - task: UseNode@1
                 inputs:
@@ -223,6 +225,7 @@ extends:
               - task: UsePythonVersion@0
                 inputs:
                   versionSpec: "3.11"
+                  githubToken: "$(GH_PACKAGE_READ_TOKEN)"
 
               - task: UseNode@1
                 inputs:
@@ -296,6 +299,7 @@ extends:
                   - task: UsePythonVersion@0
                     inputs:
                       versionSpec: "3.11"
+                      githubToken: "$(GH_PACKAGE_READ_TOKEN)"
                       ${{ if eq(target.arch, 'aarch64') }}:
                         architecture: "arm64"
                     condition: not(and(eq(variables['Agent.OS'], 'Linux'), eq(variables['arch'], 'aarch64')))
@@ -346,7 +350,7 @@ extends:
 
                   # every other platform
                   - script: |
-                      python build.py --pip --no-check-prereqs --integration-tests --manylinux
+                      python build.py --pip --no-check-prereqs --integration-tests
                     displayName: Build Platform-Dependent Py Packages
                     condition: not(and(eq(variables['Agent.OS'], 'Windows_NT'), eq(variables['arch'], 'aarch64')))
 

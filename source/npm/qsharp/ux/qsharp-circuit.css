@@ -69,12 +69,12 @@
 
   /* Background for gates */
   .gate-unitary {
-    fill: var(--vscode-button-secondaryBackground, #333333);
+    fill: var(--vscode-input-background, #333333);
   }
 
   /* Text for gates */
   .gate text {
-    fill: var(--vscode-button-secondaryForeground, #ffffff);
+    fill: var(--vscode-input-foreground, #ffffff);
   }
 
   a.qs-circuit-source-link .qs-qubit-label {

@@ -226,6 +226,15 @@ fn collect_qsharp_project_folders(path: &Path) -> Vec<PathBuf> {
         if entry.is_dir() {
             projects.append(&mut collect_qsharp_project_folders(entry));
         } else if Some("qsharp.json") == entry.file_name().and_then(OsStr::to_str) {
+            if entry
+                .parent()
+                .expect("file should have parent dir")
+                .ends_with("SPSA")
+            {
+                // Skip the SPSA project since it has GitHub-based dependencies that
+                // can't be resolved with the test filesystem.
+                continue;
+            }
             projects.push(
                 path.canonicalize()
                     .expect("path should resolve to a canonical path"),
