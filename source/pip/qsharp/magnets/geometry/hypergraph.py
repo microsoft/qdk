@@ -58,6 +58,8 @@ class Hypergraph:
         _edge_list: Set of hyperedges for efficient membership testing.
 
     Example:
+    
+    .. code-block:: python
         >>> edges = [Hyperedge([0, 1]), Hyperedge([1, 2]), Hyperedge([0, 2])]
         >>> graph = Hypergraph(edges)
         >>> graph.nvertices()
