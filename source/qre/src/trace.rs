@@ -5,7 +5,7 @@ use std::fmt::{Display, Formatter};
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::{Error, EstimationResult, FactoryResult, ISA, Instruction};
+use crate::{Error, EstimationCollection, EstimationResult, FactoryResult, ISA, Instruction};
 
 pub mod instruction_ids;
 #[cfg(test)]
@@ -550,4 +550,41 @@ fn get_error_rate_by_id(isa: &ISA, id: u64) -> Result<f64, Error> {
     instr
         .error_rate(None)
         .ok_or(Error::CannotExtractErrorRate(id))
+}
+
+fn estimate_chunks<'a>(traces: &[&'a Trace], isas: &[&'a ISA]) -> Vec<EstimationResult> {
+    let mut local_collection = Vec::new();
+    for trace in traces {
+        for isa in isas {
+            if let Ok(estimation) = trace.estimate(isa, None) {
+                local_collection.push(estimation);
+            }
+        }
+    }
+    local_collection
+}
+
+#[must_use]
+pub fn estimate_parallel<'a>(traces: &[&'a Trace], isas: &[&'a ISA]) -> EstimationCollection {
+    let mut collection = EstimationCollection::new();
+    std::thread::scope(|scope| {
+        let num_threads = std::thread::available_parallelism()
+            .map(std::num::NonZero::get)
+            .unwrap_or(1);
+        let chunk_size = traces.len().div_ceil(num_threads);
+
+        let (tx, rx) = std::sync::mpsc::sync_channel(num_threads);
+
+        for chunk in traces.chunks(chunk_size) {
+            let tx = tx.clone();
+            scope.spawn(move || tx.send(estimate_chunks(chunk, isas)));
+        }
+        drop(tx);
+
+        for local_collection in rx.iter().take(num_threads) {
+            collection.extend(local_collection.into_iter());
+        }
+    });
+
+    collection
 }

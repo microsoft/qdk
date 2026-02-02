@@ -1,7 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::pareto::{ParetoFrontier, ParetoFrontier3D, ParetoItem2D, ParetoItem3D};
+use crate::{
+    EstimationCollection, EstimationResult,
+    pareto::{ParetoFrontier, ParetoFrontier3D, ParetoItem2D, ParetoItem3D},
+};
 
 struct Point2D {
     x: f64,
@@ -64,6 +67,7 @@ fn test_iter_frontier() {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
 struct Point3D {
     x: f64,
     y: f64,
@@ -147,18 +151,93 @@ fn test_update_frontier_3d() {
     );
 }
 
-// #[test]
-// fn perf_test_create_frontier() {
-//     let points = (0..1000000)
-//         .map(|i| Point2D {
-//             key: i,
-//             x: rand::random::<f64>() * 10000.0,
-//             y: rand::random::<f64>() * 10000.0,
-//         })
-//         .collect::<Vec<_>>();
-//     let timer = std::time::Instant::now();
-//     let frontier: ParetoFrontier<Point2D> = points.into_iter().collect();
-//     let duration = timer.elapsed();
-//     println!("Time taken to create frontier: {:?}", duration);
-//     println!("Final frontier size: {}", frontier.0.len());
-// }
+#[test]
+fn test_estimation_results() {
+    let mut result_worst = EstimationResult::new();
+    result_worst.add_qubits(994_570);
+    result_worst.add_runtime(346_196_523_750);
+
+    let mut result_mid = EstimationResult::new();
+    result_mid.add_qubits(994_570);
+    result_mid.add_runtime(346_191_476_400);
+
+    let mut result_best = EstimationResult::new();
+    result_best.add_qubits(994_570);
+    result_best.add_runtime(346_181_381_700);
+
+    let results = [result_worst, result_mid, result_best];
+    let permutations = [
+        [0, 1, 2],
+        [0, 2, 1],
+        [1, 0, 2],
+        [1, 2, 0],
+        [2, 0, 1],
+        [2, 1, 0],
+    ];
+
+    for p in permutations {
+        let mut frontier = EstimationCollection::new();
+        frontier.insert(results[p[0]].clone());
+        frontier.insert(results[p[1]].clone());
+        frontier.insert(results[p[2]].clone());
+        assert_eq!(frontier.len(), 1, "Failed for permutation {p:?}");
+
+        // Verify the retained item is the best one (index 2)
+        let item = frontier.iter().next().expect("has item");
+        assert_eq!(
+            item.runtime(),
+            346_181_381_700,
+            "Wrong item retained for permutation {p:?}",
+        );
+    }
+}
+
+#[test]
+fn test_estimation_results_3d_permutations() {
+    // Check that 3D frontier handles strictly dominating points correctly
+    // even when first dimension is equal.
+
+    // p_worst: (10, 100, 1000)
+    let p_worst = Point3D {
+        x: 10.0,
+        y: 100.0,
+        z: 1000.0,
+    };
+    // p_mid: (10, 90, 1000) -> Dominates p_worst
+    let p_mid = Point3D {
+        x: 10.0,
+        y: 90.0,
+        z: 1000.0,
+    };
+    // p_best: (10, 80, 1000) -> Dominates p_mid and p_worst
+    let p_best = Point3D {
+        x: 10.0,
+        y: 80.0,
+        z: 1000.0,
+    };
+
+    let results = [p_worst, p_mid, p_best];
+
+    let permutations = [
+        [0, 1, 2],
+        [0, 2, 1],
+        [1, 0, 2],
+        [1, 2, 0],
+        [2, 0, 1],
+        [2, 1, 0],
+    ];
+
+    for p in permutations {
+        let mut frontier = ParetoFrontier3D::new();
+        frontier.insert(results[p[0]]);
+        frontier.insert(results[p[1]]);
+        frontier.insert(results[p[2]]);
+        assert_eq!(frontier.len(), 1, "Failed for 3D permutation {p:?}");
+
+        let item = frontier.iter().next().expect("has item");
+        assert!(
+            (item.y - 80.0).abs() < f64::EPSILON,
+            "Wrong item retained for 3D permutation {p:?}",
+        );
+    }
+}

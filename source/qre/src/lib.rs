@@ -16,7 +16,7 @@ pub use isa::{
     VariableArityFunction,
 };
 pub use trace::instruction_ids;
-pub use trace::{Block, LatticeSurgery, PSSPC, Property, Trace, TraceTransform};
+pub use trace::{Block, LatticeSurgery, PSSPC, Property, Trace, TraceTransform, estimate_parallel};
 
 /// A resourc estimation error.
 #[derive(Clone, Debug, Error, PartialEq)]

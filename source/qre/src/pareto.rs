@@ -53,19 +53,29 @@ impl<I: ParetoItem2D> ParetoFrontier<I> {
         }
 
         let frontier = &mut self.0;
-        let pos = frontier
-            .binary_search_by(|q| {
-                q.objective1()
-                    .partial_cmp(&p.objective1())
-                    .expect("objectives must be comparable")
-            })
-            .unwrap_or_else(|i| i);
-        if pos > 0 {
-            let left = &frontier[pos - 1];
-            if left.objective2() <= p.objective2() {
-                return;
+        let search = frontier.binary_search_by(|q| {
+            q.objective1()
+                .partial_cmp(&p.objective1())
+                .expect("objectives must be comparable")
+        });
+
+        let pos = match search {
+            Ok(i) => {
+                if frontier[i].objective2() <= p.objective2() {
+                    return;
+                }
+                i
             }
-        }
+            Err(i) => {
+                if i > 0 {
+                    let left = &frontier[i - 1];
+                    if left.objective2() <= p.objective2() {
+                        return;
+                    }
+                }
+                i
+            }
+        };
         let i = pos;
         while i < frontier.len() && frontier[i].objective2() >= p.objective2() {
             frontier.remove(i);
