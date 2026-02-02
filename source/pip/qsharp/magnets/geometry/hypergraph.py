@@ -83,6 +83,7 @@ class Hypergraph:
         """Return the number of hyperedges in the hypergraph."""
         return len(self._edges)
 
+    @property
     def nvertices(self) -> int:
         """Return the number of vertices in the hypergraph."""
         return len(self._vertex_set)
