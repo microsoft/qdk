@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 """Unit tests for hypergraph data structures."""
 
 from qsharp.magnets.geometry.hypergraph import Hyperedge, Hypergraph

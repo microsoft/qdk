@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 """Hypergraph data structures for representing quantum system geometries.
 
 This module provides classes for representing hypergraphs, which generalize
@@ -25,6 +28,8 @@ class Hyperedge:
         vertices: Sorted list of vertex indices connected by this hyperedge.
 
     Example:
+    
+    .. code-block:: python
         >>> edge = Hyperedge([2, 0, 1])
         >>> edge.vertices
         [0, 1, 2]
@@ -55,6 +60,8 @@ class Hypergraph:
         _edge_list: Set of hyperedges for efficient membership testing.
 
     Example:
+    
+    .. code-block:: python
         >>> edges = [Hyperedge([0, 1]), Hyperedge([1, 2]), Hyperedge([0, 2])]
         >>> graph = Hypergraph(edges)
         >>> graph.nvertices()
@@ -75,10 +82,12 @@ class Hypergraph:
         for edge in edges:
             self._vertex_set.update(edge.vertices)
 
+    @property
     def nedges(self) -> int:
         """Return the number of hyperedges in the hypergraph."""
         return len(self._edges)
 
+    @property
     def nvertices(self) -> int:
         """Return the number of vertices in the hypergraph."""
         return len(self._vertex_set)
