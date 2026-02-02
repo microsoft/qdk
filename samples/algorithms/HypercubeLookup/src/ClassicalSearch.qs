@@ -9,12 +9,12 @@ function GetIndexBelowThresholdClassically(
     query : Bool[],
     threshold : Int
 ) : Int {
-    Fact(Length(vertices) > 0, "Vertex list must not be empty.");
+    Fact(not IsEmpty(vertices), "Vertex list must not be empty.");
     mutable foundIndex = -1;
     for idx in IndexRange(vertices) {
         let vertex = vertices[idx];
         let distance = HammingDistance(vertex, query);
-        if (distance < threshold) {
+        if distance < threshold {
             Fact(foundIndex == -1, "More than one vertex found below the threshold.");
             set foundIndex = idx;
         }

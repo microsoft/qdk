@@ -32,9 +32,7 @@ operation GroverSearch(
 /// Given a register in the all-zeros state, prepares a uniform
 /// superposition over all basis states.
 operation PrepareUniform(inputQubits : Qubit[]) : Unit is Adj + Ctl {
-    for q in inputQubits {
-        H(q);
-    }
+    ApplyToEachCA(H, inputQubits);
 }
 
 /// # Summary
@@ -44,9 +42,7 @@ operation ReflectAboutUniform(inputQubits : Qubit[]) : Unit {
         // Transform the uniform superposition to all-zero.
         Adjoint PrepareUniform(inputQubits);
         // Transform the all-zero state to all-ones
-        for q in inputQubits {
-            X(q);
-        }
+        ApplyToEachA(X, inputQubits);
     } apply {
         // Now that we've transformed the uniform superposition to the
         // all-ones state, reflect about the all-ones state, then let the
