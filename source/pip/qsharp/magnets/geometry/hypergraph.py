@@ -78,6 +78,7 @@ class Hypergraph:
         for edge in edges:
             self._vertex_set.update(edge.vertices)
 
+    @property
     def nedges(self) -> int:
         """Return the number of hyperedges in the hypergraph."""
         return len(self._edges)
