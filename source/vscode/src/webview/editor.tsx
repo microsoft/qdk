@@ -28,7 +28,7 @@ type State = { viewType: "loading" } | CircuitState;
 const loadingState: State = { viewType: "loading" };
 let state: State = loadingState;
 
-const STATE_COMPUTE_LOG_PREFIX = "[qsharp][state-compute]";
+const STATE_COMPUTE_LOG_PREFIX = "[qdk][state-compute]";
 function logStateCompute(...args: unknown[]) {
   // Intentionally using console.debug so this can be filtered easily.
   console.debug(STATE_COMPUTE_LOG_PREFIX, ...args);

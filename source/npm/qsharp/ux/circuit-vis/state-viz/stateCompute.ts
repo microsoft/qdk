@@ -18,7 +18,7 @@ import {
 } from "./stateVizPrep.js";
 import type { StateColumn } from "./stateViz.js";
 
-const STATE_COMPUTE_LOG_PREFIX = "[qsharp][state-compute]";
+const STATE_COMPUTE_LOG_PREFIX = "[qdk][state-compute]";
 let didLogMainThreadFallback = false;
 
 function logMainThreadFallback(details: {

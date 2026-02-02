@@ -4,7 +4,7 @@
 import { computeAmpMapForCircuit } from "../../../npm/qsharp/ux/circuit-vis/state-viz/stateComputeCore";
 import { prepareStateVizColumnsFromAmpMap } from "../../../npm/qsharp/ux/circuit-vis/state-viz/stateVizPrep";
 
-const LOG_PREFIX = "[qsharp][state-compute-worker]";
+const LOG_PREFIX = "[qdk][state-compute-worker]";
 function log(...args: unknown[]) {
   // Intentionally using console.debug so this can be filtered easily.
   console.debug(LOG_PREFIX, ...args);
