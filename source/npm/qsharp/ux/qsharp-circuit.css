@@ -508,7 +508,7 @@
   border-left: none; /* replaced by clickable edge */
   display: flex;
   flex-direction: column;
-  background: var(--vscode-editor-background, #ffffff);
+  background: var(--qdk-host-background, #ffffff);
   pointer-events: auto;
   height: 100%;
   min-height: 0; /* allow scroll in short windows */
@@ -547,7 +547,7 @@
   z-index: 10;
   background: color-mix(
     in srgb,
-    var(--vscode-editor-background, #ffffff) 70%,
+    var(--qdk-host-background, #ffffff) 70%,
     transparent
   );
   backdrop-filter: blur(0.5px);
@@ -561,7 +561,7 @@
   width: 22px;
   height: 22px;
   border-radius: 999px;
-  border: 3px solid var(--vscode-editor-foreground, #666);
+  border: 3px solid var(--qdk-host-foreground, #666);
   border-right-color: transparent;
   opacity: 0.8;
   animation: stateLoadingSpin 0.85s linear infinite;
@@ -621,8 +621,8 @@
   left: 0;
   bottom: 0;
   width: 36px;
-  background: var(--vscode-editorWidget-background, #e6e6e6);
-  border-right: 1px solid var(--vscode-editorWidget-border, #c8c8c8);
+  background: var(--qdk-background-accent, #e6e6e6);
+  border-right: 1px solid var(--qdk-widget-outline, #c8c8c8);
   box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.06);
   cursor: pointer;
   display: flex;
@@ -633,7 +633,7 @@
 }
 
 .state-edge:focus {
-  outline: 2px solid var(--vscode-focusBorder, #005a9e);
+  outline: 2px solid var(--qdk-focus-border);
   outline-offset: -2px;
 }
 
@@ -642,7 +642,7 @@
   text-orientation: mixed;
   font-size: 16px;
   font-weight: 600;
-  color: var(--vscode-editor-foreground, #333);
+  color: var(--qdk-host-foreground, #333);
   letter-spacing: 0.65px;
   user-select: none;
 }
@@ -670,7 +670,7 @@
   display: block;
 }
 .state-edge .edge-icon path {
-  fill: var(--vscode-editor-foreground, #555);
+  fill: var(--qdk-host-foreground, #555);
   stroke: none; /* sharp corners, no outline */
 }
 
@@ -762,7 +762,7 @@
   width: fit-content; /* shrink to content so we can center via margins */
   margin-left: auto;
   margin-right: auto; /* center within the column width */
-  color: var(--vscode-editor-foreground, #000);
+  color: var(--qdk-host-foreground, #000);
   pointer-events: none;
 }
 
@@ -775,7 +775,7 @@
   padding: 8px;
   text-align: center;
   font-size: 13px;
-  color: var(--vscode-descriptionForeground, #666);
+  color: var(--qdk-description-foreground);
   z-index: 20;
   pointer-events: none;
   transition: opacity var(--stateAnimMs, 200ms) ease;
@@ -801,6 +801,6 @@
 .empty-circuit-message {
   padding: 2em;
   text-align: center;
-  color: var(--vscode-descriptionForeground, #888);
+  color: var(--qdk-description-foreground);
   font-size: 1.1em;
 }
