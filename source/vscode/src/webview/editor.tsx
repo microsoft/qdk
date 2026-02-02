@@ -34,13 +34,11 @@ function logStateCompute(...args: unknown[]) {
   console.debug(STATE_COMPUTE_LOG_PREFIX, ...args);
 }
 
-type Endianness = "big" | "little";
 type CircuitModelSnapshot = { qubits: any[]; componentGrid: any[] };
 type WorkerComputeRequest = {
   command: "compute";
   requestId: number;
   model: CircuitModelSnapshot;
-  endianness: Endianness;
   opts?: {
     normalize?: boolean;
     minProbThreshold?: number;
@@ -58,7 +56,6 @@ type WorkerComputeResponse =
 type QsharpStateComputeApi = {
   computeStateVizColumnsForCircuitModel: (
     model: CircuitModelSnapshot,
-    endianness: Endianness,
     opts?: {
       normalize?: boolean;
       minProbThreshold?: number;
@@ -138,13 +135,12 @@ function installQsharpStateComputeApi() {
   const api: QsharpStateComputeApi = {
     computeStateVizColumnsForCircuitModel: (
       model: CircuitModelSnapshot,
-      endianness: Endianness,
       opts?: {
         normalize?: boolean;
         minProbThreshold?: number;
         maxColumns?: number;
       },
-    ) => computeStateVizColumnsInWorker(model, endianness, opts),
+    ) => computeStateVizColumnsInWorker(model, opts),
 
     dispose: (reason?: string) => {
       cancelActiveStateComputeWorker(reason ?? "disposed");
@@ -163,7 +159,6 @@ function createStateComputeWorker(): { worker: Worker; blobUrl: string } {
 
 function computeStateVizColumnsInWorker(
   model: CircuitModelSnapshot,
-  endianness: Endianness,
   opts?: {
     normalize?: boolean;
     minProbThreshold?: number;
@@ -195,7 +190,6 @@ function computeStateVizColumnsInWorker(
     logStateCompute("worker created", {
       requestId,
       blobUrl: created.blobUrl,
-      endianness,
       modelSummary,
       mode: "viz",
     });
@@ -264,7 +258,6 @@ function computeStateVizColumnsInWorker(
 
     logStateCompute("compute started", {
       requestId,
-      endianness,
       modelSummary: activeStateComputeWorker.modelSummary,
       opts,
     });
@@ -273,7 +266,6 @@ function computeStateVizColumnsInWorker(
       command: "compute",
       requestId,
       model,
-      endianness,
       opts,
     } satisfies WorkerComputeRequest);
   });
@@ -324,15 +316,12 @@ function onMessage(event: any) {
     }
     case "circuit":
       {
-        // Only short-circuit if both the circuit AND the dev toolbar flag are unchanged
+        // Only short-circuit if the circuit payload is unchanged
         if (state.viewType === "circuit") {
           const sameCircuit =
             JSON.stringify(state.props.circuit) ===
             JSON.stringify(message.props.circuit);
-          const prevToolbar = (state.props as any)?.showStateDevToolbar;
-          const nextToolbar = (message.props as any)?.showStateDevToolbar;
-          const sameToolbar = prevToolbar === nextToolbar;
-          if (sameCircuit && sameToolbar) {
+          if (sameCircuit) {
             return;
           }
         }

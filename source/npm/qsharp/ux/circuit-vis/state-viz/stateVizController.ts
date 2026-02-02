@@ -33,22 +33,15 @@ import {
   setStatePanelLoading,
 } from "./stateViz.js";
 import { computeStateVizColumnsFromCurrentModelAsync } from "./stateCompute.js";
-import { prepareStateVizColumnsFromAmpMap } from "./stateVizPrep.js";
-import {
-  attachStateDevToolbar,
-  createDefaultDevToolbarState,
-  type DevToolbarState,
-  getStaticMockAmpMap,
-} from "./devToolbar.js";
+
+const DEFAULT_MIN_PROB_THRESHOLD = 0.0;
 
 type StateVizController = {
-  state: DevToolbarState;
   requestRenderState: () => void;
 };
 
 export function ensureStateVisualization(
   container: HTMLElement,
-  showDevToolbar: boolean = false,
   statePanelInitiallyExpanded: boolean = false,
 ): void {
   // Ensure a right-side state panel exists.
@@ -72,16 +65,9 @@ export function ensureStateVisualization(
     | undefined;
 
   if (existingController) {
-    if (showDevToolbar) {
-      attachStateDevToolbar(panelElem, existingController.state, () => {
-        existingController.requestRenderState();
-      });
-    }
     existingController.requestRenderState();
     return;
   }
-
-  const state: DevToolbarState = createDefaultDevToolbarState();
 
   let renderRequestId = 0;
   let loadingTimer: number | null = null;
@@ -148,20 +134,6 @@ export function ensureStateVisualization(
   const renderState = async (panel: HTMLElement): Promise<void> => {
     const requestId = ++renderRequestId;
 
-    if (state.dataMode === "mock") {
-      activeLoadingRequestId = 0;
-      clearLoadingTimer();
-      clearHideLoadingTimer();
-      setStatePanelLoading(panelElem, false);
-      const ampMap = getStaticMockAmpMap(state.mockSet);
-      const columns = prepareStateVizColumnsFromAmpMap(ampMap as any, {
-        normalize: false,
-        minProbThreshold: state.minProbThreshold,
-      });
-      updateStatePanelFromColumns(panel, columns);
-      return;
-    }
-
     try {
       beginLoadingForRequest(requestId);
 
@@ -174,9 +146,8 @@ export function ensureStateVisualization(
       ) as SVGElement | null;
 
       const columns = await computeStateVizColumnsFromCurrentModelAsync(
-        state.endianness,
         {
-          minProbThreshold: state.minProbThreshold,
+          minProbThreshold: DEFAULT_MIN_PROB_THRESHOLD,
         },
         circuitSvg,
       );
@@ -234,15 +205,8 @@ export function ensureStateVisualization(
   };
 
   (panelElem as any)._stateVizController = {
-    state,
     requestRenderState,
   } satisfies StateVizController;
-
-  if (showDevToolbar) {
-    attachStateDevToolbar(panelElem, state, () => {
-      requestRenderState();
-    });
-  }
 
   // Re-render when the circuit model becomes available. The circuit SVG is
   // replaced before `enableEvents(...)` runs, so computing state immediately in

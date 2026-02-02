@@ -12,7 +12,7 @@ import {
   log,
 } from "qsharp-lang";
 import { Uri, workspace } from "vscode";
-import { getTargetFriendlyName, getShowStateDevToolbar } from "./config";
+import { getTargetFriendlyName } from "./config";
 import { clearCommandDiagnostics } from "./diagnostics";
 import { FullProgramConfig, getActiveProgram } from "./programConfig";
 import {
@@ -421,7 +421,6 @@ export function updateCircuitPanel(
     calculating: params?.calculating || false,
     circuit: params?.circuit,
     errorHtml: params?.errorHtml,
-    showStateDevToolbar: getShowStateDevToolbar(),
   };
 
   const message = {

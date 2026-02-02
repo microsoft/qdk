@@ -178,14 +178,6 @@
             "hidden"
           ]
         },
-        "Q#.dev.showStateDevToolbar": {
-          "type": "boolean",
-          "default": false,
-          "description": "Show the developer toolbar in the circuit state visualization panel (VS Code dev builds only).",
-          "tags": [
-            "hidden"
-          ]
-        },
         "Q#.notifications.suppressUpdateNotifications": {
           "type": "boolean",
           "default": false,

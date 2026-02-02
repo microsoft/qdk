@@ -70,12 +70,10 @@ const applyCircuitEditorLayoutClasses = (
 /**
  * Create a panel for the circuit visualization.
  * @param container         HTML element for rendering visualization into
- * @param showDevToolbar    Optional boolean controlling dev toolbar visibility
  * @param statePanelInitiallyExpanded Optional boolean controlling whether the state panel starts expanded
  */
 const createPanel = (
   container: HTMLElement,
-  showDevToolbar?: boolean,
   statePanelInitiallyExpanded?: boolean,
 ): void => {
   const { wrapper, circuit } = getOrCreateCircuitWrapper(container);
@@ -84,11 +82,7 @@ const createPanel = (
   addEmptyCircuitMessageIfEmpty(wrapper, circuit);
   applyCircuitEditorLayoutClasses(container, wrapper);
 
-  ensureStateVisualization(
-    container,
-    showDevToolbar,
-    statePanelInitiallyExpanded,
-  );
+  ensureStateVisualization(container, statePanelInitiallyExpanded);
 };
 
 /**

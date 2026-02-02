@@ -8,10 +8,7 @@
 
 import { getCurrentCircuitModel } from "../events.js";
 import type { ComponentGrid, Qubit } from "../circuit.js";
-import {
-  computeAmpMapForCircuit,
-  type Endianness,
-} from "./stateComputeCore.js";
+import { computeAmpMapForCircuit } from "./stateComputeCore.js";
 import {
   prepareStateVizColumnsFromAmpMap,
   type PrepareStateVizOptions,
@@ -22,7 +19,6 @@ const STATE_COMPUTE_LOG_PREFIX = "[qdk][state-compute]";
 let didLogMainThreadFallback = false;
 
 function logMainThreadFallback(details: {
-  endianness: Endianness;
   qubits: number;
   columns: number;
 }) {
@@ -51,7 +47,6 @@ type CircuitModelSnapshot = { qubits: Qubit[]; componentGrid: ComponentGrid };
 type StateComputeHostApi = {
   computeStateVizColumnsForCircuitModel?: (
     model: CircuitModelSnapshot,
-    endianness: Endianness,
     opts: PrepareStateVizOptions,
   ) => Promise<StateColumn[]>;
 };
@@ -63,7 +58,6 @@ function getHostStateComputeApi(): StateComputeHostApi | null {
 }
 
 export async function computeStateVizColumnsFromCurrentModelAsync(
-  endianness: Endianness = "big",
   opts: PrepareStateVizOptions = {},
   expectedCircuitSvg?: SVGElement | null,
 ): Promise<StateColumn[] | null> {
@@ -78,21 +72,15 @@ export async function computeStateVizColumnsFromCurrentModelAsync(
         qubits: model.qubits,
         componentGrid: model.componentGrid,
       },
-      endianness,
       opts,
     );
   }
 
   // Fallback: compute and prepare on the main thread.
   logMainThreadFallback({
-    endianness,
     qubits: model.qubits.length,
     columns: model.componentGrid.length,
   });
-  const ampMap = computeAmpMapForCircuit(
-    model.qubits,
-    model.componentGrid,
-    endianness,
-  );
+  const ampMap = computeAmpMapForCircuit(model.qubits, model.componentGrid);
   return prepareStateVizColumnsFromAmpMap(ampMap as any, opts);
 }

@@ -10,8 +10,6 @@ function log(...args: unknown[]) {
   console.debug(LOG_PREFIX, ...args);
 }
 
-type Endianness = "big" | "little";
-
 type CircuitModelSnapshot = {
   qubits: any[];
   componentGrid: any[];
@@ -21,7 +19,6 @@ type ComputeRequest = {
   command: "compute";
   requestId: number;
   model: CircuitModelSnapshot;
-  endianness: Endianness;
   opts?: {
     normalize?: boolean;
     minProbThreshold?: number;
@@ -63,7 +60,6 @@ function respondError(requestId: number, err: unknown) {
 
   try {
     const model = msg.model as CircuitModelSnapshot;
-    const endianness = (msg.endianness as Endianness) ?? "big";
 
     const qubits = Array.isArray(model?.qubits) ? model.qubits.length : 0;
     const gridColumns = Array.isArray(model?.componentGrid)
@@ -71,16 +67,11 @@ function respondError(requestId: number, err: unknown) {
       : 0;
     log("compute started", {
       requestId,
-      endianness,
       qubits,
       columns: gridColumns,
     });
 
-    const ampMap = computeAmpMapForCircuit(
-      model.qubits as any,
-      model.componentGrid as any,
-      endianness,
-    );
+    const ampMap = computeAmpMapForCircuit(model.qubits as any, model.componentGrid as any);
 
     const elapsedMs = Math.round(performance.now() - startedAt);
     const opts = (msg.opts ?? {}) as any;

@@ -50,9 +50,3 @@ export function getUploadSupplementalData(): boolean {
     .getConfiguration("Q#")
     .get<boolean>("azure.uploadSupplementalData", true);
 }
-
-export function getShowStateDevToolbar(): boolean {
-  return vscode.workspace
-    .getConfiguration("Q#")
-    .get<boolean>("dev.showStateDevToolbar", false);
-}

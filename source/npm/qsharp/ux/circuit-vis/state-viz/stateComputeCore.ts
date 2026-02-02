@@ -9,9 +9,6 @@
 import type { ComponentGrid, Operation, Qubit } from "../circuit.js";
 import { evaluateAngleExpression } from "../angleExpression.js";
 
-// Endianness here controls only bitstring labeling for visualization.
-export type Endianness = "big" | "little";
-
 // This is intentionally a minimal structural type so it can be used from both the
 // main thread and a Web Worker without importing DOM-heavy visualization modules.
 export type AmpMap = Record<string, { re: number; im: number }>;
@@ -158,7 +155,6 @@ function applySingleQubit(
 export function computeAmpMapForCircuit(
   qubits: Qubit[],
   componentGrid: ComponentGrid,
-  endianness: Endianness = "big",
 ): AmpMap {
   const n = qubits.length;
   if (n === 0) return {};
@@ -253,18 +249,10 @@ export function computeAmpMapForCircuit(
     const a = state[i];
     const p = a.re * a.re + a.im * a.im;
     if (p > eps) {
-      // Build bitstring label per requested endianness
+      // Build bitstring label (editor qubit 0 is the most significant/leftmost bit)
       let bits = "";
-      if (endianness === "big") {
-        // Big-endian: editor qubit 0 is the most significant (leftmost) bit
-        for (let q = 0; q < n; q++) {
-          bits += (i >> q) & 1 ? "1" : "0";
-        }
-      } else {
-        // Little-endian: editor qubit 0 is the least significant (rightmost) bit
-        for (let q = n - 1; q >= 0; q--) {
-          bits += (i >> q) & 1 ? "1" : "0";
-        }
+      for (let q = 0; q < n; q++) {
+        bits += (i >> q) & 1 ? "1" : "0";
       }
       ampMap[bits] = { re: a.re, im: a.im };
     }

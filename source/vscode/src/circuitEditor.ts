@@ -3,7 +3,6 @@
 
 import * as vscode from "vscode";
 import { runProgramInTerminal } from "./run";
-import { getShowStateDevToolbar } from "./config";
 
 export class CircuitEditorProvider implements vscode.CustomTextEditorProvider {
   private static readonly viewType = "qsharp-webview.circuit";
@@ -55,7 +54,6 @@ export class CircuitEditorProvider implements vscode.CustomTextEditorProvider {
     const updateWebview = () => {
       const result = this.getDocumentAsJson(document);
       const filename = document.fileName.split(/\\|\//).pop()!.split(".")[0];
-      const showStateDevToolbar = getShowStateDevToolbar();
 
       if (result.error) {
         const message = {
@@ -77,7 +75,6 @@ export class CircuitEditorProvider implements vscode.CustomTextEditorProvider {
         simulated: false,
         calculating: false,
         circuit,
-        showStateDevToolbar,
       };
 
       const message = {
@@ -99,19 +96,9 @@ export class CircuitEditorProvider implements vscode.CustomTextEditorProvider {
       },
     );
 
-    // Update the webview when the dev toolbar setting changes
-    const configChangeSubscription = vscode.workspace.onDidChangeConfiguration(
-      (event) => {
-        if (event.affectsConfiguration("Q#.dev.showStateDevToolbar")) {
-          updateWebview();
-        }
-      },
-    );
-
     // Dispose of the event listener when the webview is closed
     webviewPanel.onDidDispose(() => {
       changeDocumentSubscription.dispose();
-      configChangeSubscription.dispose();
     });
   }
 

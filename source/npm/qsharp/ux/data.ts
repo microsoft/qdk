@@ -73,8 +73,6 @@ export type CircuitProps = {
   simulated: boolean;
   /** Circuit is still being generated */
   calculating: boolean;
-  /** Show dev toolbar in state panel (VS Code dev only) */
-  showStateDevToolbar?: boolean;
   isEditable: boolean;
   editCallback?: (fileData: CircuitGroup) => void;
   runCallback?: () => void;
