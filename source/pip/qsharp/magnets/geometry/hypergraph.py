@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 """Hypergraph data structures for representing quantum system geometries.
 
 This module provides classes for representing hypergraphs, which generalize
