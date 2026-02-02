@@ -31,7 +31,7 @@ operation GroverSearch(
 /// # Summary
 /// Given a register in the all-zeros state, prepares a uniform
 /// superposition over all basis states.
-operation PrepareUniform(inputQubits : Qubit[]) : Unit is Adj + Ctl {
+operation PrepareUniform(inputQubits : Qubit[]) : Unit is Adj {
     ApplyToEachCA(H, inputQubits);
 }
 

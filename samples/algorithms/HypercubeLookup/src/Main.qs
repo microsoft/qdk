@@ -29,7 +29,7 @@ import GroverSearch.*;
 /// This sample demonstrates:
 /// - How to use Table Lookup and Arithmetic libraries in Q#
 /// - How to shift from a classical thinking to a quantum thinking
-///   when implementing quantum oracles. See `MarkIndixWithShorterDistance`.
+///   when implementing quantum oracles. See `MarkIndexIfCloser`.
 ///
 /// Things to try out:
 /// - Run Histogram to see that index 6 is the prevailing result.
@@ -54,7 +54,7 @@ operation Main() : Int {
     let results = GroverSearch(
         nBits,
         nIterations,
-        MarkIndixWithShorterDistance(Data.DistanceThreshold(), _)
+        MarkIndexIfCloser(Data.DistanceThreshold(), _)
     );
 
     // Return the index of the found vertex
@@ -72,7 +72,7 @@ operation Main() : Int {
 /// selected vertex at a given index. In the quantum oracle, we need to do this
 /// for many possible indices in superposition at once. Therefore, we need to use
 /// reversible unitary operations and uncompute any temporary values we create.
-operation MarkIndixWithShorterDistance(distanceThreshold : Int, index : Qubit[]) : Unit {
+operation MarkIndexIfCloser(distanceThreshold : Int, index : Qubit[]) : Unit {
     // Allocate registers for data, distance, and phase kickback
     use data = Qubit[Data.HypercubeDimentions()];
     use distance = Qubit[Data.MaxDistanceBits()];
