@@ -9,6 +9,7 @@ Hypergraphs are useful for representing interaction terms in quantum
 Hamiltonians, where multi-body interactions can involve more than two sites.
 """
 
+from copy import deepcopy
 import random
 from typing import Iterator, Optional
 
@@ -56,8 +57,11 @@ class Hypergraph:
     various lattice geometries used in quantum simulations.
 
     Attributes:
-        _edges: List of hyperedges in the order they were added.
+        _edge_list: List of hyperedges in the order they were added.
         _vertex_set: Set of all unique vertex indices in the hypergraph.
+        parts: List of lists, where each sublist contains indices of edges
+            belonging to a specific part of an edge partitioning. This is useful
+            for parallelism in certain architectures.
 
     Example:
 
@@ -107,23 +111,23 @@ class Hypergraph:
         self.parts[part].append(len(self._edge_list) - 1)  # Add to specified partition
 
     def vertices(self) -> Iterator[int]:
-        """Return a list of vertices in sorted order.
+        """Iterate over all vertex indices in the hypergraph.
 
         Returns:
-            List of vertex indices in ascending order.
+            Iterator of vertex indices in ascending order.
         """
         return iter(sorted(self._vertex_set))
 
     def edges(self) -> Iterator[Hyperedge]:
-        """Return a list of all hyperedges in the hypergraph.
+        """Iterate over all hyperedges in the hypergraph.
 
         Returns:
-            List of all hyperedges in the hypergraph.
+            Iterator of all hyperedges in the hypergraph.
         """
         return iter(self._edge_list)
 
     def edgesByPart(self, part: int) -> Iterator[Hyperedge]:
-        """Return a list of hyperedges in the hypergraph.
+        """Iterate over hyperedges in a specific partition of the hypergraph.
 
         Args:
             part: Partition index, used for implementations
@@ -132,12 +136,12 @@ class Hypergraph:
                 index 0.
 
         Returns:
-            List of all hyperedges in the hypergraph.
+            Iterator of hyperedges in the specified partition.
         """
         return iter([self._edge_list[i] for i in self.parts[part]])
 
     def __str__(self) -> str:
-        return f"Hypergraph with {self.nvertices()} vertices and {self.nedges()} edges."
+        return f"Hypergraph with {self.nvertices} vertices and {self.nedges} edges."
 
     def __repr__(self) -> str:
         return f"Hypergraph({list(self._edge_list)})"
@@ -160,39 +164,72 @@ def greedyEdgeColoring(
         such that no two (hyper)edges sharing a vertex have the
         same color.
     """
-    best = None
+
+    best = Hypergraph(hypergraph._edge_list)  # Placeholder for best coloring found
+
+    if seed is not None:
+        random.seed(seed)
+
+    # Shuffle edge indices to randomize insertion order
+    edge_indexes = list(range(hypergraph.nedges))
+    random.shuffle(edge_indexes)
+
+    best.parts = [[]]  # Initialize with one empty color part
+    used_vertices = [set()]  # Vertices used by each color
+
+    for i in range(len(edge_indexes)):
+        edge = hypergraph._edge_list[edge_indexes[i]]
+        for j in range(len(best.parts) + 1):
+
+            # If we've reached a new color, add it
+            if j == len(best.parts):
+                best.parts.append([])
+                used_vertices.append(set())
+
+            # Check if this edge can be added to color j
+            # Note that we always match on the last color if it was added
+            # if so, add it and break
+            if not any(v in used_vertices[j] for v in edge.vertices):
+                best.parts[j].append(edge_indexes[i])
+                used_vertices[j].update(edge.vertices)
+                break
+
+    least_colors = len(best.parts)
 
     # To do: parallelize over trials
-
-    for trial in range(trials):
-        edge_list = hypergraph._edge_list
+    for trial in range(1, trials):
 
         # Set random seed for reproducibility
+        # Designed to work with parallel trials
         if seed is not None:
             random.seed(seed + trial)
 
-        # Shuffle edge indices to randomize coloring order
-        edge_indexes = list(range(hypergraph.nedges()))
+        # Shuffle edge indices to randomize insertion order
+        edge_indexes = list(range(hypergraph.nedges))
         random.shuffle(edge_indexes)
 
-        parts = [ [] ]  # Initialize with one empty color part
-        used_vertices = [ set() ]  # Vertices used by each color
+        parts = [[]]  # Initialize with one empty color part
+        used_vertices = [set()]  # Vertices used by each color
+
         for i in range(len(edge_indexes)):
             edge = hypergraph._edge_list[edge_indexes[i]]
             for j in range(len(parts) + 1):
 
+                # If we've reached a new color, add it
+                if j == len(parts):
+                    parts.append([])
+                    used_vertices.append(set())
 
-            # If we've reached a new color, add it
-            # Note that if we always match on the last color
-            if j == len(output.parts):
-                output.parts.append([])
-                used_vertices.append(set())
+                # Check if this edge can be added to color j
+                # if so, add it and break
+                if not any(v in used_vertices[j] for v in edge.vertices):
+                    parts[j].append(edge_indexes[i])
+                    used_vertices[j].update(edge.vertices)
+                    break
 
-            # Check if this edge can be added to color j
-            # if so, add it and break
-            if not any(v in used_vertices[j] for v in edge.vertices):
-                output.parts[j].append(edge_indexes[i])
-                used_vertices[j].update(edge.vertices)
-                break
+        # If this trial used fewer colors, update best
+        if len(parts) < least_colors:
+            least_colors = len(parts)
+            best.parts = deepcopy(parts)
 
-    return output
+    return best
