@@ -26,6 +26,8 @@ class Hyperedge:
         vertices: Sorted list of vertex indices connected by this hyperedge.
 
     Example:
+    
+    .. code-block:: python
         >>> edge = Hyperedge([2, 0, 1])
         >>> edge.vertices
         [0, 1, 2]
