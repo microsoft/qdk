@@ -10,6 +10,7 @@ from ._native import (  # type: ignore
     Output,
     Circuit,
     GlobalCallable,
+    Closure,
     Pauli,
     Result,
     UdtValue,
@@ -65,6 +66,12 @@ def lower_python_obj(obj: object, visited: Optional[Set[object]] = None) -> Any:
     # Recursive case: Dict
     if isinstance(obj, dict):
         return {name: lower_python_obj(val, visited) for name, val in obj.items()}
+
+    # Recursive case: Callable or Closure
+    if hasattr(obj, "__global_callable"):
+        return obj.__getattribute__("__global_callable")
+    if isinstance(obj, (GlobalCallable, Closure)):
+        return obj
 
     # Recursive case: Class with slots
     if hasattr(obj, "__slots__"):
@@ -561,7 +568,8 @@ def _make_callable(callable: GlobalCallable, namespace: List[str], callable_name
         # Preserve any existing attributes on the attribute with the matching name,
         # since this could be a collision with an existing namespace/module.
         for key, val in module.__dict__.get(callable_name).__dict__.items():
-            _callable.__dict__[key] = val
+            if key != "__global_callable":
+                _callable.__dict__[key] = val
         module.__setattr__(callable_name, _callable)
 
 
@@ -580,6 +588,10 @@ def qsharp_value_to_python_value(obj):
     # Recursive case: Array
     if isinstance(obj, list):
         return [qsharp_value_to_python_value(elt) for elt in obj]
+
+    # Recursive case: Callable or Closure
+    if isinstance(obj, (GlobalCallable, Closure)):
+        return obj
 
     # Recursive case: Udt
     if isinstance(obj, UdtValue):
@@ -748,6 +760,10 @@ def run(
     if isinstance(entry_expr, Callable) and hasattr(entry_expr, "__global_callable"):
         args = python_args_to_interpreter_args(args)
         callable = entry_expr.__global_callable
+        entry_expr = None
+    elif isinstance(entry_expr, (GlobalCallable, Closure)):
+        args = python_args_to_interpreter_args(args)
+        callable = entry_expr
         entry_expr = None
 
     for shot in range(shots):

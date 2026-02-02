@@ -119,6 +119,13 @@ class GlobalCallable:
 
     ...
 
+class Closure:
+    """
+    A closure reference that can be passed back into Q#.
+    """
+
+    ...
+
 class Interpreter:
     """A Q# interpreter."""
 
