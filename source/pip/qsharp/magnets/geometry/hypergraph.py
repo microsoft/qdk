@@ -6,7 +6,7 @@ Hypergraphs are useful for representing interaction terms in quantum
 Hamiltonians, where multi-body interactions can involve more than two sites.
 """
 
-from typing import Iterator, List
+from typing import Iterator
 
 
 class Hyperedge:
@@ -18,6 +18,8 @@ class Hyperedge:
     - Single-site terms (self-loops): 1 vertex
     - Two-body interactions: 2 vertices
     - Multi-body interactions: 3+ vertices
+    Each hyperedge is defined by a set of unique vertex indices, which are
+    stored in sorted order for consistency.
 
     Attributes:
         vertices: Sorted list of vertex indices connected by this hyperedge.
@@ -28,13 +30,13 @@ class Hyperedge:
         [0, 1, 2]
     """
 
-    def __init__(self, vertices: List[int]) -> None:
+    def __init__(self, vertices: list[int]) -> None:
         """Initialize a hyperedge with the given vertices.
 
         Args:
             vertices: List of vertex indices. Will be sorted internally.
         """
-        self.vertices: List[int] = sorted(vertices)
+        self.vertices: list[int] = sorted(set(vertices))
 
     def __repr__(self) -> str:
         return f"Hyperedge({self.vertices})"
@@ -61,7 +63,7 @@ class Hypergraph:
         3
     """
 
-    def __init__(self, edges: List[Hyperedge]) -> None:
+    def __init__(self, edges: list[Hyperedge]) -> None:
         """Initialize a hypergraph with the given edges.
 
         Args:
