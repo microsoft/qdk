@@ -32,7 +32,6 @@ pub struct GpuKernels {
     pub init_op: ComputePipeline,
     pub prepare_op: ComputePipeline,
     pub execute_op: ComputePipeline,
-    pub execute_2q_op: ComputePipeline,
 }
 
 #[derive(Debug)]
@@ -369,8 +368,7 @@ impl GpuResources {
         self.device_resources.kernels = Some(GpuKernels {
             init_op: get_kernel("initialize"),
             prepare_op: get_kernel("prepare_op"),
-            execute_op: get_kernel("execute_op"),
-            execute_2q_op: get_kernel("execute_2q_op"),
+            execute_op: get_kernel("execute"),
         });
 
         Ok(())
