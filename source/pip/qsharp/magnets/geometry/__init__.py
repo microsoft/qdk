@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 """Geometry module for representing quantum system topologies.
 
 This module provides hypergraph data structures for representing the
