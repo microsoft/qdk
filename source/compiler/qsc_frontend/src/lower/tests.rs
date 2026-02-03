@@ -2241,7 +2241,7 @@ fn test_noise_intrinsic_attr_on_function_issues_error() {
         indoc! {r#"
             namespace Test {
                 @NoiseIntrinsic()
-                function Foo(q: Qubit) : Result {
+                function Foo(q: Qubit) : Unit {
                     body intrinsic;
                 }
             }
