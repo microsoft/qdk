@@ -552,20 +552,28 @@ fn get_error_rate_by_id(isa: &ISA, id: u64) -> Result<f64, Error> {
         .ok_or(Error::CannotExtractErrorRate(id))
 }
 
-fn estimate_chunks<'a>(traces: &[&'a Trace], isas: &[&'a ISA]) -> Vec<EstimationResult> {
-    let mut local_collection = Vec::new();
-    for trace in traces {
-        for isa in isas {
-            if let Ok(estimation) = trace.estimate(isa, None) {
-                local_collection.push(estimation);
+#[must_use]
+pub fn estimate_parallel<'a>(
+    traces: &[&'a Trace],
+    isas: &[&'a ISA],
+    max_error: Option<f64>,
+) -> EstimationCollection {
+    fn estimate_chunks<'a>(
+        traces: &[&'a Trace],
+        isas: &[&'a ISA],
+        max_error: Option<f64>,
+    ) -> Vec<EstimationResult> {
+        let mut local_collection = Vec::new();
+        for trace in traces {
+            for isa in isas {
+                if let Ok(estimation) = trace.estimate(isa, max_error) {
+                    local_collection.push(estimation);
+                }
             }
         }
+        local_collection
     }
-    local_collection
-}
 
-#[must_use]
-pub fn estimate_parallel<'a>(traces: &[&'a Trace], isas: &[&'a ISA]) -> EstimationCollection {
     let mut collection = EstimationCollection::new();
     std::thread::scope(|scope| {
         let num_threads = std::thread::available_parallelism()
@@ -577,7 +585,7 @@ pub fn estimate_parallel<'a>(traces: &[&'a Trace], isas: &[&'a ISA]) -> Estimati
 
         for chunk in traces.chunks(chunk_size) {
             let tx = tx.clone();
-            scope.spawn(move || tx.send(estimate_chunks(chunk, isas)));
+            scope.spawn(move || tx.send(estimate_chunks(chunk, isas, max_error)));
         }
         drop(tx);
 

@@ -3,6 +3,7 @@
 
 from ._application import Application, QSharpApplication
 from ._architecture import Architecture
+from ._estimation import estimate
 from ._instruction import (
     LOGICAL,
     PHYSICAL,
@@ -32,6 +33,7 @@ __all__ = [
     "block_linear_function",
     "constant_function",
     "constraint",
+    "estimate",
     "instruction",
     "linear_function",
     "Application",

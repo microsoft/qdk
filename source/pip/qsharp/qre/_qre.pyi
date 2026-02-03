@@ -945,13 +945,16 @@ class InstructionFrontier:
         """
         ...
 
-def estimate_parallel(traces: list[Trace], isas: list[ISA]) -> EstimationCollection:
+def estimate_parallel(
+    traces: list[Trace], isas: list[ISA], max_error: float = 1.0
+) -> EstimationCollection:
     """
     Estimates resources for multiple traces and ISAs in parallel.
 
     Args:
         traces (list[Trace]): The list of traces.
         isas (list[ISA]): The list of ISAs.
+        max_error (float): The maximum allowed error. The default is 1.0.
 
     Returns:
         EstimationCollection: The estimation collection.

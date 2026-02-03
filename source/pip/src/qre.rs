@@ -774,15 +774,16 @@ impl InstructionFrontierIterator {
 }
 
 #[allow(clippy::needless_pass_by_value)]
-#[pyfunction]
+#[pyfunction(signature = (traces, isas, max_error = 1.0))]
 pub fn estimate_parallel(
     traces: Vec<PyRef<'_, Trace>>,
     isas: Vec<PyRef<'_, ISA>>,
+    max_error: f64,
 ) -> EstimationCollection {
     let traces: Vec<_> = traces.iter().map(|t| &t.0).collect();
     let isas: Vec<_> = isas.iter().map(|i| &i.0).collect();
 
-    let collection = qre::estimate_parallel(&traces, &isas);
+    let collection = qre::estimate_parallel(&traces, &isas, Some(max_error));
     EstimationCollection(collection)
 }
 
