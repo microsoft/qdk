@@ -12,7 +12,12 @@ Cirq's PauliString and PauliSum for representing quantum operators.
 from typing import Iterator
 from qsharp.magnets.geometry import Hypergraph
 
-from cirq import LineQubit, PauliSum, PauliString
+try:
+    from cirq import LineQubit, PauliSum, PauliString
+except Exception as ex:
+    raise ImportError(
+        "qsharp.magnets.models requires the cirq extras. Install with 'pip install \"qsharp[cirq]\"'."
+    ) from ex
 
 
 class Model:
