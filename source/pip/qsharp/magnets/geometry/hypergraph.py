@@ -28,7 +28,7 @@ class Hyperedge:
         vertices: Sorted list of vertex indices connected by this hyperedge.
 
     Example:
-    
+
     .. code-block:: python
         >>> edge = Hyperedge([2, 0, 1])
         >>> edge.vertices
@@ -60,7 +60,7 @@ class Hypergraph:
         _edge_list: Set of hyperedges for efficient membership testing.
 
     Example:
-    
+
     .. code-block:: python
         >>> edges = [Hyperedge([0, 1]), Hyperedge([1, 2]), Hyperedge([0, 2])]
         >>> graph = Hypergraph(edges)
@@ -113,7 +113,7 @@ class Hypergraph:
         return iter(self._edge_list)
 
     def __str__(self) -> str:
-        return f"Hypergraph with {self.nvertices()} vertices and {self.nedges()} edges."
+        return f"Hypergraph with {self.nvertices} vertices and {self.nedges} edges."
 
     def __repr__(self) -> str:
         return f"Hypergraph({list(self._edges)})"

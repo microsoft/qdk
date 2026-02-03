@@ -55,36 +55,36 @@ def test_hypergraph_init_basic():
     """Test basic Hypergraph initialization."""
     edges = [Hyperedge([0, 1]), Hyperedge([1, 2])]
     graph = Hypergraph(edges)
-    assert graph.nedges() == 2
-    assert graph.nvertices() == 3
+    assert graph.nedges == 2
+    assert graph.nvertices == 3
 
 
 def test_hypergraph_empty_graph():
     """Test hypergraph with no edges."""
     graph = Hypergraph([])
-    assert graph.nedges() == 0
-    assert graph.nvertices() == 0
+    assert graph.nedges == 0
+    assert graph.nvertices == 0
 
 
 def test_hypergraph_nedges():
     """Test edge count."""
     edges = [Hyperedge([0, 1]), Hyperedge([1, 2]), Hyperedge([2, 3])]
     graph = Hypergraph(edges)
-    assert graph.nedges() == 3
+    assert graph.nedges == 3
 
 
 def test_hypergraph_nvertices():
     """Test vertex count with unique vertices."""
     edges = [Hyperedge([0, 1]), Hyperedge([2, 3])]
     graph = Hypergraph(edges)
-    assert graph.nvertices() == 4
+    assert graph.nvertices == 4
 
 
 def test_hypergraph_nvertices_with_shared_vertices():
     """Test vertex count when edges share vertices."""
     edges = [Hyperedge([0, 1]), Hyperedge([1, 2]), Hyperedge([0, 2])]
     graph = Hypergraph(edges)
-    assert graph.nvertices() == 3
+    assert graph.nvertices == 3
 
 
 def test_hypergraph_vertices_iterator():
@@ -135,8 +135,8 @@ def test_hypergraph_single_vertex_edges():
     """Test hypergraph with self-loop edges."""
     edges = [Hyperedge([0]), Hyperedge([1]), Hyperedge([2])]
     graph = Hypergraph(edges)
-    assert graph.nedges() == 3
-    assert graph.nvertices() == 3
+    assert graph.nedges == 3
+    assert graph.nvertices == 3
 
 
 def test_hypergraph_mixed_edge_sizes():
@@ -147,14 +147,14 @@ def test_hypergraph_mixed_edge_sizes():
         Hyperedge([3, 4, 5]),  # 3 vertices (triple)
     ]
     graph = Hypergraph(edges)
-    assert graph.nedges() == 3
-    assert graph.nvertices() == 6
+    assert graph.nedges == 3
+    assert graph.nvertices == 6
 
 
 def test_hypergraph_non_contiguous_vertices():
     """Test hypergraph with non-contiguous vertex indices."""
     edges = [Hyperedge([0, 10]), Hyperedge([5, 20])]
     graph = Hypergraph(edges)
-    assert graph.nvertices() == 4
+    assert graph.nvertices == 4
     vertices = list(graph.vertices())
     assert vertices == [0, 5, 10, 20]
