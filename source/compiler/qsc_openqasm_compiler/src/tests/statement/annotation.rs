@@ -103,14 +103,17 @@ fn qdk_qir_noise_intrinsic_can_be_applied_to_gate() {
         }
     "#;
 
-    check_qasm_to_qsharp(source, &expect![[r#"
+    check_qasm_to_qsharp(
+        source,
+        &expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
         @NoiseIntrinsic()
         @SimulatableIntrinsic()
         operation noise(q : Qubit) : Unit {
             x(q);
         }
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
@@ -123,14 +126,17 @@ fn noise_intrinsic_can_be_applied_to_gate() {
         }
     "#;
 
-    check_qasm_to_qsharp(source, &expect![[r#"
+    check_qasm_to_qsharp(
+        source,
+        &expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
         @NoiseIntrinsic()
         @SimulatableIntrinsic()
         operation noise(q : Qubit) : Unit {
             x(q);
         }
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
@@ -143,14 +149,17 @@ fn qdk_qir_noise_intrinsic_can_be_applied_to_def() {
         }
     "#;
 
-    check_qasm_to_qsharp(source, &expect![[r#"
+    check_qasm_to_qsharp(
+        source,
+        &expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
         @NoiseIntrinsic()
         @SimulatableIntrinsic()
         operation noise(q : Qubit) : Unit {
             x(q);
         }
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
@@ -163,14 +172,17 @@ fn noise_intrinsic_can_be_applied_to_def() {
         }
     "#;
 
-    check_qasm_to_qsharp(source, &expect![[r#"
+    check_qasm_to_qsharp(
+        source,
+        &expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
         @NoiseIntrinsic()
         @SimulatableIntrinsic()
         operation noise(q : Qubit) : Unit {
             h(q);
         }
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
