@@ -17,6 +17,7 @@ from qsharp.qre import (
     QSharpApplication,
     Trace,
     constraint,
+    estimate,
     instruction,
     linear_function,
 )
@@ -520,6 +521,25 @@ def test_trace_enumeration():
 
     q = PSSPC.q() * LatticeSurgery.q()
     assert sum(1 for _ in q.enumerate(ctx)) == 40
+
+
+def test_estimation_max_error():
+    from qsharp.estimator import LogicalCounts
+
+    app = QSharpApplication(LogicalCounts({"numQubits": 100, "measurementCount": 100}))
+    arch = AQREGateBased()
+
+    for max_error in [1e-1, 1e-2, 1e-3, 1e-4]:
+        results = estimate(
+            app,
+            arch,
+            PSSPC.q() * LatticeSurgery.q(),
+            SurfaceCode.q() * ExampleFactory.q(),
+            max_error=max_error,
+        )
+
+        assert len(results) == 1
+        assert next(iter(results)).error <= max_error
 
 
 def _assert_estimation_result(trace: Trace, result: EstimationResult, isa: ISA):

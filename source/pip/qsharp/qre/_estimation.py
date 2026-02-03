@@ -1,8 +1,6 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from typing import Optional
-
 from ._application import Application
 from ._architecture import Architecture
 from ._qre import EstimationCollection, estimate_parallel
@@ -16,7 +14,7 @@ def estimate(
     trace_query: TraceQuery,
     isa_query: ISAQuery,
     *,
-    max_error: Optional[float] = None,
+    max_error: float = 1.0,
 ) -> EstimationCollection:
     """
     Estimate the resource requirements for a given application instance and
@@ -37,8 +35,8 @@ def estimate(
         application (Application): The quantum application to be estimated.
         architecture (Architecture): The target quantum architecture.
         trace_query (TraceQuery): The trace query to enumerate traces from the
-        application. isa_query (ISAQuery): The ISA query to enumerate ISAs from
-        the architecture.
+            application.
+        isa_query (ISAQuery): The ISA query to enumerate ISAs from the architecture.
 
     Returns:
         EstimationCollection: A collection of estimation results.
@@ -50,4 +48,5 @@ def estimate(
     return estimate_parallel(
         list(trace_query.enumerate(app_ctx)),
         list(isa_query.enumerate(arch_ctx)),
+        max_error,
     )
