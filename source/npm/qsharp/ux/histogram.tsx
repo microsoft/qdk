@@ -67,18 +67,56 @@ function getDefaultMenuSelection(
   return selection;
 }
 
-const reKetResult = /^\[(?:(Zero|One|Loss), *)*(Zero|One|Loss)\]$/;
+// Matches a simple, single-level, bracketed CSV list with no empty elements, e.g.:
+//   [Zero, One, Loss]
+//   [0, 1, .]
+//   [missing qubit, one, zero, result unknown]
+//
+// Tokens may be arbitrary strings so long as they don't include ',', '[' or ']'.
+// Empty values such as "[,,,]" or "[Zero,,One]" are rejected.
+//
+
+// A word is any non-whitespace, non-comma, non-bracket sequence
+const ketCsvWord = "[^\\s,\\[\\]]+";
+
+// A value is one or more words separated by whitespace
+const ketCsvValue = `\\s*(?:${ketCsvWord}\\s*)+`;
+
+// The body is one or more values separated by commas and surrounded by brackets
+const ketCsvBody = `\\[(?:${ketCsvValue},)*${ketCsvValue}\\]`;
+
+const reKetResult = new RegExp(`^\\s*${ketCsvBody}\\s*$`);
 function resultToKet(result: string): string {
   if (typeof result !== "string") return "ERROR";
 
   if (reKetResult.test(result)) {
-    // The result is a simple array of Zero and One
-    // The below will return an array of "Zero" or "One" in the order found
-    const matches = result.match(/(One|Zero|Loss)/g);
+    // The result is a simple, bracketed CSV list. Convert each token to a ket digit:
+    //   Zero/0 -> 0
+    //   One/1  -> 1
+    //   else   -> -
+    const inner = result.trim().slice(1, -1).trim();
+    const tokens = inner.length ? inner.split(",") : [];
+
     let ket = "|";
-    matches?.forEach(
-      (digit) => (ket += digit == "One" ? "1" : digit == "Zero" ? "0" : "-"),
-    );
+    for (const token of tokens) {
+      const trimmed = token.trim();
+      const unquoted = trimmed
+        .replace(/^"(.*)"$/, "$1")
+        .replace(/^'(.*)'$/, "$1")
+        .trim();
+
+      // If any element is empty after trimming/unquoting, don't treat it as a ket label.
+      if (unquoted.length === 0) return result;
+
+      const normalized = unquoted.toLowerCase();
+
+      ket +=
+        normalized === "zero" || normalized === "0"
+          ? "0"
+          : normalized === "one" || normalized === "1"
+            ? "1"
+            : "-";
+    }
     ket += "⟩";
     return ket;
   } else {
