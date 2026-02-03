@@ -729,7 +729,7 @@ impl ToQir<String> for rir::Program {
 fn get_additional_module_attributes(program: &rir::Program) -> String {
     let mut attrs = String::new();
     if program.attrs.contains(Attributes::QdkNoise) {
-        attrs.push_str("\nattributes #2 = {{ \"qdk_noise\" }}");
+        attrs.push_str("\nattributes #2 = { \"qdk_noise\" }");
     }
 
     attrs
