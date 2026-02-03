@@ -162,8 +162,7 @@ fn create_tests_for_projects() {
     {
         let entry = entry.expect("directory entries should be readable");
         let path = entry.path();
-        // Exclude samples/scratch
-        if path.is_dir() && path.file_name().and_then(OsStr::to_str) != Some("scratch") {
+        if path.is_dir() {
             paths.append(&mut collect_qsharp_project_folders(&path));
         }
     }
@@ -217,6 +216,10 @@ fn compile_{file_stem_cleaned}() {{
 }
 
 fn collect_qsharp_project_folders(path: &Path) -> Vec<PathBuf> {
+    if is_project_excluded(path) {
+        return Vec::new();
+    }
+
     // Recursively search for all qsharp.json projects in the samples directory and return
     // a list of their containing folders
     let mut projects = Vec::new();
@@ -226,15 +229,6 @@ fn collect_qsharp_project_folders(path: &Path) -> Vec<PathBuf> {
         if entry.is_dir() {
             projects.append(&mut collect_qsharp_project_folders(entry));
         } else if Some("qsharp.json") == entry.file_name().and_then(OsStr::to_str) {
-            if entry
-                .parent()
-                .expect("file should have parent dir")
-                .ends_with("SPSA")
-            {
-                // Skip the SPSA project since it has GitHub-based dependencies that
-                // can't be resolved with the test filesystem.
-                continue;
-            }
             projects.push(
                 path.canonicalize()
                     .expect("path should resolve to a canonical path"),
@@ -242,6 +236,15 @@ fn collect_qsharp_project_folders(path: &Path) -> Vec<PathBuf> {
         }
     }
     projects
+}
+
+fn is_project_excluded(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(OsStr::to_str) else {
+        return false;
+    };
+
+    // Skip projects that rely on GitHub-hosted dependencies that the test filesystem cannot resolve.
+    name == "scratch" || name == "SPSA" || name == "HypercubeLookup"
 }
 
 fn create_tests_for_qasm_files(folder: &str) {
