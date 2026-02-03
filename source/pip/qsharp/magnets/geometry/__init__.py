@@ -8,6 +8,13 @@ geometric structure of quantum systems, including lattice topologies
 and interaction graphs.
 """
 
-from .hypergraph import Hyperedge, Hypergraph
+from .hypergraph import Hyperedge, Hypergraph, greedy_edge_coloring
+from .lattice1d import Chain1D, Ring1D
 
-__all__ = ["Hyperedge", "Hypergraph"]
+__all__ = [
+    "Hyperedge",
+    "Hypergraph",
+    "greedy_edge_coloring",
+    "Chain1D",
+    "Ring1D",
+]
