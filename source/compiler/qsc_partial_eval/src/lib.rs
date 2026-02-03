@@ -1666,6 +1666,7 @@ impl<'a> PartialEvaluator<'a> {
             );
         }
         if callable_decl.attrs.contains(&fir::Attr::NoiseIntrinsic) {
+            self.program.attrs |= qsc_data_structures::attrs::Attributes::QdkNoise;
             return self.eval_expr_call_to_intrinsic_qis(
                 store_item_id,
                 callable_decl,

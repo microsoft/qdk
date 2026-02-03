@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 use indenter::{Indented, indented};
-use qsc_data_structures::{index_map::IndexMap, target::TargetCapabilityFlags};
+use qsc_data_structures::{attrs::Attributes, index_map::IndexMap, target::TargetCapabilityFlags};
 use std::fmt::{self, Display, Formatter, Write};
 
 /// The root of the RIR.
@@ -14,6 +14,7 @@ pub struct Program {
     pub config: Config,
     pub num_qubits: u32,
     pub num_results: u32,
+    pub attrs: Attributes,
     pub tags: Vec<String>,
 }
 
