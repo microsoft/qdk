@@ -214,6 +214,7 @@ impl Display for Callable {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CallableType {
     Measurement,
+    NoiseIntrinsic,
     Reset,
     Readout,
     OutputRecording,
@@ -224,6 +225,7 @@ impl Display for CallableType {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match &self {
             Self::Measurement => write!(f, "Measurement")?,
+            Self::NoiseIntrinsic => write!(f, "NoiseIntrinsic")?,
             Self::Readout => write!(f, "Readout")?,
             Self::OutputRecording => write!(f, "OutputRecording")?,
             Self::Regular => write!(f, "Regular")?,

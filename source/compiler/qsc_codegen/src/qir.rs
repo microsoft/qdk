@@ -658,14 +658,13 @@ impl ToQir<String> for rir::Callable {
             return format!(
                 "declare {output_type} @{}({input_type}){}",
                 self.name,
-                if matches!(
-                    self.call_type,
-                    rir::CallableType::Measurement | rir::CallableType::Reset
-                ) {
-                    // These callables are a special case that need the irreversible attribute.
-                    " #1"
-                } else {
-                    ""
+                match self.call_type {
+                    rir::CallableType::Measurement | rir::CallableType::Reset => {
+                        // These callables are a special case that need the irreversible attribute.
+                        " #1"
+                    }
+                    rir::CallableType::NoiseIntrinsic => " #2",
+                    _ => "",
                 }
             );
         };

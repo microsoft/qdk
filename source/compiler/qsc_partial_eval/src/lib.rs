@@ -1665,6 +1665,15 @@ impl<'a> PartialEvaluator<'a> {
                 CallableType::Reset,
             );
         }
+        if callable_decl.attrs.contains(&fir::Attr::NoiseIntrinsic) {
+            return self.eval_expr_call_to_intrinsic_qis(
+                store_item_id,
+                callable_decl,
+                args_value,
+                callee_expr_span,
+                CallableType::NoiseIntrinsic,
+            );
+        }
 
         // There are a few special cases regarding intrinsic callables. Identify them and handle them properly.
         match callable_decl.name.name.as_ref() {
