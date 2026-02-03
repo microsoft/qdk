@@ -448,6 +448,7 @@ pub fn block_linear_function<'py>(
     }
 }
 
+#[derive(Default)]
 #[pyclass]
 pub struct EstimationCollection(qre::EstimationCollection);
 
@@ -455,7 +456,7 @@ pub struct EstimationCollection(qre::EstimationCollection);
 impl EstimationCollection {
     #[new]
     pub fn new() -> Self {
-        EstimationCollection(qre::EstimationCollection::new())
+        Self::default()
     }
 
     pub fn insert(&mut self, result: &EstimationResult) {
@@ -690,6 +691,7 @@ impl PSSPC {
     }
 }
 
+#[derive(Default)]
 #[pyclass]
 pub struct LatticeSurgery(qre::LatticeSurgery);
 
@@ -697,7 +699,7 @@ pub struct LatticeSurgery(qre::LatticeSurgery);
 impl LatticeSurgery {
     #[new]
     pub fn new() -> Self {
-        LatticeSurgery(qre::LatticeSurgery::new())
+        Self::default()
     }
 
     pub fn transform(&self, trace: &Trace) -> PyResult<Trace> {
@@ -711,11 +713,17 @@ impl LatticeSurgery {
 #[pyclass]
 pub struct InstructionFrontier(qre::ParetoFrontier3D<Instruction>);
 
+impl Default for InstructionFrontier {
+    fn default() -> Self {
+        InstructionFrontier(qre::ParetoFrontier3D::new())
+    }
+}
+
 #[pymethods]
 impl InstructionFrontier {
     #[new]
     pub fn new() -> Self {
-        InstructionFrontier(qre::ParetoFrontier3D::new())
+        Self::default()
     }
 
     pub fn insert(&mut self, point: &Instruction) {
