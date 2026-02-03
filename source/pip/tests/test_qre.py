@@ -5,110 +5,34 @@ from dataclasses import KW_ONLY, dataclass, field
 from enum import Enum
 from typing import Generator
 
+import qsharp
 from qsharp.qre import (
     ISA,
     LOGICAL,
-    Architecture,
-    ConstraintBound,
+    PSSPC,
+    EstimationResult,
     ISARequirements,
     ISATransform,
+    LatticeSurgery,
+    QSharpApplication,
+    Trace,
     constraint,
     instruction,
     linear_function,
 )
-from qsharp.qre._enumeration import _enumerate_instances
+from qsharp.qre.models import SurfaceCode, AQREGateBased
 from qsharp.qre._isa_enumeration import (
-    BindingNode,
-    Context,
-    ISAQuery,
     ISARefNode,
-    ProductNode,
-    SumNode,
 )
 from qsharp.qre.instruction_ids import (
-    CNOT,
+    CCX,
     GENERIC,
     LATTICE_SURGERY,
-    MEAS_Z,
-    TWO_QUBIT_CLIFFORD,
-    H,
     T,
 )
 
 # NOTE These classes will be generalized as part of the QRE API in the following
 # pull requests and then moved out of the tests.
-
-
-class ExampleArchitecture(Architecture):
-    @property
-    def provided_isa(self) -> ISA:
-        return ISA(
-            instruction(H, time=50, error_rate=1e-3),
-            instruction(CNOT, arity=2, time=50, error_rate=1e-3),
-            instruction(MEAS_Z, time=100, error_rate=1e-3),
-            instruction(TWO_QUBIT_CLIFFORD, arity=2, time=50, error_rate=1e-3),
-            instruction(GENERIC, time=50, error_rate=1e-4),
-            instruction(T, time=50, error_rate=1e-4),
-        )
-
-
-@dataclass
-class SurfaceCode(ISATransform):
-    _: KW_ONLY
-    distance: int = field(default=3, metadata={"domain": range(3, 26, 2)})
-
-    @staticmethod
-    def required_isa() -> ISARequirements:
-        return ISARequirements(
-            constraint(H, error_rate=ConstraintBound.lt(0.01)),
-            constraint(CNOT, arity=2, error_rate=ConstraintBound.lt(0.01)),
-            constraint(MEAS_Z, error_rate=ConstraintBound.lt(0.01)),
-        )
-
-    def provided_isa(self, impl_isa: ISA) -> Generator[ISA, None, None]:
-        crossing_prefactor: float = 0.03
-        error_correction_threshold: float = 0.01
-
-        cnot_time = impl_isa[CNOT].expect_time()
-        h_time = impl_isa[H].expect_time()
-        meas_time = impl_isa[MEAS_Z].expect_time()
-
-        physical_error_rate = max(
-            impl_isa[CNOT].expect_error_rate(),
-            impl_isa[H].expect_error_rate(),
-            impl_isa[MEAS_Z].expect_error_rate(),
-        )
-
-        space_formula = linear_function(2 * self.distance**2)
-
-        time_value = (h_time + meas_time + cnot_time * 4) * self.distance
-
-        error_formula = linear_function(
-            crossing_prefactor
-            * (
-                (physical_error_rate / error_correction_threshold)
-                ** ((self.distance + 1) // 2)
-            )
-        )
-
-        yield ISA(
-            instruction(
-                GENERIC,
-                encoding=LOGICAL,
-                arity=None,
-                space=space_formula,
-                time=time_value,
-                error_rate=error_formula,
-            ),
-            instruction(
-                LATTICE_SURGERY,
-                encoding=LOGICAL,
-                arity=None,
-                space=space_formula,
-                time=time_value,
-                error_rate=error_formula,
-            ),
-        )
 
 
 @dataclass
@@ -147,7 +71,7 @@ class ExampleLogicalFactory(ISATransform):
 
 
 def test_isa_from_architecture():
-    arch = ExampleArchitecture()
+    arch = AQREGateBased()
     code = SurfaceCode()
 
     # Verify that the architecture satisfies the code requirements
@@ -162,6 +86,8 @@ def test_isa_from_architecture():
 
 
 def test_enumerate_instances():
+    from qsharp.qre._enumeration import _enumerate_instances
+
     instances = list(_enumerate_instances(SurfaceCode))
 
     # There are 12 instances with distances from 3 to 25
@@ -184,6 +110,8 @@ def test_enumerate_instances():
 
 
 def test_enumerate_instances_bool():
+    from qsharp.qre._enumeration import _enumerate_instances
+
     @dataclass
     class BoolConfig:
         _: KW_ONLY
@@ -196,6 +124,8 @@ def test_enumerate_instances_bool():
 
 
 def test_enumerate_instances_enum():
+    from qsharp.qre._enumeration import _enumerate_instances
+
     class Color(Enum):
         RED = 1
         GREEN = 2
@@ -214,6 +144,8 @@ def test_enumerate_instances_enum():
 
 
 def test_enumerate_instances_failure():
+    from qsharp.qre._enumeration import _enumerate_instances
+
     import pytest
 
     @dataclass
@@ -227,6 +159,8 @@ def test_enumerate_instances_failure():
 
 
 def test_enumerate_instances_single():
+    from qsharp.qre._enumeration import _enumerate_instances
+
     @dataclass
     class SingleConfig:
         value: int = 42
@@ -237,6 +171,8 @@ def test_enumerate_instances_single():
 
 
 def test_enumerate_instances_literal():
+    from qsharp.qre._enumeration import _enumerate_instances
+
     from typing import Literal
 
     @dataclass
@@ -251,50 +187,32 @@ def test_enumerate_instances_literal():
 
 
 def test_enumerate_isas():
-    ctx = Context(architecture=ExampleArchitecture())
+    ctx = AQREGateBased().context()
 
     # This will enumerate the 4 ISAs for the error correction code
-    count = sum(1 for _ in ISAQuery(SurfaceCode).enumerate(ctx))
+    count = sum(1 for _ in SurfaceCode.q().enumerate(ctx))
     assert count == 12
 
     # This will enumerate the 2 ISAs for the error correction code when
     # restricting the domain
-    count = sum(
-        1 for _ in ISAQuery(SurfaceCode, kwargs={"distance": [3, 5]}).enumerate(ctx)
-    )
+    count = sum(1 for _ in SurfaceCode.q(distance=[3, 4]).enumerate(ctx))
     assert count == 2
 
     # This will enumerate the 3 ISAs for the factory
-    count = sum(1 for _ in ISAQuery(ExampleFactory).enumerate(ctx))
+    count = sum(1 for _ in ExampleFactory.q().enumerate(ctx))
     assert count == 3
 
     # This will enumerate 36 ISAs for all products between the 12 error
     # correction code ISAs and the 3 factory ISAs
-    count = sum(
-        1
-        for _ in ProductNode(
-            sources=[
-                ISAQuery(SurfaceCode),
-                ISAQuery(ExampleFactory),
-            ]
-        ).enumerate(ctx)
-    )
+    count = sum(1 for _ in (SurfaceCode.q() * ExampleFactory.q()).enumerate(ctx))
     assert count == 36
 
     # When providing a list, components are chained (OR operation). This
     # enumerates ISAs from first factory instance OR second factory instance
     count = sum(
         1
-        for _ in ProductNode(
-            sources=[
-                ISAQuery(SurfaceCode),
-                SumNode(
-                    sources=[
-                        ISAQuery(ExampleFactory),
-                        ISAQuery(ExampleFactory),
-                    ]
-                ),
-            ]
+        for _ in (
+            SurfaceCode.q() * (ExampleFactory.q() + ExampleFactory.q())
         ).enumerate(ctx)
     )
     assert count == 72
@@ -304,13 +222,9 @@ def test_enumerate_isas():
     # factory instance
     count = sum(
         1
-        for _ in ProductNode(
-            sources=[
-                ISAQuery(SurfaceCode),
-                ISAQuery(ExampleFactory),
-                ISAQuery(ExampleFactory),
-            ]
-        ).enumerate(ctx)
+        for _ in (SurfaceCode.q() * ExampleFactory.q() * ExampleFactory.q()).enumerate(
+            ctx
+        )
     )
     assert count == 108
 
@@ -318,62 +232,32 @@ def test_enumerate_isas():
     # from the product of other components as its source
     count = sum(
         1
-        for _ in ProductNode(
-            sources=[
-                ISAQuery(SurfaceCode),
-                ISAQuery(
-                    ExampleLogicalFactory,
-                    source=ProductNode(
-                        sources=[
-                            ISAQuery(SurfaceCode),
-                            ISAQuery(ExampleFactory),
-                        ]
-                    ),
-                ),
-            ]
+        for _ in (
+            SurfaceCode.q()
+            * ExampleLogicalFactory.q(source=(SurfaceCode.q() * ExampleFactory.q()))
         ).enumerate(ctx)
     )
     assert count == 1296
 
 
 def test_binding_node():
-    """Test BindingNode with ISARefNode for component bindings"""
-    ctx = Context(architecture=ExampleArchitecture())
+    """Test binding nodes with ISARefNode for component bindings"""
+    ctx = AQREGateBased().context()
 
     # Test basic binding: same code used twice
     # Without binding: 12 codes × 12 codes = 144 combinations
-    count_without = sum(
-        1
-        for _ in ProductNode(
-            sources=[
-                ISAQuery(SurfaceCode),
-                ISAQuery(SurfaceCode),
-            ]
-        ).enumerate(ctx)
-    )
+    count_without = sum(1 for _ in (SurfaceCode.q() * SurfaceCode.q()).enumerate(ctx))
     assert count_without == 144
 
     # With binding: 12 codes (same instance used twice)
     count_with = sum(
         1
-        for _ in BindingNode(
-            name="c",
-            component=ISAQuery(SurfaceCode),
-            node=ProductNode(
-                sources=[ISARefNode("c"), ISARefNode("c")],
-            ),
-        ).enumerate(ctx)
+        for _ in SurfaceCode.bind("c", ISARefNode("c") * ISARefNode("c")).enumerate(ctx)
     )
     assert count_with == 12
 
     # Verify the binding works: with binding, both should use same params
-    for isa in BindingNode(
-        name="c",
-        component=ISAQuery(SurfaceCode),
-        node=ProductNode(
-            sources=[ISARefNode("c"), ISARefNode("c")],
-        ),
-    ).enumerate(ctx):
+    for isa in SurfaceCode.bind("c", ISARefNode("c") * ISARefNode("c")).enumerate(ctx):
         logical_gates = [g for g in isa if g.encoding == LOGICAL]
         # Should have 2 logical gates (GENERIC and LATTICE_SURGERY)
         assert len(logical_gates) == 2
@@ -381,33 +265,19 @@ def test_binding_node():
     # Test binding with factories (nested bindings)
     count_without = sum(
         1
-        for _ in ProductNode(
-            sources=[
-                ISAQuery(SurfaceCode),
-                ISAQuery(ExampleFactory),
-                ISAQuery(SurfaceCode),
-                ISAQuery(ExampleFactory),
-            ]
+        for _ in (
+            SurfaceCode.q() * ExampleFactory.q() * SurfaceCode.q() * ExampleFactory.q()
         ).enumerate(ctx)
     )
     assert count_without == 1296  # 12 * 3 * 12 * 3
 
     count_with = sum(
         1
-        for _ in BindingNode(
-            name="c",
-            component=ISAQuery(SurfaceCode),
-            node=BindingNode(
-                name="f",
-                component=ISAQuery(ExampleFactory),
-                node=ProductNode(
-                    sources=[
-                        ISARefNode("c"),
-                        ISARefNode("f"),
-                        ISARefNode("c"),
-                        ISARefNode("f"),
-                    ],
-                ),
+        for _ in SurfaceCode.bind(
+            "c",
+            ExampleFactory.bind(
+                "f",
+                ISARefNode("c") * ISARefNode("f") * ISARefNode("c") * ISARefNode("f"),
             ),
         ).enumerate(ctx)
     )
@@ -417,19 +287,11 @@ def test_binding_node():
     # Without binding: 4 outer codes × (4 inner codes × 3 factories × 3 levels)
     count_without = sum(
         1
-        for _ in ProductNode(
-            sources=[
-                ISAQuery(SurfaceCode),
-                ISAQuery(
-                    ExampleLogicalFactory,
-                    source=ProductNode(
-                        sources=[
-                            ISAQuery(SurfaceCode),
-                            ISAQuery(ExampleFactory),
-                        ]
-                    ),
-                ),
-            ]
+        for _ in (
+            SurfaceCode.q()
+            * ExampleLogicalFactory.q(
+                source=(SurfaceCode.q() * ExampleFactory.q()),
+            )
         ).enumerate(ctx)
     )
     assert count_without == 1296  # 12 * 12 * 3 * 3
@@ -437,22 +299,11 @@ def test_binding_node():
     # With binding: 4 codes (same used twice) × 3 factories × 3 levels
     count_with = sum(
         1
-        for _ in BindingNode(
-            name="c",
-            component=ISAQuery(SurfaceCode),
-            node=ProductNode(
-                sources=[
-                    ISARefNode("c"),
-                    ISAQuery(
-                        ExampleLogicalFactory,
-                        source=ProductNode(
-                            sources=[
-                                ISARefNode("c"),
-                                ISAQuery(ExampleFactory),
-                            ]
-                        ),
-                    ),
-                ]
+        for _ in SurfaceCode.bind(
+            "c",
+            ISARefNode("c")
+            * ExampleLogicalFactory.q(
+                source=(ISARefNode("c") * ExampleFactory.q()),
             ),
         ).enumerate(ctx)
     )
@@ -461,44 +312,32 @@ def test_binding_node():
     # Test binding with kwargs
     count_with_kwargs = sum(
         1
-        for _ in BindingNode(
-            name="c",
-            component=ISAQuery(SurfaceCode, kwargs={"distance": 5}),
-            node=ProductNode(
-                sources=[ISARefNode("c"), ISARefNode("c")],
-            ),
-        ).enumerate(ctx)
+        for _ in SurfaceCode.q(distance=5)
+        .bind("c", ISARefNode("c") * ISARefNode("c"))
+        .enumerate(ctx)
     )
     assert count_with_kwargs == 1  # Only distance=5
 
     # Verify kwargs are applied
-    for isa in BindingNode(
-        name="c",
-        component=ISAQuery(SurfaceCode, kwargs={"distance": 5}),
-        node=ProductNode(
-            sources=[ISARefNode("c"), ISARefNode("c")],
-        ),
-    ).enumerate(ctx):
+    for isa in (
+        SurfaceCode.q(distance=5)
+        .bind("c", ISARefNode("c") * ISARefNode("c"))
+        .enumerate(ctx)
+    ):
         logical_gates = [g for g in isa if g.encoding == LOGICAL]
         assert all(g.space(1) == 50 for g in logical_gates)
 
     # Test multiple independent bindings (nested)
     count = sum(
         1
-        for _ in BindingNode(
-            name="c1",
-            component=ISAQuery(SurfaceCode),
-            node=BindingNode(
-                name="c2",
-                component=ISAQuery(ExampleFactory),
-                node=ProductNode(
-                    sources=[
-                        ISARefNode("c1"),
-                        ISARefNode("c1"),
-                        ISARefNode("c2"),
-                        ISARefNode("c2"),
-                    ],
-                ),
+        for _ in SurfaceCode.bind(
+            "c1",
+            ExampleFactory.bind(
+                "c2",
+                ISARefNode("c1")
+                * ISARefNode("c1")
+                * ISARefNode("c2")
+                * ISARefNode("c2"),
             ),
         ).enumerate(ctx)
     )
@@ -507,8 +346,8 @@ def test_binding_node():
 
 
 def test_binding_node_errors():
-    """Test error handling for BindingNode"""
-    ctx = Context(architecture=ExampleArchitecture())
+    """Test error handling for binding nodes"""
+    ctx = AQREGateBased().context()
 
     # Test ISARefNode enumerate with undefined binding raises ValueError
     try:
@@ -519,64 +358,189 @@ def test_binding_node_errors():
 
 
 def test_product_isa_enumeration_nodes():
-    terminal = ISAQuery(SurfaceCode)
+    from qsharp.qre._isa_enumeration import _ComponentQuery, _ProductNode
+
+    terminal = SurfaceCode.q()
     query = terminal * terminal
 
     # Multiplication should create ProductNode
-    assert isinstance(query, ProductNode)
+    assert isinstance(query, _ProductNode)
     assert len(query.sources) == 2
     for source in query.sources:
-        assert isinstance(source, ISAQuery)
+        assert isinstance(source, _ComponentQuery)
 
     # Multiplying again should extend the sources
     query = query * terminal
-    assert isinstance(query, ProductNode)
+    assert isinstance(query, _ProductNode)
     assert len(query.sources) == 3
     for source in query.sources:
-        assert isinstance(source, ISAQuery)
+        assert isinstance(source, _ComponentQuery)
 
     # Also from the other side
     query = terminal * query
-    assert isinstance(query, ProductNode)
+    assert isinstance(query, _ProductNode)
     assert len(query.sources) == 4
     for source in query.sources:
-        assert isinstance(source, ISAQuery)
+        assert isinstance(source, _ComponentQuery)
 
     # Also for two ProductNodes
     query = query * query
-    assert isinstance(query, ProductNode)
+    assert isinstance(query, _ProductNode)
     assert len(query.sources) == 8
     for source in query.sources:
-        assert isinstance(source, ISAQuery)
+        assert isinstance(source, _ComponentQuery)
 
 
 def test_sum_isa_enumeration_nodes():
-    terminal = ISAQuery(SurfaceCode)
+    from qsharp.qre._isa_enumeration import _ComponentQuery, _SumNode
+
+    terminal = SurfaceCode.q()
     query = terminal + terminal
 
     # Multiplication should create SumNode
-    assert isinstance(query, SumNode)
+    assert isinstance(query, _SumNode)
     assert len(query.sources) == 2
     for source in query.sources:
-        assert isinstance(source, ISAQuery)
+        assert isinstance(source, _ComponentQuery)
 
     # Multiplying again should extend the sources
     query = query + terminal
-    assert isinstance(query, SumNode)
+    assert isinstance(query, _SumNode)
     assert len(query.sources) == 3
     for source in query.sources:
-        assert isinstance(source, ISAQuery)
+        assert isinstance(source, _ComponentQuery)
 
     # Also from the other side
     query = terminal + query
-    assert isinstance(query, SumNode)
+    assert isinstance(query, _SumNode)
     assert len(query.sources) == 4
     for source in query.sources:
-        assert isinstance(source, ISAQuery)
+        assert isinstance(source, _ComponentQuery)
 
     # Also for two SumNodes
     query = query + query
-    assert isinstance(query, SumNode)
+    assert isinstance(query, _SumNode)
     assert len(query.sources) == 8
     for source in query.sources:
-        assert isinstance(source, ISAQuery)
+        assert isinstance(source, _ComponentQuery)
+
+
+def test_qsharp_application():
+    from qsharp.qre._enumeration import _enumerate_instances
+
+    code = """
+    {{
+        use (a, b, c) = (Qubit(), Qubit(), Qubit());
+        T(a);
+        CCNOT(a, b, c);
+        Rz(1.2345, a);
+    }}
+    """
+
+    app = QSharpApplication(code)
+    trace = app.get_trace()
+
+    assert trace.compute_qubits == 3
+    assert trace.depth == 3
+    assert trace.resource_states == {}
+
+    isa = ISA(
+        instruction(
+            LATTICE_SURGERY,
+            encoding=LOGICAL,
+            arity=None,
+            time=1000,
+            error_rate=linear_function(1e-6),
+            space=linear_function(50),
+        ),
+        instruction(T, encoding=LOGICAL, time=1000, error_rate=1e-8, space=400),
+        instruction(CCX, encoding=LOGICAL, time=2000, error_rate=1e-10, space=800),
+    )
+
+    # Properties from the program
+    counts = qsharp.logical_counts(code)
+    num_ts = counts["tCount"]
+    num_ccx = counts["cczCount"]
+    num_rotations = counts["rotationCount"]
+    rotation_depth = counts["rotationDepth"]
+
+    lattice_surgery = LatticeSurgery()
+
+    counter = 0
+    for psspc in _enumerate_instances(PSSPC):
+        counter += 1
+        trace2 = psspc.transform(trace)
+        assert trace2 is not None
+        trace2 = lattice_surgery.transform(trace2)
+        assert trace2 is not None
+        assert trace2.compute_qubits == 12
+        assert (
+            trace2.depth
+            == num_ts
+            + num_ccx * 3
+            + num_rotations
+            + rotation_depth * psspc.num_ts_per_rotation
+        )
+        if psspc.ccx_magic_states:
+            assert trace2.resource_states == {
+                T: num_ts + psspc.num_ts_per_rotation * num_rotations,
+                CCX: num_ccx,
+            }
+        else:
+            assert trace2.resource_states == {
+                T: num_ts + psspc.num_ts_per_rotation * num_rotations + 4 * num_ccx
+            }
+        result = trace2.estimate(isa, max_error=float("inf"))
+        assert result is not None
+        _assert_estimation_result(trace2, result, isa)
+    assert counter == 40
+
+
+def test_trace_enumeration():
+    code = """
+    {{
+        use (a, b, c) = (Qubit(), Qubit(), Qubit());
+        T(a);
+        CCNOT(a, b, c);
+        Rz(1.2345, a);
+    }}
+    """
+
+    app = QSharpApplication(code)
+
+    from qsharp.qre._trace import RootNode
+
+    ctx = app.context()
+    root = RootNode()
+    assert sum(1 for _ in root.enumerate(ctx)) == 1
+
+    assert sum(1 for _ in PSSPC.q().enumerate(ctx)) == 40
+
+    assert sum(1 for _ in LatticeSurgery.q().enumerate(ctx)) == 1
+
+    q = PSSPC.q() * LatticeSurgery.q()
+    assert sum(1 for _ in q.enumerate(ctx)) == 40
+
+
+def _assert_estimation_result(trace: Trace, result: EstimationResult, isa: ISA):
+    actual_qubits = (
+        isa[LATTICE_SURGERY].expect_space(trace.compute_qubits)
+        + isa[T].expect_space() * result.factories[T].copies
+    )
+    if CCX in trace.resource_states:
+        actual_qubits += isa[CCX].expect_space() * result.factories[CCX].copies
+    assert result.qubits == actual_qubits
+
+    assert (
+        result.runtime
+        == isa[LATTICE_SURGERY].expect_time(trace.compute_qubits) * trace.depth
+    )
+
+    actual_error = (
+        trace.base_error
+        + isa[LATTICE_SURGERY].expect_error_rate(trace.compute_qubits) * trace.depth
+        + isa[T].expect_error_rate() * result.factories[T].states
+    )
+    if CCX in trace.resource_states:
+        actual_error += isa[CCX].expect_error_rate() * result.factories[CCX].states
+    assert abs(result.error - actual_error) <= 1e-8

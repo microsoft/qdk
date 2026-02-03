@@ -6,7 +6,7 @@ from typing import Generator, Iterable, Optional, overload, cast
 from enum import IntEnum
 
 from ._enumeration import _enumerate_instances
-from ._isa_enumeration import ISA_ROOT, BindingNode, ISAQuery, Node
+from ._isa_enumeration import ISA_ROOT, _BindingNode, _ComponentQuery, ISAQuery
 from ._qre import (
     ISA,
     Constraint,
@@ -193,7 +193,7 @@ class ISATransform(ABC):
                 yield from component.provided_isa(isa)
 
     @classmethod
-    def q(cls, *, source: Node | None = None, **kwargs) -> ISAQuery:
+    def q(cls, *, source: ISAQuery | None = None, **kwargs) -> ISAQuery:
         """
         Creates an ISAQuery node for this transform.
 
@@ -205,12 +205,12 @@ class ISATransform(ABC):
         Returns:
             ISAQuery: An enumeration node representing this transform.
         """
-        return ISAQuery(
+        return _ComponentQuery(
             cls, source=source if source is not None else ISA_ROOT, kwargs=kwargs
         )
 
     @classmethod
-    def bind(cls, name: str, node: Node) -> BindingNode:
+    def bind(cls, name: str, node: ISAQuery) -> _BindingNode:
         """
         Creates a BindingNode for this transform.
 

@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 
 from __future__ import annotations
-from typing import Iterator, Optional, overload
+from typing import Any, Iterator, Optional, overload
 
 class ISA:
     @overload
@@ -41,6 +41,22 @@ class ISA:
 
         Returns:
             Instruction: The instruction.
+        """
+        ...
+
+    def get(
+        self, id: int, default: Optional[Instruction] = None
+    ) -> Optional[Instruction]:
+        """
+        Gets an instruction by its ID, or returns a default value if not found.
+
+        Args:
+            id (int): The instruction ID.
+            default (Optional[Instruction]): The default value to return if the
+                instruction is not found.
+
+        Returns:
+            Optional[Instruction]: The instruction, or the default value if not found.
         """
         ...
 
@@ -420,5 +436,524 @@ def block_linear_function(
 
     Returns:
         IntFunction | FloatFunction: The block linear function.
+    """
+    ...
+
+class Property:
+    def __new__(cls, value: Any) -> Property:
+        """
+        Creates a property from a value.
+
+        Args:
+            value (Any): The value.
+        """
+        ...
+
+    def as_bool(self) -> Optional[bool]:
+        """
+        Returns the value as a boolean.
+
+        Returns:
+            Optional[bool]: The value as a boolean, or None if it is not a boolean.
+        """
+        ...
+
+    def as_int(self) -> Optional[int]:
+        """
+        Returns the value as an integer.
+
+        Returns:
+            Optional[int]: The value as an integer, or None if it is not an integer.
+        """
+        ...
+
+    def as_float(self) -> Optional[float]:
+        """
+        Returns the value as a float.
+
+        Returns:
+            Optional[float]: The value as a float, or None if it is not a float.
+        """
+        ...
+
+    def as_str(self) -> Optional[str]:
+        """
+        Returns the value as a string.
+
+        Returns:
+            Optional[str]: The value as a string, or None if it is not a string.
+        """
+        ...
+
+    def is_bool(self) -> bool:
+        """
+        Checks if the value is a boolean.
+
+        Returns:
+            bool: True if the value is a boolean, False otherwise.
+        """
+        ...
+
+    def is_int(self) -> bool:
+        """
+        Checks if the value is an integer.
+
+        Returns:
+            bool: True if the value is an integer, False otherwise.
+        """
+        ...
+
+    def is_float(self) -> bool:
+        """
+        Checks if the value is a float.
+
+        Returns:
+            bool: True if the value is a float, False otherwise.
+        """
+        ...
+
+    def is_str(self) -> bool:
+        """
+        Checks if the value is a string.
+
+        Returns:
+            bool: True if the value is a string, False otherwise.
+        """
+        ...
+
+    def __str__(self) -> str:
+        """
+        Returns a string representation of the property.
+
+        Returns:
+            str: A string representation of the property.
+        """
+        ...
+
+class EstimationResult:
+    """
+    Represents the result of a resource estimation.
+    """
+
+    @property
+    def qubits(self) -> int:
+        """
+        The number of logical qubits.
+
+        Returns:
+            int: The number of logical qubits.
+        """
+        ...
+
+    @property
+    def runtime(self) -> int:
+        """
+        The runtime in nanoseconds.
+
+        Returns:
+            int: The runtime in nanoseconds.
+        """
+        ...
+
+    @property
+    def error(self) -> float:
+        """
+        The error probability of the computation.
+
+        Returns:
+            float: The error probability of the computation.
+        """
+        ...
+
+    @property
+    def factories(self) -> dict[int, FactoryResult]:
+        """
+        The factory results.
+
+        Returns:
+            dict[int, FactoryResult]: A dictionary mapping factory IDs to their results.
+        """
+        ...
+
+    def __str__(self) -> str:
+        """
+        Returns a string representation of the estimation result.
+
+        Returns:
+            str: A string representation of the estimation result.
+        """
+        ...
+
+class EstimationCollection:
+    """
+    Represents a collection of estimation results.  Results are stored as a 2D
+    Pareto frontier with physical qubits and runtime as objectives.
+    """
+
+    def __new__(cls) -> EstimationCollection:
+        """
+        Creates a new estimation collection.
+
+        Returns:
+            EstimationCollection: The estimation collection.
+        """
+        ...
+
+    def insert(self, result: EstimationResult) -> None:
+        """
+        Inserts an estimation result into the collection.
+
+        Args:
+            result (EstimationResult): The estimation result to insert.
+        """
+        ...
+
+    def __len__(self) -> int:
+        """
+        Returns the number of estimation results in the collection.
+
+        Returns:
+            int: The number of estimation results.
+        """
+        ...
+
+    def __iter__(self) -> Iterator[EstimationResult]:
+        """
+        Returns an iterator over the estimation results.
+
+        Returns:
+            Iterator[EstimationResult]: The estimation result iterator.
+        """
+        ...
+
+class FactoryResult:
+    """
+    Represents the result of a factory used in resource estimation.
+    """
+
+    @property
+    def copies(self) -> int:
+        """
+        The number of factory copies.
+
+        Returns:
+            int: The number of factory copies.
+        """
+        ...
+
+    @property
+    def runs(self) -> int:
+        """
+        The number of factory runs.
+
+        Returns:
+            int: The number of factory runs.
+        """
+        ...
+
+    @property
+    def error_rate(self) -> float:
+        """
+        The error rate of the factory.
+
+        Returns:
+            float: The error rate of the factory.
+        """
+        ...
+
+    @property
+    def states(self) -> int:
+        """
+        The number of states produced by the factory.
+
+        Returns:
+            int: The number of states produced by the factory.
+        """
+        ...
+
+class Trace:
+    """
+    Represents a quantum program optimized for resource estimation.
+
+    A trace originates from a quantum application and can be modified via trace
+    transformations. It consists of blocks of operations.
+    """
+
+    def __new__(cls, compute_qubits: int) -> Trace:
+        """
+        Creates a new trace.
+
+        Returns:
+            Trace: The trace.
+        """
+        ...
+
+    def clone_empty(self, compute_qubits: Optional[int] = None) -> Trace:
+        """
+        Creates a new trace with the same metadata but empty block.
+
+        Args:
+            compute_qubits (Optional[int]): The number of compute qubits. If None,
+                the number of compute qubits of the original trace is used.
+
+        Returns:
+            Trace: The new trace.
+        """
+        ...
+
+    @property
+    def compute_qubits(self) -> int:
+        """
+        The number of compute qubits.
+
+        Returns:
+            int: The number of compute qubits.
+        """
+        ...
+
+    @property
+    def base_error(self) -> float:
+        """
+        The base error of the trace.
+
+        Returns:
+            float: The base error of the trace.
+        """
+        ...
+
+    def increment_base_error(self, amount: float) -> None:
+        """
+        Increments the base error.
+
+        Args:
+            amount (float): The amount to increment.
+        """
+        ...
+
+    def increment_resource_state(self, resource_id: int, amount: int) -> None:
+        """
+        Increments a resource state count.
+
+        Args:
+            resource_id (int): The resource state ID.
+            amount (int): The amount to increment.
+        """
+        ...
+
+    def set_property(self, key: str, value: Property) -> None:
+        """
+        Sets a property.
+
+        Args:
+            key (str): The property key.
+            value (Property): The property value.
+        """
+        ...
+
+    def get_property(self, key: str) -> Optional[Property]:
+        """
+        Gets a property.
+
+        Args:
+            key (str): The property key.
+
+        Returns:
+            Optional[Property]: The property value, or None if not found.
+        """
+        ...
+
+    @property
+    def depth(self) -> int:
+        """
+        The trace depth.
+
+        Returns:
+            int: The trace depth.
+        """
+        ...
+
+    def estimate(
+        self, isa: ISA, max_error: Optional[float] = None
+    ) -> Optional[EstimationResult]:
+        """
+        Estimates resources for the trace given a logical ISA.
+
+        Args:
+            isa (ISA): The logical ISA.
+            max_error (Optional[float]): The maximum allowed error. If None,
+                Pareto points are computed.
+
+        Returns:
+            Optional[EstimationResult]: The estimation result if max_error is
+                provided, otherwise valid Pareto points.
+        """
+        ...  # The implementation in Rust returns Option<EstimationResult>, so it fits
+
+    @property
+    def resource_states(self) -> dict[int, int]:
+        """
+        The resource states used in the trace.
+
+        Returns:
+            dict[int, int]: A dictionary mapping instruction IDs to their counts.
+        """
+        ...
+
+    def add_operation(
+        self, id: int, qubits: list[int], params: list[float] = []
+    ) -> None:
+        """
+        Adds an operation to the trace.
+
+        Args:
+            id (int): The operation ID.
+            qubits (list[int]): The qubits involved in the operation.
+            params (list[float]): The operation parameters.
+        """
+        ...
+
+    def add_block(self, repetitions: int = 1) -> Block:
+        """
+        Adds a block to the trace.
+
+        Args:
+            repetitions (int): The number of times the block is repeated.
+
+        Returns:
+            Block: The block.
+        """
+        ...
+
+    def __str__(self) -> str:
+        """
+        Returns a string representation of the trace.
+
+        Returns:
+            str: A string representation of the trace.
+        """
+        ...
+
+class Block:
+    """
+    Represents a block of operations in a trace.
+
+    An operation in a block can either refer to an instruction applied to some
+    qubits or can be another block to create a hierarchical structure. Blocks
+    can be repeated.
+    """
+
+    def add_operation(
+        self, id: int, qubits: list[int], params: list[float] = []
+    ) -> None:
+        """
+        Adds an operation to the block.
+
+        Args:
+            id (int): The operation ID.
+            qubits (list[int]): The qubits involved in the operation.
+            params (list[float]): The operation parameters.
+        """
+        ...
+
+    def add_block(self, repetitions: int = 1) -> Block:
+        """
+        Adds a nested block to the block.
+
+        Args:
+            repetitions (int): The number of times the block is repeated.
+
+        Returns:
+            Block: The block.
+        """
+        ...
+
+    def __str__(self) -> str:
+        """
+        Returns a string representation of the block.
+
+        Returns:
+            str: A string representation of the block.
+        """
+        ...
+
+class PSSPC:
+    def __new__(cls, num_ts_per_rotation: int, ccx_magic_states: bool) -> PSSPC: ...
+    def transform(self, trace: Trace) -> Optional[Trace]: ...
+
+class LatticeSurgery:
+    def __new__(cls) -> LatticeSurgery: ...
+    def transform(self, trace: Trace) -> Optional[Trace]: ...
+
+class InstructionFrontier:
+    """
+    Represents a Pareto frontier of instructions with space, time, and error
+    rates as objectives.
+    """
+
+    def __new__(cls) -> InstructionFrontier:
+        """
+        Creates a new instruction frontier.
+        """
+        ...
+
+    def insert(self, point: Instruction):
+        """
+        Inserts an instruction to the frontier.
+
+        Args:
+            point (Instruction): The instruction to insert.
+        """
+        ...
+
+    def __len__(self) -> int:
+        """
+        Returns the number of instructions in the frontier.
+
+        Returns:
+            int: The number of instructions.
+        """
+        ...
+
+    def __iter__(self) -> Iterator[Instruction]:
+        """
+        Returns an iterator over the instructions in the frontier.
+
+        Returns:
+            Iterator[Instruction]: The iterator.
+        """
+        ...
+
+    @staticmethod
+    def load(filename: str) -> InstructionFrontier:
+        """
+        Loads an instruction frontier from a file.
+
+        Args:
+            filename (str): The file name.
+
+        Returns:
+            InstructionFrontier: The loaded instruction frontier.
+        """
+        ...
+
+    def dump(self, filename: str) -> None:
+        """
+        Dumps the instruction frontier to a file.
+
+        Args:
+            filename (str): The file name.
+        """
+        ...
+
+def estimate_parallel(traces: list[Trace], isas: list[ISA]) -> EstimationCollection:
+    """
+    Estimates resources for multiple traces and ISAs in parallel.
+
+    Args:
+        traces (list[Trace]): The list of traces.
+        isas (list[ISA]): The list of ISAs.
+
+    Returns:
+        EstimationCollection: The estimation collection.
     """
     ...
