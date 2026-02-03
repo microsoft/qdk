@@ -1,15 +1,23 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+# pyright: reportPrivateImportUsage=false, reportOperatorIssue=false
+
 """Unit tests for the Model class."""
 
 # To be updated after additional geometries are implemented
 
-import cirq
-from cirq import LineQubit
+from __future__ import annotations
 
-from qsharp.magnets.geometry import Hyperedge, Hypergraph
-from qsharp.magnets.models import Model
+import pytest
+from . import CIRQ_AVAILABLE, SKIP_REASON
+
+if CIRQ_AVAILABLE:
+    import cirq
+    from cirq import LineQubit
+
+    from qsharp.magnets.geometry import Hyperedge, Hypergraph
+    from qsharp.magnets.models import Model
 
 
 def make_chain(length: int) -> Hypergraph:
@@ -21,6 +29,7 @@ def make_chain(length: int) -> Hypergraph:
 # Model initialization tests
 
 
+@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_model_init_basic():
     """Test basic Model initialization."""
     geometry = Hypergraph([Hyperedge([0, 1]), Hyperedge([1, 2])])
@@ -29,6 +38,7 @@ def test_model_init_basic():
     assert len(model.terms) == 0
 
 
+@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_model_init_creates_qubits():
     """Test that Model creates correct number of qubits."""
     geometry = Hypergraph([Hyperedge([0, 1]), Hyperedge([2, 3])])
@@ -36,6 +46,7 @@ def test_model_init_creates_qubits():
     assert len(model.qubit_list()) == 4
 
 
+@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_model_init_with_chain():
     """Test Model initialization with chain geometry."""
     geometry = make_chain(5)
@@ -43,6 +54,7 @@ def test_model_init_with_chain():
     assert len(model.qubit_list()) == 5
 
 
+@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_model_init_empty_geometry():
     """Test Model with empty geometry."""
     geometry = Hypergraph([])
@@ -54,6 +66,7 @@ def test_model_init_empty_geometry():
 # Qubit access tests
 
 
+@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_model_q_returns_line_qubit():
     """Test that q() returns LineQubit instances."""
     geometry = make_chain(3)
@@ -62,6 +75,7 @@ def test_model_q_returns_line_qubit():
     assert isinstance(qubit, LineQubit)
 
 
+@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_model_q_returns_correct_qubit():
     """Test that q() returns qubit with correct index."""
     geometry = make_chain(4)
@@ -70,6 +84,7 @@ def test_model_q_returns_correct_qubit():
         assert model.q(i) == LineQubit(i)
 
 
+@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_model_qubit_list():
     """Test qubit_list() returns all qubits."""
     geometry = make_chain(3)
@@ -79,6 +94,7 @@ def test_model_qubit_list():
     assert qubits == [LineQubit(0), LineQubit(1), LineQubit(2)]
 
 
+@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_model_qubits_iterator():
     """Test qubits() returns an iterator."""
     geometry = make_chain(3)
@@ -92,6 +108,7 @@ def test_model_qubits_iterator():
 # Term management tests
 
 
+@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_model_add_term_empty():
     """Test adding an empty term."""
     geometry = make_chain(2)
@@ -100,6 +117,7 @@ def test_model_add_term_empty():
     assert len(model.terms) == 1
 
 
+@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_model_add_term_with_pauli_sum():
     """Test adding a PauliSum term."""
     geometry = make_chain(2)
@@ -110,6 +128,7 @@ def test_model_add_term_with_pauli_sum():
     assert len(model.terms) == 1
 
 
+@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_model_add_multiple_terms():
     """Test adding multiple terms."""
     geometry = make_chain(3)
@@ -120,6 +139,7 @@ def test_model_add_multiple_terms():
     assert len(model.terms) == 3
 
 
+@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_model_add_to_term():
     """Test adding a PauliString to an existing term."""
     geometry = make_chain(2)
@@ -132,6 +152,7 @@ def test_model_add_to_term():
     assert len(model.terms[0]) == 1
 
 
+@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_model_add_to_term_multiple_strings():
     """Test adding multiple PauliStrings to the same term."""
     geometry = make_chain(3)
@@ -143,6 +164,7 @@ def test_model_add_to_term_multiple_strings():
     assert len(model.terms[0]) == 2
 
 
+@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_model_add_to_different_terms():
     """Test adding PauliStrings to different terms."""
     geometry = make_chain(3)
@@ -156,6 +178,7 @@ def test_model_add_to_different_terms():
     assert len(model.terms[1]) == 1
 
 
+@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_model_add_to_term_with_coefficient():
     """Test adding a PauliString with a coefficient."""
     geometry = make_chain(2)
@@ -170,6 +193,7 @@ def test_model_add_to_term_with_coefficient():
 # String representation tests
 
 
+@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_model_str():
     """Test string representation."""
     geometry = make_chain(4)
@@ -181,6 +205,7 @@ def test_model_str():
     assert "4 qubits" in result
 
 
+@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_model_str_empty():
     """Test string representation with no terms."""
     geometry = make_chain(3)
@@ -190,6 +215,7 @@ def test_model_str_empty():
     assert "3 qubits" in result
 
 
+@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_model_repr():
     """Test repr representation."""
     geometry = make_chain(2)
@@ -200,6 +226,7 @@ def test_model_repr():
 # Integration tests
 
 
+@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_model_build_simple_hamiltonian():
     """Test building a simple ZZ Hamiltonian on a chain."""
     geometry = make_chain(3)
@@ -214,6 +241,7 @@ def test_model_build_simple_hamiltonian():
     assert len(model.terms[0]) == 2
 
 
+@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_model_with_partitioned_terms():
     """Test building a model with partitioned terms for Trotterization."""
     geometry = make_chain(4)
