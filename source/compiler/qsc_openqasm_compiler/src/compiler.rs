@@ -105,6 +105,7 @@ pub fn compile_to_qsharp_ast_with_config(
         config,
         stmts: vec![],
         symbols: res.symbols,
+        qubits: vec![],
         errors,
         pragma_config: PragmaConfig::default(),
         functor_constraints: FxHashMap::default(),
@@ -166,6 +167,7 @@ pub struct QasmCompiler {
     /// The compiled statements accumulated during compilation.
     pub stmts: Vec<qsast::Stmt>,
     pub symbols: SymbolTable,
+    pub qubits: Vec<Rc<Symbol>>,
     pub errors: Vec<WithSource<crate::Error>>,
     pub pragma_config: PragmaConfig,
     /// Functor constraints for each gate, computed by the constraint solver pass.
@@ -301,7 +303,15 @@ impl QasmCompiler {
         whole_span: Span,
     ) -> (qsast::Item, OperationSignature) {
         let stmts = self.stmts.drain(..).collect::<Vec<_>>();
-        let input = self.symbols.get_input();
+        let mut input = self.symbols.get_input();
+
+        if self.config.program_ty == ProgramType::Operation {
+            if let Some(input) = &mut input {
+                input.extend(self.qubits.iter().cloned());
+            } else {
+                input = Some(self.qubits.clone());
+            }
+        }
 
         // Analyze input for `Angle` types which we can't support as it would require
         // passing a struct from Python. So we need to raise an error saying to use `float`
@@ -1459,6 +1469,12 @@ impl QasmCompiler {
 
     fn compile_qubit_decl_stmt(&mut self, stmt: &semast::QubitDeclaration) -> Option<qsast::Stmt> {
         let symbol = self.symbols[stmt.symbol_id].clone();
+
+        if self.config.program_ty == ProgramType::Operation {
+            self.qubits.push(symbol);
+            return None;
+        }
+
         let name = &symbol.name;
         let name_span = symbol.span;
 
@@ -1474,6 +1490,12 @@ impl QasmCompiler {
         stmt: &semast::QubitArrayDeclaration,
     ) -> Option<qsast::Stmt> {
         let symbol = self.symbols[stmt.symbol_id].clone();
+
+        if self.config.program_ty == ProgramType::Operation {
+            self.qubits.push(symbol);
+            return None;
+        }
+
         let name = &symbol.name;
         let name_span = symbol.span;
 
