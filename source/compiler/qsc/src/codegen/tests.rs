@@ -300,6 +300,7 @@ mod base_profile {
 
             attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="base_profile" "required_num_qubits"="1" "required_num_results"="1" }
             attributes #1 = { "irreversible" }
+            attributes #2 = { "qdk_noise" }
 
             ; module flags
 
@@ -352,6 +353,7 @@ mod base_profile {
 
             attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="base_profile" "required_num_qubits"="2" "required_num_results"="2" }
             attributes #1 = { "irreversible" }
+            attributes #2 = { "qdk_noise" }
 
             ; module flags
 
@@ -411,6 +413,7 @@ mod base_profile {
 
             attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="base_profile" "required_num_qubits"="2" "required_num_results"="2" }
             attributes #1 = { "irreversible" }
+            attributes #2 = { "qdk_noise" }
 
             ; module flags
 
@@ -469,6 +472,7 @@ mod base_profile {
 
             attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="base_profile" "required_num_qubits"="2" "required_num_results"="2" }
             attributes #1 = { "irreversible" }
+            attributes #2 = { "qdk_noise" }
 
             ; module flags
 
@@ -532,6 +536,7 @@ mod base_profile {
 
             attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="base_profile" "required_num_qubits"="3" "required_num_results"="2" }
             attributes #1 = { "irreversible" }
+            attributes #2 = { "qdk_noise" }
 
             ; module flags
 
@@ -653,6 +658,7 @@ mod adaptive_profile {
 
             attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
             attributes #1 = { "irreversible" }
+            attributes #2 = { "qdk_noise" }
 
             ; module flags
 
@@ -762,6 +768,7 @@ mod adaptive_profile {
 
             attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
             attributes #1 = { "irreversible" }
+            attributes #2 = { "qdk_noise" }
 
             ; module flags
 
@@ -823,6 +830,7 @@ mod adaptive_profile {
 
             attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
             attributes #1 = { "irreversible" }
+            attributes #2 = { "qdk_noise" }
 
             ; module flags
 
@@ -882,6 +890,7 @@ mod adaptive_profile {
 
             attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
             attributes #1 = { "irreversible" }
+            attributes #2 = { "qdk_noise" }
 
             ; module flags
 
@@ -952,6 +961,7 @@ mod adaptive_ri_profile {
 
             attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
             attributes #1 = { "irreversible" }
+            attributes #2 = { "qdk_noise" }
 
             ; module flags
 
@@ -1005,6 +1015,7 @@ mod adaptive_ri_profile {
 
             attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="2" }
             attributes #1 = { "irreversible" }
+            attributes #2 = { "qdk_noise" }
 
             ; module flags
 
@@ -1065,6 +1076,7 @@ mod adaptive_ri_profile {
 
             attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
             attributes #1 = { "irreversible" }
+            attributes #2 = { "qdk_noise" }
 
             ; module flags
 
@@ -1124,6 +1136,7 @@ mod adaptive_ri_profile {
 
             attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
             attributes #1 = { "irreversible" }
+            attributes #2 = { "qdk_noise" }
 
             ; module flags
 
@@ -1192,6 +1205,7 @@ mod adaptive_ri_profile {
 
             attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
             attributes #1 = { "irreversible" }
+            attributes #2 = { "qdk_noise" }
 
             ; module flags
 
@@ -1259,6 +1273,7 @@ mod adaptive_ri_profile {
 
             attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="3" "required_num_results"="2" }
             attributes #1 = { "irreversible" }
+            attributes #2 = { "qdk_noise" }
 
             ; module flags
 
@@ -1320,6 +1335,7 @@ mod adaptive_ri_profile {
 
             attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
             attributes #1 = { "irreversible" }
+            attributes #2 = { "qdk_noise" }
 
             ; module flags
 
@@ -1374,6 +1390,7 @@ mod adaptive_ri_profile {
 
             attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
             attributes #1 = { "irreversible" }
+            attributes #2 = { "qdk_noise" }
 
             ; module flags
 
@@ -1446,6 +1463,7 @@ mod adaptive_rif_profile {
 
             attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
             attributes #1 = { "irreversible" }
+            attributes #2 = { "qdk_noise" }
 
             ; module flags
 
@@ -1500,6 +1518,7 @@ mod adaptive_rif_profile {
 
             attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="2" }
             attributes #1 = { "irreversible" }
+            attributes #2 = { "qdk_noise" }
 
             ; module flags
 
@@ -1561,6 +1580,7 @@ mod adaptive_rif_profile {
 
             attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
             attributes #1 = { "irreversible" }
+            attributes #2 = { "qdk_noise" }
 
             ; module flags
 
@@ -1621,6 +1641,7 @@ mod adaptive_rif_profile {
 
             attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
             attributes #1 = { "irreversible" }
+            attributes #2 = { "qdk_noise" }
 
             ; module flags
 
@@ -1690,6 +1711,7 @@ mod adaptive_rif_profile {
 
             attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
             attributes #1 = { "irreversible" }
+            attributes #2 = { "qdk_noise" }
 
             ; module flags
 
@@ -1758,6 +1780,7 @@ mod adaptive_rif_profile {
 
             attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="3" "required_num_results"="2" }
             attributes #1 = { "irreversible" }
+            attributes #2 = { "qdk_noise" }
 
             ; module flags
 
@@ -1820,6 +1843,7 @@ mod adaptive_rif_profile {
 
             attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
             attributes #1 = { "irreversible" }
+            attributes #2 = { "qdk_noise" }
 
             ; module flags
 
@@ -1882,6 +1906,7 @@ mod adaptive_rif_profile {
 
             attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
             attributes #1 = { "irreversible" }
+            attributes #2 = { "qdk_noise" }
 
             ; module flags
 
@@ -1937,6 +1962,7 @@ mod adaptive_rif_profile {
 
             attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
             attributes #1 = { "irreversible" }
+            attributes #2 = { "qdk_noise" }
 
             ; module flags
 
@@ -2026,6 +2052,7 @@ mod adaptive_rif_profile {
 
             attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
             attributes #1 = { "irreversible" }
+            attributes #2 = { "qdk_noise" }
 
             ; module flags
 
