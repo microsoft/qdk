@@ -83,7 +83,7 @@ extends:
     sdl:
       sourceAnalysisPool:
         name: "Azure-Pipelines-DevTools-EO"
-        image: windows-2022
+        image: v-ihara-1es-pipeline-test-image
         os: windows
     stages:
       - stage: build
