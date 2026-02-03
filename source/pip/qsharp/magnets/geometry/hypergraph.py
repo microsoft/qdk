@@ -68,9 +68,9 @@ class Hypergraph:
     .. code-block:: python
         >>> edges = [Hyperedge([0, 1]), Hyperedge([1, 2]), Hyperedge([0, 2])]
         >>> graph = Hypergraph(edges)
-        >>> graph.nvertices()
+        >>> graph.nvertices
         3
-        >>> graph.nedges()
+        >>> graph.nedges
         3
     """
 
@@ -96,7 +96,7 @@ class Hypergraph:
         """Return the number of vertices in the hypergraph."""
         return len(self._vertex_set)
 
-    def addEdge(self, edge: Hyperedge, part: int = 0) -> None:
+    def add_edge(self, edge: Hyperedge, part: int = 0) -> None:
         """Add a hyperedge to the hypergraph.
 
         Args:
@@ -126,7 +126,7 @@ class Hypergraph:
         """
         return iter(self._edge_list)
 
-    def edgesByPart(self, part: int) -> Iterator[Hyperedge]:
+    def edges_by_part(self, part: int) -> Iterator[Hyperedge]:
         """Iterate over hyperedges in a specific partition of the hypergraph.
 
         Args:
@@ -147,7 +147,7 @@ class Hypergraph:
         return f"Hypergraph({list(self._edge_list)})"
 
 
-def greedyEdgeColoring(
+def greedy_edge_coloring(
     hypergraph: Hypergraph,  # The hypergraph to color.
     seed: Optional[int] = None,  # Random seed for reproducibility.
     trials: int = 1,  # Number of trials to perform.
