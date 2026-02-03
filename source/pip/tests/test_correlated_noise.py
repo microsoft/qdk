@@ -4,8 +4,7 @@
 import pytest
 from qsharp._simulation import NoiseConfig, run_qir
 from qsharp import Result
-import qdk.openqasm
-
+import qsharp.openqasm
 
 # Tests for the Q# noisy simulator.
 QASM_WITH_CORRELATED_NOISE = """
@@ -21,10 +20,10 @@ test_noise_intrinsic qs[0], qs[1];
 bit[2] res = measure qs;
 """
 
-QIR_WITH_CORRELATED_NOISE = qdk.openqasm.compile(
+QIR_WITH_CORRELATED_NOISE = qsharp.openqasm.compile(
     QASM_WITH_CORRELATED_NOISE,
-    output_semantics=qdk.openqasm.OutputSemantics.OpenQasm,
-    target_profile=qdk.TargetProfile.Base,
+    output_semantics=qsharp.openqasm.OutputSemantics.OpenQasm,
+    target_profile=qsharp.TargetProfile.Base,
 )
 
 
