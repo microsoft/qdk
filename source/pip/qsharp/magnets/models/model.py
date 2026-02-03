@@ -1,6 +1,8 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+# pyright: reportPrivateImportUsage=false
+
 """Base Model class for quantum spin models.
 
 This module provides the base class for representing quantum spin models
