@@ -142,10 +142,7 @@ export class Sqore {
 
     if (this.options.isEditable) {
       createDropzones(container, this);
-      createPanel(
-        container,
-        this.options.statePanelInitiallyExpanded === true,
-      );
+      createPanel(container, this.options.statePanelInitiallyExpanded === true);
       if (this.options.runCallback != undefined) {
         const callback = this.options.runCallback;
         enableRunButton(container, callback);

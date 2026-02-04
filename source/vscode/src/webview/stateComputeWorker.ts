@@ -54,7 +54,10 @@ function respondError(requestId: number, err: unknown) {
   try {
     const model = msg.model as CircuitModelSnapshot;
 
-    const ampMap = computeAmpMapForCircuit(model.qubits as any, model.componentGrid as any);
+    const ampMap = computeAmpMapForCircuit(
+      model.qubits as any,
+      model.componentGrid as any,
+    );
     const opts = (msg.opts ?? {}) as any;
     const columns = prepareStateVizColumnsFromAmpMap(ampMap as any, opts);
     (self as any).postMessage({
