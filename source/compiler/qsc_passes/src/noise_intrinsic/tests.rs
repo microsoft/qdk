@@ -24,6 +24,41 @@ fn check(file: &str, expect: &Expect) {
 }
 
 #[test]
+fn test_noise_intrinsic_with_body_intrinsic_works() {
+    check(
+        indoc! {r#"
+        namespace Test {
+            @NoiseIntrinsic()
+            operation Foo(q: Qubit) : Unit {
+                body intrinsic;
+            }
+        }
+    "#},
+        &expect![[r#"
+            []
+        "#]],
+    );
+}
+
+#[test]
+fn test_noise_intrinsic_with_simulatable_intrinsic_works() {
+    check(
+        indoc! {r#"
+        namespace Test {
+            @NoiseIntrinsic()
+            @SimulatableIntrinsic()
+            operation Foo(q: Qubit) : Unit {
+                X(q);
+            }
+        }
+    "#},
+        &expect![[r#"
+            []
+        "#]],
+    );
+}
+
+#[test]
 fn test_noise_intrinsic_attr_on_non_intrinsic_issues_error() {
     check(
         indoc! {r#"
