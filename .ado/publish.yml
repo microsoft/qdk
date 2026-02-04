@@ -89,6 +89,20 @@ extends:
       - stage: build
         displayName: Build
         jobs:
+            # Add this diagnostic job to check .NET versions on windows-2025
+          - job: "Diagnostics_Windows_2025"
+            pool:
+              name: "Azure-Pipelines-DevTools-EO"
+              image: "windows-2025"
+              os: windows
+            timeoutInMinutes: 10
+            steps:
+              - powershell: |
+                  Write-Host "=== .NET SDK Versions ==="
+                  dotnet --list-sdks
+                  Write-Host "`n=== .NET Runtime Versions ==="
+                  dotnet --list-runtimes
+                displayName: List installed .NET versions
           - job: "Node"
             pool:
               name: "Azure-Pipelines-DevTools-EO"
