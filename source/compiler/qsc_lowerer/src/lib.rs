@@ -1039,6 +1039,7 @@ fn lower_attrs(attrs: &[hir::Attr]) -> Vec<fir::Attr> {
             hir::Attr::EntryPoint => Some(fir::Attr::EntryPoint),
             hir::Attr::Measurement => Some(fir::Attr::Measurement),
             hir::Attr::Reset => Some(fir::Attr::Reset),
+            hir::Attr::NoiseIntrinsic => Some(fir::Attr::NoiseIntrinsic),
             hir::Attr::Test => Some(fir::Attr::Test),
             hir::Attr::SimulatableIntrinsic | hir::Attr::Unimplemented | hir::Attr::Config => None,
         })
