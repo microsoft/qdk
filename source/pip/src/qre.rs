@@ -698,8 +698,8 @@ pub struct LatticeSurgery(qre::LatticeSurgery);
 #[pymethods]
 impl LatticeSurgery {
     #[new]
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(slow_down_factor: f64) -> Self {
+        Self(qre::LatticeSurgery::new(slow_down_factor))
     }
 
     pub fn transform(&self, trace: &Trace) -> PyResult<Trace> {

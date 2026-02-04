@@ -144,7 +144,7 @@ fn test_lattice_surgery_transform() {
 
     assert_eq!(trace.depth(), 2);
 
-    let ls = LatticeSurgery::new();
+    let ls = LatticeSurgery::default();
     let transformed = ls.transform(&trace).expect("Transformation failed");
 
     assert_eq!(transformed.compute_qubits(), 3);

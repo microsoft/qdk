@@ -17,7 +17,7 @@ class TraceTransform(ABC):
 
     @classmethod
     def q(cls, **kwargs) -> TraceQuery:
-        return TraceQuery(cls, kwargs=kwargs)
+        return TraceQuery(cls, **kwargs)
 
 
 @dataclass
@@ -37,8 +37,11 @@ class PSSPC(TraceTransform):
 
 @dataclass
 class LatticeSurgery(TraceTransform):
+    _: KW_ONLY
+    slow_down_factor: float = field(default=1.0, metadata={"domain": [1.0]})
+
     def __post_init__(self):
-        self._lattice_surgery = _LatticeSurgery()
+        self._lattice_surgery = _LatticeSurgery(self.slow_down_factor)
 
     def transform(self, trace: Trace) -> Optional[Trace]:
         return self._lattice_surgery.transform(trace)
