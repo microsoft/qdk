@@ -18,10 +18,10 @@ class Chain1D(Hypergraph):
     The chain has open boundary conditions, meaning the first and last
     vertices are not connected.
 
-    The edges are partitioned into two parts for parallel updates:
-    - Part 0 (if self_loops): Self-loop edges on each vertex
-    - Part 1: Even-indexed nearest-neighbor edges (0-1, 2-3, ...)
-    - Part 2: Odd-indexed nearest-neighbor edges (1-2, 3-4, ...)
+    Edges are colored for parallel updates:
+    - Color -1 (if self_loops): Self-loop edges on each vertex
+    - Color 0: Even-indexed nearest-neighbor edges (0-1, 2-3, ...)
+    - Color 1: Odd-indexed nearest-neighbor edges (1-2, 3-4, ...)
 
     Attributes:
         length: Number of vertices in the chain.
@@ -46,6 +46,7 @@ class Chain1D(Hypergraph):
         """
         if self_loops:
             _edges = [Hyperedge([i]) for i in range(length)]
+
         else:
             _edges = []
 
@@ -53,14 +54,14 @@ class Chain1D(Hypergraph):
             _edges.append(Hyperedge([i, i + 1]))
         super().__init__(_edges)
 
-        # Set up edge partitions for parallel updates
+        # Update color for self-loop edges
         if self_loops:
-            self.parts = [list(range(length - 1))]
-        else:
-            self.parts = []
+            for i in range(length):
+                self.color[(i,)] = -1
 
-        self.parts.append(list(range(0, length - 1, 2)))
-        self.parts.append(list(range(1, length - 1, 2)))
+        for i in range(length - 1):
+            color = i % 2
+            self.color[(i, i + 1)] = color
 
         self.length = length
 
@@ -72,10 +73,10 @@ class Ring1D(Hypergraph):
     The ring has periodic boundary conditions, meaning the first and last
     vertices are connected.
 
-    The edges are partitioned into two parts for parallel updates:
-    - Part 0 (if self_loops): Self-loop edges on each vertex
-    - Part 1: Even-indexed nearest-neighbor edges (0-1, 2-3, ...)
-    - Part 2: Odd-indexed nearest-neighbor edges (1-2, 3-4, ...)
+    Edges are colored for parallel updates:
+    - Color -1 (if self_loops): Self-loop edges on each vertex
+    - Color 0: Even-indexed nearest-neighbor edges (0-1, 2-3, ...)
+    - Color 1: Odd-indexed nearest-neighbor edges (1-2, 3-4, ...)
 
     Attributes:
         length: Number of vertices in the ring.
@@ -107,13 +108,14 @@ class Ring1D(Hypergraph):
             _edges.append(Hyperedge([i, (i + 1) % length]))
         super().__init__(_edges)
 
-        # Set up edge partitions for parallel updates
+        # Update color for self-loop edges
         if self_loops:
-            self.parts = [list(range(length))]
-        else:
-            self.parts = []
+            for i in range(length):
+                self.color[(i,)] = -1
 
-        self.parts.append(list(range(0, length, 2)))
-        self.parts.append(list(range(1, length, 2)))
+        for i in range(length):
+            j = (i + 1) % length
+            color = i % 2
+            self.color[tuple(sorted([i, j]))] = color
 
         self.length = length
