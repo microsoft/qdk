@@ -83,7 +83,7 @@ extends:
     sdl:
       sourceAnalysisPool:
         name: "Azure-Pipelines-DevTools-EO"
-        image: windows-2022
+        image: windows-2025
         os: windows
     stages:
       - stage: build
