@@ -67,61 +67,50 @@ function getDefaultMenuSelection(
   return selection;
 }
 
-// Matches a simple, single-level, bracketed CSV list with no empty elements, e.g.:
+// Matches a simple bracketed CSV list with no empty elements, e.g.:
 //   [Zero, One, Loss]
 //   [0, 1, .]
 //   [missing qubit, one, zero, result unknown]
 //
-// Tokens may be arbitrary strings so long as they don't include ',', '[' or ']'.
 // Empty values such as "[,,,]" or "[Zero,,One]" are rejected.
 //
-
-// A word is any non-whitespace, non-comma, non-bracket sequence
-const ketCsvWord = "[^\\s,\\[\\]]+";
-
-// A value is one or more words separated by whitespace
-const ketCsvValue = `\\s*(?:${ketCsvWord}\\s*)+`;
-
-// The body is one or more values separated by commas and surrounded by brackets
-const ketCsvBody = `\\[(?:${ketCsvValue},)*${ketCsvValue}\\]`;
-
-const reKetResult = new RegExp(`^\\s*${ketCsvBody}\\s*$`);
 function resultToKet(result: string): string {
   if (typeof result !== "string") return "ERROR";
 
-  if (reKetResult.test(result)) {
-    // The result is a simple, bracketed CSV list. Convert each token to a ket digit:
-    //   Zero/0 -> 0
-    //   One/1  -> 1
-    //   else   -> -
-    const inner = result.trim().slice(1, -1).trim();
-    const tokens = inner.length ? inner.split(",") : [];
-
-    let ket = "|";
-    for (const token of tokens) {
-      const trimmed = token.trim();
-      const unquoted = trimmed
-        .replace(/^"(.*)"$/, "$1")
-        .replace(/^'(.*)'$/, "$1")
-        .trim();
-
-      // If any element is empty after trimming/unquoting, don't treat it as a ket label.
-      if (unquoted.length === 0) return result;
-
-      const normalized = unquoted.toLowerCase();
-
-      ket +=
-        normalized === "zero" || normalized === "0"
-          ? "0"
-          : normalized === "one" || normalized === "1"
-            ? "1"
-            : "-";
-    }
-    ket += "⟩";
-    return ket;
-  } else {
+  let currResult = result.trim();
+  if (currResult.length === 0) return result;
+  if (currResult[0] !== "[" || currResult[currResult.length - 1] !== "]") {
     return result;
   }
+
+  currResult = currResult.slice(1, -1).trim();
+  if (currResult.length === 0) return result;
+
+  // The result is a simple, bracketed CSV list. Convert each token to a ket digit:
+  //   Zero/0 -> 0
+  //   One/1  -> 1
+  //   else   -> -
+  let ket = "|";
+  for (const value of currResult.split(",")) {
+    const trimmed = value
+      .replace(/^"(.*)"$/, "$1")
+      .replace(/^'(.*)'$/, "$1")
+      .trim();
+
+    // If any element is empty after trimming/unquoting, don't treat it as a ket label.
+    if (trimmed.length === 0) return result;
+
+    const normalized = trimmed.toLowerCase();
+
+    ket +=
+      normalized === "zero" || normalized === "0"
+        ? "0"
+        : normalized === "one" || normalized === "1"
+          ? "1"
+          : "-";
+  }
+  ket += "⟩";
+  return ket;
 }
 
 export function Histogram(props: {
