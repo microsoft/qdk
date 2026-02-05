@@ -67,50 +67,29 @@ function getDefaultMenuSelection(
   return selection;
 }
 
-// Matches a simple bracketed CSV list with no empty elements, e.g.:
-//   [Zero, One, Loss]
-//   [0, 1, .]
-//   [missing qubit, one, zero, result unknown]
-//
-// Empty values such as "[,,,]" or "[Zero,,One]" are rejected.
-//
+const reKetResult = /^\[(?:(Zero|One|Loss|0|1|-), *)*(Zero|One|Loss|0|1|-)\]$/;
 function resultToKet(result: string): string {
   if (typeof result !== "string") return "ERROR";
 
-  let currResult = result.trim();
-  if (currResult.length === 0) return result;
-  if (currResult[0] !== "[" || currResult[currResult.length - 1] !== "]") {
+  if (reKetResult.test(result)) {
+    // The result is a simple array of Zero, One, and Loss
+    // The below will return an array of "Zero" or "One" in the order found
+    const matches = result.match(/(One|Zero|Loss|0|1|-)/g);
+    let ket = "|";
+    matches?.forEach(
+      (digit) =>
+        (ket +=
+          digit == "One" || digit == "1"
+            ? "1"
+            : digit == "Zero" || digit == "0"
+              ? "0"
+              : "-"),
+    );
+    ket += "⟩";
+    return ket;
+  } else {
     return result;
   }
-
-  currResult = currResult.slice(1, -1).trim();
-  if (currResult.length === 0) return result;
-
-  // The result is a simple, bracketed CSV list. Convert each token to a ket digit:
-  //   Zero/0 -> 0
-  //   One/1  -> 1
-  //   else   -> -
-  let ket = "|";
-  for (const value of currResult.split(",")) {
-    const trimmed = value
-      .replace(/^"(.*)"$/, "$1")
-      .replace(/^'(.*)'$/, "$1")
-      .trim();
-
-    // If any element is empty after trimming/unquoting, don't treat it as a ket label.
-    if (trimmed.length === 0) return result;
-
-    const normalized = trimmed.toLowerCase();
-
-    ket +=
-      normalized === "zero" || normalized === "0"
-        ? "0"
-        : normalized === "one" || normalized === "1"
-          ? "1"
-          : "-";
-  }
-  ket += "⟩";
-  return ket;
 }
 
 export function Histogram(props: {
