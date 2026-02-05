@@ -10,6 +10,7 @@ and interaction graphs.
 
 from .hypergraph import Hyperedge, Hypergraph, greedy_edge_coloring
 from .lattice1d import Chain1D, Ring1D
+from .lattice2d import Patch2D, Torus2D
 
 __all__ = [
     "Hyperedge",
@@ -17,4 +18,6 @@ __all__ = [
     "greedy_edge_coloring",
     "Chain1D",
     "Ring1D",
+    "Patch2D",
+    "Torus2D",
 ]
