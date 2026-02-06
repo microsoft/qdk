@@ -9,9 +9,7 @@ const excludeTargets: string[] = [
   "rigetti.qpu.ankaa-2",
 ];
 
-const excludeProviders: string[] = [
-  "pasqal"
-];
+const excludeProviders: string[] = ["pasqal"];
 
 export function targetSupportQir(target: string) {
   // Note: Most of these should be dynamic at some point, with configuration coming
