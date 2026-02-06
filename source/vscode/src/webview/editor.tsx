@@ -14,6 +14,8 @@ import {
   updateStyleSheetTheme,
 } from "qsharp-lang/ux";
 
+import stateComputeWorkerSource from "./stateComputeWorker.inline.ts";
+
 window.addEventListener("message", onMessage);
 window.addEventListener("load", main);
 
@@ -26,9 +28,196 @@ type State = { viewType: "loading" } | CircuitState;
 const loadingState: State = { viewType: "loading" };
 let state: State = loadingState;
 
+type CircuitModelSnapshot = { qubits: any[]; componentGrid: any[] };
+type WorkerComputeRequest = {
+  command: "compute";
+  requestId: number;
+  model: CircuitModelSnapshot;
+  opts?: {
+    normalize?: boolean;
+    minProbThreshold?: number;
+    maxColumns?: number;
+  };
+};
+type WorkerComputeResponse =
+  | { command: "result"; requestId: number; columns: any }
+  | {
+      command: "error";
+      requestId: number;
+      error: { name: string; message: string };
+    };
+
+type QsharpStateComputeApi = {
+  computeStateVizColumnsForCircuitModel: (
+    model: CircuitModelSnapshot,
+    opts?: {
+      normalize?: boolean;
+      minProbThreshold?: number;
+      maxColumns?: number;
+    },
+  ) => Promise<any>;
+
+  // Optional cleanup hook so new webview instances (or setting-driven redraws)
+  // can dispose any previously-installed API and terminate its in-flight worker.
+  dispose?: (reason?: string) => void;
+};
+
+type ActiveStateComputeWorker = {
+  requestId: number;
+  worker: Worker;
+  blobUrl: string;
+  reject?: (err: unknown) => void;
+};
+
+let activeStateComputeWorker: ActiveStateComputeWorker | null = null;
+let stateComputeRequestId = 0;
+
+function disposeActiveStateComputeWorker() {
+  if (!activeStateComputeWorker) return;
+  try {
+    activeStateComputeWorker.worker.terminate();
+  } catch {
+    // ignore
+  }
+  try {
+    URL.revokeObjectURL(activeStateComputeWorker.blobUrl);
+  } catch {
+    // ignore
+  }
+  activeStateComputeWorker = null;
+}
+
+function cancelActiveStateComputeWorker(reason: string) {
+  if (!activeStateComputeWorker) return;
+
+  const reject = activeStateComputeWorker.reject;
+  // Prevent any later cleanup from changing the settled promise.
+  activeStateComputeWorker.reject = undefined;
+  disposeActiveStateComputeWorker();
+  try {
+    reject?.(
+      new DOMException(`State compute cancelled (${reason})`, "AbortError"),
+    );
+  } catch {
+    // ignore
+  }
+}
+
+function installQsharpStateComputeApi() {
+  const prev = (globalThis as any).qsharpStateComputeApi as
+    | QsharpStateComputeApi
+    | undefined;
+
+  // If this webview script is re-initialized without a full page unload
+  // (e.g., setting-driven recreation), ensure any previously-created worker is
+  // cancelled/terminated so it can't deliver stale results later.
+  try {
+    prev?.dispose?.("replaced by new state compute API instance");
+  } catch {
+    // ignore
+  }
+
+  const api: QsharpStateComputeApi = {
+    computeStateVizColumnsForCircuitModel: (
+      model: CircuitModelSnapshot,
+      opts?: {
+        normalize?: boolean;
+        minProbThreshold?: number;
+        maxColumns?: number;
+      },
+    ) => computeStateVizColumnsInWorker(model, opts),
+
+    dispose: (reason?: string) => {
+      cancelActiveStateComputeWorker(reason ?? "disposed");
+    },
+  };
+
+  (globalThis as any).qsharpStateComputeApi = api;
+}
+
+function createStateComputeWorker(): { worker: Worker; blobUrl: string } {
+  const blobUrl = URL.createObjectURL(
+    new Blob([stateComputeWorkerSource], { type: "text/javascript" }),
+  );
+  return { worker: new Worker(blobUrl), blobUrl };
+}
+
+function computeStateVizColumnsInWorker(
+  model: CircuitModelSnapshot,
+  opts?: {
+    normalize?: boolean;
+    minProbThreshold?: number;
+    maxColumns?: number;
+  },
+) {
+  cancelActiveStateComputeWorker("replaced by new compute request");
+
+  const requestId = ++stateComputeRequestId;
+  const created = createStateComputeWorker();
+  return new Promise<any>((resolve, reject) => {
+    activeStateComputeWorker = {
+      requestId,
+      worker: created.worker,
+      blobUrl: created.blobUrl,
+      reject,
+    };
+
+    created.worker.onerror = (ev: ErrorEvent) => {
+      if (
+        !activeStateComputeWorker ||
+        activeStateComputeWorker.requestId !== requestId
+      ) {
+        return;
+      }
+
+      disposeActiveStateComputeWorker();
+      reject(new Error(ev.message || "State compute worker error"));
+    };
+
+    created.worker.onmessage = (ev: MessageEvent<WorkerComputeResponse>) => {
+      if (
+        !activeStateComputeWorker ||
+        activeStateComputeWorker.requestId !== requestId
+      ) {
+        return;
+      }
+      const msg = ev.data as any;
+      if (!msg || typeof msg !== "object") return;
+      if (msg.command === "result") {
+        const columns = msg.columns;
+        disposeActiveStateComputeWorker();
+        resolve(columns);
+        return;
+      }
+      if (msg.command === "error") {
+        const err = new Error(msg.error?.message ?? "Worker error");
+        (err as any).name = msg.error?.name ?? "Error";
+        disposeActiveStateComputeWorker();
+        reject(err);
+      }
+    };
+
+    created.worker.postMessage({
+      command: "compute",
+      requestId,
+      model,
+      opts,
+    } satisfies WorkerComputeRequest);
+  });
+}
+
 function main() {
   state = (vscodeApi.getState() as any) || loadingState;
   render(<App state={state} />, document.body);
+
+  // Provide a host API so the circuit visualization can offload state computation
+  // to a Web Worker without importing VS Code specific modules.
+  installQsharpStateComputeApi();
+
+  window.addEventListener("unload", () => {
+    cancelActiveStateComputeWorker("webview unload");
+  });
+
   detectThemeChange(document.body, (isDark) =>
     updateStyleSheetTheme(
       isDark,
@@ -62,13 +251,14 @@ function onMessage(event: any) {
     }
     case "circuit":
       {
-        // Check if the received circuit is different from the current state
-        if (
-          state.viewType === "circuit" &&
-          JSON.stringify(state.props.circuit) ===
-            JSON.stringify(message.props.circuit)
-        ) {
-          return;
+        // Only short-circuit if the circuit payload is unchanged
+        if (state.viewType === "circuit") {
+          const sameCircuit =
+            JSON.stringify(state.props.circuit) ===
+            JSON.stringify(message.props.circuit);
+          if (sameCircuit) {
+            return;
+          }
         }
 
         state = {

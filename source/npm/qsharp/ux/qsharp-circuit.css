@@ -306,6 +306,9 @@
   .panel {
     display: flex;
     flex-direction: row;
+    height: 100%;
+    align-items: stretch;
+    min-height: 0; /* allow flex children to scroll */
   }
 
   .container {
@@ -337,6 +340,10 @@
     width: 100px;
     min-height: var(--minToolboxHeight);
     border-right: medium solid var(--vscode-editorWidget-border, #000000);
+    height: 100%;
+    min-height: 0; /* enable internal scroll in flex container */
+    overflow-y: auto;
+    overflow-x: hidden;
   }
 
   .toolbox-panel .title {
@@ -346,7 +353,7 @@
   .toolbox-panel-svg {
     width: -webkit-fill-available;
     min-height: var(--minToolboxHeight);
-    height: 100%;
+    height: auto; /* let SVG expand to content height */
   }
 
   .ghost {
@@ -493,4 +500,307 @@
   text-align: center;
   line-height: 40px;
   font-size: 16px;
+}
+
+/* State visualizer panel */
+.state-panel {
+  flex: 0 0 0px;
+  border-left: none; /* replaced by clickable edge */
+  display: flex;
+  flex-direction: column;
+  background: var(--qdk-host-background, #ffffff);
+  pointer-events: auto;
+  height: 100%;
+  min-height: 0; /* allow scroll in short windows */
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative; /* anchor toggle button */
+  transition:
+    flex-basis var(--stateAnimMs, 200ms) ease,
+    width var(--stateAnimMs, 200ms) ease,
+    padding-left var(--stateAnimMs, 200ms) ease;
+  padding-left: 36px; /* reserve space for the clickable edge */
+}
+
+.state-panel:not(.collapsed) {
+  flex-basis: 226px; /* 190px content + 36px edge */
+}
+
+.state-panel .state-svg {
+  flex: 0 0 auto; /* size to content */
+  width: 100%;
+  height: auto; /* allow panel to scroll when content is taller */
+  transition: opacity var(--stateAnimMs, 200ms) ease;
+}
+
+/* Loading overlay for async state compute */
+.state-loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 36px; /* keep the clickable edge visible */
+  right: 0;
+  bottom: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 10;
+  background: color-mix(
+    in srgb,
+    var(--qdk-host-background, #ffffff) 70%,
+    transparent
+  );
+  backdrop-filter: blur(0.5px);
+}
+
+.state-panel.loading:not(.collapsed):not(.message) .state-loading-overlay {
+  display: flex;
+}
+
+.state-loading-spinner {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 3px solid var(--qdk-host-foreground, #666);
+  border-right-color: transparent;
+  opacity: 0.8;
+  animation: stateLoadingSpin 0.85s linear infinite;
+}
+
+@keyframes stateLoadingSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Developer toolbar above the visualizer */
+.dev-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  row-gap: 4px;
+  width: 100%;
+  padding: 4px 6px;
+  font-size: 12px;
+  border-bottom: 1px solid #ddd;
+  transition: opacity var(--stateAnimMs, 200ms) ease;
+}
+
+.dev-toolbar-sep {
+  opacity: 0.6;
+}
+
+.dev-toolbar input {
+  width: 56px;
+}
+
+/* Collapsed state: shrink panel and hide content except the toggle */
+.state-panel.collapsed {
+  flex: 0 0 36px !important; /* match edge width */
+  width: 36px; /* assist transition in some browsers */
+  overflow: visible; /* keep toggle visible */
+  padding-left: 0; /* only the edge remains visible */
+}
+
+/* Fade content while collapsing instead of instantly hiding */
+.state-panel.collapsed .state-svg,
+.state-panel.collapsed .dev-toolbar,
+.state-panel.collapsed .state-panel-message {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Full-height clickable edge with vertical text */
+.state-edge {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 36px;
+  background: var(--qdk-background-accent, #e6e6e6);
+  border-right: 1px solid var(--qdk-widget-outline, #c8c8c8);
+  box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.06);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  pointer-events: auto;
+}
+
+.state-edge:focus {
+  outline: 2px solid var(--qdk-focus-border);
+  outline-offset: -2px;
+}
+
+.state-edge-text {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--qdk-host-foreground, #333);
+  letter-spacing: 0.65px;
+  user-select: none;
+}
+
+/* Edge icons (top and bottom triangles) */
+.state-edge .edge-icon {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  right: 8px;
+  pointer-events: none; /* clicks go to the edge */
+  transform-origin: 50% 50%;
+}
+
+.state-edge .edge-icon-top {
+  top: 8px;
+}
+.state-edge .edge-icon-bottom {
+  bottom: 8px;
+}
+
+.state-edge .edge-icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.state-edge .edge-icon path {
+  fill: var(--qdk-host-foreground, #555);
+  stroke: none; /* sharp corners, no outline */
+}
+
+/* When collapsed, flip icons to point left */
+.state-panel.collapsed .state-edge .edge-icon {
+  transform: rotate(180deg);
+}
+
+/* Empty state: hide SVG and toolbar */
+.state-panel.message .state-svg,
+.state-panel.message .dev-toolbar {
+  height: auto;
+  display: none;
+}
+
+.state-svg .state-header {
+  font-size: 17px;
+  font-weight: 600;
+  text-anchor: start; /* override circuit default */
+  dominant-baseline: hanging;
+  pointer-events: none;
+}
+
+.state-svg .state-separator {
+  stroke: #ddd;
+  stroke-width: 1px;
+}
+
+.state-svg .state-bar {
+  opacity: 0.9;
+  transition:
+    fill var(--stateAnimMs, 200ms) ease,
+    opacity var(--stateAnimMs, 200ms) ease;
+}
+
+.state-svg .state-bar-label {
+  font-size: 14px;
+  text-anchor: middle;
+  dominant-baseline: hanging;
+  pointer-events: none;
+}
+
+.state-svg .state-phase-circle {
+  fill: none;
+  stroke: #666;
+  stroke-width: 1px;
+}
+
+.state-svg .state-phase-text {
+  text-anchor: middle;
+  dominant-baseline: hanging; /* align like percentage labels */
+  font-size: 14px; /* match percentage label size */
+  pointer-events: none;
+}
+
+.state-svg .state-phase-dot {
+  stroke: #333;
+  stroke-width: 0.5px;
+  transition:
+    fill var(--stateAnimMs, 200ms) ease,
+    opacity var(--stateAnimMs, 200ms) ease;
+}
+
+.state-svg .state-phase-wedge {
+  stroke: none;
+  fill-opacity: 0.75;
+  transition:
+    fill var(--stateAnimMs, 200ms) ease,
+    opacity var(--stateAnimMs, 200ms) ease;
+}
+
+.state-svg .state-bitstring {
+  font-size: 14px;
+  text-anchor: middle;
+  dominant-baseline: hanging;
+  pointer-events: none;
+}
+
+/* Vertical orientation for long state labels to avoid collisions */
+
+/* HTML-based vertical labels inside foreignObject */
+.state-svg .state-bitstring-fo {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-size: 14px;
+  line-height: 1;
+  text-align: center;
+  width: -moz-fit-content;
+  width: fit-content; /* shrink to content so we can center via margins */
+  margin-left: auto;
+  margin-right: auto; /* center within the column width */
+  color: var(--qdk-host-foreground, #000);
+  pointer-events: none;
+}
+
+/* Centered empty-state message in the panel */
+.state-panel-message {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  padding: 8px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--qdk-description-foreground);
+  z-index: 20;
+  pointer-events: none;
+  transition: opacity var(--stateAnimMs, 200ms) ease;
+}
+
+/* Circuit container/wrapper layout extracted from inline styles */
+.circuit-editor-container {
+  display: flex;
+  height: 80vh;
+  width: 95vw;
+  align-items: stretch;
+}
+
+.circuit-wrapper {
+  display: block;
+  overflow: auto;
+  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Empty circuit message extracted from inline styles */
+.empty-circuit-message {
+  padding: 2em;
+  text-align: center;
+  color: var(--qdk-description-foreground);
+  font-size: 1.1em;
 }

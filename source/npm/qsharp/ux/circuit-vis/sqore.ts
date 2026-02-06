@@ -52,6 +52,7 @@ export type DrawOptions = {
   editCallback?: (circuitGroup: CircuitGroup) => void;
   runCallback?: () => void;
   renderLocations?: (l: SourceLocation[]) => { title: string; href: string };
+  statePanelInitiallyExpanded?: boolean;
 };
 
 /**
@@ -141,7 +142,7 @@ export class Sqore {
 
     if (this.options.isEditable) {
       createDropzones(container, this);
-      createPanel(container);
+      createPanel(container, this.options.statePanelInitiallyExpanded === true);
       if (this.options.runCallback != undefined) {
         const callback = this.options.runCallback;
         enableRunButton(container, callback);
