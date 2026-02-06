@@ -67,17 +67,23 @@ function getDefaultMenuSelection(
   return selection;
 }
 
-const reKetResult = /^\[(?:(Zero|One|Loss), *)*(Zero|One|Loss)\]$/;
+const reKetResult =
+  /^\[(?:(Zero|One|Loss|0|1|2|-), *)*(Zero|One|Loss|0|1|2|-)\]$/;
 function resultToKet(result: string): string {
   if (typeof result !== "string") return "ERROR";
 
   if (reKetResult.test(result)) {
-    // The result is a simple array of Zero and One
-    // The below will return an array of "Zero" or "One" in the order found
-    const matches = result.match(/(One|Zero|Loss)/g);
+    // The result fits our expected pattern, so we can convert it to a ket. If not, just return the raw result.
+    const matches = result.match(/(One|Zero|Loss|0|1|2|-)/g);
     let ket = "|";
     matches?.forEach(
-      (digit) => (ket += digit == "One" ? "1" : digit == "Zero" ? "0" : "-"),
+      (digit) =>
+        (ket +=
+          digit == "One" || digit == "1"
+            ? "1"
+            : digit == "Zero" || digit == "0"
+              ? "0"
+              : "-"),
     );
     ket += "⟩";
     return ket;
