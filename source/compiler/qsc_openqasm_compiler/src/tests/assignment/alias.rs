@@ -83,8 +83,8 @@ fn can_alias_qubit_registers() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let one = QIR.Runtime.AllocateQubitArray(2);
-        let two = QIR.Runtime.AllocateQubitArray(10);
+        borrow one = Qubit[2];
+        borrow two = Qubit[10];
         let concatenated = one + two;
     "#]]
     .assert_eq(&qsharp);
@@ -104,8 +104,8 @@ fn first_qubit_from_aliased_qreg() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let one = QIR.Runtime.AllocateQubitArray(2);
-        let two = QIR.Runtime.AllocateQubitArray(10);
+        borrow one = Qubit[2];
+        borrow two = Qubit[10];
         let concatenated = one + two;
         let first = concatenated[0];
     "#]]
@@ -126,8 +126,8 @@ fn last_qubit_from_aliased_qreg() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let one = QIR.Runtime.AllocateQubitArray(2);
-        let two = QIR.Runtime.AllocateQubitArray(10);
+        borrow one = Qubit[2];
+        borrow two = Qubit[10];
         let concatenated = one + two;
         let last = concatenated[-1];
     "#]]
@@ -164,8 +164,8 @@ fn alias_range_of_qubits_from_qreg() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let one = QIR.Runtime.AllocateQubitArray(2);
-        let two = QIR.Runtime.AllocateQubitArray(10);
+        borrow one = Qubit[2];
+        borrow two = Qubit[10];
         let concatenated = one + two;
         let every_second = concatenated[0..2..11];
     "#]]

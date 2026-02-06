@@ -40,7 +40,7 @@ fn reset_calls_are_generated_from_qasm() -> miette::Result<(), Vec<Report>> {
             @EntryPoint()
             operation Test() : Result[] {
                 mutable meas = [Zero];
-                let q = QIR.Runtime.AllocateQubitArray(1);
+                borrow q = Qubit[1];
                 Reset(q[0]);
                 h(q[0]);
                 set meas[0] = Std.Intrinsic.M(q[0]);
@@ -182,7 +182,7 @@ fn on_a_single_qubit() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+        borrow q = Qubit();
         Reset(q);
     "#]]
     .assert_eq(&qsharp);
@@ -199,7 +199,7 @@ fn on_an_indexed_qubit_register() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.AllocateQubitArray(5);
+        borrow q = Qubit[5];
         Reset(q[2]);
     "#]]
     .assert_eq(&qsharp);
@@ -216,7 +216,7 @@ fn on_a_span_indexed_qubit_register() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.AllocateQubitArray(5);
+        borrow q = Qubit[5];
         ResetAll(q[1..3]);
     "#]]
     .assert_eq(&qsharp);
@@ -256,7 +256,7 @@ fn on_an_unindexed_qubit_register() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.AllocateQubitArray(5);
+        borrow q = Qubit[5];
         ResetAll(q);
     "#]]
     .assert_eq(&qsharp);
