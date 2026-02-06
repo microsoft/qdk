@@ -34,8 +34,7 @@ use crate::{
         build_qasmstd_convert_call_with_two_params, build_range_expr, build_reset_all_call,
         build_reset_call, build_return_expr, build_return_unit, build_stmt_semi_from_expr,
         build_stmt_semi_from_expr_with_span, build_top_level_ns_with_items, build_tuple_expr,
-        build_unary_op_expr, build_unmanaged_qubit_alloc, build_unmanaged_qubit_alloc_array,
-        build_while_stmt, build_wrapped_block_expr, managed_qubit_alloc_array,
+        build_unary_op_expr, build_while_stmt, build_wrapped_block_expr, managed_qubit_alloc_array,
         map_qsharp_type_to_ast_ty, wrap_expr_in_parens,
     },
     get_semantic_errors_from_lowering_result,
@@ -112,6 +111,16 @@ pub fn compile_to_qsharp_ast_with_config(
     };
 
     compiler.compile(&program)
+}
+
+pub fn set_unit_entry_expr(package: &mut Package) {
+    package.entry = Some(
+        qsast::Expr {
+            kind: Box::new(qsast::ExprKind::Tuple(Box::new([]))),
+            ..Default::default()
+        }
+        .into(),
+    );
 }
 
 #[derive(Debug, Copy, Clone, Eq, Hash, PartialEq)]
@@ -1479,8 +1488,12 @@ impl QasmCompiler {
         let name_span = symbol.span;
 
         let stmt = match self.config.qubit_semantics {
-            QubitSemantics::QSharp => build_managed_qubit_alloc(name, stmt.span, name_span),
-            QubitSemantics::Qiskit => build_unmanaged_qubit_alloc(name, stmt.span, name_span),
+            QubitSemantics::QSharp => {
+                build_managed_qubit_alloc(name, stmt.span, name_span, qsast::QubitSource::Fresh)
+            }
+            QubitSemantics::Qiskit => {
+                build_managed_qubit_alloc(name, stmt.span, name_span, qsast::QubitSource::Dirty)
+            }
         };
         Some(stmt)
     }
@@ -1498,18 +1511,24 @@ impl QasmCompiler {
 
         let name = &symbol.name;
         let name_span = symbol.span;
+        let size = stmt.size.get_const_u32()?;
 
         let stmt = match self.config.qubit_semantics {
-            QubitSemantics::QSharp => {
-                let size = stmt.size.get_const_u32()?;
-                managed_qubit_alloc_array(name, size, stmt.span, name_span, stmt.size_span)
-            }
-            QubitSemantics::Qiskit => build_unmanaged_qubit_alloc_array(
+            QubitSemantics::QSharp => managed_qubit_alloc_array(
                 name,
-                stmt.size.get_const_u32()?,
+                size,
                 stmt.span,
                 name_span,
                 stmt.size_span,
+                qsast::QubitSource::Fresh,
+            ),
+            QubitSemantics::Qiskit => managed_qubit_alloc_array(
+                name,
+                size,
+                stmt.span,
+                name_span,
+                stmt.size_span,
+                qsast::QubitSource::Dirty,
             ),
         };
         Some(stmt)
