@@ -17,7 +17,7 @@ fn u_gate_can_be_called() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+        borrow q = Qubit();
         U(new Std.OpenQASM.Angle.Angle {
             Value = 1433540284805665,
             Size = 53
@@ -43,7 +43,7 @@ fn u_gate_can_be_called_in_broadcast_qubit_array() -> miette::Result<(), Vec<Rep
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.AllocateQubitArray(1);
+        borrow q = Qubit[1];
         U(new Std.OpenQASM.Angle.Angle {
             Value = 1433540284805665,
             Size = 53
@@ -69,7 +69,7 @@ fn u_gate_can_be_called_in_broadcast_over_qreg() -> miette::Result<(), Vec<Repor
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.AllocateQubitArray(1);
+        borrow q = Qubit[1];
         U(new Std.OpenQASM.Angle.Angle {
             Value = 1433540284805665,
             Size = 53
@@ -157,8 +157,8 @@ fn custom_gates_can_be_called_bypassing_stdgates() -> miette::Result<(), Vec<Rep
             h(b);
             h(a);
         }
-        let a = QIR.Runtime.__quantum__rt__qubit_allocate();
-        let b = QIR.Runtime.__quantum__rt__qubit_allocate();
+        borrow a = Qubit();
+        borrow b = Qubit();
         x(a);
         rxx(Std.OpenQASM.Angle.DoubleAsAngle(Std.Math.PI() / 2., 53), a, b);
     "#]]
@@ -177,7 +177,7 @@ fn x_gate_can_be_called() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+        borrow q = Qubit();
         x(q);
     "#]]
     .assert_eq(&qsharp);
@@ -195,7 +195,7 @@ fn barrier_can_be_called_on_single_qubit() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+        borrow q = Qubit();
         __quantum__qis__barrier__body();
     "#]]
     .assert_eq(&qsharp);
@@ -213,7 +213,7 @@ fn barrier_can_be_called_without_qubits() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+        borrow q = Qubit();
         __quantum__qis__barrier__body();
     "#]]
     .assert_eq(&qsharp);
@@ -293,7 +293,7 @@ fn barrier_can_be_called_on_two_qubit() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.AllocateQubitArray(2);
+        borrow q = Qubit[2];
         __quantum__qis__barrier__body();
     "#]]
     .assert_eq(&qsharp);
@@ -389,7 +389,7 @@ fn rx_gate_with_one_angle_can_be_called() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+        borrow q = Qubit();
         rx(new Std.OpenQASM.Angle.Angle {
             Value = 2867080569611330,
             Size = 53
@@ -437,7 +437,7 @@ fn implicit_cast_to_angle_works() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+        borrow q = Qubit();
         mutable a = 2.;
         rx(Std.OpenQASM.Angle.DoubleAsAngle(a, 53), q);
     "#]]
@@ -465,7 +465,7 @@ fn custom_gate_can_be_called() -> miette::Result<(), Vec<Report>> {
             h(q1);
             h(q2);
         }
-        let q = QIR.Runtime.AllocateQubitArray(2);
+        borrow q = Qubit[2];
         my_gate(q[0], q[1]);
     "#]]
     .assert_eq(&qsharp);
@@ -492,7 +492,7 @@ fn custom_gate_can_be_called_with_inv_modifier() -> miette::Result<(), Vec<Repor
             h(q1);
             h(q2);
         }
-        let q = QIR.Runtime.AllocateQubitArray(2);
+        borrow q = Qubit[2];
         Adjoint my_gate(q[0], q[1]);
     "#]]
     .assert_eq(&qsharp);
@@ -520,8 +520,8 @@ fn custom_gate_can_be_called_with_ctrl_modifier() -> miette::Result<(), Vec<Repo
             h(q1);
             h(q2);
         }
-        let ctl = QIR.Runtime.AllocateQubitArray(2);
-        let q = QIR.Runtime.AllocateQubitArray(2);
+        borrow ctl = Qubit[2];
+        borrow q = Qubit[2];
         Controlled my_gate([ctl[0], ctl[1]], (q[0], q[1]));
     "#]]
     .assert_eq(&qsharp);
@@ -549,8 +549,8 @@ fn custom_gate_can_be_called_with_negctrl_modifier() -> miette::Result<(), Vec<R
             h(q1);
             h(q2);
         }
-        let ctl = QIR.Runtime.AllocateQubitArray(2);
-        let q = QIR.Runtime.AllocateQubitArray(2);
+        borrow ctl = Qubit[2];
+        borrow q = Qubit[2];
         ApplyControlledOnInt(0, my_gate, [ctl[0], ctl[1]], (q[0], q[1]));
     "#]]
     .assert_eq(&qsharp);
@@ -577,7 +577,7 @@ fn custom_gate_can_be_called_with_pow_modifier() -> miette::Result<(), Vec<Repor
             h(q1);
             h(q2);
         }
-        let q = QIR.Runtime.AllocateQubitArray(2);
+        borrow q = Qubit[2];
         ApplyOperationPowerA(2, my_gate, (q[0], q[1]));
     "#]]
     .assert_eq(&qsharp);
@@ -706,7 +706,7 @@ fn rxx_gate_with_one_angle_can_be_called() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.AllocateQubitArray(2);
+        borrow q = Qubit[2];
         rxx(new Std.OpenQASM.Angle.Angle {
             Value = 2867080569611330,
             Size = 53
@@ -726,7 +726,7 @@ fn ryy_gate_with_one_angle_can_be_called() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.AllocateQubitArray(2);
+        borrow q = Qubit[2];
         ryy(new Std.OpenQASM.Angle.Angle {
             Value = 2867080569611330,
             Size = 53
@@ -746,7 +746,7 @@ fn rzz_gate_with_one_angle_can_be_called() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.AllocateQubitArray(2);
+        borrow q = Qubit[2];
         rzz(new Std.OpenQASM.Angle.Angle {
             Value = 2867080569611330,
             Size = 53
@@ -785,7 +785,7 @@ fn all_qiskit_stdgates_can_be_called_included() -> miette::Result<(), Vec<Report
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.AllocateQubitArray(4);
+        borrow q = Qubit[4];
         rxx(Std.OpenQASM.Angle.DoubleAsAngle(Std.Math.PI() / 2., 53), q[1], q[0]);
         ryy(Std.OpenQASM.Angle.DoubleAsAngle(Std.Math.PI() / 2., 53), q[1], q[0]);
         rzz(Std.OpenQASM.Angle.DoubleAsAngle(Std.Math.PI() / 2., 53), q[1], q[0]);
@@ -822,7 +822,7 @@ fn broadcast_one_qubit_gate() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let qs = QIR.Runtime.AllocateQubitArray(2);
+        borrow qs = Qubit[2];
         h(qs[0]);
         h(qs[1]);
     "#]]
@@ -842,8 +842,8 @@ fn broadcast_two_qubit_gate() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let ctrls = QIR.Runtime.AllocateQubitArray(3);
-        let targets = QIR.Runtime.AllocateQubitArray(3);
+        borrow ctrls = Qubit[3];
+        borrow targets = Qubit[3];
         cx(ctrls[0], targets[0]);
         cx(ctrls[1], targets[1]);
         cx(ctrls[2], targets[2]);
@@ -864,8 +864,8 @@ fn broadcast_controlled_two_qubit_gate() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let ctrls = QIR.Runtime.AllocateQubitArray(3);
-        let targets = QIR.Runtime.AllocateQubitArray(3);
+        borrow ctrls = Qubit[3];
+        borrow targets = Qubit[3];
         Adjoint cx(ctrls[0], targets[0]);
         Adjoint cx(ctrls[1], targets[1]);
         Adjoint cx(ctrls[2], targets[2]);
@@ -886,8 +886,8 @@ fn broadcast_explicitly_controlled_gate() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let ctrls = QIR.Runtime.AllocateQubitArray(3);
-        let targets = QIR.Runtime.AllocateQubitArray(3);
+        borrow ctrls = Qubit[3];
+        borrow targets = Qubit[3];
         Controlled x([ctrls[0]], targets[0]);
         Controlled x([ctrls[1]], targets[1]);
         Controlled x([ctrls[2]], targets[2]);
@@ -908,9 +908,9 @@ fn broadcast_explicitly_controlled_controlled_gate() -> miette::Result<(), Vec<R
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let ctrls1 = QIR.Runtime.AllocateQubitArray(3);
-        let ctrls2 = QIR.Runtime.AllocateQubitArray(3);
-        let targets = QIR.Runtime.AllocateQubitArray(3);
+        borrow ctrls1 = Qubit[3];
+        borrow ctrls2 = Qubit[3];
+        borrow targets = Qubit[3];
         Controlled Controlled x([ctrls1[0]], ([ctrls2[0]], targets[0]));
         Controlled Controlled x([ctrls1[1]], ([ctrls2[1]], targets[1]));
         Controlled Controlled x([ctrls1[2]], ([ctrls2[2]], targets[2]));
@@ -931,8 +931,8 @@ fn broadcast_with_qubit_and_register() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let ctl = QIR.Runtime.__quantum__rt__qubit_allocate();
-        let targets = QIR.Runtime.AllocateQubitArray(2);
+        borrow ctl = Qubit();
+        borrow targets = Qubit[2];
         Controlled x([ctl], targets[0]);
         Controlled x([ctl], targets[1]);
     "#]]
@@ -979,7 +979,7 @@ fn qasm2_u_gate_can_be_called() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.AllocateQubitArray(1);
+        borrow q = Qubit[1];
         U(new Std.OpenQASM.Angle.Angle {
             Value = 1433540284805665,
             Size = 53
@@ -1055,8 +1055,8 @@ fn qasm2_custom_gates_can_be_called_bypassing_stdgates() -> miette::Result<(), V
             h(b);
             h(a);
         }
-        let a = QIR.Runtime.__quantum__rt__qubit_allocate();
-        let b = QIR.Runtime.__quantum__rt__qubit_allocate();
+        borrow a = Qubit();
+        borrow b = Qubit();
         x(a);
         rxx(Std.OpenQASM.Angle.DoubleAsAngle(Std.Math.PI() / 2., 53), a, b);
     "#]]
@@ -1076,7 +1076,7 @@ fn qasm2_x_gate_can_be_called() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.AllocateQubitArray(1);
+        borrow q = Qubit[1];
         x(q[0]);
     "#]]
     .assert_eq(&qsharp);
@@ -1095,7 +1095,7 @@ fn qasm2_barrier_can_be_called_on_single_qubit() -> miette::Result<(), Vec<Repor
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.AllocateQubitArray(1);
+        borrow q = Qubit[1];
         __quantum__qis__barrier__body();
     "#]]
     .assert_eq(&qsharp);
@@ -1114,7 +1114,7 @@ fn qasm2_barrier_can_be_called_without_qubits() -> miette::Result<(), Vec<Report
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.AllocateQubitArray(1);
+        borrow q = Qubit[1];
         __quantum__qis__barrier__body();
     "#]]
     .assert_eq(&qsharp);
@@ -1196,7 +1196,7 @@ fn qasm2_barrier_can_be_called_on_two_qubit() -> miette::Result<(), Vec<Report>>
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.AllocateQubitArray(2);
+        borrow q = Qubit[2];
         __quantum__qis__barrier__body();
     "#]]
     .assert_eq(&qsharp);
@@ -1296,7 +1296,7 @@ fn qasm2_rx_gate_with_one_angle_can_be_called() -> miette::Result<(), Vec<Report
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.AllocateQubitArray(1);
+        borrow q = Qubit[1];
         rx(new Std.OpenQASM.Angle.Angle {
             Value = 2867080569611330,
             Size = 53
@@ -1345,7 +1345,7 @@ fn qasm2_implicit_cast_to_angle_works() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.AllocateQubitArray(1);
+        borrow q = Qubit[1];
         rx(new Std.OpenQASM.Angle.Angle {
             Value = 2867080569611330,
             Size = 53
@@ -1376,7 +1376,7 @@ fn qasm2_custom_gate_can_be_called() -> miette::Result<(), Vec<Report>> {
             h(q1);
             h(q2);
         }
-        let q = QIR.Runtime.AllocateQubitArray(2);
+        borrow q = Qubit[2];
         my_gate(q[0], q[1]);
     "#]]
     .assert_eq(&qsharp);
@@ -1520,7 +1520,7 @@ fn qasm2_rxx_gate_with_one_angle_can_be_called() -> miette::Result<(), Vec<Repor
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.AllocateQubitArray(2);
+        borrow q = Qubit[2];
         rxx(new Std.OpenQASM.Angle.Angle {
             Value = 2867080569611330,
             Size = 53
@@ -1542,7 +1542,7 @@ fn qasm2_ryy_gate_with_one_angle_can_be_called() -> miette::Result<(), Vec<Repor
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.AllocateQubitArray(2);
+        borrow q = Qubit[2];
         ryy(new Std.OpenQASM.Angle.Angle {
             Value = 2867080569611330,
             Size = 53
@@ -1564,7 +1564,7 @@ fn qasm2_rzz_gate_with_one_angle_can_be_called() -> miette::Result<(), Vec<Repor
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.AllocateQubitArray(2);
+        borrow q = Qubit[2];
         rzz(new Std.OpenQASM.Angle.Angle {
             Value = 2867080569611330,
             Size = 53
@@ -1605,7 +1605,7 @@ fn qasm2_all_qiskit_stdgates_can_be_called_included() -> miette::Result<(), Vec<
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.AllocateQubitArray(4);
+        borrow q = Qubit[4];
         rxx(Std.OpenQASM.Angle.DoubleAsAngle(Std.Math.PI() / 2., 53), q[1], q[0]);
         ryy(Std.OpenQASM.Angle.DoubleAsAngle(Std.Math.PI() / 2., 53), q[1], q[0]);
         rzz(Std.OpenQASM.Angle.DoubleAsAngle(Std.Math.PI() / 2., 53), q[1], q[0]);
@@ -1643,7 +1643,7 @@ fn qasm2_broadcast_one_qubit_gate() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let qs = QIR.Runtime.AllocateQubitArray(2);
+        borrow qs = Qubit[2];
         h(qs[0]);
         h(qs[1]);
     "#]]
@@ -1664,8 +1664,8 @@ fn qasm2_broadcast_two_qubit_gate() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let ctrls = QIR.Runtime.AllocateQubitArray(3);
-        let targets = QIR.Runtime.AllocateQubitArray(3);
+        borrow ctrls = Qubit[3];
+        borrow targets = Qubit[3];
         cx(ctrls[0], targets[0]);
         cx(ctrls[1], targets[1]);
         cx(ctrls[2], targets[2]);
