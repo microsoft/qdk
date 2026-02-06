@@ -627,7 +627,6 @@ async function putJobData(
     inputParams: {
       entryPoint: "ENTRYPOINT__main",
       arguments: [],
-      count: numberOfShots,
       shots: numberOfShots,
     },
   };
