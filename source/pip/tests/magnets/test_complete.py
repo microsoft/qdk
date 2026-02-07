@@ -81,9 +81,9 @@ def test_complete_graph_self_loops_edges():
     graph = CompleteGraph(3, self_loops=True)
     edges = list(graph.edges())
     # First 3 edges should be self-loops
-    assert edges[0].vertices == [0]
-    assert edges[1].vertices == [1]
-    assert edges[2].vertices == [2]
+    assert edges[0].vertices == (0,)
+    assert edges[1].vertices == (1,)
+    assert edges[2].vertices == (2,)
 
 
 def test_complete_graph_edge_count_formula():
@@ -185,10 +185,10 @@ def test_complete_bipartite_graph_self_loops_edges():
     graph = CompleteBipartiteGraph(2, 2, self_loops=True)
     edges = list(graph.edges())
     # First 4 edges should be self-loops
-    assert edges[0].vertices == [0]
-    assert edges[1].vertices == [1]
-    assert edges[2].vertices == [2]
-    assert edges[3].vertices == [3]
+    assert edges[0].vertices == (0,)
+    assert edges[1].vertices == (1,)
+    assert edges[2].vertices == (2,)
+    assert edges[3].vertices == (3,)
 
 
 def test_complete_bipartite_graph_edge_count_formula():
@@ -200,33 +200,36 @@ def test_complete_bipartite_graph_edge_count_formula():
             assert graph.nedges == expected_edges
 
 
-def test_complete_bipartite_graph_parts_without_self_loops():
-    """Test edge partitioning without self-loops."""
+def test_complete_bipartite_graph_coloring_without_self_loops():
+    """Test edge coloring without self-loops."""
     graph = CompleteBipartiteGraph(3, 4)
-    # Should have at least n parts for bipartite coloring
-    assert len(graph.parts) >= 4
+    # Should have n colors for bipartite coloring
+    assert graph.ncolors == 4
 
 
-def test_complete_bipartite_graph_parts_with_self_loops():
-    """Test edge partitioning with self-loops."""
+def test_complete_bipartite_graph_coloring_with_self_loops():
+    """Test edge coloring with self-loops."""
     graph = CompleteBipartiteGraph(3, 4, self_loops=True)
-    # Should have n + 1 parts: self-loops + n color groups
-    assert len(graph.parts) == 5
+    # Self-loops get color -1, bipartite edges get n colors (0 to n-1)
+    # So total distinct colors = n + 1 (including -1)
+    assert graph.ncolors == 5
 
 
-def test_complete_bipartite_graph_parts_non_overlapping():
-    """Test that edges in the same part don't share vertices."""
+def test_complete_bipartite_graph_coloring_non_overlapping():
+    """Test that edges with the same color don't share vertices."""
     graph = CompleteBipartiteGraph(3, 4)
-    # Skip the first part if it contains all edges (default from Hypergraph)
-    parts_to_check = graph.parts
-    if len(parts_to_check) > 0 and len(parts_to_check[0]) == graph.nedges:
-        parts_to_check = parts_to_check[1:]
-    for part_indices in parts_to_check:
+    # Group edges by color
+    colors = {}
+    for edge_vertices, color in graph.color.items():
+        if color not in colors:
+            colors[color] = []
+        colors[color].append(edge_vertices)
+    # Check each color group
+    for color, edge_list in colors.items():
         used_vertices = set()
-        for idx in part_indices:
-            edge = graph._edge_list[idx]
-            assert not any(v in used_vertices for v in edge.vertices)
-            used_vertices.update(edge.vertices)
+        for vertices in edge_list:
+            assert not any(v in used_vertices for v in vertices)
+            used_vertices.update(vertices)
 
 
 def test_complete_bipartite_graph_str():
@@ -244,4 +247,4 @@ def test_complete_bipartite_graph_inherits_hypergraph():
     assert isinstance(graph, Hypergraph)
     assert hasattr(graph, "edges")
     assert hasattr(graph, "vertices")
-    assert hasattr(graph, "edges_by_part")
+    assert hasattr(graph, "edges_by_color")

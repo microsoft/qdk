@@ -19,12 +19,12 @@ class Patch2D(Hypergraph):
 
     Vertices are indexed in row-major order: vertex (x, y) has index y * width + x.
 
-    The edges are partitioned into parts for parallel updates:
-    - Part 0 (if self_loops): Self-loop edges on each vertex
-    - Part 1: Even-column horizontal edges
-    - Part 2: Odd-column horizontal edges
-    - Part 3: Even-row vertical edges
-    - Part 4: Odd-row vertical edges
+    Edges are colored for parallel updates:
+    - Color -1 (if self_loops): Self-loop edges on each vertex
+    - Color 0: Even-column horizontal edges
+    - Color 1: Odd-column horizontal edges
+    - Color 2: Even-row vertical edges
+    - Color 3: Odd-row vertical edges
 
     Attributes:
         width: Number of vertices in the horizontal direction.
@@ -49,9 +49,8 @@ class Patch2D(Hypergraph):
             self_loops: If True, include self-loop edges on each vertex
                 for single-site terms.
         """
-
-        def index(x: int, y: int) -> int:
-            return y * width + x
+        self.width = width
+        self.height = height
 
         if self_loops:
             _edges = [Hyperedge([i]) for i in range(width * height)]
@@ -59,44 +58,38 @@ class Patch2D(Hypergraph):
             _edges = []
 
         # Horizontal edges (connecting (x, y) to (x+1, y))
-        horizontal_even = []
-        horizontal_odd = []
         for y in range(height):
             for x in range(width - 1):
-                edge_idx = len(_edges)
-                _edges.append(Hyperedge([index(x, y), index(x + 1, y)]))
-                if x % 2 == 0:
-                    horizontal_even.append(edge_idx)
-                else:
-                    horizontal_odd.append(edge_idx)
+                _edges.append(Hyperedge([self._index(x, y), self._index(x + 1, y)]))
 
         # Vertical edges (connecting (x, y) to (x, y+1))
-        vertical_even = []
-        vertical_odd = []
         for y in range(height - 1):
             for x in range(width):
-                edge_idx = len(_edges)
-                _edges.append(Hyperedge([index(x, y), index(x, y + 1)]))
-                if y % 2 == 0:
-                    vertical_even.append(edge_idx)
-                else:
-                    vertical_odd.append(edge_idx)
-
+                _edges.append(Hyperedge([self._index(x, y), self._index(x, y + 1)]))
         super().__init__(_edges)
 
-        # Set up edge partitions for parallel updates
+        # Set up edge colors for parallel updates
         if self_loops:
-            self.parts = [list(range(width * height))]
-        else:
-            self.parts = []
+            for i in range(width * height):
+                self.color[(i,)] = -1
 
-        self.parts.append(horizontal_even)
-        self.parts.append(horizontal_odd)
-        self.parts.append(vertical_even)
-        self.parts.append(vertical_odd)
+        # Color horizontal edges
+        for y in range(height):
+            for x in range(width - 1):
+                v1, v2 = self._index(x, y), self._index(x + 1, y)
+                color = 0 if x % 2 == 0 else 1
+                self.color[tuple(sorted([v1, v2]))] = color
 
-        self.width = width
-        self.height = height
+        # Color vertical edges
+        for y in range(height - 1):
+            for x in range(width):
+                v1, v2 = self._index(x, y), self._index(x, y + 1)
+                color = 2 if y % 2 == 0 else 3
+                self.color[tuple(sorted([v1, v2]))] = color
+
+    def _index(self, x: int, y: int) -> int:
+        """Convert (x, y) coordinates to vertex index."""
+        return y * self.width + x
 
 
 class Torus2D(Hypergraph):
@@ -108,12 +101,12 @@ class Torus2D(Hypergraph):
 
     Vertices are indexed in row-major order: vertex (x, y) has index y * width + x.
 
-    The edges are partitioned into parts for parallel updates:
-    - Part 0 (if self_loops): Self-loop edges on each vertex
-    - Part 1: Even-column horizontal edges
-    - Part 2: Odd-column horizontal edges
-    - Part 3: Even-row vertical edges
-    - Part 4: Odd-row vertical edges
+    Edges are colored for parallel updates:
+    - Color -1 (if self_loops): Self-loop edges on each vertex
+    - Color 0: Even-column horizontal edges
+    - Color 1: Odd-column horizontal edges
+    - Color 2: Even-row vertical edges
+    - Color 3: Odd-row vertical edges
 
     Attributes:
         width: Number of vertices in the horizontal direction.
@@ -138,9 +131,8 @@ class Torus2D(Hypergraph):
             self_loops: If True, include self-loop edges on each vertex
                 for single-site terms.
         """
-
-        def index(x: int, y: int) -> int:
-            return y * width + x
+        self.width = width
+        self.height = height
 
         if self_loops:
             _edges = [Hyperedge([i]) for i in range(width * height)]
@@ -148,41 +140,40 @@ class Torus2D(Hypergraph):
             _edges = []
 
         # Horizontal edges (connecting (x, y) to ((x+1) % width, y))
-        horizontal_even = []
-        horizontal_odd = []
         for y in range(height):
             for x in range(width):
-                edge_idx = len(_edges)
-                _edges.append(Hyperedge([index(x, y), index((x + 1) % width, y)]))
-                if x % 2 == 0:
-                    horizontal_even.append(edge_idx)
-                else:
-                    horizontal_odd.append(edge_idx)
+                _edges.append(
+                    Hyperedge([self._index(x, y), self._index((x + 1) % width, y)])
+                )
 
         # Vertical edges (connecting (x, y) to (x, (y+1) % height))
-        vertical_even = []
-        vertical_odd = []
         for y in range(height):
             for x in range(width):
-                edge_idx = len(_edges)
-                _edges.append(Hyperedge([index(x, y), index(x, (y + 1) % height)]))
-                if y % 2 == 0:
-                    vertical_even.append(edge_idx)
-                else:
-                    vertical_odd.append(edge_idx)
+                _edges.append(
+                    Hyperedge([self._index(x, y), self._index(x, (y + 1) % height)])
+                )
 
         super().__init__(_edges)
 
-        # Set up edge partitions for parallel updates
+        # Set up edge colors for parallel updates
         if self_loops:
-            self.parts = [list(range(width * height))]
-        else:
-            self.parts = []
+            for i in range(width * height):
+                self.color[(i,)] = -1
 
-        self.parts.append(horizontal_even)
-        self.parts.append(horizontal_odd)
-        self.parts.append(vertical_even)
-        self.parts.append(vertical_odd)
+        # Color horizontal edges
+        for y in range(height):
+            for x in range(width):
+                v1, v2 = self._index(x, y), self._index((x + 1) % width, y)
+                color = 0 if x % 2 == 0 else 1
+                self.color[tuple(sorted([v1, v2]))] = color
 
-        self.width = width
-        self.height = height
+        # Color vertical edges
+        for y in range(height):
+            for x in range(width):
+                v1, v2 = self._index(x, y), self._index(x, (y + 1) % height)
+                color = 2 if y % 2 == 0 else 3
+                self.color[tuple(sorted([v1, v2]))] = color
+
+    def _index(self, x: int, y: int) -> int:
+        """Convert (x, y) coordinates to vertex index."""
+        return y * self.width + x

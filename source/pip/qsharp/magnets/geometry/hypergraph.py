@@ -24,17 +24,17 @@ class Hyperedge:
     - Two-body interactions: 2 vertices
     - Multi-body interactions: 3+ vertices
     Each hyperedge is defined by a set of unique vertex indices, which are
-    stored in sorted order for consistency.
+    stored as a sorted tuple for consistency and hashability.
 
     Attributes:
-        vertices: Sorted list of vertex indices connected by this hyperedge.
+        vertices: Sorted tuple of vertex indices connected by this hyperedge.
 
     Example:
 
     .. code-block:: python
         >>> edge = Hyperedge([2, 0, 1])
         >>> edge.vertices
-        [0, 1, 2]
+        (0, 1, 2)
     """
 
     def __init__(self, vertices: list[int]) -> None:
@@ -43,10 +43,10 @@ class Hyperedge:
         Args:
             vertices: List of vertex indices. Will be sorted internally.
         """
-        self.vertices: list[int] = sorted(set(vertices))
+        self.vertices: tuple[int, ...] = tuple(sorted(set(vertices)))
 
     def __repr__(self) -> str:
-        return f"Hyperedge({self.vertices})"
+        return f"Hyperedge({list(self.vertices)})"
 
 
 class Hypergraph:
@@ -59,9 +59,9 @@ class Hypergraph:
     Attributes:
         _edge_list: List of hyperedges in the order they were added.
         _vertex_set: Set of all unique vertex indices in the hypergraph.
-        parts: List of lists, where each sublist contains indices of edges
-            belonging to a specific part of an edge partitioning. This is useful
-            for parallelism in certain architectures.
+        color: Dictionary mapping edge vertex tuples to color indices. Initially
+            all edges have color index 0. This is useful for parallelism in
+            certain architectures.
 
     Example:
 
@@ -82,9 +82,15 @@ class Hypergraph:
         """
         self._vertex_set = set()
         self._edge_list = edges
-        self.parts = [list(range(len(edges)))]  # Single partition by default
+        self.color: dict[tuple[int, ...], int] = {}  # All edges start with color 0
         for edge in edges:
             self._vertex_set.update(edge.vertices)
+            self.color[edge.vertices] = 0
+
+    @property
+    def ncolors(self) -> int:
+        """Return the number of distinct colors used in the edge coloring."""
+        return len(set(self.color.values()))
 
     @property
     def nedges(self) -> int:
@@ -96,19 +102,18 @@ class Hypergraph:
         """Return the number of vertices in the hypergraph."""
         return len(self._vertex_set)
 
-    def add_edge(self, edge: Hyperedge, part: int = 0) -> None:
+    def add_edge(self, edge: Hyperedge, color: int = 0) -> None:
         """Add a hyperedge to the hypergraph.
 
         Args:
             edge: The Hyperedge instance to add.
-            part: Partition index, used for implementations
-                with edge partitioning for parallel updates. By
-                default, all edges are added to the single part
-                with index 0.
+            color: Color index for the edge, used for implementations
+                with edge coloring for parallel updates. By
+                default, all edges are assigned color 0.
         """
         self._edge_list.append(edge)
         self._vertex_set.update(edge.vertices)
-        self.parts[part].append(len(self._edge_list) - 1)  # Add to specified partition
+        self.color[edge.vertices] = color
 
     def vertices(self) -> Iterator[int]:
         """Iterate over all vertex indices in the hypergraph.
@@ -126,19 +131,18 @@ class Hypergraph:
         """
         return iter(self._edge_list)
 
-    def edges_by_part(self, part: int) -> Iterator[Hyperedge]:
-        """Iterate over hyperedges in a specific partition of the hypergraph.
+    def edges_by_color(self, color: int) -> Iterator[Hyperedge]:
+        """Iterate over hyperedges with a specific color.
 
         Args:
-            part: Partition index, used for implementations
-                with edge partitioning for parallel updates. By
-                default, all edges are in a single part with
-                index 0.
+            color: Color index for filtering edges.
 
         Returns:
-            Iterator of hyperedges in the specified partition.
+            Iterator of hyperedges with the specified color.
         """
-        return iter([self._edge_list[i] for i in self.parts[part]])
+        return iter(
+            [edge for edge in self._edge_list if self.color[edge.vertices] == color]
+        )
 
     def __str__(self) -> str:
         return f"Hypergraph with {self.nvertices} vertices and {self.nedges} edges."
@@ -174,27 +178,27 @@ def greedy_edge_coloring(
     edge_indexes = list(range(hypergraph.nedges))
     random.shuffle(edge_indexes)
 
-    best.parts = [[]]  # Initialize with one empty color part
-    used_vertices = [set()]  # Vertices used by each color
+    used_vertices: list[set[int]] = [set()]  # Vertices used by each color
+    num_colors = 1
 
     for i in range(len(edge_indexes)):
         edge = hypergraph._edge_list[edge_indexes[i]]
-        for j in range(len(best.parts) + 1):
+        for j in range(num_colors + 1):
 
             # If we've reached a new color, add it
-            if j == len(best.parts):
-                best.parts.append([])
+            if j == num_colors:
                 used_vertices.append(set())
+                num_colors += 1
 
             # Check if this edge can be added to color j
             # Note that we always match on the last color if it was added
             # if so, add it and break
             if not any(v in used_vertices[j] for v in edge.vertices):
-                best.parts[j].append(edge_indexes[i])
+                best.color[edge.vertices] = j
                 used_vertices[j].update(edge.vertices)
                 break
 
-    least_colors = len(best.parts)
+    least_colors = num_colors
 
     # To do: parallelize over trials
     for trial in range(1, trials):
@@ -208,28 +212,29 @@ def greedy_edge_coloring(
         edge_indexes = list(range(hypergraph.nedges))
         random.shuffle(edge_indexes)
 
-        parts = [[]]  # Initialize with one empty color part
+        edge_colors: dict[tuple[int, ...], int] = {}  # Edge to color mapping
         used_vertices = [set()]  # Vertices used by each color
+        num_colors = 1
 
         for i in range(len(edge_indexes)):
             edge = hypergraph._edge_list[edge_indexes[i]]
-            for j in range(len(parts) + 1):
+            for j in range(num_colors + 1):
 
                 # If we've reached a new color, add it
-                if j == len(parts):
-                    parts.append([])
+                if j == num_colors:
                     used_vertices.append(set())
+                    num_colors += 1
 
                 # Check if this edge can be added to color j
                 # if so, add it and break
                 if not any(v in used_vertices[j] for v in edge.vertices):
-                    parts[j].append(edge_indexes[i])
+                    edge_colors[edge.vertices] = j
                     used_vertices[j].update(edge.vertices)
                     break
 
         # If this trial used fewer colors, update best
-        if len(parts) < least_colors:
-            least_colors = len(parts)
-            best.parts = deepcopy(parts)
+        if num_colors < least_colors:
+            least_colors = num_colors
+            best.color = deepcopy(edge_colors)
 
     return best

@@ -86,35 +86,41 @@ def test_patch2d_self_loops_edges():
     patch = Patch2D(2, 2, self_loops=True)
     edges = list(patch.edges())
     # First 4 edges should be self-loops
-    assert edges[0].vertices == [0]
-    assert edges[1].vertices == [1]
-    assert edges[2].vertices == [2]
-    assert edges[3].vertices == [3]
+    assert edges[0].vertices == (0,)
+    assert edges[1].vertices == (1,)
+    assert edges[2].vertices == (2,)
+    assert edges[3].vertices == (3,)
 
 
-def test_patch2d_parts_without_self_loops():
-    """Test edge partitioning without self-loops."""
+def test_patch2d_coloring_without_self_loops():
+    """Test edge coloring without self-loops."""
     patch = Patch2D(4, 4)
-    # Should have 4 parts: horizontal even/odd, vertical even/odd
-    assert len(patch.parts) == 4
+    # Should have 4 colors: horizontal even/odd (0,1), vertical even/odd (2,3)
+    assert patch.ncolors == 4
 
 
-def test_patch2d_parts_with_self_loops():
-    """Test edge partitioning with self-loops."""
+def test_patch2d_coloring_with_self_loops():
+    """Test edge coloring with self-loops."""
     patch = Patch2D(3, 3, self_loops=True)
-    # Should have 5 parts: self-loops + 4 edge groups
-    assert len(patch.parts) == 5
+    # Should have 5 colors: self-loops (-1) + 4 edge groups (0-3)
+    assert patch.ncolors == 5
 
 
-def test_patch2d_parts_non_overlapping():
-    """Test that edges in the same part don't share vertices."""
+def test_patch2d_coloring_non_overlapping():
+    """Test that edges with the same color don't share vertices."""
     patch = Patch2D(4, 4)
-    for part_indices in patch.parts:
+    # Group edges by color
+    colors = {}
+    for edge_vertices, color in patch.color.items():
+        if color not in colors:
+            colors[color] = []
+        colors[color].append(edge_vertices)
+    # Check each color group
+    for color, edge_list in colors.items():
         used_vertices = set()
-        for idx in part_indices:
-            edge = patch._edge_list[idx]
-            assert not any(v in used_vertices for v in edge.vertices)
-            used_vertices.update(edge.vertices)
+        for vertices in edge_list:
+            assert not any(v in used_vertices for v in vertices)
+            used_vertices.update(vertices)
 
 
 def test_patch2d_str():
@@ -205,35 +211,41 @@ def test_torus2d_self_loops_edges():
     torus = Torus2D(2, 2, self_loops=True)
     edges = list(torus.edges())
     # First 4 edges should be self-loops
-    assert edges[0].vertices == [0]
-    assert edges[1].vertices == [1]
-    assert edges[2].vertices == [2]
-    assert edges[3].vertices == [3]
+    assert edges[0].vertices == (0,)
+    assert edges[1].vertices == (1,)
+    assert edges[2].vertices == (2,)
+    assert edges[3].vertices == (3,)
 
 
-def test_torus2d_parts_without_self_loops():
-    """Test edge partitioning without self-loops."""
+def test_torus2d_coloring_without_self_loops():
+    """Test edge coloring without self-loops."""
     torus = Torus2D(4, 4)
-    # Should have 4 parts: horizontal even/odd, vertical even/odd
-    assert len(torus.parts) == 4
+    # Should have 4 colors: horizontal even/odd (0,1), vertical even/odd (2,3)
+    assert torus.ncolors == 4
 
 
-def test_torus2d_parts_with_self_loops():
-    """Test edge partitioning with self-loops."""
+def test_torus2d_coloring_with_self_loops():
+    """Test edge coloring with self-loops."""
     torus = Torus2D(3, 3, self_loops=True)
-    # Should have 5 parts: self-loops + 4 edge groups
-    assert len(torus.parts) == 5
+    # Should have 5 colors: self-loops (-1) + 4 edge groups (0-3)
+    assert torus.ncolors == 5
 
 
-def test_torus2d_parts_non_overlapping():
-    """Test that edges in the same part don't share vertices."""
+def test_torus2d_coloring_non_overlapping():
+    """Test that edges with the same color don't share vertices."""
     torus = Torus2D(4, 4)
-    for part_indices in torus.parts:
+    # Group edges by color
+    colors = {}
+    for edge_vertices, color in torus.color.items():
+        if color not in colors:
+            colors[color] = []
+        colors[color].append(edge_vertices)
+    # Check each color group
+    for color, edge_list in colors.items():
         used_vertices = set()
-        for idx in part_indices:
-            edge = torus._edge_list[idx]
-            assert not any(v in used_vertices for v in edge.vertices)
-            used_vertices.update(edge.vertices)
+        for vertices in edge_list:
+            assert not any(v in used_vertices for v in vertices)
+            used_vertices.update(vertices)
 
 
 def test_torus2d_str():
@@ -262,7 +274,7 @@ def test_patch2d_inherits_hypergraph():
     # Test inherited methods work
     assert hasattr(patch, "edges")
     assert hasattr(patch, "vertices")
-    assert hasattr(patch, "edges_by_part")
+    assert hasattr(patch, "edges_by_color")
 
 
 def test_torus2d_inherits_hypergraph():
@@ -274,4 +286,4 @@ def test_torus2d_inherits_hypergraph():
     # Test inherited methods work
     assert hasattr(torus, "edges")
     assert hasattr(torus, "vertices")
-    assert hasattr(torus, "edges_by_part")
+    assert hasattr(torus, "edges_by_color")
