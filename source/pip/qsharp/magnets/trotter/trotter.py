@@ -4,6 +4,9 @@
 """Base Trotter class for first- and second-order Trotter-Suzuki decomposition."""
 
 
+from typing import Iterator
+
+
 class TrotterStep:
     """
     Base class for Trotter decompositions. Essentially, this is a wrapper around
@@ -16,14 +19,11 @@ class TrotterStep:
 
     e^{-i H t} ≈ ∏_k e^{-i H_k t}.
 
-    This base class is designed for lazy evaluation: the list of (time, term_index)
-    tuples is only generated when the get() method is called.
-
     Example:
 
     .. code-block:: python
         >>> trotter = TrotterStep(num_terms=3, time=0.5)
-        >>> trotter.get()
+        >>> list(trotter.step())
         [(0.5, 0), (0.5, 1), (0.5, 2)]
     """
 
@@ -35,26 +35,40 @@ class TrotterStep:
             num_terms: Number of terms in the Hamiltonian
             time: Total time for the evolution
         """
-        self._num_terms = num_terms
+        self.terms: list[tuple[float, int]] = [
+            (time, term_index) for term_index in range(num_terms)
+        ]
+        self._nterms = num_terms
         self._time_step = time
+        self.order = 1
 
-    def get(self) -> list[tuple[float, int]]:
+    @property
+    def nterms(self) -> int:
+        """Get the number of terms in the Hamiltonian."""
+        return self._nterms
+
+    @property
+    def time_step(self) -> float:
+        """Get the time step for each term in the Trotter decomposition."""
+        return self._time_step
+
+    def step(self) -> Iterator[tuple[float, int]]:
         """
-        Get the Trotter decomposition as a list of (time, term_index) tuples.
+        Iterate over the Trotter decomposition as a list of (time, term_index) tuples.
 
         Returns:
-            List of tuples where each tuple contains the time duration and the
+            Iterator of tuples where each tuple contains the time duration and the
             index of the term to be applied.
         """
-        return [(self._time_step, term_index) for term_index in range(self._num_terms)]
+        return iter(self.terms)
 
     def __str__(self) -> str:
         """String representation of the Trotter decomposition."""
-        return f"Trotter(time_step={self._time_step}, num_terms={self._num_terms})"
+        return f"1st order Trotter expansion: time_step={self.time_step}, num_terms={self.nterms}"
 
     def __repr__(self) -> str:
         """String representation of the Trotter decomposition."""
-        return self.__str__()
+        return f"Trotter(time_step={self.time_step}, num_terms={self.nterms})"
 
 
 class StrangStep(TrotterStep):
@@ -71,7 +85,7 @@ class StrangStep(TrotterStep):
 
     .. code-block:: python
         >>> strang = StrangStep(num_terms=3, time=0.5)
-        >>> strang.get()
+        >>> list(strang.step())
         [(0.25, 0), (0.25, 1), (0.5, 2), (0.25, 1), (0.25, 0)]
     """
 
@@ -83,34 +97,34 @@ class StrangStep(TrotterStep):
             num_terms: Number of terms in the Hamiltonian
             time: Total time for the evolution
         """
-        super().__init__(num_terms, time)
+        self.terms: list[tuple[float, int]] = []
+        for term_index in range(num_terms - 1):
+            self.terms.append((time / 2, term_index))
+        self.terms.append((time, num_terms - 1))
+        for term_index in reversed(range(num_terms - 1)):
+            self.terms.append((time / 2, term_index))
 
-    def get(self) -> list[tuple[float, int]]:
+        self._nterms = num_terms
+        self._time_step = time
+        self.order = 2
+
+    def step(self) -> Iterator[tuple[float, int]]:
         """
-        Get the Strang splitting as a list of (time, term_index) tuples.
+        Iterate over the Strang splitting as a list of (time, term_index) tuples.
 
         Returns:
-            List of tuples where each tuple contains the time duration and the
+            Iterator of tuples where each tuple contains the time duration and the
             index of the term to be applied. The sequence is symmetric for
             second-order accuracy.
         """
-        terms = []
-        # Forward sweep with half time steps
-        for term_index in range(self._num_terms - 1):
-            terms.append((self._time_step / 2.0, term_index))
-
-        # Combine the two middle terms
-        terms.append((self._time_step, self._num_terms - 1))
-
-        # Backward sweep with half time steps
-        for term_index in range(self._num_terms - 2, -1, -1):
-            terms.append((self._time_step / 2.0, term_index))
-
-        return terms
+        return iter(self.terms)
 
     def __str__(self) -> str:
+        return f"2nd order Trotter expansion: time_step={self.time_step}, num_terms={self.nterms}"
+
+    def __repr__(self) -> str:
         """String representation of the Strang splitting."""
-        return f"Strang(time_step={self._time_step}, num_terms={self._num_terms})"
+        return f"Strang(time_step={self.time_step}, num_terms={self.nterms})"
 
 
 class TrotterExpansion:
