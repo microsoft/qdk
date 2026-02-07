@@ -1868,6 +1868,7 @@ name = "qre"
 version = "0.0.0"
 dependencies = [
  "num-traits",
+ "probability",
  "rustc-hash",
  "serde",
  "thiserror 1.0.63",
