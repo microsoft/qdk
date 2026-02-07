@@ -221,7 +221,7 @@ def test_chain1d_inherits_hypergraph():
     # Test inherited methods work
     assert hasattr(chain, "edges")
     assert hasattr(chain, "vertices")
-    assert hasattr(chain, "edgesByPart")
+    assert hasattr(chain, "edges_by_part")
 
 
 def test_ring1d_inherits_hypergraph():
@@ -233,4 +233,4 @@ def test_ring1d_inherits_hypergraph():
     # Test inherited methods work
     assert hasattr(ring, "edges")
     assert hasattr(ring, "vertices")
-    assert hasattr(ring, "edgesByPart")
+    assert hasattr(ring, "edges_by_part")

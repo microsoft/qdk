@@ -22,6 +22,7 @@ classifiers = [
 jupyterlab = ["qsharp-jupyterlab"]
 widgets = ["qsharp-widgets"]
 qiskit = ["qiskit>=1.2.2,<3.0.0"]
+cirq = ["cirq-core>=1.3.0,<=1.4.1"]
 
 [build-system]
 requires = ["maturin ~= 1.10.2"]

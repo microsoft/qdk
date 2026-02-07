@@ -3,6 +3,7 @@
 
 import timeit
 from dataclasses import dataclass, KW_ONLY, field
+from qsharp.qre.models import AQREGateBased, SurfaceCode
 from qsharp.qre._enumeration import _enumerate_instances
 
 
@@ -35,30 +36,13 @@ def bench_enumerate_isas():
     # Add the tests directory to sys.path to import test_qre
     # TODO: Remove this once the models in test_qre are moved to a proper module
     sys.path.append(os.path.join(os.path.dirname(__file__), "../tests"))
-    import test_qre  # type: ignore
+    from test_qre import ExampleLogicalFactory, ExampleFactory  # type: ignore
 
-    from qsharp.qre._isa_enumeration import (
-        Context,
-        ISAQuery,
-        ProductNode,
-    )
-
-    ctx = Context(architecture=test_qre.ExampleArchitecture())
+    ctx = AQREGateBased().context()
 
     # Hierarchical factory using from_components
-    query = ProductNode(
-        sources=[
-            ISAQuery(test_qre.SurfaceCode),
-            ISAQuery(
-                test_qre.ExampleLogicalFactory,
-                source=ProductNode(
-                    sources=[
-                        ISAQuery(test_qre.SurfaceCode),
-                        ISAQuery(test_qre.ExampleFactory),
-                    ]
-                ),
-            ),
-        ]
+    query = SurfaceCode.q() * ExampleLogicalFactory.q(
+        source=SurfaceCode.q() * ExampleFactory.q()
     )
 
     number = 100

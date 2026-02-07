@@ -1,7 +1,15 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from typing import Generator, Type, TypeVar, Literal, get_args, get_origin
+from typing import (
+    Generator,
+    Type,
+    TypeVar,
+    Literal,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 from dataclasses import MISSING
 from itertools import product
 from enum import Enum
@@ -57,8 +65,13 @@ def _enumerate_instances(cls: Type[T], **kwargs) -> Generator[T, None, None]:
         yield cls(**kwargs)
         return
 
-    for field in fields.values():
+    # Resolve type hints to handle stringified types from __future__.annotations
+    type_hints = get_type_hints(cls)
+
+    for field in fields.values():  # type: ignore
         name = field.name
+        # Get resolved type or fallback to field.type
+        current_type = type_hints.get(name, field.type)
 
         if name in kwargs:
             val = kwargs[name]
@@ -83,16 +96,16 @@ def _enumerate_instances(cls: Type[T], **kwargs) -> Generator[T, None, None]:
             values.append(domain)
             continue
 
-        if field.type is bool:
+        if current_type is bool:
             values.append([True, False])
             continue
 
-        if isinstance(field.type, type) and issubclass(field.type, Enum):
-            values.append(list(field.type))
+        if isinstance(current_type, type) and issubclass(current_type, Enum):
+            values.append(list(current_type))
             continue
 
-        if get_origin(field.type) is Literal:
-            values.append(list(get_args(field.type)))
+        if get_origin(current_type) is Literal:
+            values.append(list(get_args(current_type)))
             continue
 
         if field.default is not MISSING:
