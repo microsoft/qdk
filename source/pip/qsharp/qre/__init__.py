@@ -9,6 +9,7 @@ from ._instruction import (
     PHYSICAL,
     Encoding,
     ISATransform,
+    PropertyKey,
     constraint,
     instruction,
 )
@@ -25,6 +26,7 @@ from ._qre import (
     Trace,
     block_linear_function,
     constant_function,
+    generic_function,
     linear_function,
 )
 from ._trace import LatticeSurgery, PSSPC, TraceQuery
@@ -44,6 +46,7 @@ __all__ = [
     "Encoding",
     "EstimationResult",
     "FactoryResult",
+    "generic_function",
     "InstructionFrontier",
     "ISA",
     "ISA_ROOT",
@@ -52,6 +55,7 @@ __all__ = [
     "ISARequirements",
     "ISATransform",
     "LatticeSurgery",
+    "PropertyKey",
     "PSSPC",
     "QSharpApplication",
     "Trace",
