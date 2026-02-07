@@ -321,22 +321,22 @@ fn parse_noise_table(contents: &str) -> PyResult<NoiseTable> {
         line_offsets.push(line_offsets[i] + nl);
     }
 
-    // Build (slice, base_line) pairs for each chunk.
+    // Build (slice, line_offset) pairs for each chunk.
     let chunks: Vec<_> = boundaries
         .windows(2)
         .zip(line_offsets.iter())
-        .map(|(w, &base)| (&contents[w[0]..w[1]], base))
+        .map(|(w, &offset)| (&contents[w[0]..w[1]], offset))
         .collect();
 
     // Parse all chunks in parallel.
     let chunk_results: Vec<_> = chunks
         .par_iter()
-        .map(|&(chunk, base_line)| parse_noise_chunk(chunk, base_line))
+        .map(|&(chunk, line_offset)| parse_noise_chunk(chunk, line_offset))
         .collect::<Result<Vec<_>, _>>()?;
 
-    // Merge: verify consistent qubit counts and combine entries.
+    // Merge: verify consistent qubit counts and insert directly into the map.
     let total_entries: usize = chunk_results.iter().map(|(e, _)| e.len()).sum();
-    let mut all_entries = Vec::with_capacity(total_entries);
+    let mut pauli_noise = FxHashMap::with_capacity_and_hasher(total_entries, Default::default());
     let mut expected_qubits: Option<u32> = None;
 
     for (entries, chunk_qubits) in chunk_results {
@@ -351,11 +351,12 @@ fn parse_noise_table(contents: &str) -> PyResult<NoiseTable> {
                 _ => (),
             }
         }
-        all_entries.extend(entries);
+        for (key, prob) in entries {
+            pauli_noise.insert(key, prob);
+        }
     }
 
     let qubits = expected_qubits.unwrap_or(0);
-    let pauli_noise = FxHashMap::from_iter(all_entries);
 
     Ok(NoiseTable {
         qubits,
@@ -366,15 +367,15 @@ fn parse_noise_table(contents: &str) -> PyResult<NoiseTable> {
 
 /// Parse a single chunk of CSV content, returning the non-identity entries
 /// and the observed qubit count (if any data lines were present).
-/// `base_line` is the global line number of the first line in this chunk,
+/// `line_offset` is the global line number of the first line in this chunk,
 /// used for error messages.
-fn parse_noise_chunk(contents: &str, base_line: usize) -> PyResult<ChunkEntries> {
+fn parse_noise_chunk(contents: &str, line_offset: usize) -> PyResult<ChunkEntries> {
     let capacity = contents.len() / 40;
     let mut entries = Vec::with_capacity(capacity);
     let mut expected_qubits: Option<u32> = None;
 
     for (local_i, line) in contents.lines().enumerate() {
-        let i = base_line + local_i;
+        let i = line_offset + local_i;
 
         // Fast skip: check first byte before doing any work.
         if line.is_empty() {
@@ -391,14 +392,14 @@ fn parse_noise_chunk(contents: &str, base_line: usize) -> PyResult<ChunkEntries>
         // --- Inline parse_line + validation + identity check in a single pass ---
         let Some(comma) = memchr::memchr(b',', line.as_bytes()) else {
             return Err(PyIOError::new_err(format!(
-                "invalid csv row `{line}` in line {i}"
+                "invalid csv row in line {i}: `{line}`"
             )));
         };
 
         // Ensure there is no second comma.
         if memchr::memchr(b',', &line.as_bytes()[comma + 1..]).is_some() {
             return Err(PyIOError::new_err(format!(
-                "invalid csv row `{line}` in line {i}"
+                "invalid csv row in line {i}: `{line}`"
             )));
         }
 
@@ -407,7 +408,7 @@ fn parse_noise_chunk(contents: &str, base_line: usize) -> PyResult<ChunkEntries>
 
         let Ok(prob) = f64::from_str(prob_str) else {
             return Err(PyIOError::new_err(format!(
-                "invalid float in csv row `{line}` in line {i}"
+                "invalid float in line {i}: `{line}`"
             )));
         };
         NoiseTable::validate_probability(prob)?;
@@ -418,7 +419,7 @@ fn parse_noise_chunk(contents: &str, base_line: usize) -> PyResult<ChunkEntries>
             None => expected_qubits = Some(num_qubits),
             Some(expected) if expected != num_qubits => {
                 return Err(PyValueError::new_err(format!(
-                    "Inconsistent Pauli string length on line {i}: expected {expected} qubits, found {num_qubits}"
+                    "Inconsistent Pauli string length in line {i}: expected {expected} qubits, found {num_qubits}"
                 )));
             }
             _ => (),
