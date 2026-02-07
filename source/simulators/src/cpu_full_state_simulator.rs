@@ -245,6 +245,7 @@ impl NoiselessSimulator {
 
 impl Simulator for NoiselessSimulator {
     type Noise = ();
+    type StateDumpData = noisy_simulator::StateVector;
 
     fn new(num_qubits: usize, num_results: usize, seed: u32, _noise: Self::Noise) -> Self {
         Self {
@@ -393,6 +394,10 @@ impl Simulator for NoiselessSimulator {
 
     fn correlated_noise_intrinsic(&mut self, _intrinsic_id: IntrinsicID, _targets: &[usize]) {
         // Noise is a no-op for the noiseless simulator.
+    }
+
+    fn state_dump(&self) -> &Self::StateDumpData {
+        self.state.state().expect("state should be valid")
     }
 }
 
@@ -547,6 +552,7 @@ impl NoisySimulator {
 
 impl Simulator for NoisySimulator {
     type Noise = Arc<CumulativeNoiseConfig<Fault>>;
+    type StateDumpData = noisy_simulator::StateVector;
 
     fn new(num_qubits: usize, num_results: usize, seed: u32, noise_config: Self::Noise) -> Self {
         Self {
@@ -862,5 +868,9 @@ impl Simulator for NoisySimulator {
 
     fn take_measurements(&mut self) -> Vec<MeasurementResult> {
         std::mem::take(&mut self.measurements)
+    }
+
+    fn state_dump(&self) -> &Self::StateDumpData {
+        self.state.state().expect("state should be valid")
     }
 }
