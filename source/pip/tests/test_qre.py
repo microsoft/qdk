@@ -4,6 +4,7 @@
 from dataclasses import KW_ONLY, dataclass, field
 from enum import Enum
 from typing import Generator
+import pytest
 
 import qsharp
 from qsharp.qre import (
@@ -14,19 +15,25 @@ from qsharp.qre import (
     ISARequirements,
     ISATransform,
     LatticeSurgery,
+    PropertyKey,
     QSharpApplication,
     Trace,
     constraint,
     estimate,
     instruction,
     linear_function,
+    generic_function,
 )
-from qsharp.qre.models import SurfaceCode, AQREGateBased
+from qsharp.qre.models import (
+    SurfaceCode,
+    AQREGateBased,
+)
 from qsharp.qre._isa_enumeration import (
     ISARefNode,
 )
 from qsharp.qre.instruction_ids import (
     CCX,
+    CCZ,
     GENERIC,
     LATTICE_SURGERY,
     T,
@@ -69,6 +76,123 @@ class ExampleLogicalFactory(ISATransform):
         yield ISA(
             instruction(T, encoding=LOGICAL, time=1000, error_rate=1e-10),
         )
+
+
+def test_isa():
+    isa = ISA(
+        instruction(T, encoding=LOGICAL, time=1000, error_rate=1e-8, space=400),
+        instruction(
+            CCX, arity=3, encoding=LOGICAL, time=2000, error_rate=1e-10, space=800
+        ),
+    )
+
+    assert T in isa
+    assert CCX in isa
+    assert LATTICE_SURGERY not in isa
+
+    t_instr = isa[T]
+    assert t_instr.time() == 1000
+    assert t_instr.error_rate() == 1e-8
+    assert t_instr.space() == 400
+
+    assert len(isa) == 2
+    ccz_instr = isa[CCX].with_id(CCZ)
+    assert ccz_instr.arity == 3
+    assert ccz_instr.time() == 2000
+    assert ccz_instr.error_rate() == 1e-10
+    assert ccz_instr.space() == 800
+
+    isa.append(ccz_instr)
+    assert CCZ in isa
+    assert len(isa) == 3
+
+    isa.append(ccz_instr)
+    assert (
+        len(isa) == 3
+    )  # Appending the same instruction should not increase the number of instructions
+
+
+def test_instruction_properties():
+    # Test instruction with no properties
+    instr_no_props = instruction(T, encoding=LOGICAL, time=1000, error_rate=1e-8)
+    assert instr_no_props.get_property(PropertyKey.DISTANCE) is None
+    assert instr_no_props.has_property(PropertyKey.DISTANCE) is False
+    assert instr_no_props.get_property_or(PropertyKey.DISTANCE, 5) == 5
+
+    # Test instruction with valid property (distance)
+    instr_with_distance = instruction(
+        T, encoding=LOGICAL, time=1000, error_rate=1e-8, distance=9
+    )
+    assert instr_with_distance.get_property(PropertyKey.DISTANCE) == 9
+    assert instr_with_distance.has_property(PropertyKey.DISTANCE) is True
+    assert instr_with_distance.get_property_or(PropertyKey.DISTANCE, 5) == 9
+
+    # Test instruction with invalid property name
+    with pytest.raises(ValueError, match="Unknown property 'invalid_prop'"):
+        instruction(T, encoding=LOGICAL, time=1000, error_rate=1e-8, invalid_prop=42)
+
+
+def test_instruction_constraints():
+    # Test constraint without properties
+    c_no_props = constraint(T, encoding=LOGICAL)
+    assert c_no_props.has_property(PropertyKey.DISTANCE) is False
+
+    # Test constraint with valid property (distance=True)
+    c_with_distance = constraint(T, encoding=LOGICAL, distance=True)
+    assert c_with_distance.has_property(PropertyKey.DISTANCE) is True
+
+    # Test constraint with distance=False (should not add the property)
+    c_distance_false = constraint(T, encoding=LOGICAL, distance=False)
+    assert c_distance_false.has_property(PropertyKey.DISTANCE) is False
+
+    # Test constraint with invalid property name
+    with pytest.raises(ValueError, match="Unknown property 'invalid_prop'"):
+        constraint(T, encoding=LOGICAL, invalid_prop=True)
+
+    # Test ISA.satisfies with property constraints
+    instr_no_dist = instruction(T, encoding=LOGICAL, time=1000, error_rate=1e-8)
+    instr_with_dist = instruction(
+        T, encoding=LOGICAL, time=1000, error_rate=1e-8, distance=9
+    )
+
+    isa_no_dist = ISA(instr_no_dist)
+    isa_with_dist = ISA(instr_with_dist)
+
+    reqs_no_prop = ISARequirements(constraint(T, encoding=LOGICAL))
+    reqs_with_prop = ISARequirements(constraint(T, encoding=LOGICAL, distance=True))
+
+    # ISA without distance property
+    assert isa_no_dist.satisfies(reqs_no_prop) is True
+    assert isa_no_dist.satisfies(reqs_with_prop) is False
+
+    # ISA with distance property
+    assert isa_with_dist.satisfies(reqs_no_prop) is True
+    assert isa_with_dist.satisfies(reqs_with_prop) is True
+
+
+def test_generic_function():
+    from qsharp.qre._qre import IntFunction, FloatFunction
+
+    def time(x: int) -> int:
+        return x * x
+
+    time_fn = generic_function(time)
+    assert isinstance(time_fn, IntFunction)
+
+    def error_rate(x: int) -> float:
+        return x / 2.0
+
+    error_rate_fn = generic_function(error_rate)
+    assert isinstance(error_rate_fn, FloatFunction)
+
+    # Without annotations, defaults to FloatFunction
+    space_fn = generic_function(lambda x: 12)
+    assert isinstance(space_fn, FloatFunction)
+
+    i = instruction(42, arity=None, space=12, time=time_fn, error_rate=error_rate_fn)
+    assert i.space(5) == 12
+    assert i.time(5) == 25
+    assert i.error_rate(5) == 2.5
 
 
 def test_isa_from_architecture():
