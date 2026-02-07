@@ -9,7 +9,7 @@ use pyo3::{
     pyclass, pymethods,
     types::{PyAnyMethods, PyTuple},
 };
-use qdk_simulators::noise_config::is_pauli_identity;
+use qdk_simulators::noise_config::{encode_pauli, is_pauli_identity};
 use rustc_hash::FxHashMap;
 use std::str::FromStr;
 
@@ -239,37 +239,6 @@ impl NoiseConfig {
 
         Ok(())
     }
-}
-
-/// Encode a validated Pauli string as a `u64` using 2 bits per character
-/// (I=0, X=1, Y=2, Z=3). Supports up to 32 qubits.
-fn encode_pauli(pauli: &[u8]) -> u64 {
-    debug_assert!(pauli.len() <= 32);
-    let mut key: u64 = 0;
-    for &b in pauli {
-        let bits = match b {
-            b'I' => 0u64,
-            b'X' => 1u64,
-            b'Z' => 2u64,
-            b'Y' => 3u64,
-            _ => unreachable!("pauli bytes must be validated before encoding"),
-        };
-        key = (key << 2) | bits;
-    }
-    key
-}
-
-/// Decode a `u64`-encoded Pauli string back into a `String` of length `qubits`.
-fn decode_pauli(mut key: u64, qubits: u32) -> String {
-    const CHARS: [u8; 4] = [b'I', b'X', b'Z', b'Y'];
-    let n = qubits as usize;
-    let mut buf = vec![0u8; n];
-    for i in (0..n).rev() {
-        buf[i] = CHARS[(key & 0b11) as usize];
-        key >>= 2;
-    }
-    // SAFETY: buf only contains ASCII bytes I, X, Y, Z.
-    unsafe { String::from_utf8_unchecked(buf) }
 }
 
 /// Entries parsed from a single chunk: `(encoded_pauli, probability)` pairs
@@ -626,7 +595,7 @@ impl NoiseTable {
 
     fn get_pauli_noise(&self, name: &str) -> PyResult<Probability> {
         let name = name.to_uppercase();
-        let key = encode_pauli(name.as_bytes());
+        let key = encode_pauli(&name);
         if let Some(p) = self.pauli_noise.get(&key) {
             return Ok(*p);
         }
@@ -640,8 +609,8 @@ impl NoiseTable {
     ///
     /// Make sure to validate the pauli strings and probabilities before hand.
     unsafe fn set_pauli_noise_elt_unchecked(&mut self, pauli: &str, value: Probability) {
-        if !is_pauli_identity(pauli) {
-            let key = encode_pauli(pauli.as_bytes());
+        let key = encode_pauli(pauli);
+        if !is_pauli_identity(key) {
             if self.pauli_noise.contains_key(&key) && value == 0.0 {
                 self.pauli_noise.remove(&key);
             } else {
@@ -802,7 +771,7 @@ or one argument of type 'list[tuple[str, float]]', but found {py_args:?}"
 
         self.pauli_noise = pauli_strings
             .iter()
-            .map(|s| encode_pauli(s.as_bytes()))
+            .map(|s| encode_pauli(s))
             .zip(probabilities)
             .collect::<FxHashMap<_, _>>();
 
@@ -829,15 +798,13 @@ impl<T: Float> From<NoiseTable> for qdk_simulators::noise_config::NoiseTable<T> 
         let mut pauli_strings = Vec::with_capacity(value.pauli_noise.len());
         let mut probabilities = Vec::with_capacity(value.pauli_noise.len());
         for (key, probability) in value.pauli_noise {
-            pauli_strings.push(decode_pauli(key, value.qubits));
-            #[allow(clippy::cast_possible_truncation)]
+            pauli_strings.push(key);
             probabilities.push(generic_float_cast(probability));
         }
         qdk_simulators::noise_config::NoiseTable {
             qubits: value.qubits,
             pauli_strings,
             probabilities,
-            #[allow(clippy::cast_possible_truncation)]
             loss: generic_float_cast(value.loss),
         }
     }
@@ -850,15 +817,13 @@ fn from_noise_table_ref<T: Float>(
     let mut pauli_strings = Vec::with_capacity(value.pauli_noise.len());
     let mut probabilities: Vec<T> = Vec::with_capacity(value.pauli_noise.len());
     for (key, probability) in &value.pauli_noise {
-        pauli_strings.push(decode_pauli(*key, value.qubits));
-        #[allow(clippy::cast_possible_truncation)]
+        pauli_strings.push(*key);
         probabilities.push(generic_float_cast(*probability));
     }
     qdk_simulators::noise_config::NoiseTable {
         qubits: value.qubits,
         pauli_strings,
         probabilities,
-        #[allow(clippy::cast_possible_truncation)]
         loss: generic_float_cast(value.loss),
     }
 }
@@ -868,7 +833,7 @@ impl<T: Float> From<qdk_simulators::noise_config::NoiseTable<T>> for NoiseTable 
         let pauli_noise = value
             .pauli_strings
             .iter()
-            .map(|s| encode_pauli(s.as_bytes()))
+            .copied()
             .zip(
                 value
                     .probabilities

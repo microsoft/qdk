@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::noise_config::{self, CumulativeNoiseConfig, is_pauli_identity};
+use crate::noise_config::{self, CumulativeNoiseConfig, decode_pauli, is_pauli_identity};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PauliFault {
@@ -36,25 +36,14 @@ impl noise_config::Fault for Fault {
     }
 }
 
-impl<S: AsRef<str>> From<S> for Fault {
-    fn from(pauli_string: S) -> Self {
-        let pauli_string: &str = pauli_string.as_ref();
+impl From<(u64, u32)> for Fault {
+    fn from((pauli, qubits): (u64, u32)) -> Self {
+        const MAP: [PauliFault; 4] = [PauliFault::I, PauliFault::X, PauliFault::Y, PauliFault::Z];
         assert!(
-            !is_pauli_identity(pauli_string),
+            !is_pauli_identity(pauli),
             "the NoiseTable input validation should ensure we don't insert the identity string"
         );
-
-        let pauli_product = pauli_string
-            .chars()
-            .map(|c| match c {
-                'I' => PauliFault::I,
-                'X' => PauliFault::X,
-                'Y' => PauliFault::Y,
-                'Z' => PauliFault::Z,
-                _ => panic!("invalid pauli string character: {c}"),
-            })
-            .collect();
-
+        let pauli_product = decode_pauli(pauli, qubits, &MAP);
         Self::Pauli(pauli_product)
     }
 }

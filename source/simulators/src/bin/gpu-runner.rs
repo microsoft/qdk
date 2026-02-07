@@ -8,7 +8,7 @@
 
 use core::panic;
 use qdk_simulators::gpu_context::{GpuContext, RunResults};
-use qdk_simulators::noise_config::NoiseConfig;
+use qdk_simulators::noise_config::{NoiseConfig, encode_pauli};
 use qdk_simulators::run_shots_sync;
 use qdk_simulators::shader_types::{Op, ops};
 use regex_lite::Regex;
@@ -601,7 +601,7 @@ fn repeated_noise() {
 
     // Add bit-flip and loss noise to X gates of 0.1%
     let mut noise: NoiseConfig<f32, f64> = NoiseConfig::NOISELESS.clone();
-    noise.x.pauli_strings.push("X".to_string());
+    noise.x.pauli_strings.push(encode_pauli("X"));
     noise.x.probabilities.push(0.001);
     noise.x.loss = 0.001;
 
@@ -696,7 +696,7 @@ fn scaled_grover() {
 
 fn noise_config() {
     let mut noise: NoiseConfig<f32, f64> = NoiseConfig::NOISELESS.clone();
-    noise.x.pauli_strings.push("X".to_string());
+    noise.x.pauli_strings.push(encode_pauli("X"));
     noise.x.probabilities.push(0.5);
     noise.x.loss = 0.333_333;
 
