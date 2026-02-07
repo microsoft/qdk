@@ -4,13 +4,14 @@
 use num_traits::Float;
 use pyo3::{
     Bound, FromPyObject, Py, PyRef, PyResult, Python,
-    exceptions::{PyAttributeError, PyKeyError, PyTypeError, PyValueError},
+    exceptions::{PyAttributeError, PyIOError, PyKeyError, PyTypeError, PyValueError},
     pybacked::PyBackedStr,
     pyclass, pymethods,
     types::{PyAnyMethods, PyTuple},
 };
 use qdk_simulators::noise_config::is_pauli_identity;
 use rustc_hash::FxHashMap;
+use std::str::FromStr;
 
 pub(crate) mod cpu_simulators;
 pub(crate) mod gpu_full_state;
@@ -175,6 +176,155 @@ impl NoiseConfig {
                 .expect("the key should be in the table"))
         }
     }
+
+    fn load_csv_dir(&mut self, py: Python<'_>, dir_path: &str) -> PyResult<()> {
+        use rayon::prelude::*;
+
+        // Get all valid file paths.
+        // Use entry.file_type() instead of path.is_file() to avoid an
+        // extra stat syscall per entry (the OS caches the type in the
+        // directory listing).
+        let paths: Vec<_> = std::fs::read_dir(dir_path)?
+            .filter_map(std::result::Result::ok)
+            .filter(|e| {
+                e.file_type().is_ok_and(|ft| ft.is_file())
+                    && e.path().extension() == Some("csv".as_ref())
+            })
+            .map(|e| e.path())
+            .collect();
+
+        // Release the GIL while doing file I/O and parsing — none of
+        // this work touches Python objects.
+        let results: Vec<_> = py.detach(|| {
+            paths
+                .par_iter()
+                .map(|path| {
+                    // Design notes:
+                    //   1. Memory-map the file to avoid a hundreds of MB heap allocation + copy.
+                    //   2. memmap2 depends on the libc crate, we already take a dependency on
+                    //      libc through PyO3, so we don't run a risk of supporting fewer
+                    //      platforms by using it.
+                    //
+                    // SAFETY:
+                    //   The risk with file-backed memory maps is the underlying file
+                    //   being changed while the map is in use. If this happens the noise
+                    //   could be loaded incorrectly.
+                    //   This is used for simulation, and the risk of someone immediatly
+                    //   changing the contents of a file immediatly after running their Python
+                    //   code is low. The reward / risk ratio is high in this situation.
+                    //   So, using a memory map makes sense.
+                    let file = std::fs::File::open(path)?;
+                    let mmap = unsafe { memmap2::Mmap::map(&file) }?;
+                    let contents = std::str::from_utf8(&mmap).map_err(|e| {
+                        PyValueError::new_err(format!(
+                            "File {} is not valid UTF-8: {e}",
+                            path.display()
+                        ))
+                    })?;
+                    let filename = path
+                        .file_stem()
+                        .expect("file should have a name")
+                        .to_str()
+                        .expect("file name should be a valid unicode string");
+                    parse_noise_table(contents).map(|table| (filename.to_string(), table))
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })?;
+
+        // Insert into Python objects on the main thread (GIL required).
+        for (name, table) in results {
+            let new_table = Py::new(py, table)?;
+            self.intrinsics.borrow_mut(py).insert(name, new_table);
+        }
+
+        Ok(())
+    }
+}
+
+fn parse_noise_table(contents: &str) -> PyResult<NoiseTable> {
+    // Estimate ~30 bytes per line (short pauli string + probability + newline).
+    // This avoids a full O(n) pre-scan that `bytecount` would do over 500 MB.
+    let capacity_estimate = contents.len() / 30;
+    let mut entries = Vec::with_capacity(capacity_estimate);
+    let mut expected_qubits: Option<u32> = None;
+
+    for (i, line) in contents.lines().enumerate() {
+        // Fast skip: check first byte before doing any work.
+        if line.is_empty() {
+            continue;
+        }
+        let first = line.as_bytes()[0];
+        if first == b'#' || first == b'p' || first == b' ' || first == b'\t' {
+            // Full check only for the rare header/comment/whitespace lines.
+            if first == b'#' || line.starts_with("pauli") || line.trim().is_empty() {
+                continue;
+            }
+        }
+
+        // --- Inline parse_line + validation + identity check in a single pass ---
+        let Some(comma) = memchr::memchr(b',', line.as_bytes()) else {
+            return Err(PyIOError::new_err(format!(
+                "invalid csv row `{line}` in line {i}"
+            )));
+        };
+
+        // Ensure there is no second comma.
+        if memchr::memchr(b',', &line.as_bytes()[comma + 1..]).is_some() {
+            return Err(PyIOError::new_err(format!(
+                "invalid csv row `{line}` in line {i}"
+            )));
+        }
+
+        let pauli = &line[..comma];
+        let prob_str = &line[comma + 1..];
+
+        let Ok(prob) = f64::from_str(prob_str) else {
+            return Err(PyIOError::new_err(format!(
+                "invalid float in csv row `{line}` in line {i}"
+            )));
+        };
+        NoiseTable::validate_probability(prob)?;
+
+        let num_qubits = u32::try_from(pauli.len()).expect("pauli string size should fit in a u32");
+
+        match expected_qubits {
+            None => expected_qubits = Some(num_qubits),
+            Some(expected) if expected != num_qubits => {
+                return Err(PyValueError::new_err(format!(
+                    "Inconsistent Pauli string length on line {i}: expected {expected} qubits, found {num_qubits}"
+                )));
+            }
+            _ => (),
+        }
+
+        // Validate characters and check identity in one pass over the bytes.
+        let mut is_identity = true;
+        for &b in pauli.as_bytes() {
+            match b {
+                b'I' => (),
+                b'X' | b'Y' | b'Z' => is_identity = false,
+                _ => {
+                    return Err(PyAttributeError::new_err(format!(
+                        "Invalid Pauli string char in line {i}: {line}"
+                    )));
+                }
+            }
+        }
+
+        if !is_identity && prob != 0.0 {
+            entries.push((pauli.to_string(), prob));
+        }
+    }
+
+    // Build the noise table in one shot — no per-element validation needed.
+    let qubits = expected_qubits.unwrap_or(0);
+    let pauli_noise = FxHashMap::from_iter(entries);
+
+    Ok(NoiseTable {
+        qubits,
+        pauli_noise,
+        loss: 0.0,
+    })
 }
 
 fn generic_float_cast<T: Float, Q: Float>(value: T) -> Q {
@@ -315,8 +465,10 @@ impl NoiseTable {
 
     fn validate_pauli_string(&self, pauli_string: &str) -> PyResult<()> {
         // Validate pauli string chars.
-        const VALID_CHARS: [char; 4] = ['I', 'X', 'Y', 'Z'];
-        if !pauli_string.chars().all(|c| VALID_CHARS.contains(&c)) {
+        if !pauli_string
+            .chars()
+            .all(|c| matches!(c, 'I' | 'X' | 'Y' | 'Z'))
+        {
             return Err(PyAttributeError::new_err(format!(
                 "Pauli string can only contain 'I', 'X', 'Y', 'Z' characters, found {pauli_string}"
             )));
@@ -413,6 +565,8 @@ impl NoiseTable {
         for p in &probs {
             Self::validate_probability(*p)?;
         }
+        let additional = paulis.len().saturating_sub(self.pauli_noise.len());
+        self.pauli_noise.reserve(additional);
         for (pauli, value) in paulis.into_iter().zip(probs.into_iter()) {
             // SAFETY: we validated all the pauli strings and probabilities above.
             unsafe {
