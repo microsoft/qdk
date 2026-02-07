@@ -202,7 +202,7 @@ def test_greedy_edge_coloring_empty():
     graph = Hypergraph([])
     colored = greedy_edge_coloring(graph)
     assert colored.nedges == 0
-    assert colored.num_colors() == 0
+    assert colored.ncolors == 0
 
 
 def test_greedy_edge_coloring_single_edge():
@@ -210,7 +210,7 @@ def test_greedy_edge_coloring_single_edge():
     graph = Hypergraph([Hyperedge([0, 1])])
     colored = greedy_edge_coloring(graph, seed=42)
     assert colored.nedges == 1
-    assert colored.num_colors() == 1
+    assert colored.ncolors == 1
 
 
 def test_greedy_edge_coloring_non_overlapping():
@@ -220,7 +220,7 @@ def test_greedy_edge_coloring_non_overlapping():
     colored = greedy_edge_coloring(graph, seed=42)
     # Non-overlapping edges can be in the same color
     assert colored.nedges == 2
-    assert colored.num_colors() == 1
+    assert colored.ncolors == 1
 
 
 def test_greedy_edge_coloring_overlapping():
@@ -230,7 +230,7 @@ def test_greedy_edge_coloring_overlapping():
     colored = greedy_edge_coloring(graph, seed=42)
     # Overlapping edges need different colors
     assert colored.nedges == 2
-    assert colored.num_colors() == 2
+    assert colored.ncolors == 2
 
 
 def test_greedy_edge_coloring_triangle():
@@ -240,7 +240,7 @@ def test_greedy_edge_coloring_triangle():
     colored = greedy_edge_coloring(graph, seed=42)
     # All edges share vertices pairwise, so need 3 colors
     assert colored.nedges == 3
-    assert colored.num_colors() == 3
+    assert colored.ncolors == 3
 
 
 def test_greedy_edge_coloring_validity():
@@ -306,7 +306,7 @@ def test_greedy_edge_coloring_multiple_trials():
     graph = Hypergraph(edges)
     colored = greedy_edge_coloring(graph, seed=42, trials=10)
     # A cycle of 4 edges can be 2-colored
-    assert colored.num_colors() <= 3  # Greedy may not always find optimal
+    assert colored.ncolors <= 3  # Greedy may not always find optimal
 
 
 def test_greedy_edge_coloring_hyperedges():
@@ -321,7 +321,7 @@ def test_greedy_edge_coloring_hyperedges():
 
     # First two share vertex 2, third is independent
     assert colored.nedges == 3
-    assert colored.num_colors() >= 2
+    assert colored.ncolors >= 2
 
 
 def test_greedy_edge_coloring_self_loops():
@@ -332,4 +332,4 @@ def test_greedy_edge_coloring_self_loops():
 
     # Self-loops don't share vertices, can all be same color
     assert colored.nedges == 3
-    assert colored.num_colors() == 1
+    assert colored.ncolors == 1

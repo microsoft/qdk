@@ -53,10 +53,42 @@ class CompleteGraph(Hypergraph):
         for i in range(n):
             for j in range(i + 1, n):
                 _edges.append(Hyperedge([i, j]))
-
         super().__init__(_edges)
 
-        # To do: set up edge partitions
+        # Set colors for self-loop edges if enabled
+        if self_loops:
+            for i in range(n):
+                self.color[(i,)] = -1  # Self-loop edges get color -1
+
+        # Edge coloring for parallel updates
+        # The even case: n-1 colors are needed
+        if n % 2 == 0:
+            m = n - 1
+            for i in range(m):
+                self.color[(i, n - 1)] = (
+                    i  # Connect vertex n-1 to all others with unique colors
+                )
+                for j in range(1, (m - 1) // 2 + 1):
+                    a = (i + j) % m
+                    b = (i - j) % m
+                    if a < b:
+                        self.color[(a, b)] = i
+                    else:
+                        self.color[(b, a)] = i
+
+        # The odd case: n colors are needed
+        # This is the round-robin tournament scheduling algorithm for odd n
+        # Set m = n for ease of reading
+        else:
+            m = n
+            for i in range(m):
+                for j in range(1, (m - 1) // 2 + 1):
+                    a = (i + j) % m
+                    b = (i - j) % m
+                    if a < b:
+                        self.color[(a, b)] = i
+                    else:
+                        self.color[(b, a)] = i
 
         self.n = n
 
@@ -105,22 +137,28 @@ class CompleteBipartiteGraph(Hypergraph):
 
         if self_loops:
             _edges = [Hyperedge([i]) for i in range(total_vertices)]
-            self.parts = [list(range(total_vertices))]
+
         else:
             _edges = []
-            self.parts = []
-
-        colors = [[] for _ in range(n)]  # n colors for bipartite edges
 
         # Connect every vertex in first set to every vertex in second set
         for i in range(m):
             for j in range(m, m + n):
                 edge_idx = len(_edges)
                 _edges.append(Hyperedge([i, j]))
-                colors[(i + j - m) % n].append(edge_idx)  # Do to: explain this coloring
-
         super().__init__(_edges)
-        self.parts.extend(colors)
+
+        # Set colors for self-loop edges if enabled
+        if self_loops:
+            for i in range(total_vertices):
+                self.color[(i,)] = -1  # Self-loop edges get color -1
+
+        # Color edges based on the second vertex index to create n parallel partitions
+        for i in range(m):
+            for j in range(m, m + n):
+                self.color[(i, j)] = (
+                    i + j - m
+                ) % n  # Color edges based on second vertex index
 
         self.m = m
         self.n = n

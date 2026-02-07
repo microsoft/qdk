@@ -88,6 +88,11 @@ class Hypergraph:
             self.color[edge.vertices] = 0
 
     @property
+    def ncolors(self) -> int:
+        """Return the number of distinct colors used in the edge coloring."""
+        return len(set(self.color.values()))
+
+    @property
     def nedges(self) -> int:
         """Return the number of hyperedges in the hypergraph."""
         return len(self._edge_list)
@@ -138,15 +143,6 @@ class Hypergraph:
         return iter(
             [edge for edge in self._edge_list if self.color[edge.vertices] == color]
         )
-
-    def num_colors(self) -> int:
-        """Return the number of distinct colors used in the edge coloring.
-
-        Returns:
-            Number of unique color indices assigned to edges."""
-        if not self.color:
-            return 0
-        return len(set(self.color.values()))
 
     def __str__(self) -> str:
         return f"Hypergraph with {self.nvertices} vertices and {self.nedges} edges."
