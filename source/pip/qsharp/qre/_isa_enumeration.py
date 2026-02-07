@@ -9,11 +9,11 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Generator
 
-from ._architecture import Architecture
+from ._architecture import _Context
 from ._qre import ISA
 
 
-class Node(ABC):
+class ISAQuery(ABC):
     """
     Abstract base class for all nodes in the ISA enumeration tree.
 
@@ -24,7 +24,7 @@ class Node(ABC):
     """
 
     @abstractmethod
-    def enumerate(self, ctx: Context) -> Generator[ISA, None, None]:
+    def enumerate(self, ctx: _Context) -> Generator[ISA, None, None]:
         """
         Yields all ISA instances represented by this enumeration node.
 
@@ -37,7 +37,7 @@ class Node(ABC):
         """
         pass
 
-    def __add__(self, other: Node) -> SumNode:
+    def __add__(self, other: ISAQuery) -> _SumNode:
         """
         Performs a union of two enumeration nodes.
 
@@ -59,19 +59,19 @@ class Node(ABC):
             for isa in SurfaceCode.q() + ColorCode.q():
                 ...
         """
-        if isinstance(self, SumNode) and isinstance(other, SumNode):
+        if isinstance(self, _SumNode) and isinstance(other, _SumNode):
             sources = self.sources + other.sources
-            return SumNode(sources)
-        elif isinstance(self, SumNode):
+            return _SumNode(sources)
+        elif isinstance(self, _SumNode):
             sources = self.sources + [other]
-            return SumNode(sources)
-        elif isinstance(other, SumNode):
+            return _SumNode(sources)
+        elif isinstance(other, _SumNode):
             sources = [self] + other.sources
-            return SumNode(sources)
+            return _SumNode(sources)
         else:
-            return SumNode([self, other])
+            return _SumNode([self, other])
 
-    def __mul__(self, other: Node) -> ProductNode:
+    def __mul__(self, other: ISAQuery) -> _ProductNode:
         """
         Performs the cross product of two enumeration nodes.
 
@@ -97,19 +97,19 @@ class Node(ABC):
             for isa in SurfaceCode.q() * Factory.q():
                 ...
         """
-        if isinstance(self, ProductNode) and isinstance(other, ProductNode):
+        if isinstance(self, _ProductNode) and isinstance(other, _ProductNode):
             sources = self.sources + other.sources
-            return ProductNode(sources)
-        elif isinstance(self, ProductNode):
+            return _ProductNode(sources)
+        elif isinstance(self, _ProductNode):
             sources = self.sources + [other]
-            return ProductNode(sources)
-        elif isinstance(other, ProductNode):
+            return _ProductNode(sources)
+        elif isinstance(other, _ProductNode):
             sources = [self] + other.sources
-            return ProductNode(sources)
+            return _ProductNode(sources)
         else:
-            return ProductNode([self, other])
+            return _ProductNode([self, other])
 
-    def bind(self, name: str, node: Node) -> "BindingNode":
+    def bind(self, name: str, node: ISAQuery) -> "_BindingNode":
         """Create a BindingNode with this node as the component.
 
         Args:
@@ -124,40 +124,17 @@ class Node(ABC):
         .. code-block:: python
             ExampleErrorCorrection.q().bind("c", ISARefNode("c") * ISARefNode("c"))
         """
-        return BindingNode(name=name, component=self, node=node)
+        return _BindingNode(name=name, component=self, node=node)
 
 
 @dataclass
-class Context:
-    """
-    Context passed through enumeration, holding shared state.
-
-    Attributes:
-        architecture: The base architecture for enumeration.
-    """
-
-    architecture: Architecture
-    _bindings: dict[str, ISA] = field(default_factory=dict, repr=False)
-
-    @property
-    def root_isa(self) -> ISA:
-        """The architecture's provided ISA."""
-        return self.architecture.provided_isa
-
-    def _with_binding(self, name: str, isa: ISA) -> "Context":
-        """Return a new context with an additional binding (internal use)."""
-        new_bindings = {**self._bindings, name: isa}
-        return Context(self.architecture, new_bindings)
-
-
-@dataclass
-class RootNode(Node):
+class RootNode(ISAQuery):
     """
     Represents the architecture's base ISA.
     Reads from the context instead of holding a reference.
     """
 
-    def enumerate(self, ctx: Context) -> Generator[ISA, None, None]:
+    def enumerate(self, ctx: _Context) -> Generator[ISA, None, None]:
         """
         Yields the architecture ISA from the context.
 
@@ -175,7 +152,7 @@ ISA_ROOT = RootNode()
 
 
 @dataclass
-class ISAQuery(Node):
+class _ComponentQuery(ISAQuery):
     """
     Query node that enumerates ISAs based on a component type and source.
 
@@ -191,10 +168,10 @@ class ISAQuery(Node):
     """
 
     component: type
-    source: Node = field(default_factory=lambda: ISA_ROOT)
+    source: ISAQuery = field(default_factory=lambda: ISA_ROOT)
     kwargs: dict = field(default_factory=dict)
 
-    def enumerate(self, ctx: Context) -> Generator[ISA, None, None]:
+    def enumerate(self, ctx: _Context) -> Generator[ISA, None, None]:
         """
         Yields ISAs generated by the component from source ISAs.
 
@@ -209,7 +186,7 @@ class ISAQuery(Node):
 
 
 @dataclass
-class ProductNode(Node):
+class _ProductNode(ISAQuery):
     """
     Node representing the Cartesian product of multiple source nodes.
 
@@ -217,9 +194,9 @@ class ProductNode(Node):
         sources: A list of source nodes to combine.
     """
 
-    sources: list[Node]
+    sources: list[ISAQuery]
 
-    def enumerate(self, ctx: Context) -> Generator[ISA, None, None]:
+    def enumerate(self, ctx: _Context) -> Generator[ISA, None, None]:
         """
         Yields ISAs formed by combining ISAs from all source nodes.
 
@@ -237,7 +214,7 @@ class ProductNode(Node):
 
 
 @dataclass
-class SumNode(Node):
+class _SumNode(ISAQuery):
     """
     Node representing the union of multiple source nodes.
 
@@ -245,9 +222,9 @@ class SumNode(Node):
         sources: A list of source nodes to enumerate sequentially.
     """
 
-    sources: list[Node]
+    sources: list[ISAQuery]
 
-    def enumerate(self, ctx: Context) -> Generator[ISA, None, None]:
+    def enumerate(self, ctx: _Context) -> Generator[ISA, None, None]:
         """
         Yields ISAs from each source node in sequence.
 
@@ -262,7 +239,7 @@ class SumNode(Node):
 
 
 @dataclass
-class ISARefNode(Node):
+class ISARefNode(ISAQuery):
     """
     A reference to a bound ISA in the enumeration context.
 
@@ -274,7 +251,7 @@ class ISARefNode(Node):
 
     name: str
 
-    def enumerate(self, ctx: Context) -> Generator[ISA, None, None]:
+    def enumerate(self, ctx: _Context) -> Generator[ISA, None, None]:
         """
         Yields the bound ISA from the context.
 
@@ -293,7 +270,7 @@ class ISARefNode(Node):
 
 
 @dataclass
-class BindingNode(Node):
+class _BindingNode(ISAQuery):
     """
     Enumeration node that binds a component to a name.
 
@@ -306,7 +283,7 @@ class BindingNode(Node):
 
     Args:
         name: The name to bind the component to.
-        component: An EnumerationNode (e.g., ISAQuery) that produces the bound ISAs.
+        component: An EnumerationNode (e.g., _ComponentQuery) that produces the bound ISAs.
         node: The child enumeration node that may contain ISARefNodes.
 
     Example:
@@ -334,10 +311,10 @@ class BindingNode(Node):
     """
 
     name: str
-    component: Node
-    node: Node
+    component: ISAQuery
+    node: ISAQuery
 
-    def enumerate(self, ctx: Context) -> Generator[ISA, None, None]:
+    def enumerate(self, ctx: _Context) -> Generator[ISA, None, None]:
         """
         Enumerates child nodes with the bound component in context.
 

@@ -2,16 +2,27 @@
 # Licensed under the MIT License.
 
 # flake8: noqa E402
+# pyright: reportAttributeAccessIssue=false
 
 from .._native import (
-    ISA,
+    block_linear_function,
+    Block,
+    constant_function,
     Constraint,
     ConstraintBound,
-    Instruction,
-    ISARequirements,
+    estimate_parallel,
+    EstimationCollection,
+    EstimationResult,
+    FactoryResult,
     FloatFunction,
+    Instruction,
+    InstructionFrontier,
     IntFunction,
-    block_linear_function,
-    constant_function,
+    ISA,
+    ISARequirements,
+    Property,
     linear_function,
+    LatticeSurgery,
+    PSSPC,
+    Trace,
 )
