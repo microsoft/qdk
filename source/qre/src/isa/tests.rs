@@ -134,3 +134,19 @@ fn test_variable_arity_satisfies() {
     ));
     assert!(!isa.satisfies(&reqs_fail)); // 0.02 not < 0.01
 }
+
+#[test]
+fn test_variable_arity_function() {
+    let linear_fn = VariableArityFunction::linear(10);
+    assert_eq!(linear_fn.evaluate(3), 30);
+    assert_eq!(linear_fn.evaluate(0), 0);
+
+    let constant_fn = VariableArityFunction::constant(5);
+    assert_eq!(constant_fn.evaluate(3), 5);
+    assert_eq!(constant_fn.evaluate(0), 5);
+
+    // Test with a custom function
+    let custom_fn = VariableArityFunction::generic(|arity| arity * arity); // Quadratic
+    assert_eq!(custom_fn.evaluate(3), 9);
+    assert_eq!(custom_fn.evaluate(4), 16);
+}

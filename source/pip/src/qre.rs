@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use std::ptr::NonNull;
+use std::{ptr::NonNull, sync::Arc};
 
 use pyo3::{
     IntoPyObjectExt,
@@ -32,7 +32,9 @@ pub(crate) fn register_qre_submodule(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(constant_function, m)?)?;
     m.add_function(wrap_pyfunction!(linear_function, m)?)?;
     m.add_function(wrap_pyfunction!(block_linear_function, m)?)?;
+    m.add_function(wrap_pyfunction!(generic_function, m)?)?;
     m.add_function(wrap_pyfunction!(estimate_parallel, m)?)?;
+    m.add_function(wrap_pyfunction!(binom_ppf, m)?)?;
 
     m.add("EstimationError", m.py().get_type::<EstimationError>())?;
 
@@ -74,8 +76,16 @@ impl ISA {
             .map(ISA)
     }
 
+    pub fn append(&mut self, instruction: &Instruction) {
+        self.0.add_instruction(instruction.0.clone());
+    }
+
     pub fn __add__(&self, other: &ISA) -> PyResult<ISA> {
         Ok(ISA(self.0.clone() + other.0.clone()))
+    }
+
+    pub fn __contains__(&self, id: u64) -> bool {
+        self.0.contains(&id)
     }
 
     pub fn satisfies(&self, requirements: &ISARequirements) -> PyResult<bool> {
@@ -211,6 +221,10 @@ impl Instruction {
         )))
     }
 
+    pub fn with_id(&self, id: u64) -> Self {
+        Instruction(self.0.with_id(id))
+    }
+
     #[getter]
     pub fn id(&self) -> u64 {
         self.0.id()
@@ -259,6 +273,23 @@ impl Instruction {
         Ok(self.0.expect_error_rate(arity))
     }
 
+    pub fn set_property(&mut self, key: u64, value: u64) {
+        self.0.set_property(key, value);
+    }
+
+    pub fn get_property(&self, key: u64) -> Option<u64> {
+        self.0.get_property(&key)
+    }
+
+    pub fn has_property(&self, key: u64) -> bool {
+        self.0.has_property(&key)
+    }
+
+    #[pyo3(signature = (key, default))]
+    pub fn get_property_or(&self, key: u64, default: u64) -> u64 {
+        self.0.get_property_or(&key, default)
+    }
+
     fn __str__(&self) -> String {
         format!("{}", self.0)
     }
@@ -300,6 +331,14 @@ impl Constraint {
             arity,
             error_rate.map(|error_rate| error_rate.0),
         )))
+    }
+
+    pub fn add_property(&mut self, property: u64) {
+        self.0.add_property(property);
+    }
+
+    pub fn has_property(&self, property: u64) -> bool {
+        self.0.has_property(&property)
     }
 }
 
@@ -445,6 +484,55 @@ pub fn block_linear_function<'py>(
         Err(PyTypeError::new_err(
             "Slope must be either an integer or a float",
         ))
+    }
+}
+
+#[pyfunction]
+pub fn generic_function<'py>(
+    py: Python<'py>,
+    func: Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyAny>> {
+    // Try to get return type annotation from the function
+    let is_int = if let Ok(annotations) = func.getattr("__annotations__") {
+        if let Ok(return_type) = annotations.get_item("return") {
+            // Check if return type is float
+            let float_type = py.get_type::<pyo3::types::PyInt>();
+            return_type.eq(float_type).unwrap_or(false)
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    let func: Py<PyAny> = func.unbind();
+
+    if is_int {
+        let closure = move |arity: u64| -> u64 {
+            Python::attach(|py| {
+                let result = func.call1(py, (arity,));
+                match result {
+                    Ok(value) => value.extract::<u64>(py).unwrap_or(0),
+                    Err(_) => 0,
+                }
+            })
+        };
+
+        let arc: Arc<dyn Fn(u64) -> u64 + Send + Sync> = Arc::new(closure);
+        IntFunction(qre::VariableArityFunction::generic_from_arc(arc)).into_bound_py_any(py)
+    } else {
+        let closure = move |arity: u64| -> f64 {
+            Python::attach(|py| {
+                let result = func.call1(py, (arity,));
+                match result {
+                    Ok(value) => value.extract::<f64>(py).unwrap_or(0.0),
+                    Err(_) => 0.0,
+                }
+            })
+        };
+
+        let arc: Arc<dyn Fn(u64) -> f64 + Send + Sync> = Arc::new(closure);
+        FloatFunction(qre::VariableArityFunction::generic_from_arc(arc)).into_bound_py_any(py)
     }
 }
 
@@ -730,6 +818,12 @@ impl InstructionFrontier {
         self.0.insert(point.clone());
     }
 
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn extend(&mut self, points: Vec<PyRef<'_, Instruction>>) {
+        self.0
+            .extend(points.iter().map(|p| Instruction(p.0.clone())));
+    }
+
     pub fn __len__(&self) -> usize {
         self.0.len()
     }
@@ -785,6 +879,11 @@ pub fn estimate_parallel(
 
     let collection = qre::estimate_parallel(&traces, &isas, Some(max_error));
     EstimationCollection(collection)
+}
+
+#[pyfunction]
+pub fn binom_ppf(q: f64, n: usize, p: f64) -> usize {
+    qre::binom_ppf(q, n, p)
 }
 
 fn add_instruction_ids(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -862,6 +961,8 @@ fn add_instruction_ids(m: &Bound<'_, PyModule>) -> PyResult<()> {
         RXX,
         RYY,
         RZZ,
+        ONE_QUBIT_UNITARY,
+        TWO_QUBIT_UNITARY,
         MULTI_PAULI_MEAS,
         LATTICE_SURGERY,
         READ_FROM_MEMORY,

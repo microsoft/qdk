@@ -24,7 +24,7 @@ class TraceTransform(ABC):
 class PSSPC(TraceTransform):
     _: KW_ONLY
     num_ts_per_rotation: int = field(
-        default=10, metadata={"domain": list(range(1, 21))}
+        default=20, metadata={"domain": list(range(1, 21))}
     )
     ccx_magic_states: bool = field(default=False)
 

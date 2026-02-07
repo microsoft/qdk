@@ -5,6 +5,7 @@
 # pyright: reportAttributeAccessIssue=false
 
 from .._native import (
+    binom_ppf,
     block_linear_function,
     Block,
     constant_function,
@@ -15,6 +16,7 @@ from .._native import (
     EstimationResult,
     FactoryResult,
     FloatFunction,
+    generic_function,
     Instruction,
     InstructionFrontier,
     IntFunction,

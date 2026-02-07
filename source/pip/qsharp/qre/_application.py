@@ -39,11 +39,10 @@ class Application(ABC, Generic[TraceParameters]):
 
     We distinguish between application and trace parameters.  The application
     parameters define which particular instance of the application we want to
-    consider.  The trace parameters define how to generate a trace.  They
-    change the specific way in which we solve the problem, but not the problem
-    itself.
+    consider.  The trace parameters define how to generate a trace.  They change
+    the specific way in which we solve the problem, but not the problem itself.
 
-    For example, in quantum cryptography, the application parameters could
+    For example, in quantum cryptanalysis, the application parameters could
     define the key size for an RSA prime product, while the trace parameters
     define which algorithm to use to break the cryptography, as well as
     parameters therein.

@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 
 from __future__ import annotations
-from typing import Any, Iterator, Optional, overload
+from typing import Any, Callable, Iterator, Optional, overload
 
 class ISA:
     @overload
@@ -18,11 +18,32 @@ class ISA:
         """
         ...
 
+    def append(self, instruction: Instruction) -> None:
+        """
+        Appends an instruction to the ISA.
+
+        Args:
+            instruction (Instruction): The instruction to append.
+        """
+        ...
+
     def __add__(self, other: ISA) -> ISA:
         """
         Concatenates two ISAs (logical union). Instructions in the second
         operand overwrite instructions in the first operand if they have the
         same ID.
+        """
+        ...
+
+    def __contains__(self, id: int) -> bool:
+        """
+        Checks if the ISA contains an instruction with the given ID.
+
+        Args:
+            id (int): The instruction ID.
+
+        Returns:
+            bool: True if the ISA contains an instruction with the given ID, False otherwise.
         """
         ...
 
@@ -171,6 +192,18 @@ class Instruction:
         """
         ...
 
+    def with_id(self, id: int) -> Instruction:
+        """
+        Returns a copy of the instruction with the given ID.
+
+        Args:
+            id (int): The instruction ID.
+
+        Returns:
+            Instruction: A copy of the instruction with the given ID.
+        """
+        ...
+
     @property
     def id(self) -> int:
         """
@@ -270,6 +303,53 @@ class Instruction:
 
         Returns:
             float: The instruction error rate.
+        """
+        ...
+
+    def set_property(self, key: int, value: int) -> None:
+        """
+        Sets a property on the instruction.
+
+        Args:
+            key (int): The property key.
+            value (int): The property value.
+        """
+        ...
+
+    def get_property(self, key: int) -> Optional[int]:
+        """
+        Gets a property by its key.
+
+        Args:
+            key (int): The property key.
+
+        Returns:
+            Optional[int]: The property value, or None if not found.
+        """
+        ...
+
+    def has_property(self, key: int) -> bool:
+        """
+        Checks if the instruction has a property with the given key.
+
+        Args:
+            key (int): The property key.
+
+        Returns:
+            bool: True if the instruction has the property, False otherwise.
+        """
+        ...
+
+    def get_property_or(self, key: int, default: int) -> int:
+        """
+        Gets a property by its key, or returns a default value if not found.
+
+        Args:
+            key (int): The property key.
+            default (int): The default value to return if the property is not found.
+
+        Returns:
+            int: The property value, or the default value if not found.
         """
         ...
 
@@ -381,6 +461,27 @@ class Constraint:
         """
         ...
 
+    def add_property(self, property: int) -> None:
+        """
+        Adds a property requirement to the constraint.
+
+        Args:
+            property (int): The property key that must be present in matching instructions.
+        """
+        ...
+
+    def has_property(self, property: int) -> bool:
+        """
+        Checks if the constraint requires a specific property.
+
+        Args:
+            property (int): The property key to check.
+
+        Returns:
+            bool: True if the constraint requires this property, False otherwise.
+        """
+        ...
+
 class IntFunction: ...
 class FloatFunction: ...
 
@@ -436,6 +537,31 @@ def block_linear_function(
 
     Returns:
         IntFunction | FloatFunction: The block linear function.
+    """
+    ...
+
+@overload
+def generic_function(func: Callable[[int], int]) -> IntFunction: ...
+@overload
+def generic_function(func: Callable[[int], float]) -> FloatFunction: ...
+def generic_function(
+    func: Callable[[int], int | float],
+) -> IntFunction | FloatFunction:
+    """
+    Creates a generic function from a Python callable.
+
+    Note:
+        Only use this function if the other function constructors
+        (constant_function, linear_function, and block_linear_function) do not
+        meet your needs, as using a Python callable can have performance
+        implications.  If using this function, keep the logic in the callable as
+        simple as possible to minimize overhead.
+
+    Args:
+        func (Callable[[int], int | float]): The Python callable.
+
+    Returns:
+        IntFunction | FloatFunction: The generic function.
     """
     ...
 
@@ -905,6 +1031,15 @@ class InstructionFrontier:
         """
         ...
 
+    def extend(self, points: list[Instruction]) -> None:
+        """
+        Extends the frontier with a list of instructions.
+
+        Args:
+            points (list[Instruction]): The instructions to insert.
+        """
+        ...
+
     def __len__(self) -> int:
         """
         Returns the number of instructions in the frontier.
@@ -958,5 +1093,12 @@ def estimate_parallel(
 
     Returns:
         EstimationCollection: The estimation collection.
+    """
+    ...
+
+def binom_ppf(q: float, n: int, p: float) -> int:
+    """
+    A replacement for SciPy's binom.ppf that is faster and does not require
+    SciPy as a dependency.
     """
     ...

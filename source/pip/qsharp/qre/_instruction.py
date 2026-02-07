@@ -24,6 +24,10 @@ class Encoding(IntEnum):
     LOGICAL = 1
 
 
+class PropertyKey(IntEnum):
+    DISTANCE = 0
+
+
 PHYSICAL = Encoding.PHYSICAL
 LOGICAL = Encoding.LOGICAL
 
@@ -34,6 +38,7 @@ def constraint(
     *,
     arity: Optional[int] = 1,
     error_rate: Optional[ConstraintBound] = None,
+    **kwargs: bool,
 ) -> Constraint:
     """
     Creates an instruction constraint.
@@ -44,11 +49,28 @@ def constraint(
         arity (Optional[int]): The instruction arity. If None, instruction is
             assumed to have variable arity.  Default is 1.
         error_rate (Optional[ConstraintBound]): The constraint on the error rate.
+        **kwargs (bool): Required properties that matching instructions must have.
+            Valid property names: distance. Set to True to require the property.
 
     Returns:
         Constraint: The instruction constraint.
+
+    Raises:
+        ValueError: If an unknown property name is provided in kwargs.
     """
-    return Constraint(id, encoding, arity, error_rate)
+    c = Constraint(id, encoding, arity, error_rate)
+
+    for key, value in kwargs.items():
+        if value:
+            try:
+                prop_key = PropertyKey[key.upper()]
+            except KeyError:
+                raise ValueError(
+                    f"Unknown property '{key}'. Valid properties: {[k.name.lower() for k in PropertyKey]}"
+                )
+            c.add_property(prop_key)
+
+    return c
 
 
 @overload
@@ -61,6 +83,7 @@ def instruction(
     space: Optional[int] = None,
     length: Optional[int] = None,
     error_rate: float,
+    **kwargs: int,
 ) -> Instruction: ...
 @overload
 def instruction(
@@ -69,9 +92,10 @@ def instruction(
     *,
     time: int | IntFunction,
     arity: None = ...,
-    space: Optional[IntFunction] = None,
-    length: Optional[IntFunction] = None,
-    error_rate: FloatFunction,
+    space: int | IntFunction,
+    length: Optional[int | IntFunction] = None,
+    error_rate: float | FloatFunction,
+    **kwargs: int,
 ) -> Instruction: ...
 def instruction(
     id: int,
@@ -82,6 +106,7 @@ def instruction(
     space: Optional[int] | IntFunction = None,
     length: Optional[int | IntFunction] = None,
     error_rate: float | FloatFunction,
+    **kwargs: int,
 ) -> Instruction:
     """
     Creates an instruction.
@@ -98,12 +123,17 @@ def instruction(
         length (Optional[int | IntFunction]): The arity including ancilla
             qubits. If None, arity is used.
         error_rate (float | FloatFunction): The instruction error rate.
+        **kwargs (int): Additional properties to set on the instruction.
+            Valid property names: distance.
 
     Returns:
         Instruction: The instruction.
+
+    Raises:
+        ValueError: If an unknown property name is provided in kwargs.
     """
     if arity is not None:
-        return Instruction.fixed_arity(
+        instr = Instruction.fixed_arity(
             id,
             encoding,
             arity,
@@ -122,7 +152,7 @@ def instruction(
         if isinstance(error_rate, float):
             error_rate = constant_function(error_rate)
 
-        return Instruction.variable_arity(
+        instr = Instruction.variable_arity(
             id,
             encoding,
             time,
@@ -130,6 +160,17 @@ def instruction(
             cast(FloatFunction, error_rate),
             length,
         )
+
+    for key, value in kwargs.items():
+        try:
+            prop_key = PropertyKey[key.upper()]
+        except KeyError:
+            raise ValueError(
+                f"Unknown property '{key}'. Valid properties: {[k.name.lower() for k in PropertyKey]}"
+            )
+        instr.set_property(prop_key, value)
+
+    return instr
 
 
 class ISATransform(ABC):
