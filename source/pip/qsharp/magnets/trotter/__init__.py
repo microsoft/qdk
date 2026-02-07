@@ -3,10 +3,22 @@
 
 """Trotter-Suzuki methods for time evolution."""
 
-from .trotter import TrotterStep, StrangStep, TrotterExpansion
+from .trotter import (
+    TrotterStep,
+    TrotterExpansion,
+    trotter_decomposition,
+    strang_splitting,
+    suzuki_recursion,
+    yoshida_recursion,
+    fourth_order_trotter_suzuki,
+)
 
 __all__ = [
     "TrotterStep",
-    "StrangStep",
     "TrotterExpansion",
+    "trotter_decomposition",
+    "strang_splitting",
+    "suzuki_recursion",
+    "yoshida_recursion",
+    "fourth_order_trotter_suzuki",
 ]
