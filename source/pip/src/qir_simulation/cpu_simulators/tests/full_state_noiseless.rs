@@ -49,8 +49,8 @@
 //! | Rzz     | Rzz(0) ~ I, Rzz(π) ~ Z ⊗ Z                        |
 //! | M       | M ~ M M (idempotent, does not reset)              |
 //! | MZ      | MZ ~ MZ MZ (idempotent, does not reset)           |
-//! | RESET   | OP RESET ~ I (resets to |0⟩)                      |
-//! | MRESETZ | OP MRESETZ ~ I (measures and resets)              |
+//! | RESET   | OP RESET ~ |0⟩ (resets to |0⟩)                      |
+//! | MRESETZ | OP MRESETZ ~ |0⟩ (measures and resets)              |
 //! | MOV     | MOV ~ I (no-op in noiseless simulation)           |
 //! ```
 //!
@@ -400,33 +400,20 @@ fn t_adj_fourth_eq_z() {
     }
 }
 
-// MZ gate tests
-#[test]
-fn mz_is_idempotent() {
-    // M M ~ M (repeated measurement gives same result)
-    check_programs_are_eq! {
-        simulator: NoiselessSimulator,
-        programs: [
-            qir! { x(0); mz(0, 0) },
-            qir! { x(0); mz(0, 0); mz(0, 1) }
-        ],
-        num_qubits: 1,
-        num_results: 2,
-    }
-}
+// ==================== Reset and Measurement Tests ====================
 
 #[test]
-fn mz_does_not_reset() {
+fn reset_takes_qubit_back_to_zero() {
     check_sim! {
         simulator: NoiselessSimulator,
         program: qir! {
             x(0);
-            mz(0, 0);  // Measures 1, does not reset
-            mz(0, 1);  // Measures 1 again
+            reset(0);  // Measures 1, resets to 0
+            mz(0, 0);  // Measures 0
         },
         num_qubits: 1,
-        num_results: 2,
-        output: expect![[r#"11"#]],
+        num_results: 1,
+        output: expect![[r#"0"#]],
     }
 }
 
@@ -445,30 +432,19 @@ fn mresetz_resets_after_measurement() {
     }
 }
 
-// RESET gate tests
 #[test]
-fn reset_returns_qubit_to_zero() {
-    check_programs_are_eq! {
+fn mz_is_idempotent() {
+    // M M ~ M (repeated measurement gives same result)
+    check_sim! {
         simulator: NoiselessSimulator,
-        programs: [
-            qir! { i(0) },
-            qir! { x(0); reset(0); }
-        ],
+        program: qir! {
+            x(0);
+            mz(0, 0);  // Measures 1, does not reset
+            mz(0, 1);  // Measures 1 again
+        },
         num_qubits: 1,
-    }
-}
-
-// MRESETZ gate tests
-#[test]
-fn mresetz_returns_qubit_to_zero() {
-    check_programs_are_eq! {
-        simulator: NoiselessSimulator,
-        programs: [
-            qir! { i(0) },
-            qir! { x(0); mresetz(0, 0); }
-        ],
-        num_qubits: 1,
-        num_results: 1,
+        num_results: 2,
+        output: expect![[r#"11"#]],
     }
 }
 

@@ -41,8 +41,8 @@
 //! | CZ      | CZ|x0⟩ = |x0⟩, CZ(a,b) = CZ(b,a)                  |
 //! | SWAP    | Exchanges states, SWAP^2 ~ I                      |
 //! | MZ      | MZ ~ MZ MZ (idempotent, does not reset)           |
-//! | RESET   | OP RESET ~ I (resets to |0⟩)                      |
-//! | MRESETZ | OP MRESETZ ~ I (measures and resets)              |
+//! | RESET   | OP RESET ~ |0⟩ (resets to |0⟩)                      |
+//! | MRESETZ | OP MRESETZ ~ |0⟩ (measures and resets)              |
 //! | MOV     | MOV ~ I (no-op in noiseless simulation)           |
 //! ```
 //!
@@ -463,14 +463,17 @@ fn swap_twice_eq_identity() {
 // ==================== Reset and Measurement Tests ====================
 
 #[test]
-fn reset_returns_qubit_to_zero() {
-    check_programs_are_eq! {
+fn reset_takes_qubit_back_to_zero() {
+    check_sim! {
         simulator: StabilizerSimulator,
-        programs: [
-            qir! { i(0) },
-            qir! { x(0); reset(0) }
-        ],
+        program: qir! {
+            x(0);
+            reset(0);  // Resets to 0
+            mz(0, 0);  // Measures 0
+        },
         num_qubits: 1,
+        num_results: 1,
+        output: expect![[r#"0"#]],
     }
 }
 
