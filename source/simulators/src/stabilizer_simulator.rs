@@ -279,11 +279,10 @@ impl Simulator for StabilizerSimulator {
         if !self.loss[control] && !self.loss[target] {
             self.apply_idle_noise(control);
             self.apply_idle_noise(target);
-            self.state.apply_unitary(UnitaryOp::Z, &[control]);
-            self.state.apply_unitary(UnitaryOp::SqrtZ, &[target]);
+            self.state.apply_unitary(UnitaryOp::SqrtZInv, &[target]);
             self.state
                 .apply_unitary(UnitaryOp::ControlledX, &[control, target]);
-            self.state.apply_unitary(UnitaryOp::SqrtZInv, &[target]);
+            self.state.apply_unitary(UnitaryOp::SqrtZ, &[target]);
         }
         // We still apply operation faults to non-lost qubits.
         let fault = self.noise_config.cy.gen_operation_fault(&mut self.rng);
