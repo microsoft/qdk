@@ -16,26 +16,26 @@ from qsharp.magnets.geometry.hypergraph import (
 def test_hyperedge_init_basic():
     """Test basic Hyperedge initialization."""
     edge = Hyperedge([0, 1])
-    assert edge.vertices == [0, 1]
+    assert edge.vertices == (0, 1)
 
 
 def test_hyperedge_vertices_sorted():
     """Test that vertices are automatically sorted."""
     edge = Hyperedge([3, 1, 2])
-    assert edge.vertices == [1, 2, 3]
+    assert edge.vertices == (1, 2, 3)
 
 
 def test_hyperedge_single_vertex():
     """Test hyperedge with single vertex (self-loop)."""
     edge = Hyperedge([5])
-    assert edge.vertices == [5]
+    assert edge.vertices == (5,)
     assert len(edge.vertices) == 1
 
 
 def test_hyperedge_multiple_vertices():
     """Test hyperedge with multiple vertices (multi-body interaction)."""
     edge = Hyperedge([0, 1, 2, 3])
-    assert edge.vertices == [0, 1, 2, 3]
+    assert edge.vertices == (0, 1, 2, 3)
     assert len(edge.vertices) == 4
 
 
@@ -48,14 +48,14 @@ def test_hyperedge_repr():
 def test_hyperedge_empty_vertices():
     """Test hyperedge with empty vertex list."""
     edge = Hyperedge([])
-    assert edge.vertices == []
+    assert edge.vertices == ()
     assert len(edge.vertices) == 0
 
 
 def test_hyperedge_duplicate_vertices():
     """Test that duplicate vertices are removed."""
     edge = Hyperedge([1, 2, 2, 1, 3])
-    assert edge.vertices == [1, 2, 3]
+    assert edge.vertices == (1, 2, 3)
 
 
 # Hypergraph tests
@@ -113,12 +113,12 @@ def test_hypergraph_edges_iterator():
     assert len(edge_list) == 2
 
 
-def test_hypergraph_edges_by_part():
-    """Test edgesByPart returns edges in a specific partition."""
+def test_hypergraph_edges_by_color():
+    """Test edges_by_color returns edges with a specific color."""
     edges = [Hyperedge([0, 1]), Hyperedge([1, 2])]
     graph = Hypergraph(edges)
-    # Default: all edges in part 0
-    edge_list = list(graph.edges_by_part(0))
+    # Default: all edges have color 0
+    edge_list = list(graph.edges_by_color(0))
     assert len(edge_list) == 2
 
 
@@ -130,22 +130,22 @@ def test_hypergraph_add_edge():
     assert graph.nvertices == 2
 
 
-def test_hypergraph_add_edge_to_part():
-    """Test adding edges to different partitions."""
+def test_hypergraph_add_edge_with_color():
+    """Test adding edges with different colors."""
     graph = Hypergraph([Hyperedge([0, 1])])
-    graph.parts.append([])  # Add a second partition
-    graph.add_edge(Hyperedge([2, 3]), part=1)
+    graph.add_edge(Hyperedge([2, 3]), color=1)
     assert graph.nedges == 2
-    assert len(graph.parts[0]) == 1
-    assert len(graph.parts[1]) == 1
+    assert graph.color[(0, 1)] == 0
+    assert graph.color[(2, 3)] == 1
 
 
-def test_hypergraph_parts_default():
-    """Test that default parts contain all edge indices."""
+def test_hypergraph_color_default():
+    """Test that default colors are all 0."""
     edges = [Hyperedge([0, 1]), Hyperedge([1, 2]), Hyperedge([2, 3])]
     graph = Hypergraph(edges)
-    assert len(graph.parts) == 1
-    assert graph.parts[0] == [0, 1, 2]
+    assert graph.color[(0, 1)] == 0
+    assert graph.color[(1, 2)] == 0
+    assert graph.color[(2, 3)] == 0
 
 
 def test_hypergraph_str():
@@ -202,8 +202,7 @@ def test_greedy_edge_coloring_empty():
     graph = Hypergraph([])
     colored = greedy_edge_coloring(graph)
     assert colored.nedges == 0
-    assert len(colored.parts) == 1
-    assert colored.parts[0] == []
+    assert colored.ncolors == 0
 
 
 def test_greedy_edge_coloring_single_edge():
@@ -211,7 +210,7 @@ def test_greedy_edge_coloring_single_edge():
     graph = Hypergraph([Hyperedge([0, 1])])
     colored = greedy_edge_coloring(graph, seed=42)
     assert colored.nedges == 1
-    assert len(colored.parts) == 1
+    assert colored.ncolors == 1
 
 
 def test_greedy_edge_coloring_non_overlapping():
@@ -221,7 +220,7 @@ def test_greedy_edge_coloring_non_overlapping():
     colored = greedy_edge_coloring(graph, seed=42)
     # Non-overlapping edges can be in the same color
     assert colored.nedges == 2
-    assert len(colored.parts) == 1
+    assert colored.ncolors == 1
 
 
 def test_greedy_edge_coloring_overlapping():
@@ -231,7 +230,7 @@ def test_greedy_edge_coloring_overlapping():
     colored = greedy_edge_coloring(graph, seed=42)
     # Overlapping edges need different colors
     assert colored.nedges == 2
-    assert len(colored.parts) == 2
+    assert colored.ncolors == 2
 
 
 def test_greedy_edge_coloring_triangle():
@@ -241,11 +240,11 @@ def test_greedy_edge_coloring_triangle():
     colored = greedy_edge_coloring(graph, seed=42)
     # All edges share vertices pairwise, so need 3 colors
     assert colored.nedges == 3
-    assert len(colored.parts) == 3
+    assert colored.ncolors == 3
 
 
 def test_greedy_edge_coloring_validity():
-    """Test that coloring is valid (no two edges in same part share a vertex)."""
+    """Test that coloring is valid (no two edges with same color share a vertex)."""
     edges = [
         Hyperedge([0, 1]),
         Hyperedge([1, 2]),
@@ -256,29 +255,33 @@ def test_greedy_edge_coloring_validity():
     graph = Hypergraph(edges)
     colored = greedy_edge_coloring(graph, seed=42)
 
-    # Verify each part has no overlapping edges
-    for part in colored.parts:
+    # Group edges by color
+    colors = {}
+    for edge_vertices, color in colored.color.items():
+        if color not in colors:
+            colors[color] = []
+        colors[color].append(edge_vertices)
+
+    # Verify each color group has no overlapping edges
+    for color, edge_list in colors.items():
         used_vertices = set()
-        for edge_idx in part:
-            edge = colored._edge_list[edge_idx]
-            # No vertex should already be used in this part
-            assert not any(v in used_vertices for v in edge.vertices)
-            used_vertices.update(edge.vertices)
+        for vertices in edge_list:
+            # No vertex should already be used in this color
+            assert not any(v in used_vertices for v in vertices)
+            used_vertices.update(vertices)
 
 
 def test_greedy_edge_coloring_all_edges_colored():
-    """Test that all edges are assigned to exactly one part."""
+    """Test that all edges are assigned a color."""
     edges = [Hyperedge([0, 1]), Hyperedge([1, 2]), Hyperedge([2, 3])]
     graph = Hypergraph(edges)
     colored = greedy_edge_coloring(graph, seed=42)
 
-    # Collect all edge indices from all parts
-    all_colored = []
-    for part in colored.parts:
-        all_colored.extend(part)
-
-    # Should have exactly 3 edges colored, each once
-    assert sorted(all_colored) == [0, 1, 2]
+    # All edges should have a color assigned
+    assert len(colored.color) == 3
+    assert (0, 1) in colored.color
+    assert (1, 2) in colored.color
+    assert (2, 3) in colored.color
 
 
 def test_greedy_edge_coloring_reproducible_with_seed():
@@ -289,7 +292,7 @@ def test_greedy_edge_coloring_reproducible_with_seed():
     colored1 = greedy_edge_coloring(graph, seed=123)
     colored2 = greedy_edge_coloring(graph, seed=123)
 
-    assert colored1.parts == colored2.parts
+    assert colored1.color == colored2.color
 
 
 def test_greedy_edge_coloring_multiple_trials():
@@ -303,7 +306,7 @@ def test_greedy_edge_coloring_multiple_trials():
     graph = Hypergraph(edges)
     colored = greedy_edge_coloring(graph, seed=42, trials=10)
     # A cycle of 4 edges can be 2-colored
-    assert len(colored.parts) <= 3  # Greedy may not always find optimal
+    assert colored.ncolors <= 3  # Greedy may not always find optimal
 
 
 def test_greedy_edge_coloring_hyperedges():
@@ -318,7 +321,7 @@ def test_greedy_edge_coloring_hyperedges():
 
     # First two share vertex 2, third is independent
     assert colored.nedges == 3
-    assert len(colored.parts) >= 2
+    assert colored.ncolors >= 2
 
 
 def test_greedy_edge_coloring_self_loops():
@@ -329,4 +332,4 @@ def test_greedy_edge_coloring_self_loops():
 
     # Self-loops don't share vertices, can all be same color
     assert colored.nedges == 3
-    assert len(colored.parts) == 1
+    assert colored.ncolors == 1
