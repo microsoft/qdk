@@ -3,23 +3,27 @@
 //
 // # Description
 // The primary quantum feature of Q# is its representation of qubits and qubit
-// memory. Q# supports allocation of qubits, and differentiates between allocating
-// "clean" qubits and "dirty" qubits with the `use` and `borrow` keywords.
-// Clean qubits are unentangled, whereas dirty qubits are in an unknown state
-// and can potentially be entangled.
+// memory.
+//
+// Q# supports allocation of qubits with the `use` keyword.
+// Allocated qubits start in the |0⟩ state.
+//
+// Qubits are automatically released at the end of their scope.
+// Before a qubit is released, it must be returned to |0⟩ (for example, by
+// calling `Reset` after temporarily using it).
 
 operation Main() : Unit {
-    // Clean qubits are allocated with `use` statements.
-    // Clean qubits are guaranteed to be in a |0⟩ state upon allocation.
-    use qubit = Qubit();
-    use threeQubits = Qubit[3];
+    // Allocate a single qubit and an array of qubits.
+    use q = Qubit();
+    use qs = Qubit[3];
 
-    // Dirty qubits are borrowed with `borrow` statements. Borrowing grants
-    // access to qubits that are already allocated but not in use at the time.
-    // These qubits are in an arbitrary state, and must be in that same
-    // arbitrary state when the borrow statement terminates.
-    // Borrowing is useful when reducing the quantum memory requirements of
-    // an algorithm.
-    borrow qubit = Qubit();
-    borrow threeQubits = Qubit[3];
+    // If you change a qubit's state, reset it before leaving scope.
+    X(q);
+    Reset(q);
+
+    // The same rule applies to arrays of qubits.
+    for qi in qs {
+        X(qi);
+        Reset(qi);
+    }
 }
