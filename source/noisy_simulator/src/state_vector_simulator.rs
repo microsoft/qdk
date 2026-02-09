@@ -48,7 +48,7 @@ impl PartialEq for StateVector {
             .data
             .iter()
             .zip(other.data.iter())
-            .find(|(a, _)| a.norm() > TOLERANCE)
+            .max_by(|pair1, pair2| pair1.0.norm().total_cmp(&pair2.0.norm()))
             .map(|(a, b)| {
                 if b.norm() > TOLERANCE {
                     // phase = b / a, so self * phase ≈ other
@@ -72,9 +72,10 @@ impl PartialEq for StateVector {
                     .zip(other.data.iter())
                     .all(|(a, b)| eq_with_tolerance((a * phase - b).norm(), 0.0, TOLERANCE))
             }
-            // The first vector is the zero vector.
-            // We return `true` iff the second vector is also the zero vector.
-            None => other.data.iter().all(|b| b.norm() <= TOLERANCE),
+            // The first vector is the zero vector. This case is unreachable.
+            None => unreachable!(
+                "we return an error during simulation if the norm of a state-vector is zero"
+            ),
         }
     }
 }
