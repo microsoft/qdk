@@ -418,14 +418,14 @@ impl NoiseTable {
         Self::generate_pauli_strings(n - 1, extended_strings)
     }
 
-    fn get_pauli_noise(&self, name: &str) -> PyResult<Probability> {
-        let name = name.to_uppercase();
-        let key = encode_pauli(&name);
+    fn get_pauli_noise_elt(&self, pauli: &str) -> PyResult<Probability> {
+        self.validate_pauli_string(pauli)?;
+        let key = encode_pauli(pauli);
         if let Some(p) = self.pauli_noise.get(&key) {
             return Ok(*p);
         }
         Err(PyAttributeError::new_err(format!(
-            "'NoiseTable' object has no attribute '{name}'",
+            "'NoiseTable' object has no attribute '{pauli}'",
         )))
     }
 
@@ -522,7 +522,7 @@ impl NoiseTable {
         if name == "loss" {
             Ok(self.loss)
         } else {
-            self.get_pauli_noise(name)
+            self.get_pauli_noise_elt(&name.to_uppercase())
         }
     }
 
