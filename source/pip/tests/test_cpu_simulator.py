@@ -150,9 +150,7 @@ operation Main() : Result[] {
     """
     qsharp.eval(program)
 
-    input = qsharp.compile(
-        "Main()"
-    )
+    input = qsharp.compile("Main()")
 
     noise = NoiseConfig()
     noise.x.loss = 0.1
@@ -169,7 +167,9 @@ operation Main() : Result[] {
     }
     tolerance = 0.2 * total
     for bitstring, actual_count in histogram.items():
-        assert bitstring in allowed_percent, f"Unexpected measurement string: '{bitstring}'."
+        assert (
+            bitstring in allowed_percent
+        ), f"Unexpected measurement string: '{bitstring}'."
         expected_count = allowed_percent[bitstring] * total
         assert abs(actual_count - expected_count) <= tolerance, (
             f"Count for {bitstring} outside 20% tolerance. "
@@ -196,9 +196,7 @@ operation Main() : Result[] {
     """
     qsharp.eval(program)
 
-    input = qsharp.compile(
-        "Main()"
-    )
+    input = qsharp.compile("Main()")
 
     noise = NoiseConfig()
     noise.x.set_bitflip(0.001)
@@ -241,6 +239,26 @@ def build_x_chain_qir(n_instances: int, n_x: int) -> str:
     qsharp.init(target_profile=TargetProfile.Base)
     qir_parallel = openqasm.compile(src_parallel)
     return str(qir_parallel)
+
+
+def build_cy_noise_qir(n_cy: int) -> str:
+    src = """
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        bit[2] c;
+        qubit[2] q;
+        x q[0];
+        h q[1];
+        """
+    src += "cy q[0], q[1];\n" * n_cy
+    src += """
+        h q[1];
+        c = measure q;
+        """
+
+    qsharp.init(target_profile=TargetProfile.Base)
+    qir_program = openqasm.compile(src)
+    return str(qir_program)
 
 
 @pytest.mark.parametrize(
@@ -288,6 +306,36 @@ def test_cpu_x_chain(
     assert all(
         err < max_percent for err in error_percent
     ), f"Error percent too high: {error_percent}"
+
+
+def test_cpu_cy_noise_distribution():
+    """
+    Apply CY with per-gate Z noise and validate the expected odd-parity flip rate.
+    """
+    n_cy = 10
+    p_z = 0.01
+    n_shots = 1000
+    expected_p1 = (1.0 - (1.0 - 2.0 * p_z) ** n_cy) / 2.0
+
+    noise = NoiseConfig()
+    noise.cy.set_pauli_noise("IZ", p_z)
+
+    qir = build_cy_noise_qir(n_cy)
+    output = run_qir_cpu(qir, shots=n_shots, noise=noise, seed=77)
+
+    count_target_one = 0
+    for shot in output:
+        shot_results = cast(Sequence[Result], shot)
+        if shot_results[0] == Result.One:
+            count_target_one += 1
+
+    actual_p1 = count_target_one / n_shots
+    tolerance = 0.05
+    print(
+        f"CY noise rate outside tolerance. Expected≈{expected_p1:.3f}, "
+        f"actual={actual_p1:.3f}, tol={tolerance:.3f}"
+    )
+    assert abs(actual_p1 - expected_p1) <= tolerance, "CY noise rate outside tolerance."
 
 
 def generate_op_sequence(

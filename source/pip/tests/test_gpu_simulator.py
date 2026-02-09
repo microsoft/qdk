@@ -164,6 +164,7 @@ def test_gpu_mixed_noise():
         "000000010000000-000000000",
     ]
 
+
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
 def test_gpu_isolated_loss():
     qsharp.init(target_profile=TargetProfile.Base)
@@ -182,9 +183,7 @@ operation Main() : Result[] {
     """
     qsharp.eval(program)
 
-    input = qsharp.compile(
-        "Main()"
-    )
+    input = qsharp.compile("Main()")
 
     noise = NoiseConfig()
     noise.x.loss = 0.1
@@ -201,7 +200,9 @@ operation Main() : Result[] {
     }
     tolerance = 0.2 * total
     for bitstring, actual_count in histogram.items():
-        assert bitstring in allowed_percent, f"Unexpected measurement string: '{bitstring}'."
+        assert (
+            bitstring in allowed_percent
+        ), f"Unexpected measurement string: '{bitstring}'."
         expected_count = allowed_percent[bitstring] * total
         assert abs(actual_count - expected_count) <= tolerance, (
             f"Count for {bitstring} outside 20% tolerance. "
@@ -229,9 +230,7 @@ operation Main() : Result[] {
     """
     qsharp.eval(program)
 
-    input = qsharp.compile(
-        "Main()"
-    )
+    input = qsharp.compile("Main()")
 
     noise = NoiseConfig()
     noise.x.set_bitflip(0.001)
@@ -324,6 +323,56 @@ def test_gpu_x_chain(
     ), f"Error percent too high: {error_percent}"
 
 
+def build_cy_noise_qir(n_cy: int) -> str:
+    src = """
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        bit[2] c;
+        qubit[2] q;
+        x q[0];
+        h q[1];
+        """
+    src += "cy q[0], q[1];\n" * n_cy
+    src += """
+        h q[1];
+        c = measure q;
+        """
+
+    qsharp.init(target_profile=TargetProfile.Base)
+    qir_program = openqasm.compile(src)
+    return str(qir_program)
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_gpu_cy_noise_distribution():
+    """
+    Apply CY with per-gate Z noise and validate the expected odd-parity flip rate.
+    """
+    n_cy = 10
+    p_z = 0.01
+    n_shots = 1000
+    expected_p1 = (1.0 - (1.0 - 2.0 * p_z) ** n_cy) / 2.0
+
+    noise = NoiseConfig()
+    noise.cy.set_pauli_noise("IZ", p_z)
+
+    qir = build_cy_noise_qir(n_cy)
+    output = run_qir_gpu(qir, shots=n_shots, noise=noise, seed=77)
+
+    count_target_one = 0
+    for shot in output:
+        shot_results = cast(Sequence[Result], shot)
+        if shot_results[0] == Result.One:  # TODO: QUASM measure big endian???
+            count_target_one += 1
+
+    actual_p1 = count_target_one / n_shots
+    tolerance = 0.05
+    print(
+        f"CY noise rate outside tolerance. Expected≈{expected_p1:.3f}, actual={actual_p1:.3f}, tol={tolerance:.3f}"
+    )
+    assert abs(actual_p1 - expected_p1) <= tolerance, "CY noise rate outside tolerance."
+
+
 def generate_op_sequence(
     n_qubits: int, n_ops: int, n_rand: int
 ) -> list[tuple[int, int]]:
@@ -348,7 +397,7 @@ def generate_op_sequence(
 
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
 @pytest.mark.parametrize("noisy_gate, noise_number", [(0, 2), (1, 1), (2, 2), (3, 2)])
-def test_gpu_permuted_rotations(noisy_gate : int, noise_number : int):
+def test_gpu_permuted_rotations(noisy_gate: int, noise_number: int):
     qsharp.init(target_profile=TargetProfile.Base)
 
     n_shots = 2000
@@ -380,7 +429,7 @@ operation tiny_coeffs() : Result[] {{
     # noise_number = how many times noisy gate appears in sequence.
 
     n_ops = 7
-    ops = generate_op_sequence(n_qubits, n_ops, n_qubits*n_ops*100)
+    ops = generate_op_sequence(n_qubits, n_ops, n_qubits * n_ops * 100)
     infix = ""
     for qubit, op in ops:
         match op:
@@ -407,12 +456,10 @@ operation tiny_coeffs() : Result[] {{
 
     program = prefix + infix + suffix
     qsharp.eval(program)
-    input = qsharp.compile(
-        "tiny_coeffs()"
-    )
+    input = qsharp.compile("tiny_coeffs()")
 
     noise = NoiseConfig()
-    p_combined_loss = 1.0 - ((1.0-p_loss)**noise_number)
+    p_combined_loss = 1.0 - ((1.0 - p_loss) ** noise_number)
     match noisy_gate:
         case 0:
             noise.h.loss = p_loss
@@ -429,7 +476,9 @@ operation tiny_coeffs() : Result[] {{
     result_strings = [
         result_array_to_string(cast(Sequence[Result], shot)) for shot in output
     ]
-    assert len(result_strings) == n_shots, f"Shot count mismatch. Actual={len(result_strings)}, Expected={n_shots}"
+    assert (
+        len(result_strings) == n_shots
+    ), f"Shot count mismatch. Actual={len(result_strings)}, Expected={n_shots}"
 
     p_minus = p_combined_loss
     p_0 = 1.0 - p_minus
@@ -442,11 +491,15 @@ operation tiny_coeffs() : Result[] {{
 
     counts = {pattern: 0 for pattern, _ in allowed}
     for entry in result_strings:
-        assert entry in counts, f"Unexpected measurement string: '{entry}'. Program={program}."
+        assert (
+            entry in counts
+        ), f"Unexpected measurement string: '{entry}'. Program={program}."
         counts[entry] += 1
 
     tolerance = tolerance_percent / 100.0 * n_shots
-    print(f"Permuted rotations test: n_qubits={n_qubits}, n_shots={n_shots}, seed={seed}, noise#{noise_number}, Δ<={tolerance:.0f} i1={i1}, i2={i2}")
+    print(
+        f"Permuted rotations test: n_qubits={n_qubits}, n_shots={n_shots}, seed={seed}, noise#{noise_number}, Δ<={tolerance:.0f} i1={i1}, i2={i2}"
+    )
     summary_msg = ", ".join(
         f"'{pattern}': {counts[pattern]} (Δ={abs(counts[pattern] - expected_count):.0f})"
         for pattern, expected_count in allowed
@@ -457,4 +510,3 @@ operation tiny_coeffs() : Result[] {{
         assert (
             abs(actual_count - expected_count) <= tolerance
         ), f"Count for {pattern} off by more than {tolerance_percent:.1f}% of shots. Actual={actual_count}, Expected={expected_count:.0f}, noise#{noise_number}, Program={program}."
-

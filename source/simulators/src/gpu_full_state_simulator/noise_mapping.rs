@@ -88,6 +88,7 @@ pub fn get_noise_ops(op: &Op, noise_config: &NoiseConfig<f32, f64>) -> Option<Ve
         ops::RY => &noise_config.ry,
         ops::RZ => &noise_config.rz,
         ops::CX => &noise_config.cx,
+        ops::CY => &noise_config.cy,
         ops::CZ => &noise_config.cz,
         ops::RXX => &noise_config.rxx,
         ops::RYY => &noise_config.ryy,
