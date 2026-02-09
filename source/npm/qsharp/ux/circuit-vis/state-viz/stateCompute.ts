@@ -8,12 +8,17 @@
 
 import { getCurrentCircuitModel } from "../events.js";
 import type { ComponentGrid, Qubit } from "../circuit.js";
-import { computeAmpMapForCircuit } from "./stateComputeCore.js";
+import {
+  computeAmpMapForCircuit,
+  UnsupportedStateComputeError,
+} from "./stateComputeCore.js";
 import {
   prepareStateVizColumnsFromAmpMap,
   type PrepareStateVizOptions,
 } from "./stateVizPrep.js";
 import type { StateColumn } from "./stateViz.js";
+
+const MAX_QUBITS_FOR_STATE_VIZ = 20;
 
 type CircuitModelSnapshot = { qubits: Qubit[]; componentGrid: ComponentGrid };
 type StateComputeHostApi = {
@@ -36,6 +41,12 @@ export async function computeStateVizColumnsFromCurrentModelAsync(
   const model = getCurrentCircuitModel(expectedCircuitSvg);
   if (!model) return null;
   if (model.qubits.length === 0) return [];
+
+  if (model.qubits.length > MAX_QUBITS_FOR_STATE_VIZ) {
+    throw new UnsupportedStateComputeError(
+      `Too many qubits for state visualization (limit: ${MAX_QUBITS_FOR_STATE_VIZ}). This circuit has ${model.qubits.length} qubits.`,
+    );
+  }
 
   const api = getHostStateComputeApi();
   if (api?.computeStateVizColumnsForCircuitModel) {

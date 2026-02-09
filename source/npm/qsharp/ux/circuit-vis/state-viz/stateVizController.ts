@@ -137,6 +137,13 @@ export function ensureStateVisualization(
     try {
       beginLoadingForRequest(requestId);
 
+      // If we were previously showing a message (e.g., unsupported/too many
+      // qubits), clear it immediately so the loading overlay can be shown while
+      // the new request is computing.
+      if (panel.classList.contains("message")) {
+        renderBlankStatePanel(panel);
+      }
+
       // Determine current wire count and SVG for this render from the DOM.
       const hostContainer =
         ((panelElem as any)._stateVizContainer as HTMLElement | undefined) ??
