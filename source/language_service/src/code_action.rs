@@ -68,8 +68,12 @@ fn quick_fixes(
                     range: qsc::line_column::Range::from_span(encoding, &source.contents, span),
                 })
                 .collect();
+            let title = lint
+                .code_action_title
+                .clone()
+                .unwrap_or_else(|| diagnostic.to_string());
             code_actions.push(CodeAction {
-                title: diagnostic.to_string(),
+                title,
                 edit: Some(WorkspaceEdit {
                     changes: vec![(source_name.to_string(), text_edits)],
                 }),

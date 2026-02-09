@@ -13,6 +13,7 @@ macro_rules! lint {
             help: $lint.help(),
             kind: $lint.lint_kind(),
             code_action_edits: vec![],
+            code_action_title: None,
         }
     };
     ($lint:expr, $span:expr, $code_action_edits:expr) => {
@@ -23,6 +24,18 @@ macro_rules! lint {
             help: $lint.help(),
             kind: $lint.lint_kind(),
             code_action_edits: $code_action_edits,
+            code_action_title: None,
+        }
+    };
+    ($lint:expr, $span:expr, $code_action_edits:expr, $code_action_title:expr) => {
+        Lint {
+            span: $span,
+            level: $lint.level,
+            message: $lint.message(),
+            help: $lint.help(),
+            kind: $lint.lint_kind(),
+            code_action_edits: $code_action_edits,
+            code_action_title: $code_action_title,
         }
     };
 }

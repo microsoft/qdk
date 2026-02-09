@@ -278,7 +278,12 @@ impl HirLintPass for DeprecatedWithOperator {
                     write!(new_expr, "{:indent$}}}", "", indent = indentation - 4)
                         .expect("writing to string should succeed");
                     let code_action_edits = vec![(new_expr, info.span)];
-                    buffer.push(lint!(self, info.span, code_action_edits));
+                    buffer.push(lint!(
+                        self,
+                        info.span,
+                        code_action_edits,
+                        Some("Replace with struct constructor".to_string())
+                    ));
                     self.lint_info = None;
                 }
             }
@@ -335,7 +340,8 @@ impl HirLintPass for DeprecatedDoubleColonOperator {
                         info.op_spans
                             .into_iter()
                             .map(|s| (".".to_string(), s))
-                            .collect()
+                            .collect(),
+                        Some("Replace `::` with `.` for field access".to_string())
                     ));
                 }
             }

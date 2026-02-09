@@ -28,6 +28,7 @@ fn daisy_chain_lint() {
                     message: "discouraged use of chain assignment",
                     help: "assignment expressions always return `Unit`, so chaining them may not be useful",
                     code_action_edits: [],
+                    code_action_title: None,
                 },
             ]
         "#]],
@@ -46,6 +47,7 @@ fn long_daisy_chain_lint() {
                     message: "discouraged use of chain assignment",
                     help: "assignment expressions always return `Unit`, so chaining them may not be useful",
                     code_action_edits: [],
+                    code_action_title: None,
                 },
             ]
         "#]],
@@ -64,6 +66,7 @@ fn nested_daisy_chain_lint() {
                     message: "discouraged use of chain assignment",
                     help: "assignment expressions always return `Unit`, so chaining them may not be useful",
                     code_action_edits: [],
+                    code_action_title: None,
                 },
                 SrcLint {
                     source: "a = b = c",
@@ -71,6 +74,7 @@ fn nested_daisy_chain_lint() {
                     message: "discouraged use of chain assignment",
                     help: "assignment expressions always return `Unit`, so chaining them may not be useful",
                     code_action_edits: [],
+                    code_action_title: None,
                 },
             ]
         "#]],
@@ -97,6 +101,9 @@ fn set_keyword_lint() {
                             },
                         ),
                     ],
+                    code_action_title: Some(
+                        "Remove `set` keyword",
+                    ),
                 },
             ]
         "#]],
@@ -119,6 +126,7 @@ fn lint_group() {
                     message: "deprecated `newtype` declarations",
                     help: "`newtype` declarations are deprecated, use `struct` instead",
                     code_action_edits: [],
+                    code_action_title: None,
                 },
                 SrcLint {
                     source: "RunProgram",
@@ -126,6 +134,7 @@ fn lint_group() {
                     message: "operation does not contain any quantum operations",
                     help: "this callable can be declared as a function instead",
                     code_action_edits: [],
+                    code_action_title: None,
                 },
             ]
         "#]],
@@ -152,6 +161,9 @@ fn multiple_lints() {
                             },
                         ),
                     ],
+                    code_action_title: Some(
+                        "Remove redundant semicolons",
+                    ),
                 },
                 SrcLint {
                     source: "((1 + 2)) / 0",
@@ -159,6 +171,7 @@ fn multiple_lints() {
                     message: "attempt to divide by zero",
                     help: "division by zero will fail at runtime",
                     code_action_edits: [],
+                    code_action_title: None,
                 },
                 SrcLint {
                     source: "((1 + 2))",
@@ -181,6 +194,9 @@ fn multiple_lints() {
                             },
                         ),
                     ],
+                    code_action_title: Some(
+                        "Remove unnecessary parentheses",
+                    ),
                 },
                 SrcLint {
                     source: "RunProgram",
@@ -188,6 +204,7 @@ fn multiple_lints() {
                     message: "operation does not contain any quantum operations",
                     help: "this callable can be declared as a function instead",
                     code_action_edits: [],
+                    code_action_title: None,
                 },
             ]
         "#]],
@@ -221,6 +238,9 @@ fn double_parens() {
                             },
                         ),
                     ],
+                    code_action_title: Some(
+                        "Remove unnecessary parentheses",
+                    ),
                 },
             ]
         "#]],
@@ -239,6 +259,7 @@ fn division_by_zero() {
                     message: "attempt to divide by zero",
                     help: "division by zero will fail at runtime",
                     code_action_edits: [],
+                    code_action_title: None,
                 },
             ]
         "#]],
@@ -257,6 +278,7 @@ fn double_equality() {
                     message: "strict comparison of doubles",
                     help: "consider comparing them with some margin of error",
                     code_action_edits: [],
+                    code_action_title: None,
                 },
             ]
         "#]],
@@ -291,6 +313,7 @@ fn double_inequality() {
                     message: "strict comparison of doubles",
                     help: "consider comparing them with some margin of error",
                     code_action_edits: [],
+                    code_action_title: None,
                 },
             ]
         "#]],
@@ -324,6 +347,9 @@ fn needless_parens_in_assignment() {
                             },
                         ),
                     ],
+                    code_action_title: Some(
+                        "Remove unnecessary parentheses",
+                    ),
                 },
             ]
         "#]],
@@ -357,6 +383,9 @@ fn needless_parens() {
                             },
                         ),
                     ],
+                    code_action_title: Some(
+                        "Remove unnecessary parentheses",
+                    ),
                 },
                 SrcLint {
                     source: "(5 * 4 * (2 ^ 10))",
@@ -379,6 +408,9 @@ fn needless_parens() {
                             },
                         ),
                     ],
+                    code_action_title: Some(
+                        "Remove unnecessary parentheses",
+                    ),
                 },
                 SrcLint {
                     source: "(2 ^ 10)",
@@ -401,6 +433,9 @@ fn needless_parens() {
                             },
                         ),
                     ],
+                    code_action_title: Some(
+                        "Remove unnecessary parentheses",
+                    ),
                 },
             ]
         "#]],
@@ -427,6 +462,9 @@ fn redundant_semicolons() {
                             },
                         ),
                     ],
+                    code_action_title: Some(
+                        "Remove redundant semicolons",
+                    ),
                 },
             ]
         "#]],
@@ -465,6 +503,7 @@ fn needless_operation_non_empty_op_and_no_specialization() {
                     message: "operation does not contain any quantum operations",
                     help: "this callable can be declared as a function instead",
                     code_action_edits: [],
+                    code_action_title: None,
                 },
             ]
         "#]],
@@ -490,6 +529,7 @@ fn needless_operation_non_empty_op_and_specialization() {
                     message: "operation does not contain any quantum operations",
                     help: "this callable can be declared as a function instead",
                     code_action_edits: [],
+                    code_action_title: None,
                 },
             ]
         "#]],
@@ -545,6 +585,7 @@ fn needless_operation_partial_application() {
                     message: "operation does not contain any quantum operations",
                     help: "this callable can be declared as a function instead",
                     code_action_edits: [],
+                    code_action_title: None,
                 },
             ]
         "#]],
@@ -565,6 +606,7 @@ fn deprecated_newtype_usage() {
                     message: "deprecated `newtype` declarations",
                     help: "`newtype` declarations are deprecated, use `struct` instead",
                     code_action_edits: [],
+                    code_action_title: None,
                 },
             ]
         "#]],
@@ -586,6 +628,7 @@ fn deprecated_function_cons() {
                     message: "deprecated function constructors",
                     help: "function constructors for struct types are deprecated, use `new` instead",
                     code_action_edits: [],
+                    code_action_title: None,
                 },
             ]
         "#]],
@@ -618,6 +661,9 @@ fn deprecated_with_op_for_structs() {
                             },
                         ),
                     ],
+                    code_action_title: Some(
+                        "Replace with struct constructor",
+                    ),
                 },
             ]
         "#]],
@@ -651,6 +697,9 @@ fn deprecated_with_eq_op_for_structs() {
                             },
                         ),
                     ],
+                    code_action_title: Some(
+                        "Replace with struct constructor",
+                    ),
                 },
             ]
         "#]],
@@ -691,6 +740,9 @@ fn deprecated_double_colon_op() {
                             },
                         ),
                     ],
+                    code_action_title: Some(
+                        "Replace `::` with `.` for field access",
+                    ),
                 },
             ]
         "#]],
@@ -733,6 +785,9 @@ fn deprecated_double_colon_op_with_spacing() {
                             },
                         ),
                     ],
+                    code_action_title: Some(
+                        "Replace `::` with `.` for field access",
+                    ),
                 },
             ]
         "#]],
@@ -775,6 +830,7 @@ fn deprecated_update_expr_lint() {
                     message: "deprecated use of update expressions",
                     help: "update expressions \"a w/ b <- c\" are deprecated; consider using explicit assignment instead",
                     code_action_edits: [],
+                    code_action_title: None,
                 },
             ]
         "#]],
@@ -804,6 +860,9 @@ fn deprecated_assign_update_expr_code_action() {
                             },
                         ),
                     ],
+                    code_action_title: Some(
+                        "Replace update assignment expression with explicit assignment",
+                    ),
                 },
             ]
         "#]],
@@ -822,6 +881,7 @@ fn ambiguous_unary_operator_after_if() {
                     message: "ambiguous unary operator after if-expression",
                     help: "consider wrapping the if-expression in parentheses or using a semicolon to clarify the intended use of the operator",
                     code_action_edits: [],
+                    code_action_title: None,
                 },
             ]
         "#]],
@@ -870,6 +930,7 @@ fn ambiguous_unary_operator_after_if_does_trigger_warning_on_different_non_unit_
                     message: "ambiguous unary operator after if-expression",
                     help: "consider wrapping the if-expression in parentheses or using a semicolon to clarify the intended use of the operator",
                     code_action_edits: [],
+                    code_action_title: None,
                 },
             ]
         "#]],
@@ -897,6 +958,35 @@ fn ambiguous_unary_operator_after_if_does_not_trigger_for_unary_ops_besides_minu
 }
 
 #[test]
+fn deprecated_borrow_keyword() {
+    check(
+        &wrap_in_callable("borrow qs = Qubit[2];", CallableKind::Operation),
+        &expect![[r#"
+            [
+                SrcLint {
+                    source: "borrow",
+                    level: Warn,
+                    message: "deprecated `borrow` qubit allocation",
+                    help: "the `borrow` keyword for qubit allocation is deprecated, use `use` instead",
+                    code_action_edits: [
+                        (
+                            "use",
+                            Span {
+                                lo: 72,
+                                hi: 78,
+                            },
+                        ),
+                    ],
+                    code_action_title: Some(
+                        "Replace `borrow` with `use`",
+                    ),
+                },
+            ]
+        "#]],
+    );
+}
+
+#[test]
 fn check_that_hir_lints_are_deduplicated_in_operations_with_multiple_specializations() {
     check_with_deduplication(
         "
@@ -913,6 +1003,7 @@ fn check_that_hir_lints_are_deduplicated_in_operations_with_multiple_specializat
                     message: "strict comparison of doubles",
                     help: "consider comparing them with some margin of error",
                     code_action_edits: [],
+                    code_action_title: None,
                 },
             ]
         "#]],
@@ -967,6 +1058,7 @@ fn avoid_namespace_block_explicit() {
                 message: "avoid using explicit namespace blocks",
                 help: "Q# best practice is to not use namespace blocks to enclose code; the namespace is inferred from the file path",
                 code_action_edits: [],
+                code_action_title: None,
             },
         ]
     "#]]
@@ -1014,6 +1106,7 @@ fn avoid_namespace_block_multiple() {
                 message: "avoid using explicit namespace blocks",
                 help: "Q# best practice is to not use namespace blocks to enclose code; the namespace is inferred from the file path",
                 code_action_edits: [],
+                code_action_title: None,
             },
             SrcLint {
                 source: "Bar",
@@ -1021,6 +1114,7 @@ fn avoid_namespace_block_multiple() {
                 message: "avoid using explicit namespace blocks",
                 help: "Q# best practice is to not use namespace blocks to enclose code; the namespace is inferred from the file path",
                 code_action_edits: [],
+                code_action_title: None,
             },
         ]
     "#]]
@@ -1053,6 +1147,7 @@ fn avoid_namespace_block_with_comments() {
                 message: "avoid using explicit namespace blocks",
                 help: "Q# best practice is to not use namespace blocks to enclose code; the namespace is inferred from the file path",
                 code_action_edits: [],
+                code_action_title: None,
             },
         ]
     "#]]
@@ -1084,6 +1179,7 @@ fn avoid_namespace_block_with_doc_comments() {
                 message: "avoid using explicit namespace blocks",
                 help: "Q# best practice is to not use namespace blocks to enclose code; the namespace is inferred from the file path",
                 code_action_edits: [],
+                code_action_title: None,
             },
         ]
     "#]]
@@ -1146,6 +1242,7 @@ struct SrcLint {
     message: &'static str,
     help: &'static str,
     code_action_edits: Vec<(String, Span)>,
+    code_action_title: Option<String>,
 }
 
 impl SrcLint {
@@ -1160,6 +1257,7 @@ impl SrcLint {
                 .iter()
                 .map(|(edit, span)| (edit.clone(), *span))
                 .collect(),
+            code_action_title: lint.code_action_title.clone(),
         }
     }
 }

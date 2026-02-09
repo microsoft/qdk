@@ -172,6 +172,8 @@ pub struct Lint {
     pub kind: LintKind,
     /// The suggested edits to fix the lint.
     pub code_action_edits: Vec<(String, Span)>,
+    /// An optional title for the code action. If not provided, the lint message will be used as the title.
+    pub code_action_title: Option<String>,
 }
 
 impl std::hash::Hash for Lint {
