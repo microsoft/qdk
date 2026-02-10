@@ -45,6 +45,7 @@ const formatInputs = (
   //             ╎╎ ┌─┐ ╎╎
   //          ───┼┼─│X│─┼┼──
   //             ╎╎ └╥┘ ╎╎
+  //             ╎╎  ║  ╎╎
   //             ╎╎  ╚══╪╪══
   //             ╎╎     ╎╎
   //             ╎└╌╌╌╌╌┘╎
@@ -63,12 +64,13 @@ const formatInputs = (
     //             ╎╎ ┌─┐ ╎╎
     //          ───┼┼─│X│─┼┼──
     //             ╎╎ └╥┘ ╎╎
+    //             ╎╎  ║  ╎╎
     //             ╎╎  ╚══╪╪══
     //             ╎╎     ╎╎
     //             ╎└╌╌╌╌╌┘╎
     //             └╌╌╌╌╌╌╌┘
 
-    currY += gatePadding;
+    currY += gatePadding + gateHeight / 2;
 
     //             ┌╌╌╌╌╌╌╌┐
     //             ╎┌╌╌╌╌╌┐╎
@@ -76,6 +78,7 @@ const formatInputs = (
     //             ╎╎ ┌─┐ ╎╎
     // currY -> ───┼┼─│X│─┼┼──
     //             ╎╎ └╥┘ ╎╎
+    //             ╎╎  ║  ╎╎
     //             ╎╎  ╚══╪╪══
     //             ╎╎     ╎╎
     //             ╎└╌╌╌╌╌┘╎
@@ -95,14 +98,15 @@ const formatInputs = (
       y: currY,
     };
 
-    currY += gateHeight / 2;
+    currY += gatePadding + gateHeight / 2;
 
     //             ┌╌╌╌╌╌╌╌┐
     //             ╎┌╌╌╌╌╌┐╎
     //             ╎╎     ╎╎
     //             ╎╎ ┌─┐ ╎╎
     //          ───┼┼─│X│─┼┼──
-    // currY ->    ╎╎ └╥┘ ╎╎
+    //             ╎╎ └╥┘ ╎╎
+    // currY ->    ╎╎  ║  ╎╎
     //             ╎╎  ╚══╪╪══
     //             ╎╎     ╎╎
     //             ╎└╌╌╌╌╌┘╎
@@ -112,7 +116,8 @@ const formatInputs = (
 
     // Add classical wires
     registers[id].children = Array.from(Array(numResults ?? 0), () => {
-      currY += classicalRegHeight;
+      // currY += classicalRegHeight;
+      currY += gateHeight / 2 + gatePadding;
 
       //             ┌╌╌╌╌╌╌╌┐
       //             ╎┌╌╌╌╌╌┐╎
@@ -120,6 +125,7 @@ const formatInputs = (
       //             ╎╎ ┌─┐ ╎╎
       //          ───┼┼─│X│─┼┼──
       //             ╎╎ └╥┘ ╎╎
+      //             ╎╎  ║  ╎╎
       // currY ->    ╎╎  ╚══╪╪══
       //             ╎╎     ╎╎
       //             ╎└╌╌╌╌╌┘╎
@@ -129,10 +135,11 @@ const formatInputs = (
         type: RegisterType.Classical,
         y: currY,
       };
+
+      currY += gateHeight / 2 + gatePadding;
+
       return clsReg;
     });
-
-    currY += gatePadding + gateHeight / 2;
 
     //             ┌╌╌╌╌╌╌╌┐
     //             ╎┌╌╌╌╌╌┐╎
@@ -140,6 +147,7 @@ const formatInputs = (
     //             ╎╎ ┌─┐ ╎╎
     //          ───┼┼─│X│─┼┼──
     //             ╎╎ └╥┘ ╎╎
+    //             ╎╎  ║  ╎╎
     //             ╎╎  ╚══╪╪══
     // currY ->    ╎╎     ╎╎
     //             ╎└╌╌╌╌╌┘╎
@@ -155,6 +163,7 @@ const formatInputs = (
     //             ╎╎ └╥┘ ╎╎
     //             ╎╎  ║  ╎╎
     //             ╎╎  ╚══╪╪══
+    //             ╎╎     ╎╎
     //             ╎└╌╌╌╌╌┘╎
     //             └╌╌╌╌╌╌╌┘
     // currY ->
