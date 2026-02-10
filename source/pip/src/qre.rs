@@ -392,6 +392,7 @@ impl ConstraintBound {
     }
 }
 
+#[derive(Default)]
 #[pyclass(name = "_ProvenanceGraph")]
 pub struct ProvenanceGraph(qre::ProvenanceGraph);
 
