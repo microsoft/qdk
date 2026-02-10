@@ -12,17 +12,17 @@ macro_rules! lint {
             message: $lint.message(),
             help: $lint.help(),
             kind: $lint.lint_kind(),
-            code_action_edits: vec![],
+            code_action: None,
         }
     };
-    ($lint:expr, $span:expr, $code_action_edits:expr) => {
+    ($lint:expr, $span:expr, $code_action:expr) => {
         Lint {
             span: $span,
             level: $lint.level,
             message: $lint.message(),
             help: $lint.help(),
             kind: $lint.lint_kind(),
-            code_action_edits: $code_action_edits,
+            code_action: Some($code_action),
         }
     };
 }
