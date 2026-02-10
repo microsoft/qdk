@@ -4,6 +4,7 @@
 // #![allow(dead_code)]
 
 use crate::qir_simulation::{QirInstruction, QirInstructionId, cpu_simulators::run_shot};
+use qdk_simulators::noise_config as noise_config_mod;
 
 // ==================== Instruction Builder Functions ====================
 // These functions create QirInstruction values for use in check_sim! tests.
@@ -542,6 +543,11 @@ macro_rules! check_sim {
         };
         run::<_, CumulativeNoiseConfig<Fault>, _>($instructions, $num_qubits, $num_results, $shots, $seed, $noise, make_simulator)
     }};
+
+    // Run with GPU simulator
+    (@run GpuSimulator, $instructions:expr, $num_qubits:expr, $num_results:expr, $shots:expr, $seed:expr, $noise:expr) => {{
+        run_on_gpu($instructions, $num_qubits, $num_results, $shots, $seed, $noise)
+    }};
 }
 
 #[cfg(test)]
@@ -903,3 +909,131 @@ pub fn outcomes(output: &[String]) -> String {
     let unique_results: BTreeSet<&str> = output.iter().map(String::as_str).collect();
     unique_results.into_iter().collect::<Vec<_>>().join("\n")
 }
+
+// ==================== GPU Simulator Runner ====================
+
+/// Run a QIR program on the GPU simulator.
+///
+/// This converts `QirInstruction`s to GPU `Op`s via `map_instruction` and
+/// calls `qdk_simulators::run_shots_sync` to execute them on the GPU.
+/// The result format matches the CPU simulators: a `Vec<String>` where
+/// each string is a bitstring of '0', '1', or 'L' (for lost qubits).
+pub fn run_on_gpu(
+    instructions: &[QirInstruction],
+    num_qubits: u32,
+    num_results: u32,
+    shots: u32,
+    seed: Option<u32>,
+    noise: noise_config_mod::NoiseConfig<f64, f64>,
+) -> Vec<String> {
+    use crate::qir_simulation::gpu_full_state::map_instruction;
+
+    // Convert QirInstructions to GPU Ops
+    let ops: Vec<qdk_simulators::shader_types::Op> =
+        instructions.iter().filter_map(map_instruction).collect();
+
+    // Convert f64 noise config to f32/f64 for GPU
+    let gpu_noise: Option<noise_config_mod::NoiseConfig<f32, f64>> =
+        Some(noise_table_f64_to_f32(noise));
+
+    let rng_seed = seed.unwrap_or(0xfeed_face);
+
+    #[allow(clippy::cast_possible_wrap)]
+    let sim_results = qdk_simulators::run_shots_sync(
+        num_qubits as i32,
+        num_results as i32,
+        &ops,
+        &gpu_noise,
+        shots as i32,
+        rng_seed,
+        0,
+    )
+    .expect("GPU simulation failed");
+
+    let result_count = num_results as usize;
+
+    sim_results
+        .shot_results
+        .iter()
+        .map(|shot_results| {
+            let mut bitstring = String::with_capacity(result_count);
+            for res in shot_results {
+                let ch = match res {
+                    0 => '0',
+                    1 => '1',
+                    _ => 'L',
+                };
+                bitstring.push(ch);
+            }
+            bitstring
+        })
+        .collect()
+}
+
+/// Convert a `NoiseTable<f64>` to `NoiseTable<f32>`.
+fn noise_table_f64_to_f32_table(
+    table: noise_config_mod::NoiseTable<f64>,
+) -> noise_config_mod::NoiseTable<f32> {
+    noise_config_mod::NoiseTable {
+        qubits: table.qubits,
+        pauli_strings: table.pauli_strings,
+        #[allow(clippy::cast_possible_truncation)]
+        probabilities: table.probabilities.into_iter().map(|p| p as f32).collect(),
+        #[allow(clippy::cast_possible_truncation)]
+        loss: table.loss as f32,
+    }
+}
+
+/// Convert a `NoiseConfig<f64, f64>` to `NoiseConfig<f32, f64>` for the GPU simulator.
+fn noise_table_f64_to_f32(
+    noise: noise_config_mod::NoiseConfig<f64, f64>,
+) -> noise_config_mod::NoiseConfig<f32, f64> {
+    noise_config_mod::NoiseConfig {
+        i: noise_table_f64_to_f32_table(noise.i),
+        x: noise_table_f64_to_f32_table(noise.x),
+        y: noise_table_f64_to_f32_table(noise.y),
+        z: noise_table_f64_to_f32_table(noise.z),
+        h: noise_table_f64_to_f32_table(noise.h),
+        s: noise_table_f64_to_f32_table(noise.s),
+        s_adj: noise_table_f64_to_f32_table(noise.s_adj),
+        t: noise_table_f64_to_f32_table(noise.t),
+        t_adj: noise_table_f64_to_f32_table(noise.t_adj),
+        sx: noise_table_f64_to_f32_table(noise.sx),
+        sx_adj: noise_table_f64_to_f32_table(noise.sx_adj),
+        rx: noise_table_f64_to_f32_table(noise.rx),
+        ry: noise_table_f64_to_f32_table(noise.ry),
+        rz: noise_table_f64_to_f32_table(noise.rz),
+        cx: noise_table_f64_to_f32_table(noise.cx),
+        cz: noise_table_f64_to_f32_table(noise.cz),
+        rxx: noise_table_f64_to_f32_table(noise.rxx),
+        ryy: noise_table_f64_to_f32_table(noise.ryy),
+        rzz: noise_table_f64_to_f32_table(noise.rzz),
+        swap: noise_table_f64_to_f32_table(noise.swap),
+        mov: noise_table_f64_to_f32_table(noise.mov),
+        mresetz: noise_table_f64_to_f32_table(noise.mresetz),
+        idle: noise.idle,
+        intrinsics: noise.intrinsics,
+    }
+}
+
+/// Check if a compatible GPU adapter is available on the system.
+/// Returns `true` if GPU simulation is supported, `false` otherwise.
+pub fn gpu_is_available() -> bool {
+    qdk_simulators::try_create_gpu_adapter().is_ok()
+}
+
+/// Macro to skip a test if no compatible GPU adapter is available.
+///
+/// Place at the beginning of any GPU test function. If no GPU is found,
+/// the test will print a message and return early (passing).
+macro_rules! require_gpu {
+    () => {
+        if !gpu_is_available() {
+            eprintln!("Skipping GPU test: no compatible GPU adapter found");
+            return;
+        }
+    };
+}
+
+#[cfg(test)]
+pub(crate) use require_gpu;
