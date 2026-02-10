@@ -633,6 +633,7 @@ pub fn histogram_percent(output: &[String]) -> String {
 /// Top N histogram: shows only the top N results by count, sorted by frequency (descending).
 /// Useful for large quantum simulations where histograms are noisy.
 /// Example with `top_n(3)`: "010: 50\n001: 30\n110: 15"
+#[allow(dead_code)]
 pub fn top_n(n: usize) -> impl Fn(&[String]) -> String {
     move |output: &[String]| {
         use std::collections::BTreeMap;

@@ -108,7 +108,7 @@ fn x_noise_on_x_gate_causes_bit_flips() {
 }
 
 #[test]
-fn x_noise_on_h_gate_affects_superposition() {
+fn x_noise_on_h_gate_does_not_affect_outcome() {
     check_sim! {
         simulator: NoisySimulator,
         program: qir! {
@@ -120,12 +120,12 @@ fn x_noise_on_h_gate_affects_superposition() {
         shots: 1000,
         seed: SEED,
         noise: noise_config! {
-            h: { x: 0.1 },
+            h: { x: 0.3 },
         },
         format: histogram,
         output: expect![[r#"
-                    0: 475
-                    1: 525"#]],
+            0: 498
+            1: 502"#]],
     }
 }
 
@@ -302,7 +302,7 @@ fn cx_xx_noise_flips_both_qubits() {
 }
 
 #[test]
-fn cz_noise_affects_state() {
+fn cz_noise_does_not_affect_outcome() {
     check_sim! {
         simulator: NoisySimulator,
         program: qir! {
@@ -354,11 +354,11 @@ fn swap_noise_affects_swapped_qubits() {
 
 #[test]
 fn different_gates_have_different_noise() {
-    // X gate has noise, H gate doesn't - H produces 50/50, X noise flips some
+    // Z gate has noise, X gate doesn't, Z noise flips some
     check_sim! {
         simulator: NoisySimulator,
         program: qir! {
-            h(0);
+            z(0);
             x(0);
             mresetz(0, 0);
         },
@@ -367,12 +367,12 @@ fn different_gates_have_different_noise() {
         shots: 1000,
         seed: SEED,
         noise: noise_config! {
-            x: { x: 0.2 },
+            z: { x: 0.2 },
         },
         format: histogram,
         output: expect![[r#"
-                    0: 506
-                    1: 494"#]],
+            0: 181
+            1: 819"#]],
     }
 }
 
@@ -390,15 +390,15 @@ fn noise_accumulates_across_multiple_gates() {
         },
         num_qubits: 1,
         num_results: 1,
-        shots: 1000,
+        shots: 100_000,
         seed: SEED,
         noise: noise_config! {
             x: { x: 0.1 },
         },
-        format: histogram,
+        format: histogram_percent,
         output: expect![[r#"
-                    0: 818
-                    1: 182"#]],
+            0: 82.15%
+            1: 17.85%"#]],
     }
 }
 
@@ -414,18 +414,20 @@ fn bell_state_with_combined_noise() {
         },
         num_qubits: 2,
         num_results: 2,
-        shots: 1000,
+        shots: 100_000,
         seed: SEED,
         noise: noise_config! {
-            h: { x: 0.02 },
+            h: { loss: 0.1 },
             cx: { xi: 0.02, ix: 0.02 },
         },
-        format: top_n(4),
+        format: histogram_percent,
         output: expect![[r#"
-                    00: 491
-                    11: 481
-                    01: 18
-                    10: 10"#]],
+            -0: 9.80%
+            -1: 0.19%
+            00: 43.03%
+            01: 1.75%
+            10: 1.83%
+            11: 43.40%"#]],
     }
 }
 
@@ -619,16 +621,16 @@ fn noise_intrinsic_multiple_ids() {
         seed: SEED,
         noise: noise_config! {
             intrinsics: {
-                0: { x: 0.2 },
-                1: { x: 0.1 },
+                0: { x: 0.1 },
+                1: { x: 0.5 },
             },
         },
         format: histogram,
         output: expect![[r#"
-            00: 702
-            01: 81
-            10: 191
-            11: 26"#]],
+            00: 459
+            01: 427
+            10: 58
+            11: 56"#]],
     }
 }
 
