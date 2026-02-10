@@ -103,6 +103,100 @@ pub fn noise_intrinsic(id: u32, qubits: &[u32]) -> QirInstruction {
     QirInstruction::CorrelatedNoise(QirInstructionId::CorrelatedNoise, id, qubits.to_vec())
 }
 
+// ==================== Adjoint ====================
+
+/// Returns the adjoint (inverse) of a QIR instruction.
+///
+/// For self-adjoint gates (X, Y, Z, H, CX, CZ, SWAP, etc.), returns the same gate.
+/// For gates with distinct adjoints (S ↔ S†, T ↔ T†, SX ↔ SX†), returns the adjoint gate.
+/// For rotation gates, negates the angle.
+///
+/// Panics if the instruction is a measurement, recording, or noise intrinsic,
+/// since these should not appear in a `within` block.
+pub fn adjoint(inst: QirInstruction) -> QirInstruction {
+    match inst {
+        // Self-adjoint single-qubit gates
+        QirInstruction::OneQubitGate(
+            id @ (QirInstructionId::I
+            | QirInstructionId::X
+            | QirInstructionId::Y
+            | QirInstructionId::Z
+            | QirInstructionId::H),
+            q,
+        ) => QirInstruction::OneQubitGate(id, q),
+
+        // S ↔ S†
+        QirInstruction::OneQubitGate(QirInstructionId::S, q) => {
+            QirInstruction::OneQubitGate(QirInstructionId::SAdj, q)
+        }
+        QirInstruction::OneQubitGate(QirInstructionId::SAdj, q) => {
+            QirInstruction::OneQubitGate(QirInstructionId::S, q)
+        }
+
+        // SX ↔ SX†
+        QirInstruction::OneQubitGate(QirInstructionId::SX, q) => {
+            QirInstruction::OneQubitGate(QirInstructionId::SXAdj, q)
+        }
+        QirInstruction::OneQubitGate(QirInstructionId::SXAdj, q) => {
+            QirInstruction::OneQubitGate(QirInstructionId::SX, q)
+        }
+
+        // T ↔ T†
+        QirInstruction::OneQubitGate(QirInstructionId::T, q) => {
+            QirInstruction::OneQubitGate(QirInstructionId::TAdj, q)
+        }
+        QirInstruction::OneQubitGate(QirInstructionId::TAdj, q) => {
+            QirInstruction::OneQubitGate(QirInstructionId::T, q)
+        }
+
+        // Self-adjoint two-qubit gates
+        QirInstruction::TwoQubitGate(
+            id @ (QirInstructionId::CX
+            | QirInstructionId::CNOT
+            | QirInstructionId::CY
+            | QirInstructionId::CZ
+            | QirInstructionId::SWAP),
+            q1,
+            q2,
+        ) => QirInstruction::TwoQubitGate(id, q1, q2),
+
+        // Self-adjoint three-qubit gates (CCX / Toffoli)
+        QirInstruction::ThreeQubitGate(id @ QirInstructionId::CCX, q1, q2, q3) => {
+            QirInstruction::ThreeQubitGate(id, q1, q2, q3)
+        }
+
+        // Rotation gates: negate the angle
+        QirInstruction::OneQubitRotationGate(id, angle, q) => {
+            QirInstruction::OneQubitRotationGate(id, -angle, q)
+        }
+        QirInstruction::TwoQubitRotationGate(id, angle, q1, q2) => {
+            QirInstruction::TwoQubitRotationGate(id, -angle, q1, q2)
+        }
+
+        // Measurement, reset, move, recording, and noise instructions should not appear in within blocks
+        other => panic!(
+            "Instruction {other:?} does not have an adjoint or should not be used in a within-apply block"
+        ),
+    }
+}
+
+// ==================== Helpers ====================
+
+/// Run a QIR program on a simulator, optionally prepending state-preparation instructions.
+///
+/// This is useful for testing gate behavior on different initial states:
+/// pass X gates in `prep` to prepare a specific computational basis state.
+pub fn run_with_prep<S: qdk_simulators::Simulator>(
+    prep: &[QirInstruction],
+    program: &[QirInstruction],
+    num_qubits: usize,
+    noise: S::Noise,
+) -> S {
+    let sim = S::new(num_qubits, 0, 0, noise);
+    let sim = run_shot(prep, sim);
+    run_shot(program, sim)
+}
+
 // ==================== Macros ====================
 
 /// Macro to build a `NoiseConfig` for testing.
@@ -297,12 +391,15 @@ macro_rules! qir {
         let mut result: Vec<QirInstruction> = vec![$($acc),*];
         result.extend(qir!($($within_tt)*));  // forward within
         result.extend(qir!($($apply_tt)*));   // apply
-        let within_rev: Vec<QirInstruction> = {
-            let mut v = qir!($($within_tt)*); // expand tokens again for reverse
+        let within_adj: Vec<QirInstruction> = {
+            let mut v: Vec<QirInstruction> = qir!($($within_tt)*)
+                .into_iter()
+                .map(adjoint)  // compute adjoint of each gate
+                .collect();
             v.reverse();
             v
         };
-        result.extend(within_rev);
+        result.extend(within_adj);
         let remaining: Vec<QirInstruction> = qir!(@accum [] $($rest)*);
         result.extend(remaining);
         result
@@ -449,11 +546,18 @@ macro_rules! check_sim {
 #[cfg(test)]
 pub(crate) use check_sim;
 
-/// Macro to check that multiple QIR programs are equivalent.
+/// Macro to check that multiple QIR programs produce the same state on every
+/// computational basis state, up to global phase.
 ///
-/// This macro runs each program in the list with a fresh simulator and compares their
-/// final states. The programs are considered equivalent if they produce the same state
-/// (up to global phase, as supported by the simulator's `state_dump` comparison).
+/// For each basis state |b⟩ (from |0...0⟩ to |1...1⟩), this macro prepends X gates
+/// to prepare |b⟩, runs each program, and compares the resulting simulator states.
+/// Two programs are considered equivalent if they agree on all basis states.
+///
+/// **Note:** This checks per-basis-state equivalence (with independent global phase
+/// per state), which is stronger than only checking from |0...0⟩ but weaker than
+/// full operator equivalence. In particular, diagonal phase gates (like CZ) may
+/// appear equivalent to identity since they only differ by phases on individual
+/// basis states.
 ///
 /// # Required fields:
 /// - `simulator`: One of `StabilizerSimulator`, `NoisySimulator`, or `NoiselessSimulator`
@@ -498,31 +602,42 @@ macro_rules! check_programs_are_eq {
     ) => {{
         use qdk_simulators::Simulator;
         let programs: Vec<Vec<QirInstruction>> = vec![ $( $program ),+ ];
-        let simulators: Vec<_> = programs
-            .iter()
-            .map(|program| {
-                check_programs_are_eq!(@run_and_get_sim $sim, program, $num_qubits, $num_results)
-            })
-            .collect();
+        let num_qubits_val: u32 = $num_qubits;
 
-        // Compare all states to the first one
-        for (i, sim) in simulators.iter().enumerate().skip(1) {
-            assert!(
-                simulators[0].state_dump() == sim.state_dump(),
-                "Program 0 and program {} produce different states.\n\
-                        Program 0 state dump:\n{:#?}\n\n\
-                        Program {} state dump:\n{:#?}",
-                i,
-                simulators[0].state_dump(),
-                i,
-                simulators[1].state_dump(),
-            );
+        // Test on all computational basis states
+        for basis_state in 0u32..(1u32 << num_qubits_val) {
+            let prep: Vec<QirInstruction> = (0..num_qubits_val)
+                .filter(|q| (basis_state >> q) & 1 == 1)
+                .map(x)
+                .collect();
+
+            let simulators: Vec<_> = programs
+                .iter()
+                .map(|program| {
+                    check_programs_are_eq!(@run_and_get_sim $sim, &prep, program, num_qubits_val, $num_results)
+                })
+                .collect();
+
+            // Compare all states to the first one
+            for (i, sim) in simulators.iter().enumerate().skip(1) {
+                assert!(
+                    simulators[0].state_dump() == sim.state_dump(),
+                    "Program 0 and program {i} produce different states \
+                     on basis state |{basis_state:0width$b}⟩.\n\
+                     Program 0 state dump:\n{:#?}\n\n\
+                     Program {i} state dump:\n{:#?}",
+                    simulators[0].state_dump(),
+                    sim.state_dump(),
+                    width = num_qubits_val as usize,
+                );
+            }
         }
     }};
 
     // Run with NoiselessSimulator and return the simulator
-    (@run_and_get_sim NoiselessSimulator, $program:expr, $num_qubits:expr, $num_results:expr) => {{
+    (@run_and_get_sim NoiselessSimulator, $prep:expr, $program:expr, $num_qubits:expr, $num_results:expr) => {{
         run_and_get_simulator::<NoiselessSimulator, ()>(
+            $prep,
             $program,
             $num_qubits as usize,
             $num_results as usize,
@@ -532,10 +647,11 @@ macro_rules! check_programs_are_eq {
     }};
 
     // Run with NoisySimulator and return the simulator
-    (@run_and_get_sim NoisySimulator, $program:expr, $num_qubits:expr, $num_results:expr) => {{
+    (@run_and_get_sim NoisySimulator, $prep:expr, $program:expr, $num_qubits:expr, $num_results:expr) => {{
         use qdk_simulators::cpu_full_state_simulator::noise::Fault;
         let noise: Arc<CumulativeNoiseConfig<Fault>> = Arc::new(noise_config::NoiseConfig::<f64, f64>::NOISELESS.into());
         run_and_get_simulator::<NoisySimulator, Arc<CumulativeNoiseConfig<Fault>>>(
+            $prep,
             $program,
             $num_qubits as usize,
             $num_results as usize,
@@ -545,10 +661,11 @@ macro_rules! check_programs_are_eq {
     }};
 
     // Run with StabilizerSimulator and return the simulator
-    (@run_and_get_sim StabilizerSimulator, $program:expr, $num_qubits:expr, $num_results:expr) => {{
+    (@run_and_get_sim StabilizerSimulator, $prep:expr, $program:expr, $num_qubits:expr, $num_results:expr) => {{
         use qdk_simulators::stabilizer_simulator::noise::Fault;
         let noise: Arc<CumulativeNoiseConfig<Fault>> = Arc::new(noise_config::NoiseConfig::<f64, f64>::NOISELESS.into());
         run_and_get_simulator::<StabilizerSimulator, Arc<CumulativeNoiseConfig<Fault>>>(
+            $prep,
             $program,
             $num_qubits as usize,
             $num_results as usize,
@@ -559,7 +676,9 @@ macro_rules! check_programs_are_eq {
 }
 
 /// Helper function to run a QIR program and return the simulator with its final state.
+/// Optionally prepends state-preparation instructions (e.g., X gates to set basis state).
 pub fn run_and_get_simulator<S, N>(
+    prep: &[QirInstruction],
     instructions: &[QirInstruction],
     num_qubits: usize,
     num_results: usize,
@@ -570,11 +689,91 @@ where
     S: qdk_simulators::Simulator<Noise = N>,
 {
     let sim = S::new(num_qubits, num_results, seed, noise);
+    let sim = run_shot(prep, sim);
     run_shot(instructions, sim)
 }
 
 #[cfg(test)]
 pub(crate) use check_programs_are_eq;
+
+/// Macro for table-driven basis state tests.
+///
+/// Tests that applying a gate to a computational basis state produces the expected
+/// output basis state (up to global phase). This provides a compact, readable way
+/// to verify each gate's truth table on all basis vectors.
+///
+/// Input and output values are bit patterns where bit `i` represents qubit `i`.
+///
+/// # Example
+/// ```ignore
+/// check_basis_table! {
+///     simulator: NoiselessSimulator,
+///     num_qubits: 1,
+///     table: [
+///         (qir! { x(0) }, 0 => 1),  // X|0⟩ ~ |1⟩
+///         (qir! { x(0) }, 1 => 0),  // X|1⟩ ~ |0⟩
+///     ],
+/// }
+/// ```
+macro_rules! check_basis_table {
+    (
+        simulator: $sim:ident,
+        num_qubits: $nq:expr,
+        table: [
+            $( ( $gate:expr, $input:expr => $output:expr ) ),*
+            $(,)?
+        ] $(,)?
+    ) => {{
+        use qdk_simulators::Simulator;
+        let num_qubits: usize = $nq;
+        let table: Vec<(Vec<QirInstruction>, u32, u32)> = vec![
+            $( ($gate, $input, $output) ),*
+        ];
+        #[allow(clippy::cast_possible_truncation)]
+        for (gate, input_bits, expected_bits) in &table {
+            let input_prep: Vec<QirInstruction> = (0..num_qubits as u32)
+                .filter(|q| (input_bits >> q) & 1 == 1)
+                .map(x)
+                .collect();
+            let expected_prep: Vec<QirInstruction> = (0..num_qubits as u32)
+                .filter(|q| (expected_bits >> q) & 1 == 1)
+                .map(x)
+                .collect();
+
+            let sim_actual = check_basis_table!(@make_sim $sim, &input_prep, gate, num_qubits);
+            let sim_expected = check_basis_table!(@make_sim $sim, &[], &expected_prep, num_qubits);
+
+            assert!(
+                sim_actual.state_dump() == sim_expected.state_dump(),
+                "Basis table test failed: gate={gate:?} on input |{input_bits:0width$b}⟩ \
+                 (expected output |{expected_bits:0width$b}⟩)\n\
+                 Actual state:\n{:#?}\nExpected state:\n{:#?}",
+                sim_actual.state_dump(),
+                sim_expected.state_dump(),
+                width = num_qubits,
+            );
+        }
+    }};
+
+    (@make_sim NoiselessSimulator, $prep:expr, $program:expr, $nq:expr) => {{
+        run_with_prep::<NoiselessSimulator>($prep, $program, $nq, ())
+    }};
+
+    (@make_sim NoisySimulator, $prep:expr, $program:expr, $nq:expr) => {{
+        use qdk_simulators::cpu_full_state_simulator::noise::Fault;
+        let noise: Arc<CumulativeNoiseConfig<Fault>> = Arc::new(noise_config::NoiseConfig::<f64, f64>::NOISELESS.into());
+        run_with_prep::<NoisySimulator>($prep, $program, $nq, noise)
+    }};
+
+    (@make_sim StabilizerSimulator, $prep:expr, $program:expr, $nq:expr) => {{
+        use qdk_simulators::stabilizer_simulator::noise::Fault;
+        let noise: Arc<CumulativeNoiseConfig<Fault>> = Arc::new(noise_config::NoiseConfig::<f64, f64>::NOISELESS.into());
+        run_with_prep::<StabilizerSimulator>($prep, $program, $nq, noise)
+    }};
+}
+
+#[cfg(test)]
+pub(crate) use check_basis_table;
 
 // ==================== Format Functions ====================
 // These functions format the output of the simulator for testing.

@@ -6,6 +6,15 @@
 //! The stabilizer simulator efficiently simulates quantum circuits composed
 //! of Clifford gates using the stabilizer formalism.
 //!
+//! # Equivalence
+//!
+//! The `~` symbol means: for every computational basis state |b⟩, the two
+//! programs produce the same output state up to a global phase (which may
+//! differ per basis state). This is verified by `check_programs_are_eq!`.
+//!
+//! Gate truth tables on all basis states are tested separately using
+//! `check_basis_table!`.
+//!
 //! # Supported Gates
 //!
 //! ```text
@@ -78,6 +87,16 @@ fn simulator_completes_all_shots() {
             loss: 0"#]],
     }
 }
+
+// Note: Gate truth tables (check_basis_table!) are not used here because the
+// stabilizer simulator's state_dump() returns a CliffordUnitary (the operator),
+// not a state vector. Comparing operators is too strict for basis-state tests
+// (e.g., Y|0⟩ ~ |1⟩ as states, but Y ≠ X as operators).
+//
+// Instead, gate behavior on specific basis states is verified via check_sim!
+// tests below (cx_on_zero_control_eq_identity, cx_on_one_control_flips_target,
+// etc.), and algebraic identities are verified via check_programs_are_eq! which
+// correctly checks unitary equivalence on all basis states.
 
 // ==================== Single-Qubit Gate Tests ====================
 
