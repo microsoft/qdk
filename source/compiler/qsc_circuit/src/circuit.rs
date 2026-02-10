@@ -4,12 +4,14 @@
 #[cfg(test)]
 mod tests;
 
+use indenter::indented;
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::max,
     fmt::{Display, Write},
     hash::Hash,
+    mem::take,
     ops::Not,
     vec,
 };
@@ -410,9 +412,11 @@ impl Row {
         self.add(column, CircuitObject::Object(gate_label.clone()));
     }
 
-    fn add_gate(&mut self, column: usize, operation: &Operation) {
-        let gate_label = self.operation_label(operation);
-
+    fn add_gate(&mut self, column: usize, operation: &Operation, inset_marker: Option<usize>) {
+        let mut gate_label = self.operation_label(operation);
+        if let Some(inset_id) = inset_marker {
+            let _ = write!(&mut gate_label, "[{inset_id}]");
+        }
         self.add_object(column, gate_label.as_str());
     }
 
@@ -467,9 +471,11 @@ impl Row {
     }
 
     fn start_classical(&mut self, column: usize) {
-        self.add(column, CircuitObject::WireStart);
-        if let Wire::Classical { start_column } = &mut self.wire {
-            start_column.replace(column);
+        if let Wire::Classical { start_column: None } = &self.wire {
+            self.add(column, CircuitObject::WireStart);
+            self.wire = Wire::Classical {
+                start_column: Some(column),
+            };
         }
     }
 
@@ -478,7 +484,7 @@ impl Row {
         self.next_column = column + 1;
     }
 
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>, columns: &[Column]) -> std::fmt::Result {
+    fn fmt(&self, f: &mut impl Write, columns: &[Column]) -> std::fmt::Result {
         // Temporary string so we can trim whitespace at the end
         let mut s = String::new();
         match &self.wire {
@@ -495,7 +501,7 @@ impl Row {
                     let obj = self.objects.get(&column_index);
 
                     if let Some(start) = *start_column
-                        && column_index > start
+                        && column_index >= start
                     {
                         s.write_str(&column.fmt_object_on_classical_wire(obj))?;
                     } else {
@@ -641,8 +647,35 @@ struct CircuitDisplay<'a> {
 impl Display for CircuitDisplay<'_> {
     /// Formats the circuit into a diagram.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut rows = vec![];
+        let mut insets = vec![];
+        let grid = &self.circuit.component_grid;
+        let qubits = &self.circuit.qubits;
 
+        self.fmt_grid(f, &mut insets, grid, qubits)?;
+
+        let mut i = 0;
+        while i < insets.len() {
+            let (label, inset_grid) = take(&mut insets[i]);
+            writeln!(f)?;
+            writeln!(f, "{label}:")?;
+            let mut indent = indented(f).with_str("    ");
+            self.fmt_grid(&mut indent, &mut insets, &inset_grid, qubits)?;
+            i += 1;
+        }
+
+        Ok(())
+    }
+}
+
+impl CircuitDisplay<'_> {
+    fn fmt_grid(
+        &self,
+        f: &mut impl Write,
+        insets: &mut Vec<(String, Vec<ComponentColumn>)>,
+        grid: &Vec<ComponentColumn>,
+        qubits: &[Qubit],
+    ) -> Result<(), std::fmt::Error> {
+        let mut rows = vec![];
         // Maintain a mapping from from Registers in the Circuit schema
         // to row in the diagram
         let mut register_to_row = FxHashMap::default();
@@ -652,13 +685,18 @@ impl Display for CircuitDisplay<'_> {
         let mut qubits_with_gap_row_below = FxHashSet::default();
 
         // Identify qubits that require gap rows
-        self.identify_qubits_with_gap_rows(&mut qubits_with_gap_row_below);
+        self.identify_qubits_with_gap_rows(grid, &mut qubits_with_gap_row_below);
 
         // Initialize rows for qubits and classical wires
-        self.initialize_rows(&mut rows, &mut register_to_row, &qubits_with_gap_row_below);
+        self.initialize_rows(
+            &mut rows,
+            qubits,
+            &mut register_to_row,
+            &qubits_with_gap_row_below,
+        );
 
         // Add operations to the diagram
-        self.add_grid(1, &self.circuit.component_grid, &mut rows, &register_to_row);
+        self.add_grid(1, grid, &mut rows, insets, &register_to_row);
 
         // Finalize the diagram by extending wires and formatting columns
         let columns = finalize_columns(&rows);
@@ -670,24 +708,27 @@ impl Display for CircuitDisplay<'_> {
 
         Ok(())
     }
-}
 
-impl CircuitDisplay<'_> {
     /// Identifies qubits that require gap rows for multi-qubit operations.
-    fn identify_qubits_with_gap_rows(&self, qubits_with_gap_row_below: &mut FxHashSet<usize>) {
-        for col in &self.circuit.component_grid {
-            Self::add_qubits_with_gap_rows(&col.components, qubits_with_gap_row_below);
+    fn identify_qubits_with_gap_rows(
+        &self,
+        grid: &ComponentGrid,
+        qubits_with_gap_row_below: &mut FxHashSet<usize>,
+    ) {
+        for col in grid {
+            self.add_qubits_with_gap_rows(&col.components, qubits_with_gap_row_below);
         }
     }
 
     fn add_qubits_with_gap_rows(
+        &self,
         components: &Vec<Operation>,
         qubits_with_gap_row_below: &mut FxHashSet<usize>,
     ) {
         for op in components {
-            if !op.children().is_empty() {
+            if !op.children().is_empty() && !self.render_groups {
                 for c in op.children() {
-                    Self::add_qubits_with_gap_rows(&c.components, qubits_with_gap_row_below);
+                    self.add_qubits_with_gap_rows(&c.components, qubits_with_gap_row_below);
                 }
                 continue;
             }
@@ -718,10 +759,11 @@ impl CircuitDisplay<'_> {
     fn initialize_rows(
         &self,
         rows: &mut Vec<Row>,
+        qubits: &[Qubit],
         register_to_row: &mut FxHashMap<(usize, Option<usize>), usize>,
         qubits_with_gap_row_below: &FxHashSet<usize>,
     ) {
-        for q in &self.circuit.qubits {
+        for q in qubits {
             let mut label = format!("q_{}", q.id);
             if self.render_locations {
                 let mut first = true;
@@ -772,11 +814,18 @@ impl CircuitDisplay<'_> {
         start_column: usize,
         component_grid: &ComponentGrid,
         rows: &mut [Row],
+        insets: &mut Vec<(String, Vec<ComponentColumn>)>,
         register_to_row: &FxHashMap<(usize, Option<usize>), usize>,
     ) -> usize {
         let mut curr_column = start_column;
         for column_operations in component_grid {
-            let offset = self.add_column(rows, register_to_row, curr_column, column_operations);
+            let offset = self.add_column(
+                rows,
+                insets,
+                register_to_row,
+                curr_column,
+                column_operations,
+            );
             curr_column += offset;
         }
         curr_column - start_column
@@ -785,6 +834,7 @@ impl CircuitDisplay<'_> {
     fn add_column(
         &self,
         rows: &mut [Row],
+        insets: &mut Vec<(String, Vec<ComponentColumn>)>,
         register_to_row: &FxHashMap<(usize, Option<usize>), usize>,
         column: usize,
         col: &ComponentColumn,
@@ -806,17 +856,59 @@ impl CircuitDisplay<'_> {
             });
 
             if op.children().is_empty() {
-                add_operation_to_rows(op, rows, &target_rows, &control_rows, column, begin, end);
-                col_width = max(col_width, 1);
-            } else {
-                let offset = self.add_boxed_group(
-                    rows,
-                    register_to_row,
-                    &all_rows,
-                    column,
+                add_operation_to_rows(
                     op,
-                    op.children(),
+                    rows,
+                    &target_rows,
+                    &control_rows,
+                    column,
+                    begin,
+                    end,
+                    None,
                 );
+                col_width = max(col_width, 1);
+            } else if self.render_groups {
+                if all_rows.len() <= 1 {
+                    // This operation has children. The entire operation fits on a single qubit wire, so
+                    // we can just render the group in-place without needing an inset. let offset = self.add_boxed_group(
+                    let offset = self.add_boxed_group(
+                        rows,
+                        insets,
+                        register_to_row,
+                        &all_rows,
+                        column,
+                        op,
+                        op.children(),
+                    );
+                    col_width = max(col_width, offset);
+                } else {
+                    // This operation has children and would span multiple wires. We render a placeholder for this operation
+                    // and then later render the children in an inset below.
+                    let i = insets.len() + 1;
+
+                    let mut placeholder_op = op.clone();
+                    let children = take(placeholder_op.children_mut());
+
+                    let inset_label = format!("[{i}] {}", op.gate());
+                    insets.push((inset_label, children));
+
+                    add_operation_to_rows(
+                        &placeholder_op,
+                        rows,
+                        &target_rows,
+                        &control_rows,
+                        column,
+                        begin,
+                        end,
+                        Some(i),
+                    );
+
+                    col_width = max(col_width, 1);
+                }
+            } else {
+                // Don't render the group, render all the children directly
+                let offset = self.add_grid(column, op.children(), rows, insets, register_to_row);
+
                 col_width = max(col_width, offset);
             }
         }
@@ -824,9 +916,11 @@ impl CircuitDisplay<'_> {
         col_width
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn add_boxed_group(
         &self,
         rows: &mut [Row],
+        insets: &mut Vec<(String, Vec<ComponentColumn>)>,
         register_to_row: &FxHashMap<(usize, Option<usize>), usize>,
         target_rows: &[usize],
         column: usize,
@@ -838,30 +932,23 @@ impl CircuitDisplay<'_> {
             "must only be called for an operation with children"
         );
         assert!(
-            !op.is_controlled(),
-            "rendering controlled boxes not supported"
-        );
-        assert!(
             !op.is_measurement(),
             "rendering measurement boxes not supported"
         );
 
         let mut offset = 0;
-        if self.render_groups {
-            add_box_start(op, rows, target_rows, column);
-            offset += 1;
-        }
+        add_box_start(op, rows, target_rows, column);
+        offset += 1;
 
-        offset += self.add_grid(column + offset, children, rows, register_to_row);
+        offset += self.add_grid(column + offset, children, rows, insets, register_to_row);
 
-        if self.render_groups {
-            add_box_end(op, rows, target_rows, column + offset);
-            offset += 1;
-        }
+        add_box_end(op, rows, target_rows, column + offset);
+        offset += 1;
         offset
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Adds a single operation to the rows.
 fn add_operation_to_rows(
     operation: &Operation,
@@ -871,15 +958,14 @@ fn add_operation_to_rows(
     column: usize,
     begin: usize,
     end: usize,
+    inset_marker: Option<usize>,
 ) {
     for i in targets {
         let row = &mut rows[*i];
-        if matches!(row.wire, Wire::Classical { .. })
-            && matches!(operation, Operation::Measurement(_))
-        {
+        if matches!(row.wire, Wire::Classical { .. }) {
             row.start_classical(column);
         } else {
-            row.add_gate(column, operation);
+            row.add_gate(column, operation, inset_marker);
         }
     }
 
