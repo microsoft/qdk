@@ -188,8 +188,8 @@ where
         .collect::<Vec<u32>>()
         .par_iter()
         .map(|shot_seed| {
-            let simulator = make_simulator(num_qubits, num_results, *shot_seed, noise.clone());
-            let mut simulator = run_shot(instructions, simulator);
+            let mut simulator = make_simulator(num_qubits, num_results, *shot_seed, noise.clone());
+            run_shot(instructions, &mut simulator);
             simulator.take_measurements()
         })
         .collect::<Vec<_>>();
@@ -210,7 +210,7 @@ where
     values
 }
 
-fn run_shot<S: Simulator>(instructions: &[QirInstruction], mut sim: S) -> S {
+fn run_shot<S: Simulator>(instructions: &[QirInstruction], sim: &mut S) {
     for qir_inst in instructions {
         match qir_inst {
             QirInstruction::OneQubitGate(id, qubit) => match id {
@@ -265,6 +265,4 @@ fn run_shot<S: Simulator>(instructions: &[QirInstruction], mut sim: S) -> S {
             }
         }
     }
-
-    sim
 }

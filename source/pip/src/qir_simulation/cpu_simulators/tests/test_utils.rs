@@ -192,9 +192,10 @@ pub fn run_with_prep<S: qdk_simulators::Simulator>(
     num_qubits: usize,
     noise: S::Noise,
 ) -> S {
-    let sim = S::new(num_qubits, 0, 0, noise);
-    let sim = run_shot(prep, sim);
-    run_shot(program, sim)
+    let mut sim = S::new(num_qubits, 0, 0, noise);
+    run_shot(prep, &mut sim);
+    run_shot(program, &mut sim);
+    sim
 }
 
 // ==================== Macros ====================
@@ -688,9 +689,10 @@ pub fn run_and_get_simulator<S, N>(
 where
     S: qdk_simulators::Simulator<Noise = N>,
 {
-    let sim = S::new(num_qubits, num_results, seed, noise);
-    let sim = run_shot(prep, sim);
-    run_shot(instructions, sim)
+    let mut sim = S::new(num_qubits, num_results, seed, noise);
+    run_shot(prep, &mut sim);
+    run_shot(instructions, &mut sim);
+    sim
 }
 
 #[cfg(test)]
