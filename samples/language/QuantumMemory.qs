@@ -7,23 +7,17 @@
 //
 // Q# supports allocation of qubits with the `use` keyword.
 // Allocated qubits start in the |0⟩ state.
-//
-// Qubits are automatically released at the end of their scope.
-// Before a qubit is released, it must be returned to |0⟩ (for example, by
-// calling `Reset` after temporarily using it).
 
 operation Main() : Unit {
-    // Allocate a single qubit and an array of qubits.
+    // Allocates a single qubit.
     use q = Qubit();
+
+    // Allocates an array of qubits.
     use qs = Qubit[3];
 
-    // If you change a qubit's state, reset it before leaving scope.
-    X(q);
-    Reset(q);
+    // Allocates multiple qubits at once via tuple destructuring.
+    use (control, target) = (Qubit(), Qubit());
 
-    // The same rule applies to arrays of qubits.
-    for qi in qs {
-        X(qi);
-        Reset(qi);
-    }
+    // Mixed allocation patterns are also possible.
+    use (q2, qs2) = (Qubit(), Qubit[3]);
 }
