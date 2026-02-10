@@ -339,7 +339,10 @@ def build_cy_noise_qir(n_cy: int) -> str:
         """
 
     qsharp.init(target_profile=TargetProfile.Base)
-    qir_program = openqasm.compile(src)
+    # OpenQasm output semantics preserves order of bits in the output register.
+    qir_program = openqasm.compile(
+        src, output_semantics=openqasm.OutputSemantics.OpenQasm
+    )
     return str(qir_program)
 
 
@@ -362,7 +365,7 @@ def test_gpu_cy_noise_distribution():
     count_target_one = 0
     for shot in output:
         shot_results = cast(Sequence[Result], shot)
-        if shot_results[0] == Result.One:  # TODO: QUASM measure big endian???
+        if shot_results[1] == Result.One:
             count_target_one += 1
 
     actual_p1 = count_target_one / n_shots
