@@ -11,6 +11,8 @@ use num_traits::FromPrimitive;
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 
+use crate::trace::instruction_ids::instruction_name;
+
 #[cfg(test)]
 mod tests;
 
@@ -177,6 +179,7 @@ pub struct Instruction {
     id: u64,
     encoding: Encoding,
     metrics: Metrics,
+    source: usize,
     properties: Option<FxHashMap<u64, u64>>,
 }
 
@@ -204,6 +207,7 @@ impl Instruction {
                 time,
                 error_rate,
             },
+            source: 0,
             properties: None,
         }
     }
@@ -228,6 +232,7 @@ impl Instruction {
                 time_fn,
                 error_rate_fn,
             },
+            source: 0,
             properties: None,
         }
     }
@@ -235,6 +240,8 @@ impl Instruction {
     #[must_use]
     pub fn with_id(&self, id: u64) -> Self {
         let mut new_instruction = self.clone();
+        // reset source for new instruction
+        new_instruction.source = 0;
         new_instruction.id = id;
         new_instruction
     }
@@ -315,6 +322,15 @@ impl Instruction {
             .expect("Instruction does not support variable arity")
     }
 
+    pub fn set_source(&mut self, provenance: usize) {
+        self.source = provenance;
+    }
+
+    #[must_use]
+    pub fn source(&self) -> usize {
+        self.source
+    }
+
     pub fn set_property(&mut self, key: u64, value: u64) {
         if let Some(ref mut properties) = self.properties {
             properties.insert(key, value);
@@ -345,11 +361,12 @@ impl Instruction {
 
 impl Display for Instruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = instruction_name(self.id).unwrap_or("??");
         match self.metrics {
             Metrics::FixedArity { arity, .. } => {
-                write!(f, "{} |{:?}| arity: {arity}", self.id, self.encoding)
+                write!(f, "{name} |{:?}| arity: {arity}", self.encoding)
             }
-            Metrics::VariableArity { .. } => write!(f, "{} |{:?}|", self.id, self.encoding),
+            Metrics::VariableArity { .. } => write!(f, "{name} |{:?}|", self.encoding),
         }
     }
 }
@@ -519,4 +536,84 @@ impl<T: PartialOrd + PartialEq> ConstraintBound<T> {
             ConstraintBound::GreaterEqual(v) => other >= v,
         }
     }
+}
+
+pub struct ProvenanceGraph {
+    nodes: Vec<ProvenanceNode>,
+    // A consecutive list of child node indices for each node, where the
+    // children of node i are located at children[offset..offset+num_children]
+    // in the children vector.
+    children: Vec<usize>,
+}
+
+impl Default for ProvenanceGraph {
+    fn default() -> Self {
+        // Initialize with a dummy node at index 0 to simplify indexing logic
+        // (so that 0 can be used as a "null" provenance)
+        let empty = ProvenanceNode::default();
+        ProvenanceGraph {
+            nodes: vec![empty],
+            children: Vec::new(),
+        }
+    }
+}
+
+impl ProvenanceGraph {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn add_node(
+        &mut self,
+        instruction_id: u64,
+        transform_id: u64,
+        children: &[usize],
+    ) -> usize {
+        let node_index = self.nodes.len();
+        let offset = self.children.len();
+        let num_children = children.len();
+        self.children.extend_from_slice(children);
+        self.nodes.push(ProvenanceNode {
+            instruction_id,
+            transform_id,
+            offset,
+            num_children,
+        });
+        node_index
+    }
+
+    #[must_use]
+    pub fn instruction_id(&self, node_index: usize) -> u64 {
+        self.nodes[node_index].instruction_id
+    }
+
+    #[must_use]
+    pub fn transform_id(&self, node_index: usize) -> u64 {
+        self.nodes[node_index].transform_id
+    }
+
+    #[must_use]
+    pub fn children(&self, node_index: usize) -> &[usize] {
+        let node = &self.nodes[node_index];
+        &self.children[node.offset..node.offset + node.num_children]
+    }
+
+    #[must_use]
+    pub fn num_nodes(&self) -> usize {
+        self.nodes.len() - 1
+    }
+
+    #[must_use]
+    pub fn num_edges(&self) -> usize {
+        self.children.len()
+    }
+}
+
+#[derive(Default)]
+struct ProvenanceNode {
+    instruction_id: u64,
+    transform_id: u64,
+    offset: usize,
+    num_children: usize,
 }

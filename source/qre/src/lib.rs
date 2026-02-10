@@ -13,9 +13,10 @@ pub use result::{EstimationCollection, EstimationResult, FactoryResult};
 mod trace;
 pub use isa::{
     ConstraintBound, Encoding, ISA, ISARequirements, Instruction, InstructionConstraint,
-    VariableArityFunction,
+    ProvenanceGraph, VariableArityFunction,
 };
 pub use trace::instruction_ids;
+pub use trace::instruction_ids::instruction_name;
 pub use trace::{Block, LatticeSurgery, PSSPC, Property, Trace, TraceTransform, estimate_parallel};
 mod utils;
 pub use utils::binom_ppf;

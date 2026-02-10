@@ -88,6 +88,7 @@ LATTICE_SURGERY: int
 # Memory/compute operations (used in compute parts of memory-compute layouts)
 READ_FROM_MEMORY: int
 WRITE_TO_MEMORY: int
+MEMORY: int
 
 # Some special hardware physical instructions
 CYCLIC_SHIFT: int

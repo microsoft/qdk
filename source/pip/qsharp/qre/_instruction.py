@@ -1,21 +1,32 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from typing import Generator, Iterable, Optional, overload, cast
 from enum import IntEnum
 
+from ._architecture import _Context, Architecture
 from ._enumeration import _enumerate_instances
-from ._isa_enumeration import ISA_ROOT, _BindingNode, _ComponentQuery, ISAQuery
+from ._isa_enumeration import (
+    ISA_ROOT,
+    _BindingNode,
+    _ComponentQuery,
+    ISAQuery,
+)
 from ._qre import (
     ISA,
     Constraint,
     ConstraintBound,
-    FloatFunction,
-    Instruction,
-    IntFunction,
+    EstimationResult,
+    _FloatFunction,
+    _Instruction,
+    _IntFunction,
     ISARequirements,
     constant_function,
+    instruction_name,
 )
 
 
@@ -84,56 +95,56 @@ def instruction(
     length: Optional[int] = None,
     error_rate: float,
     **kwargs: int,
-) -> Instruction: ...
+) -> _Instruction: ...
 @overload
 def instruction(
     id: int,
     encoding: Encoding = PHYSICAL,
     *,
-    time: int | IntFunction,
+    time: int | _IntFunction,
     arity: None = ...,
-    space: int | IntFunction,
-    length: Optional[int | IntFunction] = None,
-    error_rate: float | FloatFunction,
+    space: int | _IntFunction,
+    length: Optional[int | _IntFunction] = None,
+    error_rate: float | _FloatFunction,
     **kwargs: int,
-) -> Instruction: ...
+) -> _Instruction: ...
 def instruction(
     id: int,
     encoding: Encoding = PHYSICAL,
     *,
-    time: int | IntFunction,
+    time: int | _IntFunction,
     arity: Optional[int] = 1,
-    space: Optional[int] | IntFunction = None,
-    length: Optional[int | IntFunction] = None,
-    error_rate: float | FloatFunction,
+    space: Optional[int] | _IntFunction = None,
+    length: Optional[int | _IntFunction] = None,
+    error_rate: float | _FloatFunction,
     **kwargs: int,
-) -> Instruction:
+) -> _Instruction:
     """
     Creates an instruction.
 
     Args:
         id (int): The instruction ID.
         encoding (Encoding): The instruction encoding. PHYSICAL (0) or LOGICAL (1).
-        time (int | IntFunction): The instruction time in ns.
+        time (int | _IntFunction): The instruction time in ns.
         arity (Optional[int]): The instruction arity.  If None, instruction is
             assumed to have variable arity.  Default is 1.  One can use variable arity
             functions for time, space, length, and error_rate in this case.
-        space (Optional[int] | IntFunction): The instruction space in number of
+        space (Optional[int] | _IntFunction): The instruction space in number of
             physical qubits. If None, length is used.
-        length (Optional[int | IntFunction]): The arity including ancilla
+        length (Optional[int | _IntFunction]): The arity including ancilla
             qubits. If None, arity is used.
-        error_rate (float | FloatFunction): The instruction error rate.
+        error_rate (float | _FloatFunction): The instruction error rate.
         **kwargs (int): Additional properties to set on the instruction.
             Valid property names: distance.
 
     Returns:
-        Instruction: The instruction.
+        _Instruction: The instruction.
 
     Raises:
         ValueError: If an unknown property name is provided in kwargs.
     """
     if arity is not None:
-        instr = Instruction.fixed_arity(
+        instr = _Instruction.fixed_arity(
             id,
             encoding,
             arity,
@@ -152,12 +163,12 @@ def instruction(
         if isinstance(error_rate, float):
             error_rate = constant_function(error_rate)
 
-        instr = Instruction.variable_arity(
+        instr = _Instruction.variable_arity(
             id,
             encoding,
             time,
-            cast(IntFunction, space),
-            cast(FloatFunction, error_rate),
+            cast(_IntFunction, space),
+            cast(_FloatFunction, error_rate),
             length,
         )
 
@@ -194,7 +205,7 @@ class ISATransform(ABC):
         ...
 
     @abstractmethod
-    def provided_isa(self, impl_isa: ISA) -> Generator[ISA, None, None]:
+    def provided_isa(self, impl_isa: ISA, ctx: _Context) -> Generator[ISA, None, None]:
         """
         Yields ISAs provided by this transform given an implementation ISA.
 
@@ -210,6 +221,7 @@ class ISATransform(ABC):
     def enumerate_isas(
         cls,
         impl_isa: ISA | Iterable[ISA],
+        ctx: _Context,
         **kwargs,
     ) -> Generator[ISA, None, None]:
         """
@@ -231,7 +243,8 @@ class ISATransform(ABC):
                 continue
 
             for component in _enumerate_instances(cls, **kwargs):
-                yield from component.provided_isa(isa)
+                ctx._transforms[id(component)] = component
+                yield from component.provided_isa(isa, ctx)
 
     @classmethod
     def q(cls, *, source: ISAQuery | None = None, **kwargs) -> ISAQuery:
@@ -265,3 +278,92 @@ class ISATransform(ABC):
             BindingNode: A binding node enclosing this transform.
         """
         return cls.q().bind(name, node)
+
+
+@dataclass(frozen=True, slots=True)
+class InstructionSource:
+    nodes: list[_InstructionSourceNode] = field(default_factory=list, init=False)
+    roots: list[int] = field(default_factory=list, init=False)
+
+    @classmethod
+    def from_estimation_result(
+        cls, ctx: _Context, result: EstimationResult
+    ) -> InstructionSource:
+        """
+        Constructs an InstructionSource graph from an EstimationResult.
+
+        The instruction source graph contains more information than the
+        provenance graph in the context, as it connects the instructions to the
+        transforms and architectures that generated them.
+
+        Args:
+            ctx (_Context): The enumeration context containing the provenance graph.
+            result (EstimationResult): The estimation result containing the ISA and instruction sources.
+
+        Returns:
+            InstructionSource: The instruction source graph for the estimation result.
+        """
+
+        def _make_node(
+            graph: InstructionSource, source_table: dict[int, int], source: int
+        ) -> int:
+            if source in source_table:
+                return source_table[source]
+
+            children = [
+                _make_node(graph, source_table, child)
+                for child in ctx._provenance.children(source)
+                if child != 0
+            ]
+
+            node = graph.add_node(
+                ctx._provenance.instruction_id(source),
+                ctx._transforms.get(ctx._provenance.transform_id(source)),
+                children,
+            )
+
+            source_table[source] = node
+            return node
+
+        graph = cls()
+        source_table: dict[int, int] = {}
+
+        for inst in result.isa:
+            if inst.source != 0:
+                node = _make_node(graph, source_table, inst.source)
+                graph.add_root(node)
+
+        return graph
+
+    def add_root(self, node_id: int) -> None:
+        self.roots.append(node_id)
+
+    def add_node(
+        self,
+        id: int,
+        transform: Optional[ISATransform | Architecture],
+        children: list[int],
+    ) -> int:
+        node_id = self.nodes.__len__()
+        self.nodes.append(_InstructionSourceNode(id, transform, children))
+        return node_id
+
+    def __str__(self) -> str:
+        def _format_node(node: _InstructionSourceNode, indent: int = 0) -> str:
+            result = " " * indent + f"{instruction_name(node.id) or '??'}"
+            if node.transform is not None:
+                result += f" @ {node.transform}"
+            for child_index in node.children:
+                result += "\n" + _format_node(self.nodes[child_index], indent + 2)
+            return result
+
+        return "\n".join(
+            _format_node(self.nodes[root_index]) for root_index in self.roots
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class _InstructionSourceNode:
+    id: int
+    transform: Optional[ISATransform | Architecture]
+    children: list[int]

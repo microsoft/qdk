@@ -21,6 +21,7 @@ pub(crate) fn register_qre_submodule(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<IntFunction>()?;
     m.add_class::<FloatFunction>()?;
     m.add_class::<ConstraintBound>()?;
+    m.add_class::<ProvenanceGraph>()?;
     m.add_class::<Trace>()?;
     m.add_class::<Block>()?;
     m.add_class::<PSSPC>()?;
@@ -35,6 +36,7 @@ pub(crate) fn register_qre_submodule(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(generic_function, m)?)?;
     m.add_function(wrap_pyfunction!(estimate_parallel, m)?)?;
     m.add_function(wrap_pyfunction!(binom_ppf, m)?)?;
+    m.add_function(wrap_pyfunction!(instruction_name, m)?)?;
 
     m.add("EstimationError", m.py().get_type::<EstimationError>())?;
 
@@ -174,7 +176,7 @@ impl ISARequirements {
 }
 
 #[allow(clippy::unsafe_derive_deserialize)]
-#[pyclass]
+#[pyclass(name = "_Instruction")]
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Instruction(qre::Instruction);
@@ -271,6 +273,15 @@ impl Instruction {
     #[pyo3(signature = (arity=None))]
     pub fn expect_error_rate(&self, arity: Option<u64>) -> PyResult<f64> {
         Ok(self.0.expect_error_rate(arity))
+    }
+
+    pub fn set_source(&mut self, index: usize) {
+        self.0.set_source(index);
+    }
+
+    #[getter]
+    pub fn source(&self) -> usize {
+        self.0.source()
     }
 
     pub fn set_property(&mut self, key: u64, value: u64) {
@@ -381,7 +392,43 @@ impl ConstraintBound {
     }
 }
 
-#[pyclass]
+#[pyclass(name = "_ProvenanceGraph")]
+pub struct ProvenanceGraph(qre::ProvenanceGraph);
+
+#[pymethods]
+impl ProvenanceGraph {
+    #[new]
+    pub fn new() -> Self {
+        Self(qre::ProvenanceGraph::new())
+    }
+
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn add_node(&mut self, id: u64, transform: u64, children: Vec<usize>) -> usize {
+        self.0.add_node(id, transform, &children)
+    }
+
+    pub fn instruction_id(&self, node_index: usize) -> u64 {
+        self.0.instruction_id(node_index)
+    }
+
+    pub fn transform_id(&self, node_index: usize) -> u64 {
+        self.0.transform_id(node_index)
+    }
+
+    pub fn children(&self, node_index: usize) -> Vec<usize> {
+        self.0.children(node_index).to_vec()
+    }
+
+    pub fn num_nodes(&self) -> usize {
+        self.0.num_nodes()
+    }
+
+    pub fn num_edges(&self) -> usize {
+        self.0.num_edges()
+    }
+}
+
+#[pyclass(name = "_Property")]
 pub struct Property(qre::Property);
 
 #[pymethods]
@@ -436,10 +483,10 @@ impl Property {
     }
 }
 
-#[pyclass]
+#[pyclass(name = "_IntFunction")]
 pub struct IntFunction(qre::VariableArityFunction<u64>);
 
-#[pyclass]
+#[pyclass(name = "_FloatFunction")]
 pub struct FloatFunction(qre::VariableArityFunction<f64>);
 
 #[pyfunction]
@@ -537,7 +584,7 @@ pub fn generic_function<'py>(
 }
 
 #[derive(Default)]
-#[pyclass]
+#[pyclass(name = "_EstimationCollection")]
 pub struct EstimationCollection(qre::EstimationCollection);
 
 #[pymethods]
@@ -610,6 +657,11 @@ impl EstimationResult {
         }
 
         Ok(dict)
+    }
+
+    #[getter]
+    pub fn isa(&self) -> ISA {
+        ISA(self.0.isa().clone())
     }
 
     fn __str__(&self) -> String {
@@ -868,7 +920,7 @@ impl InstructionFrontierIterator {
 }
 
 #[allow(clippy::needless_pass_by_value)]
-#[pyfunction(signature = (traces, isas, max_error = 1.0))]
+#[pyfunction(name = "_estimate_parallel", signature = (traces, isas, max_error = 1.0))]
 pub fn estimate_parallel(
     traces: Vec<PyRef<'_, Trace>>,
     isas: Vec<PyRef<'_, ISA>>,
@@ -881,9 +933,14 @@ pub fn estimate_parallel(
     EstimationCollection(collection)
 }
 
-#[pyfunction]
+#[pyfunction(name = "_binom_ppf")]
 pub fn binom_ppf(q: f64, n: usize, p: f64) -> usize {
     qre::binom_ppf(q, n, p)
+}
+
+#[pyfunction]
+pub fn instruction_name(id: u64) -> Option<String> {
+    qre::instruction_name(id).map(String::from)
 }
 
 fn add_instruction_ids(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -967,6 +1024,7 @@ fn add_instruction_ids(m: &Bound<'_, PyModule>) -> PyResult<()> {
         LATTICE_SURGERY,
         READ_FROM_MEMORY,
         WRITE_TO_MEMORY,
+        MEMORY,
         CYCLIC_SHIFT,
         GENERIC
     );

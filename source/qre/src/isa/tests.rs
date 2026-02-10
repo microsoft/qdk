@@ -150,3 +150,58 @@ fn test_variable_arity_function() {
     assert_eq!(custom_fn.evaluate(3), 9);
     assert_eq!(custom_fn.evaluate(4), 16);
 }
+
+#[test]
+fn test_instruction_display_known_id() {
+    use crate::trace::instruction_ids::H;
+
+    let instr = Instruction::fixed_arity(H, Encoding::Physical, 1, 100, None, None, 0.01);
+    let display = format!("{instr}");
+
+    assert!(display.contains('H'), "Expected 'H' in '{display}'");
+    assert!(
+        display.contains("arity: 1"),
+        "Expected 'arity: 1' in '{display}'"
+    );
+}
+
+#[test]
+fn test_instruction_display_unknown_id() {
+    let unknown_id = 0x9999;
+    let instr = Instruction::fixed_arity(unknown_id, Encoding::Logical, 2, 50, None, None, 0.001);
+    let display = format!("{instr}");
+
+    assert!(
+        display.contains("??"),
+        "Expected '??' for unknown ID in '{display}'"
+    );
+}
+
+#[test]
+fn test_instruction_display_variable_arity() {
+    use crate::trace::instruction_ids::MULTI_PAULI_MEAS;
+
+    let time_fn = VariableArityFunction::linear(10);
+    let space_fn = VariableArityFunction::constant(5);
+    let error_rate_fn = VariableArityFunction::constant(0.001);
+
+    let instr = Instruction::variable_arity(
+        MULTI_PAULI_MEAS,
+        Encoding::Logical,
+        time_fn,
+        space_fn,
+        None,
+        error_rate_fn,
+    );
+    let display = format!("{instr}");
+
+    assert!(
+        display.contains("MULTI_PAULI_MEAS"),
+        "Expected 'MULTI_PAULI_MEAS' in '{display}'"
+    );
+    // Variable arity instructions don't show arity
+    assert!(
+        !display.contains("arity:"),
+        "Variable arity should not show arity in '{display}'"
+    );
+}

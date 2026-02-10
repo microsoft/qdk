@@ -238,3 +238,62 @@ fn test_estimate_with_factory() {
     assert_eq!(factory_res.runs(), 100);
     assert_eq!(result.factories().len(), 1);
 }
+
+#[test]
+fn test_trace_display_uses_instruction_names() {
+    use crate::trace::Trace;
+    use crate::trace::instruction_ids::{CNOT, H, MEAS_Z};
+
+    let mut trace = Trace::new(2);
+    trace.add_operation(H, vec![0], vec![]);
+    trace.add_operation(CNOT, vec![0, 1], vec![]);
+    trace.add_operation(MEAS_Z, vec![0], vec![]);
+
+    let display = format!("{trace}");
+
+    assert!(
+        display.contains('H'),
+        "Expected 'H' in trace output: {display}"
+    );
+    assert!(
+        display.contains("CNOT"),
+        "Expected 'CNOT' in trace output: {display}"
+    );
+    assert!(
+        display.contains("MEAS_Z"),
+        "Expected 'MEAS_Z' in trace output: {display}"
+    );
+}
+
+#[test]
+fn test_trace_display_unknown_instruction() {
+    use crate::trace::Trace;
+
+    let mut trace = Trace::new(1);
+    trace.add_operation(0x9999, vec![0], vec![]);
+
+    let display = format!("{trace}");
+
+    assert!(
+        display.contains("??"),
+        "Expected '??' for unknown instruction in: {display}"
+    );
+}
+
+#[test]
+fn test_block_display_with_repetitions() {
+    use crate::trace::Trace;
+    use crate::trace::instruction_ids::H;
+
+    let mut trace = Trace::new(1);
+    let block = trace.add_block(10);
+    block.add_operation(H, vec![0], vec![]);
+
+    let display = format!("{trace}");
+
+    assert!(
+        display.contains("repeat 10"),
+        "Expected 'repeat 10' in: {display}"
+    );
+    assert!(display.contains('H'), "Expected 'H' in block: {display}");
+}
