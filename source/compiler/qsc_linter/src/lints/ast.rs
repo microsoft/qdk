@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 use super::lint;
-use crate::linter::{Compilation, ast::declare_ast_lints};
+use crate::linter::{CodeAction, Compilation, ast::declare_ast_lints};
 use qsc_ast::ast::{
     BinOp, Block, Expr, ExprKind, Item, ItemKind, Lit, Namespace, NodeId, QubitSource, Stmt,
     StmtKind, TernOp,
@@ -74,8 +74,10 @@ impl NeedlessParens {
             buffer.push(lint!(
                 self,
                 child.span,
-                Self::get_code_action_edits(child.span),
-                Some("Remove unnecessary parentheses".to_string())
+                CodeAction {
+                    title: "Remove unnecessary parentheses".to_string(),
+                    edits: Self::get_code_action_edits(child.span)
+                }
             ));
         }
     }
@@ -123,8 +125,10 @@ impl AstLintPass for NeedlessParens {
             buffer.push(lint!(
                 self,
                 right.span,
-                Self::get_code_action_edits(right.span),
-                Some("Remove unnecessary parentheses".to_string())
+                CodeAction {
+                    title: "Remove unnecessary parentheses".to_string(),
+                    edits: Self::get_code_action_edits(right.span)
+                }
             ));
         }
     }
@@ -143,8 +147,10 @@ impl RedundantSemicolons {
             buffer.push(lint!(
                 self,
                 span,
-                vec![(String::new(), span)],
-                Some("Remove redundant semicolons".to_string())
+                CodeAction {
+                    title: "Remove redundant semicolons".to_string(),
+                    edits: vec![(String::new(), span)]
+                }
             ));
         }
     }
@@ -237,8 +243,10 @@ impl AstLintPass for DeprecatedSet {
             buffer.push(lint!(
                 self,
                 span,
-                vec![(String::new(), span)],
-                Some("Remove `set` keyword".to_string())
+                CodeAction {
+                    title: "Remove `set` keyword".to_string(),
+                    edits: vec![(String::new(), span)]
+                }
             ));
         }
     }
@@ -292,15 +300,18 @@ impl AstLintPass for DeprecatedAssignUpdateExpr {
             let record_src = compilation.get_source_code(record.span);
             let index_src = compilation.get_source_code(index.span);
             let value_src = compilation.get_source_code(value.span);
-            let edit = vec![(
+            let edits = vec![(
                 format!("{record_src}[{index_src}] = {value_src}"),
                 expr.span,
             )];
             buffer.push(lint!(
                 self,
                 expr.span,
-                edit,
-                Some("Replace update assignment expression with explicit assignment".to_string())
+                CodeAction {
+                    title: "Replace update assignment expression with explicit assignment"
+                        .to_string(),
+                    edits
+                }
             ));
         }
     }
@@ -368,8 +379,10 @@ impl AstLintPass for DeprecatedBorrow {
             buffer.push(lint!(
                 self,
                 span,
-                vec![("use".to_string(), span)],
-                Some("Replace `borrow` with `use`".to_string())
+                CodeAction {
+                    title: "Replace `borrow` with `use`".to_string(),
+                    edits: vec![("use".to_string(), span)]
+                }
             ));
         }
     }

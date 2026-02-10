@@ -53,25 +53,23 @@ fn quick_fixes(
     // For all diagnostics that are lints, we extract the code action edits from them.
     for diagnostic in diagnostics {
         if let ErrorKind::Lint(lint) = diagnostic.error()
-            && !lint.code_action_edits.is_empty()
+            && let Some(code_action) = &lint.code_action
+            && !code_action.edits.is_empty()
         {
             let source = compilation
                 .user_unit()
                 .sources
                 .find_by_name(source_name)
                 .expect("source should exist");
-            let text_edits: Vec<TextEdit> = lint
-                .code_action_edits
+            let text_edits: Vec<TextEdit> = code_action
+                .edits
                 .iter()
                 .map(|(new_text, span)| TextEdit {
                     new_text: new_text.clone(),
                     range: qsc::line_column::Range::from_span(encoding, &source.contents, span),
                 })
                 .collect();
-            let title = lint
-                .code_action_title
-                .clone()
-                .unwrap_or_else(|| diagnostic.to_string());
+            let title = code_action.title.clone();
             code_actions.push(CodeAction {
                 title,
                 edit: Some(WorkspaceEdit {
