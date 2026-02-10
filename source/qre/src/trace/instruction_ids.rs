@@ -5,10 +5,13 @@
 // - add them to `add_instruction_ids` in qre.rs
 // - add them to instruction_ids.pyi
 
+// Paulis
 pub const PAULI_I: u64 = 0x0;
 pub const PAULI_X: u64 = 0x1;
 pub const PAULI_Y: u64 = 0x2;
 pub const PAULI_Z: u64 = 0x3;
+
+// Clifford gates
 pub const H: u64 = 0x10;
 pub const H_XZ: u64 = 0x10;
 pub const H_XY: u64 = 0x11;
@@ -26,12 +29,18 @@ pub const CX: u64 = 0x19;
 pub const CY: u64 = 0x1A;
 pub const CZ: u64 = 0x1B;
 pub const SWAP: u64 = 0x1C;
+
+// State preparation
 pub const PREP_X: u64 = 0x30;
 pub const PREP_Y: u64 = 0x31;
 pub const PREP_Z: u64 = 0x32;
+
+// Generic Cliffords
 pub const ONE_QUBIT_CLIFFORD: u64 = 0x50;
 pub const TWO_QUBIT_CLIFFORD: u64 = 0x51;
 pub const N_QUBIT_CLIFFORD: u64 = 0x52;
+
+// Measurements
 pub const MEAS_X: u64 = 0x100;
 pub const MEAS_Y: u64 = 0x101;
 pub const MEAS_Z: u64 = 0x102;
@@ -44,6 +53,8 @@ pub const MEAS_ZZ: u64 = 0x108;
 pub const MEAS_XZ: u64 = 0x109;
 pub const MEAS_XY: u64 = 0x10A;
 pub const MEAS_YZ: u64 = 0x10B;
+
+// Non-Clifford gates
 pub const SQRT_SQRT_X: u64 = 0x400;
 pub const SQRT_SQRT_X_DAG: u64 = 0x401;
 pub const SQRT_SQRT_Y: u64 = 0x402;
@@ -67,11 +78,25 @@ pub const CRZ: u64 = 0x411;
 pub const RXX: u64 = 0x412;
 pub const RYY: u64 = 0x413;
 pub const RZZ: u64 = 0x414;
+
+// Generic unitaries
+pub const ONE_QUBIT_UNITARY: u64 = 0x500;
+pub const TWO_QUBIT_UNITARY: u64 = 0x501;
+
+// Multi-qubit Pauli measurement
 pub const MULTI_PAULI_MEAS: u64 = 0x1000;
+
+// Some generic logical instructions
 pub const LATTICE_SURGERY: u64 = 0x1100;
+
+// Memory/compute operations (used in compute parts of memory-compute layouts)
 pub const READ_FROM_MEMORY: u64 = 0x1200;
 pub const WRITE_TO_MEMORY: u64 = 0x1201;
+
+// Some special hardware physical instructions
 pub const CYCLIC_SHIFT: u64 = 0x1300;
+
+// Generic operation (for unified RE)
 pub const GENERIC: u64 = 0xFFFF;
 
 #[must_use]

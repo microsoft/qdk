@@ -4,10 +4,11 @@
 use std::{
     fmt::Display,
     ops::{Add, Deref, Index},
+    sync::Arc,
 };
 
 use num_traits::FromPrimitive;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 
 #[cfg(test)]
@@ -33,6 +34,11 @@ impl ISA {
     #[must_use]
     pub fn get(&self, id: &u64) -> Option<&Instruction> {
         self.instructions.get(id)
+    }
+
+    #[must_use]
+    pub fn contains(&self, id: &u64) -> bool {
+        self.instructions.contains_key(id)
     }
 
     #[must_use]
@@ -77,6 +83,13 @@ impl ISA {
                     {
                         return false;
                     }
+                }
+            }
+
+            // Check that all required properties are present in the instruction
+            for prop in &constraint.properties {
+                if !instruction.has_property(prop) {
+                    return false;
                 }
             }
         }
@@ -164,6 +177,7 @@ pub struct Instruction {
     id: u64,
     encoding: Encoding,
     metrics: Metrics,
+    properties: Option<FxHashMap<u64, u64>>,
 }
 
 impl Instruction {
@@ -190,6 +204,7 @@ impl Instruction {
                 time,
                 error_rate,
             },
+            properties: None,
         }
     }
 
@@ -213,7 +228,15 @@ impl Instruction {
                 time_fn,
                 error_rate_fn,
             },
+            properties: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_id(&self, id: u64) -> Self {
+        let mut new_instruction = self.clone();
+        new_instruction.id = id;
+        new_instruction
     }
 
     #[must_use]
@@ -291,6 +314,33 @@ impl Instruction {
         self.error_rate(arity)
             .expect("Instruction does not support variable arity")
     }
+
+    pub fn set_property(&mut self, key: u64, value: u64) {
+        if let Some(ref mut properties) = self.properties {
+            properties.insert(key, value);
+        } else {
+            let mut properties = FxHashMap::default();
+            properties.insert(key, value);
+            self.properties = Some(properties);
+        }
+    }
+
+    #[must_use]
+    pub fn get_property(&self, key: &u64) -> Option<u64> {
+        self.properties.as_ref()?.get(key).copied()
+    }
+
+    #[must_use]
+    pub fn has_property(&self, key: &u64) -> bool {
+        self.properties
+            .as_ref()
+            .is_some_and(|props| props.contains_key(key))
+    }
+
+    #[must_use]
+    pub fn get_property_or(&self, key: &u64, default: u64) -> u64 {
+        self.get_property(key).unwrap_or(default)
+    }
 }
 
 impl Display for Instruction {
@@ -310,6 +360,7 @@ pub struct InstructionConstraint {
     encoding: Encoding,
     arity: Option<u64>,
     error_rate_fn: Option<ConstraintBound<f64>>,
+    properties: FxHashSet<u64>,
 }
 
 impl InstructionConstraint {
@@ -325,7 +376,25 @@ impl InstructionConstraint {
             encoding,
             arity,
             error_rate_fn,
+            properties: FxHashSet::default(),
         }
+    }
+
+    /// Adds a property requirement to the constraint.
+    pub fn add_property(&mut self, property: u64) {
+        self.properties.insert(property);
+    }
+
+    /// Checks if the constraint requires a specific property.
+    #[must_use]
+    pub fn has_property(&self, property: &u64) -> bool {
+        self.properties.contains(property)
+    }
+
+    /// Returns the set of required properties.
+    #[must_use]
+    pub fn properties(&self) -> &FxHashSet<u64> {
+        &self.properties
     }
 }
 
@@ -355,9 +424,20 @@ pub enum Metrics {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub enum VariableArityFunction<T> {
-    Constant { value: T },
-    Linear { slope: T },
-    BlockLinear { block_size: u64, slope: T },
+    Constant {
+        value: T,
+    },
+    Linear {
+        slope: T,
+    },
+    BlockLinear {
+        block_size: u64,
+        slope: T,
+    },
+    #[serde(skip)]
+    Generic {
+        func: Arc<dyn Fn(u64) -> T + Send + Sync>,
+    },
 }
 
 impl<T: Add<Output = T> + std::ops::Mul<Output = T> + Copy + FromPrimitive>
@@ -375,6 +455,16 @@ impl<T: Add<Output = T> + std::ops::Mul<Output = T> + Copy + FromPrimitive>
         VariableArityFunction::BlockLinear { block_size, slope }
     }
 
+    pub fn generic(func: impl Fn(u64) -> T + Send + Sync + 'static) -> Self {
+        VariableArityFunction::Generic {
+            func: Arc::new(func),
+        }
+    }
+
+    pub fn generic_from_arc(func: Arc<dyn Fn(u64) -> T + Send + Sync>) -> Self {
+        VariableArityFunction::Generic { func }
+    }
+
     pub fn evaluate(&self, arity: u64) -> T {
         match self {
             VariableArityFunction::Constant { value } => *value,
@@ -385,6 +475,7 @@ impl<T: Add<Output = T> + std::ops::Mul<Output = T> + Copy + FromPrimitive>
                 let blocks = arity.div_ceil(*block_size);
                 *slope * T::from_u64(blocks).expect("Failed to convert u64 to target type")
             }
+            VariableArityFunction::Generic { func } => func(arity),
         }
     }
 }

@@ -75,6 +75,10 @@ RXX: int
 RYY: int
 RZZ: int
 
+# Generic unitary gates
+ONE_QUBIT_UNITARY: int
+TWO_QUBIT_UNITARY: int
+
 # Multi-qubit Pauli measurement
 MULTI_PAULI_MEAS: int
 

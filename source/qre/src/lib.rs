@@ -17,6 +17,8 @@ pub use isa::{
 };
 pub use trace::instruction_ids;
 pub use trace::{Block, LatticeSurgery, PSSPC, Property, Trace, TraceTransform, estimate_parallel};
+mod utils;
+pub use utils::binom_ppf;
 
 /// A resourc estimation error.
 #[derive(Clone, Debug, Error, PartialEq)]
