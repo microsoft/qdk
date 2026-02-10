@@ -1,8 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { computeAmpMapForCircuit } from "../../../npm/qsharp/ux/circuit-vis/state-viz/stateComputeCore";
-import { prepareStateVizColumnsFromAmpMap } from "../../../npm/qsharp/ux/circuit-vis/state-viz/stateVizPrep";
+import {
+  computeAmpMapForCircuit,
+  prepareStateVizColumnsFromAmpMap,
+} from "qsharp-lang/state-viz";
 
 type CircuitModelSnapshot = {
   qubits: any[];
