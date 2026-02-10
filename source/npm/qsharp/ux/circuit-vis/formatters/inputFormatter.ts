@@ -68,7 +68,7 @@ const formatInputs = (
     //             ╎└╌╌╌╌╌┘╎
     //             └╌╌╌╌╌╌╌┘
 
-    currY += gatePadding + gateHeight / 2;
+    currY += gatePadding;
 
     //             ┌╌╌╌╌╌╌╌┐
     //             ╎┌╌╌╌╌╌┐╎
@@ -111,7 +111,7 @@ const formatInputs = (
     // Increment current height by classical register height for attached classical registers
 
     // Add classical wires
-    registers[id].children = Array.from(Array(numResults), () => {
+    registers[id].children = Array.from(Array(numResults ?? 0), () => {
       currY += classicalRegHeight;
 
       //             ┌╌╌╌╌╌╌╌┐
