@@ -33,6 +33,8 @@ export type ZoneLayout = {
   renumber?: boolean;
 };
 
+const TWO_QUBIT_GATES = ["CX", "CY", "CZ", "RXX", "RYY", "RZZ", "SWAP"];
+
 // Normalize zone data to always use rowStart/rowEnd format
 function normalizeZones(zones: ZoneDataInput[]): ZoneData[] {
   let nextRowStart = 0;
@@ -147,15 +149,15 @@ function parseMove(
 
 function parseGate(
   op: string,
-): { gate: string; qubit: number; arg?: string } | undefined {
-  const match = op.match(/(\w+)\s*(\(.*\))? (\d+)/);
+): { gate: string; qubits: number[]; arg?: string } | undefined {
+  const match = op.match(/(\w+)\s*(\(.*\))? ([\d,\s]+)/);
   if (match) {
     const gate = match[1];
-    const qubit = parseInt(match[3]);
+    const qubits = match[3].split(",").map((s) => parseInt(s.trim()));
     const arg = match[2]
       ? match[2].substring(1, match[2].length - 2)
       : undefined;
-    return { gate, qubit, arg };
+    return { gate, qubits, arg };
   }
 }
 
@@ -916,7 +918,18 @@ export class Layout {
             const gate = parseGate(op);
             if (!gate) throw `Invalid gate: ${op}`;
             const arg = gate.arg ? gate.arg.substring(0, 4) : undefined;
-            this.renderGateOnQubit(gate.qubit, gate.gate.toUpperCase(), arg);
+            const isTwoQubitGate = TWO_QUBIT_GATES.includes(
+              gate.gate.toUpperCase(),
+            );
+            // Handle the case where an op is a list of qubits to apply the same op to
+            for (let i = 0; i < gate.qubits.length; i++) {
+              if (isTwoQubitGate && i % 2 !== 0) continue;
+              this.renderGateOnQubit(
+                gate.qubits[i],
+                gate.gate.toUpperCase(),
+                arg,
+              );
+            }
           }
         }
       });
