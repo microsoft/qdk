@@ -10,7 +10,7 @@ type ZoneDataInput = {
   kind: "register" | "interaction" | "measurement";
 } & (
   | { rows: number; rowStart?: never; rowEnd?: never }
-  | { rowStart: number; rowEnd: number; rows?: never }
+  | { rowStart: number; rowEnd: number; skipRows?: number[]; rows?: never }
 );
 
 // Normalized internal format always uses rowStart/rowEnd
@@ -18,6 +18,7 @@ type ZoneData = {
   title: string;
   rowStart: number;
   rowEnd: number;
+  skipRows?: number[];
   kind: "register" | "interaction" | "measurement";
 };
 
@@ -28,6 +29,9 @@ export type ZoneLayout = {
   // e.g. if `skipCols: [0,9]` was provided, then a `move(0,1)` would actually move to visual column 0,
   // and a `move(1,10)` would move to visual column 8.
   skipCols?: number[];
+  // If renumber is true, then all rows and columns will be renumbered in the visualization to be sequential starting from 0
+  // TODO
+  renumber?: boolean;
 };
 
 // Normalize zone data to always use rowStart/rowEnd format
@@ -35,11 +39,20 @@ function normalizeZones(zones: ZoneDataInput[]): ZoneData[] {
   let nextRowStart = 0;
   return zones.map((zone) => {
     if ("rowStart" in zone && zone.rowStart !== undefined) {
+      // Verify if skipRows are within the rowStart and rowEnd range
+      if (zone.skipRows) {
+        if (
+          !zone.skipRows.every((r) => r >= zone.rowStart && r <= zone.rowEnd)
+        ) {
+          throw `Invalid skipRows in zone "${zone.title}": all skipRows must be between rowStart and rowEnd`;
+        }
+      }
       // New format with explicit rowStart/rowEnd
       return {
         title: zone.title,
         rowStart: zone.rowStart,
         rowEnd: zone.rowEnd,
+        skipRows: zone.skipRows,
         kind: zone.kind,
       };
     } else {
@@ -97,6 +110,7 @@ export function fillQubitLocations(
   normalizedZones.forEach((zone) => {
     if (zone.kind === "register") {
       for (let row = zone.rowStart; row <= zone.rowEnd; ++row) {
+        if (zone.skipRows && zone.skipRows.includes(row)) continue;
         for (let col = 0; col < layout.cols; ++col) {
           qubits.push([row, col]);
         }
@@ -121,7 +135,7 @@ function parseMove(
   op: string,
   skipCols?: number[],
 ): { qubit: number; to: Location } | undefined {
-  const match = op.match(/move\((\d+), (\d+)\) (\d+)/);
+  const match = op.match(/move?\((\d+), (\d+)\) (\d+)/);
   if (match) {
     const to: Location = [
       parseInt(match[1]),
@@ -347,7 +361,8 @@ export class Layout {
     this.effectiveCols = layout.cols - (layout.skipCols?.length ?? 0);
 
     const totalRows = this.normalizedZones.reduce(
-      (prev, curr) => prev + (curr.rowEnd - curr.rowStart + 1),
+      (prev, curr) =>
+        prev + (curr.rowEnd - curr.rowStart + 1) - (curr.skipRows?.length ?? 0),
       0,
     );
 
@@ -368,8 +383,10 @@ export class Layout {
     this.normalizedZones.forEach((zone, index) => {
       this.renderZone(index, nextOffset);
       for (let row = zone.rowStart; row <= zone.rowEnd; ++row) {
-        this.rowOffsetMap.set(row, nextOffset);
-        nextOffset += qubitSize;
+        if (!zone.skipRows?.includes(row)) {
+          this.rowOffsetMap.set(row, nextOffset);
+          nextOffset += qubitSize;
+        }
       }
       nextOffset += zoneSpacing; // Add spacing after each zone
     });
@@ -421,7 +438,11 @@ export class Layout {
 
   private renderZone(zoneIndex: number, offset: number) {
     const zoneData = this.normalizedZones[zoneIndex];
-    const zoneRows = zoneData.rowEnd - zoneData.rowStart + 1;
+    const zoneRows =
+      zoneData.rowEnd -
+      zoneData.rowStart +
+      1 -
+      (zoneData.skipRows?.length ?? 0);
     const g = createSvgElements("g")[0];
     setAttributes(g, {
       transform: `translate(0 ${offset})`,
@@ -478,8 +499,9 @@ export class Layout {
     }
 
     // Number the rows using the absolute row numbers from rowStart to rowEnd
-    for (let i = 0; i < zoneRows; ++i) {
-      const rowNum = zoneData.rowStart + i;
+    let i = 0;
+    for (let rowNum = zoneData.rowStart; rowNum <= zoneData.rowEnd; ++rowNum) {
+      if (zoneData.skipRows && zoneData.skipRows.includes(rowNum)) continue;
       const label = createSvgElements("text")[0];
       setAttributes(label, {
         x: `${this.effectiveCols * qubitSize + 5}`,
@@ -488,6 +510,7 @@ export class Layout {
       });
       label.textContent = `${rowNum}`;
       appendChildren(g, [label]);
+      ++i;
     }
 
     // Draw the title
