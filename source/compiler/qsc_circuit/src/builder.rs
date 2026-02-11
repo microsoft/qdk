@@ -570,8 +570,7 @@ fn collapse_if_unnecessary(
                 == "<lambda>"
         {
             // remove the lambda scope
-            let only_child = children.remove(0);
-            return Some(vec![only_child]);
+            return Some(take(children));
         }
     }
     None
