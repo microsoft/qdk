@@ -234,8 +234,8 @@ fn parse_noise_chunk(contents: &str, line_offset: usize) -> Result<ChunkEntries,
             let bits = match b {
                 b'I' => 0u64,
                 b'X' => 1u64,
-                b'Y' => 2u64,
-                b'Z' => 3u64,
+                b'Y' => 3u64,
+                b'Z' => 2u64,
                 _ => {
                     return Err(ParseError::InvalidPauliChar {
                         line: i,
