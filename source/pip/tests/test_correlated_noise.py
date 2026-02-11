@@ -65,6 +65,15 @@ def test_noisy_simulation():
         assert output == [[Result.One, Result.Zero, Result.One]]
 
 
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_noisy_simulation_gpu():
+    noise = NoiseConfig()
+    table = noise.intrinsic("test_noise_intrinsic", 3)
+    table.yyy = 1.0
+    output = run_qir(QIR_WITH_CORRELATED_NOISE, shots=1, noise=noise, type="gpu")
+    assert output == [[Result.One, Result.Zero, Result.One]]
+
+
 def test_load_csv_dir():
     noise = NoiseConfig()
     noise.load_csv_dir("./csv_dir_test")
@@ -74,7 +83,7 @@ def test_load_csv_dir():
 
 
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_noisy_simulation_gpu():
+def test_load_csv_dir_gpu():
     noise = NoiseConfig()
     noise.load_csv_dir("./csv_dir_test")
     output = run_qir(QIR_WITH_CORRELATED_NOISE, shots=1, noise=noise, type="gpu")
@@ -82,7 +91,11 @@ def test_noisy_simulation_gpu():
 
 
 def test_noisy_simulation_with_missing_gates_fails():
+    """
+    This failure happens before the list of QIR instructions makes it to
+    any specific simulator. So, we don't need separate tests for all of them.
+    """
     noise = NoiseConfig()
     with pytest.raises(ValueError) as excinfo:
-        run_qir(QIR_WITH_CORRELATED_NOISE, shots=1, noise=noise)
+        run_qir(QIR_WITH_CORRELATED_NOISE, shots=1, noise=noise, type="cpu")
     assert "Missing noise intrinsic: test_noise_intrinsic" in str(excinfo.value)
