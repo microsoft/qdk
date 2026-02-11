@@ -34,8 +34,8 @@ impl From<(u64, u32)> for Fault {
         const MAP: [PauliObservable; 4] = [
             PauliObservable::PlusI,
             PauliObservable::PlusX,
-            PauliObservable::PlusY,
             PauliObservable::PlusZ,
+            PauliObservable::PlusY,
         ];
         assert!(
             !is_pauli_identity(pauli),

@@ -38,7 +38,7 @@ impl noise_config::Fault for Fault {
 
 impl From<(u64, u32)> for Fault {
     fn from((pauli, qubits): (u64, u32)) -> Self {
-        const MAP: [PauliFault; 4] = [PauliFault::I, PauliFault::X, PauliFault::Y, PauliFault::Z];
+        const MAP: [PauliFault; 4] = [PauliFault::I, PauliFault::X, PauliFault::Z, PauliFault::Y];
         assert!(
             !is_pauli_identity(pauli),
             "the NoiseTable input validation should ensure we don't insert the identity string"

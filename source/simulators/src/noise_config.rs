@@ -348,7 +348,7 @@ pub fn is_pauli_identity(pauli_string: u64) -> bool {
 }
 
 /// Encode a validated Pauli string as a `u64` using 2 bits per character
-/// (I=0, X=1, Y=2, Z=3). Supports up to 32 qubits.
+/// (I=0, X=1, Z=2, Y=3). Supports up to 32 qubits.
 #[must_use]
 pub fn encode_pauli(pauli: &str) -> u64 {
     let pauli = pauli.as_bytes();
@@ -358,8 +358,8 @@ pub fn encode_pauli(pauli: &str) -> u64 {
         let bits = match b {
             b'I' => 0u64,
             b'X' => 1u64,
-            b'Y' => 2u64,
-            b'Z' => 3u64,
+            b'Z' => 2u64,
+            b'Y' => 3u64,
             _ => unreachable!("pauli bytes must be validated before encoding"),
         };
         result = (result << 2) | bits;
@@ -369,6 +369,7 @@ pub fn encode_pauli(pauli: &str) -> u64 {
 
 /// Decode a `u64`-encoded Pauli string back into a list of T,
 /// using the given `map` for decoding.
+/// (I=0, X=1, Z=2, Y=3). Supports up to 32 qubits.
 #[must_use]
 pub fn decode_pauli<T: Clone>(mut pauli: u64, qubits: u32, map: &[T; 4]) -> Vec<T> {
     let n = qubits as usize;
