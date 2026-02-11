@@ -618,7 +618,7 @@ fn test_cy_noise_inverts_phase() {
     ];
 
     let mut noise: NoiseConfig<f32, f64> = NoiseConfig::NOISELESS.clone();
-    noise.cy.pauli_strings.push("IZ".to_string());
+    noise.cy.pauli_strings.push(encode_pauli("IZ"));
     noise.cy.probabilities.push(1.0);
 
     let start = Instant::now();
