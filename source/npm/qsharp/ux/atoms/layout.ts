@@ -30,7 +30,6 @@ export type ZoneLayout = {
   // and a `move(1,10)` would move to visual column 8.
   skipCols?: number[];
   // If renumber is true, then all rows and columns will be renumbered in the visualization to be sequential starting from 0
-  // TODO
   renumber?: boolean;
 };
 
@@ -380,8 +379,9 @@ export class Layout {
     // Maps absolute row numbers to visual Y offsets
     this.rowOffsetMap = new Map();
     let nextOffset = zoneSpacing;
+    let globalRowIndex = 0;
     this.normalizedZones.forEach((zone, index) => {
-      this.renderZone(index, nextOffset);
+      globalRowIndex = this.renderZone(index, nextOffset, globalRowIndex);
       for (let row = zone.rowStart; row <= zone.rowEnd; ++row) {
         if (!zone.skipRows?.includes(row)) {
           this.rowOffsetMap.set(row, nextOffset);
@@ -436,7 +436,11 @@ export class Layout {
     return this.trace.steps[step].ops;
   }
 
-  private renderZone(zoneIndex: number, offset: number) {
+  private renderZone(
+    zoneIndex: number,
+    offset: number,
+    globalRowIndex: number,
+  ): number {
     const zoneData = this.normalizedZones[zoneIndex];
     const zoneRows =
       zoneData.rowEnd -
@@ -508,9 +512,10 @@ export class Layout {
         y: `${i * qubitSize + 5}`,
         class: "qs-atoms-label",
       });
-      label.textContent = `${rowNum}`;
+      label.textContent = `${this.layout.renumber ? globalRowIndex : rowNum}`;
       appendChildren(g, [label]);
       ++i;
+      ++globalRowIndex;
     }
 
     // Draw the title
@@ -524,6 +529,7 @@ export class Layout {
 
     appendChildren(g, [text]);
     appendChildren(this.container, [g]);
+    return globalRowIndex;
   }
 
   private renderQubits() {
@@ -570,7 +576,7 @@ export class Layout {
         y: `5`,
         class: "qs-atoms-label",
       });
-      label.textContent = `${origCol}`;
+      label.textContent = `${this.layout.renumber ? visualCol : origCol}`;
       appendChildren(g, [label]);
       ++visualCol;
     }
