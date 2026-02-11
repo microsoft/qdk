@@ -7,6 +7,7 @@ import {
   labelPaddingX,
   labelFontSize,
   argsFontSize,
+  controlBtnOffset,
 } from "./constants.js";
 import { ComponentGrid, Operation } from "./circuit.js";
 import { Register } from "./register.js";
@@ -67,11 +68,14 @@ const getMinGateWidth = ({
     case GateType.Swap:
       return minGateWidth;
     default: {
+      // Classically controlled gates are wider because of the control button on the left
+      const controlButtonWidth =
+        type === GateType.ClassicalControlled ? controlBtnOffset : 0;
       const labelWidth = _getStringWidth(label);
       const argsWidth =
         displayArgs != null ? _getStringWidth(displayArgs, argsFontSize) : 0;
       const textWidth = Math.max(labelWidth, argsWidth) + labelPaddingX * 2;
-      return Math.max(minGateWidth, textWidth);
+      return Math.max(minGateWidth, textWidth) + controlButtonWidth;
     }
   }
 };
@@ -239,10 +243,7 @@ const getGateLocationString = (operation: Operation): string | null => {
  * @param numQubits The number of qubits in the circuit.
  * @returns A tuple containing the minimum and maximum register indices.
  */
-function getMinMaxRegIdx(
-  operation: Operation,
-  numQubits: number,
-): [number, number] {
+function getMinMaxRegIdx(operation: Operation): [number, number] {
   let targets: Register[];
   let controls: Register[];
   switch (operation.kind) {
@@ -260,20 +261,9 @@ function getMinMaxRegIdx(
       break;
   }
 
-  const qRegs = [...controls, ...targets]
-    .filter(({ result }) => result === undefined)
-    .map(({ qubit }) => qubit);
-  const clsControls: Register[] = controls.filter(
-    ({ result }) => result !== undefined,
-  );
-  const isClassicallyControlled: boolean = clsControls.length > 0;
-  if (!isClassicallyControlled && qRegs.length === 0) return [-1, -1];
-  // If operation is classically-controlled, pad all qubit registers. Otherwise, only pad
-  // the contiguous range of registers that it covers.
-  const minRegIdx: number = isClassicallyControlled ? 0 : Math.min(...qRegs);
-  const maxRegIdx: number = isClassicallyControlled
-    ? numQubits - 1
-    : Math.max(...qRegs);
+  const qRegs = [...controls, ...targets].map(({ qubit }) => qubit);
+  const minRegIdx: number = Math.min(...qRegs);
+  const maxRegIdx: number = Math.max(...qRegs);
 
   return [minRegIdx, maxRegIdx];
 }

@@ -196,6 +196,7 @@ test("circuit snapshot tests - .qsc files", async (t) => {
       draw(circuit, container, {
         isEditable: true,
         renderLocations,
+        renderDepth: 999999,
       });
       await checkDocumentSnapshot(tt, tt.name);
     });
