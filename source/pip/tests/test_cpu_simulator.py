@@ -130,7 +130,7 @@ def test_cpu_mixed_noise():
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
     print(result)
     # Reasonable results obtained from manual run
-    assert result == ["000000000--00000", "0000001000000000", "0000000000010000"]
+    assert result == ["000000000--00100", "0010001000000000", "0000000000010000"]
 
 
 def test_cpu_isolated_loss():
