@@ -251,8 +251,8 @@ impl CircuitTracer {
         }
 
         if self.config.group_by_scope {
-            // Collapse unnecessary loop scopes
-            collapse_unnecessary_loop_scopes(&mut operations);
+            // Collapse unnecessary scopes
+            collapse_unnecessary_scopes(&mut operations, source_lookup);
         }
 
         let operations = operations
@@ -497,20 +497,24 @@ impl CircuitTracer {
     }
 }
 
-/// Removes any loop scopes that are unnecessary and replaces them with their children operations.
+/// Removes any scopes that are unnecessary and replaces them with their children operations.
 /// An unnecessary loop scope is one that either has a single child iteration,
 /// or has multiple iterations that each operate on distinct sets of qubits (i.e. a "vertical" loop).
-fn collapse_unnecessary_loop_scopes(operations: &mut Vec<OperationOrGroup>) {
+/// An unnecessary lambda scope is one where the lambda has a single child operation.
+fn collapse_unnecessary_scopes(
+    operations: &mut Vec<OperationOrGroup>,
+    source_lookup: &impl SourceLookup,
+) {
     let mut ops = vec![];
     for mut op in operations.drain(..) {
         match &mut op.kind {
             OperationOrGroupKind::Single => {}
             OperationOrGroupKind::Group { children, .. } => {
-                collapse_unnecessary_loop_scopes(children);
+                collapse_unnecessary_scopes(children, source_lookup);
             }
         }
 
-        if let Some(children) = collapse_if_unnecessary(&mut op) {
+        if let Some(children) = collapse_if_unnecessary(&mut op, source_lookup) {
             ops.extend(children);
         } else {
             ops.push(op);
@@ -519,41 +523,56 @@ fn collapse_unnecessary_loop_scopes(operations: &mut Vec<OperationOrGroup>) {
     *operations = ops;
 }
 
-/// If the given operation or group is an outer loop scope that can be collapsed,
+/// If the given operation or group is an outer scope that can be collapsed,
 /// returns its children operations or groups.
-fn collapse_if_unnecessary(op: &mut OperationOrGroup) -> Option<Vec<OperationOrGroup>> {
+fn collapse_if_unnecessary(
+    op: &mut OperationOrGroup,
+    source_lookup: &impl SourceLookup,
+) -> Option<Vec<OperationOrGroup>> {
     if let OperationOrGroupKind::Group {
         scope_stack,
         children,
     } = &mut op.kind
-        && let Scope::Loop(..) = scope_stack.current_lexical_scope()
     {
-        if children.len() == 1 {
-            // remove the loop scope
-            let mut only_child = children.remove(0);
-            let OperationOrGroupKind::Group { children, .. } = &mut only_child.kind else {
-                panic!("only child of an outer loop scope should be a group");
-            };
-            return Some(take(children));
-        }
-
-        // now, if each c applies to a distinct set of qubits, this loop is entirely vertical and can be collapsed as well
-        let mut distinct_sets_of_qubits = FxHashSet::default();
-        for child_op in children.iter() {
-            let qs = child_op.all_qubits();
-            if !distinct_sets_of_qubits.insert(qs) {
-                // There's overlap, so we won't collapse
-                return None;
+        if let Scope::Loop(..) = scope_stack.current_lexical_scope() {
+            if children.len() == 1 {
+                // remove the loop scope
+                let mut only_child = children.remove(0);
+                let OperationOrGroupKind::Group { children, .. } = &mut only_child.kind else {
+                    panic!("only child of an outer loop scope should be a group");
+                };
+                return Some(take(children));
             }
+
+            // now, if each c applies to a distinct set of qubits, this loop is entirely vertical and can be collapsed as well
+            let mut distinct_sets_of_qubits = FxHashSet::default();
+            for child_op in children.iter() {
+                let qs = child_op.all_qubits();
+                if !distinct_sets_of_qubits.insert(qs) {
+                    // There's overlap, so we won't collapse
+                    return None;
+                }
+            }
+            let mut all_children = vec![];
+            for mut child_op in children.drain(..) {
+                let OperationOrGroupKind::Group { children, .. } = &mut child_op.kind else {
+                    panic!("only child of an outer loop scope should be a group");
+                };
+                all_children.extend(take(children));
+            }
+            return Some(all_children);
+        } else if let Scope::Callable(..) = scope_stack.current_lexical_scope()
+            && children.len() == 1
+            && source_lookup
+                .resolve_scope(scope_stack.current_lexical_scope())
+                .name
+                .as_ref()
+                == "<lambda>"
+        {
+            // remove the lambda scope
+            let only_child = children.remove(0);
+            return Some(vec![only_child]);
         }
-        let mut all_children = vec![];
-        for mut child_op in children.drain(..) {
-            let OperationOrGroupKind::Group { children, .. } = &mut child_op.kind else {
-                panic!("only child of an outer loop scope should be a group");
-            };
-            all_children.extend(take(children));
-        }
-        return Some(all_children);
     }
     None
 }
