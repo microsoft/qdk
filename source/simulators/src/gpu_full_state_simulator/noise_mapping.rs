@@ -17,32 +17,32 @@ fn set_noise_op_probabilities(noise_table: &NoiseTable<f32>, op: &mut Op) {
         .pauli_strings
         .iter()
         .zip(&noise_table.probabilities)
-        .for_each(|(pauli_str, prob)| match noise_table.qubits {
-            1 => match pauli_str.as_str() {
-                "I" => op.r00 = *prob,
-                "X" => op.r01 = *prob,
-                "Y" => op.r02 = *prob,
-                "Z" => op.r03 = *prob,
-                _ => panic!("Invalid pauli string for 1 qubit: {pauli_str}"),
+        .for_each(|(pauli, prob)| match noise_table.qubits {
+            1 => match pauli {
+                0b_00 => op.r00 = *prob,
+                0b_01 => op.r01 = *prob,
+                0b_11 => op.r02 = *prob,
+                0b_10 => op.r03 = *prob,
+                _ => panic!("Invalid pauli string for 1 qubit: {pauli}"),
             },
-            2 => match pauli_str.as_str() {
-                "II" => op.r00 = *prob,
-                "IX" => op.r01 = *prob,
-                "IY" => op.r02 = *prob,
-                "IZ" => op.r03 = *prob,
-                "XI" => op.r10 = *prob,
-                "XX" => op.r11 = *prob,
-                "XY" => op.r12 = *prob,
-                "XZ" => op.r13 = *prob,
-                "YI" => op.r20 = *prob,
-                "YX" => op.r21 = *prob,
-                "YY" => op.r22 = *prob,
-                "YZ" => op.r23 = *prob,
-                "ZI" => op.r30 = *prob,
-                "ZX" => op.r31 = *prob,
-                "ZY" => op.r32 = *prob,
-                "ZZ" => op.r33 = *prob,
-                _ => panic!("Invalid pauli string for 2 qubits: {pauli_str}"),
+            2 => match pauli {
+                0b_00_00 => op.r00 = *prob,
+                0b_00_01 => op.r01 = *prob,
+                0b_00_11 => op.r02 = *prob,
+                0b_00_10 => op.r03 = *prob,
+                0b_01_00 => op.r10 = *prob,
+                0b_01_01 => op.r11 = *prob,
+                0b_01_11 => op.r12 = *prob,
+                0b_01_10 => op.r13 = *prob,
+                0b_11_00 => op.r20 = *prob,
+                0b_11_01 => op.r21 = *prob,
+                0b_11_11 => op.r22 = *prob,
+                0b_11_10 => op.r23 = *prob,
+                0b_10_00 => op.r30 = *prob,
+                0b_10_01 => op.r31 = *prob,
+                0b_10_11 => op.r32 = *prob,
+                0b_10_10 => op.r33 = *prob,
+                _ => panic!("Invalid pauli string for 2 qubits: {pauli}"),
             },
             _ => panic!(
                 "Unsupported qubit count in noise table: {}",

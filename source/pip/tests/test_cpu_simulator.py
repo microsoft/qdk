@@ -130,7 +130,7 @@ def test_cpu_mixed_noise():
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
     print(result)
     # Reasonable results obtained from manual run
-    assert result == ["000000000--00000", "0010000000000000", "0000000000100000"]
+    assert result == ["000000000--00100", "0010001000000000", "0000000000010000"]
 
 
 def test_cpu_isolated_loss():
@@ -150,9 +150,7 @@ operation Main() : Result[] {
     """
     qsharp.eval(program)
 
-    input = qsharp.compile(
-        "Main()"
-    )
+    input = qsharp.compile("Main()")
 
     noise = NoiseConfig()
     noise.x.loss = 0.1
@@ -169,7 +167,9 @@ operation Main() : Result[] {
     }
     tolerance = 0.2 * total
     for bitstring, actual_count in histogram.items():
-        assert bitstring in allowed_percent, f"Unexpected measurement string: '{bitstring}'."
+        assert (
+            bitstring in allowed_percent
+        ), f"Unexpected measurement string: '{bitstring}'."
         expected_count = allowed_percent[bitstring] * total
         assert abs(actual_count - expected_count) <= tolerance, (
             f"Count for {bitstring} outside 20% tolerance. "
@@ -196,9 +196,7 @@ operation Main() : Result[] {
     """
     qsharp.eval(program)
 
-    input = qsharp.compile(
-        "Main()"
-    )
+    input = qsharp.compile("Main()")
 
     noise = NoiseConfig()
     noise.x.set_bitflip(0.001)
