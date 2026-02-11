@@ -201,34 +201,13 @@ impl NoiseConfig {
             paths
                 .par_iter()
                 .map(|path| {
-                    // Design notes:
-                    //   1. Memory-map the file to avoid a hundreds of MB heap allocation + copy.
-                    //   2. memmap2 depends on the libc crate, we already take a dependency on
-                    //      libc through PyO3, so we don't run a risk of supporting fewer
-                    //      platforms by using it.
-                    //
-                    // SAFETY:
-                    //   The risk with file-backed memory maps is the underlying file
-                    //   being changed while the map is in use. If this happens the noise
-                    //   could be loaded incorrectly.
-                    //   This is used for simulation, and the risk of someone immediatly
-                    //   changing the contents of a file immediatly after running their Python
-                    //   code is low. The reward / risk ratio is high in this situation.
-                    //   So, using a memory map makes sense.
-                    let file = std::fs::File::open(path)?;
-                    let mmap = unsafe { memmap2::Mmap::map(&file) }?;
-                    let contents = std::str::from_utf8(&mmap).map_err(|e| {
-                        PyValueError::new_err(format!(
-                            "File {} is not valid UTF-8: {e}",
-                            path.display()
-                        ))
-                    })?;
+                    let contents = std::fs::read_to_string(path)?;
                     let filename = path
                         .file_stem()
                         .expect("file should have a name")
                         .to_str()
                         .expect("file name should be a valid unicode string");
-                    parse_noise_table(contents)
+                    parse_noise_table(&contents)
                         .map(|table| (filename.to_string(), table))
                         .map_err(pyo3::PyErr::from)
                 })
