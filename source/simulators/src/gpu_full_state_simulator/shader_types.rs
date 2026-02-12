@@ -148,6 +148,7 @@ pub enum OpID {
     SAMPLE = 27, // Take a probabilistic sample of all qubits
     Move = 28,
     Cy = 29,
+    ResetGate = 30,
     PauliNoise1Q = 128,
     PauliNoise2Q = 129,
     LossNoise = 130,
@@ -202,6 +203,7 @@ impl TryFrom<u32> for OpID {
             27 => Ok(Self::SAMPLE),
             28 => Ok(Self::Move),
             29 => Ok(Self::Cy),
+            30 => Ok(Self::ResetGate),
             128 => Ok(Self::PauliNoise1Q),
             129 => Ok(Self::PauliNoise2Q),
             130 => Ok(Self::LossNoise),
@@ -243,6 +245,7 @@ pub mod ops {
     pub const MATRIX_2Q: u32 = super::OpID::Matrix2Q.as_u32();
     pub const SAMPLE: u32 = super::OpID::SAMPLE.as_u32(); // Take a probabilistic sample of all qubits
     pub const MOVE: u32 = super::OpID::Move.as_u32();
+    pub const RESET_GATE: u32 = super::OpID::ResetGate.as_u32();
     pub const PAULI_NOISE_1Q: u32 = super::OpID::PauliNoise1Q.as_u32();
     pub const PAULI_NOISE_2Q: u32 = super::OpID::PauliNoise2Q.as_u32();
     pub const LOSS_NOISE: u32 = super::OpID::LossNoise.as_u32();
@@ -270,6 +273,7 @@ pub mod ops {
                 | MRESETZ
                 | MATRIX
                 | MOVE
+                | RESET_GATE
         )
     }
 
@@ -430,8 +434,27 @@ impl Op {
         op
     }
 
-    /// Reset gate: maps |0⟩ to |0⟩ and |1⟩ to |0⟩
-    /// Note: This is used with a qubit id of `u32::MAX` to indicate a reset of the entire system
+    /// Measure-only gate: projects qubit onto the measured state without resetting
+    /// Matrix will need to be determined in the simulator based on the measurement outcome
+    #[must_use]
+    pub fn new_mz_gate(qubit: u32, result_id: u32) -> Self {
+        let mut op = Self::new_1q_gate(ops::MZ, qubit);
+        // Store the result id in q2
+        op.q2 = result_id;
+        // Matrix will need to be determined in the simulator based on the measurement outcome
+        op
+    }
+
+    /// Reset gate (proper quantum channel): measures qubit internally and resets to |0⟩
+    /// No measurement result is produced
+    #[must_use]
+    pub fn new_reset_gate_proper(qubit: u32) -> Self {
+        Self::new_1q_gate(ops::RESET_GATE, qubit)
+        // Matrix will need to be determined in the simulator based on the measurement outcome
+    }
+
+    /// `MResetZ` gate: measures qubit, stores result, and resets to |0⟩
+    /// Matrix will need to be determined in the simulator based on the measurement outcome
     #[must_use]
     pub fn new_mresetz_gate(qubit: u32, result_id: u32) -> Self {
         let mut op = Self::new_1q_gate(ops::MRESETZ, qubit);

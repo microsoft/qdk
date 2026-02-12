@@ -33,6 +33,8 @@ fn main() {
     test_cx_various_state();
     test_cy_phase();
     test_cy_noise_inverts_phase();
+    test_mz_idempotent();
+    test_reset_preserves_distribution();
     gates_on_lost_qubits();
     scaled_ising();
     scaled_grover();
@@ -633,6 +635,78 @@ fn test_cy_noise_inverts_phase() {
     );
     println!("[GPU Runner]: CY phase test with IZ noise for 50 shots: {results:?}");
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
+}
+
+/// Test that MZ (measure without reset) is idempotent: measuring twice
+/// should always produce the same result, since the qubit stays in the
+/// measured state after the first measurement.
+fn test_mz_idempotent() {
+    let ops: Vec<Op> = vec![
+        Op::new_h_gate(0),     // Put qubit in |+⟩ superposition
+        Op::new_mz_gate(0, 0), // First measurement -> result slot 0
+        Op::new_mz_gate(0, 1), // Second measurement -> result slot 1 (should match result slot 0)
+    ];
+    let shot_count = 1000;
+    let results =
+        run_shots_sync(1, 2, &ops, &None, shot_count, DEFAULT_SEED, 0).expect("GPU shots failed");
+    check_success(&results);
+
+    // Both measurements should always agree
+    let mismatches: Vec<&Vec<u32>> = results
+        .shot_results
+        .iter()
+        .filter(|r| r[0] != r[1])
+        .collect();
+    assert!(
+        mismatches.is_empty(),
+        "MZ should be idempotent: both measurements must match. Found {} mismatches out of {} shots. First mismatch: {:?}",
+        mismatches.len(),
+        shot_count,
+        mismatches.first()
+    );
+
+    // Verify it's roughly 50/50 (Hadamard produces equal superposition)
+    assert_ratio(&results.shot_results, &[0, 0], 0.5, 0.1);
+    assert_ratio(&results.shot_results, &[1, 1], 0.5, 0.1);
+
+    println!("[GPU Runner]: test_mz_idempotent passed ({shot_count} shots)");
+}
+
+/// Test that ResetGate properly resets a qubit to |0⟩ without producing a result,
+/// while preserving the correct probability distribution on entangled qubits.
+/// Circuit: Rx(π/6, q0) -> CNOT(q0,q1) -> ResetGate(q0) -> Measure both
+/// Rx(π/6) gives cos²(π/12) ≈ 0.933 for |0⟩ and sin²(π/12) ≈ 0.067 for |1⟩.
+/// After CNOT the state is cos(π/12)|00⟩ + sin(π/12)|11⟩.
+/// Reset on q0 collapses it, leaving q1 with the same skewed distribution.
+fn test_reset_preserves_distribution() {
+    let ops: Vec<Op> = vec![
+        Op::new_rx_gate(PI / 6.0, 0), // q0 -> cos(π/12)|0⟩ + i·sin(π/12)|1⟩
+        Op::new_cx_gate(0, 1),        // Entangle: cos(π/12)|00⟩ + i·sin(π/12)|11⟩
+        Op::new_reset_gate_proper(0), // Reset q0 to |0⟩ (no result stored)
+        Op::new_mresetz_gate(0, 0),   // Measure q0 -> result slot 0
+        Op::new_mresetz_gate(1, 1),   // Measure q1 -> result slot 1
+    ];
+    let shot_count = 1000;
+    let results =
+        run_shots_sync(2, 2, &ops, &None, shot_count, DEFAULT_SEED, 0).expect("GPU shots failed");
+    check_success(&results);
+
+    // q0 should always be 0 after reset
+    let q0_nonzero: Vec<&Vec<u32>> = results.shot_results.iter().filter(|r| r[0] != 0).collect();
+    assert!(
+        q0_nonzero.is_empty(),
+        "ResetGate should always produce |0⟩. Found {} non-zero results out of {} shots. First: {:?}",
+        q0_nonzero.len(),
+        shot_count,
+        q0_nonzero.first()
+    );
+
+    // q1 should reflect the skewed distribution: ~93.3% |0⟩, ~6.7% |1⟩
+    let q1_results: Vec<Vec<u32>> = results.shot_results.iter().map(|r| vec![r[1]]).collect();
+    assert_ratio(&q1_results, &[0], 0.933, 0.05);
+    assert_ratio(&q1_results, &[1], 0.067, 0.05);
+
+    println!("[GPU Runner]: test_reset_preserves_distribution passed ({shot_count} shots)");
 }
 
 fn repeated_noise() {
