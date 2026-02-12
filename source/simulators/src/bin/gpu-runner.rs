@@ -672,7 +672,7 @@ fn test_mz_idempotent() {
     println!("[GPU Runner]: test_mz_idempotent passed ({shot_count} shots)");
 }
 
-/// Test that ResetGate properly resets a qubit to |0⟩ without producing a result,
+/// Test that `ResetGate` properly resets a qubit to |0⟩ without producing a result,
 /// while preserving the correct probability distribution on entangled qubits.
 /// Circuit: Rx(π/6, q0) -> CNOT(q0,q1) -> ResetGate(q0) -> Measure both
 /// Rx(π/6) gives cos²(π/12) ≈ 0.933 for |0⟩ and sin²(π/12) ≈ 0.067 for |1⟩.

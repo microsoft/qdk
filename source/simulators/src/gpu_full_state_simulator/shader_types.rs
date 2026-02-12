@@ -119,7 +119,6 @@ pub struct DiagnosticsData {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum OpID {
     Id = 0,
-    Reset = 1,
     X = 2,
     Y = 3,
     Z = 4,
@@ -174,7 +173,6 @@ impl TryFrom<u32> for OpID {
     fn try_from(value: u32) -> core::result::Result<Self, Self::Error> {
         match value {
             0 => Ok(Self::Id),
-            1 => Ok(Self::Reset),
             2 => Ok(Self::X),
             3 => Ok(Self::Y),
             4 => Ok(Self::Z),
@@ -216,7 +214,6 @@ impl TryFrom<u32> for OpID {
 // Operation identifiers used by the GPU shader.
 pub mod ops {
     pub const ID: u32 = super::OpID::Id.as_u32();
-    pub const RESET: u32 = super::OpID::Reset.as_u32();
     pub const X: u32 = super::OpID::X.as_u32();
     pub const Y: u32 = super::OpID::Y.as_u32();
     pub const Z: u32 = super::OpID::Z.as_u32();
@@ -255,8 +252,7 @@ pub mod ops {
     pub fn is_1q_op(op_id: u32) -> bool {
         matches!(
             op_id,
-            ID | RESET
-                | X
+            ID | X
                 | Y
                 | Z
                 | H
@@ -415,22 +411,6 @@ impl Op {
         // Treat is like an identity for now
         let mut op = Self::new_id_gate(qubit);
         op.id = ops::MOVE;
-        op
-    }
-
-    /// Reset gate: maps |0⟩ to |0⟩ and |1⟩ to |0⟩
-    /// Note: This is used with a qubit id of `u32::MAX` to indicate a reset of the entire system
-    #[must_use]
-    pub fn new_reset_gate(qubit: u32) -> Self {
-        let mut op = Self::new_1q_gate(ops::RESET, qubit);
-        op.r00 = 1.0; // |0⟩⟨0| coefficient
-        op.i00 = 0.0;
-        op.r01 = 1.0; // |0⟩⟨1| coefficient
-        op.i01 = 0.0;
-        op.r10 = 0.0; // |1⟩⟨0| coefficient
-        op.i10 = 0.0;
-        op.r11 = 0.0; // |1⟩⟨1| coefficient
-        op.i11 = 0.0;
         op
     }
 

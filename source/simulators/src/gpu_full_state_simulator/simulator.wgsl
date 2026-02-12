@@ -25,7 +25,10 @@ const MAX_WORKGROUP_SUM_PARTITIONS: i32 = 1 << u32(MAX_QUBIT_COUNT - MAX_QUBITS_
 
 // Operation IDs
 const OPID_ID      = 0u;
-const OPID_RESET   = 1u;
+const OPID_X       = 2u;
+const OPID_Y       = 3u;
+const OPID_Z       = 4u;
+const OPID_H       = 5u;
 const OPID_S       = 6u;
 const OPID_SAdj    = 7u;
 const OPID_T       = 8u;
@@ -240,6 +243,7 @@ fn shot_init_per_op(shot_idx: u32) {
     shot.rand_loss = next_rand_f32(shot_idx);
 }
 
+// Resets the entire shot state, including RNG, probabilities, and per-qubit tracking.
 fn reset_all(shot_idx: i32) {
     let shot = &shots[shot_idx];
 
@@ -507,8 +511,8 @@ fn apply_1q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
         shot.unitary[4] = cplxNeg(op.unitary[4]);
         shot.unitary[5] = cplxNeg(op.unitary[5]);
     } else {
-        // No noise. Set the op_type back to the op.id value if it's Id, Reset, MResetZ, MZ, or ResetGate, as they get handled specially in execute_op
-        if (op.id == OPID_ID || op.id == OPID_RESET || op.id == OPID_MRESETZ || op.id == OPID_MZ || op.id == OPID_RESET_GATE) {
+        // No noise. Set the op_type back to the op.id value if it's Id, MResetZ, MZ, or ResetGate, as they get handled specially in execute_op
+        if (op.id == OPID_ID || op.id == OPID_MRESETZ || op.id == OPID_MZ || op.id == OPID_RESET_GATE) {
             shot.op_type = op.id;
         }
         if (is_1q_phase_gate(op.id)) {
@@ -919,7 +923,7 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
         shot.op_type = OPID_SHOT_BUFF_2Q; // Indicate to use the matrix in the shot buffer
     }
 
-    if (op.id > OPID_RESET && op.id < OPID_CX) {
+    if (op.id >= OPID_X && op.id < OPID_CX) {
         shot.op_type = OPID_SHOT_BUFF_1Q; // Indicate to use the matrix in the shot buffer
     }
 
