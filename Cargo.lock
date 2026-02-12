@@ -2262,6 +2262,8 @@ name = "qsharp"
 version = "0.0.0"
 dependencies = [
  "allocator",
+ "expect-test",
+ "memchr",
  "miette",
  "noisy_simulator",
  "num-bigint",

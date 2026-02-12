@@ -1,6 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+mod correlated_noise;
+pub(crate) mod cpu_simulators;
+pub(crate) mod gpu_full_state;
+
+use crate::qir_simulation::correlated_noise::parse_noise_table;
+
 use num_traits::Float;
 use pyo3::{
     Bound, FromPyObject, Py, PyRef, PyResult, Python,
@@ -9,11 +15,8 @@ use pyo3::{
     pyclass, pymethods,
     types::{PyAnyMethods, PyTuple},
 };
-use qdk_simulators::noise_config::is_pauli_identity;
+use qdk_simulators::noise_config::{encode_pauli, is_pauli_identity};
 use rustc_hash::FxHashMap;
-
-pub(crate) mod cpu_simulators;
-pub(crate) mod gpu_full_state;
 
 type Probability = f64;
 
@@ -116,6 +119,8 @@ pub struct NoiseConfig {
     #[pyo3(get)]
     pub cx: Py<NoiseTable>,
     #[pyo3(get)]
+    pub cy: Py<NoiseTable>,
+    #[pyo3(get)]
     pub cz: Py<NoiseTable>,
     #[pyo3(get)]
     pub rxx: Py<NoiseTable>,
@@ -175,6 +180,50 @@ impl NoiseConfig {
                 .expect("the key should be in the table"))
         }
     }
+
+    fn load_csv_dir(&mut self, py: Python<'_>, dir_path: &str) -> PyResult<()> {
+        use rayon::prelude::*;
+
+        // Get all valid file paths.
+        // Use entry.file_type() instead of path.is_file() to avoid an
+        // extra stat syscall per entry (the OS caches the type in the
+        // directory listing).
+        let paths: Vec<_> = std::fs::read_dir(dir_path)?
+            .filter_map(std::result::Result::ok)
+            .filter(|e| {
+                e.file_type().is_ok_and(|ft| ft.is_file())
+                    && e.path().extension() == Some("csv".as_ref())
+            })
+            .map(|e| e.path())
+            .collect();
+
+        // Release the GIL while doing file I/O and parsing — none of
+        // this work touches Python objects.
+        let results: Vec<_> = py.detach(|| {
+            paths
+                .par_iter()
+                .map(|path| {
+                    let contents = std::fs::read_to_string(path)?;
+                    let filename = path
+                        .file_stem()
+                        .expect("file should have a name")
+                        .to_str()
+                        .expect("file name should be a valid unicode string");
+                    parse_noise_table(&contents)
+                        .map(|table| (filename.to_string(), table))
+                        .map_err(pyo3::PyErr::from)
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })?;
+
+        // Insert into Python objects on the main thread (GIL required).
+        for (name, table) in results {
+            let new_table = Py::new(py, table)?;
+            self.intrinsics.borrow_mut(py).insert(name, new_table);
+        }
+
+        Ok(())
+    }
 }
 
 fn generic_float_cast<T: Float, Q: Float>(value: T) -> Q {
@@ -204,6 +253,7 @@ fn bind_noise_config<T: Float, Q: Float>(
         ry: Py::new(py, NoiseTable::from(value.ry.clone()))?,
         rz: Py::new(py, NoiseTable::from(value.rz.clone()))?,
         cx: Py::new(py, NoiseTable::from(value.cx.clone()))?,
+        cy: Py::new(py, NoiseTable::from(value.cy.clone()))?,
         cz: Py::new(py, NoiseTable::from(value.cz.clone()))?,
         rxx: Py::new(py, NoiseTable::from(value.rxx.clone()))?,
         ryy: Py::new(py, NoiseTable::from(value.ryy.clone()))?,
@@ -237,6 +287,7 @@ fn unbind_noise_config<T: Float, Q: Float>(
         ry: from_noise_table_ref(value.ry.borrow(py)),
         rz: from_noise_table_ref(value.rz.borrow(py)),
         cx: from_noise_table_ref(value.cx.borrow(py)),
+        cy: from_noise_table_ref(value.cy.borrow(py)),
         cz: from_noise_table_ref(value.cz.borrow(py)),
         rxx: from_noise_table_ref(value.rxx.borrow(py)),
         ryy: from_noise_table_ref(value.ryy.borrow(py)),
@@ -295,7 +346,7 @@ impl From<qdk_simulators::noise_config::IdleNoiseParams> for IdleNoiseParams {
 #[pyclass(module = "qsharp._native")]
 pub struct NoiseTable {
     qubits: u32,
-    pauli_noise: FxHashMap<String, Probability>,
+    pauli_noise: FxHashMap<u64, Probability>,
     #[pyo3(get, set)]
     pub loss: Probability,
 }
@@ -315,8 +366,10 @@ impl NoiseTable {
 
     fn validate_pauli_string(&self, pauli_string: &str) -> PyResult<()> {
         // Validate pauli string chars.
-        const VALID_CHARS: [char; 4] = ['I', 'X', 'Y', 'Z'];
-        if !pauli_string.chars().all(|c| VALID_CHARS.contains(&c)) {
+        if !pauli_string
+            .chars()
+            .all(|c| matches!(c, 'I' | 'X' | 'Y' | 'Z'))
+        {
             return Err(PyAttributeError::new_err(format!(
                 "Pauli string can only contain 'I', 'X', 'Y', 'Z' characters, found {pauli_string}"
             )));
@@ -348,13 +401,14 @@ impl NoiseTable {
         Self::generate_pauli_strings(n - 1, extended_strings)
     }
 
-    fn get_pauli_noise(&self, name: &str) -> PyResult<Probability> {
-        let name = name.to_uppercase();
-        if let Some(p) = self.pauli_noise.get(&name) {
+    fn get_pauli_noise_elt(&self, pauli: &str) -> PyResult<Probability> {
+        self.validate_pauli_string(pauli)?;
+        let key = encode_pauli(pauli);
+        if let Some(p) = self.pauli_noise.get(&key) {
             return Ok(*p);
         }
         Err(PyAttributeError::new_err(format!(
-            "'NoiseTable' object has no attribute '{name}'",
+            "'NoiseTable' object has no attribute '{pauli}'",
         )))
     }
 
@@ -363,11 +417,12 @@ impl NoiseTable {
     ///
     /// Make sure to validate the pauli strings and probabilities before hand.
     unsafe fn set_pauli_noise_elt_unchecked(&mut self, pauli: &str, value: Probability) {
-        if !is_pauli_identity(pauli) {
-            if self.pauli_noise.contains_key(pauli) && value == 0.0 {
-                self.pauli_noise.remove(pauli);
+        let key = encode_pauli(pauli);
+        if !is_pauli_identity(key) {
+            if self.pauli_noise.contains_key(&key) && value == 0.0 {
+                self.pauli_noise.remove(&key);
             } else {
-                self.pauli_noise.insert(pauli.to_string(), value);
+                self.pauli_noise.insert(key, value);
             }
         }
     }
@@ -413,6 +468,8 @@ impl NoiseTable {
         for p in &probs {
             Self::validate_probability(*p)?;
         }
+        let additional = paulis.len().saturating_sub(self.pauli_noise.len());
+        self.pauli_noise.reserve(additional);
         for (pauli, value) in paulis.into_iter().zip(probs.into_iter()) {
             // SAFETY: we validated all the pauli strings and probabilities above.
             unsafe {
@@ -448,7 +505,7 @@ impl NoiseTable {
         if name == "loss" {
             Ok(self.loss)
         } else {
-            self.get_pauli_noise(name)
+            self.get_pauli_noise_elt(&name.to_uppercase())
         }
     }
 
@@ -521,7 +578,8 @@ or one argument of type 'list[tuple[str, float]]', but found {py_args:?}"
         }
 
         self.pauli_noise = pauli_strings
-            .into_iter()
+            .iter()
+            .map(|s| encode_pauli(s))
             .zip(probabilities)
             .collect::<FxHashMap<_, _>>();
 
@@ -547,16 +605,14 @@ impl<T: Float> From<NoiseTable> for qdk_simulators::noise_config::NoiseTable<T> 
     fn from(value: NoiseTable) -> Self {
         let mut pauli_strings = Vec::with_capacity(value.pauli_noise.len());
         let mut probabilities = Vec::with_capacity(value.pauli_noise.len());
-        for (pauli, probability) in value.pauli_noise {
-            pauli_strings.push(pauli);
-            #[allow(clippy::cast_possible_truncation)]
+        for (key, probability) in value.pauli_noise {
+            pauli_strings.push(key);
             probabilities.push(generic_float_cast(probability));
         }
         qdk_simulators::noise_config::NoiseTable {
             qubits: value.qubits,
             pauli_strings,
             probabilities,
-            #[allow(clippy::cast_possible_truncation)]
             loss: generic_float_cast(value.loss),
         }
     }
@@ -568,16 +624,14 @@ fn from_noise_table_ref<T: Float>(
 ) -> qdk_simulators::noise_config::NoiseTable<T> {
     let mut pauli_strings = Vec::with_capacity(value.pauli_noise.len());
     let mut probabilities: Vec<T> = Vec::with_capacity(value.pauli_noise.len());
-    for (pauli, probability) in &value.pauli_noise {
-        pauli_strings.push(pauli.clone());
-        #[allow(clippy::cast_possible_truncation)]
+    for (key, probability) in &value.pauli_noise {
+        pauli_strings.push(*key);
         probabilities.push(generic_float_cast(*probability));
     }
     qdk_simulators::noise_config::NoiseTable {
         qubits: value.qubits,
         pauli_strings,
         probabilities,
-        #[allow(clippy::cast_possible_truncation)]
         loss: generic_float_cast(value.loss),
     }
 }
@@ -586,7 +640,8 @@ impl<T: Float> From<qdk_simulators::noise_config::NoiseTable<T>> for NoiseTable 
     fn from(value: qdk_simulators::noise_config::NoiseTable<T>) -> Self {
         let pauli_noise = value
             .pauli_strings
-            .into_iter()
+            .iter()
+            .copied()
             .zip(
                 value
                     .probabilities
