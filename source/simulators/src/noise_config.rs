@@ -37,6 +37,7 @@ pub struct NoiseConfig<T: Float, Q: Float> {
     pub ry: NoiseTable<T>,
     pub rz: NoiseTable<T>,
     pub cx: NoiseTable<T>,
+    pub cy: NoiseTable<T>,
     pub cz: NoiseTable<T>,
     pub rxx: NoiseTable<T>,
     pub ryy: NoiseTable<T>,
@@ -74,6 +75,7 @@ impl<T: Float + ConstZero, Q: Float> NoiseConfig<T, Q> {
         ry: NoiseTable::<T>::noiseless(1),
         rz: NoiseTable::<T>::noiseless(1),
         cx: NoiseTable::<T>::noiseless(2),
+        cy: NoiseTable::<T>::noiseless(2),
         cz: NoiseTable::<T>::noiseless(2),
         rxx: NoiseTable::<T>::noiseless(2),
         ryy: NoiseTable::<T>::noiseless(2),
@@ -97,6 +99,12 @@ impl<T: Float + ConstZero, Q: Float> NoiseConfig<T, Q> {
 #[derive(Clone, Copy, Debug)]
 pub struct IdleNoiseParams {
     pub s_probability: f32,
+}
+
+impl Default for IdleNoiseParams {
+    fn default() -> Self {
+        Self::NOISELESS
+    }
 }
 
 impl IdleNoiseParams {
@@ -151,6 +159,7 @@ impl<T: Float> NoiseTable<T> {
 /// Describes the noise configuration for each operation.
 ///
 /// This is the internal format used by the simulator.
+#[derive(Default)]
 pub struct CumulativeNoiseConfig<T> {
     pub i: CumulativeNoiseTable<T>,
     pub x: CumulativeNoiseTable<T>,
@@ -167,6 +176,7 @@ pub struct CumulativeNoiseConfig<T> {
     pub ry: CumulativeNoiseTable<T>,
     pub rz: CumulativeNoiseTable<T>,
     pub cx: CumulativeNoiseTable<T>,
+    pub cy: CumulativeNoiseTable<T>,
     pub cz: CumulativeNoiseTable<T>,
     pub rxx: CumulativeNoiseTable<T>,
     pub ryy: CumulativeNoiseTable<T>,
@@ -205,6 +215,7 @@ where
             ry: value.ry.into(),
             rz: value.rz.into(),
             cx: value.cx.into(),
+            cy: value.cy.into(),
             cz: value.cz.into(),
             rxx: value.rxx.into(),
             ryy: value.ryy.into(),
@@ -222,6 +233,7 @@ where
 /// computation more efficient.
 ///
 /// This is the internal format used by the simulator.
+#[derive(Default)]
 pub struct CumulativeNoiseTable<T> {
     pub sampler: CorrelatedNoiseSampler<T>,
     pub loss: f64,
@@ -261,6 +273,7 @@ where
     }
 }
 
+#[derive(Default)]
 pub struct CorrelatedNoiseSampler<T> {
     /// The total probability of any noise.
     noise_probability: u64,

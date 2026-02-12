@@ -20,7 +20,7 @@ pub enum MeasurementResult {
 }
 
 pub trait Simulator {
-    type Noise;
+    type Noise: Default;
     type StateDumpData;
 
     /// Creates a new simulator.
@@ -67,6 +67,9 @@ pub trait Simulator {
 
     /// Controlled-X gate.
     fn cx(&mut self, control: QubitID, target: QubitID);
+
+    /// Controlled-Y gate.
+    fn cy(&mut self, control: QubitID, target: QubitID);
 
     /// Controlled-Z gate.
     fn cz(&mut self, control: QubitID, target: QubitID);

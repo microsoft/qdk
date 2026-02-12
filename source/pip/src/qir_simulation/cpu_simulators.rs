@@ -231,6 +231,7 @@ fn run_shot<S: Simulator>(instructions: &[QirInstruction], sim: &mut S) {
             },
             QirInstruction::TwoQubitGate(id, q1, q2) => match id {
                 QirInstructionId::CX => sim.cx(*q1 as usize, *q2 as usize),
+                QirInstructionId::CY => sim.cy(*q1 as usize, *q2 as usize),
                 QirInstructionId::CZ => sim.cz(*q1 as usize, *q2 as usize),
                 QirInstructionId::MZ | QirInstructionId::M => sim.mz(*q1 as usize, *q2 as usize),
                 QirInstructionId::MResetZ => sim.mresetz(*q1 as usize, *q2 as usize),

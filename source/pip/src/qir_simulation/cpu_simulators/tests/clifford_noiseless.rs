@@ -98,38 +98,77 @@ fn simulator_completes_all_shots() {
 // etc.), and algebraic identities are verified via check_programs_are_eq! which
 // correctly checks unitary equivalence on all basis states.
 
-// ==================== Single-Qubit Gate Tests ====================
-
-// I gate tests
 #[test]
-fn i_gate_does_nothing() {
-    check_programs_are_eq! {
+fn single_qubit_gate_truth_tables() {
+    check_basis_table! {
         simulator: StabilizerSimulator,
-        programs: [
-            qir! {},
-            qir! { i(0) }
-        ],
         num_qubits: 1,
+        table: [
+            // I gate: identity
+            (qir! { i(0) }, 0 => 0),
+            (qir! { i(0) }, 1 => 1),
+            // X gate: bit flip
+            (qir! { x(0) }, 0 => 1),
+            (qir! { x(0) }, 1 => 0),
+            // Y gate: bit flip (phase differs but same basis state)
+            (qir! { y(0) }, 0 => 1),
+            (qir! { y(0) }, 1 => 0),
+            // Z gate: phase only, no bit change
+            (qir! { z(0) }, 0 => 0),
+            (qir! { z(0) }, 1 => 1),
+            // Z gate: bit flip within H
+            (qir! { within { h(0) } apply { z(0) } }, 0 => 1),
+            (qir! { within { h(0) } apply { z(0) } }, 1 => 0),
+            // S gate: phase only
+            (qir! { s(0) }, 0 => 0),
+            (qir! { s(0) }, 1 => 1),
+            // S_ADJ gate: phase only
+            (qir! { s_adj(0) }, 0 => 0),
+            (qir! { s_adj(0) }, 1 => 1),
+        ],
     }
 }
+
+#[test]
+fn two_qubit_gate_truth_tables() {
+    check_basis_table! {
+        simulator: StabilizerSimulator,
+        num_qubits: 2,
+        table: [
+            // CX(control=q0, target=q1): flips q1 when q0=|1⟩
+            (qir! { cx(0, 1) }, 0b00 => 0b00),
+            (qir! { cx(0, 1) }, 0b01 => 0b11),  // q0=1 → flip q1
+            (qir! { cx(0, 1) }, 0b10 => 0b10),  // q0=0 → identity
+            (qir! { cx(0, 1) }, 0b11 => 0b01),  // q0=1 → flip q1
+            // CY gate: phase only, flips q1 when q0=|1⟩
+            (qir! { cy(0, 1) }, 0b00 => 0b00),
+            (qir! { cy(0, 1) }, 0b01 => 0b11),  // q0=1 → flip q1
+            (qir! { cy(0, 1) }, 0b10 => 0b10),  // q0=0 → identity
+            (qir! { cy(0, 1) }, 0b11 => 0b01),  // q0=1 → flip q1
+            // CZ gate: phase only, no bit changes
+            (qir! { cz(0, 1) }, 0b00 => 0b00),
+            (qir! { cz(0, 1) }, 0b01 => 0b01),
+            (qir! { cz(0, 1) }, 0b10 => 0b10),
+            (qir! { cz(0, 1) }, 0b11 => 0b11),
+            // CZ gate: bitflip within H
+            (qir! { within { h(1) } apply { cz(0, 1) } }, 0b00 => 0b00),
+            (qir! { within { h(1) } apply { cz(0, 1) } }, 0b01 => 0b11),
+            (qir! { within { h(1) } apply { cz(0, 1) } }, 0b10 => 0b10),
+            (qir! { within { h(1) } apply { cz(0, 1) } }, 0b11 => 0b01),
+            // SWAP gate: exchanges qubit states
+            (qir! { swap(0, 1) }, 0b00 => 0b00),
+            (qir! { swap(0, 1) }, 0b01 => 0b10),
+            (qir! { swap(0, 1) }, 0b10 => 0b01),
+            (qir! { swap(0, 1) }, 0b11 => 0b11),
+        ],
+    }
+}
+
+// ==================== Single-Qubit Gate Tests ====================
 
 // X gate tests
 #[test]
-fn x_gate_flips_qubit() {
-    check_sim! {
-        simulator: StabilizerSimulator,
-        program: qir! {
-            x(0);
-            mresetz(0, 0);
-        },
-        num_qubits: 1,
-        num_results: 1,
-        output: expect![[r#"1"#]],
-    }
-}
-
-#[test]
-fn double_x_gate_eq_identity() {
+fn x_is_self_adjoint() {
     check_programs_are_eq! {
         simulator: StabilizerSimulator,
         programs: [
@@ -140,23 +179,21 @@ fn double_x_gate_eq_identity() {
     }
 }
 
-// Y gate tests
 #[test]
-fn y_gate_flips_qubit() {
-    check_sim! {
+fn x_eq_h_z_h() {
+    check_programs_are_eq! {
         simulator: StabilizerSimulator,
-        program: qir! {
-            y(0);
-            mresetz(0, 0);
-        },
+        programs: [
+            qir! { x(0) },
+            qir! { within { h(0) } apply { z(0) } }
+        ],
         num_qubits: 1,
-        num_results: 1,
-        output: expect![[r#"1"#]],
     }
 }
 
+// Y gate tests
 #[test]
-fn double_y_gate_eq_identity() {
+fn y_is_self_adjoint() {
     check_programs_are_eq! {
         simulator: StabilizerSimulator,
         programs: [
@@ -182,41 +219,24 @@ fn y_gate_eq_x_z_and_z_x() {
 
 // Z gate tests
 #[test]
-fn z_gate_preserves_zero() {
-    check_sim! {
-        simulator: StabilizerSimulator,
-        program: qir! {
-            z(0);
-            mresetz(0, 0);
-        },
-        num_qubits: 1,
-        num_results: 1,
-        output: expect![[r#"0"#]],
-    }
-}
-
-#[test]
-fn z_gate_preserves_one() {
-    check_sim! {
-        simulator: StabilizerSimulator,
-        program: qir! {
-            x(0);
-            z(0);
-            mresetz(0, 0);
-        },
-        num_qubits: 1,
-        num_results: 1,
-        output: expect![[r#"1"#]],
-    }
-}
-
-#[test]
-fn h_z_h_eq_x() {
+fn z_is_self_adjoint() {
     check_programs_are_eq! {
         simulator: StabilizerSimulator,
         programs: [
-            qir! { x(0) },
-            qir! { within { h(0) } apply { z(0) } }
+            qir! { i(0) },
+            qir! { within { h(0) } apply { z(0); z(0) } }
+        ],
+        num_qubits: 1,
+    }
+}
+
+#[test]
+fn z_eq_h_x_h() {
+    check_programs_are_eq! {
+        simulator: StabilizerSimulator,
+        programs: [
+            qir! { z(0) },
+            qir! { within { h(0) } apply { x(0) } }
         ],
         num_qubits: 1,
     }
@@ -244,7 +264,7 @@ fn h_gate_creates_superposition() {
 }
 
 #[test]
-fn h_squared_eq_identity() {
+fn h_is_self_adjoint() {
     check_programs_are_eq! {
         simulator: StabilizerSimulator,
         programs: [
@@ -255,45 +275,7 @@ fn h_squared_eq_identity() {
     }
 }
 
-#[test]
-fn h_x_h_eq_z() {
-    check_programs_are_eq! {
-        simulator: StabilizerSimulator,
-        programs: [
-            qir! { z(0) },
-            qir! { h(0); x(0); h(0) }
-        ],
-        num_qubits: 1,
-    }
-}
-
-#[test]
-fn x_gate_eq_h_z_h() {
-    check_programs_are_eq! {
-        simulator: StabilizerSimulator,
-        programs: [
-            qir! { x(0) },
-            qir! { h(0); z(0); h(0) }
-        ],
-        num_qubits: 1,
-    }
-}
-
 // S gate tests
-#[test]
-fn s_gate_preserves_computational_basis() {
-    check_sim! {
-        simulator: StabilizerSimulator,
-        program: qir! {
-            s(0);
-            mresetz(0, 0);
-        },
-        num_qubits: 1,
-        num_results: 1,
-        output: expect![[r#"0"#]],
-    }
-}
-
 #[test]
 fn s_squared_eq_z() {
     check_programs_are_eq! {
@@ -441,7 +423,7 @@ fn cz_applies_phase_when_control_is_one() {
 fn cz_symmetric() {
     // CZ is symmetric: CZ(a,b) = CZ(b,a)
     check_programs_are_eq! {
-        simulator: NoiselessSimulator,
+        simulator: StabilizerSimulator,
         programs: [
             qir! { within { x(0); h(1) } apply { cz(0, 1) } },
             qir! { within { x(0); h(1) } apply { cz(1, 0) } }
@@ -540,6 +522,20 @@ fn mz_is_idempotent() {
     }
 }
 
+// ==================== MOV Gate Tests ====================
+
+#[test]
+fn mov_is_noop_without_noise() {
+    check_programs_are_eq! {
+        simulator: StabilizerSimulator,
+        programs: [
+            qir! {},
+            qir! { mov(0) }
+        ],
+        num_qubits: 1,
+    }
+}
+
 // ==================== Multi-Qubit State Tests ====================
 
 #[test]
@@ -585,19 +581,5 @@ fn ghz_state_three_qubits() {
         output: expect![[r#"
                     000
                     111"#]],
-    }
-}
-
-// ==================== MOV Gate Tests ====================
-
-#[test]
-fn mov_is_noop_without_noise() {
-    check_programs_are_eq! {
-        simulator: StabilizerSimulator,
-        programs: [
-            qir! {},
-            qir! { mov(0) }
-        ],
-        num_qubits: 1,
     }
 }

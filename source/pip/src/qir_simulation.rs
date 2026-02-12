@@ -119,6 +119,8 @@ pub struct NoiseConfig {
     #[pyo3(get)]
     pub cx: Py<NoiseTable>,
     #[pyo3(get)]
+    pub cy: Py<NoiseTable>,
+    #[pyo3(get)]
     pub cz: Py<NoiseTable>,
     #[pyo3(get)]
     pub rxx: Py<NoiseTable>,
@@ -251,6 +253,7 @@ fn bind_noise_config<T: Float, Q: Float>(
         ry: Py::new(py, NoiseTable::from(value.ry.clone()))?,
         rz: Py::new(py, NoiseTable::from(value.rz.clone()))?,
         cx: Py::new(py, NoiseTable::from(value.cx.clone()))?,
+        cy: Py::new(py, NoiseTable::from(value.cy.clone()))?,
         cz: Py::new(py, NoiseTable::from(value.cz.clone()))?,
         rxx: Py::new(py, NoiseTable::from(value.rxx.clone()))?,
         ryy: Py::new(py, NoiseTable::from(value.ryy.clone()))?,
@@ -284,6 +287,7 @@ fn unbind_noise_config<T: Float, Q: Float>(
         ry: from_noise_table_ref(value.ry.borrow(py)),
         rz: from_noise_table_ref(value.rz.borrow(py)),
         cx: from_noise_table_ref(value.cx.borrow(py)),
+        cy: from_noise_table_ref(value.cy.borrow(py)),
         cz: from_noise_table_ref(value.cz.borrow(py)),
         rxx: from_noise_table_ref(value.rxx.borrow(py)),
         ryy: from_noise_table_ref(value.ryy.borrow(py)),
