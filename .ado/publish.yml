@@ -62,11 +62,11 @@ parameters:
         arch: x86_64
         envVars:
           QDK_GPU_TESTS: "1"
-      - name: windows_aarch64
-        poolName: "Azure-Pipelines-DevTools-ARM64-EO"
-        imageName: "Windows-2022-ARM64"
-        os: windows
-        arch: aarch64
+      # - name: windows_aarch64
+      #   poolName: "Azure-Pipelines-DevTools-ARM64-EO"
+      #   imageName: "Windows-2022-ARM64"
+      #   os: windows
+      #   arch: aarch64
 
 # variables set by pipeline
 # - BASE_IMAGE
@@ -83,7 +83,7 @@ extends:
     sdl:
       sourceAnalysisPool:
         name: "Azure-Pipelines-DevTools-EO"
-        image: windows-2022
+        image: windows-2025
         os: windows
     stages:
       - stage: build
@@ -115,6 +115,7 @@ extends:
               - task: UsePythonVersion@0
                 inputs:
                   versionSpec: "3.11"
+                  githubToken: "$(GH_PACKAGE_READ_TOKEN)"
 
               - task: UseNode@1
                 inputs:
@@ -162,6 +163,7 @@ extends:
               - task: UsePythonVersion@0
                 inputs:
                   versionSpec: "3.11"
+                  githubToken: "$(GH_PACKAGE_READ_TOKEN)"
 
               - task: UseNode@1
                 inputs:
@@ -223,6 +225,7 @@ extends:
               - task: UsePythonVersion@0
                 inputs:
                   versionSpec: "3.11"
+                  githubToken: "$(GH_PACKAGE_READ_TOKEN)"
 
               - task: UseNode@1
                 inputs:
@@ -296,6 +299,7 @@ extends:
                   - task: UsePythonVersion@0
                     inputs:
                       versionSpec: "3.11"
+                      githubToken: "$(GH_PACKAGE_READ_TOKEN)"
                       ${{ if eq(target.arch, 'aarch64') }}:
                         architecture: "arm64"
                     condition: not(and(eq(variables['Agent.OS'], 'Linux'), eq(variables['arch'], 'aarch64')))
@@ -346,7 +350,7 @@ extends:
 
                   # every other platform
                   - script: |
-                      python build.py --pip --no-check-prereqs --integration-tests --manylinux
+                      python build.py --pip --no-check-prereqs --integration-tests
                     displayName: Build Platform-Dependent Py Packages
                     condition: not(and(eq(variables['Agent.OS'], 'Windows_NT'), eq(variables['arch'], 'aarch64')))
 
@@ -439,9 +443,9 @@ extends:
                 - input: pipelineArtifact
                   artifactName: Wheels.Win.x86_64
                   targetPath: $(System.DefaultWorkingDirectory)/artifacts/win-x86_64
-                - input: pipelineArtifact
-                  artifactName: Wheels.Win.aarch64
-                  targetPath: $(System.DefaultWorkingDirectory)/artifacts/win-aarch64
+                # - input: pipelineArtifact
+                #   artifactName: Wheels.Win.aarch64
+                #   targetPath: $(System.DefaultWorkingDirectory)/artifacts/win-aarch64
                 - input: pipelineArtifact
                   artifactName: Wheels.Mac.x86_64
                   targetPath: $(System.DefaultWorkingDirectory)/artifacts/mac-x86_64

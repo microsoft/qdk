@@ -10,6 +10,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+memchr = { workspace = true }
 noisy_simulator = { path = "../noisy_simulator" }
 num-bigint = { workspace = true }
 num-complex = { workspace = true }

@@ -79,7 +79,7 @@ file might appear as:
       "github": {
         "ref": "v1.15.0",
         "owner": "microsoft",
-        "repo": "qsharp",
+        "repo": "qdk",
         "path": "library/chemistry"
       }
     }

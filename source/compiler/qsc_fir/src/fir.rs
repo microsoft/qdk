@@ -1655,6 +1655,8 @@ pub enum Attr {
     Measurement,
     /// Indicates that a callable is a reset.
     Reset,
+    /// Indicates that a callable is a noise intrinsic.
+    NoiseIntrinsic,
     /// Indicates that a callable is used for unit testing.
     Test,
 }

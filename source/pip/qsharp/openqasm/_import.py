@@ -16,7 +16,7 @@ from .. import telemetry_events
 
 def import_openqasm(
     source: str,
-    **kwargs: Optional[Dict[str, Any]],
+    **kwargs: Any,
 ) -> Any:
     """
     Imports OpenQASM source code into the active Q# interpreter.

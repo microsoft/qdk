@@ -1,5 +1,87 @@
 # QDK Changelog
 
+## v1.25.1
+
+Below are some of the highlights for the 1.25 release of the QDK.
+
+### Branding update
+
+The QDK has been updated to reflect Microsoft's branding for quantum computing, including updating the name of the VS Code extension to "Microsoft Quantum Development Kit" and updating the extension logo to the Mobius strip design.
+
+<img width="128" height="128" alt="mobius" src="https://github.com/user-attachments/assets/ead2c7ca-b78f-41ab-9e5c-144e7e6e9106" />
+
+### New simulators
+
+This release includes two new quantum simulators designed to provide high-performance noisy simulation and the ability to model qubit loss, which is an important "noise" consideration for neutral atom quantum hardware.
+
+- The **Clifford simulator** efficiently simulates circuits composed of Clifford operations, and can scale to thousands of qubits and run thousands of shots in seconds. This simulator is ideal for simulating error correction codes or other research involving Clifford circuits.
+
+- The **GPU simulator** uses GPU acceleration to simulate shots in parallel with high fidelity noise models. By leveraging the parallel processing power of modern GPUs, this simulator can handle wider (up to 27 qubits) and deeper circuits while modeling realistic noise and provide an order of magnitude speed-up over other simulators for certain challenging circuit types. By using a cross-platform GPU library, this simulator works on Windows, macOS, and Linux systems with compatible GPUs. (It will fall back to CPU simulation if no compatible GPU is found.)
+
+Both simulators are currently exposed via the new `NeutralAtomDevice` Python class, and the noise models can be specified via the `NoiseConfig` class, both available in the `qdk.simulators` module. See the [Benzene](https://github.com/microsoft/qdk/tree/main/samples/notebooks/benzene_molecule) and [Carbon](https://github.com/microsoft/qdk/tree/main/samples/notebooks/carbon_error_correction) sample notebooks for examples of using these simulators.
+
+When running the simulators with qubit loss configured, lost qubits will be indicated in the measurement results with the special `Loss` result value when using _raw_ labels, or with a `-` character when using _ket_ labels.
+
+<img width="600" alt="NoiseConfig" src="https://github.com/user-attachments/assets/0856308f-cc50-44e8-bdd2-c4f7c0ea3d48" />
+
+### Neutral Atom device visualizer
+
+The `NeutralAtomDevice` class includes a `show_trace` method that takes the compiled program and visualizes the execution on an animated representation of a neutral atom device. This allows users to see how qubits are manipulated over time, including gate operations, measurements, and movement. This visualization can help with understanding the unique characteristics of neutral atom hardware, and how programs map to operations on the physical device. See the notebooks mentioned in the prior section for example usage.
+
+<video width="793" autoplay loop muted>
+    <source src="https://github.com/user-attachments/assets/1733d210-df53-4b1a-987a-0ca62c1aa79b" type="video/mp4">
+</video>
+
+### Circuit visualization improvements
+
+In circuit diagrams, loops (`for`, `while`, etc.) from the source code are now represented as expandable components. This makes for a more compact and readable diagram, especially for iterative algorithms.
+
+This release also includes other usability improvements to circuit diagrams, including labels at the top of expanded components, the ability to navigate to the call site of an operation by clicking on the corresponding component in the circuit diagram, and automatic expansion of trivial components.
+
+<video width="1200" autoplay loop muted>
+  <source src="https://github.com/user-attachments/assets/d8720cc4-cc63-47f7-a740-1def1700fd32" type="video/mp4">
+</video>
+
+### Molecule visualizer
+
+A `MoleculeViewer` class has been added to the collection of widgets (`from qdk.widgets import MoleculeViewer`) that can display 3D visualizations of molecules using data in `.xyz` and `.cube` formats. This is most useful when used in conjunction with the new [qdk-chemistry](https://pypi.org/project/qdk-chemistry/) package, which provides advanced tools for quantum chemistry exploration.
+
+<img width="600" alt="MoleculeViewer" src="https://github.com/user-attachments/assets/0ddb86e7-6c5c-4e8f-a9f1-747f6824461d" />
+
+### TableLookup library
+
+A `Table Lookup` library has been implemented that provides efficient quantum implementations of table lookup operations. This library can be used to implement oracles for algorithms such as Grover's search, or to load classical data into quantum states for other algorithms. See <https://github.com/microsoft/qdk/tree/main/library/table_lookup> for the source, and the [Configure Q# projects as external dependencies](https://learn.microsoft.com/en-us/azure/quantum/how-to-work-with-qsharp-projects?tabs=tabid-qsharp%2Ctabid-qsharp-run#configure-q-projects-as-external-dependencies) documentation for how to reference libraries in your Q# projects.
+
+## Other notable changes
+
+- Update the pip install commands in notebook samples for qdk by @ScottCarda-MS in [#2811](https://github.com/microsoft/qdk/pull/2811)
+- Split OpenQASM into parser and compiler crates by @idavis in [#2804](https://github.com/microsoft/qdk/pull/2804)
+- Removing deps that are no longer needed by @idavis in [#2814](https://github.com/microsoft/qdk/pull/2814)
+- Update PyO3 to v0.27.2 by @orpuente-MS in [#2816](https://github.com/microsoft/qdk/pull/2816)
+- Propagating missing information in logical counts by @msoeken in [#2817](https://github.com/microsoft/qdk/pull/2817)
+- Add debugger visualization for arrays by @idavis in [#2812](https://github.com/microsoft/qdk/pull/2812)
+- Add optional `prune_classical_qubits` setting for circuit generation by @swernli in [#2802](https://github.com/microsoft/qdk/pull/2802)
+- Updated comment to trig functions to mention radians by @DmitryVasilevsky in [#2825](https://github.com/microsoft/qdk/pull/2825)
+- Update RIR reindex pass to avoid using extra qubits due to initial resets by @swernli in [#2829](https://github.com/microsoft/qdk/pull/2829)
+- Circuit diagrams: Show source code links for grouped operations by @minestarks in [#2826](https://github.com/microsoft/qdk/pull/2826)
+- Panic in Language Service: unexpected expr type in assignment by @swernli in [#2833](https://github.com/microsoft/qdk/pull/2833)
+- Prohibit return statements in apply block by @swernli in [#2839](https://github.com/microsoft/qdk/pull/2839)
+- Panic in QIR generation: "only some primitive types are supported" by @swernli in [#2831](https://github.com/microsoft/qdk/pull/2831)
+- Add functor constraint pass to OpenQASM compiler by @orpuente-MS in [#2838](https://github.com/microsoft/qdk/pull/2838)
+- Circuit diagrams: auto-expand all single nested operations by @minestarks in [#2842](https://github.com/microsoft/qdk/pull/2842)
+- Fixed angle adjustment size bug by @filipw in [#2845](https://github.com/microsoft/qdk/pull/2845)
+- Circuit diagrams: Group loops by @minestarks in [#2827](https://github.com/microsoft/qdk/pull/2827)
+- First version of table lookup library by @DmitryVasilevsky in [#2834](https://github.com/microsoft/qdk/pull/2834)
+- Circuit diagrams: Enable group_by_scope by default by @minestarks in [#2848](https://github.com/microsoft/qdk/pull/2848)
+- Circuit diagrams: Add label above expanded groups by @minestarks in [#2843](https://github.com/microsoft/qdk/pull/2843)
+- Support QDK_PYTHON_TELEMETRY environment variable by @minestarks in [#2858](https://github.com/microsoft/qdk/pull/2858)
+- Update branding to Microsoft Quantum by @minestarks in [#2857](https://github.com/microsoft/qdk/pull/2857)
+- Change logo to mobius strip by @billti in [#2860](https://github.com/microsoft/qdk/pull/2860)
+- Move theme logic by @billti in [#2861](https://github.com/microsoft/qdk/pull/2861)
+- Add sims and widgets by @billti in [#2863](https://github.com/microsoft/qdk/pull/2863)
+
+**Full Changelog**: <https://github.com/microsoft/qdk/compare/v1.23.0...v1.25.1>
+
 ## v1.23.0
 
 Below are some of the highlights for the 1.23 release of the QDK.

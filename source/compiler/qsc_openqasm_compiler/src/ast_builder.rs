@@ -1184,6 +1184,7 @@ pub(crate) fn build_top_level_ns_with_items<S: AsRef<str>>(
             .collect::<Vec<_>>()
             .into_boxed_slice(),
         doc: "".into(),
+        kind: qsc_ast::ast::NamespaceKind::Implicit,
     })
 }
 

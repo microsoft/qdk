@@ -5,8 +5,7 @@ import { useRef, useEffect, useState } from "preact/hooks";
 import { createViewer, GLViewer } from "3dmol";
 
 import "./style.css";
-
-const themeAttribute = "data-vscode-theme-kind";
+import { detectThemeChange } from "../themeObserver.js";
 
 export function MoleculeViewer(props: {
   moleculeData: string;
@@ -29,7 +28,7 @@ export function MoleculeViewer(props: {
         viewer.current ??
         createViewer(viewerRef.current, {
           backgroundColor: getComputedStyle(document.body).getPropertyValue(
-            "--vscode-editor-background",
+            "--qdk-host-background",
           ),
         });
       try {
@@ -44,22 +43,15 @@ export function MoleculeViewer(props: {
       viewer.current.zoomTo();
     }
 
-    // Respond to theme changes
-    const callback = (mutations: MutationRecord[]) => {
-      for (const mutation of mutations) {
-        if (mutation.attributeName === themeAttribute) {
-          const newBackgroundColor = getComputedStyle(
-            document.body,
-          ).getPropertyValue("--vscode-editor-background");
-          if (viewer.current) {
-            viewer.current.setBackgroundColor(newBackgroundColor, 1.0);
-            viewer.current.render();
-          }
-        }
+    detectThemeChange(document.body, () => {
+      const newBackgroundColor = getComputedStyle(
+        document.body,
+      ).getPropertyValue("--qdk-host-background");
+      if (viewer.current) {
+        viewer.current.setBackgroundColor(newBackgroundColor, 1.0);
+        viewer.current.render();
       }
-    };
-    const observer = new MutationObserver(callback);
-    observer.observe(document.body, { attributeFilter: [themeAttribute] });
+    });
   }, [props.moleculeData]);
 
   useEffect(() => {
