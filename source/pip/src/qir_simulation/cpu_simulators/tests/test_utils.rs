@@ -340,7 +340,7 @@ macro_rules! noise_config {
         if $table.qubits == 0 {
             $table.qubits = pauli_str.len() as u32;
         }
-        $table.pauli_strings.push(pauli_str);
+        $table.pauli_strings.push(qdk_simulators::noise_config::encode_pauli(&pauli_str));
         $table.probabilities.push($prob);
     }};
 }
