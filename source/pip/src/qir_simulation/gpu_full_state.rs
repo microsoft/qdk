@@ -235,7 +235,7 @@ impl GpuContext {
     }
 }
 
-fn map_instruction(qir_inst: &QirInstruction) -> Option<Op> {
+pub(crate) fn map_instruction(qir_inst: &QirInstruction) -> Option<Op> {
     let op = match qir_inst {
         QirInstruction::OneQubitGate(id, qubit) => match id {
             QirInstructionId::I => Op::new_id_gate(*qubit),

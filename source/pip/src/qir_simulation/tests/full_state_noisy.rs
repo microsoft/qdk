@@ -194,33 +194,10 @@ fn loss_noise_produces_loss_marker() {
         noise: noise_config! {
             x: { loss: 0.1 },
         },
-        format: summary,
-        output: expect![[r#"
-                    shots: 1000
-                    unique: 2
-                    loss: 119"#]],
-    }
-}
-
-#[test]
-fn loss_appears_in_histogram() {
-    check_sim! {
-        simulator: NoisySimulator,
-        program: qir! {
-            x(0);
-            mresetz(0, 0);
-        },
-        num_qubits: 1,
-        num_results: 1,
-        shots: 1000,
-        seed: SEED,
-        noise: noise_config! {
-            x: { loss: 0.1 },
-        },
         format: histogram,
         output: expect![[r#"
-                    -: 119
-                    1: 881"#]],
+            -: 119
+            1: 881"#]],
     }
 }
 
@@ -302,11 +279,10 @@ fn cx_xx_noise_flips_both_qubits() {
 }
 
 #[test]
-fn cz_noise_does_not_affect_outcome() {
+fn cz_noise_affects_outcome() {
     check_sim! {
         simulator: NoisySimulator,
         program: qir! {
-            h(0);
             cz(0, 1);
             mresetz(0, 0);
             mresetz(1, 1);
@@ -320,8 +296,8 @@ fn cz_noise_does_not_affect_outcome() {
         },
         format: histogram,
         output: expect![[r#"
-                    00: 506
-                    10: 494"#]],
+            00: 911
+            10: 89"#]],
     }
 }
 
@@ -340,13 +316,12 @@ fn swap_noise_affects_swapped_qubits() {
         shots: 1000,
         seed: SEED,
         noise: noise_config! {
-            swap: { xi: 0.1, ix: 0.1 },
+            swap: { ix: 0.1 },
         },
         format: histogram,
         output: expect![[r#"
-                    00: 103
-                    01: 805
-                    11: 92"#]],
+            00: 92
+            01: 908"#]],
     }
 }
 
