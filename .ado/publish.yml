@@ -62,11 +62,11 @@ parameters:
         arch: x86_64
         envVars:
           QDK_GPU_TESTS: "1"
-      # - name: windows_aarch64
-      #   poolName: "Azure-Pipelines-DevTools-ARM64-EO"
-      #   imageName: "Windows-2022-ARM64"
-      #   os: windows
-      #   arch: aarch64
+      - name: windows_aarch64
+        poolName: "Azure-Pipelines-DevTools-ARM64-EO"
+        imageName: "Windows-2022-ARM64"
+        os: windows
+        arch: aarch64
 
 # variables set by pipeline
 # - BASE_IMAGE
@@ -104,6 +104,10 @@ extends:
                   condition: succeeded()
             steps:
               # common init steps
+              - task: UseNode@1
+                inputs:
+                  version: "24.x"
+
               - task: RustInstaller@1
                 inputs:
                   rustVersion: ms-prod-$(RUST_TOOLCHAIN_VERSION)
@@ -116,10 +120,6 @@ extends:
                 inputs:
                   versionSpec: "3.11"
                   githubToken: "$(GH_PACKAGE_READ_TOKEN)"
-
-              - task: UseNode@1
-                inputs:
-                  version: "22.x"
 
               - script: |
                   python ./prereqs.py --install && python ./version.py
@@ -152,6 +152,10 @@ extends:
                   condition: succeeded()
             steps:
               # common init steps
+              - task: UseNode@1
+                inputs:
+                  version: "24.x"
+
               - task: RustInstaller@1
                 inputs:
                   rustVersion: ms-prod-$(RUST_TOOLCHAIN_VERSION)
@@ -164,10 +168,6 @@ extends:
                 inputs:
                   versionSpec: "3.11"
                   githubToken: "$(GH_PACKAGE_READ_TOKEN)"
-
-              - task: UseNode@1
-                inputs:
-                  version: "22.x"
 
               - script: |
                   python ./prereqs.py --install && python ./version.py
@@ -215,6 +215,10 @@ extends:
                   condition: succeeded()
             steps:
               # common init steps
+              - task: UseNode@1
+                inputs:
+                  version: "24.x"
+
               - task: RustInstaller@1
                 inputs:
                   rustVersion: ms-prod-$(RUST_TOOLCHAIN_VERSION)
@@ -226,10 +230,6 @@ extends:
                 inputs:
                   versionSpec: "3.11"
                   githubToken: "$(GH_PACKAGE_READ_TOKEN)"
-
-              - task: UseNode@1
-                inputs:
-                  version: "22.x"
 
               - script: |
                   python ./prereqs.py --skip-wasm && python ./version.py
@@ -282,6 +282,10 @@ extends:
                       artifactName: Wheels.Linux.${{ target.arch }}
                 steps:
                   # common init steps
+                  - task: UseNode@1
+                    inputs:
+                      version: "24.x"
+
                   # if we have additional rust targets, we need to install them
                   - task: RustInstaller@1
                     inputs:
@@ -312,10 +316,6 @@ extends:
                       sudo alternatives --install /usr/bin/python python /usr/bin/python3 1
                     displayName: Install Python on Azure Linux 3.0 aarch64
                     condition: and(succeeded(), eq(variables['Agent.OS'], 'Linux'), eq(variables['arch'], 'aarch64'))
-
-                  - task: UseNode@1
-                    inputs:
-                      version: "22.x"
 
                   - script: |
                       sudo apt update
