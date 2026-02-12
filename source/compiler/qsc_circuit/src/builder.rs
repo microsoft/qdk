@@ -2053,33 +2053,3 @@ impl<S: SourceLookup> Display for LogicalStackWithSourceLookup<'_, S> {
         Ok(())
     }
 }
-
-#[cfg(test)]
-pub(crate) struct ScopeStackWithSourceLookup<'a, S> {
-    pub(crate) scope_stack: ScopeStack,
-    pub(crate) source_lookup: &'a S,
-}
-
-#[cfg(test)]
-impl<S: SourceLookup> Display for ScopeStackWithSourceLookup<'_, S> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{} -> ",
-            LogicalStackWithSourceLookup {
-                trace: self.scope_stack.caller.clone(),
-                source_lookup: self.source_lookup,
-            }
-        )?;
-        let scope = self
-            .source_lookup
-            .resolve_scope(&self.scope_stack.scope, &mut Default::default());
-        write!(
-            f,
-            "{}{}",
-            scope.name,
-            if scope.is_adjoint { "†" } else { "" },
-        )?;
-        Ok(())
-    }
-}
