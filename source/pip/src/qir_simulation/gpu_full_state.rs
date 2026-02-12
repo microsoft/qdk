@@ -250,6 +250,7 @@ fn map_instruction(qir_inst: &QirInstruction) -> Option<Op> {
             QirInstructionId::SXAdj => Op::new_sx_adj_gate(*qubit),
             QirInstructionId::T => Op::new_t_gate(*qubit),
             QirInstructionId::TAdj => Op::new_t_adj_gate(*qubit),
+            QirInstructionId::RESET => Op::new_reset_gate_proper(*qubit),
             _ => {
                 panic!("unsupported one-qubit gate: {id:?} on qubit {qubit}");
             }
