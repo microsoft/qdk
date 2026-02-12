@@ -92,6 +92,15 @@ static CX: LazyLock<Operation> = LazyLock::new(|| {
     .expect("operation should be valid")
 });
 
+static CY: LazyLock<Operation> = LazyLock::new(|| {
+    let i = Complex::I;
+    operation!([1., 0., 0., 0.;
+                0., 1., 0., 0.;
+                0., 0., 0., -i;
+                0., 0., i,  0.;])
+    .expect("operation should be valid")
+});
+
 static CZ: LazyLock<Operation> = LazyLock::new(|| {
     operation!([1., 0., 0., 0.;
                 0., 1., 0., 0.;
@@ -335,6 +344,12 @@ impl Simulator for NoiselessSimulator {
     fn cx(&mut self, control: QubitID, target: QubitID) {
         self.state
             .apply_operation(&CX, &[control, target])
+            .expect("apply_operation should succeed");
+    }
+
+    fn cy(&mut self, control: QubitID, target: QubitID) {
+        self.state
+            .apply_operation(&CY, &[control, target])
             .expect("apply_operation should succeed");
     }
 
@@ -719,6 +734,19 @@ impl Simulator for NoisySimulator {
         }
         // We still apply operation faults to non-lost qubits.
         let fault = self.noise_config.cx.gen_operation_fault(&mut self.rng);
+        self.apply_fault(fault, &[control, target]);
+    }
+
+    fn cy(&mut self, control: QubitID, target: QubitID) {
+        if !self.loss[control] && !self.loss[target] {
+            self.apply_idle_noise(control);
+            self.apply_idle_noise(target);
+            self.state
+                .apply_operation(&CY, &[control, target])
+                .expect("apply_operation should succeed");
+        }
+        // We still apply operation faults to non-lost qubits.
+        let fault = self.noise_config.cy.gen_operation_fault(&mut self.rng);
         self.apply_fault(fault, &[control, target]);
     }
 
