@@ -186,22 +186,23 @@ function getErrorMessage(e: any): string {
 }
 
 export class AzureUris {
-  static readonly apiVersion = "2020-01-01";
+  static readonly mgmtApiVersion = "2020-01-01";
+  static readonly quantumControlPlaneApiVersion = "2025-12-15-preview";
   static readonly mgmtEndpoint = "https://management.azure.com";
 
   static tenants() {
     // https://learn.microsoft.com/en-us/rest/api/resources/tenants/list
-    return `${this.mgmtEndpoint}/tenants?api-version=${this.apiVersion}`;
+    return `${this.mgmtEndpoint}/tenants?api-version=${this.mgmtApiVersion}`;
   }
 
   static subscriptions() {
     // https://learn.microsoft.com/en-us/rest/api/resources/subscriptions/list
-    return `${this.mgmtEndpoint}/subscriptions?api-version=${this.apiVersion}`;
+    return `${this.mgmtEndpoint}/subscriptions?api-version=${this.mgmtApiVersion}`;
   }
 
   static workspaces(subscriptionId: string) {
     // https://github.com/Azure/azure-rest-api-specs/blob/main/specification/quantum/resource-manager/Microsoft.Quantum/preview/2022-01-10-preview/quantum.json#L221
-    return `${this.mgmtEndpoint}/subscriptions/${subscriptionId}/providers/Microsoft.Quantum/workspaces?api-version=2022-01-10-preview`;
+    return `${this.mgmtEndpoint}/subscriptions/${subscriptionId}/providers/Microsoft.Quantum/workspaces?api-version=${this.quantumControlPlaneApiVersion}`;
   }
 
   static listKeys(
@@ -210,12 +211,12 @@ export class AzureUris {
     workspaceName: string,
   ) {
     // https://github.com/Azure/azure-rest-api-specs/blob/main/specification/quantum/resource-manager/Microsoft.Quantum/preview/2023-11-13-preview/quantum.json#L419
-    return `${this.mgmtEndpoint}/subscriptions/${subscriptionId}/resourceGroups/${resourceGroupName}/providers/Microsoft.Quantum/workspaces/${workspaceName}/listKeys?api-version=2023-11-13-preview`;
+    return `${this.mgmtEndpoint}/subscriptions/${subscriptionId}/resourceGroups/${resourceGroupName}/providers/Microsoft.Quantum/workspaces/${workspaceName}/listKeys?api-version=${this.quantumControlPlaneApiVersion}`;
   }
 }
 
 export class QuantumUris {
-  readonly apiVersion = "2022-09-12-preview";
+  readonly apiVersion = "2025-12-01-preview";
 
   // Regular expression to extract the first part of the endpointUri
   // - Captures only an exact "-v2" suffix (as versionSuffix) if present
@@ -245,7 +246,7 @@ export class QuantumUris {
   }
 
   cancelJobUri(jobId: string) {
-    return `${this.endpoint}${this.id}/jobs/${jobId}/cancel?api-version=${this.apiVersion}`;
+    return `${this.endpoint}${this.id}/jobs/${jobId}:cancel?api-version=${this.apiVersion}`;
   }
 
   // Needs to POST an application/json payload such as: {"containerName": "job-073064ed-2a47-11ee-b8e7-010101010000","blobName":"outputData"}

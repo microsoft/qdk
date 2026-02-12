@@ -920,6 +920,7 @@ class NoiseConfig:
     ry: NoiseTable
     rz: NoiseTable
     cx: NoiseTable
+    cy: NoiseTable
     cz: NoiseTable
     rxx: NoiseTable
     ryy: NoiseTable
@@ -934,6 +935,20 @@ class NoiseConfig:
         """
         The noise table for a custom intrinsic.
         """
+
+    def load_csv_dir(self, dir_path: str):
+        """
+        Loads noise tables from the specified directory path. For each .csv file found in the directory,
+        the noise table is loaded and associated with a unique identifier. The name of the file (without the .csv extension)
+        is used as the label for the noise table, which should match the QIR instruction that will apply noise using this table.
+
+        Each line of the table should be of the format: "IXYZ,1.345e-4" where IXYZ is a string of Pauli operators
+        representing the error on each qubit (Z applying to the first qubit argument, Y to the second, etc.), and the second value
+        is the corresponding error probability for that specific Pauli string.
+
+        Blank lines, lines starting with #, or lines that start with the string "pauli" (i.e., a column header) are ignored.
+        """
+        ...
 
 def run_clifford(
     input: List[QirInstruction],
