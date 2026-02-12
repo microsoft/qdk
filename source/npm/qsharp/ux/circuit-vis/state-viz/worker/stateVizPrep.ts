@@ -12,7 +12,7 @@ import type {
   AmpPolar,
   AmpLike,
   AmpMap,
-} from "./stateViz.js";
+} from "../stateViz.js";
 
 export type PrepareStateVizOptions = {
   // normalize probabilities to unit mass (default true)

@@ -11,17 +11,16 @@
 //   └─ ensureStateVisualization(...)
 //        └─ stateVizController.ts  (loading spinner, request-id cancellation, retries)
 //             ├─ computeStateVizColumnsFromCurrentModelAsync(...)
-//             │    └─ stateCompute.ts
-//             │         ├─ getCurrentCircuitModel(...) from events.ts
-//             │         ├─ if host API exists:
-//             │         │     globalThis.qsharpStateComputeApi.*
-//             │         │        (VS Code webview)
-//             │         │         └─ editor.tsx → stateComputeWorker.ts
-//             │         │              ├─ stateComputeCore.ts (compute)
-//             │         │              └─ stateVizPrep.ts (prep)
-//             │         └─ else fallback:
-//             │               ├─ stateComputeCore.ts (compute ampMap)
-//             │               └─ stateVizPrep.ts (prep columns)
+//             │    ├─ getCurrentCircuitModel(...) from events.ts
+//             │    ├─ if host API exists:
+//             │    │     globalThis.qsharpStateComputeApi.computeStateVizColumnsForCircuitModel(...)
+//             │    │        (installed by VS Code webview)
+//             │    │         └─ editor.tsx → stateComputeWorker.ts
+//             │    │              ├─ uses state-viz/worker/stateCompute.ts (compute ampMap)
+//             │    │              └─ uses state-viz/worker/stateVizPrep.ts (prep columns)
+//             │    └─ else fallback (main thread):
+//             │          ├─ state-viz/worker/stateCompute.ts (compute ampMap)
+//             │          └─ state-viz/worker/stateVizPrep.ts (prep columns)
 //             └─ updateStatePanelFromColumns(...)  (render)
 //                  stateViz.ts
 
@@ -32,7 +31,6 @@ import {
   renderMessageStatePanel,
   setStatePanelLoading,
 } from "./stateViz.js";
-import { computeStateVizColumnsFromCurrentModelAsync } from "./stateCompute.js";
 
 const DEFAULT_MIN_PROB_THRESHOLD = 0.0;
 
@@ -228,4 +226,62 @@ export function ensureStateVisualization(
 
   // Initial render.
   void renderState(panelElem);
+}
+
+import { getCurrentCircuitModel } from "../events.js";
+import type { ComponentGrid, Qubit } from "../circuit.js";
+import {
+  computeAmpMapForCircuit,
+  UnsupportedStateComputeError,
+} from "./worker/stateCompute.js";
+import {
+  prepareStateVizColumnsFromAmpMap,
+  type PrepareStateVizOptions,
+} from "./worker/stateVizPrep.js";
+import type { StateColumn } from "./stateViz.js";
+
+const MAX_QUBITS_FOR_STATE_VIZ = 20;
+
+type CircuitModelSnapshot = { qubits: Qubit[]; componentGrid: ComponentGrid };
+type StateComputeHostApi = {
+  computeStateVizColumnsForCircuitModel?: (
+    model: CircuitModelSnapshot,
+    opts: PrepareStateVizOptions,
+  ) => Promise<StateColumn[]>;
+};
+
+function getHostStateComputeApi(): StateComputeHostApi | null {
+  return (
+    ((globalThis as any).qsharpStateComputeApi as StateComputeHostApi) ?? null
+  );
+}
+
+async function computeStateVizColumnsFromCurrentModelAsync(
+  opts: PrepareStateVizOptions = {},
+  expectedCircuitSvg?: SVGElement | null,
+): Promise<StateColumn[] | null> {
+  const model = getCurrentCircuitModel(expectedCircuitSvg);
+  if (!model) return null;
+  if (model.qubits.length === 0) return [];
+
+  if (model.qubits.length > MAX_QUBITS_FOR_STATE_VIZ) {
+    throw new UnsupportedStateComputeError(
+      `Too many qubits for state visualization (limit: ${MAX_QUBITS_FOR_STATE_VIZ}). This circuit has ${model.qubits.length} qubits.`,
+    );
+  }
+
+  const api = getHostStateComputeApi();
+  if (api?.computeStateVizColumnsForCircuitModel) {
+    return await api.computeStateVizColumnsForCircuitModel(
+      {
+        qubits: model.qubits,
+        componentGrid: model.componentGrid,
+      },
+      opts,
+    );
+  }
+
+  // Fallback: compute and prepare on the main thread.
+  const ampMap = computeAmpMapForCircuit(model.qubits, model.componentGrid);
+  return prepareStateVizColumnsFromAmpMap(ampMap as any, opts);
 }

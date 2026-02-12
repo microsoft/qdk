@@ -4,7 +4,7 @@
 import {
   computeAmpMapForCircuit,
   prepareStateVizColumnsFromAmpMap,
-} from "qsharp-lang/state-viz";
+} from "../../../npm/qsharp/ux/circuit-vis/state-viz/worker";
 
 type CircuitModelSnapshot = {
   qubits: any[];

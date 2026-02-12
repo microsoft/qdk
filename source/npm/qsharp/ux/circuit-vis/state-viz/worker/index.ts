@@ -8,7 +8,7 @@ export {
   computeAmpMapForCircuit,
   UnsupportedStateComputeError,
   type AmpMap,
-} from "./stateComputeCore.js";
+} from "./stateCompute.js";
 
 export {
   prepareStateVizColumnsFromAmpMap,

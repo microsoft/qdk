@@ -22,7 +22,7 @@
     "./debug-service-worker": "./dist/debug-service/worker-browser.js",
     "./katas": "./dist/katas.js",
     "./katas-md": "./dist/katas-md.js",
-    "./state-viz": "./ux/circuit-vis/state-viz/index.ts",
+    "./state-viz": "./ux/circuit-vis/state-viz/worker/index.ts",
     "./ux": "./ux/index.ts",
     "./qdk-theme.css": "./ux/qdk-theme.css"
   },

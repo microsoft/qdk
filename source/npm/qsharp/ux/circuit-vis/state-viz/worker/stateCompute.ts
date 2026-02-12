@@ -6,8 +6,8 @@
 // produces an amplitude map. Intentionally avoids DOM/visualization concerns so
 // it can run on the main thread or in a Web Worker.
 
-import type { ComponentGrid, Operation, Qubit } from "../circuit.js";
-import { evaluateAngleExpression } from "../angleExpression.js";
+import type { ComponentGrid, Operation, Qubit } from "../../circuit.js";
+import { evaluateAngleExpression } from "../../angleExpression.js";
 
 // This is intentionally a minimal structural type so it can be used from both the
 // main thread and a Web Worker without importing DOM-heavy visualization modules.
