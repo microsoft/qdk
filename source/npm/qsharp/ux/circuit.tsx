@@ -23,7 +23,7 @@ export function Circuit(props: {
   isEditable: boolean;
   editCallback?: (fileData: qviz.CircuitGroup) => void;
   runCallback?: () => void;
-  renderLocations: (s: SourceLocation[]) => { title: string; href: string };
+  renderLocations?: (s: SourceLocation[]) => { title: string; href: string };
 }) {
   let unrenderable = false;
   let qubits = 0;
@@ -68,7 +68,7 @@ function ZoomableCircuit(props: {
   isEditable: boolean;
   editCallback?: (fileData: qviz.CircuitGroup) => void;
   runCallback?: () => void;
-  renderLocations: (s: SourceLocation[]) => { title: string; href: string };
+  renderLocations?: (s: SourceLocation[]) => { title: string; href: string };
 }) {
   const circuitDiv = useRef<HTMLDivElement>(null);
   const [zoomLevel, setZoomLevel] = useState(100);
