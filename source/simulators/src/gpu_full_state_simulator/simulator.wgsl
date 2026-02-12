@@ -25,6 +25,7 @@ const MAX_WORKGROUP_SUM_PARTITIONS: i32 = 1 << u32(MAX_QUBIT_COUNT - MAX_QUBITS_
 
 // Operation IDs
 const OPID_ID      = 0u;
+const OPID_RESETZ  = 1u;
 const OPID_X       = 2u;
 const OPID_Y       = 3u;
 const OPID_Z       = 4u;
@@ -45,7 +46,6 @@ const OPID_SWAP    = 24u;
 const OPID_MAT1Q   = 25u;
 const OPID_MAT2Q   = 26u;
 const OPID_CY      = 29u;
-const OPID_RESET_GATE = 30u;
 
 const OPID_PAULI_NOISE_1Q = 128u;
 const OPID_PAULI_NOISE_2Q = 129u;
@@ -223,7 +223,7 @@ fn is_1q_phase_gate(op_id: u32) -> bool {
 
 fn is_1q_op(op_id: u32) -> bool {
     return ((op_id >= OPID_ID && op_id <= OPID_RZ) ||
-        op_id == OPID_MZ || op_id == OPID_MRESETZ || op_id == OPID_RESET_GATE ||
+        op_id == OPID_MZ || op_id == OPID_MRESETZ ||
         op_id == OPID_MAT1Q || op_id == OPID_SHOT_BUFF_1Q);
 }
 
@@ -398,7 +398,7 @@ fn prep_measure_reset(shot_idx: u32, op_idx: u32, is_loss: bool, stores_result: 
                 atomicStore(&results[(shot_idx * RESULT_COUNT) + result_id], result);
             }
         } else {
-            // No result to store (e.g. ResetGate). If the qubit is lost, it's already in the zero
+            // No result to store (e.g. ResetZ). If the qubit is lost, it's already in the zero
             // state so nothing to update. Just set to ID and return.
             if shot.qubit_state[qubit].heat == -1.0 {
                 shot.op_type = OPID_ID;
@@ -413,7 +413,7 @@ fn prep_measure_reset(shot_idx: u32, op_idx: u32, is_loss: bool, stores_result: 
     // Construct the measurement/reset instrument based on the measured result
     // Put the instrument into the shot buffer for the execute_op stage to apply
     if resets_to_zero {
-        // Reset variants (MResetZ, ResetGate):
+        // Reset variants (MResetZ, ResetZ):
         // Result=0: [[1,0],[0,0]] - project onto |0⟩ (already there)
         // Result=1: [[0,1],[0,0]] - swap |1⟩ into |0⟩ slot (reset)
         shot.unitary[0] = select(vec2f(1.0, 0.0), vec2f(0.0, 0.0), result == 1u);
@@ -511,8 +511,8 @@ fn apply_1q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
         shot.unitary[4] = cplxNeg(op.unitary[4]);
         shot.unitary[5] = cplxNeg(op.unitary[5]);
     } else {
-        // No noise. Set the op_type back to the op.id value if it's Id, MResetZ, MZ, or ResetGate, as they get handled specially in execute_op
-        if (op.id == OPID_ID || op.id == OPID_MRESETZ || op.id == OPID_MZ || op.id == OPID_RESET_GATE) {
+        // No noise. Set the op_type back to the op.id value if it's Id, MResetZ, MZ, or ResetZ, as they get handled specially in execute_op
+        if (op.id == OPID_ID || op.id == OPID_MRESETZ || op.id == OPID_MZ || op.id == OPID_RESETZ) {
             shot.op_type = op.id;
         }
         if (is_1q_phase_gate(op.id)) {
@@ -846,7 +846,7 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
     shot_init_per_op(shot_idx);
     shot.unitary = op.unitary;
 
-    // Handle MResetZ, MZ, and ResetGate operations. These have unique handling and no associated noise ops, so prep and exit
+    // Handle MResetZ, MZ, and ResetZ operations. These have unique handling and no associated noise ops, so prep and exit
     if (op.id == OPID_MRESETZ) {
         prep_measure_reset(shot_idx, op_idx, false /* is_loss */, true /* stores_result */, true /* resets_to_zero */);
         shot.next_op_idx = op_idx + 1u; // No associated noise ops, so just advance by 1
@@ -857,7 +857,7 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
         shot.next_op_idx = op_idx + 1u;
         return;
     }
-    if (op.id == OPID_RESET_GATE) {
+    if (op.id == OPID_RESETZ) {
         prep_measure_reset(shot_idx, op_idx, false /* is_loss */, false /* stores_result */, true /* resets_to_zero */);
         shot.next_op_idx = op_idx + 1u;
         return;

@@ -672,9 +672,9 @@ fn test_mz_idempotent() {
     println!("[GPU Runner]: test_mz_idempotent passed ({shot_count} shots)");
 }
 
-/// Test that `ResetGate` properly resets a qubit to |0⟩ without producing a result,
+/// Test that `ResetZ` properly resets a qubit to |0⟩ without producing a result,
 /// while preserving the correct probability distribution on entangled qubits.
-/// Circuit: Rx(π/6, q0) -> CNOT(q0,q1) -> ResetGate(q0) -> Measure both
+/// Circuit: Rx(π/6, q0) -> CNOT(q0,q1) -> ResetZ(q0) -> Measure both
 /// Rx(π/6) gives cos²(π/12) ≈ 0.933 for |0⟩ and sin²(π/12) ≈ 0.067 for |1⟩.
 /// After CNOT the state is cos(π/12)|00⟩ + sin(π/12)|11⟩.
 /// Reset on q0 collapses it, leaving q1 with the same skewed distribution.
@@ -682,7 +682,7 @@ fn test_reset_preserves_distribution() {
     let ops: Vec<Op> = vec![
         Op::new_rx_gate(PI / 6.0, 0), // q0 -> cos(π/12)|0⟩ + i·sin(π/12)|1⟩
         Op::new_cx_gate(0, 1),        // Entangle: cos(π/12)|00⟩ + i·sin(π/12)|11⟩
-        Op::new_reset_gate_proper(0), // Reset q0 to |0⟩ (no result stored)
+        Op::new_resetz_gate(0),       // Reset q0 to |0⟩ (no result stored)
         Op::new_mresetz_gate(0, 0),   // Measure q0 -> result slot 0
         Op::new_mresetz_gate(1, 1),   // Measure q1 -> result slot 1
     ];
@@ -695,7 +695,7 @@ fn test_reset_preserves_distribution() {
     let q0_nonzero: Vec<&Vec<u32>> = results.shot_results.iter().filter(|r| r[0] != 0).collect();
     assert!(
         q0_nonzero.is_empty(),
-        "ResetGate should always produce |0⟩. Found {} non-zero results out of {} shots. First: {:?}",
+        "ResetZ should always produce |0⟩. Found {} non-zero results out of {} shots. First: {:?}",
         q0_nonzero.len(),
         shot_count,
         q0_nonzero.first()
