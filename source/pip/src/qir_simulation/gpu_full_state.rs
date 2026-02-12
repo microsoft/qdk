@@ -255,10 +255,8 @@ fn map_instruction(qir_inst: &QirInstruction) -> Option<Op> {
             }
         },
         QirInstruction::TwoQubitGate(id, control, target) => match id {
-            QirInstructionId::M | QirInstructionId::MZ | QirInstructionId::MResetZ => {
-                // TODO: These should be distinct in the simulator
-                Op::new_mresetz_gate(*control, *target)
-            }
+            QirInstructionId::M | QirInstructionId::MZ => Op::new_mz_gate(*control, *target),
+            QirInstructionId::MResetZ => Op::new_mresetz_gate(*control, *target),
             QirInstructionId::CX | QirInstructionId::CNOT => Op::new_cx_gate(*control, *target),
             QirInstructionId::CY => Op::new_cy_gate(*control, *target),
             QirInstructionId::CZ => Op::new_cz_gate(*control, *target),

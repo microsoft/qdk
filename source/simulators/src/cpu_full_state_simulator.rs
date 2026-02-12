@@ -850,7 +850,7 @@ impl Simulator for NoisySimulator {
     fn mz(&mut self, target: QubitID, result_id: QubitID) {
         self.apply_idle_noise(target);
         self.record_mz(target, result_id);
-        let fault = self.noise_config.mresetz.gen_operation_fault(&mut self.rng);
+        let fault = self.noise_config.mz.gen_operation_fault(&mut self.rng);
         self.apply_fault(fault, &[target]);
     }
 

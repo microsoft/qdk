@@ -1004,7 +1004,8 @@ fn op_from_ir_line(line: &str) -> Vec<Op> {
                 Vec::new()
             }
         }
-        "m" | "mresetz" => vec![Op::new_mresetz_gate(qubits[0], result_ids[0])],
+        "m" => vec![Op::new_mz_gate(qubits[0], result_ids[0])],
+        "mresetz" => vec![Op::new_mresetz_gate(qubits[0], result_ids[0])],
         "ccx" => {
             // Decompose CCX (Toffoli) gate as per the Python implementation
             let ctrl1 = qubits[0];

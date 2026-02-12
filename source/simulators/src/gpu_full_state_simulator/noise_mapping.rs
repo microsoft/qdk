@@ -95,8 +95,8 @@ pub fn get_noise_ops(op: &Op, noise_config: &NoiseConfig<f32, f64>) -> Option<Ve
         ops::RZZ => &noise_config.rzz,
         ops::SWAP => &noise_config.swap,
         ops::MOVE => &noise_config.mov,
-        // MZ and ResetGate reuse the mresetz noise config for now
-        ops::MRESETZ | ops::MZ | ops::RESET_GATE => &noise_config.mresetz,
+        ops::MZ => &noise_config.mz,
+        ops::MRESETZ | ops::RESET_GATE => &noise_config.mresetz,
         _ => return None,
     };
     if noise_table.is_noiseless() {
