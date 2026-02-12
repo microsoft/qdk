@@ -104,9 +104,9 @@ extends:
                   condition: succeeded()
             steps:
               # common init steps
-              - task: UseNode@1
+              - task: NodeTool@0
                 inputs:
-                  version: "24.x"
+                  versionSpec: "24.x"
 
               - task: RustInstaller@1
                 inputs:
@@ -152,9 +152,9 @@ extends:
                   condition: succeeded()
             steps:
               # common init steps
-              - task: UseNode@1
+              - task: NodeTool@0
                 inputs:
-                  version: "24.x"
+                  versionSpec: "24.x"
 
               - task: RustInstaller@1
                 inputs:
@@ -215,9 +215,9 @@ extends:
                   condition: succeeded()
             steps:
               # common init steps
-              - task: UseNode@1
+              - task: NodeTool@0
                 inputs:
-                  version: "24.x"
+                  versionSpec: "24.x"
 
               - task: RustInstaller@1
                 inputs:
@@ -282,9 +282,11 @@ extends:
                       artifactName: Wheels.Linux.${{ target.arch }}
                 steps:
                   # common init steps
-                  - task: UseNode@1
+                  - task: NodeTool@0
                     inputs:
-                      version: "24.x"
+                      versionSpec: "24.x"
+                      ${{ if and(eq(target.arch, 'aarch64'), eq(target.os, 'windows')) }}:
+                        architecture: "x64"
 
                   # if we have additional rust targets, we need to install them
                   - task: RustInstaller@1
