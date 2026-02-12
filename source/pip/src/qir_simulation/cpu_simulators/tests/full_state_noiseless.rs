@@ -150,6 +150,11 @@ fn two_qubit_gate_truth_tables() {
             (qir! { cx(0, 1) }, 0b01 => 0b11),  // q0=1 → flip q1
             (qir! { cx(0, 1) }, 0b10 => 0b10),  // q0=0 → identity
             (qir! { cx(0, 1) }, 0b11 => 0b01),  // q0=1 → flip q1
+            // CY gate: phase only, flips q1 when q0=|1⟩
+            (qir! { cy(0, 1) }, 0b00 => 0b00),
+            (qir! { cy(0, 1) }, 0b01 => 0b11),  // q0=1 → flip q1
+            (qir! { cy(0, 1) }, 0b10 => 0b10),  // q0=0 → identity
+            (qir! { cy(0, 1) }, 0b11 => 0b01),  // q0=1 → flip q1
             // CZ gate: phase only, no bit changes
             (qir! { cz(0, 1) }, 0b00 => 0b00),
             (qir! { cz(0, 1) }, 0b01 => 0b01),

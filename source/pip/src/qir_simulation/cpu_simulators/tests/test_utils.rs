@@ -702,8 +702,9 @@ where
 
         assert!(
             actual_output == expected_output,
-            "Basis table test failed: gate={program:?} on input |{input_bits:0width$b}⟩ \
+            "Basis table test failed: gate={program:?} on input |{:0width$b}⟩ \
                  Actual output:\n{:#?}\nExpected output:\n{:#?}",
+            input_bits.reverse_bits() >> (32 - num_qubits),
             actual_output,
             expected_output,
             width = num_qubits as usize,

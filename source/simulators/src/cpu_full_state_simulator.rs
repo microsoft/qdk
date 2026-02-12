@@ -94,10 +94,10 @@ static CX: LazyLock<Operation> = LazyLock::new(|| {
 
 static CY: LazyLock<Operation> = LazyLock::new(|| {
     let i = Complex::I;
-    operation!([1., 0., 0., 0.;
-                0., 1., 0., 0.;
+    operation!([1., 0., 0.,  0.;
                 0., 0., 0., -i;
-                0., 0., i,  0.;])
+                0., 0., 1.,  0.;
+                0., i,  0.,  0.;])
     .expect("operation should be valid")
 });
 
