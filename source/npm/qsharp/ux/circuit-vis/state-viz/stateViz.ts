@@ -65,7 +65,7 @@ const VIZ = {
 
 // --- Entry Points ---
 
-export const createStatePanel = (initiallyExpanded = false): HTMLElement => {
+export const createStatePanel = (): HTMLElement => {
   try {
     // Allows host environments (e.g., VS Code webview) to react to panel creation
     // without needing a direct import hook.
@@ -77,16 +77,14 @@ export const createStatePanel = (initiallyExpanded = false): HTMLElement => {
   }
   const panel = document.createElement("div");
   panel.className = "state-panel";
-  if (!initiallyExpanded) {
-    panel.classList.add("collapsed");
-  }
+  panel.classList.add("collapsed");
 
   const edge = document.createElement("div");
   edge.className = "state-edge";
   edge.setAttribute("role", "button");
   edge.setAttribute("tabindex", "0");
   edge.setAttribute("aria-label", "Toggle state panel");
-  edge.setAttribute("aria-expanded", initiallyExpanded.toString());
+  edge.setAttribute("aria-expanded", "false");
   const edgeText = document.createElement("span");
   edgeText.className = "state-edge-text";
   edgeText.textContent = "State Visualization";

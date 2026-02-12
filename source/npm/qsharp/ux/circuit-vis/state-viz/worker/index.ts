@@ -14,3 +14,5 @@ export {
   prepareStateVizColumnsFromAmpMap,
   type PrepareStateVizOptions,
 } from "./stateVizPrep.js";
+
+export type { Circuit as CircuitModel } from "../../circuit.js";

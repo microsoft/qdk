@@ -1,7 +1,13 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { ComponentGrid, Operation, Qubit, Unitary } from "./circuit.js";
+import {
+  Circuit,
+  ComponentGrid,
+  Operation,
+  Qubit,
+  Unitary,
+} from "./circuit.js";
 import { Sqore } from "./sqore.js";
 import { toolboxGateDictionary } from "./panel.js";
 import {
@@ -1087,10 +1093,9 @@ export { enableEvents, CircuitEvents };
 // Provide access to the current circuit model, but only if it matches the
 // currently-rendered SVG element. This prevents state visualization from
 // computing against the previous render's model during a re-render.
-export function getCurrentCircuitModel(expectedSvg?: SVGElement | null): {
-  qubits: Qubit[];
-  componentGrid: ComponentGrid;
-} | null {
+export function getCurrentCircuitModel(
+  expectedSvg?: SVGElement | null,
+): Circuit | null {
   if (events == null) return null;
   if (expectedSvg && currentCircuitSvg && expectedSvg !== currentCircuitSvg) {
     return null;

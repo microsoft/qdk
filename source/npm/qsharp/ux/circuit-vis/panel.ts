@@ -1,8 +1,16 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { Ket, Measurement, Operation, Unitary } from "./circuit.js";
+import {
+  Ket,
+  Measurement,
+  Operation,
+  Unitary,
+  type Circuit,
+} from "./circuit.js";
 import { ensureStateVisualization } from "./state-viz/stateVizController.js";
+import type { StateColumn } from "./state-viz/stateViz.js";
+import type { PrepareStateVizOptions } from "./state-viz/worker/stateVizPrep.js";
 import {
   gateHeight,
   horizontalGap,
@@ -19,7 +27,6 @@ const getOrCreateCircuitWrapper = (container: HTMLElement) => {
   if (circuit == null) {
     throw new Error("No circuit found in the container");
   }
-
   if (!wrapper) {
     wrapper = document.createElement("div");
     wrapper.className = "circuit-wrapper";
@@ -70,11 +77,16 @@ const applyCircuitEditorLayoutClasses = (
 /**
  * Create a panel for the circuit visualization.
  * @param container         HTML element for rendering visualization into
- * @param statePanelInitiallyExpanded Optional boolean controlling whether the state panel starts expanded
+ * @param computeStateVizColumnsForCircuitModel Optional callback to compute
+ * state visualization columns from a circuit model, which enables state
+ * visualization features when provided.
  */
 const createPanel = (
   container: HTMLElement,
-  statePanelInitiallyExpanded?: boolean,
+  computeStateVizColumnsForCircuitModel?: (
+    model: Circuit,
+    opts?: PrepareStateVizOptions,
+  ) => Promise<StateColumn[]>,
 ): void => {
   const { wrapper, circuit } = getOrCreateCircuitWrapper(container);
   removeEmptyCircuitMessage(wrapper);
@@ -82,7 +94,7 @@ const createPanel = (
   addEmptyCircuitMessageIfEmpty(wrapper, circuit);
   applyCircuitEditorLayoutClasses(container, wrapper);
 
-  ensureStateVisualization(container, statePanelInitiallyExpanded);
+  ensureStateVisualization(container, computeStateVizColumnsForCircuitModel);
 };
 
 /**

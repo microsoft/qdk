@@ -10,6 +10,7 @@ import DOMPurify from "dompurify";
 import {
   CircuitPanel,
   CircuitProps,
+  type CircuitModel,
   detectThemeChange,
   updateStyleSheetTheme,
 } from "qsharp-lang/ux";
@@ -28,11 +29,10 @@ type State = { viewType: "loading" } | CircuitState;
 const loadingState: State = { viewType: "loading" };
 let state: State = loadingState;
 
-type CircuitModelSnapshot = { qubits: any[]; componentGrid: any[] };
 type WorkerComputeRequest = {
   command: "compute";
   requestId: number;
-  model: CircuitModelSnapshot;
+  model: CircuitModel;
   opts?: {
     normalize?: boolean;
     minProbThreshold?: number;
@@ -46,21 +46,6 @@ type WorkerComputeResponse =
       requestId: number;
       error: { name: string; message: string };
     };
-
-type QsharpStateComputeApi = {
-  computeStateVizColumnsForCircuitModel: (
-    model: CircuitModelSnapshot,
-    opts?: {
-      normalize?: boolean;
-      minProbThreshold?: number;
-      maxColumns?: number;
-    },
-  ) => Promise<any>;
-
-  // Optional cleanup hook so new webview instances (or setting-driven redraws)
-  // can dispose any previously-installed API and terminate its in-flight worker.
-  dispose?: (reason?: string) => void;
-};
 
 type ActiveStateComputeWorker = {
   requestId: number;
@@ -103,38 +88,6 @@ function cancelActiveStateComputeWorker(reason: string) {
   }
 }
 
-function installQsharpStateComputeApi() {
-  const prev = (globalThis as any).qsharpStateComputeApi as
-    | QsharpStateComputeApi
-    | undefined;
-
-  // If this webview script is re-initialized without a full page unload
-  // (e.g., setting-driven recreation), ensure any previously-created worker is
-  // cancelled/terminated so it can't deliver stale results later.
-  try {
-    prev?.dispose?.("replaced by new state compute API instance");
-  } catch {
-    // ignore
-  }
-
-  const api: QsharpStateComputeApi = {
-    computeStateVizColumnsForCircuitModel: (
-      model: CircuitModelSnapshot,
-      opts?: {
-        normalize?: boolean;
-        minProbThreshold?: number;
-        maxColumns?: number;
-      },
-    ) => computeStateVizColumnsInWorker(model, opts),
-
-    dispose: (reason?: string) => {
-      cancelActiveStateComputeWorker(reason ?? "disposed");
-    },
-  };
-
-  (globalThis as any).qsharpStateComputeApi = api;
-}
-
 function createStateComputeWorker(): { worker: Worker; blobUrl: string } {
   const blobUrl = URL.createObjectURL(
     new Blob([stateComputeWorkerSource], { type: "text/javascript" }),
@@ -143,7 +96,7 @@ function createStateComputeWorker(): { worker: Worker; blobUrl: string } {
 }
 
 function computeStateVizColumnsInWorker(
-  model: CircuitModelSnapshot,
+  model: CircuitModel,
   opts?: {
     normalize?: boolean;
     minProbThreshold?: number;
@@ -209,10 +162,6 @@ function computeStateVizColumnsInWorker(
 function main() {
   state = (vscodeApi.getState() as any) || loadingState;
   render(<App state={state} />, document.body);
-
-  // Provide a host API so the circuit visualization can offload state computation
-  // to a Web Worker without importing VS Code specific modules.
-  installQsharpStateComputeApi();
 
   window.addEventListener("unload", () => {
     cancelActiveStateComputeWorker("webview unload");
@@ -299,9 +248,11 @@ function App({ state }: { state: State }) {
       return (
         <CircuitPanel
           {...state.props}
-          isEditable={true}
-          editCallback={updateTextDocument}
-          runCallback={runCircuit}
+          editor={{
+            editCallback: updateTextDocument,
+            runCallback: runCircuit,
+            computeStateVizColumnsForCircuitModel: computeStateVizColumnsInWorker,
+          }}
         ></CircuitPanel>
       );
     default:

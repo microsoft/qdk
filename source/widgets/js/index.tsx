@@ -267,7 +267,6 @@ function renderCircuit({ model, el }: RenderArgs) {
     prender(
       <Circuit
         circuit={JSON.parse(circuitJson)}
-        isEditable={false}
         renderLocations={(locations) => {
           return {
             title: locations

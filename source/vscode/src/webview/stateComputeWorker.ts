@@ -4,17 +4,13 @@
 import {
   computeAmpMapForCircuit,
   prepareStateVizColumnsFromAmpMap,
-} from "../../../npm/qsharp/ux/circuit-vis/state-viz/worker";
-
-type CircuitModelSnapshot = {
-  qubits: any[];
-  componentGrid: any[];
-};
+  type CircuitModel,
+} from "qsharp-lang/state-viz";
 
 type ComputeRequest = {
   command: "compute";
   requestId: number;
-  model: CircuitModelSnapshot;
+  model: CircuitModel;
   opts?: {
     normalize?: boolean;
     minProbThreshold?: number;
@@ -54,7 +50,7 @@ function respondError(requestId: number, err: unknown) {
   const requestId = typeof msg.requestId === "number" ? msg.requestId : 0;
 
   try {
-    const model = msg.model as CircuitModelSnapshot;
+    const model = msg.model as CircuitModel;
 
     const ampMap = computeAmpMapForCircuit(
       model.qubits as any,

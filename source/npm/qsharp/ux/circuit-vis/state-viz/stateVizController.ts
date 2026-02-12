@@ -12,9 +12,9 @@
 //        └─ stateVizController.ts  (loading spinner, request-id cancellation, retries)
 //             ├─ computeStateVizColumnsFromCurrentModelAsync(...)
 //             │    ├─ getCurrentCircuitModel(...) from events.ts
-//             │    ├─ if host API exists:
-//             │    │     globalThis.qsharpStateComputeApi.computeStateVizColumnsForCircuitModel(...)
-//             │    │        (installed by VS Code webview)
+//             │    ├─ if compute callback is provided (via DrawOptions.editor):
+//             │    │     computeStateVizColumnsForCircuitModel(...)
+//             │    │        (e.g., VS Code webview uses a Web Worker)
 //             │    │         └─ editor.tsx → stateComputeWorker.ts
 //             │    │              ├─ uses state-viz/worker/stateCompute.ts (compute ampMap)
 //             │    │              └─ uses state-viz/worker/stateVizPrep.ts (prep columns)
@@ -32,19 +32,39 @@ import {
   setStatePanelLoading,
 } from "./stateViz.js";
 
+import { getCurrentCircuitModel } from "../events.js";
+import type { Circuit } from "../circuit.js";
+import {
+  computeAmpMapForCircuit,
+  UnsupportedStateComputeError,
+} from "./worker/stateCompute.js";
+import {
+  prepareStateVizColumnsFromAmpMap,
+  type PrepareStateVizOptions,
+} from "./worker/stateVizPrep.js";
+import type { StateColumn } from "./stateViz.js";
+
 const DEFAULT_MIN_PROB_THRESHOLD = 0.0;
+const MAX_QUBITS_FOR_STATE_VIZ = 20;
 
 type StateVizController = {
   requestRenderState: () => void;
+  setComputeCallback: (cb?: ComputeStateVizColumnsForCircuitModel) => void;
+  setHostContainer: (container: HTMLElement) => void;
 };
+
+type ComputeStateVizColumnsForCircuitModel = (
+  model: Circuit,
+  opts?: PrepareStateVizOptions,
+) => Promise<StateColumn[]>;
 
 export function ensureStateVisualization(
   container: HTMLElement,
-  statePanelInitiallyExpanded: boolean = false,
+  computeStateVizColumnsForCircuitModel?: ComputeStateVizColumnsForCircuitModel,
 ): void {
   // Ensure a right-side state panel exists.
   if (container.querySelector(".state-panel") == null) {
-    const statePanel = createStatePanel(statePanelInitiallyExpanded);
+    const statePanel = createStatePanel();
     container.appendChild(statePanel);
   }
 
@@ -53,19 +73,27 @@ export function ensureStateVisualization(
   ) as HTMLElement | null;
   if (!panelElem) return;
 
-  // Sqore calls createPanel() on every edit (it re-renders the SVG). Keep a
-  // single state-viz controller per panel element so in-flight renders from
-  // previous calls can't toggle loading off underneath new renders.
-  (panelElem as any)._stateVizContainer = container;
-
   const existingController = (panelElem as any)._stateVizController as
     | StateVizController
     | undefined;
 
   if (existingController) {
+    // Sqore calls createPanel() on every edit (it re-renders the SVG). Keep a
+    // single state-viz controller per panel element so in-flight renders from
+    // previous calls can't toggle loading off underneath new renders.
+    existingController.setHostContainer(container);
+    existingController.setComputeCallback(
+      computeStateVizColumnsForCircuitModel,
+    );
     existingController.requestRenderState();
     return;
   }
+
+  // Captured, mutable inputs that can be updated by future calls to
+  // ensureStateVisualization(...).
+  let hostContainer: HTMLElement = container;
+  let computeCallback: ComputeStateVizColumnsForCircuitModel | undefined =
+    computeStateVizColumnsForCircuitModel;
 
   let renderRequestId = 0;
   let loadingTimer: number | null = null;
@@ -143,9 +171,6 @@ export function ensureStateVisualization(
       }
 
       // Determine current wire count and SVG for this render from the DOM.
-      const hostContainer =
-        ((panelElem as any)._stateVizContainer as HTMLElement | undefined) ??
-        container;
       const circuitSvg = hostContainer.querySelector(
         "svg.qviz",
       ) as SVGElement | null;
@@ -155,6 +180,7 @@ export function ensureStateVisualization(
           minProbThreshold: DEFAULT_MIN_PROB_THRESHOLD,
         },
         circuitSvg,
+        computeCallback,
       );
 
       // Ignore late results if a newer render request started.
@@ -211,6 +237,12 @@ export function ensureStateVisualization(
 
   (panelElem as any)._stateVizController = {
     requestRenderState,
+    setComputeCallback: (cb?: ComputeStateVizColumnsForCircuitModel) => {
+      computeCallback = cb;
+    },
+    setHostContainer: (c: HTMLElement) => {
+      hostContainer = c;
+    },
   } satisfies StateVizController;
 
   // Re-render when the circuit model becomes available. The circuit SVG is
@@ -228,37 +260,10 @@ export function ensureStateVisualization(
   void renderState(panelElem);
 }
 
-import { getCurrentCircuitModel } from "../events.js";
-import type { ComponentGrid, Qubit } from "../circuit.js";
-import {
-  computeAmpMapForCircuit,
-  UnsupportedStateComputeError,
-} from "./worker/stateCompute.js";
-import {
-  prepareStateVizColumnsFromAmpMap,
-  type PrepareStateVizOptions,
-} from "./worker/stateVizPrep.js";
-import type { StateColumn } from "./stateViz.js";
-
-const MAX_QUBITS_FOR_STATE_VIZ = 20;
-
-type CircuitModelSnapshot = { qubits: Qubit[]; componentGrid: ComponentGrid };
-type StateComputeHostApi = {
-  computeStateVizColumnsForCircuitModel?: (
-    model: CircuitModelSnapshot,
-    opts: PrepareStateVizOptions,
-  ) => Promise<StateColumn[]>;
-};
-
-function getHostStateComputeApi(): StateComputeHostApi | null {
-  return (
-    ((globalThis as any).qsharpStateComputeApi as StateComputeHostApi) ?? null
-  );
-}
-
 async function computeStateVizColumnsFromCurrentModelAsync(
   opts: PrepareStateVizOptions = {},
   expectedCircuitSvg?: SVGElement | null,
+  computeStateVizColumnsForCircuitModel?: ComputeStateVizColumnsForCircuitModel,
 ): Promise<StateColumn[] | null> {
   const model = getCurrentCircuitModel(expectedCircuitSvg);
   if (!model) return null;
@@ -270,15 +275,8 @@ async function computeStateVizColumnsFromCurrentModelAsync(
     );
   }
 
-  const api = getHostStateComputeApi();
-  if (api?.computeStateVizColumnsForCircuitModel) {
-    return await api.computeStateVizColumnsForCircuitModel(
-      {
-        qubits: model.qubits,
-        componentGrid: model.componentGrid,
-      },
-      opts,
-    );
+  if (computeStateVizColumnsForCircuitModel) {
+    return await computeStateVizColumnsForCircuitModel(model, opts);
   }
 
   // Fallback: compute and prepare on the main thread.
