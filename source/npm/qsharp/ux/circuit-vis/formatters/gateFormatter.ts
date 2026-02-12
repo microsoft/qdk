@@ -107,15 +107,10 @@ const _createGate = (
   // `GateType.Group` corresponds to an *expanded* group, which will contain clickable gates
   // so therefore should not itself be clickable
   if (renderData.link && renderData.type !== GateType.Group) {
-    const linkElem = createSvgElement("a", {
-      href: renderData.link.href,
-      class: "qs-circuit-source-link",
-    });
-
-    // Add title as a child <title> element for accessibility and hover tooltip
-    const titleElem = createSvgElement("title");
-    titleElem.textContent = renderData.link.title;
-    linkElem.appendChild(titleElem);
+    const linkElem = createLinkElement(
+      renderData.link.href,
+      renderData.link.title,
+    );
 
     // Add the gate elements as children of the link
     for (const e of svgElems) {
@@ -145,7 +140,8 @@ const _createGate = (
 const _zoomButton = (renderData: GateRenderData): SVGElement | null => {
   if (renderData == undefined) return null;
 
-  const [gateBoundingBoxX, gateBoundingBoxY] = _gateBoundingBox(renderData);
+  const { x: gateBoundingBoxX, y: gateBoundingBoxY } =
+    _gateBoundingBox(renderData);
   let { dataAttributes } = renderData;
   dataAttributes = dataAttributes || {};
 
@@ -180,15 +176,40 @@ const _zoomButton = (renderData: GateRenderData): SVGElement | null => {
  *
  * @param renderData Operation render data.
  *
- * @returns [x, y, width, height]
+ * @returns Bounding box of the gate, not including any control dots or circles.
  */
 const _gateBoundingBox = (
   renderData: GateRenderData,
-): [number, number, number, number] => {
-  const { x: centerX, width, targetsY, topPadding, bottomPadding } = renderData;
+): { x: number; y: number; width: number; height: number } => {
+  const {
+    x: centerX,
+    width,
+    targetsY,
+    controlsY,
+    topPadding,
+    bottomPadding,
+  } = renderData;
 
   const x = centerX - width / 2;
-  const ys = targetsY?.flatMap((y) => y as number[]) || [];
+
+  // If we are rendering a classically controlled group, we want the bounding box to go around
+  // the targets AND controls. This is because the classical control circle is rendered next
+  // to the dashed box, and needs to touch the box, like so:
+  //          ┌╌╌╌╌╌┐
+  //          ╎ ┌─┐ ╎
+  // ─────────┼─│X│─┼─
+  //          ╎ └─┘ ╎
+  //  ┌─┐     ╎ ┌─┐ ╎
+  // ─│M│─────┼─│Y│─┼─
+  //  └╥┘ ╭─╮ ╎ └─┘ ╎
+  //   ╚══╡ ╞═╪═════╪═
+  //      │c│┄╎     ╎
+  //      ╰─╯ └╌╌╌╌╌┘
+  let ys = targetsY.flatMap((y) => y as number[]);
+  if (renderData.type === GateType.ClassicalControlled) {
+    ys = ys.concat(controlsY);
+  }
+
   const maxY = Math.max(...ys);
   const minY = Math.min(...ys);
 
@@ -213,7 +234,7 @@ const _gateBoundingBox = (
   const y = minY - gateHeight / 2 - topPadding;
   const height = maxY - minY + gateHeight + bottomPadding + topPadding;
 
-  return [x, y, width, height];
+  return { x, y, width, height };
 };
 
 /**
@@ -254,6 +275,19 @@ const _measure = (x: number, y: number, wireYs: number[]): SVGElement => {
 
 const use_katex = true;
 
+function createLinkElement(href: string, title: string) {
+  const linkElem = createSvgElement("a", {
+    href: href,
+    class: "qs-circuit-source-link",
+  });
+
+  // Add title as a child <title> element for accessibility and hover tooltip
+  const titleElem = createSvgElement("title");
+  titleElem.textContent = title;
+  linkElem.appendChild(titleElem);
+  return linkElem;
+}
+
 function _style_gate_text(gate: SVGTextElement) {
   if (!use_katex) return;
   let label = gate.textContent || "";
@@ -267,6 +301,12 @@ function _style_gate_text(gate: SVGTextElement) {
   const italicChars = /[a-zA-Z\u{0370}-\u{03ff}]+/gu;
 
   label = label.replace(italicChars, `<tspan class='qs-mathtext'>$&</tspan>`);
+
+  // Subscript any `_0`, `_1`, etc. in the label
+  label = label.replace(
+    /_(\d+)/g,
+    `<tspan baseline-shift="sub" font-size="65%">$1</tspan>`,
+  );
 
   // Replace a trailing ' with the proper unicode dagger symbol
   label = label.replace(
@@ -403,8 +443,12 @@ const _swap = (renderData: GateRenderData): SVGElement => {
   const { x: centerX, targetsY } = renderData;
 
   // Get SVGs of crosses
-  const [boundingBoxX, boundingBoxY, width, height] =
-    _gateBoundingBox(renderData);
+  const {
+    x: boundingBoxX,
+    y: boundingBoxY,
+    width,
+    height,
+  } = _gateBoundingBox(renderData);
   const ys = targetsY?.flatMap((y) => y as number[]) || [];
   const bg: SVGElement = box(
     boundingBoxX,
@@ -560,7 +604,7 @@ const _oplus = (x: number, y: number, wireYs: number[]): SVGElement => {
  */
 const _groupedOperations = (renderData: GateRenderData): SVGElement => {
   const { children, label } = renderData;
-  const [x, y, w, h] = _gateBoundingBox(renderData);
+  const { x, y, width: w, height: h } = _gateBoundingBox(renderData);
 
   // Draw dashed box around children gates
   const box: SVGElement = dashedBox(x, y, w, h, "gate-unitary");
@@ -573,7 +617,16 @@ const _groupedOperations = (renderData: GateRenderData): SVGElement => {
     y + groupTopPadding / 2 + groupLabelPaddingY,
   );
   labelText.classList.add("qs-group-label");
-  elems.push(labelText);
+
+  if (renderData.link) {
+    const link = createLinkElement(renderData.link.href, renderData.link.title);
+    // Make the text element clickable
+    labelText.style.pointerEvents = "all";
+    link.appendChild(labelText);
+    elems.push(link);
+  } else {
+    elems.push(labelText);
+  }
 
   return _createGate(elems, renderData);
 };
@@ -590,67 +643,81 @@ const _classicalControlled = (
   renderData: GateRenderData,
   padding: number = groupPaddingX,
 ): SVGElement => {
-  const { controlsY, dataAttributes } = renderData;
-  const targetsY: number[] = renderData.targetsY as number[];
-  const children: GateRenderData[][][] =
-    renderData.children as GateRenderData[][][];
-  let { x, width } = renderData;
+  const { controlsY, dataAttributes, label, classicalControlIds, children } =
+    renderData;
 
-  const controlY = controlsY[0];
+  const boundingBox = _gateBoundingBox(renderData);
+  let { x, width } = boundingBox;
+  const { y, height } = boundingBox;
 
   const elems: SVGElement[] = [];
 
-  if (children != null) {
-    if (children.length !== 2)
-      throw new Error(
-        `Invalid number of children found for classically-controlled gate: ${children.length}`,
-      );
+  for (let i = 0; i < controlsY.length; i++) {
+    const controlY = controlsY[i];
+    const label = classicalControlIds?.[i] ?? null;
+    // Draw control button and attached dashed line to dashed box
+    const controlCircleX: number = x + controlBtnRadius;
+    const controlCircle: SVGElement = _controlCircle(
+      controlCircleX,
+      controlY,
+      label,
+    );
+    const lineY1: number = controlY + controlBtnRadius,
+      lineY2: number = controlY + classicalRegHeight / 2;
+    const vertLine: SVGElement = line(
+      controlCircleX,
+      lineY1,
+      controlCircleX,
+      lineY2,
+      "classical-line",
+    );
+    const lineEndX = x + controlBtnOffset;
+    const horLine: SVGElement = line(
+      controlCircleX,
+      lineY2,
+      lineEndX,
+      lineY2,
+      "classical-line",
+    );
 
-    // Get SVG for gates controlled on 0
-    const childrenZero: SVGElement = formatGates(children[0]);
-    childrenZero.setAttribute("class", "gates-zero");
-    elems.push(childrenZero);
-
-    // Get SVG for gates controlled on 1
-    const childrenOne: SVGElement = formatGates(children[1]);
-    childrenOne.setAttribute("class", "gates-one");
-    elems.push(childrenOne);
+    elems.push(horLine, vertLine, controlCircle);
   }
 
-  // Draw control button and attached dashed line to dashed box
-  const controlCircleX: number = x + controlBtnRadius;
-  const controlCircle: SVGElement = _controlCircle(controlCircleX, controlY);
-  const lineY1: number = controlY + controlBtnRadius,
-    lineY2: number = controlY + classicalRegHeight / 2;
-  const vertLine: SVGElement = dashedLine(
-    controlCircleX,
-    lineY1,
-    controlCircleX,
-    lineY2,
-    "classical-line",
-  );
   x += controlBtnOffset;
-  const horLine: SVGElement = dashedLine(
-    controlCircleX,
-    lineY2,
-    x,
-    lineY2,
-    "classical-line",
-  );
 
   width = width - controlBtnOffset + (padding - groupPaddingX) * 2;
   x += groupPaddingX - padding;
-  const y: number = targetsY[0] - gateHeight / 2 - padding;
-  const height: number = targetsY[1] - targetsY[0] + gateHeight + padding * 2;
 
   // Draw dashed box around children gates
   const box: SVGElement = dashedBox(x, y, width, height, "classical-container");
 
-  elems.push(...[horLine, vertLine, controlCircle, box]);
+  elems.push(box);
 
-  // Display controlled operation in initial "unknown" state
+  const labelText = _labelText(
+    label,
+    x + labelPaddingX,
+    y + groupTopPadding / 2 + groupLabelPaddingY,
+  );
+  labelText.classList.add("qs-group-label");
+
+  if (renderData.link) {
+    const link = createLinkElement(renderData.link.href, renderData.link.title);
+    // Make the text element clickable
+    labelText.style.pointerEvents = "all";
+    link.appendChild(labelText);
+    elems.push(link);
+  } else {
+    elems.push(labelText);
+  }
+
+  if (children != null) {
+    // Get SVG for gates controlled on 0
+    const childrenSvg: SVGElement = formatGates(children);
+    elems.push(childrenSvg);
+  }
+
   const attributes: { [attr: string]: string } = {
-    class: `classically-controlled-group classically-controlled-unknown`,
+    class: `classically-controlled-group`,
   };
   if (dataAttributes != null)
     Object.entries(dataAttributes).forEach(
@@ -664,20 +731,50 @@ const _classicalControlled = (
  * Generates the SVG representation of the control circle on a classical register with interactivity support
  * for toggling between bit values (unknown, 1, and 0).
  *
- * @param x   x coord.
- * @param y   y coord.
- * @param r   Radius of circle.
+ * @param x          Center x coord.
+ * @param y          Center y coord.
+ * @param controlId  ID label to display inside control circle
  *
  * @returns SVG representation of control circle.
  */
 const _controlCircle = (
   x: number,
   y: number,
-  r: number = controlBtnRadius,
+  controlId: number | null,
 ): SVGElement =>
-  group([circle(x, y, r), text("?", x, y, labelFontSize)], {
+  group([circle(x, y, controlBtnRadius), controlLabel(x, y, controlId)], {
     class: "classically-controlled-btn",
   });
+
+/**
+ * Generates the text element label inside a classical control circle.
+ *
+ * @param x          Center x coord.
+ * @param y          Center y coord.
+ * @param label      ID label to display inside control circle
+ *
+ * @returns          SVG representation of control label
+ */
+function controlLabel(x: number, y: number, label: number | null): SVGElement {
+  const el: SVGElement = text("", x, y, labelFontSize);
+
+  // Create text content "c"
+  el.appendChild(document.createTextNode("c"));
+
+  // Create tspan with subscript label
+  const tspan = createSvgElement("tspan", {
+    "baseline-shift": "sub",
+    "font-size": "65%",
+  });
+  tspan.appendChild(document.createTextNode(String(label)));
+  el.appendChild(tspan);
+
+  el.setAttribute("text-anchor", "start");
+  el.setAttribute("dominant-baseline", "middle");
+  el.classList.add("qs-maintext");
+
+  return el;
+}
 
 /**
  * Generates the SVG representation of the label text for a gate or grouped operation.

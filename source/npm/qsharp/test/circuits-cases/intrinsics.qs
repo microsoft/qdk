@@ -2,7 +2,8 @@ operation Main() : Result[] {
     use q = Qubit();
     CustomIntrinsic(q);
     SimulatableIntrinsic(q);
-    [MResetZ(q)]
+    let r = CustomMeasurement(q);
+    [r]
 }
 
 operation CustomIntrinsic(q : Qubit) : Unit  {
@@ -13,4 +14,11 @@ operation CustomIntrinsic(q : Qubit) : Unit  {
 @SimulatableIntrinsic()
 operation SimulatableIntrinsic(q : Qubit) : Unit  {
     H(q);
+}
+
+
+@Measurement()
+@SimulatableIntrinsic()
+operation CustomMeasurement(q : Qubit) : Result {
+    M(q)
 }

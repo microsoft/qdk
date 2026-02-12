@@ -152,7 +152,7 @@ serializable_type! {
         group_by_scope: bool,
     },
     r#"export interface ICircuitConfig {
-        generationMethod: "simulate" | "classicalEval";
+        generationMethod: "simulate" | "classicalEval" | "static";
         maxOperations: number;
         sourceLocations: boolean;
         groupByScope: boolean;
@@ -170,6 +170,7 @@ pub fn get_circuit(
     let method = match config.generation_method.as_str() {
         "simulate" => qsc::interpret::CircuitGenerationMethod::Simulate,
         "classicalEval" => qsc::interpret::CircuitGenerationMethod::ClassicalEval,
+        "static" => qsc::interpret::CircuitGenerationMethod::Static,
         _ => {
             panic!(
                 "Invalid generation method option: {}",

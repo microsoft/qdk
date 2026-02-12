@@ -100,11 +100,7 @@ impl TestTracer<'_> {
             trace,
             source_lookup: self.source_lookup,
         };
-        if display.trace.0.is_empty() {
-            let _ = write!(self.trace, "[no stack] ");
-        } else {
-            let _ = write!(self.trace, "{display} -> ");
-        }
+        let _ = write!(self.trace, "{display} -> ");
     }
 }
 

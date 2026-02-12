@@ -8,6 +8,511 @@
     <link rel="stylesheet" href="../../ux/qsharp-circuit.css" />
   </head>
   <body>
+    <div><h2>circuit-static-collapsed</h2></div>
+    <div id="circuit-static-collapsed" class="qs-circuit">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="qviz"
+        width="350"
+        height="204"
+        style="max-width: fit-content"
+        viewBox="0 0 350 204"
+      >
+        <g class="qubit-input-states">
+          <text
+            font-size="16"
+            x="20"
+            y="92"
+            text-anchor="start"
+            dominant-baseline="middle"
+            data-wire="0"
+            class="qs-maintext qs-qubit-label"
+          >
+            |
+            <tspan class="qs-mathtext">ψ</tspan>
+            <tspan baseline-shift="sub" font-size="65%">0</tspan>
+            ⟩
+          </text>
+        </g>
+        <g class="wires">
+          <line x1="40" x2="350" y1="92" y2="92" class="qubit-wire" />
+          <g>
+            <line
+              x1="251"
+              x2="251"
+              y1="92"
+              y2="143"
+              class="register-classical"
+            />
+            <line
+              x1="249"
+              x2="249"
+              y1="92"
+              y2="145"
+              class="register-classical"
+            />
+            <line
+              x1="251"
+              x2="350"
+              y1="143"
+              y2="143"
+              class="register-classical"
+            />
+            <line
+              x1="249"
+              x2="350"
+              y1="145"
+              y2="145"
+              class="register-classical"
+            />
+          </g>
+        </g>
+        <g>
+          <g
+            class="gate"
+            data-expanded="true"
+            data-location="0,0"
+            data-zoom-out="false"
+            data-zoom-in="true"
+          >
+            <rect
+              class="gate-unitary"
+              x="80"
+              y="46"
+              width="252"
+              height="128"
+              fill-opacity="0"
+              stroke-dasharray="8, 8"
+            />
+            <g>
+              <g
+                class="gate"
+                data-location="0,0-0,0"
+                data-zoom-out="true"
+                data-zoom-in="false"
+              >
+                <a href="#" class="qs-circuit-source-link">
+                  <title>lambda.qs:3:24 let lambda = (q =&gt; H(q));</title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="90"
+                        y="72"
+                        width="40"
+                        height="40"
+                        data-wire-ys="[92]"
+                        data-width="40"
+                      />
+                      <text font-size="14" x="110" y="92" class="qs-maintext">
+                        <tspan class="qs-mathtext">H</tspan>
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+              <g
+                class="gate"
+                data-location="0,0-1,0"
+                data-zoom-out="true"
+                data-zoom-in="true"
+              >
+                <a href="#" class="qs-circuit-source-link">
+                  <title>lambda.qs:6:5 lambda2(q);</title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="142"
+                        y="72"
+                        width="76"
+                        height="40"
+                        data-wire-ys="[92]"
+                        data-width="76"
+                      />
+                      <text font-size="14" x="180" y="92" class="qs-maintext">
+                        &lt;
+                        <tspan class="qs-mathtext">lambda</tspan>
+                        &gt;
+                      </text>
+                    </g>
+                  </g>
+                </a>
+                <g class="gate-control gate-expand">
+                  <circle cx="144" cy="74" r="10" />
+                  <path d="M144,67 v14 M137,74 h14" />
+                </g>
+              </g>
+              <g
+                class="gate"
+                data-location="0,0-2,0"
+                data-zoom-out="true"
+                data-zoom-in="false"
+              >
+                <a href="#" class="qs-circuit-source-link">
+                  <title>lambda.qs:7:6 [MResetZ(q)]</title>
+                  <g>
+                    <rect
+                      class="gate-measure"
+                      x="230"
+                      y="72"
+                      width="40"
+                      height="40"
+                      data-wire-ys="[92]"
+                      data-width="40"
+                    />
+                    <path
+                      class="arc-measure"
+                      d="M 265 94 A 15 12 0 0 0 235 94"
+                      style="pointer-events: none"
+                    />
+                    <line
+                      x1="250"
+                      x2="262"
+                      y1="100"
+                      y2="80"
+                      class="qs-line-measure"
+                      style="pointer-events: none"
+                    />
+                  </g>
+                </a>
+              </g>
+              <g
+                class="gate"
+                data-location="0,0-3,0"
+                data-zoom-out="true"
+                data-zoom-in="false"
+              >
+                <a href="#" class="qs-circuit-source-link">
+                  <title>lambda.qs:7:6 [MResetZ(q)]</title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-ket"
+                        x="282"
+                        y="72"
+                        width="40"
+                        height="40"
+                        data-wire-ys="[92]"
+                        data-width="40"
+                      />
+                      <text
+                        font-size="14"
+                        x="302"
+                        y="92"
+                        class="qs-maintext ket-text"
+                      >
+                        |0⟩
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+            </g>
+            <text
+              font-size="14"
+              x="90"
+              y="61"
+              class="qs-maintext qs-group-label"
+            >
+              <tspan class="qs-mathtext">Main</tspan>
+            </text>
+            <g class="gate-control gate-collapse">
+              <circle cx="82" cy="48" r="10" />
+              <path d="M75,48 h14" />
+            </g>
+          </g>
+        </g>
+      </svg>
+    </div>
+    <div><h2>circuit-static-expanded</h2></div>
+    <div id="circuit-static-expanded" class="qs-circuit">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="qviz"
+        width="386"
+        height="240"
+        style="max-width: fit-content"
+        viewBox="0 0 386 240"
+      >
+        <g class="qubit-input-states">
+          <text
+            font-size="16"
+            x="20"
+            y="118"
+            text-anchor="start"
+            dominant-baseline="middle"
+            data-wire="0"
+            class="qs-maintext qs-qubit-label"
+          >
+            |
+            <tspan class="qs-mathtext">ψ</tspan>
+            <tspan baseline-shift="sub" font-size="65%">0</tspan>
+            ⟩
+          </text>
+        </g>
+        <g class="wires">
+          <line x1="40" x2="386" y1="118" y2="118" class="qubit-wire" />
+          <g>
+            <line
+              x1="287"
+              x2="287"
+              y1="118"
+              y2="169"
+              class="register-classical"
+            />
+            <line
+              x1="285"
+              x2="285"
+              y1="118"
+              y2="171"
+              class="register-classical"
+            />
+            <line
+              x1="287"
+              x2="386"
+              y1="169"
+              y2="169"
+              class="register-classical"
+            />
+            <line
+              x1="285"
+              x2="386"
+              y1="171"
+              y2="171"
+              class="register-classical"
+            />
+          </g>
+        </g>
+        <g>
+          <g
+            class="gate"
+            data-expanded="true"
+            data-location="0,0"
+            data-zoom-out="false"
+            data-zoom-in="true"
+          >
+            <rect
+              class="gate-unitary"
+              x="80"
+              y="46"
+              width="288"
+              height="154"
+              fill-opacity="0"
+              stroke-dasharray="8, 8"
+            />
+            <g>
+              <g
+                class="gate"
+                data-location="0,0-0,0"
+                data-zoom-out="true"
+                data-zoom-in="false"
+              >
+                <a href="#" class="qs-circuit-source-link">
+                  <title>lambda.qs:3:24 let lambda = (q =&gt; H(q));</title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="90"
+                        y="98"
+                        width="40"
+                        height="40"
+                        data-wire-ys="[118]"
+                        data-width="40"
+                      />
+                      <text font-size="14" x="110" y="118" class="qs-maintext">
+                        <tspan class="qs-mathtext">H</tspan>
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+              <g
+                class="gate"
+                data-expanded="true"
+                data-location="0,0-1,0"
+                data-zoom-out="true"
+                data-zoom-in="true"
+              >
+                <rect
+                  class="gate-unitary"
+                  x="142"
+                  y="72"
+                  width="112"
+                  height="76"
+                  fill-opacity="0"
+                  stroke-dasharray="8, 8"
+                />
+                <g>
+                  <g
+                    class="gate"
+                    data-location="0,0-1,0-0,0"
+                    data-zoom-out="true"
+                    data-zoom-in="false"
+                  >
+                    <a href="#" class="qs-circuit-source-link">
+                      <title>
+                        lambda.qs:5:27 let lambda2 = (q =&gt; { H(q); S(q); });
+                      </title>
+                      <g>
+                        <g>
+                          <rect
+                            class="gate-unitary"
+                            x="152"
+                            y="98"
+                            width="40"
+                            height="40"
+                            data-wire-ys="[118]"
+                            data-width="40"
+                          />
+                          <text
+                            font-size="14"
+                            x="172"
+                            y="118"
+                            class="qs-maintext"
+                          >
+                            <tspan class="qs-mathtext">H</tspan>
+                          </text>
+                        </g>
+                      </g>
+                    </a>
+                  </g>
+                  <g
+                    class="gate"
+                    data-location="0,0-1,0-1,0"
+                    data-zoom-out="true"
+                    data-zoom-in="false"
+                  >
+                    <a href="#" class="qs-circuit-source-link">
+                      <title>
+                        lambda.qs:5:33 let lambda2 = (q =&gt; { H(q); S(q); });
+                      </title>
+                      <g>
+                        <g>
+                          <rect
+                            class="gate-unitary"
+                            x="204"
+                            y="98"
+                            width="40"
+                            height="40"
+                            data-wire-ys="[118]"
+                            data-width="40"
+                          />
+                          <text
+                            font-size="14"
+                            x="224"
+                            y="118"
+                            class="qs-maintext"
+                          >
+                            <tspan class="qs-mathtext">S</tspan>
+                          </text>
+                        </g>
+                      </g>
+                    </a>
+                  </g>
+                </g>
+                <a href="#" class="qs-circuit-source-link">
+                  <title>lambda.qs:6:5 lambda2(q);</title>
+                  <text
+                    font-size="14"
+                    x="152"
+                    y="87"
+                    class="qs-maintext qs-group-label"
+                    style="pointer-events: all"
+                  >
+                    &lt;
+                    <tspan class="qs-mathtext">lambda</tspan>
+                    &gt;
+                  </text>
+                </a>
+                <g class="gate-control gate-collapse">
+                  <circle cx="144" cy="74" r="10" />
+                  <path d="M137,74 h14" />
+                </g>
+              </g>
+              <g
+                class="gate"
+                data-location="0,0-2,0"
+                data-zoom-out="true"
+                data-zoom-in="false"
+              >
+                <a href="#" class="qs-circuit-source-link">
+                  <title>lambda.qs:7:6 [MResetZ(q)]</title>
+                  <g>
+                    <rect
+                      class="gate-measure"
+                      x="266"
+                      y="98"
+                      width="40"
+                      height="40"
+                      data-wire-ys="[118]"
+                      data-width="40"
+                    />
+                    <path
+                      class="arc-measure"
+                      d="M 301 120 A 15 12 0 0 0 271 120"
+                      style="pointer-events: none"
+                    />
+                    <line
+                      x1="286"
+                      x2="298"
+                      y1="126"
+                      y2="106"
+                      class="qs-line-measure"
+                      style="pointer-events: none"
+                    />
+                  </g>
+                </a>
+              </g>
+              <g
+                class="gate"
+                data-location="0,0-3,0"
+                data-zoom-out="true"
+                data-zoom-in="false"
+              >
+                <a href="#" class="qs-circuit-source-link">
+                  <title>lambda.qs:7:6 [MResetZ(q)]</title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-ket"
+                        x="318"
+                        y="98"
+                        width="40"
+                        height="40"
+                        data-wire-ys="[118]"
+                        data-width="40"
+                      />
+                      <text
+                        font-size="14"
+                        x="338"
+                        y="118"
+                        class="qs-maintext ket-text"
+                      >
+                        |0⟩
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+            </g>
+            <text
+              font-size="14"
+              x="90"
+              y="61"
+              class="qs-maintext qs-group-label"
+            >
+              <tspan class="qs-mathtext">Main</tspan>
+            </text>
+            <g class="gate-control gate-collapse">
+              <circle cx="82" cy="48" r="10" />
+              <path d="M75,48 h14" />
+            </g>
+          </g>
+        </g>
+      </svg>
+    </div>
     <div><h2>circuit-eval-collapsed</h2></div>
     <div id="circuit-eval-collapsed" class="qs-circuit">
       <svg
@@ -418,16 +923,20 @@
                     </a>
                   </g>
                 </g>
-                <text
-                  font-size="14"
-                  x="152"
-                  y="87"
-                  class="qs-maintext qs-group-label"
-                >
-                  &lt;
-                  <tspan class="qs-mathtext">lambda</tspan>
-                  &gt;
-                </text>
+                <a href="#" class="qs-circuit-source-link">
+                  <title>lambda.qs:6:5 lambda2(q);</title>
+                  <text
+                    font-size="14"
+                    x="152"
+                    y="87"
+                    class="qs-maintext qs-group-label"
+                    style="pointer-events: all"
+                  >
+                    &lt;
+                    <tspan class="qs-mathtext">lambda</tspan>
+                    &gt;
+                  </text>
+                </a>
                 <g class="gate-control gate-collapse">
                   <circle cx="144" cy="74" r="10" />
                   <path d="M137,74 h14" />

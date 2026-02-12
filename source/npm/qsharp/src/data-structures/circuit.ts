@@ -116,7 +116,7 @@ export interface BaseOperation {
   Note that this is never written to file, so it is not part of the circuit schema */
   dataAttributes?: DataAttributes;
 
-  /** Whether gate is a conditional operation. */
+  /** Whether gate is a classically controlled operation. */
   isConditional?: boolean;
   /** Specify conditions on when to render operation. */
   conditionalRender?: ConditionalRender;
@@ -285,4 +285,11 @@ export interface SourceLocation {
 export interface Metadata {
   source?: SourceLocation;
   scopeLocation?: SourceLocation;
+  /**
+   * For a classically controlled operation,
+   * this maps control registers to the measurement result
+   * IDs. Unlike the `result` field in `Register`, which are
+   * specific to the qubit, these IDs are global across the circuit.
+   */
+  controlResultIds?: [Register, number][];
 }

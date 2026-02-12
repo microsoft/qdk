@@ -120,7 +120,7 @@ fn to_circuit_group(mut json: Map<String, Value>) -> Result<CircuitGroup, Error>
                     .map(from_value)
                     .collect::<Result<Vec<Operation>, Error>>()?;
 
-                operation_list_to_grid(operation_list, qubits.len())
+                operation_list_to_grid(operation_list, &qubits)
             } else {
                 unreachable!("We checked that operations exists");
             };

@@ -7,7 +7,7 @@ use expect_test::expect;
 
 use crate::{
     builder::{bell_program, teleport_program},
-    rir::{Block, BlockId, Instruction, Literal, Operand, Program, Ty, Variable, VariableId},
+    rir::{Block, BlockId, InstructionKind, Literal, Operand, Program, Ty, Variable, VariableId},
 };
 
 use super::simplify_control_flow;
@@ -33,28 +33,28 @@ fn simplify_control_flow_removes_single_redundant_block() {
     let mut program = Program::new();
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
-            Instruction::Store(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Jump(BlockId(1)),
+            InstructionKind::Jump(BlockId(1)),
         ]),
     );
     program.blocks.insert(
         BlockId(1),
-        Block(vec![
-            Instruction::Store(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Return,
+            InstructionKind::Return,
         ]),
     );
 
@@ -103,41 +103,41 @@ fn simplify_control_flow_removes_multiple_redundant_blocks() {
     let mut program = Program::new();
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
-            Instruction::Store(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Jump(BlockId(1)),
+            InstructionKind::Jump(BlockId(1)),
         ]),
     );
     program.blocks.insert(
         BlockId(1),
-        Block(vec![
-            Instruction::Store(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Jump(BlockId(2)),
+            InstructionKind::Jump(BlockId(2)),
         ]),
     );
     program.blocks.insert(
         BlockId(2),
-        Block(vec![
-            Instruction::Store(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(2),
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Return,
+            InstructionKind::Return,
         ]),
     );
 
@@ -190,15 +190,15 @@ fn simplify_control_flow_removes_redundant_blocks_across_branches() {
     let mut program = Program::new();
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
-            Instruction::Store(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Branch(
+            InstructionKind::Branch(
                 Variable {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
@@ -210,67 +210,67 @@ fn simplify_control_flow_removes_redundant_blocks_across_branches() {
     );
     program.blocks.insert(
         BlockId(1),
-        Block(vec![
-            Instruction::Store(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Jump(BlockId(2)),
+            InstructionKind::Jump(BlockId(2)),
         ]),
     );
     program.blocks.insert(
         BlockId(2),
-        Block(vec![
-            Instruction::Store(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(2),
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Jump(BlockId(4)),
+            InstructionKind::Jump(BlockId(4)),
         ]),
     );
     program.blocks.insert(
         BlockId(4),
-        Block(vec![
-            Instruction::Store(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(3),
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Jump(BlockId(6)),
+            InstructionKind::Jump(BlockId(6)),
         ]),
     );
     program.blocks.insert(
         BlockId(6),
-        Block(vec![
-            Instruction::Store(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(4),
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Jump(BlockId(7)),
+            InstructionKind::Jump(BlockId(7)),
         ]),
     );
     program.blocks.insert(
         BlockId(7),
-        Block(vec![
-            Instruction::Store(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(5),
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Return,
+            InstructionKind::Return,
         ]),
     );
 
@@ -345,15 +345,15 @@ fn simplify_control_flow_removes_redundant_blocks_across_out_of_order_branches()
     // 7 -> 5
     program.blocks.insert(
         BlockId(3),
-        Block(vec![
-            Instruction::Store(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Branch(
+            InstructionKind::Branch(
                 Variable {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
@@ -365,67 +365,67 @@ fn simplify_control_flow_removes_redundant_blocks_across_out_of_order_branches()
     );
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
-            Instruction::Store(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Jump(BlockId(1)),
+            InstructionKind::Jump(BlockId(1)),
         ]),
     );
     program.blocks.insert(
         BlockId(1),
-        Block(vec![
-            Instruction::Store(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(2),
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Jump(BlockId(4)),
+            InstructionKind::Jump(BlockId(4)),
         ]),
     );
     program.blocks.insert(
         BlockId(4),
-        Block(vec![
-            Instruction::Store(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(3),
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Jump(BlockId(2)),
+            InstructionKind::Jump(BlockId(2)),
         ]),
     );
     program.blocks.insert(
         BlockId(2),
-        Block(vec![
-            Instruction::Store(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(4),
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Jump(BlockId(5)),
+            InstructionKind::Jump(BlockId(5)),
         ]),
     );
     program.blocks.insert(
         BlockId(5),
-        Block(vec![
-            Instruction::Store(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(5),
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Return,
+            InstructionKind::Return,
         ]),
     );
 

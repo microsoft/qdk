@@ -8,6 +8,22 @@
     <link rel="stylesheet" href="../../ux/qsharp-circuit.css" />
   </head>
   <body>
+    <div><h2>circuit-static-collapsed</h2></div>
+    <div id="circuit-static-collapsed" class="qs-circuit">
+      <pre>
+Error generating circuit: QdkDiagnostics: partial evaluation error: unsupported type `(Qubit)[]` in custom intrinsic callable
+
+help: variables of type `(Qubit)[]` cannot be emitted into QIR and should not appear in custom intrinsic callable signatures at intersecting-wires.qs:50:15</pre
+      >
+    </div>
+    <div><h2>circuit-static-expanded</h2></div>
+    <div id="circuit-static-expanded" class="qs-circuit">
+      <pre>
+Error generating circuit: QdkDiagnostics: partial evaluation error: unsupported type `(Qubit)[]` in custom intrinsic callable
+
+help: variables of type `(Qubit)[]` cannot be emitted into QIR and should not appear in custom intrinsic callable signatures at intersecting-wires.qs:50:15</pre
+      >
+    </div>
     <div><h2>circuit-eval-collapsed</h2></div>
     <div id="circuit-eval-collapsed" class="qs-circuit">
       <svg
@@ -1647,14 +1663,18 @@
                     </a>
                   </g>
                 </g>
-                <text
-                  font-size="14"
-                  x="100"
-                  y="617"
-                  class="qs-maintext qs-group-label"
-                >
-                  <tspan class="qs-mathtext">Bar</tspan>
-                </text>
+                <a href="#" class="qs-circuit-source-link">
+                  <title>intersecting-wires.qs:25:5 Bar(q1);</title>
+                  <text
+                    font-size="14"
+                    x="100"
+                    y="617"
+                    class="qs-maintext qs-group-label"
+                    style="pointer-events: all"
+                  >
+                    <tspan class="qs-mathtext">Bar</tspan>
+                  </text>
+                </a>
                 <g class="gate-control gate-collapse">
                   <circle cx="92" cy="604" r="10" />
                   <path d="M85,604 h14" />
@@ -1724,14 +1744,18 @@
                     </a>
                   </g>
                 </g>
-                <text
-                  font-size="14"
-                  x="100"
-                  y="845"
-                  class="qs-maintext qs-group-label"
-                >
-                  <tspan class="qs-mathtext">Bar</tspan>
-                </text>
+                <a href="#" class="qs-circuit-source-link">
+                  <title>intersecting-wires.qs:26:5 Bar(q2);</title>
+                  <text
+                    font-size="14"
+                    x="100"
+                    y="845"
+                    class="qs-maintext qs-group-label"
+                    style="pointer-events: all"
+                  >
+                    <tspan class="qs-mathtext">Bar</tspan>
+                  </text>
+                </a>
                 <g class="gate-control gate-collapse">
                   <circle cx="92" cy="832" r="10" />
                   <path d="M85,832 h14" />
@@ -1891,14 +1915,18 @@
                         </a>
                       </g>
                     </g>
-                    <text
-                      font-size="14"
-                      x="234"
-                      y="617"
-                      class="qs-maintext qs-group-label"
-                    >
-                      <tspan class="qs-mathtext">Bar</tspan>
-                    </text>
+                    <a href="#" class="qs-circuit-source-link">
+                      <title>intersecting-wires.qs:36:5 Bar(q);</title>
+                      <text
+                        font-size="14"
+                        x="234"
+                        y="617"
+                        class="qs-maintext qs-group-label"
+                        style="pointer-events: all"
+                      >
+                        <tspan class="qs-mathtext">Bar</tspan>
+                      </text>
+                    </a>
                     <g class="gate-control gate-collapse">
                       <circle cx="226" cy="604" r="10" />
                       <path d="M219,604 h14" />
@@ -1970,15 +1998,19 @@
                     </a>
                   </g>
                 </g>
-                <text
-                  font-size="14"
-                  x="224"
-                  y="591"
-                  class="qs-maintext qs-group-label"
-                >
-                  <tspan class="qs-mathtext">Foo</tspan>
-                  2
-                </text>
+                <a href="#" class="qs-circuit-source-link">
+                  <title>intersecting-wires.qs:27:5 Foo2(q1);</title>
+                  <text
+                    font-size="14"
+                    x="224"
+                    y="591"
+                    class="qs-maintext qs-group-label"
+                    style="pointer-events: all"
+                  >
+                    <tspan class="qs-mathtext">Foo</tspan>
+                    2
+                  </text>
+                </a>
                 <g class="gate-control gate-collapse">
                   <circle cx="216" cy="578" r="10" />
                   <path d="M209,578 h14" />
@@ -2065,14 +2097,18 @@
                         </a>
                       </g>
                     </g>
-                    <text
-                      font-size="14"
-                      x="234"
-                      y="845"
-                      class="qs-maintext qs-group-label"
-                    >
-                      <tspan class="qs-mathtext">Bar</tspan>
-                    </text>
+                    <a href="#" class="qs-circuit-source-link">
+                      <title>intersecting-wires.qs:36:5 Bar(q);</title>
+                      <text
+                        font-size="14"
+                        x="234"
+                        y="845"
+                        class="qs-maintext qs-group-label"
+                        style="pointer-events: all"
+                      >
+                        <tspan class="qs-mathtext">Bar</tspan>
+                      </text>
+                    </a>
                     <g class="gate-control gate-collapse">
                       <circle cx="226" cy="832" r="10" />
                       <path d="M219,832 h14" />
@@ -2144,15 +2180,19 @@
                     </a>
                   </g>
                 </g>
-                <text
-                  font-size="14"
-                  x="224"
-                  y="819"
-                  class="qs-maintext qs-group-label"
-                >
-                  <tspan class="qs-mathtext">Foo</tspan>
-                  2
-                </text>
+                <a href="#" class="qs-circuit-source-link">
+                  <title>intersecting-wires.qs:30:5 Foo2(q2);</title>
+                  <text
+                    font-size="14"
+                    x="224"
+                    y="819"
+                    class="qs-maintext qs-group-label"
+                    style="pointer-events: all"
+                  >
+                    <tspan class="qs-mathtext">Foo</tspan>
+                    2
+                  </text>
+                </a>
                 <g class="gate-control gate-collapse">
                   <circle cx="216" cy="806" r="10" />
                   <path d="M209,806 h14" />
@@ -2269,14 +2309,18 @@
                     </a>
                   </g>
                 </g>
-                <text
-                  font-size="14"
-                  x="472"
-                  y="617"
-                  class="qs-maintext qs-group-label"
-                >
-                  <tspan class="qs-mathtext">Bar</tspan>
-                </text>
+                <a href="#" class="qs-circuit-source-link">
+                  <title>intersecting-wires.qs:28:5 Bar(q1);</title>
+                  <text
+                    font-size="14"
+                    x="472"
+                    y="617"
+                    class="qs-maintext qs-group-label"
+                    style="pointer-events: all"
+                  >
+                    <tspan class="qs-mathtext">Bar</tspan>
+                  </text>
+                </a>
                 <g class="gate-control gate-collapse">
                   <circle cx="464" cy="604" r="10" />
                   <path d="M457,604 h14" />
@@ -2346,14 +2390,18 @@
                     </a>
                   </g>
                 </g>
-                <text
-                  font-size="14"
-                  x="472"
-                  y="845"
-                  class="qs-maintext qs-group-label"
-                >
-                  <tspan class="qs-mathtext">Bar</tspan>
-                </text>
+                <a href="#" class="qs-circuit-source-link">
+                  <title>intersecting-wires.qs:31:5 Bar(q2);</title>
+                  <text
+                    font-size="14"
+                    x="472"
+                    y="845"
+                    class="qs-maintext qs-group-label"
+                    style="pointer-events: all"
+                  >
+                    <tspan class="qs-mathtext">Bar</tspan>
+                  </text>
+                </a>
                 <g class="gate-control gate-collapse">
                   <circle cx="464" cy="832" r="10" />
                   <path d="M457,832 h14" />
@@ -2487,14 +2535,18 @@
                         </a>
                       </g>
                     </g>
-                    <text
-                      font-size="14"
-                      x="606"
-                      y="617"
-                      class="qs-maintext qs-group-label"
-                    >
-                      <tspan class="qs-mathtext">Bar</tspan>
-                    </text>
+                    <a href="#" class="qs-circuit-source-link">
+                      <title>intersecting-wires.qs:36:5 Bar(q);</title>
+                      <text
+                        font-size="14"
+                        x="606"
+                        y="617"
+                        class="qs-maintext qs-group-label"
+                        style="pointer-events: all"
+                      >
+                        <tspan class="qs-mathtext">Bar</tspan>
+                      </text>
+                    </a>
                     <g class="gate-control gate-collapse">
                       <circle cx="598" cy="604" r="10" />
                       <path d="M591,604 h14" />
@@ -2566,15 +2618,19 @@
                     </a>
                   </g>
                 </g>
-                <text
-                  font-size="14"
-                  x="596"
-                  y="591"
-                  class="qs-maintext qs-group-label"
-                >
-                  <tspan class="qs-mathtext">Foo</tspan>
-                  2
-                </text>
+                <a href="#" class="qs-circuit-source-link">
+                  <title>intersecting-wires.qs:29:5 Foo2(q1);</title>
+                  <text
+                    font-size="14"
+                    x="596"
+                    y="591"
+                    class="qs-maintext qs-group-label"
+                    style="pointer-events: all"
+                  >
+                    <tspan class="qs-mathtext">Foo</tspan>
+                    2
+                  </text>
+                </a>
                 <g class="gate-control gate-collapse">
                   <circle cx="588" cy="578" r="10" />
                   <path d="M581,578 h14" />
@@ -2661,14 +2717,18 @@
                         </a>
                       </g>
                     </g>
-                    <text
-                      font-size="14"
-                      x="606"
-                      y="845"
-                      class="qs-maintext qs-group-label"
-                    >
-                      <tspan class="qs-mathtext">Bar</tspan>
-                    </text>
+                    <a href="#" class="qs-circuit-source-link">
+                      <title>intersecting-wires.qs:36:5 Bar(q);</title>
+                      <text
+                        font-size="14"
+                        x="606"
+                        y="845"
+                        class="qs-maintext qs-group-label"
+                        style="pointer-events: all"
+                      >
+                        <tspan class="qs-mathtext">Bar</tspan>
+                      </text>
+                    </a>
                     <g class="gate-control gate-collapse">
                       <circle cx="598" cy="832" r="10" />
                       <path d="M591,832 h14" />
@@ -2740,15 +2800,19 @@
                     </a>
                   </g>
                 </g>
-                <text
-                  font-size="14"
-                  x="596"
-                  y="819"
-                  class="qs-maintext qs-group-label"
-                >
-                  <tspan class="qs-mathtext">Foo</tspan>
-                  2
-                </text>
+                <a href="#" class="qs-circuit-source-link">
+                  <title>intersecting-wires.qs:32:5 Foo2(q2);</title>
+                  <text
+                    font-size="14"
+                    x="596"
+                    y="819"
+                    class="qs-maintext qs-group-label"
+                    style="pointer-events: all"
+                  >
+                    <tspan class="qs-mathtext">Foo</tspan>
+                    2
+                  </text>
+                </a>
                 <g class="gate-control gate-collapse">
                   <circle cx="588" cy="806" r="10" />
                   <path d="M581,806 h14" />
@@ -2931,14 +2995,20 @@
                     </a>
                   </g>
                 </g>
-                <text
-                  font-size="14"
-                  x="948"
-                  y="87"
-                  class="qs-maintext qs-group-label"
-                >
-                  <tspan class="qs-mathtext">BoxWithMeasurements</tspan>
-                </text>
+                <a href="#" class="qs-circuit-source-link">
+                  <title>
+                    intersecting-wires.qs:21:5 BoxWithMeasurements(qs);
+                  </title>
+                  <text
+                    font-size="14"
+                    x="948"
+                    y="87"
+                    class="qs-maintext qs-group-label"
+                    style="pointer-events: all"
+                  >
+                    <tspan class="qs-mathtext">BoxWithMeasurements</tspan>
+                  </text>
+                </a>
                 <g class="gate-control gate-collapse">
                   <circle cx="940" cy="74" r="10" />
                   <path d="M933,74 h14" />

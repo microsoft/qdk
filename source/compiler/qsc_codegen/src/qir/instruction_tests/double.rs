@@ -6,13 +6,13 @@ use core::f64::consts::{E, PI};
 use crate::qir::ToQir;
 use expect_test::expect;
 use qsc_rir::rir::{
-    FcmpConditionCode, Instruction, Literal, Operand, Program, Ty, Variable, VariableId,
+    FcmpConditionCode, InstructionKind, Literal, Operand, Program, Ty, Variable, VariableId,
 };
 
 #[test]
 #[should_panic(expected = "unsupported type double for add")]
 fn add_double_literals() {
-    let inst = Instruction::Add(
+    let inst = InstructionKind::Add(
         Operand::Literal(Literal::Double(PI)),
         Operand::Literal(Literal::Double(E)),
         Variable {
@@ -26,7 +26,7 @@ fn add_double_literals() {
 #[test]
 #[should_panic(expected = "unsupported type double for sub")]
 fn sub_double_literals() {
-    let inst = Instruction::Sub(
+    let inst = InstructionKind::Sub(
         Operand::Literal(Literal::Double(PI)),
         Operand::Literal(Literal::Double(E)),
         Variable {
@@ -40,7 +40,7 @@ fn sub_double_literals() {
 #[test]
 #[should_panic(expected = "unsupported type double for mul")]
 fn mul_double_literals() {
-    let inst = Instruction::Mul(
+    let inst = InstructionKind::Mul(
         Operand::Literal(Literal::Double(PI)),
         Operand::Literal(Literal::Double(E)),
         Variable {
@@ -54,7 +54,7 @@ fn mul_double_literals() {
 #[test]
 #[should_panic(expected = "unsupported type double for sdiv")]
 fn sdiv_double_literals() {
-    let inst = Instruction::Sdiv(
+    let inst = InstructionKind::Sdiv(
         Operand::Literal(Literal::Double(PI)),
         Operand::Literal(Literal::Double(E)),
         Variable {
@@ -67,7 +67,7 @@ fn sdiv_double_literals() {
 
 #[test]
 fn fadd_double_literals() {
-    let inst = Instruction::Fadd(
+    let inst = InstructionKind::Fadd(
         Operand::Literal(Literal::Double(PI)),
         Operand::Literal(Literal::Double(E)),
         Variable {
@@ -82,7 +82,7 @@ fn fadd_double_literals() {
 #[test]
 #[should_panic(expected = "unsupported type double for ashr")]
 fn ashr_double_literals() {
-    let inst = Instruction::Ashr(
+    let inst = InstructionKind::Ashr(
         Operand::Literal(Literal::Double(PI)),
         Operand::Literal(Literal::Double(E)),
         Variable {
@@ -96,7 +96,7 @@ fn ashr_double_literals() {
 #[test]
 #[should_panic(expected = "unsupported type double for and")]
 fn bitwise_and_double_literals() {
-    let inst = Instruction::BitwiseAnd(
+    let inst = InstructionKind::BitwiseAnd(
         Operand::Literal(Literal::Double(PI)),
         Operand::Literal(Literal::Double(E)),
         Variable {
@@ -110,7 +110,7 @@ fn bitwise_and_double_literals() {
 #[test]
 #[should_panic(expected = "unsupported type double for not")]
 fn bitwise_not_double_literals() {
-    let inst = Instruction::BitwiseNot(
+    let inst = InstructionKind::BitwiseNot(
         Operand::Literal(Literal::Double(PI)),
         Variable {
             variable_id: VariableId(0),
@@ -123,7 +123,7 @@ fn bitwise_not_double_literals() {
 #[test]
 #[should_panic(expected = "unsupported type double for or")]
 fn bitwise_or_double_literals() {
-    let inst = Instruction::BitwiseOr(
+    let inst = InstructionKind::BitwiseOr(
         Operand::Literal(Literal::Double(PI)),
         Operand::Literal(Literal::Double(E)),
         Variable {
@@ -137,7 +137,7 @@ fn bitwise_or_double_literals() {
 #[test]
 #[should_panic(expected = "unsupported type double for xor")]
 fn bitwise_xor_double_literals() {
-    let inst = Instruction::BitwiseXor(
+    let inst = InstructionKind::BitwiseXor(
         Operand::Literal(Literal::Double(PI)),
         Operand::Literal(Literal::Double(E)),
         Variable {
@@ -150,7 +150,7 @@ fn bitwise_xor_double_literals() {
 
 #[test]
 fn fadd_double_variables() {
-    let inst = Instruction::Fadd(
+    let inst = InstructionKind::Fadd(
         Operand::Variable(Variable {
             variable_id: VariableId(1),
             ty: Ty::Double,
@@ -169,7 +169,7 @@ fn fadd_double_variables() {
 
 #[test]
 fn fcmp_oeq_double_literals() {
-    let inst = Instruction::Fcmp(
+    let inst = InstructionKind::Fcmp(
         FcmpConditionCode::OrderedAndEqual,
         Operand::Literal(Literal::Double(PI)),
         Operand::Literal(Literal::Double(E)),
@@ -184,7 +184,7 @@ fn fcmp_oeq_double_literals() {
 
 #[test]
 fn fcmp_oeq_double_variables() {
-    let inst = Instruction::Fcmp(
+    let inst = InstructionKind::Fcmp(
         FcmpConditionCode::OrderedAndEqual,
         Operand::Variable(Variable {
             variable_id: VariableId(1),
@@ -205,7 +205,7 @@ fn fcmp_oeq_double_variables() {
 
 #[test]
 fn fcmp_one_double_literals() {
-    let inst = Instruction::Fcmp(
+    let inst = InstructionKind::Fcmp(
         FcmpConditionCode::OrderedAndNotEqual,
         Operand::Literal(Literal::Double(PI)),
         Operand::Literal(Literal::Double(E)),
@@ -220,7 +220,7 @@ fn fcmp_one_double_literals() {
 
 #[test]
 fn fcmp_one_double_variables() {
-    let inst = Instruction::Fcmp(
+    let inst = InstructionKind::Fcmp(
         FcmpConditionCode::OrderedAndNotEqual,
         Operand::Variable(Variable {
             variable_id: VariableId(1),
@@ -240,7 +240,7 @@ fn fcmp_one_double_variables() {
 }
 #[test]
 fn fcmp_olt_double_literals() {
-    let inst = Instruction::Fcmp(
+    let inst = InstructionKind::Fcmp(
         FcmpConditionCode::OrderedAndLessThan,
         Operand::Literal(Literal::Double(PI)),
         Operand::Literal(Literal::Double(E)),
@@ -255,7 +255,7 @@ fn fcmp_olt_double_literals() {
 
 #[test]
 fn fcmp_olt_double_variables() {
-    let inst = Instruction::Fcmp(
+    let inst = InstructionKind::Fcmp(
         FcmpConditionCode::OrderedAndLessThan,
         Operand::Variable(Variable {
             variable_id: VariableId(1),
@@ -275,7 +275,7 @@ fn fcmp_olt_double_variables() {
 }
 #[test]
 fn fcmp_ole_double_literals() {
-    let inst = Instruction::Fcmp(
+    let inst = InstructionKind::Fcmp(
         FcmpConditionCode::OrderedAndLessThanOrEqual,
         Operand::Literal(Literal::Double(PI)),
         Operand::Literal(Literal::Double(E)),
@@ -290,7 +290,7 @@ fn fcmp_ole_double_literals() {
 
 #[test]
 fn fcmp_ole_double_variables() {
-    let inst = Instruction::Fcmp(
+    let inst = InstructionKind::Fcmp(
         FcmpConditionCode::OrderedAndLessThanOrEqual,
         Operand::Variable(Variable {
             variable_id: VariableId(1),
@@ -310,7 +310,7 @@ fn fcmp_ole_double_variables() {
 }
 #[test]
 fn fcmp_ogt_double_literals() {
-    let inst = Instruction::Fcmp(
+    let inst = InstructionKind::Fcmp(
         FcmpConditionCode::OrderedAndGreaterThan,
         Operand::Literal(Literal::Double(PI)),
         Operand::Literal(Literal::Double(E)),
@@ -325,7 +325,7 @@ fn fcmp_ogt_double_literals() {
 
 #[test]
 fn fcmp_ogt_double_variables() {
-    let inst = Instruction::Fcmp(
+    let inst = InstructionKind::Fcmp(
         FcmpConditionCode::OrderedAndGreaterThan,
         Operand::Variable(Variable {
             variable_id: VariableId(1),
@@ -345,7 +345,7 @@ fn fcmp_ogt_double_variables() {
 }
 #[test]
 fn fcmp_oge_double_literals() {
-    let inst = Instruction::Fcmp(
+    let inst = InstructionKind::Fcmp(
         FcmpConditionCode::OrderedAndGreaterThanOrEqual,
         Operand::Literal(Literal::Double(PI)),
         Operand::Literal(Literal::Double(E)),
@@ -360,7 +360,7 @@ fn fcmp_oge_double_literals() {
 
 #[test]
 fn fcmp_oge_double_variables() {
-    let inst = Instruction::Fcmp(
+    let inst = InstructionKind::Fcmp(
         FcmpConditionCode::OrderedAndGreaterThanOrEqual,
         Operand::Variable(Variable {
             variable_id: VariableId(1),
@@ -381,7 +381,7 @@ fn fcmp_oge_double_variables() {
 
 #[test]
 fn fmul_double_literals() {
-    let inst = Instruction::Fmul(
+    let inst = InstructionKind::Fmul(
         Operand::Literal(Literal::Double(PI)),
         Operand::Literal(Literal::Double(E)),
         Variable {
@@ -395,7 +395,7 @@ fn fmul_double_literals() {
 
 #[test]
 fn fmul_double_variables() {
-    let inst = Instruction::Fmul(
+    let inst = InstructionKind::Fmul(
         Operand::Variable(Variable {
             variable_id: VariableId(1),
             ty: Ty::Double,
@@ -414,7 +414,7 @@ fn fmul_double_variables() {
 
 #[test]
 fn fdiv_double_literals() {
-    let inst = Instruction::Fdiv(
+    let inst = InstructionKind::Fdiv(
         Operand::Literal(Literal::Double(PI)),
         Operand::Literal(Literal::Double(E)),
         Variable {
@@ -428,7 +428,7 @@ fn fdiv_double_literals() {
 
 #[test]
 fn fdiv_double_variables() {
-    let inst = Instruction::Fdiv(
+    let inst = InstructionKind::Fdiv(
         Operand::Variable(Variable {
             variable_id: VariableId(1),
             ty: Ty::Double,
@@ -447,7 +447,7 @@ fn fdiv_double_variables() {
 
 #[test]
 fn fsub_double_literals() {
-    let inst = Instruction::Fsub(
+    let inst = InstructionKind::Fsub(
         Operand::Literal(Literal::Double(PI)),
         Operand::Literal(Literal::Double(E)),
         Variable {
@@ -461,7 +461,7 @@ fn fsub_double_literals() {
 
 #[test]
 fn fsub_double_variables() {
-    let inst = Instruction::Fsub(
+    let inst = InstructionKind::Fsub(
         Operand::Variable(Variable {
             variable_id: VariableId(1),
             ty: Ty::Double,
