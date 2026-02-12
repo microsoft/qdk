@@ -7,7 +7,7 @@ use qsc_rir::rir;
 
 #[test]
 fn logical_and_literals() {
-    let inst = rir::Instruction::LogicalAnd(
+    let inst = rir::InstructionKind::LogicalAnd(
         rir::Operand::Literal(rir::Literal::Bool(true)),
         rir::Operand::Literal(rir::Literal::Bool(false)),
         rir::Variable {
@@ -20,7 +20,7 @@ fn logical_and_literals() {
 
 #[test]
 fn logical_and_variables() {
-    let inst = rir::Instruction::LogicalAnd(
+    let inst = rir::InstructionKind::LogicalAnd(
         rir::Operand::Variable(rir::Variable {
             variable_id: rir::VariableId(1),
             ty: rir::Ty::Boolean,
@@ -39,7 +39,7 @@ fn logical_and_variables() {
 
 #[test]
 fn logical_not_true_literal() {
-    let inst = rir::Instruction::LogicalNot(
+    let inst = rir::InstructionKind::LogicalNot(
         rir::Operand::Literal(rir::Literal::Bool(true)),
         rir::Variable {
             variable_id: rir::VariableId(0),
@@ -51,7 +51,7 @@ fn logical_not_true_literal() {
 
 #[test]
 fn logical_not_variables() {
-    let inst = rir::Instruction::LogicalNot(
+    let inst = rir::InstructionKind::LogicalNot(
         rir::Operand::Variable(rir::Variable {
             variable_id: rir::VariableId(1),
             ty: rir::Ty::Boolean,
@@ -66,7 +66,7 @@ fn logical_not_variables() {
 
 #[test]
 fn logical_not_false_literal() {
-    let inst = rir::Instruction::LogicalNot(
+    let inst = rir::InstructionKind::LogicalNot(
         rir::Operand::Literal(rir::Literal::Bool(false)),
         rir::Variable {
             variable_id: rir::VariableId(0),
@@ -78,7 +78,7 @@ fn logical_not_false_literal() {
 
 #[test]
 fn logical_or_literals() {
-    let inst = rir::Instruction::LogicalOr(
+    let inst = rir::InstructionKind::LogicalOr(
         rir::Operand::Literal(rir::Literal::Bool(true)),
         rir::Operand::Literal(rir::Literal::Bool(false)),
         rir::Variable {
@@ -91,7 +91,7 @@ fn logical_or_literals() {
 
 #[test]
 fn logical_or_variables() {
-    let inst = rir::Instruction::LogicalOr(
+    let inst = rir::InstructionKind::LogicalOr(
         rir::Operand::Variable(rir::Variable {
             variable_id: rir::VariableId(1),
             ty: rir::Ty::Boolean,

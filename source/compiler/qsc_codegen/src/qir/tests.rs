@@ -54,7 +54,7 @@ fn single_qubit_call() {
     program
         .callables
         .insert(rir::CallableId(0), builder::x_decl());
-    let call = rir::Instruction::Call(
+    let call = rir::InstructionKind::Call(
         rir::CallableId(0),
         vec![rir::Operand::Literal(rir::Literal::Qubit(0))],
         None,
@@ -69,7 +69,7 @@ fn qubit_rotation_call() {
     program
         .callables
         .insert(rir::CallableId(0), builder::rx_decl());
-    let call = rir::Instruction::Call(
+    let call = rir::InstructionKind::Call(
         rir::CallableId(0),
         vec![
             rir::Operand::Literal(rir::Literal::Double(std::f64::consts::PI)),
@@ -87,7 +87,7 @@ fn qubit_rotation_round_number_call() {
     program
         .callables
         .insert(rir::CallableId(0), builder::rx_decl());
-    let call = rir::Instruction::Call(
+    let call = rir::InstructionKind::Call(
         rir::CallableId(0),
         vec![
             rir::Operand::Literal(rir::Literal::Double(3.0)),
@@ -107,7 +107,7 @@ fn qubit_rotation_variable_angle_call() {
     program
         .callables
         .insert(rir::CallableId(0), builder::rx_decl());
-    let call = rir::Instruction::Call(
+    let call = rir::InstructionKind::Call(
         rir::CallableId(0),
         vec![
             rir::Operand::Variable(rir::Variable {

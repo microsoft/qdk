@@ -46,11 +46,15 @@ use qsc_rca::{
         get_missing_runtime_features,
     },
 };
-use qsc_rir::{
+pub use qsc_rir::{
     builder::{self, initialize_decl},
+    debug::{
+        DbgLocation, DbgLocationId, DbgMetadataScope, DbgPackageOffset, DbgScopeId,
+        InstructionDbgMetadata,
+    },
     rir::{
         self, Callable, CallableId, CallableType, ConditionCode, FcmpConditionCode, Instruction,
-        Literal, Operand, Program, VariableId,
+        InstructionKind, Literal, Operand, Program, VariableId,
     },
 };
 use rustc_hash::FxHashMap;
@@ -63,9 +67,15 @@ pub fn partially_evaluate(
     compute_properties: &PackageStoreComputeProperties,
     entry: &ProgramEntry,
     capabilities: TargetCapabilityFlags,
+    generate_debug_metadata: bool,
 ) -> Result<Program, Error> {
-    let partial_evaluator =
-        PartialEvaluator::new(package_store, compute_properties, entry, capabilities);
+    let partial_evaluator = PartialEvaluator::new(
+        package_store,
+        compute_properties,
+        entry,
+        capabilities,
+        generate_debug_metadata,
+    );
     partial_evaluator.eval()
 }
 
@@ -76,12 +86,14 @@ pub fn partially_evaluate_call(
     callable: StoreItemId,
     args: Value,
     capabilities: TargetCapabilityFlags,
+    generate_debug_metadata: bool,
 ) -> Result<Program, Error> {
     let partial_evaluator = PartialEvaluator::new_from_package_id(
         package_store,
         compute_properties,
         callable.package,
         capabilities,
+        generate_debug_metadata,
     );
     partial_evaluator.invoke(callable, args)
 }
@@ -179,6 +191,8 @@ struct PartialEvaluator<'a> {
     eval_context: EvaluationContext,
     program: Program,
     entry: Option<&'a ProgramEntry>,
+    generate_debug_metadata: bool,
+    dbg_context: DbgContext,
 }
 
 impl<'a> PartialEvaluator<'a> {
@@ -187,6 +201,7 @@ impl<'a> PartialEvaluator<'a> {
         compute_properties: &'a PackageStoreComputeProperties,
         entry: &'a ProgramEntry,
         capabilities: TargetCapabilityFlags,
+        generate_debug_metadata: bool,
     ) -> Self {
         Self::new_internal(
             package_store,
@@ -194,6 +209,7 @@ impl<'a> PartialEvaluator<'a> {
             capabilities,
             Some(entry),
             None,
+            generate_debug_metadata,
         )
     }
 
@@ -202,6 +218,7 @@ impl<'a> PartialEvaluator<'a> {
         compute_properties: &'a PackageStoreComputeProperties,
         package_id: PackageId,
         capabilities: TargetCapabilityFlags,
+        generate_debug_metadata: bool,
     ) -> Self {
         Self::new_internal(
             package_store,
@@ -209,6 +226,7 @@ impl<'a> PartialEvaluator<'a> {
             capabilities,
             None,
             Some(package_id),
+            generate_debug_metadata,
         )
     }
 
@@ -218,6 +236,7 @@ impl<'a> PartialEvaluator<'a> {
         capabilities: TargetCapabilityFlags,
         entry: Option<&'a ProgramEntry>,
         package_id: Option<PackageId>,
+        generate_debug_metadata: bool,
     ) -> Self {
         // Create the entry-point callable.
         let mut resource_manager = ResourceManager::default();
@@ -240,14 +259,10 @@ impl<'a> PartialEvaluator<'a> {
         let init_func = initialize_decl();
         let init_id = resource_manager.next_callable();
         program.callables.insert(init_id, init_func);
-        program
-            .get_block_mut(entry_block_id)
-            .0
-            .push(Instruction::Call(
-                init_id,
-                vec![Operand::Literal(Literal::Pointer)],
-                None,
-            ));
+        program.get_block_mut(entry_block_id).0.push(Instruction {
+            kind: InstructionKind::Call(init_id, vec![Operand::Literal(Literal::Pointer)], None),
+            metadata: None,
+        });
 
         // Initialize the evaluation context and create a new partial evaluator.
         let context = EvaluationContext::new(
@@ -268,6 +283,8 @@ impl<'a> PartialEvaluator<'a> {
             callables_map: FxHashMap::default(),
             program,
             entry,
+            generate_debug_metadata,
+            dbg_context: Default::default(),
         }
     }
 
@@ -448,14 +465,22 @@ impl<'a> PartialEvaluator<'a> {
         output_ty: &Ty,
         output_span: PackageSpan,
     ) -> Result<Program, Error> {
-        let output_recording: Vec<Instruction> = self
+        let output_recording: Vec<InstructionKind> = self
             .generate_output_recording_instructions(ret_val, output_ty, "")
             .map_err(|()| Error::OutputResultLiteral(output_span))?;
 
         // Insert the return expression and return the generated program.
         let current_block = self.get_current_rir_block_mut();
-        current_block.0.extend(output_recording);
-        current_block.0.push(Instruction::Return);
+        current_block
+            .0
+            .extend(output_recording.into_iter().map(|instr| Instruction {
+                kind: instr,
+                metadata: None,
+            }));
+        current_block.0.push(Instruction {
+            kind: InstructionKind::Return,
+            metadata: None,
+        });
 
         // Set the number of qubits and results used by the program.
         self.program.num_qubits = self
@@ -721,12 +746,16 @@ impl<'a> PartialEvaluator<'a> {
             | (BinOp::Neq, Operand::Literal(Literal::Bool(false)), operand)
             | (BinOp::Neq, operand, Operand::Literal(Literal::Bool(false))) => {
                 // One of the operands is a literal so we just need a store instruction.
-                Instruction::Store(operand, rir_variable)
+                InstructionKind::Store(operand, rir_variable)
             }
             // Both operators are non-literals so we need the comparison instruction.
-            _ => Instruction::Icmp(condition_code, lhs_operand, rhs_operand, rir_variable),
+            _ => InstructionKind::Icmp(condition_code, lhs_operand, rhs_operand, rir_variable),
         };
-        self.get_current_rir_block_mut().0.push(instruction);
+
+        self.get_current_rir_block_mut().0.push(Instruction {
+            kind: instruction,
+            metadata: None,
+        });
 
         // Return the variable as a value.
         let value = Value::Var(map_rir_var_to_eval_var(rir_variable).map_err(|()| {
@@ -791,18 +820,18 @@ impl<'a> PartialEvaluator<'a> {
                 };
                 let bin_op_ins = match bin_op {
                     BinOp::AndL => {
-                        Instruction::LogicalAnd(lhs_operand, rhs_operand, bin_op_rir_variable)
+                        InstructionKind::LogicalAnd(lhs_operand, rhs_operand, bin_op_rir_variable)
                     }
                     BinOp::OrL => {
-                        Instruction::LogicalOr(lhs_operand, rhs_operand, bin_op_rir_variable)
+                        InstructionKind::LogicalOr(lhs_operand, rhs_operand, bin_op_rir_variable)
                     }
-                    BinOp::Eq => Instruction::Icmp(
+                    BinOp::Eq => InstructionKind::Icmp(
                         ConditionCode::Eq,
                         lhs_operand,
                         rhs_operand,
                         bin_op_rir_variable,
                     ),
-                    BinOp::Neq => Instruction::Icmp(
+                    BinOp::Neq => InstructionKind::Icmp(
                         ConditionCode::Ne,
                         lhs_operand,
                         rhs_operand,
@@ -810,7 +839,10 @@ impl<'a> PartialEvaluator<'a> {
                     ),
                     _ => panic!("unsupported binary operation for bools: {bin_op:?}"),
                 };
-                self.get_current_rir_block_mut().0.push(bin_op_ins);
+                self.get_current_rir_block_mut().0.push(Instruction {
+                    kind: bin_op_ins,
+                    metadata: None,
+                });
                 Value::Var(map_rir_var_to_eval_var(bin_op_rir_variable).map_err(|()| {
                     Error::Unexpected(
                         format!("{} type in binop", bin_op_rir_variable.ty),
@@ -880,8 +912,12 @@ impl<'a> PartialEvaluator<'a> {
                     _ => panic!("invalid Boolean comparison operator {bin_op:?}"),
                 };
                 let cmp_inst =
-                    Instruction::Icmp(condition_code, lhs_operand, rhs_operand, rir_variable);
-                self.get_current_rir_block_mut().0.push(cmp_inst);
+                    InstructionKind::Icmp(condition_code, lhs_operand, rhs_operand, rir_variable);
+
+                self.get_current_rir_block_mut().0.push(Instruction {
+                    kind: cmp_inst,
+                    metadata: None,
+                });
                 map_rir_var_to_eval_var(rir_variable).map_err(|()| {
                     Error::Unexpected(
                         format!("{} type in comparison binop", rir_variable.ty),
@@ -907,11 +943,14 @@ impl<'a> PartialEvaluator<'a> {
             variable_id: result_var_id,
             ty: rir::Ty::Boolean,
         };
-        let init_var_ins = Instruction::Store(
+        let init_var_ins = InstructionKind::Store(
             Operand::Literal(Literal::Bool(short_circuit_on_true)),
             result_rir_var,
         );
-        self.get_current_rir_block_mut().0.push(init_var_ins);
+        self.get_current_rir_block_mut().0.push(Instruction {
+            kind: init_var_ins,
+            metadata: None,
+        });
 
         // Pop the current block and insert the continuation block.
         let current_block_node = self.eval_context.pop_block_node();
@@ -941,10 +980,16 @@ impl<'a> PartialEvaluator<'a> {
         let rhs_operand = self.map_eval_value_to_rir_operand(&rhs_value);
 
         // Store the RHS value into the the variable that represents the result of the Boolean operation.
-        let store_ins = Instruction::Store(rhs_operand, result_rir_var);
-        self.get_current_rir_block_mut().0.push(store_ins);
-        let jump_ins = Instruction::Jump(continuation_block_id);
-        self.get_current_rir_block_mut().0.push(jump_ins);
+        let store_ins = InstructionKind::Store(rhs_operand, result_rir_var);
+        self.get_current_rir_block_mut().0.push(Instruction {
+            kind: store_ins,
+            metadata: None,
+        });
+        let jump_ins = InstructionKind::Jump(continuation_block_id);
+        self.get_current_rir_block_mut().0.push(Instruction {
+            kind: jump_ins,
+            metadata: None,
+        });
         let _ = self.eval_context.pop_block_node();
 
         // Now that we have constructed both the conditional and continuation blocks, insert the jump instruction and
@@ -955,7 +1000,11 @@ impl<'a> PartialEvaluator<'a> {
         } else {
             (rhs_eval_block_id, continuation_block_id)
         };
-        let branch_ins = Instruction::Branch(lhs_rir_var, true_block_id, false_block_id);
+
+        let branch_ins = Instruction {
+            kind: InstructionKind::Branch(lhs_rir_var, true_block_id, false_block_id),
+            metadata: self.metadata_from_current_debug_location(),
+        };
         self.get_program_block_mut(current_block_node.id)
             .0
             .push(branch_ins);
@@ -1262,7 +1311,7 @@ impl<'a> PartialEvaluator<'a> {
             }
             ExprKind::Var(res, _) => Ok(EvalControlFlow::Continue(self.eval_expr_var(res))),
             ExprKind::While(condition_expr_id, body_block_id) => {
-                self.eval_expr_while(*condition_expr_id, *body_block_id)
+                self.eval_expr_while(expr_id, *condition_expr_id, *body_block_id)
             }
         }
     }
@@ -1473,6 +1522,7 @@ impl<'a> PartialEvaluator<'a> {
         );
 
         self.check_unresolved_call_capabilities(call_expr_id, callee_expr_id, &call_scope)?;
+        self.assign_current_dbg_location(call_expr_id);
 
         // We generate instructions differently depending on whether we are calling an intrinsic or a specialization
         // with an implementation.
@@ -1772,9 +1822,13 @@ impl<'a> PartialEvaluator<'a> {
             .map(|arg| self.map_eval_value_to_rir_operand(&arg.into_value()))
             .collect();
 
-        let instruction = Instruction::Call(callable_id, args_operands, output_var);
+        let instruction = InstructionKind::Call(callable_id, args_operands, output_var);
+        let metadata = self.metadata_from_current_debug_location();
         let current_block = self.get_current_rir_block_mut();
-        current_block.0.push(instruction);
+        current_block.0.push(Instruction {
+            kind: instruction,
+            metadata,
+        });
         let ret_val = match output_var {
             None => Value::unit(),
             Some(output_var) => {
@@ -1822,6 +1876,9 @@ impl<'a> PartialEvaluator<'a> {
         body_expr_id: ExprId,
         otherwise_expr_id: Option<ExprId>,
     ) -> Result<EvalControlFlow, Error> {
+        self.assign_current_dbg_location(if_expr_id);
+        let if_expr_location_metadata = self.metadata_from_current_debug_location();
+
         // Visit the the condition expression to get its value.
         let condition_control_flow = self.try_eval_expr(condition_expr_id)?;
         if condition_control_flow.is_return() {
@@ -1906,10 +1963,13 @@ impl<'a> PartialEvaluator<'a> {
         let condition_value_var = condition_value.unwrap_var();
         let condition_rir_var = map_eval_var_to_rir_var(condition_value_var);
         let branch_ins =
-            Instruction::Branch(condition_rir_var, if_true_block_id, if_false_block_id);
+            InstructionKind::Branch(condition_rir_var, if_true_block_id, if_false_block_id);
         self.get_program_block_mut(current_block_node.id)
             .0
-            .push(branch_ins);
+            .push(Instruction {
+                kind: branch_ins,
+                metadata: if_expr_location_metadata,
+            });
 
         // Return the value of the if expression.
         let if_expr_value = if let Some(if_expr_var) = maybe_if_expr_var {
@@ -1952,13 +2012,19 @@ impl<'a> PartialEvaluator<'a> {
         // If there is a variable to save the value of the if expression to, add a store instruction.
         if let Some(if_expr_var) = if_expr_var {
             let body_operand = self.map_eval_value_to_rir_operand(&body_control.into_value());
-            let store_ins = Instruction::Store(body_operand, if_expr_var);
-            self.get_current_rir_block_mut().0.push(store_ins);
+            let store_ins = InstructionKind::Store(body_operand, if_expr_var);
+            self.get_current_rir_block_mut().0.push(Instruction {
+                kind: store_ins,
+                metadata: None,
+            });
         }
 
         // Finally, jump to the continuation block and pop the current block node.
-        let jump_ins = Instruction::Jump(continuation_block_id);
-        self.get_current_rir_block_mut().0.push(jump_ins);
+        let jump_ins = InstructionKind::Jump(continuation_block_id);
+        self.get_current_rir_block_mut().0.push(Instruction {
+            kind: jump_ins,
+            metadata: None,
+        });
         let _ = self.eval_context.pop_block_node();
         Ok(block_node_id)
     }
@@ -2154,21 +2220,21 @@ impl<'a> PartialEvaluator<'a> {
             UnOp::Neg => match rir_variable_type {
                 rir::Ty::Integer => {
                     let constant = Operand::Literal(Literal::Integer(-1));
-                    Instruction::Mul(constant, value_operand, rir_variable)
+                    InstructionKind::Mul(constant, value_operand, rir_variable)
                 }
                 rir::Ty::Double => {
                     let constant = Operand::Literal(Literal::Double(-1.0));
-                    Instruction::Fmul(constant, value_operand, rir_variable)
+                    InstructionKind::Fmul(constant, value_operand, rir_variable)
                 }
                 _ => panic!("invalid type for negation operator {rir_variable_type}"),
             },
             UnOp::NotB => {
                 assert!(matches!(rir_variable_type, rir::Ty::Integer));
-                Instruction::BitwiseNot(value_operand, rir_variable)
+                InstructionKind::BitwiseNot(value_operand, rir_variable)
             }
             UnOp::NotL => {
                 assert!(matches!(rir_variable_type, rir::Ty::Boolean));
-                Instruction::LogicalNot(value_operand, rir_variable)
+                InstructionKind::LogicalNot(value_operand, rir_variable)
             }
             UnOp::Functor(_) | UnOp::Unwrap => {
                 return Err(Error::Unexpected(
@@ -2180,7 +2246,10 @@ impl<'a> PartialEvaluator<'a> {
         };
 
         // Insert the instruction and return the corresponding evaluator variable.
-        self.get_current_rir_block_mut().0.push(instruction);
+        self.get_current_rir_block_mut().0.push(Instruction {
+            kind: instruction,
+            metadata: None,
+        });
         let eval_variable = map_rir_var_to_eval_var(rir_variable).map_err(|()| {
             Error::Unexpected(
                 format!("{} type in unop", rir_variable.ty),
@@ -2243,6 +2312,7 @@ impl<'a> PartialEvaluator<'a> {
 
     fn eval_expr_while(
         &mut self,
+        loop_expr_id: ExprId,
         condition_expr_id: ExprId,
         body_block_id: BlockId,
     ) -> Result<EvalControlFlow, Error> {
@@ -2270,10 +2340,18 @@ impl<'a> PartialEvaluator<'a> {
             ));
         }
         let mut condition_boolean = condition_control_flow.into_value().unwrap_bool();
+
+        let dbg_location_id = self.assign_current_dbg_location(loop_expr_id);
+        if let Some(dbg_location_id) = dbg_location_id {
+            self.dbg_push_loop_iteration_scope(loop_expr_id, dbg_location_id);
+        }
+
         while condition_boolean {
+            self.dbg_increment_loop_iteration_count();
             // Evaluate the loop block.
             let block_control_flow = self.try_eval_block(body_block_id)?;
             if block_control_flow.is_return() {
+                self.dbg_pop_loop_iteration_scope();
                 return Ok(block_control_flow);
             }
 
@@ -2287,6 +2365,7 @@ impl<'a> PartialEvaluator<'a> {
             }
             condition_boolean = condition_control_flow.into_value().unwrap_bool();
         }
+        self.dbg_pop_loop_iteration_scope();
 
         // We have evaluated the loop so just return unit as the value of this loop expression.
         Ok(EvalControlFlow::Continue(Value::unit()))
@@ -2307,13 +2386,17 @@ impl<'a> PartialEvaluator<'a> {
                     variable_id,
                     ty: variable_ty,
                 };
-                let instruction = Instruction::Call(
+                let instruction = InstructionKind::Call(
                     read_result_callable_id,
                     vec![result_operand],
                     Some(variable),
                 );
+                let metadata = self.metadata_from_current_debug_location();
                 let current_block = self.get_current_rir_block_mut();
-                current_block.0.push(instruction);
+                current_block.0.push(Instruction {
+                    kind: instruction,
+                    metadata,
+                });
                 Operand::Variable(variable)
             }
             val::Result::Val(bool) => Operand::Literal(Literal::Bool(bool)),
@@ -2341,9 +2424,9 @@ impl<'a> PartialEvaluator<'a> {
         };
 
         let bin_op_rir_ins = match bin_op {
-            BinOp::Add => Instruction::Fadd(lhs_operand, rhs_operand, bin_op_rir_variable),
-            BinOp::Sub => Instruction::Fsub(lhs_operand, rhs_operand, bin_op_rir_variable),
-            BinOp::Mul => Instruction::Fmul(lhs_operand, rhs_operand, bin_op_rir_variable),
+            BinOp::Add => InstructionKind::Fadd(lhs_operand, rhs_operand, bin_op_rir_variable),
+            BinOp::Sub => InstructionKind::Fsub(lhs_operand, rhs_operand, bin_op_rir_variable),
+            BinOp::Mul => InstructionKind::Fmul(lhs_operand, rhs_operand, bin_op_rir_variable),
             BinOp::Div => {
                 // Validate that the RHS is not a zero.
                 if let Operand::Literal(Literal::Double(0.0)) = rhs_operand {
@@ -2351,39 +2434,39 @@ impl<'a> PartialEvaluator<'a> {
                     return Err(error);
                 }
 
-                Instruction::Fdiv(lhs_operand, rhs_operand, bin_op_rir_variable)
+                InstructionKind::Fdiv(lhs_operand, rhs_operand, bin_op_rir_variable)
             }
-            BinOp::Eq => Instruction::Fcmp(
+            BinOp::Eq => InstructionKind::Fcmp(
                 FcmpConditionCode::OrderedAndEqual,
                 lhs_operand,
                 rhs_operand,
                 bin_op_rir_variable,
             ),
-            BinOp::Neq => Instruction::Fcmp(
+            BinOp::Neq => InstructionKind::Fcmp(
                 FcmpConditionCode::OrderedAndNotEqual,
                 lhs_operand,
                 rhs_operand,
                 bin_op_rir_variable,
             ),
-            BinOp::Gt => Instruction::Fcmp(
+            BinOp::Gt => InstructionKind::Fcmp(
                 FcmpConditionCode::OrderedAndGreaterThan,
                 lhs_operand,
                 rhs_operand,
                 bin_op_rir_variable,
             ),
-            BinOp::Gte => Instruction::Fcmp(
+            BinOp::Gte => InstructionKind::Fcmp(
                 FcmpConditionCode::OrderedAndGreaterThanOrEqual,
                 lhs_operand,
                 rhs_operand,
                 bin_op_rir_variable,
             ),
-            BinOp::Lt => Instruction::Fcmp(
+            BinOp::Lt => InstructionKind::Fcmp(
                 FcmpConditionCode::OrderedAndLessThan,
                 lhs_operand,
                 rhs_operand,
                 bin_op_rir_variable,
             ),
-            BinOp::Lte => Instruction::Fcmp(
+            BinOp::Lte => InstructionKind::Fcmp(
                 FcmpConditionCode::OrderedAndLessThanOrEqual,
                 lhs_operand,
                 rhs_operand,
@@ -2391,7 +2474,11 @@ impl<'a> PartialEvaluator<'a> {
             ),
             _ => panic!("unsupported binary operation for double: {bin_op:?}"),
         };
-        self.get_current_rir_block_mut().0.push(bin_op_rir_ins);
+        let metadata = self.metadata_from_current_debug_location();
+        self.get_current_rir_block_mut().0.push(Instruction {
+            kind: bin_op_rir_ins,
+            metadata,
+        });
         Ok(bin_op_rir_variable)
     }
 
@@ -2403,29 +2490,39 @@ impl<'a> PartialEvaluator<'a> {
         rhs_operand: Operand,
         bin_op_expr_span: PackageSpan, // For diagnostic purposes only.
     ) -> Result<rir::Variable, Error> {
+        let metadata = self.metadata_from_current_debug_location();
         let rir_variable = match bin_op {
             BinOp::Add => {
                 let bin_op_variable_id = self.resource_manager.next_var();
                 let bin_op_rir_variable = rir::Variable::new_integer(bin_op_variable_id);
                 let bin_op_rir_ins =
-                    Instruction::Add(lhs_operand, rhs_operand, bin_op_rir_variable);
-                self.get_current_rir_block_mut().0.push(bin_op_rir_ins);
+                    InstructionKind::Add(lhs_operand, rhs_operand, bin_op_rir_variable);
+                self.get_current_rir_block_mut().0.push(Instruction {
+                    kind: bin_op_rir_ins,
+                    metadata: metadata.clone(),
+                });
                 bin_op_rir_variable
             }
             BinOp::Sub => {
                 let bin_op_variable_id = self.resource_manager.next_var();
                 let bin_op_rir_variable = rir::Variable::new_integer(bin_op_variable_id);
                 let bin_op_rir_ins =
-                    Instruction::Sub(lhs_operand, rhs_operand, bin_op_rir_variable);
-                self.get_current_rir_block_mut().0.push(bin_op_rir_ins);
+                    InstructionKind::Sub(lhs_operand, rhs_operand, bin_op_rir_variable);
+                self.get_current_rir_block_mut().0.push(Instruction {
+                    kind: bin_op_rir_ins,
+                    metadata: metadata.clone(),
+                });
                 bin_op_rir_variable
             }
             BinOp::Mul => {
                 let bin_op_variable_id = self.resource_manager.next_var();
                 let bin_op_rir_variable = rir::Variable::new_integer(bin_op_variable_id);
                 let bin_op_rir_ins =
-                    Instruction::Mul(lhs_operand, rhs_operand, bin_op_rir_variable);
-                self.get_current_rir_block_mut().0.push(bin_op_rir_ins);
+                    InstructionKind::Mul(lhs_operand, rhs_operand, bin_op_rir_variable);
+                self.get_current_rir_block_mut().0.push(Instruction {
+                    kind: bin_op_rir_ins,
+                    metadata: metadata.clone(),
+                });
                 bin_op_rir_variable
             }
             BinOp::Div => {
@@ -2437,16 +2534,22 @@ impl<'a> PartialEvaluator<'a> {
                 let bin_op_variable_id = self.resource_manager.next_var();
                 let bin_op_rir_variable = rir::Variable::new_integer(bin_op_variable_id);
                 let bin_op_rir_ins =
-                    Instruction::Sdiv(lhs_operand, rhs_operand, bin_op_rir_variable);
-                self.get_current_rir_block_mut().0.push(bin_op_rir_ins);
+                    InstructionKind::Sdiv(lhs_operand, rhs_operand, bin_op_rir_variable);
+                self.get_current_rir_block_mut().0.push(Instruction {
+                    kind: bin_op_rir_ins,
+                    metadata: metadata.clone(),
+                });
                 bin_op_rir_variable
             }
             BinOp::Mod => {
                 let bin_op_variable_id = self.resource_manager.next_var();
                 let bin_op_rir_variable = rir::Variable::new_integer(bin_op_variable_id);
                 let bin_op_rir_ins =
-                    Instruction::Srem(lhs_operand, rhs_operand, bin_op_rir_variable);
-                self.get_current_rir_block_mut().0.push(bin_op_rir_ins);
+                    InstructionKind::Srem(lhs_operand, rhs_operand, bin_op_rir_variable);
+                self.get_current_rir_block_mut().0.push(Instruction {
+                    kind: bin_op_rir_ins,
+                    metadata: metadata.clone(),
+                });
                 bin_op_rir_variable
             }
             BinOp::Exp => {
@@ -2466,18 +2569,26 @@ impl<'a> PartialEvaluator<'a> {
                 // Generate a series of multiplication instructions that represent the exponentiation.
                 let mut current_rir_variable =
                     rir::Variable::new_integer(self.resource_manager.next_var());
-                let init_ins =
-                    Instruction::Store(Operand::Literal(Literal::Integer(1)), current_rir_variable);
-                self.get_current_rir_block_mut().0.push(init_ins);
+                let init_ins = InstructionKind::Store(
+                    Operand::Literal(Literal::Integer(1)),
+                    current_rir_variable,
+                );
+                self.get_current_rir_block_mut().0.push(Instruction {
+                    kind: init_ins,
+                    metadata: metadata.clone(),
+                });
                 for _ in 0..exponent {
                     let mult_variable =
                         rir::Variable::new_integer(self.resource_manager.next_var());
-                    let mult_ins = Instruction::Mul(
+                    let mult_ins = InstructionKind::Mul(
                         Operand::Variable(current_rir_variable),
                         lhs_operand,
                         mult_variable,
                     );
-                    self.get_current_rir_block_mut().0.push(mult_ins);
+                    self.get_current_rir_block_mut().0.push(Instruction {
+                        kind: mult_ins,
+                        metadata: metadata.clone(),
+                    });
                     current_rir_variable = mult_variable;
                 }
                 current_rir_variable
@@ -2486,112 +2597,145 @@ impl<'a> PartialEvaluator<'a> {
                 let bin_op_variable_id = self.resource_manager.next_var();
                 let bin_op_rir_variable = rir::Variable::new_integer(bin_op_variable_id);
                 let bin_op_rir_ins =
-                    Instruction::BitwiseAnd(lhs_operand, rhs_operand, bin_op_rir_variable);
-                self.get_current_rir_block_mut().0.push(bin_op_rir_ins);
+                    InstructionKind::BitwiseAnd(lhs_operand, rhs_operand, bin_op_rir_variable);
+                self.get_current_rir_block_mut().0.push(Instruction {
+                    kind: bin_op_rir_ins,
+                    metadata,
+                });
                 bin_op_rir_variable
             }
             BinOp::OrB => {
                 let bin_op_variable_id = self.resource_manager.next_var();
                 let bin_op_rir_variable = rir::Variable::new_integer(bin_op_variable_id);
                 let bin_op_rir_ins =
-                    Instruction::BitwiseOr(lhs_operand, rhs_operand, bin_op_rir_variable);
-                self.get_current_rir_block_mut().0.push(bin_op_rir_ins);
+                    InstructionKind::BitwiseOr(lhs_operand, rhs_operand, bin_op_rir_variable);
+                self.get_current_rir_block_mut().0.push(Instruction {
+                    kind: bin_op_rir_ins,
+                    metadata,
+                });
                 bin_op_rir_variable
             }
             BinOp::XorB => {
                 let bin_op_variable_id = self.resource_manager.next_var();
                 let bin_op_rir_variable = rir::Variable::new_integer(bin_op_variable_id);
                 let bin_op_rir_ins =
-                    Instruction::BitwiseXor(lhs_operand, rhs_operand, bin_op_rir_variable);
-                self.get_current_rir_block_mut().0.push(bin_op_rir_ins);
+                    InstructionKind::BitwiseXor(lhs_operand, rhs_operand, bin_op_rir_variable);
+                self.get_current_rir_block_mut().0.push(Instruction {
+                    kind: bin_op_rir_ins,
+                    metadata,
+                });
                 bin_op_rir_variable
             }
             BinOp::Shl => {
                 let bin_op_variable_id = self.resource_manager.next_var();
                 let bin_op_rir_variable = rir::Variable::new_integer(bin_op_variable_id);
                 let bin_op_rir_ins =
-                    Instruction::Shl(lhs_operand, rhs_operand, bin_op_rir_variable);
-                self.get_current_rir_block_mut().0.push(bin_op_rir_ins);
+                    InstructionKind::Shl(lhs_operand, rhs_operand, bin_op_rir_variable);
+                self.get_current_rir_block_mut().0.push(Instruction {
+                    kind: bin_op_rir_ins,
+                    metadata,
+                });
                 bin_op_rir_variable
             }
             BinOp::Shr => {
                 let bin_op_variable_id = self.resource_manager.next_var();
                 let bin_op_rir_variable = rir::Variable::new_integer(bin_op_variable_id);
                 let bin_op_rir_ins =
-                    Instruction::Ashr(lhs_operand, rhs_operand, bin_op_rir_variable);
-                self.get_current_rir_block_mut().0.push(bin_op_rir_ins);
+                    InstructionKind::Ashr(lhs_operand, rhs_operand, bin_op_rir_variable);
+                self.get_current_rir_block_mut().0.push(Instruction {
+                    kind: bin_op_rir_ins,
+                    metadata,
+                });
                 bin_op_rir_variable
             }
             BinOp::Eq => {
                 let bin_op_variable_id = self.resource_manager.next_var();
                 let bin_op_rir_variable = rir::Variable::new_boolean(bin_op_variable_id);
-                let bin_op_rir_ins = Instruction::Icmp(
+                let bin_op_rir_ins = InstructionKind::Icmp(
                     ConditionCode::Eq,
                     lhs_operand,
                     rhs_operand,
                     bin_op_rir_variable,
                 );
-                self.get_current_rir_block_mut().0.push(bin_op_rir_ins);
+                self.get_current_rir_block_mut().0.push(Instruction {
+                    kind: bin_op_rir_ins,
+                    metadata,
+                });
                 bin_op_rir_variable
             }
             BinOp::Neq => {
                 let bin_op_variable_id = self.resource_manager.next_var();
                 let bin_op_rir_variable = rir::Variable::new_boolean(bin_op_variable_id);
-                let bin_op_rir_ins = Instruction::Icmp(
+                let bin_op_rir_ins = InstructionKind::Icmp(
                     ConditionCode::Ne,
                     lhs_operand,
                     rhs_operand,
                     bin_op_rir_variable,
                 );
-                self.get_current_rir_block_mut().0.push(bin_op_rir_ins);
+                self.get_current_rir_block_mut().0.push(Instruction {
+                    kind: bin_op_rir_ins,
+                    metadata,
+                });
                 bin_op_rir_variable
             }
             BinOp::Gt => {
                 let bin_op_variable_id = self.resource_manager.next_var();
                 let bin_op_rir_variable = rir::Variable::new_boolean(bin_op_variable_id);
-                let bin_op_rir_ins = Instruction::Icmp(
+                let bin_op_rir_ins = InstructionKind::Icmp(
                     ConditionCode::Sgt,
                     lhs_operand,
                     rhs_operand,
                     bin_op_rir_variable,
                 );
-                self.get_current_rir_block_mut().0.push(bin_op_rir_ins);
+                self.get_current_rir_block_mut().0.push(Instruction {
+                    kind: bin_op_rir_ins,
+                    metadata,
+                });
                 bin_op_rir_variable
             }
             BinOp::Gte => {
                 let bin_op_variable_id = self.resource_manager.next_var();
                 let bin_op_rir_variable = rir::Variable::new_boolean(bin_op_variable_id);
-                let bin_op_rir_ins = Instruction::Icmp(
+                let bin_op_rir_ins = InstructionKind::Icmp(
                     ConditionCode::Sge,
                     lhs_operand,
                     rhs_operand,
                     bin_op_rir_variable,
                 );
-                self.get_current_rir_block_mut().0.push(bin_op_rir_ins);
+                self.get_current_rir_block_mut().0.push(Instruction {
+                    kind: bin_op_rir_ins,
+                    metadata,
+                });
                 bin_op_rir_variable
             }
             BinOp::Lt => {
                 let bin_op_variable_id = self.resource_manager.next_var();
                 let bin_op_rir_variable = rir::Variable::new_boolean(bin_op_variable_id);
-                let bin_op_rir_ins = Instruction::Icmp(
+                let bin_op_rir_ins = InstructionKind::Icmp(
                     ConditionCode::Slt,
                     lhs_operand,
                     rhs_operand,
                     bin_op_rir_variable,
                 );
-                self.get_current_rir_block_mut().0.push(bin_op_rir_ins);
+                self.get_current_rir_block_mut().0.push(Instruction {
+                    kind: bin_op_rir_ins,
+                    metadata,
+                });
                 bin_op_rir_variable
             }
             BinOp::Lte => {
                 let bin_op_variable_id = self.resource_manager.next_var();
                 let bin_op_rir_variable = rir::Variable::new_boolean(bin_op_variable_id);
-                let bin_op_rir_ins = Instruction::Icmp(
+                let bin_op_rir_ins = InstructionKind::Icmp(
                     ConditionCode::Sle,
                     lhs_operand,
                     rhs_operand,
                     bin_op_rir_variable,
                 );
-                self.get_current_rir_block_mut().0.push(bin_op_rir_ins);
+                self.get_current_rir_block_mut().0.push(Instruction {
+                    kind: bin_op_rir_ins,
+                    metadata,
+                });
                 bin_op_rir_variable
             }
             _ => panic!("unsupported binary operation for integers: {bin_op:?}"),
@@ -2739,8 +2883,11 @@ impl<'a> PartialEvaluator<'a> {
         // Insert a store instruction.
         let value_operand = self.map_eval_value_to_rir_operand(value);
         let rir_var = map_eval_var_to_rir_var(eval_var);
-        let store_ins = Instruction::Store(value_operand, rir_var);
-        self.get_current_rir_block_mut().0.push(store_ins);
+        let store_ins = InstructionKind::Store(value_operand, rir_var);
+        self.get_current_rir_block_mut().0.push(Instruction {
+            kind: store_ins,
+            metadata: None,
+        });
 
         // Create a mutable variable, mapping it to the static value if any.
         let static_value = match value_operand {
@@ -2848,9 +2995,14 @@ impl<'a> PartialEvaluator<'a> {
 
         // Check if the callable has already been added to the program and if not do so now.
         let measure_callable_id = self.get_or_insert_callable(measurement_callable);
-        let instruction = Instruction::Call(measure_callable_id, operands, None);
+        let instruction = InstructionKind::Call(measure_callable_id, operands, None);
+
+        let metadata = self.metadata_from_current_debug_location();
         let current_block = self.get_current_rir_block_mut();
-        current_block.0.push(instruction);
+        current_block.0.push(Instruction {
+            kind: instruction,
+            metadata,
+        });
 
         match results_values.len() {
             0 => panic!("unexpected unitary measurement"),
@@ -2870,9 +3022,14 @@ impl<'a> PartialEvaluator<'a> {
         // Check if the callable has already been added to the program and if not do so now.
         let measure_callable_id = self.get_or_insert_callable(measure_callable);
         let args = vec![qubit_operand, result_operand];
-        let instruction = Instruction::Call(measure_callable_id, args, None);
+        let instruction = InstructionKind::Call(measure_callable_id, args, None);
+
+        let metadata = self.metadata_from_current_debug_location();
         let current_block = self.get_current_rir_block_mut();
-        current_block.0.push(instruction);
+        current_block.0.push(Instruction {
+            kind: instruction,
+            metadata,
+        });
 
         // Return the result value.
         result_value
@@ -3117,8 +3274,12 @@ impl<'a> PartialEvaluator<'a> {
             // Insert a store instruction when the value of a variable is updated.
             let rhs_operand = self.map_eval_value_to_rir_operand(&value);
             let rir_var = map_eval_var_to_rir_var(*var);
-            let store_ins = Instruction::Store(rhs_operand, rir_var);
-            self.get_current_rir_block_mut().0.push(store_ins);
+            let store_ins = InstructionKind::Store(rhs_operand, rir_var);
+
+            self.get_current_rir_block_mut().0.push(Instruction {
+                kind: store_ins,
+                metadata: None,
+            });
 
             // If this is a mutable variable, make sure to update whether it is static or dynamic.
             let current_scope = self.eval_context.get_current_scope_mut();
@@ -3187,7 +3348,7 @@ impl<'a> PartialEvaluator<'a> {
         ret_val: Value,
         ty: &Ty,
         tag_root: &str,
-    ) -> Result<Vec<Instruction>, ()> {
+    ) -> Result<Vec<InstructionKind>, ()> {
         let mut instrs = Vec::new();
 
         match ret_val {
@@ -3213,13 +3374,13 @@ impl<'a> PartialEvaluator<'a> {
         Ok(instrs)
     }
 
-    fn record_int(&mut self, instrs: &mut Vec<Instruction>, val: i64, tag_root: &str) {
+    fn record_int(&mut self, instrs: &mut Vec<InstructionKind>, val: i64, tag_root: &str) {
         let idx = self.program.tags.len();
         let tag = format!("{idx}_{tag_root}i");
         let len = tag.len();
         self.program.tags.push(tag);
         let int_record_callable_id = self.get_int_record_callable();
-        instrs.push(Instruction::Call(
+        instrs.push(InstructionKind::Call(
             int_record_callable_id,
             vec![
                 Operand::Literal(Literal::Integer(val)),
@@ -3229,13 +3390,13 @@ impl<'a> PartialEvaluator<'a> {
         ));
     }
 
-    fn record_double(&mut self, instrs: &mut Vec<Instruction>, val: f64, tag_root: &str) {
+    fn record_double(&mut self, instrs: &mut Vec<InstructionKind>, val: f64, tag_root: &str) {
         let idx = self.program.tags.len();
         let tag = format!("{idx}_{tag_root}d");
         let len = tag.len();
         self.program.tags.push(tag);
         let double_record_callable_id = self.get_double_record_callable();
-        instrs.push(Instruction::Call(
+        instrs.push(InstructionKind::Call(
             double_record_callable_id,
             vec![
                 Operand::Literal(Literal::Double(val)),
@@ -3245,13 +3406,13 @@ impl<'a> PartialEvaluator<'a> {
         ));
     }
 
-    fn record_bool(&mut self, instrs: &mut Vec<Instruction>, val: bool, tag_root: &str) {
+    fn record_bool(&mut self, instrs: &mut Vec<InstructionKind>, val: bool, tag_root: &str) {
         let idx = self.program.tags.len();
         let tag = format!("{idx}_{tag_root}b");
         let len = tag.len();
         self.program.tags.push(tag);
         let bool_record_callable_id = self.get_bool_record_callable();
-        instrs.push(Instruction::Call(
+        instrs.push(InstructionKind::Call(
             bool_record_callable_id,
             vec![
                 Operand::Literal(Literal::Bool(val)),
@@ -3264,7 +3425,7 @@ impl<'a> PartialEvaluator<'a> {
     fn record_variable(
         &mut self,
         ty: &Ty,
-        instrs: &mut Vec<Instruction>,
+        instrs: &mut Vec<InstructionKind>,
         var: Var,
         tag_root: &str,
     ) {
@@ -3278,7 +3439,7 @@ impl<'a> PartialEvaluator<'a> {
         let tag = format!("{idx}_{tag_root}{tag_ty}");
         let len = tag.len();
         self.program.tags.push(tag);
-        instrs.push(Instruction::Call(
+        instrs.push(InstructionKind::Call(
             record_callable_id,
             vec![
                 Operand::Variable(map_eval_var_to_rir_var(var)),
@@ -3288,13 +3449,18 @@ impl<'a> PartialEvaluator<'a> {
         ));
     }
 
-    fn record_result(&mut self, instrs: &mut Vec<Instruction>, res: val::Result, tag_root: &str) {
+    fn record_result(
+        &mut self,
+        instrs: &mut Vec<InstructionKind>,
+        res: val::Result,
+        tag_root: &str,
+    ) {
         let idx = self.program.tags.len();
         let result_record_callable_id = self.get_result_record_callable();
         let tag = format!("{idx}_{tag_root}r");
         let len = tag.len();
         self.program.tags.push(tag);
-        instrs.push(Instruction::Call(
+        instrs.push(InstructionKind::Call(
             result_record_callable_id,
             vec![
                 Operand::Literal(Literal::Result(
@@ -3311,7 +3477,7 @@ impl<'a> PartialEvaluator<'a> {
     fn record_tuple(
         &mut self,
         ty: &Ty,
-        instrs: &mut Vec<Instruction>,
+        instrs: &mut Vec<InstructionKind>,
         vals: &Rc<[Value]>,
         tag_root: &str,
     ) -> Result<(), ()> {
@@ -3320,7 +3486,7 @@ impl<'a> PartialEvaluator<'a> {
         };
         let new_tag_root = format!("{tag_root}t");
         let tuple_record_callable_id = self.get_tuple_record_callable();
-        instrs.push(Instruction::Call(
+        instrs.push(InstructionKind::Call(
             tuple_record_callable_id,
             vec![
                 Operand::Literal(Literal::Integer(
@@ -3347,7 +3513,7 @@ impl<'a> PartialEvaluator<'a> {
     fn record_array(
         &mut self,
         ty: &Ty,
-        instrs: &mut Vec<Instruction>,
+        instrs: &mut Vec<InstructionKind>,
         vals: &Rc<Vec<Value>>,
         tag_root: &str,
     ) -> Result<(), ()> {
@@ -3360,7 +3526,7 @@ impl<'a> PartialEvaluator<'a> {
         // let len = tag.len();
         // self.program.tags.push(tag);
         let array_record_callable_id = self.get_array_record_callable();
-        instrs.push(Instruction::Call(
+        instrs.push(InstructionKind::Call(
             array_record_callable_id,
             vec![
                 Operand::Literal(Literal::Integer(
@@ -3513,6 +3679,212 @@ impl<'a> PartialEvaluator<'a> {
             .get_current_scope_mut()
             .keep_matching_static_var_mappings(other_mappings);
     }
+
+    fn assign_current_dbg_location(&mut self, expr_id: ExprId) -> Option<DbgLocationId> {
+        if !self.generate_debug_metadata {
+            return None;
+        }
+
+        let scope_id = self.assign_current_dbg_scope();
+
+        if let Some(current_scope_id) = scope_id {
+            let expr_location = self.expr_start_source_location(expr_id);
+            let inlined_at = self.caller_dbg_location_id();
+            let new_location = DbgLocation {
+                location: expr_location,
+                scope: current_scope_id,
+                inlined_at,
+            };
+            let dbg_location_id = self.program.dbg_info.add_location(new_location);
+
+            self.eval_context
+                .get_current_scope_mut()
+                .dbg_context
+                .current_location_id = Some(dbg_location_id);
+            return Some(dbg_location_id);
+        }
+        None
+    }
+
+    fn assign_current_dbg_scope(&mut self) -> Option<DbgScopeId> {
+        if !self.generate_debug_metadata {
+            return None;
+        }
+
+        let scope = self.eval_context.get_current_scope();
+
+        if let Some(LoopScope {
+            loop_expr,
+            iteration_count,
+            ..
+        }) = scope.dbg_context.loop_iterations.last()
+        {
+            // We're in a loop scope
+            let s = self
+                .dbg_context
+                .dbg_loop_expr_to_scope
+                .get(&(*loop_expr, *iteration_count))
+                .copied();
+            if let Some(s) = s {
+                Some(s)
+            } else {
+                let loop_expr_location = self.expr_start_source_location(*loop_expr);
+                let scope = DbgMetadataScope::LexicalBlockFile {
+                    discriminator: *iteration_count,
+                    location: loop_expr_location,
+                };
+
+                let i = self.program.dbg_info.add_scope(scope);
+                self.dbg_context
+                    .dbg_loop_expr_to_scope
+                    .insert((*loop_expr, *iteration_count), i);
+                Some(i)
+            }
+        } else {
+            let (callable_id, functor_app) = scope.callable?;
+            // We're in a callable scope, and not in a loop scope
+            let item_id = StoreItemId {
+                package: scope.package_id,
+                item: callable_id,
+            };
+            let s = self
+                .dbg_context
+                .dbg_callable_to_scope
+                .get(&(item_id, functor_app.adjoint))
+                .copied();
+
+            if let Some(s) = s {
+                Some(s)
+            } else {
+                let (name, callable_decl_span) = match &self.package_store.get_item(item_id).kind {
+                    fir::ItemKind::Callable(callable_decl) => {
+                        let name = if functor_app.adjoint {
+                            format!("{}'", callable_decl.name.name).into()
+                        } else {
+                            callable_decl.name.name.clone()
+                        };
+                        (name, callable_decl.span)
+                    }
+                    _ => panic!("expected callable"),
+                };
+                let current_package_id = self.get_current_package_id();
+                let package_id = current_package_id.into();
+                let scope = DbgMetadataScope::SubProgram {
+                    name,
+                    location: DbgPackageOffset {
+                        package_id,
+                        offset: callable_decl_span.lo,
+                    },
+                };
+                let i = self.program.dbg_info.add_scope(scope);
+                self.dbg_context
+                    .dbg_callable_to_scope
+                    .insert((item_id, functor_app.adjoint), i);
+                Some(i)
+            }
+        }
+    }
+
+    fn metadata_from_current_debug_location(&mut self) -> Option<Box<InstructionDbgMetadata>> {
+        if self.generate_debug_metadata {
+            self.eval_context
+                .get_current_scope()
+                .dbg_context
+                .current_location_id
+                .map(|dbg_location| Box::new(InstructionDbgMetadata { dbg_location }))
+        } else {
+            None
+        }
+    }
+
+    fn caller_dbg_location_id(&mut self) -> Option<DbgLocationId> {
+        if let Some(LoopScope {
+            location_id: loop_location_id,
+            ..
+        }) = self
+            .eval_context
+            .get_current_scope()
+            .dbg_context
+            .loop_iterations
+            .last()
+        {
+            Some(*loop_location_id)
+        } else if let Some(scope) = self.eval_context.get_caller_scope() {
+            scope.dbg_context.current_location_id
+        } else {
+            None
+        }
+    }
+
+    fn expr_start_source_location(&self, expr_id: ExprId) -> DbgPackageOffset {
+        let package_id = self.get_current_package_id();
+        let package = self.package_store.get(package_id);
+        DbgPackageOffset {
+            package_id: package_id.into(),
+            offset: package
+                .exprs
+                .get(expr_id)
+                .expect("current expr id not found")
+                .span
+                .lo,
+        }
+    }
+
+    fn dbg_push_loop_iteration_scope(&mut self, expr_id: ExprId, dbg_location_id: DbgLocationId) {
+        self.eval_context
+            .get_current_scope_mut()
+            .dbg_context
+            .loop_iterations
+            .push(LoopScope {
+                loop_expr: expr_id,
+                iteration_count: 0,
+                location_id: dbg_location_id,
+            });
+    }
+
+    fn dbg_pop_loop_iteration_scope(&mut self) {
+        if self.generate_debug_metadata {
+            self.eval_context
+                .get_current_scope_mut()
+                .dbg_context
+                .loop_iterations
+                .pop();
+        }
+    }
+
+    fn dbg_increment_loop_iteration_count(&mut self) {
+        if self.generate_debug_metadata {
+            self.eval_context
+                .get_current_scope_mut()
+                .dbg_context
+                .loop_iterations
+                .last_mut()
+                .expect("there should be a loop iteration in the stack")
+                .iteration_count += 1;
+        }
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct DbgContext {
+    /// (`CallableId`, isAdjoint) -> Scope index
+    pub(crate) dbg_callable_to_scope: FxHashMap<(StoreItemId, bool), DbgScopeId>,
+    /// (Loop `ExprId`, iteration) -> Scope index
+    pub(crate) dbg_loop_expr_to_scope: FxHashMap<(ExprId, usize), DbgScopeId>,
+}
+
+#[derive(Default)]
+struct ScopeDbgContext {
+    /// The current distinct debug location.
+    pub(crate) current_location_id: Option<DbgLocationId>,
+    pub(crate) loop_iterations: Vec<LoopScope>,
+}
+
+#[derive(Clone, Copy)]
+struct LoopScope {
+    loop_expr: ExprId,
+    iteration_count: usize,
+    location_id: DbgLocationId,
 }
 
 fn eval_un_op_with_literals(un_op: UnOp, value: Value) -> Value {

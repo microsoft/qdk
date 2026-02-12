@@ -6,7 +6,7 @@ use std::collections::VecDeque;
 use rustc_hash::FxHashMap;
 
 use crate::{
-    rir::{BlockId, Instruction, Program},
+    rir::{BlockId, Instruction, InstructionKind, Program},
     utils::{get_all_block_successors, get_block_successors},
 };
 
@@ -98,7 +98,7 @@ fn check_acyclic(program: &Program) -> bool {
 
 fn update_phi_nodes(block_id_map: &FxHashMap<BlockId, usize>, instrs: &mut [Instruction]) {
     for instr in instrs.iter_mut() {
-        if let Instruction::Phi(args, _) = instr {
+        if let InstructionKind::Phi(args, _) = &mut instr.kind {
             for arg in args.iter_mut() {
                 arg.1 = (*block_id_map
                     .get(&arg.1)
@@ -113,11 +113,11 @@ fn update_phi_nodes(block_id_map: &FxHashMap<BlockId, usize>, instrs: &mut [Inst
 }
 
 fn update_terminator(block_id_map: &FxHashMap<BlockId, usize>, instruction: &mut Instruction) {
-    match instruction {
-        Instruction::Jump(target) => {
+    match &mut instruction.kind {
+        InstructionKind::Jump(target) => {
             *target = block_id_map[target].into();
         }
-        Instruction::Branch(_, target1, target2) => {
+        InstructionKind::Branch(_, target1, target2) => {
             *target1 = block_id_map[target1].into();
             *target2 = block_id_map[target2].into();
         }

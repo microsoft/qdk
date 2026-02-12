@@ -10,8 +10,8 @@ use crate::{
     builder::{bell_program, new_program, teleport_program},
     passes::check_and_transform,
     rir::{
-        Block, BlockId, Callable, CallableId, CallableType, Instruction, Literal, Operand, Program,
-        Ty, Variable, VariableId,
+        Block, BlockId, Callable, CallableId, CallableType, InstructionKind, Literal, Operand,
+        Program, Ty, Variable, VariableId,
     },
 };
 fn transform_program(program: &mut Program) {
@@ -55,8 +55,8 @@ fn ssa_transform_removes_store_in_single_block_program() {
 
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
-            Instruction::Call(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Call(
                 CallableId(1),
                 Vec::new(),
                 Some(Variable {
@@ -64,7 +64,7 @@ fn ssa_transform_removes_store_in_single_block_program() {
                     ty: Ty::Boolean,
                 }),
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
@@ -74,7 +74,7 @@ fn ssa_transform_removes_store_in_single_block_program() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::LogicalNot(
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -84,7 +84,7 @@ fn ssa_transform_removes_store_in_single_block_program() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Return,
+            InstructionKind::Return,
         ]),
     );
 
@@ -167,8 +167,8 @@ fn ssa_transform_removes_multiple_stores_in_single_block_program() {
 
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
-            Instruction::Call(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Call(
                 CallableId(1),
                 Vec::new(),
                 Some(Variable {
@@ -176,7 +176,7 @@ fn ssa_transform_removes_multiple_stores_in_single_block_program() {
                     ty: Ty::Boolean,
                 }),
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
@@ -186,7 +186,7 @@ fn ssa_transform_removes_multiple_stores_in_single_block_program() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::LogicalNot(
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -196,7 +196,7 @@ fn ssa_transform_removes_multiple_stores_in_single_block_program() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(2),
                     ty: Ty::Boolean,
@@ -206,7 +206,7 @@ fn ssa_transform_removes_multiple_stores_in_single_block_program() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::LogicalNot(
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -216,7 +216,7 @@ fn ssa_transform_removes_multiple_stores_in_single_block_program() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(3),
                     ty: Ty::Boolean,
@@ -226,7 +226,7 @@ fn ssa_transform_removes_multiple_stores_in_single_block_program() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::LogicalNot(
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -236,7 +236,7 @@ fn ssa_transform_removes_multiple_stores_in_single_block_program() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Return,
+            InstructionKind::Return,
         ]),
     );
 
@@ -325,8 +325,8 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks() {
 
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
-            Instruction::Call(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Call(
                 CallableId(1),
                 Vec::new(),
                 Some(Variable {
@@ -334,7 +334,7 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks() {
                     ty: Ty::Boolean,
                 }),
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
@@ -344,7 +344,7 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Branch(
+            InstructionKind::Branch(
                 Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -356,8 +356,8 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks() {
     );
     program.blocks.insert(
         BlockId(1),
-        Block(vec![
-            Instruction::LogicalNot(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -367,13 +367,13 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Jump(BlockId(3)),
+            InstructionKind::Jump(BlockId(3)),
         ]),
     );
     program.blocks.insert(
         BlockId(2),
-        Block(vec![
-            Instruction::LogicalNot(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -383,13 +383,13 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Jump(BlockId(3)),
+            InstructionKind::Jump(BlockId(3)),
         ]),
     );
     program.blocks.insert(
         BlockId(3),
-        Block(vec![
-            Instruction::LogicalNot(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -399,7 +399,7 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Return,
+            InstructionKind::Return,
         ]),
     );
 
@@ -499,8 +499,8 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks_without_i
 
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
-            Instruction::Call(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Call(
                 CallableId(1),
                 Vec::new(),
                 Some(Variable {
@@ -508,7 +508,7 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks_without_i
                     ty: Ty::Boolean,
                 }),
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
@@ -518,7 +518,7 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks_without_i
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Branch(
+            InstructionKind::Branch(
                 Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -528,16 +528,18 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks_without_i
             ),
         ]),
     );
-    program
-        .blocks
-        .insert(BlockId(1), Block(vec![Instruction::Jump(BlockId(3))]));
-    program
-        .blocks
-        .insert(BlockId(2), Block(vec![Instruction::Jump(BlockId(3))]));
+    program.blocks.insert(
+        BlockId(1),
+        Block::from_instruction_kinds(vec![InstructionKind::Jump(BlockId(3))]),
+    );
+    program.blocks.insert(
+        BlockId(2),
+        Block::from_instruction_kinds(vec![InstructionKind::Jump(BlockId(3))]),
+    );
     program.blocks.insert(
         BlockId(3),
-        Block(vec![
-            Instruction::LogicalNot(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -547,7 +549,7 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks_without_i
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Return,
+            InstructionKind::Return,
         ]),
     );
 
@@ -642,8 +644,8 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage() {
 
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
-            Instruction::Call(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Call(
                 CallableId(1),
                 Vec::new(),
                 Some(Variable {
@@ -651,7 +653,7 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage() {
                     ty: Ty::Boolean,
                 }),
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
@@ -661,7 +663,7 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Branch(
+            InstructionKind::Branch(
                 Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -673,8 +675,8 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage() {
     );
     program.blocks.insert(
         BlockId(1),
-        Block(vec![
-            Instruction::LogicalNot(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -684,7 +686,7 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(2),
                     ty: Ty::Boolean,
@@ -694,13 +696,13 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Jump(BlockId(3)),
+            InstructionKind::Jump(BlockId(3)),
         ]),
     );
     program.blocks.insert(
         BlockId(2),
-        Block(vec![
-            Instruction::LogicalNot(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -710,7 +712,7 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(3),
                     ty: Ty::Boolean,
@@ -720,13 +722,13 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Jump(BlockId(3)),
+            InstructionKind::Jump(BlockId(3)),
         ]),
     );
     program.blocks.insert(
         BlockId(3),
-        Block(vec![
-            Instruction::LogicalNot(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -736,7 +738,7 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Return,
+            InstructionKind::Return,
         ]),
     );
 
@@ -837,8 +839,8 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage_in_one_branch() {
 
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
-            Instruction::Call(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Call(
                 CallableId(1),
                 Vec::new(),
                 Some(Variable {
@@ -846,7 +848,7 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage_in_one_branch() {
                     ty: Ty::Boolean,
                 }),
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
@@ -856,7 +858,7 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage_in_one_branch() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Branch(
+            InstructionKind::Branch(
                 Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -868,8 +870,8 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage_in_one_branch() {
     );
     program.blocks.insert(
         BlockId(1),
-        Block(vec![
-            Instruction::LogicalNot(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -879,7 +881,7 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage_in_one_branch() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(2),
                     ty: Ty::Boolean,
@@ -889,16 +891,17 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage_in_one_branch() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Jump(BlockId(3)),
+            InstructionKind::Jump(BlockId(3)),
         ]),
     );
-    program
-        .blocks
-        .insert(BlockId(2), Block(vec![Instruction::Jump(BlockId(3))]));
+    program.blocks.insert(
+        BlockId(2),
+        Block::from_instruction_kinds(vec![InstructionKind::Jump(BlockId(3))]),
+    );
     program.blocks.insert(
         BlockId(3),
-        Block(vec![
-            Instruction::LogicalNot(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -908,7 +911,7 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage_in_one_branch() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Return,
+            InstructionKind::Return,
         ]),
     );
 
@@ -1006,8 +1009,8 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
 
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
-            Instruction::Call(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Call(
                 CallableId(1),
                 Vec::new(),
                 Some(Variable {
@@ -1015,7 +1018,7 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
                     ty: Ty::Boolean,
                 }),
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
@@ -1025,7 +1028,7 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Branch(
+            InstructionKind::Branch(
                 Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -1037,8 +1040,8 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
     );
     program.blocks.insert(
         BlockId(1),
-        Block(vec![
-            Instruction::LogicalNot(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -1048,7 +1051,7 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(2),
                     ty: Ty::Boolean,
@@ -1058,7 +1061,7 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Branch(
+            InstructionKind::Branch(
                 Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -1070,8 +1073,8 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
     );
     program.blocks.insert(
         BlockId(2),
-        Block(vec![
-            Instruction::LogicalNot(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -1081,7 +1084,7 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(3),
                     ty: Ty::Boolean,
@@ -1091,7 +1094,7 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Branch(
+            InstructionKind::Branch(
                 Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -1101,19 +1104,22 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
             ),
         ]),
     );
-    program
-        .blocks
-        .insert(BlockId(3), Block(vec![Instruction::Jump(BlockId(7))]));
-    program
-        .blocks
-        .insert(BlockId(4), Block(vec![Instruction::Jump(BlockId(7))]));
-    program
-        .blocks
-        .insert(BlockId(5), Block(vec![Instruction::Jump(BlockId(7))]));
+    program.blocks.insert(
+        BlockId(3),
+        Block::from_instruction_kinds(vec![InstructionKind::Jump(BlockId(7))]),
+    );
+    program.blocks.insert(
+        BlockId(4),
+        Block::from_instruction_kinds(vec![InstructionKind::Jump(BlockId(7))]),
+    );
+    program.blocks.insert(
+        BlockId(5),
+        Block::from_instruction_kinds(vec![InstructionKind::Jump(BlockId(7))]),
+    );
     program.blocks.insert(
         BlockId(6),
-        Block(vec![
-            Instruction::LogicalNot(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -1123,7 +1129,7 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(4),
                     ty: Ty::Boolean,
@@ -1133,13 +1139,13 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Jump(BlockId(7)),
+            InstructionKind::Jump(BlockId(7)),
         ]),
     );
     program.blocks.insert(
         BlockId(7),
-        Block(vec![
-            Instruction::LogicalNot(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -1149,7 +1155,7 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Return,
+            InstructionKind::Return,
         ]),
     );
 
@@ -1269,8 +1275,8 @@ fn ssa_transform_inserts_phi_for_multiple_stored_values() {
 
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
-            Instruction::Call(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Call(
                 CallableId(1),
                 Vec::new(),
                 Some(Variable {
@@ -1278,7 +1284,7 @@ fn ssa_transform_inserts_phi_for_multiple_stored_values() {
                     ty: Ty::Boolean,
                 }),
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
@@ -1288,7 +1294,7 @@ fn ssa_transform_inserts_phi_for_multiple_stored_values() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
@@ -1298,7 +1304,7 @@ fn ssa_transform_inserts_phi_for_multiple_stored_values() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Branch(
+            InstructionKind::Branch(
                 Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -1310,8 +1316,8 @@ fn ssa_transform_inserts_phi_for_multiple_stored_values() {
     );
     program.blocks.insert(
         BlockId(1),
-        Block(vec![
-            Instruction::LogicalNot(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -1321,7 +1327,7 @@ fn ssa_transform_inserts_phi_for_multiple_stored_values() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(3),
                     ty: Ty::Boolean,
@@ -1331,13 +1337,13 @@ fn ssa_transform_inserts_phi_for_multiple_stored_values() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Jump(BlockId(3)),
+            InstructionKind::Jump(BlockId(3)),
         ]),
     );
     program.blocks.insert(
         BlockId(2),
-        Block(vec![
-            Instruction::LogicalNot(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(2),
                     ty: Ty::Boolean,
@@ -1347,7 +1353,7 @@ fn ssa_transform_inserts_phi_for_multiple_stored_values() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(4),
                     ty: Ty::Boolean,
@@ -1357,13 +1363,13 @@ fn ssa_transform_inserts_phi_for_multiple_stored_values() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Jump(BlockId(3)),
+            InstructionKind::Jump(BlockId(3)),
         ]),
     );
     program.blocks.insert(
         BlockId(3),
-        Block(vec![
-            Instruction::LogicalNot(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -1373,7 +1379,7 @@ fn ssa_transform_inserts_phi_for_multiple_stored_values() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::LogicalNot(
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(2),
                     ty: Ty::Boolean,
@@ -1383,7 +1389,7 @@ fn ssa_transform_inserts_phi_for_multiple_stored_values() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Return,
+            InstructionKind::Return,
         ]),
     );
 
@@ -1488,8 +1494,8 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
 
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
-            Instruction::Call(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Call(
                 CallableId(1),
                 Vec::new(),
                 Some(Variable {
@@ -1497,7 +1503,7 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
                     ty: Ty::Boolean,
                 }),
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
@@ -1507,7 +1513,7 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Branch(
+            InstructionKind::Branch(
                 Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -1519,8 +1525,8 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
     );
     program.blocks.insert(
         BlockId(1),
-        Block(vec![
-            Instruction::LogicalNot(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -1530,7 +1536,7 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(2),
                     ty: Ty::Boolean,
@@ -1540,7 +1546,7 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Branch(
+            InstructionKind::Branch(
                 Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -1552,8 +1558,8 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
     );
     program.blocks.insert(
         BlockId(2),
-        Block(vec![
-            Instruction::LogicalNot(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -1563,7 +1569,7 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(3),
                     ty: Ty::Boolean,
@@ -1573,13 +1579,13 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Jump(BlockId(5)),
+            InstructionKind::Jump(BlockId(5)),
         ]),
     );
     program.blocks.insert(
         BlockId(3),
-        Block(vec![
-            Instruction::LogicalNot(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -1589,7 +1595,7 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(4),
                     ty: Ty::Boolean,
@@ -1599,13 +1605,13 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Jump(BlockId(6)),
+            InstructionKind::Jump(BlockId(6)),
         ]),
     );
     program.blocks.insert(
         BlockId(4),
-        Block(vec![
-            Instruction::LogicalNot(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -1615,7 +1621,7 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(5),
                     ty: Ty::Boolean,
@@ -1625,13 +1631,13 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Jump(BlockId(6)),
+            InstructionKind::Jump(BlockId(6)),
         ]),
     );
     program.blocks.insert(
         BlockId(5),
-        Block(vec![
-            Instruction::LogicalNot(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -1641,7 +1647,7 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(6),
                     ty: Ty::Boolean,
@@ -1651,13 +1657,13 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Jump(BlockId(7)),
+            InstructionKind::Jump(BlockId(7)),
         ]),
     );
     program.blocks.insert(
         BlockId(6),
-        Block(vec![
-            Instruction::LogicalNot(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -1667,7 +1673,7 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(7),
                     ty: Ty::Boolean,
@@ -1677,13 +1683,13 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Jump(BlockId(7)),
+            InstructionKind::Jump(BlockId(7)),
         ]),
     );
     program.blocks.insert(
         BlockId(7),
-        Block(vec![
-            Instruction::LogicalNot(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -1693,7 +1699,7 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Return,
+            InstructionKind::Return,
         ]),
     );
 
@@ -1821,8 +1827,8 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
 
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
-            Instruction::Call(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Call(
                 CallableId(1),
                 Vec::new(),
                 Some(Variable {
@@ -1830,7 +1836,7 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
                     ty: Ty::Boolean,
                 }),
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
@@ -1840,7 +1846,7 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Branch(
+            InstructionKind::Branch(
                 Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -1852,8 +1858,8 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
     );
     program.blocks.insert(
         BlockId(1),
-        Block(vec![
-            Instruction::LogicalNot(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -1863,7 +1869,7 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(2),
                     ty: Ty::Boolean,
@@ -1873,13 +1879,13 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Jump(BlockId(3)),
+            InstructionKind::Jump(BlockId(3)),
         ]),
     );
     program.blocks.insert(
         BlockId(2),
-        Block(vec![
-            Instruction::LogicalNot(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -1889,7 +1895,7 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(3),
                     ty: Ty::Boolean,
@@ -1899,7 +1905,7 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Branch(
+            InstructionKind::Branch(
                 Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -1911,8 +1917,8 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
     );
     program.blocks.insert(
         BlockId(3),
-        Block(vec![
-            Instruction::LogicalNot(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -1922,13 +1928,13 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Return,
+            InstructionKind::Return,
         ]),
     );
     program.blocks.insert(
         BlockId(4),
-        Block(vec![
-            Instruction::LogicalNot(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -1938,7 +1944,7 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(5),
                     ty: Ty::Boolean,
@@ -1948,13 +1954,13 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Jump(BlockId(6)),
+            InstructionKind::Jump(BlockId(6)),
         ]),
     );
     program.blocks.insert(
         BlockId(5),
-        Block(vec![
-            Instruction::LogicalNot(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -1964,7 +1970,7 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(6),
                     ty: Ty::Boolean,
@@ -1974,13 +1980,13 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Jump(BlockId(6)),
+            InstructionKind::Jump(BlockId(6)),
         ]),
     );
     program.blocks.insert(
         BlockId(6),
-        Block(vec![
-            Instruction::LogicalNot(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -1990,7 +1996,7 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Jump(BlockId(3)),
+            InstructionKind::Jump(BlockId(3)),
         ]),
     );
 
@@ -2117,8 +2123,8 @@ fn ssa_transform_propagates_updates_from_multiple_predecessors_to_later_single_s
     // maps used for updates.
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
-            Instruction::Call(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Call(
                 CallableId(1),
                 Vec::new(),
                 Some(Variable {
@@ -2126,7 +2132,7 @@ fn ssa_transform_propagates_updates_from_multiple_predecessors_to_later_single_s
                     ty: Ty::Boolean,
                 }),
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
@@ -2136,7 +2142,7 @@ fn ssa_transform_propagates_updates_from_multiple_predecessors_to_later_single_s
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Branch(
+            InstructionKind::Branch(
                 Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -2146,13 +2152,14 @@ fn ssa_transform_propagates_updates_from_multiple_predecessors_to_later_single_s
             ),
         ]),
     );
-    program
-        .blocks
-        .insert(BlockId(1), Block(vec![Instruction::Jump(BlockId(2))]));
+    program.blocks.insert(
+        BlockId(1),
+        Block::from_instruction_kinds(vec![InstructionKind::Jump(BlockId(2))]),
+    );
     program.blocks.insert(
         BlockId(2),
-        Block(vec![
-            Instruction::Call(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Call(
                 CallableId(1),
                 Vec::new(),
                 Some(Variable {
@@ -2160,7 +2167,7 @@ fn ssa_transform_propagates_updates_from_multiple_predecessors_to_later_single_s
                     ty: Ty::Boolean,
                 }),
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(2),
                     ty: Ty::Boolean,
@@ -2170,7 +2177,7 @@ fn ssa_transform_propagates_updates_from_multiple_predecessors_to_later_single_s
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Branch(
+            InstructionKind::Branch(
                 Variable {
                     variable_id: VariableId(3),
                     ty: Ty::Boolean,
@@ -2180,12 +2187,14 @@ fn ssa_transform_propagates_updates_from_multiple_predecessors_to_later_single_s
             ),
         ]),
     );
-    program
-        .blocks
-        .insert(BlockId(3), Block(vec![Instruction::Jump(BlockId(4))]));
-    program
-        .blocks
-        .insert(BlockId(4), Block(vec![Instruction::Return]));
+    program.blocks.insert(
+        BlockId(3),
+        Block::from_instruction_kinds(vec![InstructionKind::Jump(BlockId(4))]),
+    );
+    program.blocks.insert(
+        BlockId(4),
+        Block::from_instruction_kinds(vec![InstructionKind::Return]),
+    );
 
     // Before
     expect![[r#"
@@ -2282,8 +2291,8 @@ fn ssa_transform_maps_store_instrs_that_use_values_from_other_store_instrs() {
 
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
-            Instruction::Call(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Call(
                 CallableId(1),
                 Vec::new(),
                 Some(Variable {
@@ -2291,7 +2300,7 @@ fn ssa_transform_maps_store_instrs_that_use_values_from_other_store_instrs() {
                     ty: Ty::Boolean,
                 }),
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
@@ -2301,7 +2310,7 @@ fn ssa_transform_maps_store_instrs_that_use_values_from_other_store_instrs() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -2311,7 +2320,7 @@ fn ssa_transform_maps_store_instrs_that_use_values_from_other_store_instrs() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::LogicalNot(
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(2),
                     ty: Ty::Boolean,
@@ -2321,7 +2330,7 @@ fn ssa_transform_maps_store_instrs_that_use_values_from_other_store_instrs() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Return,
+            InstructionKind::Return,
         ]),
     );
 
@@ -2404,8 +2413,8 @@ fn ssa_transform_maps_store_with_variable_from_store_in_conditional_to_phi_node(
 
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
-            Instruction::Call(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Call(
                 CallableId(1),
                 Vec::new(),
                 Some(Variable {
@@ -2413,7 +2422,7 @@ fn ssa_transform_maps_store_with_variable_from_store_in_conditional_to_phi_node(
                     ty: Ty::Boolean,
                 }),
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
@@ -2423,14 +2432,14 @@ fn ssa_transform_maps_store_with_variable_from_store_in_conditional_to_phi_node(
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(2),
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Branch(
+            InstructionKind::Branch(
                 Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -2442,8 +2451,8 @@ fn ssa_transform_maps_store_with_variable_from_store_in_conditional_to_phi_node(
     );
     program.blocks.insert(
         BlockId(1),
-        Block(vec![
-            Instruction::Store(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -2453,13 +2462,13 @@ fn ssa_transform_maps_store_with_variable_from_store_in_conditional_to_phi_node(
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Jump(BlockId(2)),
+            InstructionKind::Jump(BlockId(2)),
         ]),
     );
     program.blocks.insert(
         BlockId(2),
-        Block(vec![
-            Instruction::LogicalNot(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(2),
                     ty: Ty::Boolean,
@@ -2469,7 +2478,7 @@ fn ssa_transform_maps_store_with_variable_from_store_in_conditional_to_phi_node(
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Return,
+            InstructionKind::Return,
         ]),
     );
 
@@ -2562,8 +2571,8 @@ fn ssa_transform_allows_point_in_time_copy_of_dynamic_variable() {
 
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
-            Instruction::Call(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Call(
                 CallableId(1),
                 Vec::new(),
                 Some(Variable {
@@ -2571,7 +2580,7 @@ fn ssa_transform_allows_point_in_time_copy_of_dynamic_variable() {
                     ty: Ty::Boolean,
                 }),
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
@@ -2581,7 +2590,7 @@ fn ssa_transform_allows_point_in_time_copy_of_dynamic_variable() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -2591,7 +2600,7 @@ fn ssa_transform_allows_point_in_time_copy_of_dynamic_variable() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::LogicalNot(
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -2601,7 +2610,7 @@ fn ssa_transform_allows_point_in_time_copy_of_dynamic_variable() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(3),
                     ty: Ty::Boolean,
@@ -2611,7 +2620,7 @@ fn ssa_transform_allows_point_in_time_copy_of_dynamic_variable() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::LogicalNot(
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(2),
                     ty: Ty::Boolean,
@@ -2621,7 +2630,7 @@ fn ssa_transform_allows_point_in_time_copy_of_dynamic_variable() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::LogicalNot(
+            InstructionKind::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -2631,7 +2640,7 @@ fn ssa_transform_allows_point_in_time_copy_of_dynamic_variable() {
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Return,
+            InstructionKind::Return,
         ]),
     );
 
@@ -2729,8 +2738,8 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
 
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
-            Instruction::Call(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Call(
                 CallableId(1),
                 Vec::new(),
                 Some(Variable {
@@ -2738,14 +2747,14 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
                     ty: Ty::Boolean,
                 }),
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Branch(
+            InstructionKind::Branch(
                 Variable {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
@@ -2757,8 +2766,8 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
     );
     program.blocks.insert(
         BlockId(1),
-        Block(vec![
-            Instruction::Store(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -2768,7 +2777,7 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Branch(
+            InstructionKind::Branch(
                 Variable {
                     variable_id: VariableId(3),
                     ty: Ty::Boolean,
@@ -2780,8 +2789,8 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
     );
     program.blocks.insert(
         BlockId(2),
-        Block(vec![
-            Instruction::Call(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Call(
                 CallableId(1),
                 Vec::new(),
                 Some(Variable {
@@ -2789,7 +2798,7 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
                     ty: Ty::Boolean,
                 }),
             ),
-            Instruction::Store(
+            InstructionKind::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(2),
                     ty: Ty::Boolean,
@@ -2799,13 +2808,13 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
                     ty: Ty::Boolean,
                 },
             ),
-            Instruction::Jump(BlockId(1)),
+            InstructionKind::Jump(BlockId(1)),
         ]),
     );
     program.blocks.insert(
         BlockId(3),
-        Block(vec![
-            Instruction::Call(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Call(
                 CallableId(2),
                 vec![Operand::Variable(Variable {
                     variable_id: VariableId(3),
@@ -2813,15 +2822,17 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
                 })],
                 None,
             ),
-            Instruction::Return,
+            InstructionKind::Return,
         ]),
     );
-    program
-        .blocks
-        .insert(BlockId(4), Block(vec![Instruction::Jump(BlockId(3))]));
-    program
-        .blocks
-        .insert(BlockId(5), Block(vec![Instruction::Jump(BlockId(3))]));
+    program.blocks.insert(
+        BlockId(4),
+        Block::from_instruction_kinds(vec![InstructionKind::Jump(BlockId(3))]),
+    );
+    program.blocks.insert(
+        BlockId(5),
+        Block::from_instruction_kinds(vec![InstructionKind::Jump(BlockId(3))]),
+    );
 
     // Before
     expect![[r#"
