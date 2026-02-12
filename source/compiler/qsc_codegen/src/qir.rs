@@ -7,7 +7,7 @@ mod instruction_tests;
 #[cfg(test)]
 mod tests;
 
-use qsc_data_structures::target::TargetCapabilityFlags;
+use qsc_data_structures::{attrs::Attributes, target::TargetCapabilityFlags};
 use qsc_eval::val::Value;
 use qsc_lowerer::map_hir_package_to_fir;
 use qsc_partial_eval::{ProgramEntry, partially_evaluate, partially_evaluate_call};
@@ -658,14 +658,13 @@ impl ToQir<String> for rir::Callable {
             return format!(
                 "declare {output_type} @{}({input_type}){}",
                 self.name,
-                if matches!(
-                    self.call_type,
-                    rir::CallableType::Measurement | rir::CallableType::Reset
-                ) {
-                    // These callables are a special case that need the irreversible attribute.
-                    " #1"
-                } else {
-                    ""
+                match self.call_type {
+                    rir::CallableType::Measurement | rir::CallableType::Reset => {
+                        // These callables are a special case that need the irreversible attribute.
+                        " #1"
+                    }
+                    rir::CallableType::NoiseIntrinsic => " #2",
+                    _ => "",
                 }
             );
         };
@@ -715,11 +714,25 @@ impl ToQir<String> for rir::Program {
         }
         let body = format!(
             include_str!("./qir/template.ll"),
-            constants, callables, profile, self.num_qubits, self.num_results
+            constants,
+            callables,
+            profile,
+            self.num_qubits,
+            self.num_results,
+            get_additional_module_attributes(self)
         );
         let flags = get_module_metadata(self);
         body + "\n" + &flags
     }
+}
+
+fn get_additional_module_attributes(program: &rir::Program) -> String {
+    let mut attrs = String::new();
+    if program.attrs.contains(Attributes::QdkNoise) {
+        attrs.push_str("\nattributes #2 = { \"qdk_noise\" }");
+    }
+
+    attrs
 }
 
 /// Create the module metadata for the given program.

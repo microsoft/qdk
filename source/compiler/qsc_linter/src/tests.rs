@@ -2,15 +2,14 @@
 // Licensed under the MIT License.
 
 use crate::{
-    Lint, LintLevel, LintOrGroupConfig,
+    Lint, LintConfig, LintKind, LintLevel, LintOrGroupConfig,
     lint_groups::LintGroup,
-    linter::{remove_duplicates, run_lints_without_deduplication},
+    linter::{CodeAction, remove_duplicates, run_lints_without_deduplication},
 };
 use expect_test::{Expect, expect};
 use indoc::indoc;
 use qsc_data_structures::{
-    language_features::LanguageFeatures, source::SourceMap, span::Span,
-    target::TargetCapabilityFlags,
+    language_features::LanguageFeatures, source::SourceMap, target::TargetCapabilityFlags,
 };
 use qsc_frontend::compile::{self, PackageStore};
 use qsc_hir::hir::CallableKind;
@@ -27,7 +26,7 @@ fn daisy_chain_lint() {
                     level: Warn,
                     message: "discouraged use of chain assignment",
                     help: "assignment expressions always return `Unit`, so chaining them may not be useful",
-                    code_action_edits: [],
+                    code_action: None,
                 },
             ]
         "#]],
@@ -45,7 +44,7 @@ fn long_daisy_chain_lint() {
                     level: Warn,
                     message: "discouraged use of chain assignment",
                     help: "assignment expressions always return `Unit`, so chaining them may not be useful",
-                    code_action_edits: [],
+                    code_action: None,
                 },
             ]
         "#]],
@@ -63,14 +62,14 @@ fn nested_daisy_chain_lint() {
                     level: Warn,
                     message: "discouraged use of chain assignment",
                     help: "assignment expressions always return `Unit`, so chaining them may not be useful",
-                    code_action_edits: [],
+                    code_action: None,
                 },
                 SrcLint {
                     source: "a = b = c",
                     level: Warn,
                     message: "discouraged use of chain assignment",
                     help: "assignment expressions always return `Unit`, so chaining them may not be useful",
-                    code_action_edits: [],
+                    code_action: None,
                 },
             ]
         "#]],
@@ -88,15 +87,20 @@ fn set_keyword_lint() {
                     level: Allow,
                     message: "deprecated use of `set` keyword",
                     help: "the `set` keyword is deprecated for assignments and can be removed",
-                    code_action_edits: [
-                        (
-                            "",
-                            Span {
-                                lo: 71,
-                                hi: 74,
-                            },
-                        ),
-                    ],
+                    code_action: Some(
+                        CodeAction {
+                            title: "Remove `set` keyword",
+                            edits: [
+                                (
+                                    "",
+                                    Span {
+                                        lo: 71,
+                                        hi: 74,
+                                    },
+                                ),
+                            ],
+                        },
+                    ),
                 },
             ]
         "#]],
@@ -118,14 +122,14 @@ fn lint_group() {
                     level: Error,
                     message: "deprecated `newtype` declarations",
                     help: "`newtype` declarations are deprecated, use `struct` instead",
-                    code_action_edits: [],
+                    code_action: None,
                 },
                 SrcLint {
                     source: "RunProgram",
                     level: Allow,
                     message: "operation does not contain any quantum operations",
                     help: "this callable can be declared as a function instead",
-                    code_action_edits: [],
+                    code_action: None,
                 },
             ]
         "#]],
@@ -143,51 +147,61 @@ fn multiple_lints() {
                     level: Warn,
                     message: "redundant semicolons",
                     help: "remove the redundant semicolons",
-                    code_action_edits: [
-                        (
-                            "",
-                            Span {
-                                lo: 94,
-                                hi: 97,
-                            },
-                        ),
-                    ],
+                    code_action: Some(
+                        CodeAction {
+                            title: "Remove redundant semicolons",
+                            edits: [
+                                (
+                                    "",
+                                    Span {
+                                        lo: 94,
+                                        hi: 97,
+                                    },
+                                ),
+                            ],
+                        },
+                    ),
                 },
                 SrcLint {
                     source: "((1 + 2)) / 0",
                     level: Error,
                     message: "attempt to divide by zero",
                     help: "division by zero will fail at runtime",
-                    code_action_edits: [],
+                    code_action: None,
                 },
                 SrcLint {
                     source: "((1 + 2))",
                     level: Allow,
                     message: "unnecessary parentheses",
                     help: "remove the extra parentheses for clarity",
-                    code_action_edits: [
-                        (
-                            "",
-                            Span {
-                                lo: 80,
-                                hi: 81,
-                            },
-                        ),
-                        (
-                            "",
-                            Span {
-                                lo: 88,
-                                hi: 89,
-                            },
-                        ),
-                    ],
+                    code_action: Some(
+                        CodeAction {
+                            title: "Remove unnecessary parentheses",
+                            edits: [
+                                (
+                                    "",
+                                    Span {
+                                        lo: 80,
+                                        hi: 81,
+                                    },
+                                ),
+                                (
+                                    "",
+                                    Span {
+                                        lo: 88,
+                                        hi: 89,
+                                    },
+                                ),
+                            ],
+                        },
+                    ),
                 },
                 SrcLint {
                     source: "RunProgram",
                     level: Allow,
                     message: "operation does not contain any quantum operations",
                     help: "this callable can be declared as a function instead",
-                    code_action_edits: [],
+                    code_action: None,
                 },
             ]
         "#]],
@@ -205,22 +219,27 @@ fn double_parens() {
                     level: Allow,
                     message: "unnecessary parentheses",
                     help: "remove the extra parentheses for clarity",
-                    code_action_edits: [
-                        (
-                            "",
-                            Span {
-                                lo: 79,
-                                hi: 80,
-                            },
-                        ),
-                        (
-                            "",
-                            Span {
-                                lo: 87,
-                                hi: 88,
-                            },
-                        ),
-                    ],
+                    code_action: Some(
+                        CodeAction {
+                            title: "Remove unnecessary parentheses",
+                            edits: [
+                                (
+                                    "",
+                                    Span {
+                                        lo: 79,
+                                        hi: 80,
+                                    },
+                                ),
+                                (
+                                    "",
+                                    Span {
+                                        lo: 87,
+                                        hi: 88,
+                                    },
+                                ),
+                            ],
+                        },
+                    ),
                 },
             ]
         "#]],
@@ -238,7 +257,7 @@ fn division_by_zero() {
                     level: Error,
                     message: "attempt to divide by zero",
                     help: "division by zero will fail at runtime",
-                    code_action_edits: [],
+                    code_action: None,
                 },
             ]
         "#]],
@@ -256,7 +275,7 @@ fn double_equality() {
                     level: Warn,
                     message: "strict comparison of doubles",
                     help: "consider comparing them with some margin of error",
-                    code_action_edits: [],
+                    code_action: None,
                 },
             ]
         "#]],
@@ -290,7 +309,7 @@ fn double_inequality() {
                     level: Warn,
                     message: "strict comparison of doubles",
                     help: "consider comparing them with some margin of error",
-                    code_action_edits: [],
+                    code_action: None,
                 },
             ]
         "#]],
@@ -308,22 +327,27 @@ fn needless_parens_in_assignment() {
                     level: Allow,
                     message: "unnecessary parentheses",
                     help: "remove the extra parentheses for clarity",
-                    code_action_edits: [
-                        (
-                            "",
-                            Span {
-                                lo: 79,
-                                hi: 80,
-                            },
-                        ),
-                        (
-                            "",
-                            Span {
-                                lo: 82,
-                                hi: 83,
-                            },
-                        ),
-                    ],
+                    code_action: Some(
+                        CodeAction {
+                            title: "Remove unnecessary parentheses",
+                            edits: [
+                                (
+                                    "",
+                                    Span {
+                                        lo: 79,
+                                        hi: 80,
+                                    },
+                                ),
+                                (
+                                    "",
+                                    Span {
+                                        lo: 82,
+                                        hi: 83,
+                                    },
+                                ),
+                            ],
+                        },
+                    ),
                 },
             ]
         "#]],
@@ -341,66 +365,81 @@ fn needless_parens() {
                     level: Allow,
                     message: "unnecessary parentheses",
                     help: "remove the extra parentheses for clarity",
-                    code_action_edits: [
-                        (
-                            "",
-                            Span {
-                                lo: 79,
-                                hi: 80,
-                            },
-                        ),
-                        (
-                            "",
-                            Span {
-                                lo: 81,
-                                hi: 82,
-                            },
-                        ),
-                    ],
+                    code_action: Some(
+                        CodeAction {
+                            title: "Remove unnecessary parentheses",
+                            edits: [
+                                (
+                                    "",
+                                    Span {
+                                        lo: 79,
+                                        hi: 80,
+                                    },
+                                ),
+                                (
+                                    "",
+                                    Span {
+                                        lo: 81,
+                                        hi: 82,
+                                    },
+                                ),
+                            ],
+                        },
+                    ),
                 },
                 SrcLint {
                     source: "(5 * 4 * (2 ^ 10))",
                     level: Allow,
                     message: "unnecessary parentheses",
                     help: "remove the extra parentheses for clarity",
-                    code_action_edits: [
-                        (
-                            "",
-                            Span {
-                                lo: 85,
-                                hi: 86,
-                            },
-                        ),
-                        (
-                            "",
-                            Span {
-                                lo: 102,
-                                hi: 103,
-                            },
-                        ),
-                    ],
+                    code_action: Some(
+                        CodeAction {
+                            title: "Remove unnecessary parentheses",
+                            edits: [
+                                (
+                                    "",
+                                    Span {
+                                        lo: 85,
+                                        hi: 86,
+                                    },
+                                ),
+                                (
+                                    "",
+                                    Span {
+                                        lo: 102,
+                                        hi: 103,
+                                    },
+                                ),
+                            ],
+                        },
+                    ),
                 },
                 SrcLint {
                     source: "(2 ^ 10)",
                     level: Allow,
                     message: "unnecessary parentheses",
                     help: "remove the extra parentheses for clarity",
-                    code_action_edits: [
-                        (
-                            "",
-                            Span {
-                                lo: 94,
-                                hi: 95,
-                            },
-                        ),
-                        (
-                            "",
-                            Span {
-                                lo: 101,
-                                hi: 102,
-                            },
-                        ),
-                    ],
+                    code_action: Some(
+                        CodeAction {
+                            title: "Remove unnecessary parentheses",
+                            edits: [
+                                (
+                                    "",
+                                    Span {
+                                        lo: 94,
+                                        hi: 95,
+                                    },
+                                ),
+                                (
+                                    "",
+                                    Span {
+                                        lo: 101,
+                                        hi: 102,
+                                    },
+                                ),
+                            ],
+                        },
+                    ),
                 },
             ]
         "#]],
@@ -418,15 +457,20 @@ fn redundant_semicolons() {
                     level: Warn,
                     message: "redundant semicolons",
                     help: "remove the redundant semicolons",
-                    code_action_edits: [
-                        (
-                            "",
-                            Span {
-                                lo: 81,
-                                hi: 85,
-                            },
-                        ),
-                    ],
+                    code_action: Some(
+                        CodeAction {
+                            title: "Remove redundant semicolons",
+                            edits: [
+                                (
+                                    "",
+                                    Span {
+                                        lo: 81,
+                                        hi: 85,
+                                    },
+                                ),
+                            ],
+                        },
+                    ),
                 },
             ]
         "#]],
@@ -464,7 +508,7 @@ fn needless_operation_non_empty_op_and_no_specialization() {
                     level: Allow,
                     message: "operation does not contain any quantum operations",
                     help: "this callable can be declared as a function instead",
-                    code_action_edits: [],
+                    code_action: None,
                 },
             ]
         "#]],
@@ -489,7 +533,7 @@ fn needless_operation_non_empty_op_and_specialization() {
                     level: Allow,
                     message: "operation does not contain any quantum operations",
                     help: "this callable can be declared as a function instead",
-                    code_action_edits: [],
+                    code_action: None,
                 },
             ]
         "#]],
@@ -544,7 +588,7 @@ fn needless_operation_partial_application() {
                     level: Allow,
                     message: "operation does not contain any quantum operations",
                     help: "this callable can be declared as a function instead",
-                    code_action_edits: [],
+                    code_action: None,
                 },
             ]
         "#]],
@@ -564,7 +608,7 @@ fn deprecated_newtype_usage() {
                     level: Allow,
                     message: "deprecated `newtype` declarations",
                     help: "`newtype` declarations are deprecated, use `struct` instead",
-                    code_action_edits: [],
+                    code_action: None,
                 },
             ]
         "#]],
@@ -585,7 +629,7 @@ fn deprecated_function_cons() {
                     level: Allow,
                     message: "deprecated function constructors",
                     help: "function constructors for struct types are deprecated, use `new` instead",
-                    code_action_edits: [],
+                    code_action: None,
                 },
             ]
         "#]],
@@ -609,15 +653,20 @@ fn deprecated_with_op_for_structs() {
                     level: Allow,
                     message: "deprecated `w/` and `w/=` operators for structs",
                     help: "`w/` and `w/=` operators for structs are deprecated, use `new` instead",
-                    code_action_edits: [
-                        (
-                            "new Foo {\n        ...foo,\n        x = 3,\n    }",
-                            Span {
-                                lo: 111,
-                                hi: 124,
-                            },
-                        ),
-                    ],
+                    code_action: Some(
+                        CodeAction {
+                            title: "Replace with struct constructor",
+                            edits: [
+                                (
+                                    "new Foo {\n        ...foo,\n        x = 3,\n    }",
+                                    Span {
+                                        lo: 111,
+                                        hi: 124,
+                                    },
+                                ),
+                            ],
+                        },
+                    ),
                 },
             ]
         "#]],
@@ -642,15 +691,20 @@ fn deprecated_with_eq_op_for_structs() {
                     level: Allow,
                     message: "deprecated `w/` and `w/=` operators for structs",
                     help: "`w/` and `w/=` operators for structs are deprecated, use `new` instead",
-                    code_action_edits: [
-                        (
-                            "foo = new Foo {\n        ...foo,\n        x = 3,\n    }",
-                            Span {
-                                lo: 115,
-                                hi: 129,
-                            },
-                        ),
-                    ],
+                    code_action: Some(
+                        CodeAction {
+                            title: "Replace with struct constructor",
+                            edits: [
+                                (
+                                    "foo = new Foo {\n        ...foo,\n        x = 3,\n    }",
+                                    Span {
+                                        lo: 115,
+                                        hi: 129,
+                                    },
+                                ),
+                            ],
+                        },
+                    ),
                 },
             ]
         "#]],
@@ -675,22 +729,27 @@ fn deprecated_double_colon_op() {
                     level: Allow,
                     message: "deprecated `::` for field access",
                     help: "`::` operator is deprecated, use `.` instead",
-                    code_action_edits: [
-                        (
-                            ".",
-                            Span {
-                                lo: 126,
-                                hi: 128,
-                            },
-                        ),
-                        (
-                            ".",
-                            Span {
-                                lo: 121,
-                                hi: 123,
-                            },
-                        ),
-                    ],
+                    code_action: Some(
+                        CodeAction {
+                            title: "Replace `::` with `.` for field access",
+                            edits: [
+                                (
+                                    ".",
+                                    Span {
+                                        lo: 126,
+                                        hi: 128,
+                                    },
+                                ),
+                                (
+                                    ".",
+                                    Span {
+                                        lo: 121,
+                                        hi: 123,
+                                    },
+                                ),
+                            ],
+                        },
+                    ),
                 },
             ]
         "#]],
@@ -717,22 +776,27 @@ fn deprecated_double_colon_op_with_spacing() {
                     level: Allow,
                     message: "deprecated `::` for field access",
                     help: "`::` operator is deprecated, use `.` instead",
-                    code_action_edits: [
-                        (
-                            ".",
-                            Span {
-                                lo: 135,
-                                hi: 137,
-                            },
-                        ),
-                        (
-                            ".",
-                            Span {
-                                lo: 123,
-                                hi: 125,
-                            },
-                        ),
-                    ],
+                    code_action: Some(
+                        CodeAction {
+                            title: "Replace `::` with `.` for field access",
+                            edits: [
+                                (
+                                    ".",
+                                    Span {
+                                        lo: 135,
+                                        hi: 137,
+                                    },
+                                ),
+                                (
+                                    ".",
+                                    Span {
+                                        lo: 123,
+                                        hi: 125,
+                                    },
+                                ),
+                            ],
+                        },
+                    ),
                 },
             ]
         "#]],
@@ -774,7 +838,7 @@ fn deprecated_update_expr_lint() {
                     level: Allow,
                     message: "deprecated use of update expressions",
                     help: "update expressions \"a w/ b <- c\" are deprecated; consider using explicit assignment instead",
-                    code_action_edits: [],
+                    code_action: None,
                 },
             ]
         "#]],
@@ -795,15 +859,20 @@ fn deprecated_assign_update_expr_code_action() {
                     level: Allow,
                     message: "deprecated use of update assignment expressions",
                     help: "update assignment expressions \"a w/= b <- c\" are deprecated; consider using explicit assignment instead \"a[b] = c\"",
-                    code_action_edits: [
-                        (
-                            "arr[idx] = 42",
-                            Span {
-                                lo: 89,
-                                hi: 106,
-                            },
-                        ),
-                    ],
+                    code_action: Some(
+                        CodeAction {
+                            title: "Replace update assignment expression with explicit assignment",
+                            edits: [
+                                (
+                                    "arr[idx] = 42",
+                                    Span {
+                                        lo: 89,
+                                        hi: 106,
+                                    },
+                                ),
+                            ],
+                        },
+                    ),
                 },
             ]
         "#]],
@@ -821,7 +890,7 @@ fn ambiguous_unary_operator_after_if() {
                     level: Warn,
                     message: "ambiguous unary operator after if-expression",
                     help: "consider wrapping the if-expression in parentheses or using a semicolon to clarify the intended use of the operator",
-                    code_action_edits: [],
+                    code_action: None,
                 },
             ]
         "#]],
@@ -869,7 +938,7 @@ fn ambiguous_unary_operator_after_if_does_trigger_warning_on_different_non_unit_
                     level: Warn,
                     message: "ambiguous unary operator after if-expression",
                     help: "consider wrapping the if-expression in parentheses or using a semicolon to clarify the intended use of the operator",
-                    code_action_edits: [],
+                    code_action: None,
                 },
             ]
         "#]],
@@ -897,6 +966,37 @@ fn ambiguous_unary_operator_after_if_does_not_trigger_for_unary_ops_besides_minu
 }
 
 #[test]
+fn deprecated_borrow_keyword() {
+    check(
+        &wrap_in_callable("borrow qs = Qubit[2];", CallableKind::Operation),
+        &expect![[r#"
+            [
+                SrcLint {
+                    source: "borrow",
+                    level: Warn,
+                    message: "deprecated `borrow` qubit allocation",
+                    help: "the `borrow` keyword for qubit allocation is deprecated, use `use` instead",
+                    code_action: Some(
+                        CodeAction {
+                            title: "Replace `borrow` with `use`",
+                            edits: [
+                                (
+                                    "use",
+                                    Span {
+                                        lo: 72,
+                                        hi: 78,
+                                    },
+                                ),
+                            ],
+                        },
+                    ),
+                },
+            ]
+        "#]],
+    );
+}
+
+#[test]
 fn check_that_hir_lints_are_deduplicated_in_operations_with_multiple_specializations() {
     check_with_deduplication(
         "
@@ -912,7 +1012,7 @@ fn check_that_hir_lints_are_deduplicated_in_operations_with_multiple_specializat
                     level: Warn,
                     message: "strict comparison of doubles",
                     help: "consider comparing them with some margin of error",
-                    code_action_edits: [],
+                    code_action: None,
                 },
             ]
         "#]],
@@ -934,7 +1034,160 @@ fn compile_and_collect_lints(source: &str, config: Option<&[LintOrGroupConfig]>)
 
     let id = store.insert(unit);
     let unit = store.get(id).expect("user package should exist");
-    run_lints_without_deduplication(&store, unit, config)
+
+    let mut actual_config = vec![LintOrGroupConfig::Lint(LintConfig {
+        kind: LintKind::Ast(crate::AstLint::AvoidNamespaceBlock),
+        level: LintLevel::Allow,
+    })];
+
+    if let Some(c) = config {
+        actual_config.extend_from_slice(c);
+    }
+
+    run_lints_without_deduplication(&store, unit, Some(&actual_config))
+}
+
+#[test]
+fn avoid_namespace_block_explicit() {
+    let source = "namespace Foo { operation Main() : Unit {} }";
+    let config: &[LintOrGroupConfig] = &[LintOrGroupConfig::Lint(LintConfig {
+        kind: LintKind::Ast(crate::AstLint::AvoidNamespaceBlock),
+        level: LintLevel::Warn,
+    })];
+    let lints = compile_and_collect_lints(source, Some(config));
+    let actual: Vec<_> = lints
+        .into_iter()
+        .map(|lint| SrcLint::from(&lint, source))
+        .collect();
+    expect![[r#"
+        [
+            SrcLint {
+                source: "Foo",
+                level: Warn,
+                message: "avoid using explicit namespace blocks",
+                help: "Q# best practice is to not use namespace blocks to enclose code; the namespace is inferred from the file path",
+                code_action: None,
+            },
+        ]
+    "#]]
+    .assert_debug_eq(&actual);
+}
+
+#[test]
+fn avoid_namespace_block_implicit() {
+    let source = "operation Main() : Unit {}"; // Implicit namespace, no block
+    let config: &[LintOrGroupConfig] = &[LintOrGroupConfig::Lint(LintConfig {
+        kind: LintKind::Ast(crate::AstLint::AvoidNamespaceBlock),
+        level: LintLevel::Warn,
+    })];
+    let lints = compile_and_collect_lints(source, Some(config));
+    let actual: Vec<_> = lints
+        .into_iter()
+        .map(|lint| SrcLint::from(&lint, source))
+        .collect();
+    expect![[r#"
+        []
+    "#]]
+    .assert_debug_eq(&actual);
+}
+
+#[test]
+fn avoid_namespace_block_multiple() {
+    let source = indoc! {"
+        namespace Foo { operation A() : Unit {} }
+        namespace Bar { operation B() : Unit {} }
+    "};
+    let config: &[LintOrGroupConfig] = &[LintOrGroupConfig::Lint(LintConfig {
+        kind: LintKind::Ast(crate::AstLint::AvoidNamespaceBlock),
+        level: LintLevel::Warn,
+    })];
+    let lints = compile_and_collect_lints(source, Some(config));
+    let actual: Vec<_> = lints
+        .into_iter()
+        .map(|lint| SrcLint::from(&lint, source))
+        .collect();
+    expect![[r#"
+        [
+            SrcLint {
+                source: "Foo",
+                level: Warn,
+                message: "avoid using explicit namespace blocks",
+                help: "Q# best practice is to not use namespace blocks to enclose code; the namespace is inferred from the file path",
+                code_action: None,
+            },
+            SrcLint {
+                source: "Bar",
+                level: Warn,
+                message: "avoid using explicit namespace blocks",
+                help: "Q# best practice is to not use namespace blocks to enclose code; the namespace is inferred from the file path",
+                code_action: None,
+            },
+        ]
+    "#]]
+    .assert_debug_eq(&actual);
+}
+
+#[test]
+fn avoid_namespace_block_with_comments() {
+    let source = indoc! {"
+        // # Sample
+        // Getting started
+        namespace Foo {
+            operation Main() : Unit {}
+        }
+    "};
+    let config: &[LintOrGroupConfig] = &[LintOrGroupConfig::Lint(LintConfig {
+        kind: LintKind::Ast(crate::AstLint::AvoidNamespaceBlock),
+        level: LintLevel::Warn,
+    })];
+    let lints = compile_and_collect_lints(source, Some(config));
+    let actual: Vec<_> = lints
+        .into_iter()
+        .map(|lint| SrcLint::from(&lint, source))
+        .collect();
+    expect![[r#"
+        [
+            SrcLint {
+                source: "Foo",
+                level: Warn,
+                message: "avoid using explicit namespace blocks",
+                help: "Q# best practice is to not use namespace blocks to enclose code; the namespace is inferred from the file path",
+                code_action: None,
+            },
+        ]
+    "#]]
+    .assert_debug_eq(&actual);
+}
+
+#[test]
+fn avoid_namespace_block_with_doc_comments() {
+    let source = indoc! {"
+        /// This is a doc comment
+        namespace Foo {
+            operation Main() : Unit {}
+        }
+    "};
+    let config: &[LintOrGroupConfig] = &[LintOrGroupConfig::Lint(LintConfig {
+        kind: LintKind::Ast(crate::AstLint::AvoidNamespaceBlock),
+        level: LintLevel::Warn,
+    })];
+    let lints = compile_and_collect_lints(source, Some(config));
+    let actual: Vec<_> = lints
+        .into_iter()
+        .map(|lint| SrcLint::from(&lint, source))
+        .collect();
+    expect![[r#"
+        [
+            SrcLint {
+                source: "Foo",
+                level: Warn,
+                message: "avoid using explicit namespace blocks",
+                help: "Q# best practice is to not use namespace blocks to enclose code; the namespace is inferred from the file path",
+                code_action: None,
+            },
+        ]
+    "#]]
+    .assert_debug_eq(&actual);
 }
 
 fn check(source: &str, expected: &Expect) {
@@ -992,7 +1245,7 @@ struct SrcLint {
     level: LintLevel,
     message: &'static str,
     help: &'static str,
-    code_action_edits: Vec<(String, Span)>,
+    code_action: Option<CodeAction>,
 }
 
 impl SrcLint {
@@ -1002,11 +1255,7 @@ impl SrcLint {
             level: lint.level,
             message: lint.message,
             help: lint.help,
-            code_action_edits: lint
-                .code_action_edits
-                .iter()
-                .map(|(edit, span)| (edit.clone(), *span))
-                .collect(),
+            code_action: lint.code_action.clone(),
         }
     }
 }

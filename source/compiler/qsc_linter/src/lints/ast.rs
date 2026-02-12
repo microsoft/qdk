@@ -2,9 +2,10 @@
 // Licensed under the MIT License.
 
 use super::lint;
-use crate::linter::{Compilation, ast::declare_ast_lints};
+use crate::linter::{CodeAction, Compilation, ast::declare_ast_lints};
 use qsc_ast::ast::{
-    BinOp, Block, Expr, ExprKind, Item, ItemKind, Lit, NodeId, Stmt, StmtKind, TernOp,
+    BinOp, Block, Expr, ExprKind, Item, ItemKind, Lit, Namespace, NodeId, QubitSource, Stmt,
+    StmtKind, TernOp,
 };
 use qsc_data_structures::span::Span;
 use qsc_hir::ty::Ty;
@@ -35,6 +36,8 @@ declare_ast_lints! {
     (DiscourageChainAssignment, LintLevel::Warn, "discouraged use of chain assignment", "assignment expressions always return `Unit`, so chaining them may not be useful"),
     (DeprecatedAssignUpdateExpr, LintLevel::Allow, "deprecated use of update assignment expressions", "update assignment expressions \"a w/= b <- c\" are deprecated; consider using explicit assignment instead \"a[b] = c\""),
     (DeprecatedUpdateExpr, LintLevel::Allow, "deprecated use of update expressions", "update expressions \"a w/ b <- c\" are deprecated; consider using explicit assignment instead"),
+    (AvoidNamespaceBlock, LintLevel::Allow, "avoid using explicit namespace blocks", "Q# best practice is to not use namespace blocks to enclose code; the namespace is inferred from the file path"),
+    (DeprecatedBorrow, LintLevel::Warn, "deprecated `borrow` qubit allocation", "the `borrow` keyword for qubit allocation is deprecated, use `use` instead"),
 }
 
 #[derive(Default)]
@@ -71,7 +74,10 @@ impl NeedlessParens {
             buffer.push(lint!(
                 self,
                 child.span,
-                Self::get_code_action_edits(child.span)
+                CodeAction {
+                    title: "Remove unnecessary parentheses".to_string(),
+                    edits: Self::get_code_action_edits(child.span)
+                }
             ));
         }
     }
@@ -119,7 +125,10 @@ impl AstLintPass for NeedlessParens {
             buffer.push(lint!(
                 self,
                 right.span,
-                Self::get_code_action_edits(right.span)
+                CodeAction {
+                    title: "Remove unnecessary parentheses".to_string(),
+                    edits: Self::get_code_action_edits(right.span)
+                }
             ));
         }
     }
@@ -135,7 +144,14 @@ impl RedundantSemicolons {
     /// found two or more semicolons.
     fn maybe_push(&self, seq: &mut Option<Span>, buffer: &mut Vec<Lint>) {
         if let Some(span) = seq.take() {
-            buffer.push(lint!(self, span, vec![(String::new(), span)]));
+            buffer.push(lint!(
+                self,
+                span,
+                CodeAction {
+                    title: "Remove redundant semicolons".to_string(),
+                    edits: vec![(String::new(), span)]
+                }
+            ));
         }
     }
 }
@@ -224,7 +240,14 @@ impl AstLintPass for DeprecatedSet {
                 lo: expr.span.lo,
                 hi: expr.span.lo + 3,
             };
-            buffer.push(lint!(self, span, vec![(String::new(), span)]));
+            buffer.push(lint!(
+                self,
+                span,
+                CodeAction {
+                    title: "Remove `set` keyword".to_string(),
+                    edits: vec![(String::new(), span)]
+                }
+            ));
         }
     }
 }
@@ -277,11 +300,19 @@ impl AstLintPass for DeprecatedAssignUpdateExpr {
             let record_src = compilation.get_source_code(record.span);
             let index_src = compilation.get_source_code(index.span);
             let value_src = compilation.get_source_code(value.span);
-            let edit = vec![(
+            let edits = vec![(
                 format!("{record_src}[{index_src}] = {value_src}"),
                 expr.span,
             )];
-            buffer.push(lint!(self, expr.span, edit));
+            buffer.push(lint!(
+                self,
+                expr.span,
+                CodeAction {
+                    title: "Replace update assignment expression with explicit assignment"
+                        .to_string(),
+                    edits
+                }
+            ));
         }
     }
 }
@@ -297,6 +328,62 @@ impl AstLintPass for DeprecatedUpdateExpr {
             && let Some(Ty::Array(_)) = compilation.compile_unit.ast.tys.terms.get(record.id)
         {
             buffer.push(lint!(self, expr.span));
+        }
+    }
+}
+
+#[derive(Default)]
+struct AvoidNamespaceBlock {
+    level: LintLevel,
+}
+
+impl AstLintPass for AvoidNamespaceBlock {
+    fn check_namespace(
+        &mut self,
+        namespace: &Namespace,
+        buffer: &mut Vec<Lint>,
+        _compilation: Compilation,
+    ) {
+        if self.level == LintLevel::Allow {
+            return;
+        }
+
+        if namespace.kind == qsc_ast::ast::NamespaceKind::Block {
+            let span = if let (Some(first), Some(last)) =
+                (namespace.name.first(), namespace.name.last())
+            {
+                Span {
+                    lo: first.span.lo,
+                    hi: last.span.hi,
+                }
+            } else {
+                namespace.span
+            };
+            buffer.push(lint!(self, span));
+        }
+    }
+}
+
+#[derive(Default)]
+struct DeprecatedBorrow {
+    level: LintLevel,
+}
+
+impl AstLintPass for DeprecatedBorrow {
+    fn check_stmt(&mut self, stmt: &Stmt, buffer: &mut Vec<Lint>, _compilation: Compilation) {
+        if let &StmtKind::Qubit(QubitSource::Dirty, _, _, _) = stmt.kind.as_ref() {
+            let span = Span {
+                lo: stmt.span.lo,
+                hi: stmt.span.lo + 6, // length of the keyword "borrow"
+            };
+            buffer.push(lint!(
+                self,
+                span,
+                CodeAction {
+                    title: "Replace `borrow` with `use`".to_string(),
+                    edits: vec![("use".to_string(), span)]
+                }
+            ));
         }
     }
 }

@@ -4,16 +4,72 @@
 import { appendChildren, createSvgElements, setAttributes } from "./utils.js";
 
 // Zones will be rendered from top to bottom in array order
+// Supports both old format (rows count) and new format (rowStart/rowEnd)
+type ZoneDataInput = {
+  title: string;
+  kind: "register" | "interaction" | "measurement";
+} & (
+  | { rows: number; rowStart?: never; rowEnd?: never }
+  | { rowStart: number; rowEnd: number; skipRows?: number[]; rows?: never }
+);
+
+// Normalized internal format always uses rowStart/rowEnd
 type ZoneData = {
   title: string;
-  rows: number;
+  rowStart: number;
+  rowEnd: number;
+  skipRows?: number[];
   kind: "register" | "interaction" | "measurement";
 };
 
 export type ZoneLayout = {
   cols: number;
-  zones: ZoneData[];
+  zones: ZoneDataInput[];
+  // The instructions may assume certain columns are missing, but we don't render that visually.
+  // e.g. if `skipCols: [0,9]` was provided, then a `move(0,1)` would actually move to visual column 0,
+  // and a `move(1,10)` would move to visual column 8.
+  skipCols?: number[];
+  // If renumber is true, then all rows and columns will be renumbered in the visualization to be sequential starting from 0
+  renumber?: boolean;
 };
+
+const TWO_QUBIT_GATES = ["CX", "CY", "CZ", "RXX", "RYY", "RZZ", "SWAP"];
+
+// Normalize zone data to always use rowStart/rowEnd format
+function normalizeZones(zones: ZoneDataInput[]): ZoneData[] {
+  let nextRowStart = 0;
+  return zones.map((zone) => {
+    if ("rowStart" in zone && zone.rowStart !== undefined) {
+      // Verify if skipRows are within the rowStart and rowEnd range
+      if (zone.skipRows) {
+        if (
+          !zone.skipRows.every((r) => r >= zone.rowStart && r <= zone.rowEnd)
+        ) {
+          throw `Invalid skipRows in zone "${zone.title}": all skipRows must be between rowStart and rowEnd`;
+        }
+      }
+      // New format with explicit rowStart/rowEnd
+      return {
+        title: zone.title,
+        rowStart: zone.rowStart,
+        rowEnd: zone.rowEnd,
+        skipRows: zone.skipRows,
+        kind: zone.kind,
+      };
+    } else {
+      // Old format with rows count - convert to rowStart/rowEnd
+      const rowStart = nextRowStart;
+      const rowEnd = nextRowStart + zone.rows - 1;
+      nextRowStart = rowEnd + 1;
+      return {
+        title: zone.title,
+        rowStart,
+        rowEnd,
+        kind: zone.kind,
+      };
+    }
+  });
+}
 
 export type TraceData = {
   metadata: any;
@@ -51,25 +107,41 @@ export function fillQubitLocations(
   layout: ZoneLayout,
 ): Array<[number, number]> {
   const qubits: Array<[number, number]> = [];
-  let currRow = 0;
-  layout.zones.forEach((zone) => {
-    for (let row = 0; row < zone.rows; ++row) {
-      if (zone.kind === "register") {
+  const normalizedZones = normalizeZones(layout.zones);
+  normalizedZones.forEach((zone) => {
+    if (zone.kind === "register") {
+      for (let row = zone.rowStart; row <= zone.rowEnd; ++row) {
+        if (zone.skipRows && zone.skipRows.includes(row)) continue;
         for (let col = 0; col < layout.cols; ++col) {
-          qubits.push([currRow, col]);
+          qubits.push([row, col]);
         }
       }
-      ++currRow;
     }
   });
 
   return qubits;
 }
 
-function parseMove(op: string): { qubit: number; to: Location } | undefined {
-  const match = op.match(/move\((\d+), (\d+)\) (\d+)/);
+// Maps an instruction column to a visual column by accounting for skipped columns.
+// For each column in skipCols that is less than the instruction column, we subtract 1.
+function mapColumn(col: number, skipCols?: number[]): number {
+  if (!skipCols || skipCols.length === 0) {
+    return col;
+  }
+  const skippedBefore = skipCols.filter((c) => c < col).length;
+  return col - skippedBefore;
+}
+
+function parseMove(
+  op: string,
+  skipCols?: number[],
+): { qubit: number; to: Location } | undefined {
+  const match = op.match(/move?\((\d+), (\d+)\) (\d+)/);
   if (match) {
-    const to: Location = [parseInt(match[1]), parseInt(match[2])];
+    const to: Location = [
+      parseInt(match[1]),
+      mapColumn(parseInt(match[2]), skipCols),
+    ];
     return { qubit: parseInt(match[3]), to };
   }
   return undefined;
@@ -77,16 +149,43 @@ function parseMove(op: string): { qubit: number; to: Location } | undefined {
 
 function parseGate(
   op: string,
-): { gate: string; qubit: number; arg?: string } | undefined {
-  const match = op.match(/(\w+)\s*(\(.*\))? (\d+)/);
+): { gate: string; qubits: number[]; arg?: string } | undefined {
+  const match = op.match(/(\w+)\s*(\(.*\))? ([\d,\s]+)/);
   if (match) {
     const gate = match[1];
-    const qubit = parseInt(match[3]);
+    const qubits = match[3].split(",").map((s) => parseInt(s.trim()));
     const arg = match[2]
       ? match[2].substring(1, match[2].length - 2)
       : undefined;
-    return { gate, qubit, arg };
+    return { gate, qubits, arg };
   }
+}
+
+function parseZoneOp(
+  op: string,
+  layout: ZoneLayout,
+): { op: "zone_cz" | "zone_mresetz"; zoneIndex: number } | undefined {
+  // If we get a naked 'cz' or 'mresetz', treat it as a zone op for the first zone of the matching type
+  if (op === "cz") {
+    return {
+      op: "zone_cz",
+      zoneIndex: layout.zones.findIndex((z) => z.kind === "interaction"),
+    };
+  }
+  if (op === "mresetz") {
+    return {
+      op: "zone_mresetz",
+      zoneIndex: layout.zones.findIndex((z) => z.kind === "measurement"),
+    };
+  }
+  const match = op.match(/^(zone_cz|zone_mresetz)\s+(\d+)$/);
+  if (match) {
+    return {
+      op: match[1] as "zone_cz" | "zone_mresetz",
+      zoneIndex: parseInt(match[2]),
+    };
+  }
+  return undefined;
 }
 
 /*
@@ -94,7 +193,7 @@ We want to build up a cache of the qubit location at each 'n' steps so that scru
 Storing for each step is too large for the number of steps we want to handle. Also, the building
 of the cache can take a long time, so we want to chunk it up to avoid blocking the UI thread.
 */
-function TraceToGetLayoutFn(trace: TraceData) {
+function TraceToGetLayoutFn(trace: TraceData, skipCols?: number[]) {
   const STEP_SIZE = 100; // How many steps between each cache entry
 
   const cacheEntries = Math.ceil(trace.steps.length / STEP_SIZE);
@@ -116,7 +215,7 @@ function TraceToGetLayoutFn(trace: TraceData) {
     }
     // Extract the move operations in the prior step, to apply to the prior layout
     const moves = trace.steps[stepIndex - 1].ops
-      .map(parseMove)
+      .map((op) => parseMove(op, skipCols))
       .filter((x) => x != undefined);
 
     // Then apply them to the layout
@@ -221,7 +320,9 @@ export class Layout {
   height: number;
   scale: number = initialScale;
   qubits: Location[];
-  rowOffset: number[];
+  rowOffsetMap: Map<number, number>; // Maps absolute row numbers to visual Y offsets
+  normalizedZones: ZoneData[];
+  effectiveCols: number; // Visual column count after accounting for skipCols
   currentStep = 0;
   trackParent: SVGGElement;
   activeGates: SVGElement[] = [];
@@ -237,9 +338,15 @@ export class Layout {
   ) {
     if (!trace.qubits?.length) {
       trace.qubits = fillQubitLocations(layout);
+    } else if (layout.skipCols?.length) {
+      // Map the initial qubit column positions if skipCols is provided
+      trace.qubits = trace.qubits.map(([row, col]) => [
+        row,
+        mapColumn(col, layout.skipCols),
+      ]);
     }
     this.trace = trace;
-    this.getStepLayout = TraceToGetLayoutFn(trace);
+    this.getStepLayout = TraceToGetLayoutFn(trace, layout.skipCols);
 
     this.qubits = structuredClone(trace.qubits);
 
@@ -248,11 +355,21 @@ export class Layout {
       "svg",
     );
 
-    const totalRows = layout.zones.reduce((prev, curr) => prev + curr.rows, 0);
+    // Normalize zones to always use rowStart/rowEnd format
+    this.normalizedZones = normalizeZones(layout.zones);
+
+    // Calculate effective columns (visual count after skipping)
+    this.effectiveCols = layout.cols - (layout.skipCols?.length ?? 0);
+
+    const totalRows = this.normalizedZones.reduce(
+      (prev, curr) =>
+        prev + (curr.rowEnd - curr.rowStart + 1) - (curr.skipRows?.length ?? 0),
+      0,
+    );
 
     this.height =
       totalRows * qubitSize + zoneSpacing * (layout.zones.length + 1);
-    this.width = layout.cols * qubitSize + colPadding;
+    this.width = this.effectiveCols * qubitSize + colPadding;
 
     setAttributes(this.container, {
       viewBox: `-5 0 ${this.width} ${this.height}`,
@@ -261,21 +378,23 @@ export class Layout {
     });
 
     // Loop through the zones, calculating the row offsets, and rendering the zones
-    this.rowOffset = [];
+    // Maps absolute row numbers to visual Y offsets
+    this.rowOffsetMap = new Map();
     let nextOffset = zoneSpacing;
-    let nextRowNum = 0;
-    layout.zones.forEach((zone, index) => {
-      this.renderZone(index, nextOffset, nextRowNum);
-      for (let i = 0; i < zone.rows; ++i) {
-        this.rowOffset.push(nextOffset);
-        nextOffset += qubitSize;
-        ++nextRowNum;
+    let globalRowIndex = 0;
+    this.normalizedZones.forEach((zone, index) => {
+      globalRowIndex = this.renderZone(index, nextOffset, globalRowIndex);
+      for (let row = zone.rowStart; row <= zone.rowEnd; ++row) {
+        if (!zone.skipRows?.includes(row)) {
+          this.rowOffsetMap.set(row, nextOffset);
+          nextOffset += qubitSize;
+        }
       }
       nextOffset += zoneSpacing; // Add spacing after each zone
     });
 
     const colNumOffset = nextOffset - 8;
-    this.renderColNums(layout.cols, colNumOffset);
+    this.renderColNums(this.effectiveCols, colNumOffset);
 
     // Put the track parent before the qubits, so the qubits render on top
     this.trackParent = createSvgElements("g")[0] as SVGGElement;
@@ -319,8 +438,17 @@ export class Layout {
     return this.trace.steps[step].ops;
   }
 
-  private renderZone(zoneIndex: number, offset: number, firstRowNum = 0) {
-    const zoneData = this.layout.zones[zoneIndex];
+  private renderZone(
+    zoneIndex: number,
+    offset: number,
+    globalRowIndex: number,
+  ): number {
+    const zoneData = this.normalizedZones[zoneIndex];
+    const zoneRows =
+      zoneData.rowEnd -
+      zoneData.rowStart +
+      1 -
+      (zoneData.skipRows?.length ?? 0);
     const g = createSvgElements("g")[0];
     setAttributes(g, {
       transform: `translate(0 ${offset})`,
@@ -333,32 +461,32 @@ export class Layout {
       setAttributes(rect, {
         x: "0",
         y: "0",
-        width: `${this.layout.cols * qubitSize}`,
-        height: `${zoneData.rows * qubitSize}`,
+        width: `${this.effectiveCols * qubitSize}`,
+        height: `${zoneRows * qubitSize}`,
         rx: `${zoneBoxCornerRadius}`,
       });
       appendChildren(g, [rect]);
 
       // Draw the lines between the rows
-      for (let i = 1; i < zoneData.rows; i++) {
+      for (let i = 1; i < zoneRows; i++) {
         const path = createSvgElements("path")[0];
         setAttributes(path, {
-          d: `M 0,${i * qubitSize} h${this.layout.cols * qubitSize}`,
+          d: `M 0,${i * qubitSize} h${this.effectiveCols * qubitSize}`,
         });
         appendChildren(g, [path]);
       }
       // Draw the lines between the columns
-      for (let i = 1; i < this.layout.cols; i++) {
+      for (let i = 1; i < this.effectiveCols; i++) {
         const path = createSvgElements("path")[0];
         setAttributes(path, {
-          d: `M ${i * qubitSize},0 v${zoneData.rows * qubitSize}`,
+          d: `M ${i * qubitSize},0 v${zoneRows * qubitSize}`,
         });
         appendChildren(g, [path]);
       }
     } else {
       // For the interaction zone draw each doublon
-      for (let row = 0; row < zoneData.rows; ++row) {
-        for (let i = 0; i < this.layout.cols; i += 2) {
+      for (let row = 0; row < zoneRows; ++row) {
+        for (let i = 0; i < this.effectiveCols; i += 2) {
           const rect = createSvgElements("rect")[0];
           setAttributes(rect, {
             x: `${i * qubitSize}`,
@@ -376,17 +504,20 @@ export class Layout {
       }
     }
 
-    // Number the rows
-    for (let i = 0; i < zoneData.rows; ++i) {
-      const rowNum = firstRowNum + i;
+    // Number the rows using the absolute row numbers from rowStart to rowEnd
+    let i = 0;
+    for (let rowNum = zoneData.rowStart; rowNum <= zoneData.rowEnd; ++rowNum) {
+      if (zoneData.skipRows && zoneData.skipRows.includes(rowNum)) continue;
       const label = createSvgElements("text")[0];
       setAttributes(label, {
-        x: `${this.layout.cols * qubitSize + 5}`,
+        x: `${this.effectiveCols * qubitSize + 5}`,
         y: `${i * qubitSize + 5}`,
         class: "qs-atoms-label",
       });
-      label.textContent = `${rowNum}`;
+      label.textContent = `${this.layout.renumber ? globalRowIndex : rowNum}`;
       appendChildren(g, [label]);
+      ++i;
+      ++globalRowIndex;
     }
 
     // Draw the title
@@ -400,6 +531,7 @@ export class Layout {
 
     appendChildren(g, [text]);
     appendChildren(this.container, [g]);
+    return globalRowIndex;
   }
 
   private renderQubits() {
@@ -435,16 +567,20 @@ export class Layout {
     setAttributes(g, {
       transform: `translate(0 ${offset})`,
     });
-    // Number the columns
-    for (let i = 0; i < cols; ++i) {
+    // Number the columns, showing original column numbers (skipping those in skipCols)
+    const skipCols = this.layout.skipCols ?? [];
+    let visualCol = 0;
+    for (let origCol = 0; visualCol < cols; ++origCol) {
+      if (skipCols.includes(origCol)) continue;
       const label = createSvgElements("text")[0];
       setAttributes(label, {
-        x: `${i * qubitSize + 5}`,
+        x: `${visualCol * qubitSize + 5}`,
         y: `5`,
         class: "qs-atoms-label",
       });
-      label.textContent = `${i}`;
+      label.textContent = `${this.layout.renumber ? visualCol : origCol}`;
       appendChildren(g, [label]);
+      ++visualCol;
     }
     appendChildren(this.container, [g]);
   }
@@ -588,7 +724,27 @@ export class Layout {
   }
 
   getQubitRowOffset(row: number) {
-    return this.rowOffset[row];
+    const offset = this.rowOffsetMap.get(row);
+    if (offset === undefined) {
+      throw `Row ${row} not found in layout`;
+    }
+    return offset;
+  }
+
+  // Returns array of qubit indices that are currently in the specified zone
+  getQubitsInZone(zoneIndex: number): number[] {
+    const zone = this.normalizedZones[zoneIndex];
+    if (!zone) {
+      throw `Zone ${zoneIndex} not found`;
+    }
+    const qubitsInZone: number[] = [];
+    for (let i = 0; i < this.qubits.length; i++) {
+      const [row] = this.qubits[i];
+      if (row >= zone.rowStart && row <= zone.rowEnd) {
+        qubitsInZone.push(i);
+      }
+    }
+    return qubitsInZone;
   }
 
   getLocationCenter(row: number, col: number): [number, number] {
@@ -645,7 +801,7 @@ export class Layout {
       const ops = this.getOpsAtStep(qubitLocationIndex);
       let trailId = 0;
       ops.forEach((op) => {
-        const move = parseMove(op);
+        const move = parseMove(op, this.layout.skipCols);
         if (move) {
           // Apply the move animation
           const [oldX, oldY] = this.getQubitCenter(move.qubit);
@@ -718,11 +874,63 @@ export class Layout {
             });
           // TODO: Check if you can/should cancel when scrubbing
         } else {
-          // Wasn't a move, so render the gate
-          const gate = parseGate(op);
-          if (!gate) throw `Invalid gate: ${op}`;
-          const arg = gate.arg ? gate.arg.substring(0, 4) : undefined;
-          this.renderGateOnQubit(gate.qubit, gate.gate.toUpperCase(), arg);
+          // Check if it's a zone operation
+          const zoneOp = parseZoneOp(op, this.layout);
+          if (zoneOp) {
+            const qubitsInZone = this.getQubitsInZone(zoneOp.zoneIndex);
+            if (zoneOp.op === "zone_cz") {
+              // For zone_cz, render CZ gates on pairs of qubits in doublons
+              // Group qubits by their row, then pair adjacent columns
+              const qubitsByRow = new Map<number, number[]>();
+              for (const qubitIdx of qubitsInZone) {
+                const [row] = this.qubits[qubitIdx];
+                if (!qubitsByRow.has(row)) {
+                  qubitsByRow.set(row, []);
+                }
+                qubitsByRow.get(row)!.push(qubitIdx);
+              }
+              // For each row, find pairs in doublons (col 0-1, 2-3, 4-5, etc.)
+              for (const [, qubitsInRow] of qubitsByRow) {
+                // Sort by column
+                qubitsInRow.sort(
+                  (a, b) => this.qubits[a][1] - this.qubits[b][1],
+                );
+                for (let i = 0; i < qubitsInRow.length - 1; i++) {
+                  const q1 = qubitsInRow[i];
+                  const q2 = qubitsInRow[i + 1];
+                  const col1 = this.qubits[q1][1];
+                  const col2 = this.qubits[q2][1];
+                  // Check if they're in the same doublon (even-odd pair)
+                  if (Math.floor(col1 / 2) === Math.floor(col2 / 2)) {
+                    this.renderGateOnQubit(q1, "CZ");
+                    i++; // Skip the next qubit since we've paired it
+                  }
+                }
+              }
+            } else if (zoneOp.op === "zone_mresetz") {
+              // For zone_mresetz, render MZ gate on all qubits in the zone
+              for (const qubitIdx of qubitsInZone) {
+                this.renderGateOnQubit(qubitIdx, "MZ");
+              }
+            }
+          } else {
+            // Wasn't a move or zone op, so render the gate
+            const gate = parseGate(op);
+            if (!gate) throw `Invalid gate: ${op}`;
+            const arg = gate.arg ? gate.arg.substring(0, 4) : undefined;
+            const isTwoQubitGate = TWO_QUBIT_GATES.includes(
+              gate.gate.toUpperCase(),
+            );
+            // Handle the case where an op is a list of qubits to apply the same op to
+            for (let i = 0; i < gate.qubits.length; i++) {
+              if (isTwoQubitGate && i % 2 !== 0) continue;
+              this.renderGateOnQubit(
+                gate.qubits[i],
+                gate.gate.toUpperCase(),
+                arg,
+              );
+            }
+          }
         }
       });
     }

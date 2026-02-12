@@ -47,8 +47,8 @@
 
 .view-option select,
 .view-option input[type="range"] {
-  color: var(--vscode-editor-foreground);
-  background-color: var(--vscode-editor-background);
+  color: var(--qdk-host-foreground);
+  background-color: var(--qdk-host-background);
 }
 
 #cube-dropdown-container {

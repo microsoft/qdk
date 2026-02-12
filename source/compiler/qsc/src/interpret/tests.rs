@@ -93,8 +93,6 @@ mod given_interpreter {
                     &expect![[r#"
                         name error: `Message` not found
                            [line_0] [Message]
-                        type error: insufficient type information to infer type
-                           [line_0] [Message("_")]
                     "#]],
                 );
             }
@@ -591,8 +589,6 @@ mod given_interpreter {
                       ambiguous name [line_3] [DumpMachine]
                       found in this namespace [line_1] [Other]
                       and also in this namespace [line_2] [Std.Diagnostics]
-                    type error: insufficient type information to infer type
-                       [line_3] [DumpMachine()]
                 "#]],
             );
         }
@@ -1296,8 +1292,6 @@ mod given_interpreter {
                 &expect![[r#"
                     name error: `Bar` not found
                        [line_1] [Bar]
-                    type error: insufficient type information to infer type
-                       [line_1] [Bar()]
                 "#]],
             );
         }
@@ -1383,8 +1377,6 @@ mod given_interpreter {
                 &expect![[r#"
                     name error: `Bar` not found
                        [line_2] [Bar]
-                    type error: insufficient type information to infer type
-                       [line_2] [Bar()]
                 "#]],
             );
         }
@@ -2351,8 +2343,6 @@ mod given_interpreter {
                 &expect![[r#"
                     name error: `Foo` not found
                        [line_0] [Foo]
-                    type error: insufficient type information to infer type
-                       [line_0] [Foo()]
                 "#]],
             );
         }

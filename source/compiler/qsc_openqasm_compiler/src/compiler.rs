@@ -59,6 +59,8 @@ use qsc_openqasm_parser::{
 
 const QSHARP_QIR_INTRINSIC_ANNOTATION: &str = "SimulatableIntrinsic";
 const QDK_QIR_INTRINSIC_ANNOTATION: &str = "qdk.qir.intrinsic";
+const QSHARP_QIR_NOISE_INTRINSIC_ANNOTATION: &str = "NoiseIntrinsic";
+const QDK_QIR_NOISE_INTRINSIC_ANNOTATION: &str = "qdk.qir.noise_intrinsic";
 const QSHARP_CONFIG_ANNOTATION: &str = "Config";
 const QDK_CONFIG_ANNOTATION: &str = "qdk.qir.profile";
 
@@ -923,18 +925,35 @@ impl QasmCompiler {
         let qsharp_ty = self.map_semantic_type_to_qsharp_type(return_type, stmt.return_type_span);
         let return_type = map_qsharp_type_to_ast_ty(&qsharp_ty, stmt.return_type_span);
         let kind = if stmt.has_qubit_params
-            || annotations
-                .iter()
-                .any(|annotation| Self::is_simulatable_intrinsic(annotation))
-        {
+            || annotations.iter().any(|annotation| {
+                Self::is_simulatable_intrinsic(annotation) || Self::is_noise_intrinsic(annotation)
+            }) {
             qsast::CallableKind::Operation
         } else {
             qsast::CallableKind::Function
         };
 
-        let attrs = annotations
+        let mut attrs: Vec<_> = annotations
             .iter()
-            .filter_map(|annotation| self.compile_annotation(annotation));
+            .filter_map(|annotation| self.compile_annotation(annotation))
+            .collect();
+
+        // If the callable is a noise intrinsic but is missing the simulatable intrinsic
+        // attr, inject it. This is because OpenQASM callables must have bodies, so just
+        // having a @qdk.qir.noise_intrinsic in qasm won't work.
+        if let Some(annotation) = annotations
+            .iter()
+            .find(|annotation| Self::is_noise_intrinsic(annotation))
+            && !annotations
+                .iter()
+                .any(|annotation| Self::is_simulatable_intrinsic(annotation))
+        {
+            attrs.push(build_attr(
+                QSHARP_QIR_INTRINSIC_ANNOTATION,
+                annotation.value.clone(),
+                annotation.span,
+            ));
+        }
 
         // We use the same primitives used for declaring gates, because def declarations
         // in QASM can take qubits as arguments and call quantum gates.
@@ -1340,10 +1359,27 @@ impl QasmCompiler {
         let body = Some(self.compile_block(&stmt.body));
 
         // Collect attrs first to avoid borrow conflicts with functor_constraints lookup.
-        let attrs: Vec<_> = annotations
+        let mut attrs: Vec<_> = annotations
             .iter()
             .filter_map(|annotation| self.compile_annotation(annotation))
             .collect();
+
+        // If the callable is a noise intrinsic but is missing the simulatable intrinsic
+        // attr, inject it. This is because OpenQASM callables must have bodies, so just
+        // having a @qdk.qir.noise_intrinsic in qasm won't work.
+        if let Some(annotation) = annotations
+            .iter()
+            .find(|annotation| Self::is_noise_intrinsic(annotation))
+            && !annotations
+                .iter()
+                .any(|annotation| Self::is_simulatable_intrinsic(annotation))
+        {
+            attrs.push(build_attr(
+                QSHARP_QIR_INTRINSIC_ANNOTATION,
+                annotation.value.clone(),
+                annotation.span,
+            ));
+        }
 
         // Determine which functors this gate needs based on how it's called.
         // Do not compile functors if we have the simulatable intrinsic annotation.
@@ -1383,7 +1419,9 @@ impl QasmCompiler {
     fn compile_annotation(&mut self, annotation: &semast::Annotation) -> Option<qsast::Attr> {
         let name = annotation.identifier.as_string();
         match name.as_str() {
-            QSHARP_QIR_INTRINSIC_ANNOTATION | QSHARP_CONFIG_ANNOTATION => {
+            QSHARP_QIR_INTRINSIC_ANNOTATION
+            | QSHARP_QIR_NOISE_INTRINSIC_ANNOTATION
+            | QSHARP_CONFIG_ANNOTATION => {
                 Some(build_attr(name, annotation.value.clone(), annotation.span))
             }
             QDK_CONFIG_ANNOTATION => Some(build_attr(
@@ -1396,6 +1434,15 @@ impl QasmCompiler {
                 // which is used by the Q# compiler
                 Some(build_attr(
                     QSHARP_QIR_INTRINSIC_ANNOTATION,
+                    annotation.value.clone(),
+                    annotation.span,
+                ))
+            }
+            QDK_QIR_NOISE_INTRINSIC_ANNOTATION => {
+                // Map the QDK QIR noise intrinsic annotation to the noise intrinsic annotation
+                // which is used by the Q# compiler
+                Some(build_attr(
+                    QSHARP_QIR_NOISE_INTRINSIC_ANNOTATION,
                     annotation.value.clone(),
                     annotation.span,
                 ))
@@ -2376,6 +2423,13 @@ impl QasmCompiler {
         matches!(
             annotation.identifier.as_string().as_str(),
             QDK_QIR_INTRINSIC_ANNOTATION | QSHARP_QIR_INTRINSIC_ANNOTATION
+        )
+    }
+
+    fn is_noise_intrinsic(annotation: &semast::Annotation) -> bool {
+        matches!(
+            annotation.identifier.as_string().as_str(),
+            QDK_QIR_NOISE_INTRINSIC_ANNOTATION | QSHARP_QIR_NOISE_INTRINSIC_ANNOTATION
         )
     }
 

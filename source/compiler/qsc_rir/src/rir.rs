@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 use indenter::{Indented, indented};
-use qsc_data_structures::{index_map::IndexMap, target::TargetCapabilityFlags};
+use qsc_data_structures::{attrs::Attributes, index_map::IndexMap, target::TargetCapabilityFlags};
 use std::fmt::{self, Display, Formatter, Write};
 
 /// The root of the RIR.
@@ -14,6 +14,7 @@ pub struct Program {
     pub config: Config,
     pub num_qubits: u32,
     pub num_results: u32,
+    pub attrs: Attributes,
     pub tags: Vec<String>,
 }
 
@@ -214,6 +215,7 @@ impl Display for Callable {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CallableType {
     Measurement,
+    NoiseIntrinsic,
     Reset,
     Readout,
     OutputRecording,
@@ -224,6 +226,7 @@ impl Display for CallableType {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match &self {
             Self::Measurement => write!(f, "Measurement")?,
+            Self::NoiseIntrinsic => write!(f, "NoiseIntrinsic")?,
             Self::Readout => write!(f, "Readout")?,
             Self::OutputRecording => write!(f, "OutputRecording")?,
             Self::Regular => write!(f, "Regular")?,
