@@ -20,7 +20,7 @@ pub enum MeasurementResult {
 }
 
 pub trait Simulator {
-    type Noise;
+    type Noise: Default;
     type StateDumpData;
 
     /// Creates a new simulator.

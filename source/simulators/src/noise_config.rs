@@ -99,6 +99,12 @@ pub struct IdleNoiseParams {
     pub s_probability: f32,
 }
 
+impl Default for IdleNoiseParams {
+    fn default() -> Self {
+        Self::NOISELESS
+    }
+}
+
 impl IdleNoiseParams {
     pub const NOISELESS: Self = Self { s_probability: 0.0 };
 
@@ -151,6 +157,7 @@ impl<T: Float> NoiseTable<T> {
 /// Describes the noise configuration for each operation.
 ///
 /// This is the internal format used by the simulator.
+#[derive(Default)]
 pub struct CumulativeNoiseConfig<T> {
     pub i: CumulativeNoiseTable<T>,
     pub x: CumulativeNoiseTable<T>,
@@ -222,6 +229,7 @@ where
 /// computation more efficient.
 ///
 /// This is the internal format used by the simulator.
+#[derive(Default)]
 pub struct CumulativeNoiseTable<T> {
     pub sampler: CorrelatedNoiseSampler<T>,
     pub loss: f64,
@@ -261,6 +269,7 @@ where
     }
 }
 
+#[derive(Default)]
 pub struct CorrelatedNoiseSampler<T> {
     /// The total probability of any noise.
     noise_probability: u64,

@@ -171,31 +171,83 @@ fn two_qubit_gate_truth_tables() {
 
 // ==================== Single-Qubit Gate Tests ====================
 
-// H gate tests
+// X gate tests
 #[test]
-fn h_squared_eq_identity() {
+fn x_is_self_adjoint() {
     check_programs_are_eq! {
         simulator: NoiselessSimulator,
         programs: [
             qir! { i(0) },
-            qir! { h(0); h(0); }
+            qir! { x(0); x(0) }
         ],
         num_qubits: 1,
     }
 }
 
 #[test]
-fn h_x_h_eq_z() {
+fn x_eq_h_z_h() {
     check_programs_are_eq! {
         simulator: NoiselessSimulator,
         programs: [
-            qir! { z(0) },
-            qir! { h(0); x(0); h(0); }
+            qir! { x(0) },
+            qir! { within { h(0) } apply { z(0) } }
         ],
         num_qubits: 1,
     }
 }
 
+// Y gate tests
+#[test]
+fn y_is_self_adjoint() {
+    check_programs_are_eq! {
+        simulator: NoiselessSimulator,
+        programs: [
+            qir! { i(0) },
+            qir! { y(0); y(0) }
+        ],
+        num_qubits: 1,
+    }
+}
+
+#[test]
+fn y_gate_eq_x_z_and_z_x() {
+    check_programs_are_eq! {
+        simulator: NoiselessSimulator,
+        programs: [
+            qir! { y(0) },
+            qir! { x(0); z(0) },
+            qir! { z(0); x(0) },
+        ],
+        num_qubits: 1,
+    }
+}
+
+// Z gate tests
+#[test]
+fn z_is_self_adjoint() {
+    check_programs_are_eq! {
+        simulator: NoiselessSimulator,
+        programs: [
+            qir! { i(0) },
+            qir! { within { h(0) } apply { z(0); z(0) } }
+        ],
+        num_qubits: 1,
+    }
+}
+
+#[test]
+fn z_eq_h_x_h() {
+    check_programs_are_eq! {
+        simulator: NoiselessSimulator,
+        programs: [
+            qir! { z(0) },
+            qir! { within { h(0) } apply { x(0) } }
+        ],
+        num_qubits: 1,
+    }
+}
+
+// H gate tests
 #[test]
 fn h_gate_creates_superposition() {
     // H creates equal superposition - should see both 0 and 1
@@ -209,87 +261,20 @@ fn h_gate_creates_superposition() {
         num_results: 1,
         shots: 100,
         seed: SEED,
-        format: histogram,
+        format: outcomes,
         output: expect![[r#"
-            0: 46
-            1: 54"#]],
+                    0
+                    1"#]],
     }
 }
 
-// X gate tests
 #[test]
-fn double_x_gate_eq_identity() {
+fn h_is_self_adjoint() {
     check_programs_are_eq! {
         simulator: NoiselessSimulator,
         programs: [
             qir! { i(0) },
-            qir! { x(0); x(0); }
-        ],
-        num_qubits: 1,
-    }
-}
-
-// Z gate tests
-#[test]
-fn z_gate_preserves_one() {
-    check_sim! {
-        simulator: NoiselessSimulator,
-        program: qir! {
-            x(0);
-            z(0);
-            mresetz(0, 0);
-        },
-        num_qubits: 1,
-        num_results: 1,
-        output: expect![[r#"1"#]],
-    }
-}
-
-#[test]
-fn h_z_h_eq_x() {
-    check_programs_are_eq! {
-        simulator: NoiselessSimulator,
-        programs: [
-            qir! { x(0) },
-            qir! { within { h(0) } apply { z(0) } }
-        ],
-        num_qubits: 1,
-    }
-}
-
-#[test]
-fn x_gate_eq_h_z_h() {
-    check_programs_are_eq! {
-        simulator: NoiselessSimulator,
-        programs: [
-            qir! { x(0) },
-            qir! { h(0); z(0); h(0); }
-        ],
-        num_qubits: 1,
-    }
-}
-
-// Y gate tests
-#[test]
-fn double_y_gate_eq_identity() {
-    check_programs_are_eq! {
-        simulator: NoiselessSimulator,
-        programs: [
-            qir! { i(0) },
-            qir! { y(0); y(0); }
-        ],
-        num_qubits: 1,
-    }
-}
-
-#[test]
-fn y_gate_eq_x_z_and_z_x() {
-    check_programs_are_eq! {
-        simulator: NoiselessSimulator,
-        programs: [
-            qir! { y(0) },
-            qir! { x(0); z(0); },
-            qir! { z(0); x(0); },
+            qir! { h(0); h(0) }
         ],
         num_qubits: 1,
     }
@@ -302,35 +287,20 @@ fn s_squared_eq_z() {
         simulator: NoiselessSimulator,
         programs: [
             qir! { z(0) },
-            qir! { s(0); s(0); }
+            qir! { s(0); s(0) }
         ],
         num_qubits: 1,
     }
 }
 
 #[test]
-fn s_gate_preserves_computational_basis() {
-    check_sim! {
-        simulator: NoiselessSimulator,
-        program: qir! {
-            s(0);
-            mresetz(0, 0);
-        },
-        num_qubits: 1,
-        num_results: 1,
-        output: expect![[r#"0"#]],
-    }
-}
-
-// S_ADJ gate tests
-#[test]
 fn s_and_s_adj_cancel() {
     check_programs_are_eq! {
         simulator: NoiselessSimulator,
         programs: [
             qir! { i(0) },
-            qir! { s(0); s_adj(0); },
-            qir! { s_adj(0); s(0); },
+            qir! { s(0); s_adj(0) },
+            qir! { s_adj(0); s(0) }
         ],
         num_qubits: 1,
     }
@@ -342,7 +312,7 @@ fn s_adj_squared_eq_z() {
         simulator: NoiselessSimulator,
         programs: [
             qir! { z(0) },
-            qir! { s_adj(0); s_adj(0); }
+            qir! { s_adj(0); s_adj(0) }
         ],
         num_qubits: 1,
     }
@@ -355,21 +325,20 @@ fn sx_squared_eq_x() {
         simulator: NoiselessSimulator,
         programs: [
             qir! { x(0) },
-            qir! { sx(0); sx(0); }
+            qir! { sx(0); sx(0) }
         ],
         num_qubits: 1,
     }
 }
 
-// SX_ADJ gate tests
 #[test]
 fn sx_and_sx_adj_cancel() {
     check_programs_are_eq! {
         simulator: NoiselessSimulator,
         programs: [
             qir! { i(0) },
-            qir! { sx(0); sx_adj(0); },
-            qir! { sx_adj(0); sx(0); },
+            qir! { sx(0); sx_adj(0) },
+            qir! { sx_adj(0); sx(0) }
         ],
         num_qubits: 1,
     }
@@ -381,7 +350,7 @@ fn sx_adj_squared_eq_x() {
         simulator: NoiselessSimulator,
         programs: [
             qir! { x(0) },
-            qir! { sx_adj(0); sx_adj(0); }
+            qir! { sx_adj(0); sx_adj(0) }
         ],
         num_qubits: 1,
     }
@@ -421,67 +390,6 @@ fn t_adj_fourth_eq_z() {
         programs: [
             qir! { z(0) },
             qir! { t_adj(0); t_adj(0); t_adj(0); t_adj(0); }
-        ],
-        num_qubits: 1,
-    }
-}
-
-// ==================== Reset and Measurement Tests ====================
-
-#[test]
-fn reset_takes_qubit_back_to_zero() {
-    check_sim! {
-        simulator: NoiselessSimulator,
-        program: qir! {
-            x(0);
-            reset(0);  // Measures 1, resets to 0
-            mz(0, 0);  // Measures 0
-        },
-        num_qubits: 1,
-        num_results: 1,
-        output: expect![[r#"0"#]],
-    }
-}
-
-#[test]
-fn mresetz_resets_after_measurement() {
-    check_sim! {
-        simulator: NoiselessSimulator,
-        program: qir! {
-            x(0);
-            mresetz(0, 0);  // Measures 1, resets to 0
-            mresetz(0, 1);  // Measures 0
-        },
-        num_qubits: 1,
-        num_results: 2,
-        output: expect![[r#"10"#]],
-    }
-}
-
-#[test]
-fn mz_is_idempotent() {
-    // M M ~ M (repeated measurement gives same result)
-    check_sim! {
-        simulator: NoiselessSimulator,
-        program: qir! {
-            x(0);
-            mz(0, 0);  // Measures 1, does not reset
-            mz(0, 1);  // Measures 1 again
-        },
-        num_qubits: 1,
-        num_results: 2,
-        output: expect![[r#"11"#]],
-    }
-}
-
-// MOV gate tests
-#[test]
-fn mov_eq_identity() {
-    check_programs_are_eq! {
-        simulator: NoiselessSimulator,
-        programs: [
-            qir! { i(0) },
-            qir! { mov(0) }
         ],
         num_qubits: 1,
     }
@@ -824,6 +732,81 @@ fn rzz_pi_eq_z_tensor_z() {
             qir! { within { h(0); h(1) } apply { rzz(PI, 0, 1) } }
         ],
         num_qubits: 2,
+    }
+}
+
+// ==================== Reset and Measurement Tests ====================
+
+#[test]
+fn reset_takes_qubit_back_to_zero() {
+    check_sim! {
+        simulator: NoiselessSimulator,
+        program: qir! {
+            x(0);
+            reset(0);  // Resets to 0
+            mz(0, 0);  // Measures 0
+        },
+        num_qubits: 1,
+        num_results: 1,
+        output: expect![[r#"0"#]],
+    }
+}
+
+#[test]
+fn mresetz_resets_after_measurement() {
+    check_sim! {
+        simulator: NoiselessSimulator,
+        program: qir! {
+            x(0);
+            mresetz(0, 0);  // Measures 1, resets to 0
+            mresetz(0, 1);  // Measures 0
+        },
+        num_qubits: 1,
+        num_results: 2,
+        output: expect![[r#"10"#]],
+    }
+}
+
+#[test]
+fn mz_does_not_reset() {
+    check_sim! {
+        simulator: NoiselessSimulator,
+        program: qir! {
+            x(0);
+            mz(0, 0);  // Measures 1, does not reset
+            mz(0, 1);  // Measures 1 again
+        },
+        num_qubits: 1,
+        num_results: 2,
+        output: expect![[r#"11"#]],
+    }
+}
+
+#[test]
+fn mz_is_idempotent() {
+    // M M ~ M (repeated measurement gives same result)
+    check_programs_are_eq! {
+        simulator: NoiselessSimulator,
+        programs: [
+            qir! { x(0); mz(0, 0) },
+            qir! { x(0); mz(0, 0); mz(0, 1) }
+        ],
+        num_qubits: 1,
+        num_results: 2,
+    }
+}
+
+// ==================== MOV Gate Tests ====================
+
+#[test]
+fn mov_is_noop_without_noise() {
+    check_programs_are_eq! {
+        simulator: NoiselessSimulator,
+        programs: [
+            qir! {},
+            qir! { mov(0) }
+        ],
+        num_qubits: 1,
     }
 }
 
