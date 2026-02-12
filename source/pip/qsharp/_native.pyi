@@ -920,6 +920,7 @@ class NoiseConfig:
     ry: NoiseTable
     rz: NoiseTable
     cx: NoiseTable
+    cy: NoiseTable
     cz: NoiseTable
     rxx: NoiseTable
     ryy: NoiseTable
