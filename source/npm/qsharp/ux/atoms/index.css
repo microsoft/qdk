@@ -14,6 +14,7 @@
   padding: 16px;
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 
 .qs-atoms-app:focus {
@@ -165,7 +166,7 @@
   position: absolute;
   display: none;
   left: 40px;
-  top: 50px;
+  top: 48px;
   border: 1px solid var(--qdk-mid-gray);
   border-radius: 8px;
   background-color: var(--qdk-host-background);

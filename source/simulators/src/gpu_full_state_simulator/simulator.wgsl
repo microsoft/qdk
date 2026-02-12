@@ -40,6 +40,7 @@ const OPID_MRESETZ = 22u;
 const OPID_SWAP    = 24u;
 const OPID_MAT1Q   = 25u;
 const OPID_MAT2Q   = 26u;
+const OPID_CY      = 29u;
 
 const OPID_PAULI_NOISE_1Q = 128u;
 const OPID_PAULI_NOISE_2Q = 129u;
@@ -592,8 +593,8 @@ fn apply_2q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
         setUnitaryRow(shot_idx, 3u, op_row_3);
         shot.op_type = OPID_SHOT_BUFF_2Q;
     } else {
-        // No noise to apply. Leave if CX or CZ  or RZZ as they get handled specially in execute_op
-        if (op.id == OPID_CX || op.id == OPID_CZ || op.id == OPID_RZZ) {
+        // No noise to apply. Leave if CX, CY, CZ, or RZZ as they get handled specially in execute_op
+        if (op.id == OPID_CX || op.id == OPID_CY || op.id == OPID_CZ || op.id == OPID_RZZ) {
             shot.op_type = op.id;
         } else {
             shot.op_type = OPID_SHOT_BUFF_2Q;
@@ -838,8 +839,8 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
     }
 
     // Before doing further work, if any qubit for the gate is lost, just skip by marking the op as ID
-    if (shot.qubit_state[op.q1].heat == -1.0) ||
-       (op.id == OPID_CX || op.id == OPID_CZ || op.id == OPID_SWAP || op.id == OPID_RXX || op.id == OPID_RYY || op.id == OPID_RZZ || op.id == OPID_MAT2Q) &&
+     if (shot.qubit_state[op.q1].heat == -1.0) ||
+         (op.id == OPID_CX || op.id == OPID_CY || op.id == OPID_CZ || op.id == OPID_SWAP || op.id == OPID_RXX || op.id == OPID_RYY || op.id == OPID_RZZ || op.id == OPID_MAT2Q) &&
        (shot.qubit_state[op.q2].heat == -1.0) {
         shot.op_type = OPID_ID;
         shot.op_idx = op_idx;
@@ -896,7 +897,7 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
       case OPID_SHOT_BUFF_1Q {
         shot.qubits_updated_last_op_mask = 1u << op.q1;
       }
-      case OPID_CX, OPID_SHOT_BUFF_2Q {
+            case OPID_CX, OPID_CY, OPID_SHOT_BUFF_2Q {
         shot.qubits_updated_last_op_mask = (1u << op.q1) | (1u << op.q2);
       }
       default {
@@ -1096,6 +1097,19 @@ fn apply_2q_op(workgroupId: u32, tid: u32) {
                 let amp11: vec2f = stateVector[params.shot_state_vector_start + offset11];
                 stateVector[params.shot_state_vector_start + offset10] = amp11;
                 stateVector[params.shot_state_vector_start + offset11] = amp10;
+                summed_probs[0] += (cplxMag2(amp00) + cplxMag2(amp01));
+                summed_probs[1] += (cplxMag2(amp11) + cplxMag2(amp10));
+                summed_probs[2] += (cplxMag2(amp00) + cplxMag2(amp11));
+                summed_probs[3] += (cplxMag2(amp01) + cplxMag2(amp10));
+            }
+            case OPID_CY {
+                // Like CX, but swap |10> and |11> with +/- i phases.
+                let amp00: vec2f = stateVector[params.shot_state_vector_start + offset00];
+                let amp01: vec2f = stateVector[params.shot_state_vector_start + offset01];
+                let amp10: vec2f = stateVector[params.shot_state_vector_start + offset10];
+                let amp11: vec2f = stateVector[params.shot_state_vector_start + offset11];
+                stateVector[params.shot_state_vector_start + offset10] = vec2f(amp11.y, -amp11.x); // -i * |11>
+                stateVector[params.shot_state_vector_start + offset11] = vec2f(-amp10.y, amp10.x); // i * |10>
                 summed_probs[0] += (cplxMag2(amp00) + cplxMag2(amp01));
                 summed_probs[1] += (cplxMag2(amp11) + cplxMag2(amp10));
                 summed_probs[2] += (cplxMag2(amp00) + cplxMag2(amp11));

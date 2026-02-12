@@ -1,6 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#[cfg(test)]
+mod tests;
+
 use crate::qir_simulation::{NoiseConfig, QirInstruction, QirInstructionId, unbind_noise_config};
 use pyo3::{IntoPyObjectExt, exceptions::PyValueError, prelude::*, types::PyList};
 use pyo3::{PyResult, pyfunction};
@@ -185,8 +188,9 @@ where
         .collect::<Vec<u32>>()
         .par_iter()
         .map(|shot_seed| {
-            let simulator = make_simulator(num_qubits, num_results, *shot_seed, noise.clone());
-            run_shot(instructions, simulator)
+            let mut simulator = make_simulator(num_qubits, num_results, *shot_seed, noise.clone());
+            run_shot(instructions, &mut simulator);
+            simulator.take_measurements()
         })
         .collect::<Vec<_>>();
 
@@ -206,10 +210,11 @@ where
     values
 }
 
-fn run_shot(instructions: &[QirInstruction], mut sim: impl Simulator) -> Vec<MeasurementResult> {
+fn run_shot<S: Simulator>(instructions: &[QirInstruction], sim: &mut S) {
     for qir_inst in instructions {
         match qir_inst {
             QirInstruction::OneQubitGate(id, qubit) => match id {
+                QirInstructionId::I => {} // Identity gate is a no-op
                 QirInstructionId::H => sim.h(*qubit as usize),
                 QirInstructionId::X => sim.x(*qubit as usize),
                 QirInstructionId::Y => sim.y(*qubit as usize),
@@ -226,6 +231,7 @@ fn run_shot(instructions: &[QirInstruction], mut sim: impl Simulator) -> Vec<Mea
             },
             QirInstruction::TwoQubitGate(id, q1, q2) => match id {
                 QirInstructionId::CX => sim.cx(*q1 as usize, *q2 as usize),
+                QirInstructionId::CY => sim.cy(*q1 as usize, *q2 as usize),
                 QirInstructionId::CZ => sim.cz(*q1 as usize, *q2 as usize),
                 QirInstructionId::MZ | QirInstructionId::M => sim.mz(*q1 as usize, *q2 as usize),
                 QirInstructionId::MResetZ => sim.mresetz(*q1 as usize, *q2 as usize),
@@ -260,6 +266,4 @@ fn run_shot(instructions: &[QirInstruction], mut sim: impl Simulator) -> Vec<Mea
             }
         }
     }
-
-    sim.take_measurements()
 }

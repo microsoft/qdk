@@ -134,7 +134,6 @@ pub enum OpID {
     Ry = 13,
     Rz = 14,
     Cx = 15,
-    // TODO: Cy
     Cz = 16,
     Rxx = 17,
     Ryy = 18,
@@ -148,6 +147,7 @@ pub enum OpID {
     Matrix2Q = 26,
     SAMPLE = 27, // Take a probabilistic sample of all qubits
     Move = 28,
+    Cy = 29,
     PauliNoise1Q = 128,
     PauliNoise2Q = 129,
     LossNoise = 130,
@@ -201,6 +201,7 @@ impl TryFrom<u32> for OpID {
             26 => Ok(Self::Matrix2Q),
             27 => Ok(Self::SAMPLE),
             28 => Ok(Self::Move),
+            29 => Ok(Self::Cy),
             128 => Ok(Self::PauliNoise1Q),
             129 => Ok(Self::PauliNoise2Q),
             130 => Ok(Self::LossNoise),
@@ -228,6 +229,7 @@ pub mod ops {
     pub const RY: u32 = super::OpID::Ry.as_u32();
     pub const RZ: u32 = super::OpID::Rz.as_u32();
     pub const CX: u32 = super::OpID::Cx.as_u32();
+    pub const CY: u32 = super::OpID::Cy.as_u32();
     pub const CZ: u32 = super::OpID::Cz.as_u32();
     pub const RXX: u32 = super::OpID::Rxx.as_u32();
     pub const RYY: u32 = super::OpID::Ryy.as_u32();
@@ -273,7 +275,7 @@ pub mod ops {
 
     #[must_use]
     pub fn is_2q_op(op_id: u32) -> bool {
-        matches!(op_id, CX | CZ | RXX | RYY | RZZ | SWAP | MATRIX_2Q)
+        matches!(op_id, CX | CY | CZ | RXX | RYY | RZZ | SWAP | MATRIX_2Q)
     }
 }
 
@@ -744,15 +746,16 @@ impl Op {
         op
     }
 
+    /// CY gate (Controlled-Y): Controlled-Y gate
+    /// Matrix representation is handled in the shader for 2-qubit gates
     #[must_use]
-    pub fn new_cy_gate(_control: u32, _target: u32) -> Self {
-        todo!("The CY enum entry still needs to be added");
-        // let mut op = Self::new_2q_gate(ops::CY, control, target);
-        // op.r00 = 1.0;
-        // op.r11 = 1.0;
-        // op.i23 = -1.0;
-        // op.i32 = 1.0;
-        // op
+    pub fn new_cy_gate(control: u32, target: u32) -> Self {
+        let mut op = Self::new_2q_gate(ops::CY, control, target);
+        op.r00 = 1.0;
+        op.r11 = 1.0;
+        op.i23 = -1.0;
+        op.i32 = 1.0;
+        op
     }
 
     /// CZ gate (Controlled-Z): Controlled-Z gate
