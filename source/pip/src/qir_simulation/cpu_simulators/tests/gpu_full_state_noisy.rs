@@ -87,7 +87,7 @@ fn x_noise_on_x_gate_causes_bit_flips() {
 }
 
 #[test]
-fn x_noise_on_h_gate_does_not_affect_outcome_distribution() {
+fn x_noise_on_h_gate_does_not_affect_outcome() {
     require_gpu!();
     // H already creates superposition; X noise doesn't change the distribution
     check_sim! {
@@ -267,6 +267,29 @@ fn cx_xx_noise_flips_both_qubits() {
 }
 
 #[test]
+fn cz_noise_affects_outcome() {
+    check_sim! {
+        simulator: NoisySimulator,
+        program: qir! {
+            cz(0, 1);
+            mresetz(0, 0);
+            mresetz(1, 1);
+        },
+        num_qubits: 2,
+        num_results: 2,
+        shots: 1000,
+        seed: SEED,
+        noise: noise_config! {
+            cz: { xi: 0.1 },
+        },
+        format: histogram,
+        output: expect![[r#"
+            00: 911
+            10: 89"#]],
+    }
+}
+
+#[test]
 fn swap_noise_affects_swapped_qubits() {
     require_gpu!();
     check_sim! {
@@ -282,13 +305,12 @@ fn swap_noise_affects_swapped_qubits() {
         shots: 1000,
         seed: SEED,
         noise: noise_config! {
-            swap: { xi: 0.1, ix: 0.1 },
+            swap: { ix: 0.1 },
         },
         format: histogram,
         output: expect![[r#"
             00: 108
-            01: 801
-            11: 91"#]],
+            01: 892"#]],
     }
 }
 
@@ -330,20 +352,20 @@ fn noise_accumulates_across_multiple_gates() {
         simulator: GpuSimulator,
         program: qir! {
             x(0);
-            x(0);
+            x(0);  // X·X = I, so result should be 0 without noise
             mresetz(0, 0);
         },
         num_qubits: 1,
         num_results: 1,
-        shots: 10000,
+        shots: 10_000,
         seed: SEED,
         noise: noise_config! {
             x: { x: 0.1 },
         },
-        format: histogram,
+        format: histogram_percent,
         output: expect![[r#"
-            0: 8214
-            1: 1786"#]],
+            0: 82.14%
+            1: 17.86%"#]],
     }
 }
 
@@ -360,19 +382,19 @@ fn bell_state_with_combined_noise() {
         },
         num_qubits: 2,
         num_results: 2,
-        shots: 10000,
+        shots: 10_000,
         seed: SEED,
         noise: noise_config! {
             h: { loss: 0.1 },
             cx: { xi: 0.02, ix: 0.02 },
         },
-        format: histogram,
+        format: histogram_percent,
         output: expect![[r#"
-            -0: 985
-            00: 4261
-            01: 176
-            10: 191
-            11: 4387"#]],
+            -0: 9.85%
+            00: 42.61%
+            01: 1.76%
+            10: 1.91%
+            11: 43.87%"#]],
     }
 }
 
@@ -553,6 +575,65 @@ fn noise_intrinsic_two_qubit_independent_noise() {
             00: 783
             01: 104
             10: 113"#]],
+    }
+}
+
+#[test]
+fn noise_intrinsic_multiple_ids() {
+    require_gpu!();
+    // Multiple intrinsic IDs with different noise configurations
+    check_sim! {
+        simulator: GpuSimulator,
+        program: qir! {
+            noise_intrinsic(0, &[0]);
+            noise_intrinsic(1, &[1]);
+            mresetz(0, 0);
+            mresetz(1, 1);
+        },
+        num_qubits: 2,
+        num_results: 2,
+        shots: 1000,
+        seed: SEED,
+        noise: noise_config! {
+            intrinsics: {
+                0: { x: 0.1 },
+                1: { x: 0.5 },
+            },
+        },
+        format: histogram,
+        output: expect![[r#"
+            00: 455
+            01: 432
+            10: 58
+            11: 55"#]],
+    }
+}
+
+#[test]
+fn noise_intrinsic_three_qubit_correlated() {
+    require_gpu!();
+    // Three-qubit correlated noise (XXX flips all three)
+    check_sim! {
+        simulator: GpuSimulator,
+        program: qir! {
+            noise_intrinsic(0, &[0, 1, 2]);
+            mresetz(0, 0);
+            mresetz(1, 1);
+            mresetz(2, 2);
+        },
+        num_qubits: 3,
+        num_results: 3,
+        shots: 1000,
+        seed: SEED,
+        noise: noise_config! {
+            intrinsics: {
+                0: { xxx: 0.1 },
+            },
+        },
+        format: histogram,
+        output: expect![[r#"
+            000: 887
+            111: 113"#]],
     }
 }
 

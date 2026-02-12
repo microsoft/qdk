@@ -602,6 +602,86 @@ pub fn check_programs_are_eq_cpu<S>(
     }
 }
 
+/// GPU variant of [`check_programs_are_eq_cpu`].
+///
+/// Since the GPU simulator does not expose internal state, this function verifies
+/// program equivalence by running each program with `mresetz` measurements on every
+/// computational basis state and comparing the resulting bitstrings. Two programs are
+/// considered equivalent if they produce the same measurement outcome on all inputs.
+///
+/// Once the GPU simulator exposes its internal state, we can change this function
+/// to check for a stronger equivalence relation.
+#[allow(clippy::cast_possible_truncation)]
+pub fn check_programs_are_eq_gpu(
+    programs: &[Vec<QirInstruction>],
+    num_qubits: u32,
+    num_results: u32,
+) {
+    use crate::qir_simulation::gpu_full_state::map_instruction;
+
+    // Use the larger of num_qubits and num_results for measurement slots
+    let result_count = std::cmp::max(num_qubits, num_results);
+
+    for basis_state in 0u32..(1u32 << num_qubits) {
+        let prep: Vec<QirInstruction> = (0..num_qubits)
+            .filter(|q| (basis_state >> q) & 1 == 1)
+            .map(x)
+            .collect();
+
+        let measurements: Vec<QirInstruction> = (0..num_qubits).map(|i| mresetz(i, i)).collect();
+
+        let results: Vec<String> = programs
+            .iter()
+            .map(|program| {
+                let ops: Vec<qdk_simulators::shader_types::Op> = prep
+                    .iter()
+                    .chain(program.iter())
+                    .chain(measurements.iter())
+                    .filter_map(map_instruction)
+                    .collect();
+
+                let gpu_noise: Option<noise_config_mod::NoiseConfig<f32, f64>> = Some(
+                    noise_table_f64_to_f32(noise_config_mod::NoiseConfig::<f64, f64>::NOISELESS),
+                );
+
+                #[allow(clippy::cast_possible_wrap)]
+                let sim_results = qdk_simulators::run_shots_sync(
+                    num_qubits as i32,
+                    result_count as i32,
+                    &ops,
+                    &gpu_noise,
+                    1,
+                    0xfeed_face,
+                    0,
+                )
+                .expect("GPU simulation failed");
+
+                sim_results.shot_results[0]
+                    .iter()
+                    .map(|r| match r {
+                        0 => '0',
+                        1 => '1',
+                        _ => 'L',
+                    })
+                    .collect::<String>()
+            })
+            .collect();
+
+        // Compare all results to the first one
+        for (i, result) in results.iter().enumerate().skip(1) {
+            assert!(
+                results[0] == *result,
+                "GPU: Program 0 and program {i} produce different measurements \
+                 on basis state |{basis_state:0width$b}⟩.\n\
+                 Program 0 result: {first}\n\
+                 Program {i} result: {result}",
+                first = results[0],
+                width = num_qubits as usize,
+            );
+        }
+    }
+}
+
 /// Macro to check that multiple QIR programs produce the same state on every
 /// computational basis state, up to global phase.
 ///
@@ -635,7 +715,32 @@ pub fn check_programs_are_eq_cpu<S>(
 /// }
 /// ```
 macro_rules! check_programs_are_eq {
-    // Pattern without num_results - defaults to 0
+    // GPU simulator: pattern without num_results - defaults to 0
+    (
+        simulator: GpuSimulator,
+        programs: [ $( $program:expr ),+ $(,)? ],
+        num_qubits: $num_qubits:expr $(,)?
+    ) => {{
+        check_programs_are_eq! {
+            simulator: GpuSimulator,
+            programs: [ $( $program ),+ ],
+            num_qubits: $num_qubits,
+            num_results: 0,
+        }
+    }};
+
+    // GPU simulator: pattern with explicit num_results
+    (
+        simulator: GpuSimulator,
+        programs: [ $( $program:expr ),+ $(,)? ],
+        num_qubits: $num_qubits:expr,
+        num_results: $num_results:expr $(,)?
+    ) => {{
+        let programs: Vec<Vec<QirInstruction>> = vec![ $( $program ),+ ];
+        $crate::qir_simulation::cpu_simulators::tests::test_utils::check_programs_are_eq_gpu(&programs, $num_qubits, $num_results);
+    }};
+
+    // CPU simulators: pattern without num_results - defaults to 0
     (
         simulator: $sim:ident,
         programs: [ $( $program:expr ),+ $(,)? ],
@@ -649,7 +754,7 @@ macro_rules! check_programs_are_eq {
         }
     }};
 
-    // Pattern with explicit num_results
+    // CPU simulators: pattern with explicit num_results
     (
         simulator: $sim:ident,
         programs: [ $( $program:expr ),+ $(,)? ],
@@ -718,6 +823,85 @@ where
     }
 }
 
+/// GPU variant of [`check_basis_table_cpu`].
+///
+/// Since the GPU simulator does not expose internal state, this function verifies
+/// basis table entries by running each circuit with `mresetz` measurements and
+/// comparing the resulting bitstring against the expected output.
+///
+/// The instructions are converted to GPU `Op`s and executed via `run_shots_sync`.
+/// The prep, program, and measurement instructions are mapped separately because
+/// `QirInstruction` does not implement `Clone`.
+#[allow(clippy::cast_possible_truncation)]
+pub fn check_basis_table_gpu(num_qubits: u32, table: &[(Vec<QirInstruction>, u32, u32)]) {
+    use crate::qir_simulation::gpu_full_state::map_instruction;
+
+    for (program, input_bits, expected_bits) in table {
+        // Prepare the input basis state with X gates
+        let prep: Vec<QirInstruction> = (0..num_qubits)
+            .filter(|q| (input_bits >> q) & 1 == 1)
+            .map(x)
+            .collect();
+
+        // Append mresetz measurements for all qubits
+        let measurements: Vec<QirInstruction> = (0..num_qubits).map(|i| mresetz(i, i)).collect();
+
+        // Convert all three slices to GPU Ops
+        let ops: Vec<qdk_simulators::shader_types::Op> = prep
+            .iter()
+            .chain(program.iter())
+            .chain(measurements.iter())
+            .filter_map(map_instruction)
+            .collect();
+
+        let rng_seed = 0xfeed_face;
+        let gpu_noise: Option<noise_config_mod::NoiseConfig<f32, f64>> = Some(
+            noise_table_f64_to_f32(noise_config_mod::NoiseConfig::<f64, f64>::NOISELESS),
+        );
+
+        #[allow(clippy::cast_possible_wrap)]
+        let sim_results = qdk_simulators::run_shots_sync(
+            num_qubits as i32,
+            num_qubits as i32,
+            &ops,
+            &gpu_noise,
+            1,
+            rng_seed,
+            0,
+        )
+        .expect("GPU simulation failed");
+
+        // Build the actual result bitstring
+        let actual: String = sim_results.shot_results[0]
+            .iter()
+            .map(|r| match r {
+                0 => '0',
+                1 => '1',
+                _ => 'L',
+            })
+            .collect();
+
+        // Build expected bitstring: qubit 0 is the leftmost character
+        let expected: String = (0..num_qubits)
+            .map(|q| {
+                if (expected_bits >> q) & 1 == 1 {
+                    '1'
+                } else {
+                    '0'
+                }
+            })
+            .collect();
+
+        assert!(
+            actual == expected,
+            "GPU basis table test failed: gate={program:?} on input |{:0width$b}⟩ \
+             expected \"{expected}\" but got \"{actual}\"",
+            input_bits.reverse_bits() >> (32 - num_qubits),
+            width = num_qubits as usize,
+        );
+    }
+}
+
 /// Macro for table-driven basis state tests.
 ///
 /// Tests that applying a gate to a computational basis state produces the expected
@@ -738,6 +922,23 @@ where
 /// }
 /// ```
 macro_rules! check_basis_table {
+    // GPU simulator: uses measurement-based comparison via run_on_gpu
+    (
+        simulator: GpuSimulator,
+        num_qubits: $nq:expr,
+        table: [
+            $( ( $gate:expr, $input:expr => $output:expr ) ),*
+            $(,)?
+        ] $(,)?
+    ) => {{
+        require_gpu!();
+        let table: Vec<(Vec<QirInstruction>, u32, u32)> = vec![
+            $( ($gate, $input, $output) ),*
+        ];
+        $crate::qir_simulation::cpu_simulators::tests::test_utils::check_basis_table_gpu($nq, &table);
+    }};
+
+    // CPU simulators: uses state-level comparison via Simulator trait
     (
         simulator: $sim:ident,
         num_qubits: $nq:expr,
@@ -977,6 +1178,7 @@ fn noise_table_f64_to_f32(
         ry: noise_table_f64_to_f32_table(noise.ry),
         rz: noise_table_f64_to_f32_table(noise.rz),
         cx: noise_table_f64_to_f32_table(noise.cx),
+        cy: noise_table_f64_to_f32_table(noise.cy),
         cz: noise_table_f64_to_f32_table(noise.cz),
         rxx: noise_table_f64_to_f32_table(noise.rxx),
         ryy: noise_table_f64_to_f32_table(noise.ryy),

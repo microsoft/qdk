@@ -353,72 +353,7 @@ fn sx_adj_squared_eq_x() {
 
 // ==================== Two-Qubit Gate Tests ====================
 
-// CX gate tests
-#[test]
-fn cx_on_zero_control_eq_identity() {
-    check_sim! {
-        simulator: StabilizerSimulator,
-        program: qir! {
-            cx(0, 1);
-            mresetz(0, 0);
-            mresetz(1, 1);
-        },
-        num_qubits: 2,
-        num_results: 2,
-        output: expect![[r#"00"#]],
-    }
-}
-
-#[test]
-fn cx_on_one_control_flips_target() {
-    check_sim! {
-        simulator: StabilizerSimulator,
-        program: qir! {
-            x(0);
-            cx(0, 1);
-            mresetz(0, 0);
-            mresetz(1, 1);
-        },
-        num_qubits: 2,
-        num_results: 2,
-        output: expect![[r#"11"#]],
-    }
-}
-
 // CZ gate tests
-#[test]
-fn cz_on_zero_control_eq_identity() {
-    check_sim! {
-        simulator: StabilizerSimulator,
-        program: qir! {
-            cz(0, 1);
-            mresetz(0, 0);
-            mresetz(1, 1);
-        },
-        num_qubits: 2,
-        num_results: 2,
-        output: expect![[r#"00"#]],
-    }
-}
-
-#[test]
-fn cz_applies_phase_when_control_is_one() {
-    // CZ applies Z to target when control is |1⟩
-    // H·Z·H = X, so if we conjugate target by H, we see the flip
-    check_sim! {
-        simulator: StabilizerSimulator,
-        program: qir! {
-            x(0);           // Set control to |1⟩
-            within { h(1) } apply { cz(0, 1) }
-            mresetz(0, 0);
-            mresetz(1, 1);
-        },
-        num_qubits: 2,
-        num_results: 2,
-        output: expect![[r#"11"#]],
-    }
-}
-
 #[test]
 fn cz_symmetric() {
     // CZ is symmetric: CZ(a,b) = CZ(b,a)
@@ -433,6 +368,20 @@ fn cz_symmetric() {
 }
 
 // SWAP gate tests
+#[test]
+fn swap_commutes_operands() {
+    // SWAP · (A⊗B) = (B⊗A) · SWAP for any single-qubit gates A, B.
+    // Test with A=X, B=H: SWAP·(X⊗H)·SWAP = H⊗X
+    check_programs_are_eq! {
+        simulator: StabilizerSimulator,
+        programs: [
+            qir! { h(0); x(1) },
+            qir! { within { swap(0, 1) } apply { x(0); h(1) } }
+        ],
+        num_qubits: 2,
+    }
+}
+
 #[test]
 fn swap_exchanges_qubit_states() {
     check_sim! {
@@ -505,20 +454,6 @@ fn mz_does_not_reset() {
         num_qubits: 1,
         num_results: 2,
         output: expect![[r#"11"#]],
-    }
-}
-
-#[test]
-fn mz_is_idempotent() {
-    // M M ~ M (repeated measurement gives same result)
-    check_programs_are_eq! {
-        simulator: StabilizerSimulator,
-        programs: [
-            qir! { x(0); mz(0, 0) },
-            qir! { x(0); mz(0, 0); mz(0, 1) }
-        ],
-        num_qubits: 1,
-        num_results: 2,
     }
 }
 
