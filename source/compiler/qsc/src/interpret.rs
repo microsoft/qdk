@@ -416,9 +416,12 @@ impl Interpreter {
     /// # Panics
     /// Panics if the item is not callable or a type that can be invoked as a callable.
     pub fn global_callable_ty(&self, item_id: &Value) -> Option<(ty::Ty, ty::Ty)> {
-        let Value::Global(item_id, _) = item_id else {
-            panic!("value is not a global callable");
+        let (item_id, is_closure) = match item_id {
+            Value::Global(item_id, _) => (*item_id, false),
+            Value::Closure(closure) => (closure.id, true),
+            _ => panic!("value is not a callable"),
         };
+
         let package_id = map_fir_package_to_hir(item_id.package);
         let unit = self
             .compiler
@@ -431,7 +434,20 @@ impl Interpreter {
             .get(qsc_hir::hir::LocalItemId::from(usize::from(item_id.item)))?;
         match &item.kind {
             qsc_hir::hir::ItemKind::Callable(decl) => {
-                Some((decl.input.ty.clone(), decl.output.clone()))
+                if is_closure {
+                    // The arguments are a tuple where the first element is the input arguments and
+                    // the second are the captured variables.
+                    // Grab that first element to get the actual input type.
+                    let ty::Ty::Tuple(elems) = &decl.input.ty else {
+                        panic!("closure input type is not a tuple")
+                    };
+                    let input_ty = elems
+                        .last()
+                        .expect("closure input type should have at least one element");
+                    Some((input_ty.clone(), decl.output.clone()))
+                } else {
+                    Some((decl.input.ty.clone(), decl.output.clone()))
+                }
             }
             qsc_hir::hir::ItemKind::Ty(_, udt) => {
                 // We don't handle UDTs, so we return an error type that prevents later code from processing this item.

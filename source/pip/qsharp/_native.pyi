@@ -119,6 +119,13 @@ class GlobalCallable:
 
     ...
 
+class Closure:
+    """
+    A closure reference that can be passed back into Q#.
+    """
+
+    ...
+
 class Interpreter:
     """A Q# interpreter."""
 
@@ -169,7 +176,7 @@ class Interpreter:
         output_fn: Optional[Callable[[Output], None]],
         noise: Optional[Tuple[float, float, float]],
         qubit_loss: Optional[float],
-        callable: Optional[GlobalCallable],
+        callable: Optional[GlobalCallable | Closure],
         args: Optional[Any],
     ) -> Any:
         """
@@ -191,7 +198,7 @@ class Interpreter:
 
     def invoke(
         self,
-        callable: GlobalCallable,
+        callable: GlobalCallable | Closure,
         args: Any,
         output_fn: Callable[[Output], None],
     ) -> Any:
@@ -207,9 +214,9 @@ class Interpreter:
 
     def qir(
         self,
-        entry_expr: Optional[str],
-        callable: Optional[GlobalCallable],
-        args: Optional[Any],
+        entry_expr: Optional[str] = None,
+        callable: Optional[GlobalCallable | Closure] = None,
+        args: Optional[Any] = None,
     ) -> str:
         """
         Generates QIR from Q# source code. Either an entry expression or a callable with arguments must be provided.
@@ -228,7 +235,7 @@ class Interpreter:
         entry_expr: Optional[str] = None,
         *,
         operation: Optional[str] = None,
-        callable: Optional[GlobalCallable] = None,
+        callable: Optional[GlobalCallable | Closure] = None,
         args: Optional[Any] = None,
     ) -> Circuit:
         """
@@ -254,9 +261,9 @@ class Interpreter:
     def estimate(
         self,
         params: str,
-        entry_expr: Optional[str],
-        callable: Optional[GlobalCallable],
-        args: Optional[Any],
+        entry_expr: Optional[str] = None,
+        callable: Optional[GlobalCallable | Closure] = None,
+        args: Optional[Any] = None,
     ) -> str:
         """
         Estimates resources for Q# source code.
@@ -272,9 +279,9 @@ class Interpreter:
 
     def logical_counts(
         self,
-        entry_expr: Optional[str],
-        callable: Optional[GlobalCallable],
-        args: Optional[Any],
+        entry_expr: Optional[str] = None,
+        callable: Optional[GlobalCallable | Closure] = None,
+        args: Optional[Any] = None,
     ) -> Dict[str, int]:
         """
         Estimates logical operation counts for Q# source code.

@@ -229,6 +229,74 @@ def test_qsharp_estimation_with_multiple_params_from_python_callable() -> None:
     assert res_logical == res[0]["logicalCounts"]
 
 
+def test_qsharp_estimation_with_multiple_params_from_qsharp_callable() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Unrestricted)
+
+    params = EstimatorParams(3)
+    params.items[0].qubit_params.name = QubitParams.GATE_US_E3
+    params.items[0].error_budget = 0.333
+    params.items[1].qubit_params.name = QubitParams.GATE_US_E4
+    params.items[1].error_budget = 0.333
+    params.items[2].qubit_params.name = QubitParams.MAJ_NS_E6
+    params.items[2].qec_scheme.name = QECScheme.FLOQUET_CODE
+    params.items[2].error_budget = 0.333
+    assert params.as_dict() == {
+        "items": [
+            {
+                "qubitParams": {"name": "qubit_gate_us_e3"},
+                "errorBudget": 0.333,
+            },
+            {
+                "qubitParams": {"name": "qubit_gate_us_e4"},
+                "errorBudget": 0.333,
+            },
+            {
+                "qubitParams": {"name": "qubit_maj_ns_e6"},
+                "qecScheme": {"name": "floquet_code"},
+                "errorBudget": 0.333,
+            },
+        ],
+        "resumeAfterFailedItem": True,
+    }
+
+    qsharp.eval(
+        """
+        operation Test() : Unit {
+            use qs = Qubit[10];
+            for q in qs {
+                T(q);
+                M(q);
+            }
+        }
+        """
+    )
+
+    test = qsharp.eval("Test")
+    res = qsharp.estimate(test, params=params)
+
+    for idx in res:
+        assert res[idx]["status"] == "success"
+        assert res[idx]["physicalCounts"] is not None
+        assert (
+            res[idx]["jobParams"]["qubitParams"]["name"]
+            == params.items[idx].qubit_params.name
+        )
+        assert res[idx]["logicalCounts"] == LogicalCounts(
+            {
+                "numQubits": 10,
+                "tCount": 10,
+                "rotationCount": 0,
+                "rotationDepth": 0,
+                "cczCount": 0,
+                "measurementCount": 10,
+            }
+        )
+    assert res[2]["jobParams"]["qecScheme"]["name"] == QECScheme.FLOQUET_CODE
+
+    res_logical = qsharp.logical_counts(test)
+    assert res_logical == res[0]["logicalCounts"]
+
+
 def test_qsharp_estimation_with_multiple_params_from_python_callable_with_arg() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Unrestricted)
 
@@ -293,6 +361,74 @@ def test_qsharp_estimation_with_multiple_params_from_python_callable_with_arg() 
     assert res[2]["jobParams"]["qecScheme"]["name"] == QECScheme.FLOQUET_CODE
 
     res_logical = qsharp.logical_counts(qsharp.code.Test, 7)
+    assert res_logical == res[0]["logicalCounts"]
+
+
+def test_qsharp_estimation_with_multiple_params_from_qsharp_callable_with_arg() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Unrestricted)
+
+    params = EstimatorParams(3)
+    params.items[0].qubit_params.name = QubitParams.GATE_US_E3
+    params.items[0].error_budget = 0.333
+    params.items[1].qubit_params.name = QubitParams.GATE_US_E4
+    params.items[1].error_budget = 0.333
+    params.items[2].qubit_params.name = QubitParams.MAJ_NS_E6
+    params.items[2].qec_scheme.name = QECScheme.FLOQUET_CODE
+    params.items[2].error_budget = 0.333
+    assert params.as_dict() == {
+        "items": [
+            {
+                "qubitParams": {"name": "qubit_gate_us_e3"},
+                "errorBudget": 0.333,
+            },
+            {
+                "qubitParams": {"name": "qubit_gate_us_e4"},
+                "errorBudget": 0.333,
+            },
+            {
+                "qubitParams": {"name": "qubit_maj_ns_e6"},
+                "qecScheme": {"name": "floquet_code"},
+                "errorBudget": 0.333,
+            },
+        ],
+        "resumeAfterFailedItem": True,
+    }
+
+    qsharp.eval(
+        """
+        operation Test(nQubits : Int) : Unit {
+            use qs = Qubit[nQubits];
+            for q in qs {
+                T(q);
+                M(q);
+            }
+        }
+        """
+    )
+
+    test = qsharp.eval("Test")
+    res = qsharp.estimate(test, params, 7)
+
+    for idx in res:
+        assert res[idx]["status"] == "success"
+        assert res[idx]["physicalCounts"] is not None
+        assert (
+            res[idx]["jobParams"]["qubitParams"]["name"]
+            == params.items[idx].qubit_params.name
+        )
+        assert res[idx]["logicalCounts"] == LogicalCounts(
+            {
+                "numQubits": 7,
+                "tCount": 7,
+                "rotationCount": 0,
+                "rotationDepth": 0,
+                "cczCount": 0,
+                "measurementCount": 7,
+            }
+        )
+    assert res[2]["jobParams"]["qecScheme"]["name"] == QECScheme.FLOQUET_CODE
+
+    res_logical = qsharp.logical_counts(test, 7)
     assert res_logical == res[0]["logicalCounts"]
 
 
