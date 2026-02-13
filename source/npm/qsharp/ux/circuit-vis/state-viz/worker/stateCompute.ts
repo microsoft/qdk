@@ -9,8 +9,7 @@
 import type { ComponentGrid, Operation, Qubit } from "../../circuit.js";
 import { evaluateAngleExpression } from "../../angleExpression.js";
 
-// This is intentionally a minimal structural type so it can be used from both the
-// main thread and a Web Worker without importing DOM-heavy visualization modules.
+// This holds the complex amplitudes of the different basis states.
 export type AmpMap = Record<string, { re: number; im: number }>;
 
 export class UnsupportedStateComputeError extends Error {
