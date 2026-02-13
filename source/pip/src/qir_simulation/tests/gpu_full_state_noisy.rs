@@ -268,6 +268,7 @@ fn cx_xx_noise_flips_both_qubits() {
 
 #[test]
 fn cz_noise_affects_outcome() {
+    require_gpu!();
     check_sim! {
         simulator: GpuSimulator,
         program: qir! {
