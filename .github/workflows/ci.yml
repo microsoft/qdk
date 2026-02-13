@@ -95,11 +95,7 @@ jobs:
 
   build:
     name: Build and test
-    strategy:
-      matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
-
-    runs-on: ${{matrix.os}}
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v6
@@ -110,10 +106,6 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN_VERSION }}
           components: ${{ env.RUST_TOOLCHAIN_COMPONENTS }}
-      - name: Add additional Rust targets
-        run: |
-          rustup target add x86_64-apple-darwin
-        if: matrix.os == 'macos-latest'
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -136,11 +128,7 @@ jobs:
 
   unit-tests:
     name: Rust Unit tests
-    strategy:
-      matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
-
-    runs-on: ${{matrix.os}}
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v6
@@ -151,10 +139,6 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN_VERSION }}
           components: ${{ env.RUST_TOOLCHAIN_COMPONENTS }}
-      - name: Add additional Rust targets
-        run: |
-          rustup target add x86_64-apple-darwin
-        if: matrix.os == 'macos-latest'
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -178,11 +162,7 @@ jobs:
   integration-tests:
     name: Integration tests
     timeout-minutes: 40
-    strategy:
-      matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
-
-    runs-on: ${{matrix.os}}
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v6
@@ -193,10 +173,6 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN_VERSION }}
           components: ${{ env.RUST_TOOLCHAIN_COMPONENTS }}
-      - name: Add additional Rust targets
-        run: |
-          rustup target add x86_64-apple-darwin
-        if: matrix.os == 'macos-latest'
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}

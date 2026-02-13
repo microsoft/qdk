@@ -1,0 +1,81 @@
+name: Multiplatform Build and Test
+
+on:
+  push:
+    branches:
+      - main
+      - "feature/**"
+      - "release/**"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  NODE_VERSION: "22.14.0"
+  PYTHON_VERSION: "3.11"
+  RUST_TOOLCHAIN_VERSION: "1.90"
+  RUST_TOOLCHAIN_COMPONENTS: rustfmt clippy
+
+jobs:
+  build-and-test-all-platforms:
+    name: Build and Test (All Platforms)
+    strategy:
+      matrix:
+        platform: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.platform }}
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: "true"
+      - name: Setup rust toolchain
+        uses: ./.github/actions/toolchains/rust
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          components: ${{ env.RUST_TOOLCHAIN_COMPONENTS }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Prereqs
+        run: python ./prereqs.py --install
+      - name: Build and Test
+        run: python ./build.py --integration-tests
+      - name: File issue on failure
+        if: ${{ failure() && github.event_name != 'workflow_dispatch' }}
+        id: create-issue
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WORKFLOW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python - <<'PY'
+          import os, pathlib
+          body_text = """
+          ## Info
+          See the corresponding [**workflow run**](${{ env.WORKFLOW_RUN_URL }}) for failure details, update the issue with any relevant information, and assign to the appropriate team member(s).
+          """
+          pathlib.Path("/tmp/ci_issue.md").write_text(body_text)
+          PY
+          url="$(gh issue create \
+            --title "CI failure: ${{ matrix.platform }} (${{ github.run_id }})" \
+            --body-file /tmp/ci_issue.md \
+            --label ci_failure \
+            --assignee swernli,idavis,minestarks,billti)"
+          number="$(gh issue view "$url" --json number --jq .number)"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+      - name: "If Fuzzing Failed: Log Issue Info"
+        if: ${{ failure() && github.event_name != 'workflow_dispatch' }}
+        run: |
+          echo "Created issue #${{ steps.create-issue.outputs.number }} ${{ steps.create-issue.outputs.url }}"
