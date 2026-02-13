@@ -8,6 +8,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use crate::{Error, EstimationCollection, EstimationResult, FactoryResult, ISA, Instruction};
 
 pub mod instruction_ids;
+use instruction_ids::instruction_name;
 #[cfg(test)]
 mod tests;
 
@@ -223,6 +224,8 @@ impl Trace {
             );
         }
 
+        result.set_isa(isa.clone());
+
         Ok(result)
     }
 }
@@ -301,7 +304,8 @@ impl Block {
         for op in &self.operations {
             match op {
                 Operation::GateOperation(Gate { id, qubits, params }) => {
-                    writeln!(f, "{indent_str}  {id}({params:?})({qubits:?})")?;
+                    let name = instruction_name(*id).unwrap_or("??");
+                    writeln!(f, "{indent_str}  {name}({params:?})({qubits:?})")?;
                 }
                 Operation::BlockOperation(b) => {
                     b.write(f, indent + 2)?;

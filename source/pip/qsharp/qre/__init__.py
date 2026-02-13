@@ -28,6 +28,7 @@ from ._qre import (
     constant_function,
     generic_function,
     linear_function,
+    instruction_name,
 )
 from ._trace import LatticeSurgery, PSSPC, TraceQuery
 
@@ -47,6 +48,7 @@ __all__ = [
     "EstimationResult",
     "FactoryResult",
     "generic_function",
+    "instruction_name",
     "InstructionFrontier",
     "ISA",
     "ISA_ROOT",

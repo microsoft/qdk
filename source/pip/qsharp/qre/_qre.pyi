@@ -6,24 +6,24 @@ from typing import Any, Callable, Iterator, Optional, overload
 
 class ISA:
     @overload
-    def __new__(cls, *instructions: Instruction) -> ISA: ...
+    def __new__(cls, *instructions: _Instruction) -> ISA: ...
     @overload
-    def __new__(cls, instructions: list[Instruction], /) -> ISA: ...
-    def __new__(cls, *instructions: Instruction | list[Instruction]) -> ISA:
+    def __new__(cls, instructions: list[_Instruction], /) -> ISA: ...
+    def __new__(cls, *instructions: _Instruction | list[_Instruction]) -> ISA:
         """
         Creates an ISA from a list of instructions.
 
         Args:
-            instructions (list[Instruction] | *Instruction): The list of instructions.
+            instructions (list[_Instruction] | *_Instruction): The list of instructions.
         """
         ...
 
-    def append(self, instruction: Instruction) -> None:
+    def append(self, instruction: _Instruction) -> None:
         """
         Appends an instruction to the ISA.
 
         Args:
-            instruction (Instruction): The instruction to append.
+            instruction (_Instruction): The instruction to append.
         """
         ...
 
@@ -53,7 +53,7 @@ class ISA:
         """
         ...
 
-    def __getitem__(self, id: int) -> Instruction:
+    def __getitem__(self, id: int) -> _Instruction:
         """
         Gets an instruction by its ID.
 
@@ -61,23 +61,23 @@ class ISA:
             id (int): The instruction ID.
 
         Returns:
-            Instruction: The instruction.
+            _Instruction: The instruction.
         """
         ...
 
     def get(
-        self, id: int, default: Optional[Instruction] = None
-    ) -> Optional[Instruction]:
+        self, id: int, default: Optional[_Instruction] = None
+    ) -> Optional[_Instruction]:
         """
         Gets an instruction by its ID, or returns a default value if not found.
 
         Args:
             id (int): The instruction ID.
-            default (Optional[Instruction]): The default value to return if the
+            default (Optional[_Instruction]): The default value to return if the
                 instruction is not found.
 
         Returns:
-            Optional[Instruction]: The instruction, or the default value if not found.
+            Optional[_Instruction]: The instruction, or the default value if not found.
         """
         ...
 
@@ -90,7 +90,7 @@ class ISA:
         """
         ...
 
-    def __iter__(self) -> Iterator[Instruction]:
+    def __iter__(self) -> Iterator[_Instruction]:
         """
         Returns an iterator over the instructions.
 
@@ -98,7 +98,7 @@ class ISA:
             The order of instructions is not guaranteed.
 
         Returns:
-            Iterator[Instruction]: The instruction iterator.
+            Iterator[_Instruction]: The instruction iterator.
         """
         ...
 
@@ -130,7 +130,7 @@ class ISARequirements:
         """
         ...
 
-class Instruction:
+class _Instruction:
     @staticmethod
     def fixed_arity(
         id: int,
@@ -140,7 +140,7 @@ class Instruction:
         space: Optional[int],
         length: Optional[int],
         error_rate: float,
-    ) -> Instruction:
+    ) -> _Instruction:
         """
         Creates an instruction with a fixed arity.
 
@@ -159,7 +159,7 @@ class Instruction:
             error_rate (float): The instruction error rate.
 
         Returns:
-            Instruction: The instruction.
+            _Instruction: The instruction.
         """
         ...
 
@@ -167,11 +167,11 @@ class Instruction:
     def variable_arity(
         id: int,
         encoding: int,
-        time_fn: IntFunction,
-        space_fn: IntFunction,
-        error_rate_fn: FloatFunction,
-        length_fn: Optional[IntFunction],
-    ) -> Instruction:
+        time_fn: _IntFunction,
+        space_fn: _IntFunction,
+        error_rate_fn: _FloatFunction,
+        length_fn: Optional[_IntFunction],
+    ) -> _Instruction:
         """
         Creates an instruction with variable arity.
 
@@ -181,26 +181,30 @@ class Instruction:
         Args:
             id (int): The instruction ID.
             encoding (int): The instruction encoding. 0 = Physical, 1 = Logical.
-            time_fn (IntFunction): The time function.
-            space_fn (IntFunction): The space function.
-            error_rate_fn (FloatFunction): The error rate function.
-            length_fn (Optional[IntFunction]): The length function.
+            time_fn (_IntFunction): The time function.
+            space_fn (_IntFunction): The space function.
+            error_rate_fn (_FloatFunction): The error rate function.
+            length_fn (Optional[_IntFunction]): The length function.
                 If None, space_fn is used.
 
         Returns:
-            Instruction: The instruction.
+            _Instruction: The instruction.
         """
         ...
 
-    def with_id(self, id: int) -> Instruction:
+    def with_id(self, id: int) -> _Instruction:
         """
         Returns a copy of the instruction with the given ID.
+
+        Note:
+            The created instruction will not inherit the source property of the
+            original instruction and must be set by the user if intended.
 
         Args:
             id (int): The instruction ID.
 
         Returns:
-            Instruction: A copy of the instruction with the given ID.
+            _Instruction: A copy of the instruction with the given ID.
         """
         ...
 
@@ -303,6 +307,25 @@ class Instruction:
 
         Returns:
             float: The instruction error rate.
+        """
+        ...
+
+    def set_source(self, index: int) -> None:
+        """
+        Sets the source index for the instruction.
+
+        Args:
+            index (int): The source index to set.
+        """
+        ...
+
+    @property
+    def source(self) -> int:
+        """
+        Gets the source index for the instruction.
+
+        Returns:
+            int: The source index for the instruction.
         """
         ...
 
@@ -482,16 +505,16 @@ class Constraint:
         """
         ...
 
-class IntFunction: ...
-class FloatFunction: ...
+class _IntFunction: ...
+class _FloatFunction: ...
 
 @overload
-def constant_function(value: int) -> IntFunction: ...
+def constant_function(value: int) -> _IntFunction: ...
 @overload
-def constant_function(value: float) -> FloatFunction: ...
+def constant_function(value: float) -> _FloatFunction: ...
 def constant_function(
     value: int | float,
-) -> IntFunction | FloatFunction:
+) -> _IntFunction | _FloatFunction:
     """
     Creates a constant function.
 
@@ -499,17 +522,17 @@ def constant_function(
         value (int | float): The constant value.
 
     Returns:
-        IntFunction | FloatFunction: The constant function.
+        _IntFunction | _FloatFunction: The constant function.
     """
     ...
 
 @overload
-def linear_function(slope: int) -> IntFunction: ...
+def linear_function(slope: int) -> _IntFunction: ...
 @overload
-def linear_function(slope: float) -> FloatFunction: ...
+def linear_function(slope: float) -> _FloatFunction: ...
 def linear_function(
     slope: int | float,
-) -> IntFunction | FloatFunction:
+) -> _IntFunction | _FloatFunction:
     """
     Creates a linear function.
 
@@ -517,17 +540,17 @@ def linear_function(
         slope (int | float): The slope.
 
     Returns:
-        IntFunction | FloatFunction: The linear function.
+        _IntFunction | _FloatFunction: The linear function.
     """
     ...
 
 @overload
-def block_linear_function(block_size: int, slope: int) -> IntFunction: ...
+def block_linear_function(block_size: int, slope: int) -> _IntFunction: ...
 @overload
-def block_linear_function(block_size: int, slope: float) -> FloatFunction: ...
+def block_linear_function(block_size: int, slope: float) -> _FloatFunction: ...
 def block_linear_function(
     block_size: int, slope: int | float
-) -> IntFunction | FloatFunction:
+) -> _IntFunction | _FloatFunction:
     """
     Creates a block linear function.
 
@@ -536,17 +559,17 @@ def block_linear_function(
         slope (int | float): The slope.
 
     Returns:
-        IntFunction | FloatFunction: The block linear function.
+        _IntFunction | _FloatFunction: The block linear function.
     """
     ...
 
 @overload
-def generic_function(func: Callable[[int], int]) -> IntFunction: ...
+def generic_function(func: Callable[[int], int]) -> _IntFunction: ...
 @overload
-def generic_function(func: Callable[[int], float]) -> FloatFunction: ...
+def generic_function(func: Callable[[int], float]) -> _FloatFunction: ...
 def generic_function(
     func: Callable[[int], int | float],
-) -> IntFunction | FloatFunction:
+) -> _IntFunction | _FloatFunction:
     """
     Creates a generic function from a Python callable.
 
@@ -561,12 +584,90 @@ def generic_function(
         func (Callable[[int], int | float]): The Python callable.
 
     Returns:
-        IntFunction | FloatFunction: The generic function.
+        _IntFunction | _FloatFunction: The generic function.
     """
     ...
 
-class Property:
-    def __new__(cls, value: Any) -> Property:
+class _ProvenanceGraph:
+    """
+    Represents the provenance graph of instructions in a trace.  Each node in
+    the graph corresponds to an instruction and the transform from which it was
+    produced, and edges represent transformations applied to instructions during
+    enumeration.
+    """
+
+    def add_node(
+        self, instruction_id: int, transform_id: int, children: list[int]
+    ) -> int:
+        """
+        Adds a node to the provenance graph.
+
+        Args:
+            instruction_id (int): The instruction ID corresponding to the node.
+            transform_id (int): The transform ID corresponding to the node.
+            children (list[int]): The list of child node indices in the provenance graph.
+
+        Returns:
+            int: The index of the added node in the provenance graph.
+        """
+        ...
+
+    def instruction_id(self, node_index: int) -> int:
+        """
+        Returns the instruction ID for a given node index.
+
+        Args:
+            node_index (int): The index of the node in the provenance graph.
+
+        Returns:
+            int: The instruction ID corresponding to the node.
+        """
+        ...
+
+    def transform_id(self, node_index: int) -> int:
+        """
+        Returns the transform ID for a given node index.
+
+        Args:
+            node_index (int): The index of the node in the provenance graph.
+
+        Returns:
+            int: The transform ID corresponding to the node.
+        """
+        ...
+
+    def children(self, node_index: int) -> list[int]:
+        """
+        Returns the list of child node indices for a given node index.
+
+        Args:
+            node_index (int): The index of the node in the provenance graph.
+
+        Returns:
+            list[int]: The list of child node indices.
+        """
+        ...
+
+    def num_nodes(self) -> int:
+        """
+        Returns the number of nodes in the provenance graph.
+
+        Returns:
+            int: The number of nodes in the provenance graph.
+        """
+        ...
+
+    def num_edges(self) -> int:
+        """
+        Returns the number of edges in the provenance graph.
+
+        Returns:
+            int: The number of edges in the provenance graph.
+        """
+        ...
+
+class _Property:
+    def __new__(cls, value: Any) -> _Property:
         """
         Creates a property from a value.
 
@@ -701,6 +802,16 @@ class EstimationResult:
         """
         ...
 
+    @property
+    def isa(self) -> ISA:
+        """
+        The ISA used for the estimation.
+
+        Returns:
+            ISA: The ISA used for the estimation.
+        """
+        ...
+
     def __str__(self) -> str:
         """
         Returns a string representation of the estimation result.
@@ -710,18 +821,18 @@ class EstimationResult:
         """
         ...
 
-class EstimationCollection:
+class _EstimationCollection:
     """
     Represents a collection of estimation results.  Results are stored as a 2D
     Pareto frontier with physical qubits and runtime as objectives.
     """
 
-    def __new__(cls) -> EstimationCollection:
+    def __new__(cls) -> _EstimationCollection:
         """
         Creates a new estimation collection.
 
         Returns:
-            EstimationCollection: The estimation collection.
+            _EstimationCollection: The estimation collection.
         """
         ...
 
@@ -866,17 +977,17 @@ class Trace:
         """
         ...
 
-    def set_property(self, key: str, value: Property) -> None:
+    def set_property(self, key: str, value: _Property) -> None:
         """
         Sets a property.
 
         Args:
             key (str): The property key.
-            value (Property): The property value.
+            value (_Property): The property value.
         """
         ...
 
-    def get_property(self, key: str) -> Optional[Property]:
+    def get_property(self, key: str) -> Optional[_Property]:
         """
         Gets a property.
 
@@ -884,7 +995,7 @@ class Trace:
             key (str): The property key.
 
         Returns:
-            Optional[Property]: The property value, or None if not found.
+            Optional[_Property]: The property value, or None if not found.
         """
         ...
 
@@ -1022,21 +1133,21 @@ class InstructionFrontier:
         """
         ...
 
-    def insert(self, point: Instruction):
+    def insert(self, point: _Instruction):
         """
         Inserts an instruction to the frontier.
 
         Args:
-            point (Instruction): The instruction to insert.
+            point (_Instruction): The instruction to insert.
         """
         ...
 
-    def extend(self, points: list[Instruction]) -> None:
+    def extend(self, points: list[_Instruction]) -> None:
         """
         Extends the frontier with a list of instructions.
 
         Args:
-            points (list[Instruction]): The instructions to insert.
+            points (list[_Instruction]): The instructions to insert.
         """
         ...
 
@@ -1049,12 +1160,12 @@ class InstructionFrontier:
         """
         ...
 
-    def __iter__(self) -> Iterator[Instruction]:
+    def __iter__(self) -> Iterator[_Instruction]:
         """
         Returns an iterator over the instructions in the frontier.
 
         Returns:
-            Iterator[Instruction]: The iterator.
+            Iterator[_Instruction]: The iterator.
         """
         ...
 
@@ -1080,9 +1191,9 @@ class InstructionFrontier:
         """
         ...
 
-def estimate_parallel(
+def _estimate_parallel(
     traces: list[Trace], isas: list[ISA], max_error: float = 1.0
-) -> EstimationCollection:
+) -> _EstimationCollection:
     """
     Estimates resources for multiple traces and ISAs in parallel.
 
@@ -1092,13 +1203,25 @@ def estimate_parallel(
         max_error (float): The maximum allowed error. The default is 1.0.
 
     Returns:
-        EstimationCollection: The estimation collection.
+        _EstimationCollection: The estimation collection.
     """
     ...
 
-def binom_ppf(q: float, n: int, p: float) -> int:
+def _binom_ppf(q: float, n: int, p: float) -> int:
     """
     A replacement for SciPy's binom.ppf that is faster and does not require
     SciPy as a dependency.
+    """
+    ...
+
+def instruction_name(id: int) -> Optional[str]:
+    """
+    Returns the name of an instruction given its ID, if known.
+
+    Args:
+        id (int): The instruction ID.
+
+    Returns:
+        Optional[str]: The name of the instruction, or None if the ID is not recognized.
     """
     ...

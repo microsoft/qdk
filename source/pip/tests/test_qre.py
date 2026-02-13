@@ -28,6 +28,7 @@ from qsharp.qre.models import (
     SurfaceCode,
     AQREGateBased,
 )
+from qsharp.qre._architecture import _Context
 from qsharp.qre._isa_enumeration import (
     ISARefNode,
 )
@@ -54,7 +55,7 @@ class ExampleFactory(ISATransform):
             constraint(T),
         )
 
-    def provided_isa(self, impl_isa: ISA) -> Generator[ISA, None, None]:
+    def provided_isa(self, impl_isa: ISA, ctx: _Context) -> Generator[ISA, None, None]:
         yield ISA(
             instruction(T, encoding=LOGICAL, time=1000, error_rate=1e-8),
         )
@@ -72,7 +73,7 @@ class ExampleLogicalFactory(ISATransform):
             constraint(T, encoding=LOGICAL),
         )
 
-    def provided_isa(self, impl_isa: ISA) -> Generator[ISA, None, None]:
+    def provided_isa(self, impl_isa: ISA, ctx: _Context) -> Generator[ISA, None, None]:
         yield ISA(
             instruction(T, encoding=LOGICAL, time=1000, error_rate=1e-10),
         )
@@ -171,23 +172,23 @@ def test_instruction_constraints():
 
 
 def test_generic_function():
-    from qsharp.qre._qre import IntFunction, FloatFunction
+    from qsharp.qre._qre import _IntFunction, _FloatFunction
 
     def time(x: int) -> int:
         return x * x
 
     time_fn = generic_function(time)
-    assert isinstance(time_fn, IntFunction)
+    assert isinstance(time_fn, _IntFunction)
 
     def error_rate(x: int) -> float:
         return x / 2.0
 
     error_rate_fn = generic_function(error_rate)
-    assert isinstance(error_rate_fn, FloatFunction)
+    assert isinstance(error_rate_fn, _FloatFunction)
 
     # Without annotations, defaults to FloatFunction
     space_fn = generic_function(lambda x: 12)
-    assert isinstance(space_fn, FloatFunction)
+    assert isinstance(space_fn, _FloatFunction)
 
     i = instruction(42, arity=None, space=12, time=time_fn, error_rate=error_rate_fn)
     assert i.space(5) == 12
@@ -203,7 +204,7 @@ def test_isa_from_architecture():
     assert arch.provided_isa.satisfies(SurfaceCode.required_isa())
 
     # Generate logical ISAs
-    isas = list(code.provided_isa(arch.provided_isa))
+    isas = list(code.provided_isa(arch.provided_isa, arch.context()))
 
     # There is one ISA with two instructions
     assert len(isas) == 1
