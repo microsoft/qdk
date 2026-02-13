@@ -19,7 +19,7 @@ import {
   createStatePanel,
   updateStatePanelFromColumns,
 } from "../dist/ux/circuit-vis/state-viz/stateViz.js";
-import { prepareStateVizColumnsFromAmpMap } from "../dist/ux/circuit-vis/state-viz/stateVizPrep.js";
+import { prepareStateVizColumnsFromAmpMap } from "../dist/ux/circuit-vis/state-viz/worker/stateVizPrep.js";
 
 const documentTemplate = `<!doctype html><html>
   <head>
