@@ -207,7 +207,7 @@ where
     values
 }
 
-fn run_shot<S: Simulator>(instructions: &[QirInstruction], sim: &mut S) {
+pub(crate) fn run_shot<S: Simulator>(instructions: &[QirInstruction], sim: &mut S) {
     for qir_inst in instructions {
         match qir_inst {
             QirInstruction::OneQubitGate(id, qubit) => match id {

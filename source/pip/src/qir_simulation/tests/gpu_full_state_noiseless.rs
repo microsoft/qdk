@@ -72,7 +72,7 @@
 //! | GHZ   | H(0); CX(0,1); CX(1,2)     | 000 or 111 (50/50)  |
 //! ```
 
-use super::{super::*, SEED, test_utils::*};
+use super::{SEED, test_utils::*};
 use expect_test::expect;
 use std::f64::consts::PI;
 

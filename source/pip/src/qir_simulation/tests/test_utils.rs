@@ -238,7 +238,7 @@ macro_rules! noise_config {
     // Entry point
     ( $( $field:ident : { $($inner:tt)* } ),* $(,)? ) => {{
         #[allow(unused_mut)]
-        let mut config = noise_config::NoiseConfig::<f64, f64>::NOISELESS;
+        let mut config = qdk_simulators::noise_config::NoiseConfig::<f64, f64>::NOISELESS;
         $(
             noise_config!(@field config, $field, { $($inner)* });
         )*
@@ -248,7 +248,7 @@ macro_rules! noise_config {
     // Handle intrinsics field specially
     (@field $config:ident, intrinsics, { $( $id:literal : { $($pauli:ident : $prob:expr),* $(,)? } ),* $(,)? }) => {{
         $(
-            let mut table = noise_config::NoiseTable::<f64>::noiseless(0);
+            let mut table = qdk_simulators::noise_config::NoiseTable::<f64>::noiseless(0);
             $(
                 noise_config!(@set_pauli table, $pauli, $prob);
             )*
@@ -328,7 +328,7 @@ macro_rules! noise_config {
 
     // Helper to set a noise table with the given number of qubits
     (@set_table $table:expr, $qubits:expr, $($pauli:ident : $prob:expr),* $(,)?) => {{
-        let mut table = noise_config::NoiseTable::<f64>::noiseless($qubits);
+        let mut table = qdk_simulators::noise_config::NoiseTable::<f64>::noiseless($qubits);
         $(
             noise_config!(@set_pauli table, $pauli, $prob);
         )*
@@ -395,11 +395,11 @@ macro_rules! qir {
 
     // Match within { } apply { } at the end (no trailing semicolon or more instructions)
     (@accum [$($acc:expr),*] within { $($within_tt:tt)* } apply { $($apply_tt:tt)* } $($rest:tt)*) => {{
-        let mut result: Vec<QirInstruction> = vec![$($acc),*];
+        let mut result: Vec<_> = vec![$($acc),*];
         result.extend(qir!($($within_tt)*));  // forward within
         result.extend(qir!($($apply_tt)*));   // apply
-        let within_adj: Vec<QirInstruction> = {
-            let mut v: Vec<QirInstruction> = qir!($($within_tt)*)
+        let within_adj: Vec<_> = {
+            let mut v: Vec<_> = qir!($($within_tt)*)
                 .into_iter()
                 .map(adjoint)  // compute adjoint of each gate
                 .collect();
@@ -407,7 +407,7 @@ macro_rules! qir {
             v
         };
         result.extend(within_adj);
-        let remaining: Vec<QirInstruction> = qir!(@accum [] $($rest)*);
+        let remaining: Vec<_> = qir!(@accum [] $($rest)*);
         result.extend(remaining);
         result
     }};
@@ -435,7 +435,7 @@ pub(crate) use qir;
 ///
 /// # Required fields:
 /// - `simulator`: One of `StabilizerSimulator`, `NoisySimulator`, or `NoiselessSimulator`
-/// - `program`: An expression that evaluates to `Vec<QirInstruction>` (use `qir!` macro)
+/// - `program`: An expression that evaluates to `Vec<_>` (use `qir!` macro)
 /// - `num_qubits`: The number of qubits in the simulation
 /// - `num_results`: The number of measurement results
 /// - `expect`: The expected output (using `expect!` macro)
@@ -489,12 +489,12 @@ macro_rules! check_sim {
         output: $expected:expr $(,)?
     ) => {{
         // Get instructions from the expression
-        let instructions: Vec<QirInstruction> = $program;
+        let instructions: Vec<_> = $program;
 
         // Set defaults
         let shots: u32 = check_sim!(@default_shots $( $shots )?);
         let seed: Option<u32> = check_sim!(@default_seed $( $seed )?);
-        let noise: noise_config::NoiseConfig<f64, f64> = check_sim!(@default_noise $( $noise )?);
+        let noise: qdk_simulators::noise_config::NoiseConfig<f64, f64> = check_sim!(@default_noise $( $noise )?);
         let format_fn = check_sim!(@default_format $( $format )?);
 
         // Create simulator and run
@@ -517,7 +517,7 @@ macro_rules! check_sim {
 
     // Default noise
     (@default_noise $noise:expr) => { $noise };
-    (@default_noise) => { noise_config::NoiseConfig::<f64, f64>::NOISELESS };
+    (@default_noise) => { qdk_simulators::noise_config::NoiseConfig::<f64, f64>::NOISELESS };
 
     // Default format
     (@default_format $format:expr) => { $format };
@@ -525,6 +525,8 @@ macro_rules! check_sim {
 
     // Run with StabilizerSimulator
     (@run StabilizerSimulator, $instructions:expr, $num_qubits:expr, $num_results:expr, $shots:expr, $seed:expr, $noise:expr) => {{
+        use $crate::qir_simulation::cpu_simulators::run;
+        use qdk_simulators::Simulator as _;
         let make_simulator = |num_qubits, num_results, seed, noise| {
             StabilizerSimulator::new(num_qubits as usize, num_results as usize, seed, noise)
         };
@@ -533,7 +535,8 @@ macro_rules! check_sim {
 
     // Run with NoisySimulator
     (@run NoisySimulator, $instructions:expr, $num_qubits:expr, $num_results:expr, $shots:expr, $seed:expr, $noise:expr) => {{
-        use qdk_simulators::cpu_full_state_simulator::noise::Fault;
+        use $crate::qir_simulation::cpu_simulators::run;
+        use qdk_simulators::{cpu_full_state_simulator::noise::Fault, noise_config::CumulativeNoiseConfig, Simulator as _};
         let make_simulator = |num_qubits, num_results, seed, noise| {
             NoisySimulator::new(num_qubits as usize, num_results as usize, seed, noise)
         };
@@ -542,7 +545,9 @@ macro_rules! check_sim {
 
     // Run with NoiselessSimulator
     (@run NoiselessSimulator, $instructions:expr, $num_qubits:expr, $num_results:expr, $shots:expr, $seed:expr, $noise:expr) => {{
-        use qdk_simulators::cpu_full_state_simulator::noise::Fault;
+        use $crate::qir_simulation::cpu_simulators::run;
+        use qdk_simulators::{cpu_full_state_simulator::noise::Fault, noise_config::CumulativeNoiseConfig, Simulator as _};
+        use std::sync::Arc;
         let make_simulator = |num_qubits, num_results, seed, _noise: Arc<CumulativeNoiseConfig<Fault>>| {
             NoiselessSimulator::new(num_qubits as usize, num_results as usize, seed, ())
         };
@@ -567,7 +572,7 @@ pub fn check_programs_are_eq_cpu<S>(
     S::StateDumpData: PartialEq + std::fmt::Debug,
 {
     for basis_state in 0u32..(1u32 << num_qubits) {
-        let prep: Vec<QirInstruction> = (0..num_qubits)
+        let prep: Vec<_> = (0..num_qubits)
             .filter(|q| (basis_state >> q) & 1 == 1)
             .map(x)
             .collect();
@@ -623,12 +628,12 @@ pub fn check_programs_are_eq_gpu(
     let result_count = std::cmp::max(num_qubits, num_results);
 
     for basis_state in 0u32..(1u32 << num_qubits) {
-        let prep: Vec<QirInstruction> = (0..num_qubits)
+        let prep: Vec<_> = (0..num_qubits)
             .filter(|q| (basis_state >> q) & 1 == 1)
             .map(x)
             .collect();
 
-        let measurements: Vec<QirInstruction> = (0..num_qubits).map(|i| mresetz(i, i)).collect();
+        let measurements: Vec<_> = (0..num_qubits).map(|i| mresetz(i, i)).collect();
 
         let results: Vec<String> = programs
             .iter()
@@ -697,7 +702,7 @@ pub fn check_programs_are_eq_gpu(
 ///
 /// # Required fields:
 /// - `simulator`: One of `StabilizerSimulator`, `NoisySimulator`, or `NoiselessSimulator`
-/// - `programs`: An array of expressions evaluating to `Vec<QirInstruction>` (use `qir!` macro)
+/// - `programs`: An array of expressions evaluating to `Vec<_>` (use `qir!` macro)
 /// - `num_qubits`: The number of qubits in the simulation
 ///
 /// # Optional fields:
@@ -736,8 +741,8 @@ macro_rules! check_programs_are_eq {
         num_qubits: $num_qubits:expr,
         num_results: $num_results:expr $(,)?
     ) => {{
-        let programs: Vec<Vec<QirInstruction>> = vec![ $( $program ),+ ];
-        $crate::qir_simulation::cpu_simulators::tests::test_utils::check_programs_are_eq_gpu(&programs, $num_qubits, $num_results);
+        let programs: Vec<Vec<_>> = vec![ $( $program ),+ ];
+        $crate::qir_simulation::tests::test_utils::check_programs_are_eq_gpu(&programs, $num_qubits, $num_results);
     }};
 
     // CPU simulators: pattern without num_results - defaults to 0
@@ -761,8 +766,8 @@ macro_rules! check_programs_are_eq {
         num_qubits: $num_qubits:expr,
         num_results: $num_results:expr $(,)?
     ) => {{
-        let programs: Vec<Vec<QirInstruction>> = vec![ $( $program ),+ ];
-        $crate::qir_simulation::cpu_simulators::tests::test_utils::check_programs_are_eq_cpu::<$sim>(&programs, $num_qubits, $num_results);
+        let programs: Vec<Vec<_>> = vec![ $( $program ),+ ];
+        $crate::qir_simulation::tests::test_utils::check_programs_are_eq_cpu::<$sim>(&programs, $num_qubits, $num_results);
     }};
 }
 
@@ -780,11 +785,11 @@ where
 
     #[allow(clippy::cast_possible_truncation)]
     for (program, input_bits, expected_bits) in table {
-        let actual_prep: Vec<QirInstruction> = (0..num_qubits)
+        let actual_prep: Vec<_> = (0..num_qubits)
             .filter(|q| (input_bits >> q) & 1 == 1)
             .map(x)
             .collect();
-        let expected_prep: Vec<QirInstruction> = (0..num_qubits)
+        let expected_prep: Vec<_> = (0..num_qubits)
             .filter(|q| (expected_bits >> q) & 1 == 1)
             .map(x)
             .collect();
@@ -838,13 +843,13 @@ pub fn check_basis_table_gpu(num_qubits: u32, table: &[(Vec<QirInstruction>, u32
 
     for (program, input_bits, expected_bits) in table {
         // Prepare the input basis state with X gates
-        let prep: Vec<QirInstruction> = (0..num_qubits)
+        let prep: Vec<_> = (0..num_qubits)
             .filter(|q| (input_bits >> q) & 1 == 1)
             .map(x)
             .collect();
 
         // Append mresetz measurements for all qubits
-        let measurements: Vec<QirInstruction> = (0..num_qubits).map(|i| mresetz(i, i)).collect();
+        let measurements: Vec<_> = (0..num_qubits).map(|i| mresetz(i, i)).collect();
 
         // Convert all three slices to GPU Ops
         let ops: Vec<qdk_simulators::shader_types::Op> = prep
@@ -932,10 +937,10 @@ macro_rules! check_basis_table {
         ] $(,)?
     ) => {{
         require_gpu!();
-        let table: Vec<(Vec<QirInstruction>, u32, u32)> = vec![
+        let table: Vec<(Vec<_>, u32, u32)> = vec![
             $( ($gate, $input, $output) ),*
         ];
-        $crate::qir_simulation::cpu_simulators::tests::test_utils::check_basis_table_gpu($nq, &table);
+        $crate::qir_simulation::tests::test_utils::check_basis_table_gpu($nq, &table);
     }};
 
     // CPU simulators: uses state-level comparison via Simulator trait
@@ -947,10 +952,10 @@ macro_rules! check_basis_table {
             $(,)?
         ] $(,)?
     ) => {{
-        let table: Vec<(Vec<QirInstruction>, u32, u32)> = vec![
+        let table: Vec<(Vec<_>, u32, u32)> = vec![
             $( ($gate, $input, $output) ),*
         ];
-        $crate::qir_simulation::cpu_simulators::tests::test_utils::check_basis_table_cpu::<$sim>($nq, &table);
+        $crate::qir_simulation::tests::test_utils::check_basis_table_cpu::<$sim>($nq, &table);
     }};
 }
 

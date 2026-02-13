@@ -36,7 +36,7 @@
 //! | Rotation gate noise   | Noise on Rx, Ry, Rz, Rxx, Ryy, Rzz gates   |
 //! ```
 
-use super::{super::*, SEED, test_utils::*};
+use super::{SEED, test_utils::*};
 use expect_test::expect;
 
 // ==================== Noiseless Config Tests ====================
@@ -269,7 +269,7 @@ fn cx_xx_noise_flips_both_qubits() {
 #[test]
 fn cz_noise_affects_outcome() {
     check_sim! {
-        simulator: NoisySimulator,
+        simulator: GpuSimulator,
         program: qir! {
             cz(0, 1);
             mresetz(0, 0);
@@ -284,8 +284,8 @@ fn cz_noise_affects_outcome() {
         },
         format: histogram,
         output: expect![[r#"
-            00: 911
-            10: 89"#]],
+            00: 904
+            10: 96"#]],
     }
 }
 

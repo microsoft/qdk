@@ -39,15 +39,16 @@
 //! | Rotation gate noise   | Noise on Rx, Ry, Rz, Rxx, Ryy, Rzz gates   |
 //! ```
 
-use super::{super::*, SEED, test_utils::*};
+use super::{SEED, test_utils::*};
 use expect_test::expect;
+use qdk_simulators::cpu_full_state_simulator::NoisySimulator;
 
 // ==================== Generic Simulator Tests ====================
 
 #[test]
 fn simulator_completes_all_shots() {
     check_sim! {
-        simulator: StabilizerSimulator,
+        simulator: NoisySimulator,
         program: qir! {
             x(0);
             mresetz(0, 0);

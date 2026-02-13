@@ -36,8 +36,9 @@
 //! | Combined noise        | Multiple noise sources on entangled states |
 //! ```
 
-use super::{super::*, SEED, test_utils::*};
+use super::{SEED, test_utils::*};
 use expect_test::expect;
+use qdk_simulators::stabilizer_simulator::StabilizerSimulator;
 
 // ==================== Noiseless Config Tests ====================
 

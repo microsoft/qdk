@@ -4,6 +4,7 @@
 mod correlated_noise;
 pub(crate) mod cpu_simulators;
 pub(crate) mod gpu_full_state;
+#[cfg(test)]
 mod tests;
 
 use crate::qir_simulation::correlated_noise::parse_noise_table;
