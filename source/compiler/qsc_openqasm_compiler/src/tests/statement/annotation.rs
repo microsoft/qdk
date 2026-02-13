@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::tests::compile_qasm_to_qsharp;
+use crate::tests::{check_qasm_to_qsharp, compile_qasm_to_qsharp};
 use expect_test::expect;
 use miette::Report;
 
@@ -91,6 +91,98 @@ fn qdk_qir_intrinsic_can_be_applied_to_def() -> miette::Result<(), Vec<Report>> 
     "#]]
     .assert_eq(&qsharp);
     Ok(())
+}
+
+#[test]
+fn qdk_qir_noise_intrinsic_can_be_applied_to_gate() {
+    let source = r#"
+        include "stdgates.inc";
+        @qdk.qir.noise_intrinsic
+        gate noise q {
+            x q;
+        }
+    "#;
+
+    check_qasm_to_qsharp(
+        source,
+        &expect![[r#"
+        import Std.OpenQASM.Intrinsic.*;
+        @NoiseIntrinsic()
+        @SimulatableIntrinsic()
+        operation noise(q : Qubit) : Unit {
+            x(q);
+        }
+    "#]],
+    );
+}
+
+#[test]
+fn noise_intrinsic_can_be_applied_to_gate() {
+    let source = r#"
+        include "stdgates.inc";
+        @NoiseIntrinsic
+        gate noise q {
+            x q;
+        }
+    "#;
+
+    check_qasm_to_qsharp(
+        source,
+        &expect![[r#"
+        import Std.OpenQASM.Intrinsic.*;
+        @NoiseIntrinsic()
+        @SimulatableIntrinsic()
+        operation noise(q : Qubit) : Unit {
+            x(q);
+        }
+    "#]],
+    );
+}
+
+#[test]
+fn qdk_qir_noise_intrinsic_can_be_applied_to_def() {
+    let source = r#"
+        include "stdgates.inc";
+        @qdk.qir.noise_intrinsic
+        def noise(qubit q) {
+            x q;
+        }
+    "#;
+
+    check_qasm_to_qsharp(
+        source,
+        &expect![[r#"
+        import Std.OpenQASM.Intrinsic.*;
+        @NoiseIntrinsic()
+        @SimulatableIntrinsic()
+        operation noise(q : Qubit) : Unit {
+            x(q);
+        }
+    "#]],
+    );
+}
+
+#[test]
+fn noise_intrinsic_can_be_applied_to_def() {
+    let source = r#"
+        include "stdgates.inc";
+        @NoiseIntrinsic
+        def noise(qubit q) {
+            h q;
+        }
+    "#;
+
+    check_qasm_to_qsharp(
+        source,
+        &expect![[r#"
+        import Std.OpenQASM.Intrinsic.*;
+        @NoiseIntrinsic()
+        @SimulatableIntrinsic()
+        operation noise(q : Qubit) : Unit {
+            h(q);
+        }
+    "#]],
+    );
 }
 
 #[test]

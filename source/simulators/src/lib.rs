@@ -20,7 +20,8 @@ pub enum MeasurementResult {
 }
 
 pub trait Simulator {
-    type Noise;
+    type Noise: Default;
+    type StateDumpData;
 
     /// Creates a new simulator.
     fn new(num_qubits: usize, num_results: usize, seed: u32, noise: Self::Noise) -> Self;
@@ -67,6 +68,9 @@ pub trait Simulator {
     /// Controlled-X gate.
     fn cx(&mut self, control: QubitID, target: QubitID);
 
+    /// Controlled-Y gate.
+    fn cy(&mut self, control: QubitID, target: QubitID);
+
     /// Controlled-Z gate.
     fn cz(&mut self, control: QubitID, target: QubitID);
 
@@ -103,4 +107,8 @@ pub trait Simulator {
 
     /// Returns a list of the measurements recorded during the simulation.
     fn take_measurements(&mut self) -> Vec<MeasurementResult>;
+
+    /// Dumps the current state of the simulator in some representation that can be compared
+    /// for `PartialEq` up to a global phase. This is meant to be used for testing.
+    fn state_dump(&self) -> &Self::StateDumpData;
 }

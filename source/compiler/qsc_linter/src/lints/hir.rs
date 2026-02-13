@@ -13,7 +13,7 @@ use qsc_hir::{
 use std::fmt::Write;
 use std::rc::Rc;
 
-use crate::linter::{Compilation, hir::declare_hir_lints};
+use crate::linter::{CodeAction, Compilation, hir::declare_hir_lints};
 
 use super::lint;
 
@@ -278,7 +278,14 @@ impl HirLintPass for DeprecatedWithOperator {
                     write!(new_expr, "{:indent$}}}", "", indent = indentation - 4)
                         .expect("writing to string should succeed");
                     let code_action_edits = vec![(new_expr, info.span)];
-                    buffer.push(lint!(self, info.span, code_action_edits));
+                    buffer.push(lint!(
+                        self,
+                        info.span,
+                        CodeAction {
+                            title: "Replace with struct constructor".to_string(),
+                            edits: code_action_edits,
+                        }
+                    ));
                     self.lint_info = None;
                 }
             }
@@ -332,10 +339,14 @@ impl HirLintPass for DeprecatedDoubleColonOperator {
                     buffer.push(lint!(
                         self,
                         info.full_lint_span,
-                        info.op_spans
-                            .into_iter()
-                            .map(|s| (".".to_string(), s))
-                            .collect()
+                        CodeAction {
+                            title: "Replace `::` with `.` for field access".to_string(),
+                            edits: info
+                                .op_spans
+                                .into_iter()
+                                .map(|s| (".".to_string(), s))
+                                .collect()
+                        }
                     ));
                 }
             }

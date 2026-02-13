@@ -2236,6 +2236,31 @@ fn test_measurement_attr_on_function_issues_error() {
 }
 
 #[test]
+fn test_noise_intrinsic_attr_on_function_issues_error() {
+    check_errors(
+        indoc! {r#"
+            namespace Test {
+                @NoiseIntrinsic()
+                function Foo(q: Qubit) : Unit {
+                    body intrinsic;
+                }
+            }
+        "#},
+        &expect![[r#"
+            [
+                InvalidAttrOnFunction(
+                    "NoiseIntrinsic",
+                    Span {
+                        lo: 52,
+                        hi: 55,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
 fn test_reset_attr_on_function_issues_error() {
     check_errors(
         indoc! {r#"

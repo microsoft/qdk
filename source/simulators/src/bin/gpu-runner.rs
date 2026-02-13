@@ -8,7 +8,7 @@
 
 use core::panic;
 use qdk_simulators::gpu_context::{GpuContext, RunResults};
-use qdk_simulators::noise_config::NoiseConfig;
+use qdk_simulators::noise_config::{NoiseConfig, encode_pauli};
 use qdk_simulators::run_shots_sync;
 use qdk_simulators::shader_types::{Op, ops};
 use regex_lite::Regex;
@@ -31,6 +31,8 @@ fn main() {
     test_move_noise();
     test_benzene();
     test_cx_various_state();
+    test_cy_phase();
+    test_cy_noise_inverts_phase();
     gates_on_lost_qubits();
     scaled_ising();
     scaled_grover();
@@ -576,7 +578,60 @@ fn test_cx_various_state() {
     check_success(&results);
 
     // TODO: Check results 0 & 2 are in the 1 state
-    println!("[GPU Runner]: CX Various State on 2 qubits for 10 shots: {results:?}");
+    //println!("[GPU Runner]: CX Various State on 2 qubits for 10 shots: {results:?}");
+    println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
+}
+
+fn test_cy_phase() {
+    let ops: Vec<Op> = vec![
+        Op::new_x_gate(0),
+        Op::new_h_gate(1),
+        Op::new_cy_gate(0, 1),
+        Op::new_cy_gate(2, 1),
+        Op::new_h_gate(1),
+        Op::new_mresetz_gate(0, 0),
+        Op::new_mresetz_gate(1, 1),
+        Op::new_mresetz_gate(2, 2),
+    ];
+
+    let start = Instant::now();
+    let results = run_shots_sync(3, 3, &ops, &None, 50, DEFAULT_SEED, 0).expect("GPU shots failed");
+    let elapsed = start.elapsed();
+    check_success(&results);
+
+    assert!(
+        results.shot_results.iter().all(|r| r == &[1, 1, 0]),
+        "Expected all results to be [1, 1, 0], got {results:?}"
+    );
+    println!("[GPU Runner]: CY phase test for 50 shots: {results:?}");
+    println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
+}
+
+fn test_cy_noise_inverts_phase() {
+    let ops: Vec<Op> = vec![
+        Op::new_x_gate(0),
+        Op::new_h_gate(1),
+        Op::new_cy_gate(0, 1),
+        Op::new_h_gate(1),
+        Op::new_mresetz_gate(0, 0),
+        Op::new_mresetz_gate(1, 1),
+    ];
+
+    let mut noise: NoiseConfig<f32, f64> = NoiseConfig::NOISELESS.clone();
+    noise.cy.pauli_strings.push(encode_pauli("IZ"));
+    noise.cy.probabilities.push(1.0);
+
+    let start = Instant::now();
+    let results =
+        run_shots_sync(2, 2, &ops, &Some(noise), 50, DEFAULT_SEED, 0).expect("GPU shots failed");
+    let elapsed = start.elapsed();
+    check_success(&results);
+
+    assert!(
+        results.shot_results.iter().all(|r| r == &[1, 0]),
+        "Expected all results to be [1, 0], got {results:?}"
+    );
+    println!("[GPU Runner]: CY phase test with IZ noise for 50 shots: {results:?}");
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
 }
 
@@ -601,7 +656,7 @@ fn repeated_noise() {
 
     // Add bit-flip and loss noise to X gates of 0.1%
     let mut noise: NoiseConfig<f32, f64> = NoiseConfig::NOISELESS.clone();
-    noise.x.pauli_strings.push("X".to_string());
+    noise.x.pauli_strings.push(encode_pauli("X"));
     noise.x.probabilities.push(0.001);
     noise.x.loss = 0.001;
 
@@ -696,7 +751,7 @@ fn scaled_grover() {
 
 fn noise_config() {
     let mut noise: NoiseConfig<f32, f64> = NoiseConfig::NOISELESS.clone();
-    noise.x.pauli_strings.push("X".to_string());
+    noise.x.pauli_strings.push(encode_pauli("X"));
     noise.x.probabilities.push(0.5);
     noise.x.loss = 0.333_333;
 
@@ -849,6 +904,7 @@ fn op_from_ir_line(line: &str) -> Vec<Op> {
             }
         }
         "cx" => vec![Op::new_cx_gate(qubits[0], qubits[1])],
+        "cy" => vec![Op::new_cy_gate(qubits[0], qubits[1])],
         "cz" => vec![Op::new_cz_gate(qubits[0], qubits[1])],
         "rxx" => {
             if let Some(angle_val) = angle {

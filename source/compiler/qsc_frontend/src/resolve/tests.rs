@@ -2342,6 +2342,50 @@ fn resolve_local_generic() {
 }
 
 #[test]
+fn incorrect_single_qubit_allocation_syntax_gets_extra_help() {
+    check(
+        indoc! {"
+            namespace A {
+                operation B() : Unit {
+                    let q = Qubit();
+                }
+            }
+        "},
+        &expect![[r#"
+            namespace namespace3 {
+                operation package2_item1() : Unit {
+                    let local13 = Qubit();
+                }
+            }
+
+            // NotFoundQubit(Span { lo: 57, hi: 62 })
+        "#]],
+    );
+}
+
+#[test]
+fn incorrect_qubit_array_allocation_syntax_gets_extra_help() {
+    check(
+        indoc! {"
+            namespace A {
+                operation B() : Unit {
+                    let q = Qubit[5];
+                }
+            }
+        "},
+        &expect![[r#"
+            namespace namespace3 {
+                operation package2_item1() : Unit {
+                    let local13 = Qubit[5];
+                }
+            }
+
+            // NotFoundQubit(Span { lo: 57, hi: 62 })
+        "#]],
+    );
+}
+
+#[test]
 fn dropped_base_callable_from_unrestricted() {
     check_with_capabilities(
         indoc! {"

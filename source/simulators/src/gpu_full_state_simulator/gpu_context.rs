@@ -259,19 +259,14 @@ impl GpuContext {
                         | ops::MOVE
                         | ops::MRESETZ
                         | ops::MZ
+                        | ops::CX..=ops::RZZ
+                        | ops::CY
+                        | ops::SWAP
                         | ops::CORRELATED_NOISE => {
                             compute_pass.set_pipeline(&kernels.prepare_op);
                             compute_pass.dispatch_workgroups(prepare_workgroup_count, 1, 1);
 
                             compute_pass.set_pipeline(&kernels.execute_op);
-                            compute_pass.dispatch_workgroups(execute_workgroup_count, 1, 1);
-                        }
-                        // Two qubit gates
-                        ops::CX..=ops::RZZ | ops::SWAP => {
-                            compute_pass.set_pipeline(&kernels.prepare_op);
-                            compute_pass.dispatch_workgroups(prepare_workgroup_count, 1, 1);
-
-                            compute_pass.set_pipeline(&kernels.execute_2q_op);
                             compute_pass.dispatch_workgroups(execute_workgroup_count, 1, 1);
                         }
                         // Skip over simple noise ops
@@ -294,7 +289,7 @@ impl GpuContext {
 
             results.extend(batch_results);
             if batch_diagnostics.error_code != 0 && diagnostics.is_none() {
-                diagnostics = Some(Box::new(batch_diagnostics));
+                diagnostics = Some(batch_diagnostics);
             }
 
             shots_remaining -= self.run_params.shots_per_batch;

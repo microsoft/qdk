@@ -1,0 +1,12 @@
+{
+    "dependencies": {
+        "TableLookup": {
+            "github": {
+                "ref": "v1.25.0",
+                "owner": "microsoft",
+                "repo": "qdk",
+                "path": "library/table_lookup"
+            }
+        }
+    }
+}

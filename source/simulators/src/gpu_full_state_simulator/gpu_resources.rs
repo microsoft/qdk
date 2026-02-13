@@ -32,7 +32,6 @@ pub struct GpuKernels {
     pub init_op: ComputePipeline,
     pub prepare_op: ComputePipeline,
     pub execute_op: ComputePipeline,
-    pub execute_2q_op: ComputePipeline,
 }
 
 #[derive(Debug)]
@@ -369,8 +368,7 @@ impl GpuResources {
         self.device_resources.kernels = Some(GpuKernels {
             init_op: get_kernel("initialize"),
             prepare_op: get_kernel("prepare_op"),
-            execute_op: get_kernel("execute_op"),
-            execute_2q_op: get_kernel("execute_2q_op"),
+            execute_op: get_kernel("execute"),
         });
 
         Ok(())
@@ -544,7 +542,7 @@ impl GpuResources {
         Ok(())
     }
 
-    pub async fn download_batch_results(&self) -> Result<(Vec<u32>, DiagnosticsData), String> {
+    pub async fn download_batch_results(&self) -> Result<(Vec<u32>, Box<DiagnosticsData>), String> {
         let device = self.device.as_ref().ok_or("GPU device not initialized")?;
         let results = self.try_get_buffer(RESULTS_BUF_IDX)?;
         let diagnostics = self.try_get_buffer(DIAGNOSTICS_BUF_IDX)?;
@@ -606,7 +604,8 @@ impl GpuResources {
         let results_data = &data[..results_bytes];
 
         let diagnositcs_data = &data[results_bytes..];
-        let diagnostics: DiagnosticsData = *from_bytes::<DiagnosticsData>(diagnositcs_data);
+        // Keep this on the heap to avoid large stack frames in debug builds.
+        let diagnostics = Box::new(*from_bytes::<DiagnosticsData>(diagnositcs_data));
         let batch_results: Vec<u32> = cast_slice(results_data).to_vec();
 
         drop(data);

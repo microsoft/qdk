@@ -20,7 +20,7 @@ const MAX_CIRCUITS = 1;
 // This component is shared by the Python widget and the VS Code panel
 export function Circuit(props: {
   circuit?: qviz.CircuitGroup | qviz.Circuit;
-  renderLocations: (s: SourceLocation[]) => { title: string; href: string };
+  renderLocations?: (s: SourceLocation[]) => { title: string; href: string };
   editor?: qviz.EditorHandlers;
 }) {
   const isEditable = props.editor != null;
@@ -64,7 +64,7 @@ export function Circuit(props: {
 
 function ZoomableCircuit(props: {
   circuitGroup: qviz.CircuitGroup;
-  renderLocations: (s: SourceLocation[]) => { title: string; href: string };
+  renderLocations?: (s: SourceLocation[]) => { title: string; href: string };
   editor?: qviz.EditorHandlers;
 }) {
   const circuitDiv = useRef<HTMLDivElement>(null);
