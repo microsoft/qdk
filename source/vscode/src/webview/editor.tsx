@@ -251,7 +251,8 @@ function App({ state }: { state: State }) {
           editor={{
             editCallback: updateTextDocument,
             runCallback: runCircuit,
-            computeStateVizColumnsForCircuitModel: computeStateVizColumnsInWorker,
+            computeStateVizColumnsForCircuitModel:
+              computeStateVizColumnsInWorker,
           }}
         ></CircuitPanel>
       );
