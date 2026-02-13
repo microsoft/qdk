@@ -8,15 +8,16 @@
     <link rel="stylesheet" href="../../ux/qsharp-circuit.css" />
   </head>
   <body>
-    <div
-      id="circuit"
-      class="qs-circuit"
-      style="display: flex; height: 80vh; width: 95vw"
-    >
+    <div id="circuit" class="qs-circuit circuit-editor-container">
       <div class="panel">
         <div class="toolbox-panel">
           <h2 class="title">Toolbox</h2>
-          <svg xmlns="http://www.w3.org/2000/svg" class="toolbox-panel-svg">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="toolbox-panel-svg"
+            height="362"
+            width="100%"
+          >
             <g class="gate" data-type="RX" toolbox-item="true">
               <g>
                 <g>
@@ -253,10 +254,7 @@
           </svg>
         </div>
       </div>
-      <div
-        class="circuit-wrapper"
-        style="display: block; overflow: auto; width: 100%"
-      >
+      <div class="circuit-wrapper">
         <svg
           xmlns="http://www.w3.org/2000/svg"
           class="qviz"
@@ -481,6 +479,38 @@
             />
           </g>
         </svg>
+      </div>
+      <div class="state-panel collapsed">
+        <div
+          class="state-edge"
+          role="button"
+          tabindex="0"
+          aria-label="Toggle state panel"
+          aria-expanded="false"
+        >
+          <span class="state-edge-text">State Visualization</span
+          ><svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 14 14"
+            aria-hidden="true"
+            class="edge-icon edge-icon-top"
+          >
+            <path d="M 4.25 11 L 11 7 L 4.25 3 Z" /></svg
+          ><svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 14 14"
+            aria-hidden="true"
+            class="edge-icon edge-icon-bottom"
+          >
+            <path d="M 4.25 11 L 11 7 L 4.25 3 Z" />
+          </svg>
+        </div>
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          class="state-svg"
+          width="100%"
+          height="100%"
+        />
       </div>
     </div>
   </body>

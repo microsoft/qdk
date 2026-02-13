@@ -9,6 +9,8 @@ import "./qsharp-circuit.css";
 export {
   CreateSingleEstimateResult,
   type ReData,
+  type EditorHandlers,
+  type CircuitModel,
   type CircuitGroup,
   type CircuitProps,
 } from "./data.js";

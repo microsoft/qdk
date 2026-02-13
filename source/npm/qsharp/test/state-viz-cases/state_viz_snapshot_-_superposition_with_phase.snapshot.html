@@ -1,0 +1,105 @@
+<!doctype html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <link rel="stylesheet" href="../../ux/qsharp-ux.css" />
+    <link rel="stylesheet" href="../../ux/qsharp-circuit.css" />
+  </head>
+  <body>
+    <div class="state-panel" style="--stateAnimMs: 0ms; flex-basis: 261px">
+      <div
+        class="state-edge"
+        role="button"
+        tabindex="0"
+        aria-label="Toggle state panel"
+        aria-expanded="true"
+      >
+        <span class="state-edge-text">State Visualization</span
+        ><svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 14 14"
+          aria-hidden="true"
+          class="edge-icon edge-icon-top"
+        >
+          <path d="M 4.25 11 L 11 7 L 4.25 3 Z" /></svg
+        ><svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 14 14"
+          aria-hidden="true"
+          class="edge-icon edge-icon-bottom"
+        >
+          <path d="M 4.25 11 L 11 7 L 4.25 3 Z" />
+        </svg>
+      </div>
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="state-svg"
+        width="225"
+        height="562"
+      >
+        <g transform="translate(36,0)">
+          <text x="-8" y="9" class="state-header">Probability Density</text>
+          <line x1="0" y1="299" x2="153" y2="299" class="state-separator" />
+          <text x="-8" y="308" class="state-header">Phase</text>
+          <line x1="0" y1="434" x2="153" y2="434" class="state-separator" />
+          <text x="-8" y="443" class="state-header">State</text>
+          <rect
+            x="0"
+            width="72"
+            fill="hsl(180,70%,50%)"
+            class="state-bar"
+            y="36"
+            height="234"
+          >
+            <title>50.0% • φ=+0.00π</title>
+          </rect>
+          <text x="36" y="278" class="state-bar-label">50%</text>
+          <path
+            d="M 36 362 L 63 362 A 27 27 0 0 0 63 362 Z"
+            class="state-phase-wedge"
+            fill="hsl(180,70%,50%)"
+          />
+          <circle cx="36" cy="362" r="27" class="state-phase-circle">
+            <title>φ=+0.00π</title>
+          </circle>
+          <text x="36" y="405" class="state-phase-text">+0.0</text>
+          <circle
+            cx="63"
+            cy="362"
+            r="6.75"
+            fill="hsl(180,70%,50%)"
+            class="state-phase-dot"
+          />
+          <text x="36" y="476" class="state-bitstring">0</text>
+          <rect
+            x="76"
+            width="72"
+            fill="hsl(270,70%,50%)"
+            class="state-bar"
+            y="36"
+            height="234"
+          >
+            <title>50.0% • φ=+0.50π</title>
+          </rect>
+          <text x="112" y="278" class="state-bar-label">50%</text>
+          <path
+            d="M 112 362 L 139 362 A 27 27 0 0 0 112 335 Z"
+            class="state-phase-wedge"
+            fill="hsl(270,70%,50%)"
+          />
+          <circle cx="112" cy="362" r="27" class="state-phase-circle">
+            <title>φ=+0.50π</title>
+          </circle>
+          <text x="112" y="405" class="state-phase-text">+0.5</text>
+          <circle
+            cx="112"
+            cy="335"
+            r="6.75"
+            fill="hsl(270,70%,50%)"
+            class="state-phase-dot"
+          />
+          <text x="112" y="476" class="state-bitstring">1</text>
+        </g>
+      </svg>
+    </div>
+  </body>
+</html>

@@ -1,7 +1,16 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { Ket, Measurement, Operation, Unitary } from "./circuit.js";
+import {
+  Ket,
+  Measurement,
+  Operation,
+  Unitary,
+  type Circuit,
+} from "./circuit.js";
+import { ensureStateVisualization } from "./state-viz/stateVizController.js";
+import type { StateColumn } from "./state-viz/stateViz.js";
+import type { PrepareStateVizOptions } from "./state-viz/worker/stateVizPrep.js";
 import {
   gateHeight,
   horizontalGap,
@@ -12,55 +21,80 @@ import { formatGate } from "./formatters/gateFormatter.js";
 import { GateType, GateRenderData } from "./gateRenderData.js";
 import { getMinGateWidth } from "./utils.js";
 
-/**
- * Create a panel for the circuit visualization.
- * @param container     HTML element for rendering visualization into
- */
-const createPanel = (container: HTMLElement): void => {
-  // Find or create the wrapper
+const getOrCreateCircuitWrapper = (container: HTMLElement) => {
   let wrapper: HTMLElement | null = container.querySelector(".circuit-wrapper");
-  const circuit = container.querySelector("svg.qviz");
+  const circuit = container.querySelector("svg.qviz") as SVGElement | null;
   if (circuit == null) {
     throw new Error("No circuit found in the container");
   }
   if (!wrapper) {
-    wrapper = _elem("div", "");
+    wrapper = document.createElement("div");
     wrapper.className = "circuit-wrapper";
-    wrapper.style.display = "block";
-    wrapper.style.overflow = "auto";
-    wrapper.style.width = "100%";
     wrapper.appendChild(circuit);
     container.appendChild(wrapper);
   } else if (circuit.parentElement !== wrapper) {
-    // If wrapper exists but SVG is not inside, ensure it's appended
     wrapper.appendChild(circuit);
   }
 
-  // Remove any previous message
+  return { wrapper, circuit };
+};
+
+const attachToolboxPanelIfMissing = (
+  container: HTMLElement,
+  createToolboxPanel: () => HTMLElement,
+): void => {
+  if (container.querySelector(".panel") != null) return;
+  container.prepend(createToolboxPanel());
+};
+
+const removeEmptyCircuitMessage = (wrapper: HTMLElement): void => {
   const prevMsg = wrapper.querySelector(".empty-circuit-message");
   if (prevMsg) prevMsg.remove();
+};
 
-  // Check if the circuit is empty by inspecting the .wires group
+const addEmptyCircuitMessageIfEmpty = (
+  wrapper: HTMLElement,
+  circuit: SVGElement,
+): void => {
   const wiresGroup = circuit?.querySelector(".wires");
   if (!wiresGroup || wiresGroup.children.length === 0) {
     const emptyMsg = document.createElement("div");
     emptyMsg.className = "empty-circuit-message";
     emptyMsg.textContent =
       "Your circuit is empty. Drag gates from the toolbox to get started!";
-    emptyMsg.style.padding = "2em";
-    emptyMsg.style.textAlign = "center";
-    emptyMsg.style.color = "#888";
-    emptyMsg.style.fontSize = "1.1em";
     wrapper.appendChild(emptyMsg);
   }
+};
 
-  if (container.querySelector(".panel") == null) {
-    const panelElem = _panel();
-    container.prepend(panelElem);
-    container.style.display = "flex";
-    container.style.height = "80vh";
-    container.style.width = "95vw";
-  }
+const applyCircuitEditorLayoutClasses = (
+  container: HTMLElement,
+  wrapper: HTMLElement,
+): void => {
+  container.classList.add("circuit-editor-container");
+  wrapper.classList.add("circuit-wrapper");
+};
+
+/**
+ * Create a panel for the circuit visualization.
+ * @param container         HTML element for rendering visualization into
+ * @param computeStateVizColumnsForCircuitModel Optional callback to compute
+ * state visualization columns from a circuit model, which enables state
+ * visualization features when provided.
+ */
+const createPanel = (
+  container: HTMLElement,
+  computeStateVizColumnsForCircuitModel?: (
+    model: Circuit,
+    opts?: PrepareStateVizOptions,
+  ) => Promise<StateColumn[]>,
+): void => {
+  const { wrapper, circuit } = getOrCreateCircuitWrapper(container);
+  removeEmptyCircuitMessage(wrapper);
+  attachToolboxPanelIfMissing(container, _panel);
+  addEmptyCircuitMessageIfEmpty(wrapper, circuit);
+  applyCircuitEditorLayoutClasses(container, wrapper);
+
+  ensureStateVisualization(container, computeStateVizColumnsForCircuitModel);
 };
 
 /**
@@ -82,7 +116,6 @@ const enableRunButton = (
 
 /**
  * Function to produce panel element
- * @param context       Context object to manage extension state
  * @returns             HTML element for panel
  */
 const _panel = (): HTMLElement => {
@@ -94,7 +127,6 @@ const _panel = (): HTMLElement => {
 
 /**
  * Function to produce toolbox element
- * @param context       Context object to manage extension state
  * @returns             HTML element for toolbox
  */
 const _createToolbox = (): HTMLElement => {
@@ -128,6 +160,11 @@ const _createToolbox = (): HTMLElement => {
   // Append run button
   const runButtonGroup = _createRunButton(prefixY + gateHeight + 20);
   svgElem.appendChild(runButtonGroup);
+
+  // Size SVG to content height so the toolbox panel can scroll when window is short
+  const totalSvgHeight = prefixY + 2 * gateHeight + 32; // gates + button + padding
+  svgElem.setAttribute("height", totalSvgHeight.toString());
+  svgElem.setAttribute("width", "100%");
 
   // Generate toolbox panel
   const toolboxElem = _elem("div", "toolbox-panel");

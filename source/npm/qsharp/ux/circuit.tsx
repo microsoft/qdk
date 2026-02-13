@@ -20,11 +20,10 @@ const MAX_CIRCUITS = 1;
 // This component is shared by the Python widget and the VS Code panel
 export function Circuit(props: {
   circuit?: qviz.CircuitGroup | qviz.Circuit;
-  isEditable: boolean;
-  editCallback?: (fileData: qviz.CircuitGroup) => void;
-  runCallback?: () => void;
   renderLocations?: (s: SourceLocation[]) => { title: string; href: string };
+  editor?: qviz.EditorHandlers;
 }) {
+  const isEditable = props.editor != null;
   let unrenderable = false;
   let qubits = 0;
   let operations = 0;
@@ -41,7 +40,7 @@ export function Circuit(props: {
     unrenderable =
       unrenderable ||
       result.circuitGroup.circuits.length > MAX_CIRCUITS ||
-      (!props.isEditable && qubits === 0) ||
+      (!isEditable && qubits === 0) ||
       operations > MAX_OPERATIONS ||
       qubits > MAX_QUBITS;
   } else {
@@ -65,15 +64,15 @@ export function Circuit(props: {
 
 function ZoomableCircuit(props: {
   circuitGroup: qviz.CircuitGroup;
-  isEditable: boolean;
-  editCallback?: (fileData: qviz.CircuitGroup) => void;
-  runCallback?: () => void;
   renderLocations?: (s: SourceLocation[]) => { title: string; href: string };
+  editor?: qviz.EditorHandlers;
 }) {
   const circuitDiv = useRef<HTMLDivElement>(null);
   const [zoomLevel, setZoomLevel] = useState(100);
   const [rendering, setRendering] = useState(true);
   const [zoomOnResize, setZoomOnResize] = useState(true);
+
+  const isEditable = props.editor != null;
 
   useEffect(() => {
     // Enable "rendering" text while the circuit is being drawn
@@ -89,13 +88,11 @@ function ZoomableCircuit(props: {
       const svg = renderCircuits(
         props.circuitGroup,
         container,
-        props.isEditable,
         props.renderLocations,
-        props.editCallback,
-        props.runCallback,
+        props.editor,
       );
 
-      if (!props.isEditable) {
+      if (!isEditable) {
         const initialZoom = calculateZoomToFit(container, svg as SVGElement);
         // Set the initial zoom level
         setZoomLevel(initialZoom);
@@ -106,7 +103,7 @@ function ZoomableCircuit(props: {
       // Calculate the initial zoom level based on the container width
       // Disable "rendering" text
       setRendering(false);
-    } else if (!props.isEditable) {
+    } else if (!isEditable) {
       // Initial drawing done, attach window resize handler
       window.addEventListener("resize", onResize);
       return () => {
@@ -122,7 +119,7 @@ function ZoomableCircuit(props: {
   return (
     <div>
       <div>
-        {props.isEditable || rendering ? null : (
+        {isEditable || rendering ? null : (
           <ZoomControl zoom={zoomLevel} onInput={userSetZoomLevel} />
         )}
       </div>
@@ -176,17 +173,10 @@ function ZoomableCircuit(props: {
   function renderCircuits(
     circuitGroup: qviz.CircuitGroup,
     container: HTMLDivElement,
-    isEditable: boolean,
     renderLocations?: (s: SourceLocation[]) => { title: string; href: string },
-    editCallback?: (fileData: qviz.CircuitGroup) => void,
-    runCallback?: () => void,
+    editor?: qviz.EditorHandlers,
   ) {
-    qviz.draw(circuitGroup, container, {
-      isEditable,
-      editCallback,
-      runCallback,
-      renderLocations,
-    });
+    qviz.draw(circuitGroup, container, { renderLocations, editor });
     return container.getElementsByClassName("qviz")[0]!;
   }
 
@@ -283,6 +273,7 @@ function ZoomControl(props: { zoom: number; onInput: (zoom: number) => void }) {
 
 // This component is exclusive to the VS Code panel
 export function CircuitPanel(props: CircuitProps) {
+  const isEditable = props.editor != null;
   const error = props.errorHtml ? (
     <div>
       <p>
@@ -312,7 +303,7 @@ export function CircuitPanel(props: CircuitProps) {
       )}
       <p>
         Learn more at{" "}
-        {props.isEditable ? (
+        {isEditable ? (
           <a href="https://aka.ms/qdk.circuit-editor">
             https://aka.ms/qdk.circuit-editor
           </a>
@@ -328,10 +319,8 @@ export function CircuitPanel(props: CircuitProps) {
       {props.circuit ? (
         <Circuit
           circuit={props.circuit}
-          isEditable={props.isEditable}
-          editCallback={props.editCallback}
-          runCallback={props.runCallback}
           renderLocations={renderLocations}
+          editor={props.editor}
         ></Circuit>
       ) : null}
     </div>
