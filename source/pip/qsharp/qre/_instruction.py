@@ -20,7 +20,6 @@ from ._qre import (
     ISA,
     Constraint,
     ConstraintBound,
-    EstimationResult,
     _FloatFunction,
     _Instruction,
     _IntFunction,
@@ -286,11 +285,9 @@ class InstructionSource:
     roots: list[int] = field(default_factory=list, init=False)
 
     @classmethod
-    def from_estimation_result(
-        cls, ctx: _Context, result: EstimationResult
-    ) -> InstructionSource:
+    def from_isa(cls, ctx: _Context, isa: ISA) -> InstructionSource:
         """
-        Constructs an InstructionSource graph from an EstimationResult.
+        Constructs an InstructionSource graph from an ISA.
 
         The instruction source graph contains more information than the
         provenance graph in the context, as it connects the instructions to the
@@ -298,7 +295,7 @@ class InstructionSource:
 
         Args:
             ctx (_Context): The enumeration context containing the provenance graph.
-            result (EstimationResult): The estimation result containing the ISA and instruction sources.
+            isa (ISA): Instructions in the ISA will serve as root nodes in the source graph.
 
         Returns:
             InstructionSource: The instruction source graph for the estimation result.
@@ -328,7 +325,7 @@ class InstructionSource:
         graph = cls()
         source_table: dict[int, int] = {}
 
-        for inst in result.isa:
+        for inst in isa:
             if inst.source != 0:
                 node = _make_node(graph, source_table, inst.source)
                 graph.add_root(node)

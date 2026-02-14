@@ -4,11 +4,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Optional
 
 from ._application import Application
 from ._architecture import Architecture
 from ._qre import _estimate_parallel
-from ._trace import TraceQuery
+from ._trace import TraceQuery, PSSPC, LatticeSurgery
 from ._instruction import InstructionSource
 from ._isa_enumeration import ISAQuery
 
@@ -16,8 +17,8 @@ from ._isa_enumeration import ISAQuery
 def estimate(
     application: Application,
     architecture: Architecture,
-    trace_query: TraceQuery,
     isa_query: ISAQuery,
+    trace_query: Optional[TraceQuery] = None,
     *,
     max_error: float = 1.0,
 ) -> EstimationTable:
@@ -50,6 +51,9 @@ def estimate(
     app_ctx = application.context()
     arch_ctx = architecture.context()
 
+    if trace_query is None:
+        trace_query = PSSPC.q() * LatticeSurgery.q()
+
     # Obtain all results
     results = _estimate_parallel(
         list(trace_query.enumerate(app_ctx)),
@@ -65,25 +69,38 @@ def estimate(
             qubits=result.qubits,
             runtime=result.runtime,
             error=result.error,
-            source=InstructionSource.from_estimation_result(arch_ctx, result),
+            source=InstructionSource.from_isa(arch_ctx, result.isa),
+            properties=result.properties.copy(),
         )
+
         table.append(entry)
 
     return table
 
 
-@dataclass(frozen=True, slots=True)
-class EstimationTable:
-    entries: list[EstimationTableEntry] = field(default_factory=list, init=False)
+class EstimationTable(list["EstimationTableEntry"]):
+    def __init__(self):
+        super().__init__()
 
-    def append(self, entry: EstimationTableEntry) -> None:
-        self.entries.append(entry)
+    def as_frame(self):
+        try:
+            import pandas as pd
+        except ImportError:
+            raise ImportError(
+                "Missing optional 'pandas' dependency. To install run: "
+                "pip install pandas"
+            )
 
-    def __len__(self) -> int:
-        return len(self.entries)
-
-    def __iter__(self):
-        return iter(self.entries)
+        return pd.DataFrame(
+            [
+                {
+                    "qubits": entry.qubits,
+                    "runtime": entry.runtime,
+                    "error": entry.error,
+                }
+                for entry in self
+            ]
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,3 +109,4 @@ class EstimationTableEntry:
     runtime: int
     error: float
     source: InstructionSource
+    properties: dict[str, int | float | bool | str] = field(default_factory=dict)

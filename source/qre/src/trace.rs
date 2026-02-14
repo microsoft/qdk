@@ -68,6 +68,33 @@ impl Trace {
         self.base_error += amount;
     }
 
+    #[must_use]
+    pub fn memory_qubits(&self) -> Option<u64> {
+        self.memory_qubits
+    }
+
+    #[must_use]
+    pub fn has_memory_qubits(&self) -> bool {
+        self.memory_qubits.is_some()
+    }
+
+    pub fn set_memory_qubits(&mut self, qubits: u64) {
+        self.memory_qubits = Some(qubits);
+    }
+
+    pub fn increment_memory_qubits(&mut self, amount: u64) {
+        if amount == 0 {
+            return;
+        }
+        let current = self.memory_qubits.get_or_insert(0);
+        *current += amount;
+    }
+
+    #[must_use]
+    pub fn total_qubits(&self) -> u64 {
+        self.compute_qubits + self.memory_qubits.unwrap_or(0)
+    }
+
     pub fn increment_resource_state(&mut self, resource_id: u64, amount: u64) {
         if amount == 0 {
             return;
@@ -224,7 +251,37 @@ impl Trace {
             );
         }
 
+        // Memory qubits
+        if let Some(memory_qubits) = self.memory_qubits {
+            // We need a MEMORY instruction in our ISA
+            let memory = isa
+                .get(&instruction_ids::MEMORY)
+                .ok_or(Error::InstructionNotFound(instruction_ids::MEMORY))?;
+
+            result.add_qubits(memory.expect_space(Some(memory_qubits)));
+
+            // The number of rounds for the memory qubits to stay alive with
+            // respect to the total runtime of the algorithm.
+            let rounds = result
+                .runtime()
+                .div_ceil(memory.expect_time(Some(memory_qubits)));
+
+            let actual_error =
+                result.add_error(rounds as f64 * memory.expect_error_rate(Some(memory_qubits)));
+            if actual_error > max_error {
+                return Err(Error::MaximumErrorExceeded {
+                    actual_error,
+                    max_error,
+                });
+            }
+        }
+
         result.set_isa(isa.clone());
+
+        // Copy properties from the trace to the result
+        for (key, value) in &self.properties {
+            result.set_property(key.clone(), value.clone());
+        }
 
         Ok(result)
     }
@@ -556,45 +613,79 @@ fn get_error_rate_by_id(isa: &ISA, id: u64) -> Result<f64, Error> {
         .ok_or(Error::CannotExtractErrorRate(id))
 }
 
+/// Estimates all (trace, ISA) combinations in parallel, returning only the
+/// successful results collected into an [`EstimationCollection`].
+///
+/// This uses a shared atomic counter as a lock-free work queue.  Each worker
+/// thread atomically claims the next job index, maps it to a `(trace, isa)`
+/// pair, and runs the estimation.  This keeps all available cores busy until
+/// the last job completes.
+///
+/// # Work distribution
+///
+/// Jobs are numbered `0 .. traces.len() * isas.len()`.  For job index `j`:
+///   - `trace_idx = j / isas.len()`
+///   - `isa_idx   = j % isas.len()`
+///
+/// Each worker accumulates results locally and sends them back over a bounded
+/// channel once it runs out of work, avoiding contention on the shared
+/// collection.
 #[must_use]
 pub fn estimate_parallel<'a>(
     traces: &[&'a Trace],
     isas: &[&'a ISA],
     max_error: Option<f64>,
 ) -> EstimationCollection {
-    fn estimate_chunks<'a>(
-        traces: &[&'a Trace],
-        isas: &[&'a ISA],
-        max_error: Option<f64>,
-    ) -> Vec<EstimationResult> {
-        let mut local_collection = Vec::new();
-        for trace in traces {
-            for isa in isas {
-                if let Ok(estimation) = trace.estimate(isa, max_error) {
-                    local_collection.push(estimation);
-                }
-            }
-        }
-        local_collection
-    }
+    let total_jobs = traces.len() * isas.len();
+    let num_isas = isas.len();
+
+    // Shared atomic counter acts as a lock-free work queue.  Workers call
+    // fetch_add to claim the next job index.
+    let next_job = std::sync::atomic::AtomicUsize::new(0);
 
     let mut collection = EstimationCollection::new();
     std::thread::scope(|scope| {
         let num_threads = std::thread::available_parallelism()
             .map(std::num::NonZero::get)
             .unwrap_or(1);
-        let chunk_size = traces.len().div_ceil(num_threads);
 
+        // Bounded channel so each worker can send its batch of results back
+        // to the main thread without unbounded buffering.
         let (tx, rx) = std::sync::mpsc::sync_channel(num_threads);
 
-        for chunk in traces.chunks(chunk_size) {
+        for _ in 0..num_threads {
             let tx = tx.clone();
-            scope.spawn(move || tx.send(estimate_chunks(chunk, isas, max_error)));
+            let next_job = &next_job;
+            scope.spawn(move || {
+                let mut local_results = Vec::new();
+                loop {
+                    // Atomically claim the next job.  Relaxed ordering is
+                    // sufficient because there is no dependent data between
+                    // jobs — each (trace, isa) pair is independent.
+                    let job = next_job.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    if job >= total_jobs {
+                        break;
+                    }
+
+                    // Map the flat job index to a (trace, ISA) pair.
+                    let trace_idx = job / num_isas;
+                    let isa_idx = job % num_isas;
+
+                    if let Ok(estimation) = traces[trace_idx].estimate(isas[isa_idx], max_error) {
+                        local_results.push(estimation);
+                    }
+                }
+                // Send all results from this worker in one batch.
+                let _ = tx.send(local_results);
+            });
         }
+        // Drop the cloned sender so the receiver iterator terminates once all
+        // workers have finished.
         drop(tx);
 
-        for local_collection in rx.iter().take(num_threads) {
-            collection.extend(local_collection.into_iter());
+        // Collect results from all workers into the shared collection.
+        for local_results in rx {
+            collection.extend(local_results.into_iter());
         }
     });
 

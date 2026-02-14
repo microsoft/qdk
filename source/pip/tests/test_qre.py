@@ -16,7 +16,6 @@ from qsharp.qre import (
     ISATransform,
     LatticeSurgery,
     PropertyKey,
-    QSharpApplication,
     Trace,
     constraint,
     estimate,
@@ -24,6 +23,7 @@ from qsharp.qre import (
     linear_function,
     generic_function,
 )
+from qsharp.qre.application import QSharpApplication
 from qsharp.qre.models import (
     SurfaceCode,
     AQREGateBased,
@@ -551,6 +551,26 @@ def test_sum_isa_enumeration_nodes():
         assert isinstance(source, _ComponentQuery)
 
 
+def test_trace_properties():
+    trace = Trace(42)
+
+    trace.set_property("int", 42)
+    assert trace.get_property("int") == 42
+    assert isinstance(trace.get_property("int"), int)
+
+    trace.set_property("float", 3.14)
+    assert trace.get_property("float") == 3.14
+    assert isinstance(trace.get_property("float"), float)
+
+    trace.set_property("bool", True)
+    assert trace.get_property("bool") is True
+    assert isinstance(trace.get_property("bool"), bool)
+
+    trace.set_property("str", "hello")
+    assert trace.get_property("str") == "hello"
+    assert isinstance(trace.get_property("str"), str)
+
+
 def test_qsharp_application():
     from qsharp.qre._enumeration import _enumerate_instances
 
@@ -658,8 +678,8 @@ def test_estimation_max_error():
         results = estimate(
             app,
             arch,
-            PSSPC.q() * LatticeSurgery.q(),
             SurfaceCode.q() * ExampleFactory.q(),
+            PSSPC.q() * LatticeSurgery.q(),
             max_error=max_error,
         )
 

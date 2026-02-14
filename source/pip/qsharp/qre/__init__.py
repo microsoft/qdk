@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from ._application import Application, QSharpApplication
+from ._application import Application
 from ._architecture import Architecture
 from ._estimation import estimate
 from ._instruction import (
@@ -12,6 +12,7 @@ from ._instruction import (
     PropertyKey,
     constraint,
     instruction,
+    InstructionSource,
 )
 from ._isa_enumeration import ISAQuery, ISARefNode, ISA_ROOT
 from ._qre import (
@@ -50,6 +51,7 @@ __all__ = [
     "generic_function",
     "instruction_name",
     "InstructionFrontier",
+    "InstructionSource",
     "ISA",
     "ISA_ROOT",
     "ISAQuery",
@@ -59,7 +61,6 @@ __all__ = [
     "LatticeSurgery",
     "PropertyKey",
     "PSSPC",
-    "QSharpApplication",
     "Trace",
     "TraceQuery",
     "LOGICAL",
