@@ -253,12 +253,14 @@ c2[2] = measure q[4];
         %Result = type opaque
         %Qubit = type opaque
 
-        @empty_tag = internal constant [1 x i8] c"\00"
-        @0 = internal constant [8 x i8] c"0_t0a0r\00"
-        @1 = internal constant [8 x i8] c"1_t0a1r\00"
-        @2 = internal constant [8 x i8] c"2_t0a2r\00"
-        @3 = internal constant [8 x i8] c"3_t1a0r\00"
-        @4 = internal constant [8 x i8] c"4_t1a1r\00"
+        @0 = internal constant [4 x i8] c"0_t\00"
+        @1 = internal constant [6 x i8] c"1_t0a\00"
+        @2 = internal constant [8 x i8] c"2_t0a0r\00"
+        @3 = internal constant [8 x i8] c"3_t0a1r\00"
+        @4 = internal constant [8 x i8] c"4_t0a2r\00"
+        @5 = internal constant [6 x i8] c"5_t1a\00"
+        @6 = internal constant [8 x i8] c"6_t1a0r\00"
+        @7 = internal constant [8 x i8] c"7_t1a1r\00"
 
         define i64 @ENTRYPOINT__main() #0 {
         block_0:
@@ -274,14 +276,14 @@ c2[2] = measure q[4];
           call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Result* inttoptr (i64 2 to %Result*))
           call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 3 to %Qubit*), %Result* inttoptr (i64 3 to %Result*))
           call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 4 to %Qubit*), %Result* inttoptr (i64 4 to %Result*))
-          call void @__quantum__rt__tuple_record_output(i64 2, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
-          call void @__quantum__rt__array_record_output(i64 3, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
-          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 4 to %Result*), i8* getelementptr inbounds ([8 x i8], [8 x i8]* @0, i64 0, i64 0))
-          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 3 to %Result*), i8* getelementptr inbounds ([8 x i8], [8 x i8]* @1, i64 0, i64 0))
-          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 2 to %Result*), i8* getelementptr inbounds ([8 x i8], [8 x i8]* @2, i64 0, i64 0))
-          call void @__quantum__rt__array_record_output(i64 2, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
-          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* getelementptr inbounds ([8 x i8], [8 x i8]* @3, i64 0, i64 0))
-          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([8 x i8], [8 x i8]* @4, i64 0, i64 0))
+          call void @__quantum__rt__tuple_record_output(i64 2, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          call void @__quantum__rt__array_record_output(i64 3, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
+          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 4 to %Result*), i8* getelementptr inbounds ([8 x i8], [8 x i8]* @2, i64 0, i64 0))
+          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 3 to %Result*), i8* getelementptr inbounds ([8 x i8], [8 x i8]* @3, i64 0, i64 0))
+          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 2 to %Result*), i8* getelementptr inbounds ([8 x i8], [8 x i8]* @4, i64 0, i64 0))
+          call void @__quantum__rt__array_record_output(i64 2, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @5, i64 0, i64 0))
+          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* getelementptr inbounds ([8 x i8], [8 x i8]* @6, i64 0, i64 0))
+          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([8 x i8], [8 x i8]* @7, i64 0, i64 0))
           ret i64 0
         }
 
@@ -351,7 +353,7 @@ fn qir_generation_for_box_with_simulatable_intrinsic() -> miette::Result<(), Vec
         %Result = type opaque
         %Qubit = type opaque
 
-        @empty_tag = internal constant [1 x i8] c"\00"
+        @0 = internal constant [4 x i8] c"0_t\00"
 
         define i64 @ENTRYPOINT__main() #0 {
         block_0:
@@ -360,7 +362,7 @@ fn qir_generation_for_box_with_simulatable_intrinsic() -> miette::Result<(), Vec
           call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
           call void @box_end()
           call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-          call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+          call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
           ret i64 0
         }
 
@@ -422,7 +424,7 @@ fn qir_generation_for_box_with_qdk_qir_intrinsic() -> miette::Result<(), Vec<Rep
         %Result = type opaque
         %Qubit = type opaque
 
-        @empty_tag = internal constant [1 x i8] c"\00"
+        @0 = internal constant [4 x i8] c"0_t\00"
 
         define i64 @ENTRYPOINT__main() #0 {
         block_0:
@@ -431,7 +433,7 @@ fn qir_generation_for_box_with_qdk_qir_intrinsic() -> miette::Result<(), Vec<Rep
           call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
           call void @box_end()
           call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-          call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+          call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
           ret i64 0
         }
 

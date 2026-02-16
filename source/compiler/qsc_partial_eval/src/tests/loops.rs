@@ -49,7 +49,7 @@ fn unitary_call_within_a_for_loop() {
                 Variable(0, Integer) = Store Integer(3)
                 Call id(2), args( Qubit(0), )
                 Variable(0, Integer) = Store Integer(4)
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -99,7 +99,7 @@ fn unitary_call_within_a_while_loop() {
                 Variable(0, Integer) = Store Integer(2)
                 Call id(2), args( Qubit(0), )
                 Variable(0, Integer) = Store Integer(3)
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -153,7 +153,7 @@ fn unitary_call_within_a_repeat_until_loop() {
                 Call id(2), args( Qubit(0), )
                 Variable(0, Integer) = Store Integer(3)
                 Variable(1, Boolean) = Store Bool(false)
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -201,7 +201,7 @@ fn rotation_call_within_a_for_loop() {
                 Variable(0, Integer) = Store Integer(2)
                 Call id(2), args( Double(2), Qubit(0), )
                 Variable(0, Integer) = Store Integer(3)
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -252,7 +252,7 @@ fn rotation_call_within_a_while_loop() {
                 Variable(0, Integer) = Store Integer(2)
                 Call id(2), args( Double(2), Qubit(0), )
                 Variable(0, Integer) = Store Integer(3)
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -307,7 +307,7 @@ fn rotation_call_within_a_repeat_until_loop() {
                 Call id(2), args( Double(2), Qubit(0), )
                 Variable(0, Integer) = Store Integer(3)
                 Variable(1, Boolean) = Store Bool(false)
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -449,7 +449,7 @@ fn mutable_double_updated_in_loop() {
                 Jump(7)
             Block 9:Block:
                 Variable(1, Integer) = Store Integer(4)
-                Call id(4), args( Integer(0), EmptyTag, )
+                Call id(4), args( Integer(0), Tag(0, 3), )
                 Return
             Block 10:Block:
                 Variable(13, Double) = Fmul Double(-1), Variable(0, Double)

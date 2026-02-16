@@ -233,7 +233,7 @@ fn non_classical_entry_point_with_classical_inline_early_return_halts_evaluation
             Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), )
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -508,7 +508,7 @@ fn non_classical_entry_point_with_early_return_after_branching_halts_evaluation(
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
                 Call id(6), args( Qubit(1), )
-                Call id(7), args( Integer(0), EmptyTag, )
+                Call id(7), args( Integer(0), Tag(0, 3), )
                 Return
             Block 2:Block:
                 Call id(4), args( Qubit(1), )
@@ -620,7 +620,7 @@ fn operation_with_early_return_within_dynamic_branch_halts_evaluation_at_the_cal
                 Branch Variable(1, Boolean), 2, 1
             Block 1:Block:
                 Call id(5), args( Qubit(0), )
-                Call id(6), args( Integer(0), EmptyTag, )
+                Call id(6), args( Integer(0), Tag(0, 3), )
                 Return
             Block 2:Block:
                 Call id(4), args( Qubit(0), )
@@ -685,7 +685,7 @@ fn default_qubit_management_releases_qubits_when_they_are_out_of_scope_with_impl
                 Call id(2), args( Qubit(0), )
                 Call id(3), args( Qubit(1), )
                 Call id(2), args( Qubit(1), )
-                Call id(4), args( Integer(0), EmptyTag, )
+                Call id(4), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
     assert_eq!(program.num_qubits, 2);
@@ -750,7 +750,7 @@ fn default_qubit_management_releases_qubits_when_they_are_out_of_scope_with_expl
                 Call id(2), args( Qubit(0), )
                 Call id(3), args( Qubit(1), )
                 Call id(2), args( Qubit(1), )
-                Call id(4), args( Integer(0), EmptyTag, )
+                Call id(4), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
     assert_eq!(program.num_qubits, 2);
@@ -817,7 +817,7 @@ fn default_qubit_management_releases_qubits_when_they_are_out_of_scope_with_expl
                 Call id(2), args( Qubit(0), )
                 Call id(3), args( Qubit(1), )
                 Call id(2), args( Qubit(1), )
-                Call id(4), args( Integer(0), EmptyTag, )
+                Call id(4), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
     assert_eq!(program.num_qubits, 2);

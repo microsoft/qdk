@@ -45,7 +45,7 @@ def test_ccx_decomposition() -> None:
 
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -77,7 +77,7 @@ block_0:
   call void @__quantum__qis__cz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Qubit* null)
   call void @__quantum__qis__h__body(%Qubit* null)
   call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 2 to %Qubit*))
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -139,7 +139,7 @@ def test_cx_decomposition() -> None:
 
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -147,7 +147,7 @@ block_0:
   call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 1 to %Qubit*))
   call void @__quantum__qis__cz__body(%Qubit* null, %Qubit* inttoptr (i64 1 to %Qubit*))
   call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -209,7 +209,7 @@ def test_cy_decomposition() -> None:
 
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -219,7 +219,7 @@ block_0:
   call void @__quantum__qis__cz__body(%Qubit* null, %Qubit* inttoptr (i64 1 to %Qubit*))
   call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 1 to %Qubit*))
   call void @__quantum__qis__s__body(%Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -281,7 +281,7 @@ def test_rxx_decomposition() -> None:
 
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -293,7 +293,7 @@ block_0:
   call void @__quantum__qis__h__body(%Qubit* null)
   call void @__quantum__qis__cz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Qubit* null)
   call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -355,7 +355,7 @@ def test_ryy_decomposition() -> None:
 
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -371,7 +371,7 @@ block_0:
   call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 1 to %Qubit*))
   call void @__quantum__qis__s__body(%Qubit* inttoptr (i64 1 to %Qubit*))
   call void @__quantum__qis__s__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -433,7 +433,7 @@ def test_rzz_decomposition() -> None:
 
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -445,7 +445,7 @@ block_0:
   call void @__quantum__qis__h__body(%Qubit* null)
   call void @__quantum__qis__cz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Qubit* null)
   call void @__quantum__qis__h__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -507,7 +507,7 @@ def test_swap_decomposition() -> None:
 
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -521,7 +521,7 @@ block_0:
   call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 1 to %Qubit*))
   call void @__quantum__qis__cz__body(%Qubit* null, %Qubit* inttoptr (i64 1 to %Qubit*))
   call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -583,7 +583,7 @@ def test_rx_decomposition() -> None:
 
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -591,7 +591,7 @@ block_0:
   call void @__quantum__qis__h__body(%Qubit* null)
   call void @__quantum__qis__rz__body(double 1.234500e+00, %Qubit* null)
   call void @__quantum__qis__h__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -647,7 +647,7 @@ def test_ry_decomposition() -> None:
 
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -657,7 +657,7 @@ block_0:
   call void @__quantum__qis__rz__body(double 1.234500e+00, %Qubit* null)
   call void @__quantum__qis__h__body(%Qubit* null)
   call void @__quantum__qis__s__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -713,7 +713,7 @@ def test_h_decomposition() -> None:
 
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -721,7 +721,7 @@ block_0:
   call void @__quantum__qis__rz__body(double 0x3FF921FB54442D18, %Qubit* null)
   call void @__quantum__qis__sx__body(%Qubit* null)
   call void @__quantum__qis__rz__body(double 0x3FF921FB54442D18, %Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -773,13 +773,13 @@ def test_s_decomposition() -> None:
 
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__rt__initialize(i8* null)
   call void @__quantum__qis__rz__body(double 0x3FF921FB54442D18, %Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -831,13 +831,13 @@ def test_sadj_decomposition() -> None:
 
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__rt__initialize(i8* null)
   call void @__quantum__qis__rz__body(double 0xBFF921FB54442D18, %Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -889,13 +889,13 @@ def test_t_decomposition() -> None:
 
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__rt__initialize(i8* null)
   call void @__quantum__qis__rz__body(double 0x3FE921FB54442D18, %Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -947,13 +947,13 @@ def test_tadj_decomposition() -> None:
 
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__rt__initialize(i8* null)
   call void @__quantum__qis__rz__body(double 0xBFE921FB54442D18, %Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -1005,14 +1005,14 @@ def test_x_decomposition() -> None:
 
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__rt__initialize(i8* null)
   call void @__quantum__qis__sx__body(%Qubit* null)
   call void @__quantum__qis__sx__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -1064,7 +1064,7 @@ def test_y_decomposition() -> None:
 
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -1072,7 +1072,7 @@ block_0:
   call void @__quantum__qis__sx__body(%Qubit* null)
   call void @__quantum__qis__sx__body(%Qubit* null)
   call void @__quantum__qis__rz__body(double 0x400921FB54442D18, %Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -1124,13 +1124,13 @@ def test_z_decomposition() -> None:
 
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__rt__initialize(i8* null)
   call void @__quantum__qis__rz__body(double 0x400921FB54442D18, %Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -1182,13 +1182,13 @@ def test_rz_3pi_over_2_clifford_decomposition() -> None:
 
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__rt__initialize(i8* null)
   call void @__quantum__qis__s__adj(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -1242,13 +1242,13 @@ def test_rz_neg_pi_over_2_clifford_decomposition() -> None:
 
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__rt__initialize(i8* null)
   call void @__quantum__qis__s__adj(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -1302,13 +1302,13 @@ def test_rz_pi_clifford_decomposition() -> None:
 
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__rt__initialize(i8* null)
   call void @__quantum__qis__z__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -1362,13 +1362,13 @@ def test_rz_neg_pi_clifford_decomposition() -> None:
 
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__rt__initialize(i8* null)
   call void @__quantum__qis__z__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -1422,13 +1422,13 @@ def test_rz_pi_over_2_clifford_decomposition() -> None:
 
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__rt__initialize(i8* null)
   call void @__quantum__qis__s__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -1482,13 +1482,13 @@ def test_rz_neg_3pi_over_2_clifford_decomposition() -> None:
 
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__rt__initialize(i8* null)
   call void @__quantum__qis__s__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -1542,12 +1542,12 @@ def test_rz_2pi_decomposition() -> None:
 
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__rt__initialize(i8* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -1601,12 +1601,12 @@ def test_rz_neg_2pi_decomposition() -> None:
 
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__rt__initialize(i8* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -1684,13 +1684,13 @@ def test_reset_replaced_by_mresetz() -> None:
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__rt__initialize(i8* null)
   call void @__quantum__qis__mresetz__body(%Qubit* null, %Result* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
