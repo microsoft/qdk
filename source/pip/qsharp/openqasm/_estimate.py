@@ -3,7 +3,7 @@
 
 import json
 from time import monotonic
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union, cast
 from .._fs import read_file, list_directory, resolve
 from .._http import fetch_github
 from .._native import (  # type: ignore
@@ -50,17 +50,19 @@ def estimate(
     ipython_helper()
 
     def _coerce_estimator_params(
-        params: Optional[Union[Dict[str, Any], List, EstimatorParams]] = None,
+        params: Optional[
+            Union[Dict[str, Any], List[Dict[str, Any]], EstimatorParams]
+        ] = None,
     ) -> List[Dict[str, Any]]:
         if params is None:
-            params = [{}]
+            return [{}]
         elif isinstance(params, EstimatorParams):
             if params.has_items:
-                params = params.as_dict()["items"]
+                return cast(List[Dict[str, Any]], params.as_dict()["items"])
             else:
-                params = [params.as_dict()]
+                return [params.as_dict()]
         elif isinstance(params, dict):
-            params = [params]
+            return [params]
         return params
 
     params = _coerce_estimator_params(params)
@@ -70,9 +72,9 @@ def estimate(
     if isinstance(source, Callable) and hasattr(source, "__global_callable"):
         args = python_args_to_interpreter_args(args)
         res_str = get_interpreter().estimate(
-            param_str, callable=source.__global_callable, args=args
+            param_str, entry_expr=None, callable=source.__global_callable, args=args
         )
-    else:
+    elif isinstance(source, str):
         # remove any entries from kwargs with a None key or None value
         kwargs = {k: v for k, v in kwargs.items() if k is not None and v is not None}
 
@@ -87,6 +89,10 @@ def estimate(
             resolve,
             fetch_github,
             **kwargs,
+        )
+    else:
+        raise ValueError(
+            "source must be a string or a callable with __global_callable attribute"
         )
     res = json.loads(res_str)
 

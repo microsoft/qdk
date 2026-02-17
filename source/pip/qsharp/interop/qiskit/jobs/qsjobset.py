@@ -43,8 +43,8 @@ class QsJobSet(Job):
         self._job_indexes: List[int] = []
         self._executor: Executor = executor or DetaultExecutor()
         self._job_callable = job_callable
-        self._start_time: float = None
-        self._end_time: float = None
+        self._start_time: Optional[float] = None
+        self._end_time: Optional[float] = None
 
     def submit(self):
         """Submit the job to the backend for execution.
@@ -79,6 +79,8 @@ class QsJobSet(Job):
         if all(job.in_final_state() for job in self._jobs):
             # all jobs are done, so we can log the telemetry event
             shots = self._input_params.get("shots", -1)
+            # _start_time is set in submit() before adding this callback
+            assert self._start_time is not None
             duration_in_ms = (self._end_time - self._start_time) * 1000
             num_circuits = len(self._run_input)
             telemetry_events.on_qiskit_run_end(shots, num_circuits, duration_in_ms)
@@ -119,6 +121,9 @@ class QsJobSet(Job):
         output["backend_name"] = self.backend().name
         output["backend_version"] = self.backend().backend_version
 
+        # Times are set in submit() and _job_done() which must be called before result()
+        assert self._start_time is not None
+        assert self._end_time is not None
         duration = self._end_time - self._start_time
         output["time_taken"] = str(duration)
         output["header"] = {
@@ -128,6 +133,8 @@ class QsJobSet(Job):
         output["success"] = all(result.success for result in results)
         agg_result: List[ExperimentResult] = []
         for result in results:
+            # The results of an experiment should not be empty
+            assert result.results is not None
             for experiment_result in result.results:
                 agg_result.append(experiment_result.to_dict())
         output["results"] = agg_result
