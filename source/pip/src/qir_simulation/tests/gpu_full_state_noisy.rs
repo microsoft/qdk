@@ -315,6 +315,32 @@ fn swap_noise_affects_swapped_qubits() {
     }
 }
 
+#[test]
+fn two_qubit_loss() {
+    require_gpu!();
+    check_sim! {
+        simulator: GpuSimulator,
+        program: qir! {
+            cz(0, 1);
+            mresetz(0, 0);
+            mresetz(1, 1);
+        },
+        num_qubits: 2,
+        num_results: 2,
+        shots: 1000,
+        seed: SEED,
+        noise: noise_config! {
+            cz: { loss: 0.1 },
+        },
+        format: histogram,
+        output: expect![[r#"
+            --: 12
+            -0: 87
+            0-: 84
+            00: 817"#]],
+    }
+}
+
 // ==================== Gate-Specific Noise Tests ====================
 
 #[test]
