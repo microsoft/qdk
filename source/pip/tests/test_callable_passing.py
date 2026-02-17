@@ -67,6 +67,24 @@ def test_run_qsharp_callable_passed_to_python_callable() -> None:
     assert res == 6
 
 
+def test_python_callable_with_unsupported_types_passed_to_python_callable() -> None:
+    qsharp.init()
+    qsharp.eval("""
+        function MakeRange() : Range {
+            1..10
+        }
+        function SumRangeFromMaker(maker : Unit -> Range) : Int {
+            mutable sum = 0;
+            for v in maker() {
+                sum += v;
+            }
+            sum
+        }
+    """)
+    from qsharp.code import MakeRange, SumRangeFromMaker
+    assert SumRangeFromMaker(MakeRange) == 55
+
+
 def test_qsharp_closure_from_python_callable_passed_to_python_callable() -> None:
     qsharp.init()
     qsharp.eval("""
