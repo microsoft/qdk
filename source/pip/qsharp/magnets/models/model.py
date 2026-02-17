@@ -57,21 +57,6 @@ class Model:
             self._coefficients[edge.vertices] = 0.0
         self._terms: list[list[Hyperedge]] = []
 
-    def set_coefficient(self, vertices: tuple[int, ...], value: float) -> None:
-        """Set the coefficient for an edge in the Hamiltonian.
-
-        Args:
-            vertices: Tuple of vertex indices identifying the edge.
-            value: The coefficient value to set.
-
-        Raises:
-            KeyError: If the vertex tuple does not correspond to an edge
-                in the geometry.
-        """
-        if vertices not in self._coefficients:
-            raise KeyError(f"No edge with vertices {vertices} in geometry")
-        self._coefficients[vertices] = value
-
     def get_coefficient(self, vertices: tuple[int, ...]) -> float:
         """Get the coefficient for an edge in the Hamiltonian.
 
@@ -85,7 +70,36 @@ class Model:
             KeyError: If the vertex tuple does not correspond to an edge
                 in the geometry.
         """
+        vertices = tuple(sorted(vertices))
+        if vertices not in self._coefficients:
+            raise KeyError(f"No edge with vertices {vertices} in geometry")
         return self._coefficients[vertices]
+
+    def has_coefficient(self, vertices: tuple[int, ...]) -> bool:
+        """Check if a coefficient exists for the given edge vertices.
+
+        Args:
+            vertices: Tuple of vertex indices identifying the edge.
+        Returns:
+            True if a coefficient exists for the edge, False otherwise.
+        """
+        return tuple(sorted(vertices)) in self._coefficients
+
+    def set_coefficient(self, vertices: tuple[int, ...], value: float) -> None:
+        """Set the coefficient for an edge in the Hamiltonian.
+
+        Args:
+            vertices: Tuple of vertex indices identifying the edge.
+            value: The coefficient value to set.
+
+        Raises:
+            KeyError: If the vertex tuple does not correspond to an edge
+                in the geometry.
+        """
+        vertices = tuple(sorted(vertices))
+        if vertices not in self._coefficients:
+            raise KeyError(f"No edge with vertices {vertices} in geometry")
+        self._coefficients[vertices] = value
 
     def add_term(self, edges: list[Hyperedge]) -> None:
         """Add a term grouping to the model.

@@ -72,6 +72,15 @@ def test_model_set_coefficient():
     assert model.get_coefficient((0, 1)) == 1.5
 
 
+def test_model_set_coefficient_overwrite():
+    """Test overwriting an existing coefficient."""
+    geometry = make_chain(2)
+    model = Model(geometry)
+    model.set_coefficient((0, 1), 1.5)
+    model.set_coefficient((0, 1), 2.5)
+    assert model.get_coefficient((0, 1)) == 2.5
+
+
 def test_model_set_coefficient_invalid_edge():
     """Test setting coefficient for non-existent edge raises error."""
     geometry = make_chain(2)
@@ -86,6 +95,48 @@ def test_model_get_coefficient_invalid_edge():
     model = Model(geometry)
     with pytest.raises(KeyError):
         model.get_coefficient((0, 2))
+
+
+def test_model_get_coefficient_sorted():
+    """Test that get_coefficient sorts vertices so order doesn't matter."""
+    geometry = make_chain(2)
+    model = Model(geometry)
+    model.set_coefficient((0, 1), 3.0)
+    assert model.get_coefficient((1, 0)) == 3.0
+
+
+def test_model_set_coefficient_sorted():
+    """Test that set_coefficient sorts vertices so order doesn't matter."""
+    geometry = make_chain(2)
+    model = Model(geometry)
+    model.set_coefficient((1, 0), 4.0)
+    assert model.get_coefficient((0, 1)) == 4.0
+
+
+# has_coefficient tests
+
+
+def test_model_has_coefficient_true():
+    """Test has_coefficient returns True for existing edge."""
+    geometry = make_chain(3)
+    model = Model(geometry)
+    assert model.has_coefficient((0, 1)) is True
+    assert model.has_coefficient((1, 2)) is True
+
+
+def test_model_has_coefficient_false():
+    """Test has_coefficient returns False for non-existent edge."""
+    geometry = make_chain(3)
+    model = Model(geometry)
+    assert model.has_coefficient((0, 2)) is False
+    assert model.has_coefficient((5, 6)) is False
+
+
+def test_model_has_coefficient_sorted():
+    """Test has_coefficient sorts vertices so order doesn't matter."""
+    geometry = make_chain(2)
+    model = Model(geometry)
+    assert model.has_coefficient((1, 0)) is True
 
 
 # Term management tests
