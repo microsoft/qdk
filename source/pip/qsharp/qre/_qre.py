@@ -23,7 +23,6 @@ from .._native import (
     _IntFunction,
     ISA,
     ISARequirements,
-    _Property,
     _ProvenanceGraph,
     linear_function,
     LatticeSurgery,

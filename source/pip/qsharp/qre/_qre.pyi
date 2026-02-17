@@ -666,97 +666,6 @@ class _ProvenanceGraph:
         """
         ...
 
-class _Property:
-    def __new__(cls, value: Any) -> _Property:
-        """
-        Creates a property from a value.
-
-        Args:
-            value (Any): The value.
-        """
-        ...
-
-    def as_bool(self) -> Optional[bool]:
-        """
-        Returns the value as a boolean.
-
-        Returns:
-            Optional[bool]: The value as a boolean, or None if it is not a boolean.
-        """
-        ...
-
-    def as_int(self) -> Optional[int]:
-        """
-        Returns the value as an integer.
-
-        Returns:
-            Optional[int]: The value as an integer, or None if it is not an integer.
-        """
-        ...
-
-    def as_float(self) -> Optional[float]:
-        """
-        Returns the value as a float.
-
-        Returns:
-            Optional[float]: The value as a float, or None if it is not a float.
-        """
-        ...
-
-    def as_str(self) -> Optional[str]:
-        """
-        Returns the value as a string.
-
-        Returns:
-            Optional[str]: The value as a string, or None if it is not a string.
-        """
-        ...
-
-    def is_bool(self) -> bool:
-        """
-        Checks if the value is a boolean.
-
-        Returns:
-            bool: True if the value is a boolean, False otherwise.
-        """
-        ...
-
-    def is_int(self) -> bool:
-        """
-        Checks if the value is an integer.
-
-        Returns:
-            bool: True if the value is an integer, False otherwise.
-        """
-        ...
-
-    def is_float(self) -> bool:
-        """
-        Checks if the value is a float.
-
-        Returns:
-            bool: True if the value is a float, False otherwise.
-        """
-        ...
-
-    def is_str(self) -> bool:
-        """
-        Checks if the value is a string.
-
-        Returns:
-            bool: True if the value is a string, False otherwise.
-        """
-        ...
-
-    def __str__(self) -> str:
-        """
-        Returns a string representation of the property.
-
-        Returns:
-            str: A string representation of the property.
-        """
-        ...
-
 class EstimationResult:
     """
     Represents the result of a resource estimation.
@@ -809,6 +718,16 @@ class EstimationResult:
 
         Returns:
             ISA: The ISA used for the estimation.
+        """
+        ...
+
+    @property
+    def properties(self) -> dict[str, bool | int | float | str]:
+        """
+        Custom properties from application generation and trace transform.
+
+        Returns:
+            dict[str, bool | int | float | str]: A dictionary mapping property keys to their values.
         """
         ...
 
@@ -967,6 +886,44 @@ class Trace:
         """
         ...
 
+    @property
+    def memory_qubits(self) -> Optional[int]:
+        """
+        The number of memory qubits, if set.
+
+        Returns:
+            Optional[int]: The number of memory qubits, or None if not set.
+        """
+        ...
+
+    def has_memory_qubits(self) -> bool:
+        """
+        Checks if the trace has memory qubits set.
+
+        Returns:
+            bool: True if memory qubits are set, False otherwise.
+        """
+        ...
+
+    def set_memory_qubits(self, qubits: int) -> None:
+        """
+        Sets the number of memory qubits.
+
+        Args:
+            qubits (int): The number of memory qubits.
+        """
+        ...
+
+    def increment_memory_qubits(self, amount: int) -> None:
+        """
+        Increments the number of memory qubits. If memory qubits have not been
+        set, initializes them to 0 before incrementing.
+
+        Args:
+            amount (int): The amount to increment.
+        """
+        ...
+
     def increment_resource_state(self, resource_id: int, amount: int) -> None:
         """
         Increments a resource state count.
@@ -977,17 +934,19 @@ class Trace:
         """
         ...
 
-    def set_property(self, key: str, value: _Property) -> None:
+    def set_property(self, key: str, value: Any) -> None:
         """
-        Sets a property.
+        Sets a property.  All values of type `int`, `float`, `bool`, and `str`
+        are supported.  Any other value is converted to a string using its
+        `__str__` method.
 
         Args:
             key (str): The property key.
-            value (_Property): The property value.
+            value (Any): The property value.
         """
         ...
 
-    def get_property(self, key: str) -> Optional[_Property]:
+    def get_property(self, key: str) -> Optional[int | float | bool | str]:
         """
         Gets a property.
 
@@ -995,7 +954,19 @@ class Trace:
             key (str): The property key.
 
         Returns:
-            Optional[_Property]: The property value, or None if not found.
+            Optional[int | float | bool | str]: The property value, or None if not found.
+        """
+        ...
+
+    def has_property(self, key: str) -> bool:
+        """
+        Checks if a property with the given key exists.
+
+        Args:
+            key (str): The property key.
+
+        Returns:
+            bool: True if the property exists, False otherwise.
         """
         ...
 

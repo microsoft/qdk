@@ -7,7 +7,7 @@ use pyo3::{
     IntoPyObjectExt,
     exceptions::{PyException, PyKeyError, PyTypeError},
     prelude::*,
-    types::{PyDict, PyTuple},
+    types::{PyBool, PyDict, PyFloat, PyInt, PyString, PyTuple},
 };
 use qre::TraceTransform;
 use serde::{Deserialize, Serialize};
@@ -17,7 +17,6 @@ pub(crate) fn register_qre_submodule(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ISARequirements>()?;
     m.add_class::<Instruction>()?;
     m.add_class::<Constraint>()?;
-    m.add_class::<Property>()?;
     m.add_class::<IntFunction>()?;
     m.add_class::<FloatFunction>()?;
     m.add_class::<ConstraintBound>()?;
@@ -429,61 +428,6 @@ impl ProvenanceGraph {
     }
 }
 
-#[pyclass(name = "_Property")]
-pub struct Property(qre::Property);
-
-#[pymethods]
-impl Property {
-    #[new]
-    pub fn new(value: &Bound<'_, PyAny>) -> PyResult<Self> {
-        if value.is_instance_of::<pyo3::types::PyBool>() {
-            Ok(Property(qre::Property::new_bool(value.extract()?)))
-        } else if let Ok(i) = value.extract::<i64>() {
-            Ok(Property(qre::Property::new_int(i)))
-        } else if let Ok(f) = value.extract::<f64>() {
-            Ok(Property(qre::Property::new_float(f)))
-        } else {
-            Ok(Property(qre::Property::new_str(value.to_string())))
-        }
-    }
-
-    fn as_bool(&self) -> Option<bool> {
-        self.0.as_bool()
-    }
-
-    fn as_int(&self) -> Option<i64> {
-        self.0.as_int()
-    }
-
-    fn as_float(&self) -> Option<f64> {
-        self.0.as_float()
-    }
-
-    fn as_str(&self) -> Option<String> {
-        self.0.as_str().map(String::from)
-    }
-
-    fn is_bool(&self) -> bool {
-        self.0.is_bool()
-    }
-
-    fn is_int(&self) -> bool {
-        self.0.is_int()
-    }
-
-    fn is_float(&self) -> bool {
-        self.0.is_float()
-    }
-
-    fn is_str(&self) -> bool {
-        self.0.is_str()
-    }
-
-    fn __str__(&self) -> String {
-        format!("{}", self.0)
-    }
-}
-
 #[pyclass(name = "_IntFunction")]
 pub struct IntFunction(qre::VariableArityFunction<u64>);
 
@@ -665,6 +609,23 @@ impl EstimationResult {
         ISA(self.0.isa().clone())
     }
 
+    #[allow(clippy::needless_pass_by_value)]
+    #[getter]
+    pub fn properties(self_: PyRef<'_, Self>) -> PyResult<Bound<'_, PyDict>> {
+        let dict = PyDict::new(self_.py());
+
+        for (key, value) in self_.0.properties() {
+            match value {
+                qre::Property::Bool(b) => dict.set_item(key, *b)?,
+                qre::Property::Int(i) => dict.set_item(key, *i)?,
+                qre::Property::Float(f) => dict.set_item(key, *f)?,
+                qre::Property::Str(s) => dict.set_item(key, s.clone())?,
+            }
+        }
+
+        Ok(dict)
+    }
+
     fn __str__(&self) -> String {
         format!("{}", self.0)
     }
@@ -725,12 +686,46 @@ impl Trace {
         self.0.increment_base_error(amount);
     }
 
-    pub fn set_property(&mut self, key: String, value: &Property) {
-        self.0.set_property(key, value.0.clone());
+    pub fn set_property(&mut self, key: String, value: &Bound<'_, PyAny>) -> PyResult<()> {
+        let property = if value.is_instance_of::<pyo3::types::PyBool>() {
+            qre::Property::new_bool(value.extract()?)
+        } else if let Ok(i) = value.extract::<i64>() {
+            qre::Property::new_int(i)
+        } else if let Ok(f) = value.extract::<f64>() {
+            qre::Property::new_float(f)
+        } else {
+            qre::Property::new_str(value.to_string())
+        };
+
+        self.0.set_property(key, property);
+
+        Ok(())
     }
 
-    pub fn get_property(&self, key: &str) -> Option<Property> {
-        self.0.get_property(key).map(|p| Property(p.clone()))
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn get_property<'py>(self_: PyRef<'py, Self>, key: &str) -> Option<Bound<'py, PyAny>> {
+        if let Some(value) = self_.0.get_property(key) {
+            match value {
+                qre::Property::Bool(b) => PyBool::new(self_.py(), *b)
+                    .into_bound_py_any(self_.py())
+                    .ok(),
+                qre::Property::Int(i) => PyInt::new(self_.py(), *i)
+                    .into_bound_py_any(self_.py())
+                    .ok(),
+                qre::Property::Float(f) => PyFloat::new(self_.py(), *f)
+                    .into_bound_py_any(self_.py())
+                    .ok(),
+                qre::Property::Str(s) => PyString::new(self_.py(), s)
+                    .into_bound_py_any(self_.py())
+                    .ok(),
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn has_property(&self, key: &str) -> bool {
+        self.0.has_property(key)
     }
 
     #[allow(clippy::needless_pass_by_value)]
@@ -773,6 +768,23 @@ impl Trace {
             ptr,
             parent: slf.into(),
         })
+    }
+
+    #[getter]
+    pub fn memory_qubits(&self) -> Option<u64> {
+        self.0.memory_qubits()
+    }
+
+    pub fn has_memory_qubits(&self) -> bool {
+        self.0.has_memory_qubits()
+    }
+
+    pub fn set_memory_qubits(&mut self, qubits: u64) {
+        self.0.set_memory_qubits(qubits);
+    }
+
+    pub fn increment_memory_qubits(&mut self, amount: u64) {
+        self.0.increment_memory_qubits(amount);
     }
 
     pub fn increment_resource_state(&mut self, resource_id: u64, amount: u64) {
@@ -923,6 +935,7 @@ impl InstructionFrontierIterator {
 #[allow(clippy::needless_pass_by_value)]
 #[pyfunction(name = "_estimate_parallel", signature = (traces, isas, max_error = 1.0))]
 pub fn estimate_parallel(
+    py: Python<'_>,
     traces: Vec<PyRef<'_, Trace>>,
     isas: Vec<PyRef<'_, ISA>>,
     max_error: f64,
@@ -930,8 +943,47 @@ pub fn estimate_parallel(
     let traces: Vec<_> = traces.iter().map(|t| &t.0).collect();
     let isas: Vec<_> = isas.iter().map(|i| &i.0).collect();
 
-    let collection = qre::estimate_parallel(&traces, &isas, Some(max_error));
+    // Release the GIL before entering the parallel section.
+    // Worker threads spawned by qre::estimate_parallel may need to acquire
+    // the GIL to evaluate Python callbacks (via generic_function closures).
+    // If the calling thread holds the GIL while blocked in
+    // std::thread::scope, the worker threads deadlock.
+    let collection = release_gil(py, || {
+        qre::estimate_parallel(&traces, &isas, Some(max_error))
+    });
     EstimationCollection(collection)
+}
+
+/// Releases the GIL for the duration of the closure `f`, allowing other
+/// threads to acquire it.  A RAII guard ensures the thread state is restored
+/// even if `f` panics.
+///
+/// # Safety
+///
+/// The caller must ensure that no `Bound<'_, _>` or `Python<'_>` references
+/// are used inside `f`.  GIL-independent `Py<T>` handles are fine because
+/// they re-acquire the GIL via `Python::attach` when needed.
+///
+/// We cannot use `py.allow_threads` here because the captured data
+/// (`&qre::ISA`) transitively contains `Arc<dyn Fn + Send + Sync>` whose
+/// trait object does not carry the `Ungil` auto-trait bound.
+fn release_gil<F, R>(_py: Python<'_>, f: F) -> R
+where
+    F: FnOnce() -> R,
+{
+    struct RestoreGuard(*mut pyo3::ffi::PyThreadState);
+
+    impl Drop for RestoreGuard {
+        fn drop(&mut self) {
+            // SAFETY: called on the same thread that saved the state.
+            unsafe { pyo3::ffi::PyEval_RestoreThread(self.0) };
+        }
+    }
+
+    // SAFETY: we hold the GIL (proven by the `_py` token) and release it
+    // here so that worker threads can acquire it for Python callbacks.
+    let _guard = RestoreGuard(unsafe { pyo3::ffi::PyEval_SaveThread() });
+    f()
 }
 
 #[pyfunction(name = "_binom_ppf")]
