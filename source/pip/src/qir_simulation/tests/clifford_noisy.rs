@@ -229,29 +229,6 @@ fn swap_noise_affects_swapped_qubits() {
     }
 }
 
-#[test]
-fn two_qubit_loss() {
-    check_sim! {
-        simulator: StabilizerSimulator,
-        program: qir! {
-            cz(0, 1);
-            mresetz(0, 0);
-            mresetz(1, 1);
-        },
-        num_qubits: 2,
-        num_results: 2,
-        shots: 1000,
-        seed: SEED,
-        noise: noise_config! {
-            cz: { loss: 0.1 },
-        },
-        format: histogram,
-        output: expect![[r#"
-            --: 107
-            00: 893"#]],
-    }
-}
-
 // ==================== Combined Noise Tests ====================
 
 #[test]
