@@ -67,7 +67,7 @@ def lower_python_obj(obj: object, visited: Optional[Set[object]] = None) -> Any:
     if isinstance(obj, dict):
         return {name: lower_python_obj(val, visited) for name, val in obj.items()}
 
-    # Recursive case: Callable or Closure
+    # Base case: Callable or Closure
     if hasattr(obj, "__global_callable"):
         return obj.__getattribute__("__global_callable")
     if isinstance(obj, (GlobalCallable, Closure)):
@@ -76,7 +76,7 @@ def lower_python_obj(obj: object, visited: Optional[Set[object]] = None) -> Any:
     # Recursive case: Class with slots
     if hasattr(obj, "__slots__"):
         fields = {}
-        for name in obj.__getattribute__("__slots__"):
+        for name in getattr(obj, "__slots__"):
             if name == "__dict__":
                 for name, val in obj.__dict__.items():
                     fields[name] = lower_python_obj(val, visited)

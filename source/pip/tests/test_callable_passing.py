@@ -51,6 +51,22 @@ def test_run_qsharp_callable_passed_to_qsharp_callable() -> None:
     assert res == 6
 
 
+def test_run_qsharp_callable_passed_to_python_callable() -> None:
+    qsharp.init()
+    qsharp.eval("""
+        function InvokeWithFive(f : Int -> Int) : Int {
+            f(5)
+        }
+        function AddOne(x : Int) : Int {
+            x + 1
+        }
+    """)
+    from qsharp.code import InvokeWithFive
+    add_one = qsharp.eval("AddOne")
+    res = qsharp.run(InvokeWithFive, 1, add_one)[0]
+    assert res == 6
+
+
 def test_qsharp_closure_from_python_callable_passed_to_python_callable() -> None:
     qsharp.init()
     qsharp.eval("""
