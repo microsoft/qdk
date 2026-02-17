@@ -31,8 +31,6 @@
 //!
 //! # Gate Properties
 //!
-//! The `~` symbol denotes equivalence up to global phase.
-//!
 //! ```text
 //! | Gate    | Properties                                        |
 //! |---------|---------------------------------------------------|

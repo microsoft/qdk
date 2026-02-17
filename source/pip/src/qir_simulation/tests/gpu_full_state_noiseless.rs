@@ -17,6 +17,12 @@
 //! - Rotation gates on the GPU use f32 precision, so minor numerical differences
 //!   compared to the f64 CPU simulator are expected.
 //!
+//! # Equivalence
+//!
+//! The `~` symbol means: for every computational basis state |b⟩, the two
+//! programs produce the same output state up to a global phase (which may
+//! differ per basis state). This is verified by `check_programs_are_eq!`.
+//!
 //! # Supported Gates
 //!
 //! ```text
@@ -30,8 +36,6 @@
 //! ```
 //!
 //! # Gate Properties
-//!
-//! The `~` symbol denotes equivalence up to global phase.
 //!
 //! ```text
 //! | Gate    | Properties                                        |
