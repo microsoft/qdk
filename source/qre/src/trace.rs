@@ -128,6 +128,11 @@ impl Trace {
     }
 
     #[must_use]
+    pub fn has_property(&self, key: &str) -> bool {
+        self.properties.contains_key(key)
+    }
+
+    #[must_use]
     pub fn deep_iter(&self) -> TraceIterator<'_> {
         TraceIterator::new(&self.block)
     }

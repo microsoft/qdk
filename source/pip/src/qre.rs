@@ -724,6 +724,10 @@ impl Trace {
         }
     }
 
+    pub fn has_property(&self, key: &str) -> bool {
+        self.0.has_property(key)
+    }
+
     #[allow(clippy::needless_pass_by_value)]
     #[getter]
     pub fn resource_states(self_: PyRef<'_, Self>) -> PyResult<Bound<'_, PyDict>> {

@@ -99,6 +99,11 @@ impl EstimationResult {
     }
 
     #[must_use]
+    pub fn has_property(&self, key: &str) -> bool {
+        self.properties.contains_key(key)
+    }
+
+    #[must_use]
     pub fn properties(&self) -> &FxHashMap<String, Property> {
         &self.properties
     }

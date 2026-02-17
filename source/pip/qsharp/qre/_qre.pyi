@@ -958,6 +958,18 @@ class Trace:
         """
         ...
 
+    def has_property(self, key: str) -> bool:
+        """
+        Checks if a property with the given key exists.
+
+        Args:
+            key (str): The property key.
+
+        Returns:
+            bool: True if the property exists, False otherwise.
+        """
+        ...
+
     @property
     def depth(self) -> int:
         """
