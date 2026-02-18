@@ -1,23 +1,16 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-# pyright: reportPrivateImportUsage=false, reportOperatorIssue=false
+# pyright: reportPrivateImportUsage=false
 
 """Unit tests for the Model class."""
-
-# To be updated after additional geometries are implemented
 
 from __future__ import annotations
 
 import pytest
-from . import CIRQ_AVAILABLE, SKIP_REASON
 
-if CIRQ_AVAILABLE:
-    import cirq
-    from cirq import LineQubit
-
-    from qsharp.magnets.geometry import Hyperedge, Hypergraph
-    from qsharp.magnets.models import Model
+from qsharp.magnets.geometry import Hyperedge, Hypergraph
+from qsharp.magnets.models import Model
 
 
 def make_chain(length: int) -> Hypergraph:
@@ -26,186 +19,163 @@ def make_chain(length: int) -> Hypergraph:
     return Hypergraph(edges)
 
 
+def make_chain_with_vertices(length: int) -> Hypergraph:
+    """Create a chain hypergraph with single-vertex (field) edges for testing."""
+    edges = [Hyperedge([i, i + 1]) for i in range(length - 1)]
+    # Add single-vertex edges for field terms
+    edges.extend([Hyperedge([i]) for i in range(length)])
+    return Hypergraph(edges)
+
+
 # Model initialization tests
 
 
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_model_init_basic():
     """Test basic Model initialization."""
     geometry = Hypergraph([Hyperedge([0, 1]), Hyperedge([1, 2])])
     model = Model(geometry)
     assert model.geometry is geometry
-    assert len(model.terms) == 0
+    assert len(model.terms()) == 0
 
 
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
-def test_model_init_creates_qubits():
-    """Test that Model creates correct number of qubits."""
-    geometry = Hypergraph([Hyperedge([0, 1]), Hyperedge([2, 3])])
-    model = Model(geometry)
-    assert len(model.qubit_list()) == 4
-
-
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_model_init_with_chain():
     """Test Model initialization with chain geometry."""
     geometry = make_chain(5)
     model = Model(geometry)
-    assert len(model.qubit_list()) == 5
+    assert len(model._qubits) == 5
 
 
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_model_init_empty_geometry():
     """Test Model with empty geometry."""
     geometry = Hypergraph([])
     model = Model(geometry)
-    assert len(model.qubit_list()) == 0
-    assert len(model.terms) == 0
+    assert len(model._qubits) == 0
+    assert len(model.terms()) == 0
 
 
-# Qubit access tests
+def test_model_init_coefficients_zero():
+    """Test that coefficients are initialized to zero."""
+    geometry = make_chain(3)  # edges: (0,1), (1,2)
+    model = Model(geometry)
+    assert model.get_coefficient((0, 1)) == 0.0
+    assert model.get_coefficient((1, 2)) == 0.0
 
 
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
-def test_model_q_returns_line_qubit():
-    """Test that q() returns LineQubit instances."""
+# Coefficient tests
+
+
+def test_model_set_coefficient():
+    """Test setting coefficient for an edge."""
+    geometry = make_chain(2)
+    model = Model(geometry)
+    model.set_coefficient((0, 1), 1.5)
+    assert model.get_coefficient((0, 1)) == 1.5
+
+
+def test_model_set_coefficient_overwrite():
+    """Test overwriting an existing coefficient."""
+    geometry = make_chain(2)
+    model = Model(geometry)
+    model.set_coefficient((0, 1), 1.5)
+    model.set_coefficient((0, 1), 2.5)
+    assert model.get_coefficient((0, 1)) == 2.5
+
+
+def test_model_set_coefficient_invalid_edge():
+    """Test setting coefficient for non-existent edge raises error."""
+    geometry = make_chain(2)
+    model = Model(geometry)
+    with pytest.raises(KeyError):
+        model.set_coefficient((0, 2), 1.0)
+
+
+def test_model_get_coefficient_invalid_edge():
+    """Test getting coefficient for non-existent edge raises error."""
+    geometry = make_chain(2)
+    model = Model(geometry)
+    with pytest.raises(KeyError):
+        model.get_coefficient((0, 2))
+
+
+def test_model_get_coefficient_sorted():
+    """Test that get_coefficient sorts vertices so order doesn't matter."""
+    geometry = make_chain(2)
+    model = Model(geometry)
+    model.set_coefficient((0, 1), 3.0)
+    assert model.get_coefficient((1, 0)) == 3.0
+
+
+def test_model_set_coefficient_sorted():
+    """Test that set_coefficient sorts vertices so order doesn't matter."""
+    geometry = make_chain(2)
+    model = Model(geometry)
+    model.set_coefficient((1, 0), 4.0)
+    assert model.get_coefficient((0, 1)) == 4.0
+
+
+# has_coefficient tests
+
+
+def test_model_has_coefficient_true():
+    """Test has_coefficient returns True for existing edge."""
     geometry = make_chain(3)
     model = Model(geometry)
-    qubit = model.q(0)
-    assert isinstance(qubit, LineQubit)
+    assert model.has_coefficient((0, 1)) is True
+    assert model.has_coefficient((1, 2)) is True
 
 
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
-def test_model_q_returns_correct_qubit():
-    """Test that q() returns qubit with correct index."""
-    geometry = make_chain(4)
-    model = Model(geometry)
-    for i in range(4):
-        assert model.q(i) == LineQubit(i)
-
-
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
-def test_model_qubit_list():
-    """Test qubit_list() returns all qubits."""
+def test_model_has_coefficient_false():
+    """Test has_coefficient returns False for non-existent edge."""
     geometry = make_chain(3)
     model = Model(geometry)
-    qubits = model.qubit_list()
-    assert len(qubits) == 3
-    assert qubits == [LineQubit(0), LineQubit(1), LineQubit(2)]
+    assert model.has_coefficient((0, 2)) is False
+    assert model.has_coefficient((5, 6)) is False
 
 
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
-def test_model_qubits_iterator():
-    """Test qubits() returns an iterator."""
-    geometry = make_chain(3)
+def test_model_has_coefficient_sorted():
+    """Test has_coefficient sorts vertices so order doesn't matter."""
+    geometry = make_chain(2)
     model = Model(geometry)
-    qubit_iter = model.qubits()
-    qubits = list(qubit_iter)
-    assert len(qubits) == 3
-    assert qubits == [LineQubit(0), LineQubit(1), LineQubit(2)]
+    assert model.has_coefficient((1, 0)) is True
 
 
 # Term management tests
 
 
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
-def test_model_add_term_empty():
-    """Test adding an empty term."""
-    geometry = make_chain(2)
+def test_model_add_term():
+    """Test adding a term with edges."""
+    geometry = make_chain(3)
     model = Model(geometry)
-    model.add_term()
-    assert len(model.terms) == 1
+    edge1 = Hyperedge([0, 1])
+    edge2 = Hyperedge([1, 2])
+    model.add_term([edge1, edge2])
+    assert len(model.terms()) == 1
+    assert len(model.terms()[0]) == 2
 
 
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
-def test_model_add_term_with_pauli_sum():
-    """Test adding a PauliSum term."""
-    geometry = make_chain(2)
-    model = Model(geometry)
-    q0, q1 = model.q(0), model.q(1)
-    term = cirq.Z(q0) * cirq.Z(q1)
-    model.add_term(cirq.PauliSum.from_pauli_strings([term]))
-    assert len(model.terms) == 1
-
-
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_model_add_multiple_terms():
     """Test adding multiple terms."""
-    geometry = make_chain(3)
+    geometry = make_chain(4)
     model = Model(geometry)
-    model.add_term()
-    model.add_term()
-    model.add_term()
-    assert len(model.terms) == 3
-
-
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
-def test_model_add_to_term():
-    """Test adding a PauliString to an existing term."""
-    geometry = make_chain(2)
-    model = Model(geometry)
-    model.add_term()
-    q0, q1 = model.q(0), model.q(1)
-    pauli_string = cirq.Z(q0) * cirq.Z(q1)
-    model.add_to_term(0, pauli_string)
-    # Term should now contain the Pauli string
-    assert len(model.terms[0]) == 1
-
-
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
-def test_model_add_to_term_multiple_strings():
-    """Test adding multiple PauliStrings to the same term."""
-    geometry = make_chain(3)
-    model = Model(geometry)
-    model.add_term()
-    q0, q1, q2 = model.q(0), model.q(1), model.q(2)
-    model.add_to_term(0, cirq.Z(q0) * cirq.Z(q1))
-    model.add_to_term(0, cirq.Z(q1) * cirq.Z(q2))
-    assert len(model.terms[0]) == 2
-
-
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
-def test_model_add_to_different_terms():
-    """Test adding PauliStrings to different terms."""
-    geometry = make_chain(3)
-    model = Model(geometry)
-    model.add_term()
-    model.add_term()
-    q0, q1, q2 = model.q(0), model.q(1), model.q(2)
-    model.add_to_term(0, cirq.Z(q0) * cirq.Z(q1))
-    model.add_to_term(1, cirq.Z(q1) * cirq.Z(q2))
-    assert len(model.terms[0]) == 1
-    assert len(model.terms[1]) == 1
-
-
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
-def test_model_add_to_term_with_coefficient():
-    """Test adding a PauliString with a coefficient."""
-    geometry = make_chain(2)
-    model = Model(geometry)
-    model.add_term()
-    q0, q1 = model.q(0), model.q(1)
-    pauli_string = 0.5 * cirq.Z(q0) * cirq.Z(q1)
-    model.add_to_term(0, pauli_string)
-    assert len(model.terms[0]) == 1
+    model.add_term([Hyperedge([0, 1])])
+    model.add_term([Hyperedge([1, 2]), Hyperedge([2, 3])])
+    assert len(model.terms()) == 2
 
 
 # String representation tests
 
 
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_model_str():
     """Test string representation."""
     geometry = make_chain(4)
     model = Model(geometry)
-    model.add_term()
-    model.add_term()
+    model.add_term([Hyperedge([0, 1])])
+    model.add_term([Hyperedge([1, 2])])
     result = str(model)
     assert "2 terms" in result
     assert "4 qubits" in result
 
 
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_model_str_empty():
     """Test string representation with no terms."""
     geometry = make_chain(3)
@@ -215,7 +185,6 @@ def test_model_str_empty():
     assert "3 qubits" in result
 
 
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_model_repr():
     """Test repr representation."""
     geometry = make_chain(2)
@@ -226,38 +195,124 @@ def test_model_repr():
 # Integration tests
 
 
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_model_build_simple_hamiltonian():
     """Test building a simple ZZ Hamiltonian on a chain."""
     geometry = make_chain(3)
     model = Model(geometry)
-    model.add_term()  # Single term for all interactions
 
+    # Set coefficients for all edges
     for edge in geometry.edges():
-        i, j = edge.vertices
-        model.add_to_term(0, cirq.Z(model.q(i)) * cirq.Z(model.q(j)))
+        model.set_coefficient(edge.vertices, 1.0)
 
-    # Should have 2 ZZ interactions: (0,1) and (1,2)
-    assert len(model.terms[0]) == 2
+    # Verify coefficients
+    assert model.get_coefficient((0, 1)) == 1.0
+    assert model.get_coefficient((1, 2)) == 1.0
 
 
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_model_with_partitioned_terms():
     """Test building a model with partitioned terms for Trotterization."""
     geometry = make_chain(4)
     model = Model(geometry)
 
     # Add two terms for even/odd partitioning
-    model.add_term()  # Even edges: (0,1), (2,3)
-    model.add_term()  # Odd edges: (1,2)
+    even_edges = [Hyperedge([0, 1]), Hyperedge([2, 3])]
+    odd_edges = [Hyperedge([1, 2])]
+    model.add_term(even_edges)
+    model.add_term(odd_edges)
 
-    # Add even edges to term 0
-    model.add_to_term(0, cirq.Z(model.q(0)) * cirq.Z(model.q(1)))
-    model.add_to_term(0, cirq.Z(model.q(2)) * cirq.Z(model.q(3)))
+    assert len(model.terms()) == 2
+    assert len(model.terms()[0]) == 2
+    assert len(model.terms()[1]) == 1
 
-    # Add odd edge to term 1
-    model.add_to_term(1, cirq.Z(model.q(1)) * cirq.Z(model.q(2)))
 
-    assert len(model.terms) == 2
-    assert len(model.terms[0]) == 2
-    assert len(model.terms[1]) == 1
+# translation_invariant_ising_model tests
+
+
+def test_translation_invariant_ising_model_basic():
+    """Test basic creation of Ising model."""
+    from qsharp.magnets.models import translation_invariant_ising_model
+
+    geometry = make_chain_with_vertices(3)
+    model = translation_invariant_ising_model(geometry, h=1.0, J=1.0)
+
+    assert isinstance(model, Model)
+    assert model.geometry is geometry
+
+
+def test_translation_invariant_ising_model_zz_coefficients():
+    """Test that ZZ interaction coefficients are correctly set."""
+    from qsharp.magnets.models import translation_invariant_ising_model
+
+    geometry = make_chain_with_vertices(4)  # 3 two-body edges: (0,1), (1,2), (2,3)
+    J = 2.0
+    model = translation_invariant_ising_model(geometry, h=0.5, J=J)
+
+    # All two-body edge coefficients should be -J
+    assert model.get_coefficient((0, 1)) == -J
+    assert model.get_coefficient((1, 2)) == -J
+    assert model.get_coefficient((2, 3)) == -J
+
+
+def test_translation_invariant_ising_model_x_coefficients():
+    """Test that X field coefficients are correctly set."""
+    from qsharp.magnets.models import translation_invariant_ising_model
+
+    geometry = make_chain_with_vertices(4)  # 4 single-vertex edges
+    h = 0.5
+    model = translation_invariant_ising_model(geometry, h=h, J=2.0)
+
+    # All single-vertex edge coefficients should be -h
+    for v in range(4):
+        assert model.get_coefficient((v,)) == -h
+
+
+def test_translation_invariant_ising_model_coefficients():
+    """Test that coefficients are correctly applied."""
+    from qsharp.magnets.models import translation_invariant_ising_model
+
+    # Geometry with one two-body edge and two single-vertex edges
+    geometry = Hypergraph([Hyperedge([0, 1]), Hyperedge([0]), Hyperedge([1])])
+    h, J = 0.3, 0.7
+    model = translation_invariant_ising_model(geometry, h=h, J=J)
+
+    # Check ZZ coefficient is -J
+    assert model.get_coefficient((0, 1)) == -J
+
+    # Check X coefficients are -h
+    assert model.get_coefficient((0,)) == -h
+    assert model.get_coefficient((1,)) == -h
+
+
+def test_translation_invariant_ising_model_zero_field():
+    """Test Ising model with zero transverse field."""
+    from qsharp.magnets.models import translation_invariant_ising_model
+
+    geometry = make_chain_with_vertices(3)
+    model = translation_invariant_ising_model(geometry, h=0.0, J=1.0)
+
+    # X coefficients (single-vertex edges) should all be zero
+    for v in range(3):
+        assert model.get_coefficient((v,)) == 0.0
+
+
+def test_translation_invariant_ising_model_zero_coupling():
+    """Test Ising model with zero coupling."""
+    from qsharp.magnets.models import translation_invariant_ising_model
+
+    geometry = make_chain_with_vertices(3)
+    model = translation_invariant_ising_model(geometry, h=1.0, J=0.0)
+
+    # ZZ coefficients (two-body edges) should all be zero
+    assert model.get_coefficient((0, 1)) == 0.0
+    assert model.get_coefficient((1, 2)) == 0.0
+
+
+def test_translation_invariant_ising_model_term_grouping():
+    """Test that Ising model has correct term grouping by color."""
+    from qsharp.magnets.models import translation_invariant_ising_model
+
+    geometry = make_chain_with_vertices(4)
+    model = translation_invariant_ising_model(geometry, h=1.0, J=1.0)
+
+    # Number of terms should be ncolors + 1
+    assert len(model.terms()) == geometry.ncolors + 1
