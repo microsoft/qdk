@@ -52,7 +52,7 @@ const VIZ = {
   phaseDotFrac: 0.25,
   phaseDotRadiusMinPx: 1.5,
   phaseTextBottomPad: 6,
-  verticalLabelCharHeight: 14,
+  verticalLabelCharHeight: 9,
   phaseLabelLineHeight: 14,
   verticalLabelExtraBase: 12,
   stateLabelVerticalOffset: 4,
@@ -663,40 +663,69 @@ const finalizeSvgAndFlex = (
   g: SVGGElement,
   layout: LayoutMetrics,
 ) => {
-  try {
-    const bbox = g.getBBox();
-    const contentHeight = Math.ceil(bbox.height + VIZ.contentHeightExtra);
-    const svgHeight = Math.max(VIZ.baseHeight, contentHeight);
-    svg.setAttribute("height", svgHeight.toString());
-    svg.setAttribute("width", layout.panelWidthPx.toString());
-    const edgePad = VIZ.edgePad;
-    panel.style.flexBasis = `${Math.ceil(layout.panelWidthPx + edgePad)}px`;
-  } catch {
-    // If getBBox fails (e.g., JSDOM/SVG not fully rendered), fall back to a
-    // deterministic height based on our layout constants so snapshots still
-    // include the whole visualization.
-    const labelTextHeightPx = layout.verticalLabels
-      ? VIZ.verticalLabelCharHeight * Math.max(1, layout.maxLabelLen)
-      : VIZ.phaseLabelLineHeight;
-    const labelBottomY =
-      layout.stateSectionTopY +
-      VIZ.stateHeaderPadding +
-      (layout.verticalLabels
-        ? VIZ.stateLabelVerticalOffset
-        : VIZ.stateLabelHorizontalOffset) +
-      labelTextHeightPx;
+  const labelTextHeightPx = layout.verticalLabels
+    ? VIZ.verticalLabelCharHeight * Math.max(1, layout.maxLabelLen)
+    : VIZ.phaseLabelLineHeight;
+  const labelBottomY =
+    layout.stateSectionTopY +
+    VIZ.stateHeaderPadding +
+    (layout.verticalLabels
+      ? VIZ.stateLabelVerticalOffset
+      : VIZ.stateLabelHorizontalOffset) +
+    labelTextHeightPx;
 
-    const svgHeight = Math.max(
-      VIZ.baseHeight,
-      Math.ceil(
-        labelBottomY + VIZ.extraBottomPaddingPx + VIZ.marginBottomMinPx,
-      ),
-    );
-    svg.setAttribute("height", svgHeight.toString());
-    svg.setAttribute("width", layout.panelWidthPx.toString());
-    const edgePad = VIZ.edgePad;
-    panel.style.flexBasis = `${Math.ceil(layout.panelWidthPx + edgePad)}px`;
-  }
+  const svgHeight = Math.max(
+    VIZ.baseHeight,
+    Math.ceil(labelBottomY + VIZ.extraBottomPaddingPx + VIZ.marginBottomMinPx),
+  );
+
+  const drawDebugLines = () => {
+    console.log("Drawing debug lines.");
+
+    const debugG = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    debugG.setAttribute("transform", `translate(${VIZ.marginLeft},0)`);
+    debugG.setAttribute("pointer-events", "none");
+
+    const makeLine = (y: number) => {
+      const line = document.createElementNS(
+        "http://www.w3.org/2000/svg",
+        "line",
+      );
+      line.setAttribute("x1", "0");
+      line.setAttribute("y1", `${y}`);
+      line.setAttribute("x2", `${layout.contentWidthPx}`);
+      line.setAttribute("y2", `${y}`);
+      // Use explicit stroke so the line is visible regardless of theme/CSS.
+      line.setAttribute("stroke", "currentColor");
+      line.setAttribute("stroke-width", "2");
+      line.setAttribute("opacity", "0.8");
+      line.setAttribute("vector-effect", "non-scaling-stroke");
+      line.setAttribute("stroke-dasharray", "6 4");
+      debugG.appendChild(line);
+    };
+
+    // Key Y positions for the layout/height computation.
+    let currY = layout.stateSectionTopY;
+    makeLine(currY);
+    currY += VIZ.stateHeaderPadding;
+    makeLine(currY);
+    currY += labelTextHeightPx;
+    makeLine(currY);
+    currY += VIZ.extraBottomPaddingPx;
+    makeLine(currY);
+    currY += VIZ.marginBottomMinPx;
+    makeLine(currY);
+
+    // Draw on top of content.
+    svg.appendChild(debugG);
+  };
+
+  svg.setAttribute("height", svgHeight.toString());
+  svg.setAttribute("width", layout.panelWidthPx.toString());
+  const edgePad = VIZ.edgePad;
+  panel.style.flexBasis = `${Math.ceil(layout.panelWidthPx + edgePad)}px`;
+
+  drawDebugLines();
 };
 
 const savePreviousValues = (panel: HTMLElement, columnData: StateColumn[]) => {
