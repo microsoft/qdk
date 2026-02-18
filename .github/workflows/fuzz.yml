@@ -5,9 +5,6 @@ env:
   DURATION_SEC: 7200 # Fuzzing run duration in seconds.
   STDERR_LOG_FNAME: fuzz.stderr.log # File name to redirect the fuzzing run's stderr to.
   TMIN_LOG_FNAME: fuzz.tmin.log # File name to redirect the fuzzing input minimization log to.
-  GH_ISSUE_TEMPLATE_RFPATH:
-    .github/ISSUE_TEMPLATE/fuzz_bug_report.md
-    # GitHub issue template rel file path.
   ARTIFACTS_RDPATH: fuzz/artifacts # Fuzzing artifacts rel dir path.
   SEEDS_RDPATH: fuzz/seed_inputs # Fuzzing seed inputs rel dir path.
   SEEDS_FNAME: list.txt # Fuzzing seed inputs list file name.
@@ -21,8 +18,6 @@ on:
     paths:
       - "source/compiler/**" # Run if the compiler was changed.
       - "source/fuzz/**" # Run if the fuzzing infra was changed.
-      - ".github/ISSUE_TEMPLATE/fuzz_bug_report.md"
-        # Run if the GitHub issue template was changed.
       - ".github/workflows/fuzz.yml" # Run if the workflow itself was changed.
       - "!source/compiler/qsc_eval/**" # Exclude the qsc_eval dir.
       - "!source/compiler/qsc_codegen/**" # Exclude the qsc_codegen dir.
@@ -222,15 +217,57 @@ jobs:
           WORKFLOW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           python - <<'PY'
-          import os, pathlib
-          template = pathlib.Path(os.environ["GH_ISSUE_TEMPLATE_RFPATH"]).read_text()
-          rendered = os.path.expandvars(template)
-          pathlib.Path("/tmp/fuzz_issue.md").write_text(rendered)
+          import pathlib
+          body_text = """
+          The fuzz-testing workflow has detected a bug.
+
+          <details><summary><b>Auto-Minimized Fuzzing Input That Triggers the Bug:</b> Click this line.</summary>
+          <b>Note:</b> If the input is multi-line then the end-of-line characters '\n' (0x0A) and '\r' (0x0D)
+          may affect the reproducibility of the bug. If you fail to repro the bug with the input shown below
+          then you may want to go to the <a href=${{ env.WORKFLOW_RUN_URL }}>workflow</a> that reported this GitHub bug,
+          download the artifact, and extract the file with the exact minimized input.
+
+          ```qs
+          ${{ env.MINIMIZED_INPUT }}
+          ```
+
+          </details>
+
+          <details><summary><b>Fuzzing <code>stderr</code> Log</b> (last 62kB), includes the stack trace: Click.</summary>
+          The fragment of interest starts with "panicked at".
+
+          ```gdb
+          ${{ env.STDERR_LOG }}
+          ```
+
+          </details>
+
+          <details><summary><b>The branch/commit the bug has been found in:</b> Click.</summary>
+          If the developers fail to repro the bug in the latest <code>main</code> then the branch/commit info below can help them to make sure
+          that they are using the correct way to repro. If the bug is reproducible in the branch/commit below, but not in latest <code>main</code>,
+          then the bug is likely fixed already or is not in the <code>main</code> branch.
+
+          ```log
+          Branch: ${{ env.BRANCH_INFO }}
+
+          ${{ env.COMMIT_INFO }}
+          ```
+
+          </details>
+
+          **Other Info**
+
+          - [**Workflow**](${{ env.WORKFLOW_RUN_URL }}) (contains the run artifacts).
+          - **Workflow Agent System Info:** `${{ env.WF_AGENT_OS }}: ${{ env.WF_AGENT_SYS_INFO }}`.
+          """
+          pathlib.Path("/tmp/fuzz_issue.md").write_text(body_text)
           PY
 
           url="$(gh issue create \
-            --title "Fuzz failure: ${{ matrix.target_name }} (${{ github.run_id }})" \
-            --body-file /tmp/fuzz_issue.md)"
+            --title "Fuzz: \"${{ env.PANIC_MESSAGE }}\" (${{ env.WF_AGENT_OS }})" \
+            --body-file /tmp/fuzz_issue.md \
+            --label bug \
+            --assignee swernli)"
           number="$(gh issue view "$url" --json number --jq .number)"
 
           echo "url=$url" >> "$GITHUB_OUTPUT"
