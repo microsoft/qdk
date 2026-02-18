@@ -395,7 +395,7 @@ const renderStatePanel = (
 
   columnData.forEach((col, i) => renderColumn(g, col, i, prev, layout));
 
-  finalizeSvgAndFlex(svg, panel, g, layout);
+  finalizeSvgAndFlex(svg, panel, layout);
   savePreviousValues(panel, columnData);
 };
 
@@ -660,7 +660,6 @@ const renderStateLabelSection = (
 const finalizeSvgAndFlex = (
   svg: SVGSVGElement,
   panel: HTMLElement,
-  g: SVGGElement,
   layout: LayoutMetrics,
 ) => {
   const labelTextHeightPx = layout.verticalLabels
@@ -679,53 +678,10 @@ const finalizeSvgAndFlex = (
     Math.ceil(labelBottomY + VIZ.extraBottomPaddingPx + VIZ.marginBottomMinPx),
   );
 
-  const drawDebugLines = () => {
-    console.log("Drawing debug lines.");
-
-    const debugG = document.createElementNS("http://www.w3.org/2000/svg", "g");
-    debugG.setAttribute("transform", `translate(${VIZ.marginLeft},0)`);
-    debugG.setAttribute("pointer-events", "none");
-
-    const makeLine = (y: number) => {
-      const line = document.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "line",
-      );
-      line.setAttribute("x1", "0");
-      line.setAttribute("y1", `${y}`);
-      line.setAttribute("x2", `${layout.contentWidthPx}`);
-      line.setAttribute("y2", `${y}`);
-      // Use explicit stroke so the line is visible regardless of theme/CSS.
-      line.setAttribute("stroke", "currentColor");
-      line.setAttribute("stroke-width", "2");
-      line.setAttribute("opacity", "0.8");
-      line.setAttribute("vector-effect", "non-scaling-stroke");
-      line.setAttribute("stroke-dasharray", "6 4");
-      debugG.appendChild(line);
-    };
-
-    // Key Y positions for the layout/height computation.
-    let currY = layout.stateSectionTopY;
-    makeLine(currY);
-    currY += VIZ.stateHeaderPadding;
-    makeLine(currY);
-    currY += labelTextHeightPx;
-    makeLine(currY);
-    currY += VIZ.extraBottomPaddingPx;
-    makeLine(currY);
-    currY += VIZ.marginBottomMinPx;
-    makeLine(currY);
-
-    // Draw on top of content.
-    svg.appendChild(debugG);
-  };
-
   svg.setAttribute("height", svgHeight.toString());
   svg.setAttribute("width", layout.panelWidthPx.toString());
   const edgePad = VIZ.edgePad;
   panel.style.flexBasis = `${Math.ceil(layout.panelWidthPx + edgePad)}px`;
-
-  drawDebugLines();
 };
 
 const savePreviousValues = (panel: HTMLElement, columnData: StateColumn[]) => {
