@@ -119,7 +119,7 @@ extends:
 
               - task: UseNode@1
                 inputs:
-                  version: "22.x"
+                  version: "24.x"
 
               - script: |
                   python ./prereqs.py --install && python ./version.py
