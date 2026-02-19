@@ -34,7 +34,7 @@ pub trait ParetoItem3D {
 /// This approach is related to the algorithms described in:
 /// H. T. Kung, F. Luccio, and F. P. Preparata, "On Finding the Maxima of a Set of Vectors,"
 /// Journal of the ACM, vol. 22, no. 4, pp. 469-476, 1975.
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct ParetoFrontier<I: ParetoItem2D>(pub Vec<I>);
 
 impl<I: ParetoItem2D> ParetoFrontier<I> {
