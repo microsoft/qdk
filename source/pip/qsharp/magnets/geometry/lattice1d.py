@@ -8,7 +8,7 @@ hypergraphs. These lattices are commonly used in quantum spin chain
 simulations and other one-dimensional quantum systems.
 """
 
-from qsharp.magnets.geometry.hypergraph import Hyperedge, Hypergraph
+from qsharp.magnets.utilities.hypergraph import Hyperedge, Hypergraph
 
 
 class Chain1D(Hypergraph):

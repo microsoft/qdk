@@ -11,6 +11,7 @@ import pytest
 
 from qsharp.magnets.geometry import Hyperedge, Hypergraph
 from qsharp.magnets.models import Model
+from qsharp.magnets.utilities import PauliString
 
 
 def make_chain(length: int) -> Hypergraph:
@@ -59,6 +60,14 @@ def test_model_init_coefficients_zero():
     model = Model(geometry)
     assert model.get_coefficient((0, 1)) == 0.0
     assert model.get_coefficient((1, 2)) == 0.0
+
+
+def test_model_init_pauli_strings_identity():
+    """Test that PauliStrings are initialized to identity."""
+    geometry = make_chain(3)  # edges: (0,1), (1,2)
+    model = Model(geometry)
+    assert model.get_pauli_string((0, 1)) == PauliString.from_qubits((0, 1), "II")
+    assert model.get_pauli_string((1, 2)) == PauliString.from_qubits((1, 2), "II")
 
 
 # Coefficient tests
@@ -113,30 +122,92 @@ def test_model_set_coefficient_sorted():
     assert model.get_coefficient((0, 1)) == 4.0
 
 
-# has_coefficient tests
-
-
-def test_model_has_coefficient_true():
-    """Test has_coefficient returns True for existing edge."""
-    geometry = make_chain(3)
-    model = Model(geometry)
-    assert model.has_coefficient((0, 1)) is True
-    assert model.has_coefficient((1, 2)) is True
-
-
-def test_model_has_coefficient_false():
-    """Test has_coefficient returns False for non-existent edge."""
-    geometry = make_chain(3)
-    model = Model(geometry)
-    assert model.has_coefficient((0, 2)) is False
-    assert model.has_coefficient((5, 6)) is False
-
-
-def test_model_has_coefficient_sorted():
-    """Test has_coefficient sorts vertices so order doesn't matter."""
+def test_model_set_coefficient_preserves_pauli_string():
+    """Test that set_coefficient does not change the PauliString."""
     geometry = make_chain(2)
     model = Model(geometry)
-    assert model.has_coefficient((1, 0)) is True
+    model.set_pauli_string((0, 1), PauliString.from_qubits((0, 1), "ZZ"))
+    model.set_coefficient((0, 1), 3.0)
+    assert model.get_pauli_string((0, 1)) == PauliString.from_qubits((0, 1), "ZZ")
+
+
+# PauliString tests
+
+
+def test_model_set_pauli_string():
+    """Test setting PauliString for an edge."""
+    geometry = make_chain(2)
+    model = Model(geometry)
+    model.set_pauli_string((0, 1), PauliString.from_qubits((0, 1), "ZZ"))
+    assert model.get_pauli_string((0, 1)) == PauliString.from_qubits((0, 1), "ZZ")
+
+
+def test_model_set_pauli_string_overwrite():
+    """Test overwriting an existing PauliString."""
+    geometry = make_chain(2)
+    model = Model(geometry)
+    model.set_pauli_string((0, 1), PauliString.from_qubits((0, 1), "ZZ"))
+    model.set_pauli_string((0, 1), PauliString.from_qubits((0, 1), "XX"))
+    assert model.get_pauli_string((0, 1)) == PauliString.from_qubits((0, 1), "XX")
+
+
+def test_model_set_pauli_string_invalid_edge():
+    """Test setting PauliString for non-existent edge raises error."""
+    geometry = make_chain(2)
+    model = Model(geometry)
+    with pytest.raises(KeyError):
+        model.set_pauli_string((0, 2), PauliString.from_qubits((0, 2), "ZZ"))
+
+
+def test_model_get_pauli_string_invalid_edge():
+    """Test getting PauliString for non-existent edge raises error."""
+    geometry = make_chain(2)
+    model = Model(geometry)
+    with pytest.raises(KeyError):
+        model.get_pauli_string((0, 2))
+
+
+def test_model_set_pauli_string_preserves_coefficient():
+    """Test that set_pauli_string does not change the coefficient."""
+    geometry = make_chain(2)
+    model = Model(geometry)
+    model.set_coefficient((0, 1), 5.0)
+    model.set_pauli_string((0, 1), PauliString.from_qubits((0, 1), "ZZ"))
+    assert model.get_coefficient((0, 1)) == 5.0
+
+
+def test_model_set_pauli_string_sorted():
+    """Test that set_pauli_string sorts vertices so order doesn't matter."""
+    geometry = make_chain(2)
+    model = Model(geometry)
+    model.set_pauli_string((1, 0), PauliString.from_qubits((1, 0), "XZ"))
+    assert model.get_pauli_string((0, 1)) == PauliString.from_qubits((1, 0), "XZ")
+
+
+# has_interaction_term tests
+
+
+def test_model_has_interaction_term_true():
+    """Test has_interaction_term returns True for existing edge."""
+    geometry = make_chain(3)
+    model = Model(geometry)
+    assert model.has_interaction_term((0, 1)) is True
+    assert model.has_interaction_term((1, 2)) is True
+
+
+def test_model_has_interaction_term_false():
+    """Test has_interaction_term returns False for non-existent edge."""
+    geometry = make_chain(3)
+    model = Model(geometry)
+    assert model.has_interaction_term((0, 2)) is False
+    assert model.has_interaction_term((5, 6)) is False
+
+
+def test_model_has_interaction_term_sorted():
+    """Test has_interaction_term sorts vertices so order doesn't matter."""
+    geometry = make_chain(2)
+    model = Model(geometry)
+    assert model.has_interaction_term((1, 0)) is True
 
 
 # Term management tests
@@ -316,3 +387,19 @@ def test_translation_invariant_ising_model_term_grouping():
 
     # Number of terms should be ncolors + 1
     assert len(model.terms()) == geometry.ncolors + 1
+
+
+def test_translation_invariant_ising_model_pauli_strings():
+    """Test that Ising model sets correct PauliStrings."""
+    from qsharp.magnets.models import translation_invariant_ising_model
+
+    geometry = make_chain_with_vertices(3)
+    model = translation_invariant_ising_model(geometry, h=1.0, J=1.0)
+
+    # Two-body edges should have ZZ PauliString
+    assert model.get_pauli_string((0, 1)) == PauliString.from_qubits((0, 1), "ZZ")
+    assert model.get_pauli_string((1, 2)) == PauliString.from_qubits((1, 2), "ZZ")
+
+    # Single-vertex edges should have X PauliString
+    for v in range(3):
+        assert model.get_pauli_string((v,)) == PauliString.from_qubits((v,), "X")

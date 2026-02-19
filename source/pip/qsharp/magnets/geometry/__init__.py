@@ -9,7 +9,7 @@ and interaction graphs.
 """
 
 from .complete import CompleteBipartiteGraph, CompleteGraph
-from .hypergraph import Hyperedge, Hypergraph, greedy_edge_coloring
+from qsharp.magnets.utilities.hypergraph import Hyperedge, Hypergraph, greedy_edge_coloring
 from .lattice1d import Chain1D, Ring1D
 from .lattice2d import Patch2D, Torus2D
 

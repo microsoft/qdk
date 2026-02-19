@@ -11,6 +11,7 @@ to define interaction topologies and stores coefficients for each edge.
 """
 
 from qsharp.magnets.geometry import Hyperedge, Hypergraph
+from qsharp.magnets.utilities import PauliString
 
 
 class Model:
@@ -19,7 +20,7 @@ class Model:
     This class represents a quantum spin Hamiltonian defined on a hypergraph
     geometry. The Hamiltonian is characterized by:
 
-    - Coefficients: A mapping from edge vertex tuples to float coefficients
+    - Ops: A mapping from edge vertex tuples to (coefficient, PauliString) pairs
     - Terms: Groupings of hyperedges for Trotterization or parallel execution
 
     The model is built on a hypergraph geometry that defines which qubits
@@ -35,6 +36,7 @@ class Model:
         >>> geometry = Chain1D(4)
         >>> model = Model(geometry)
         >>> model.set_coefficient((0, 1), 1.5)
+        >>> model.set_pauli_string((0, 1), PauliString.from_qubits((0, 1), "ZZ"))
         >>> model.get_coefficient((0, 1))
         1.5
     """
@@ -43,7 +45,8 @@ class Model:
         """Initialize the Model.
 
         Creates a quantum spin model on the given geometry. The model starts
-        with all coefficients set to zero and no term groupings.
+        with all coefficients set to zero (with identity PauliStrings) and
+        no term groupings.
 
         Args:
             geometry: Hypergraph defining the interaction topology. The number
@@ -51,10 +54,13 @@ class Model:
         """
         self.geometry: Hypergraph = geometry
         self._qubits: set[int] = set()
-        self._coefficients: dict[tuple[int, ...], float] = dict()
+        self._ops: dict[tuple[int, ...], tuple[float, PauliString]] = dict()
         for edge in geometry.edges():
             self._qubits.update(edge.vertices)
-            self._coefficients[edge.vertices] = 0.0
+            self._ops[edge.vertices] = (
+                0.0,
+                PauliString.from_qubits(edge.vertices, [0] * len(edge.vertices)),
+            )
         self._terms: list[list[Hyperedge]] = []
 
     def get_coefficient(self, vertices: tuple[int, ...]) -> float:
@@ -71,21 +77,43 @@ class Model:
                 in the geometry.
         """
         vertices = tuple(sorted(vertices))
-        if vertices not in self._coefficients:
+        if vertices not in self._ops:
             raise KeyError(f"No edge with vertices {vertices} in geometry")
-        return self._coefficients[vertices]
+        return self._ops[vertices][0]
 
-    def has_coefficient(self, vertices: tuple[int, ...]) -> bool:
-        """Check if a coefficient exists for the given edge vertices.
+    def get_pauli_string(self, vertices: tuple[int, ...]) -> PauliString:
+        """Get the PauliString for an edge in the Hamiltonian.
+
+        Args:
+            vertices: Tuple of vertex indices identifying the edge.
+
+        Returns:
+            The PauliString for the specified edge.
+
+        Raises:
+            KeyError: If the vertex tuple does not correspond to an edge
+                in the geometry.
+        """
+        vertices = tuple(sorted(vertices))
+        if vertices not in self._ops:
+            raise KeyError(f"No edge with vertices {vertices} in geometry")
+        return self._ops[vertices][1]
+
+    def has_interaction_term(self, vertices: tuple[int, ...]) -> bool:
+        """Check if an interaction term exists for the given edge vertices.
 
         Args:
             vertices: Tuple of vertex indices identifying the edge.
         Returns:
-            True if a coefficient exists for the edge, False otherwise.
+            True if an interaction term exists for the edge, False otherwise.
         """
-        return tuple(sorted(vertices)) in self._coefficients
+        return tuple(sorted(vertices)) in self._ops
 
-    def set_coefficient(self, vertices: tuple[int, ...], value: float) -> None:
+    def set_coefficient(
+        self,
+        vertices: tuple[int, ...],
+        value: float,
+    ) -> None:
         """Set the coefficient for an edge in the Hamiltonian.
 
         Args:
@@ -97,9 +125,54 @@ class Model:
                 in the geometry.
         """
         vertices = tuple(sorted(vertices))
-        if vertices not in self._coefficients:
+        if vertices not in self._ops:
             raise KeyError(f"No edge with vertices {vertices} in geometry")
-        self._coefficients[vertices] = value
+        self._ops[vertices] = (value, self._ops[vertices][1])
+
+    def set_pauli_string(
+        self,
+        vertices: tuple[int, ...],
+        pauli_string: PauliString,
+    ) -> None:
+        """Set the PauliString for an edge in the Hamiltonian.
+
+        Args:
+            vertices: Tuple of vertex indices identifying the edge.
+            pauli_string: The PauliString to associate with this edge.
+
+        Raises:
+            KeyError: If the vertex tuple does not correspond to an edge
+                in the geometry.
+        """
+        vertices = tuple(sorted(vertices))
+        if vertices not in self._ops:
+            raise KeyError(f"No edge with vertices {vertices} in geometry")
+        self._ops[vertices] = (self._ops[vertices][0], pauli_string)
+
+    def set_operator(
+        self,
+        vertices: tuple[int, ...],
+        value: float,
+        pauli_string: PauliString,
+    ) -> None:
+        """Set both the coefficient and PauliString for an edge.
+
+        Convenience method that combines :meth:`set_coefficient` and
+        :meth:`set_pauli_string` in a single call.
+
+        Args:
+            vertices: Tuple of vertex indices identifying the edge.
+            value: The coefficient value to set.
+            pauli_string: The PauliString to associate with this edge.
+
+        Raises:
+            KeyError: If the vertex tuple does not correspond to an edge
+                in the geometry.
+        """
+        vertices = tuple(sorted(vertices))
+        if vertices not in self._ops:
+            raise KeyError(f"No edge with vertices {vertices} in geometry")
+        self._ops[vertices] = (value, pauli_string)
 
     def add_term(self, edges: list[Hyperedge]) -> None:
         """Add a term grouping to the model.
@@ -160,9 +233,9 @@ def translation_invariant_ising_model(
     for edge in geometry.edges():
         vertices = edge.vertices
         if len(vertices) == 1:
-            model.set_coefficient(vertices, -h)  # Set X field coefficient
+            model.set_operator(vertices, -h, PauliString.from_qubits(vertices, "X"))
         elif len(vertices) == 2:
-            model.set_coefficient(vertices, -J)  # Set ZZ interaction coefficient
+            model.set_operator(vertices, -J, PauliString.from_qubits(vertices, "ZZ"))
         color = geometry.color[vertices]
         model._terms[color].append(edge)  # Group edges by color for parallel execution
 
