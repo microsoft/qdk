@@ -84,7 +84,6 @@ use std::f64::consts::PI;
 
 #[test]
 fn simulator_completes_all_shots() {
-    require_gpu!();
     check_sim! {
         simulator: GpuSimulator,
         program: qir! {
@@ -109,7 +108,6 @@ fn simulator_completes_all_shots() {
 
 #[test]
 fn single_qubit_gate_truth_tables() {
-    require_gpu!();
     check_basis_table! {
         simulator: GpuSimulator,
         num_qubits: 1,
@@ -147,7 +145,6 @@ fn single_qubit_gate_truth_tables() {
 
 #[test]
 fn two_qubit_gate_truth_tables() {
-    require_gpu!();
     check_basis_table! {
         simulator: GpuSimulator,
         num_qubits: 2,
@@ -186,7 +183,6 @@ fn two_qubit_gate_truth_tables() {
 // X gate tests
 #[test]
 fn x_is_self_adjoint() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -199,7 +195,6 @@ fn x_is_self_adjoint() {
 
 #[test]
 fn x_eq_h_z_h() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -213,7 +208,6 @@ fn x_eq_h_z_h() {
 // Y gate tests
 #[test]
 fn y_is_self_adjoint() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -226,7 +220,6 @@ fn y_is_self_adjoint() {
 
 #[test]
 fn y_gate_eq_x_z_and_z_x() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -241,7 +234,6 @@ fn y_gate_eq_x_z_and_z_x() {
 // Z gate tests
 #[test]
 fn z_is_self_adjoint() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -254,7 +246,6 @@ fn z_is_self_adjoint() {
 
 #[test]
 fn z_eq_h_x_h() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -268,7 +259,6 @@ fn z_eq_h_x_h() {
 // H gate tests
 #[test]
 fn h_gate_creates_superposition() {
-    require_gpu!();
     // H creates equal superposition - should see both 0 and 1
     check_sim! {
         simulator: GpuSimulator,
@@ -289,7 +279,6 @@ fn h_gate_creates_superposition() {
 
 #[test]
 fn h_is_self_adjoint() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -303,7 +292,6 @@ fn h_is_self_adjoint() {
 // S gate tests
 #[test]
 fn s_squared_eq_z() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -316,7 +304,6 @@ fn s_squared_eq_z() {
 
 #[test]
 fn s_and_s_adj_cancel() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -330,7 +317,6 @@ fn s_and_s_adj_cancel() {
 
 #[test]
 fn s_adj_squared_eq_z() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -344,7 +330,6 @@ fn s_adj_squared_eq_z() {
 // SX gate tests
 #[test]
 fn sx_squared_eq_x() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -357,7 +342,6 @@ fn sx_squared_eq_x() {
 
 #[test]
 fn sx_and_sx_adj_cancel() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -371,7 +355,6 @@ fn sx_and_sx_adj_cancel() {
 
 #[test]
 fn sx_adj_squared_eq_x() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -385,7 +368,6 @@ fn sx_adj_squared_eq_x() {
 // T gate tests
 #[test]
 fn t_fourth_eq_z() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -399,7 +381,6 @@ fn t_fourth_eq_z() {
 // T_ADJ gate tests
 #[test]
 fn t_and_t_adj_cancel() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -413,7 +394,6 @@ fn t_and_t_adj_cancel() {
 
 #[test]
 fn t_adj_fourth_eq_z() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -428,7 +408,6 @@ fn t_adj_fourth_eq_z() {
 
 #[test]
 fn cz_symmetric() {
-    require_gpu!();
     // CZ is symmetric: CZ(a,b) = CZ(b,a)
     check_programs_are_eq! {
         simulator: GpuSimulator,
@@ -443,7 +422,6 @@ fn cz_symmetric() {
 // SWAP gate tests
 #[test]
 fn swap_commutes_operands() {
-    require_gpu!();
     // SWAP · (A⊗B) = (B⊗A) · SWAP for any single-qubit gates A, B.
     // Test with A=X, B=H: SWAP·(X⊗H)·SWAP = H⊗X
     check_programs_are_eq! {
@@ -458,7 +436,6 @@ fn swap_commutes_operands() {
 
 #[test]
 fn swap_exchanges_qubit_states() {
-    require_gpu!();
     check_sim! {
         simulator: GpuSimulator,
         program: qir! {
@@ -475,7 +452,6 @@ fn swap_exchanges_qubit_states() {
 
 #[test]
 fn swap_twice_eq_identity() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -491,7 +467,6 @@ fn swap_twice_eq_identity() {
 // Rx gate tests
 #[test]
 fn rx_zero_eq_identity() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -504,7 +479,6 @@ fn rx_zero_eq_identity() {
 
 #[test]
 fn rx_two_pi_eq_identity() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -517,7 +491,6 @@ fn rx_two_pi_eq_identity() {
 
 #[test]
 fn rx_pi_eq_x() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -530,7 +503,6 @@ fn rx_pi_eq_x() {
 
 #[test]
 fn rx_half_pi_eq_sx() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -543,7 +515,6 @@ fn rx_half_pi_eq_sx() {
 
 #[test]
 fn rx_neg_half_pi_eq_sx_adj() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -557,7 +528,6 @@ fn rx_neg_half_pi_eq_sx_adj() {
 // Ry gate tests
 #[test]
 fn ry_zero_eq_identity() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -570,7 +540,6 @@ fn ry_zero_eq_identity() {
 
 #[test]
 fn ry_two_pi_eq_identity() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -583,7 +552,6 @@ fn ry_two_pi_eq_identity() {
 
 #[test]
 fn ry_pi_eq_y() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -597,7 +565,6 @@ fn ry_pi_eq_y() {
 // Rz gate tests
 #[test]
 fn rz_zero_eq_identity() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -610,7 +577,6 @@ fn rz_zero_eq_identity() {
 
 #[test]
 fn rz_two_pi_eq_identity() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -623,7 +589,6 @@ fn rz_two_pi_eq_identity() {
 
 #[test]
 fn rz_pi_eq_z() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -636,7 +601,6 @@ fn rz_pi_eq_z() {
 
 #[test]
 fn rz_half_pi_eq_s() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -649,7 +613,6 @@ fn rz_half_pi_eq_s() {
 
 #[test]
 fn rz_neg_half_pi_eq_s_adj() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -662,7 +625,6 @@ fn rz_neg_half_pi_eq_s_adj() {
 
 #[test]
 fn rz_quarter_pi_eq_t() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -675,7 +637,6 @@ fn rz_quarter_pi_eq_t() {
 
 #[test]
 fn rz_neg_quarter_pi_eq_t_adj() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -691,7 +652,6 @@ fn rz_neg_quarter_pi_eq_t_adj() {
 // Rxx gate tests
 #[test]
 fn rxx_zero_eq_identity() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -704,7 +664,6 @@ fn rxx_zero_eq_identity() {
 
 #[test]
 fn rxx_pi_eq_x_tensor_x() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -718,7 +677,6 @@ fn rxx_pi_eq_x_tensor_x() {
 // Ryy gate tests
 #[test]
 fn ryy_zero_eq_identity() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -731,7 +689,6 @@ fn ryy_zero_eq_identity() {
 
 #[test]
 fn ryy_pi_eq_y_tensor_y() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -745,7 +702,6 @@ fn ryy_pi_eq_y_tensor_y() {
 // Rzz gate tests
 #[test]
 fn rzz_zero_eq_identity() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -767,7 +723,6 @@ fn rzz_zero_eq_identity() {
 
 #[test]
 fn rzz_pi_eq_z_tensor_z() {
-    require_gpu!();
     // Z⊗Z on |00⟩ gives |00⟩ (both have eigenvalue +1)
     // This is equivalent to identity on computational basis states
     check_programs_are_eq! {
@@ -794,7 +749,6 @@ fn rzz_pi_eq_z_tensor_z() {
 #[ignore = "unimplemented"]
 #[test]
 fn reset_takes_qubit_back_to_zero() {
-    require_gpu!();
     check_sim! {
         simulator: GpuSimulator,
         program: qir! {
@@ -810,7 +764,6 @@ fn reset_takes_qubit_back_to_zero() {
 
 #[test]
 fn mresetz_resets_after_measurement() {
-    require_gpu!();
     check_sim! {
         simulator: GpuSimulator,
         program: qir! {
@@ -827,7 +780,6 @@ fn mresetz_resets_after_measurement() {
 #[ignore = "mz is implemented as mresetz for the GPU"]
 #[test]
 fn mz_does_not_reset() {
-    require_gpu!();
     check_sim! {
         simulator: GpuSimulator,
         program: qir! {
@@ -845,7 +797,6 @@ fn mz_does_not_reset() {
 
 #[test]
 fn mov_is_noop_without_noise() {
-    require_gpu!();
     check_programs_are_eq! {
         simulator: GpuSimulator,
         programs: [
@@ -860,7 +811,6 @@ fn mov_is_noop_without_noise() {
 
 #[test]
 fn bell_state_produces_correlated_measurements() {
-    require_gpu!();
     // Bell state produces only correlated outcomes: 00 or 11
     check_sim! {
         simulator: GpuSimulator,
@@ -882,7 +832,6 @@ fn bell_state_produces_correlated_measurements() {
 
 #[test]
 fn ghz_state_three_qubits() {
-    require_gpu!();
     // GHZ state produces only 000 or 111
     check_sim! {
         simulator: GpuSimulator,

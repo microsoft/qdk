@@ -556,6 +556,7 @@ macro_rules! check_sim {
 
     // Run with GPU simulator
     (@run GpuSimulator, $instructions:expr, $num_qubits:expr, $num_results:expr, $shots:expr, $seed:expr, $noise:expr) => {{
+        require_gpu!();
         run_on_gpu($instructions, $num_qubits, $num_results, $shots, $seed, $noise)
     }};
 }
@@ -741,6 +742,7 @@ macro_rules! check_programs_are_eq {
         num_qubits: $num_qubits:expr,
         num_results: $num_results:expr $(,)?
     ) => {{
+        require_gpu!();
         let programs: Vec<Vec<_>> = vec![ $( $program ),+ ];
         $crate::qir_simulation::tests::test_utils::check_programs_are_eq_gpu(&programs, $num_qubits, $num_results);
     }};
