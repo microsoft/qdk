@@ -10,8 +10,7 @@ as Hamiltonians. The Model class integrates with hypergraph geometries
 to define interaction topologies and stores coefficients for each edge.
 """
 
-from qsharp.magnets.geometry import Hyperedge, Hypergraph
-from qsharp.magnets.utilities import PauliString
+from qsharp.magnets.utilities import Hyperedge, Hypergraph, PauliString
 
 
 class Model:

@@ -9,9 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from qsharp.magnets.geometry import Hyperedge, Hypergraph
 from qsharp.magnets.models import Model
-from qsharp.magnets.utilities import PauliString
+from qsharp.magnets.utilities import Hyperedge, Hypergraph, PauliString
 
 
 def make_chain(length: int) -> Hypergraph:

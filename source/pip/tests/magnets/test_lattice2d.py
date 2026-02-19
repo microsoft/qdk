@@ -267,7 +267,7 @@ def test_torus2d_vs_patch2d_edge_count():
 
 def test_patch2d_inherits_hypergraph():
     """Test that Patch2D is a Hypergraph subclass with all methods."""
-    from qsharp.magnets.utilities.hypergraph import Hypergraph
+    from qsharp.magnets.utilities import Hypergraph
 
     patch = Patch2D(3, 3)
     assert isinstance(patch, Hypergraph)
@@ -279,7 +279,7 @@ def test_patch2d_inherits_hypergraph():
 
 def test_torus2d_inherits_hypergraph():
     """Test that Torus2D is a Hypergraph subclass with all methods."""
-    from qsharp.magnets.utilities.hypergraph import Hypergraph
+    from qsharp.magnets.utilities import Hypergraph
 
     torus = Torus2D(3, 3)
     assert isinstance(torus, Hypergraph)
