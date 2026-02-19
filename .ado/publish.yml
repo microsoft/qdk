@@ -450,6 +450,13 @@ extends:
                   PendingAnalysisWaitTimeoutMinutes: 5
 
               - script: |
+                  echo "Command: vsce verify-signature --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE"
+                  vsce verify-signature --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE
+                condition: succeeded()
+                displayName: Confirming signature verification before publishing
+
+              - script: |
+                  echo "Command: vsce publish --pre-release --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE"
                   vsce publish --pre-release --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE 2>&1 > pub.log
                 condition: and(succeeded(), eq(variables['BUILD_TYPE'], 'dev'))
                 displayName: Publish pre-release VSCode Extension
@@ -457,6 +464,7 @@ extends:
                   VSCE_PAT: $(PAT)
 
               - script: |
+                  echo "Command: vsce publish --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE"
                   vsce publish --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE 2>&1 > pub.log
                 condition: and(succeeded(), ne(variables['BUILD_TYPE'], 'dev'))
                 displayName: Publish VSCode Extension
