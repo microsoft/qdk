@@ -59,7 +59,7 @@ fn unitary_call_within_an_if_with_classical_condition_within_a_for_loop() {
                 Call id(2), args( Qubit(0), )
                 Variable(0, Integer) = Store Integer(5)
                 Variable(0, Integer) = Store Integer(6)
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -114,7 +114,7 @@ fn unitary_call_within_an_if_with_classical_condition_within_a_while_loop() {
                 Call id(2), args( Qubit(0), )
                 Variable(0, Integer) = Store Integer(5)
                 Variable(0, Integer) = Store Integer(6)
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -176,7 +176,7 @@ fn unitary_call_within_an_if_with_classical_condition_within_a_repeat_until_loop
                 Variable(1, Boolean) = Store Bool(true)
                 Variable(0, Integer) = Store Integer(6)
                 Variable(1, Boolean) = Store Bool(false)
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -481,7 +481,7 @@ fn if_else_expression_with_dynamic_logical_and_condition() {
                 Variable(2, Boolean) = Store Variable(4, Boolean)
                 Jump(1)
             Block 3:Block:
-                Call id(6), args( Integer(0), EmptyTag, )
+                Call id(6), args( Integer(0), Tag(0, 3), )
                 Return
             Block 4:Block:
                 Call id(4), args( Qubit(2), )
@@ -587,7 +587,7 @@ fn if_else_expression_with_dynamic_logical_or_condition() {
                 Variable(2, Boolean) = Store Variable(4, Boolean)
                 Jump(1)
             Block 3:Block:
-                Call id(6), args( Integer(0), EmptyTag, )
+                Call id(6), args( Integer(0), Tag(0, 3), )
                 Return
             Block 4:Block:
                 Call id(4), args( Qubit(2), )

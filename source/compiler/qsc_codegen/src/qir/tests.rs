@@ -131,7 +131,6 @@ fn bell_program() {
         %Result = type opaque
         %Qubit = type opaque
 
-        @empty_tag = internal constant [1 x i8] c"\00"
         @0 = internal constant [4 x i8] c"0_a\00"
         @1 = internal constant [6 x i8] c"1_a0r\00"
         @2 = internal constant [6 x i8] c"2_a1r\00"
@@ -179,7 +178,6 @@ fn teleport_program() {
         %Result = type opaque
         %Qubit = type opaque
 
-        @empty_tag = internal constant [1 x i8] c"\00"
         @0 = internal constant [4 x i8] c"0_r\00"
 
         declare void @__quantum__qis__h__body(%Qubit*)

@@ -616,7 +616,7 @@ impl Operand {
                 Literal::Bool(_) => Ty::Boolean,
                 Literal::Integer(_) => Ty::Integer,
                 Literal::Double(_) => Ty::Double,
-                Literal::Pointer | Literal::Tag(..) | Literal::EmptyTag => Ty::Pointer,
+                Literal::Pointer | Literal::Tag(..) => Ty::Pointer,
             },
             Operand::Variable(var) => var.ty,
         }
@@ -631,7 +631,6 @@ pub enum Literal {
     Integer(i64),
     Double(f64),
     Tag(usize, usize),
-    EmptyTag,
     Pointer,
 }
 
@@ -644,7 +643,6 @@ impl Display for Literal {
             Self::Integer(i) => write!(f, "Integer({i})")?,
             Self::Double(d) => write!(f, "Double({d})")?,
             Self::Tag(idx, len) => write!(f, "Tag({idx}, {len})")?,
-            Self::EmptyTag => write!(f, "EmptyTag")?,
             Self::Pointer => write!(f, "Pointer")?,
         }
         Ok(())
@@ -699,7 +697,6 @@ impl PartialEq for Literal {
                     false
                 }
             }
-            Self::EmptyTag => *other == Self::EmptyTag,
         }
     }
 }

@@ -126,10 +126,6 @@ impl ToQir<String> for rir::Literal {
                     "i8* getelementptr inbounds ([{len} x i8], [{len} x i8]* @{idx}, i64 0, i64 0)"
                 )
             }
-            rir::Literal::EmptyTag => {
-                "i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0)"
-                    .to_string()
-            }
         }
     }
 }
@@ -581,7 +577,7 @@ fn get_value_as_str(value: &rir::Operand, program: &rir::Program) -> String {
             rir::Literal::Pointer => "null".to_string(),
             rir::Literal::Qubit(q) => format!("{q}"),
             rir::Literal::Result(r) => format!("{r}"),
-            rir::Literal::Tag(..) | rir::Literal::EmptyTag => panic!(
+            rir::Literal::Tag(..) => panic!(
                 "tag literals should not be used as string values outside of output recording"
             ),
         },
@@ -597,7 +593,7 @@ fn get_value_ty(lhs: &rir::Operand) -> &str {
             rir::Literal::Double(_) => get_f64_ty(),
             rir::Literal::Qubit(_) => "%Qubit*",
             rir::Literal::Result(_) => "%Result*",
-            rir::Literal::Pointer | rir::Literal::Tag(..) | rir::Literal::EmptyTag => "i8*",
+            rir::Literal::Pointer | rir::Literal::Tag(..) => "i8*",
         },
         rir::Operand::Variable(var) => get_variable_ty(*var),
     }

@@ -1,7 +1,6 @@
 %Result = type opaque
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] c"\00"
 {}
 {}
 

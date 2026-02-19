@@ -47,9 +47,9 @@ def test_reorder_no_changes_to_simple_ordered_program() -> None:
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
-@0 = internal constant [6 x i8] c"0_t0r\\00"
-@1 = internal constant [6 x i8] c"1_t1r\\00"
+@0 = internal constant [4 x i8] c"0_t\\00"
+@1 = internal constant [6 x i8] c"1_t0r\\00"
+@2 = internal constant [6 x i8] c"2_t1r\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -58,9 +58,9 @@ block_0:
   call void @__quantum__qis__cz__body(%Qubit* null, %Qubit* inttoptr (i64 1 to %Qubit*))
   call void @__quantum__qis__mresetz__body(%Qubit* null, %Result* null)
   call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
-  call void @__quantum__rt__tuple_record_output(i64 2, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
-  call void @__quantum__rt__result_record_output(%Result* null, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @0, i64 0, i64 0))
-  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 2, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__result_record_output(%Result* null, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @2, i64 0, i64 0))
   ret i64 0
 }
 
@@ -125,11 +125,11 @@ def test_reorder_groups_matching_sequential_gates_into_same_step() -> None:
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
-@0 = internal constant [6 x i8] c"0_t0r\\00"
-@1 = internal constant [6 x i8] c"1_t1r\\00"
-@2 = internal constant [6 x i8] c"2_t2r\\00"
-@3 = internal constant [6 x i8] c"3_t3r\\00"
+@0 = internal constant [4 x i8] c"0_t\\00"
+@1 = internal constant [6 x i8] c"1_t0r\\00"
+@2 = internal constant [6 x i8] c"2_t1r\\00"
+@3 = internal constant [6 x i8] c"3_t2r\\00"
+@4 = internal constant [6 x i8] c"4_t3r\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -142,11 +142,11 @@ block_0:
   call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
   call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Result* inttoptr (i64 2 to %Result*))
   call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 3 to %Qubit*), %Result* inttoptr (i64 3 to %Result*))
-  call void @__quantum__rt__tuple_record_output(i64 4, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
-  call void @__quantum__rt__result_record_output(%Result* null, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @0, i64 0, i64 0))
-  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
-  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 2 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @2, i64 0, i64 0))
-  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 3 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @3, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 4, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__result_record_output(%Result* null, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @2, i64 0, i64 0))
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 2 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @3, i64 0, i64 0))
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 3 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @4, i64 0, i64 0))
   ret i64 0
 }
 
@@ -211,9 +211,9 @@ def test_reorder_moves_gates_past_measurements_that_overlap_qubit_and_result_ids
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
-@0 = internal constant [6 x i8] c"0_t0r\\00"
-@1 = internal constant [6 x i8] c"1_t1r\\00"
+@0 = internal constant [4 x i8] c"0_t\\00"
+@1 = internal constant [6 x i8] c"1_t0r\\00"
+@2 = internal constant [6 x i8] c"2_t1r\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -222,9 +222,9 @@ block_0:
   call void @__quantum__qis__sx__body(%Qubit* inttoptr (i64 1 to %Qubit*))
   call void @__quantum__qis__mresetz__body(%Qubit* null, %Result* inttoptr (i64 1 to %Result*))
   call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* null)
-  call void @__quantum__rt__tuple_record_output(i64 2, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
-  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @0, i64 0, i64 0))
-  call void @__quantum__rt__result_record_output(%Result* null, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 2, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
+  call void @__quantum__rt__result_record_output(%Result* null, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @2, i64 0, i64 0))
   ret i64 0
 }
 
@@ -285,9 +285,9 @@ def test_reorder_keeps_dependent_gates_in_order() -> None:
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
-@0 = internal constant [6 x i8] c"0_t0r\\00"
-@1 = internal constant [6 x i8] c"1_t1r\\00"
+@0 = internal constant [4 x i8] c"0_t\\00"
+@1 = internal constant [6 x i8] c"1_t0r\\00"
+@2 = internal constant [6 x i8] c"2_t1r\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -298,9 +298,9 @@ block_0:
   call void @__quantum__qis__cz__body(%Qubit* null, %Qubit* inttoptr (i64 1 to %Qubit*))
   call void @__quantum__qis__mresetz__body(%Qubit* null, %Result* null)
   call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
-  call void @__quantum__rt__tuple_record_output(i64 2, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
-  call void @__quantum__rt__result_record_output(%Result* null, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @0, i64 0, i64 0))
-  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 2, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__result_record_output(%Result* null, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @2, i64 0, i64 0))
   ret i64 0
 }
 
@@ -369,12 +369,12 @@ def test_reorder_sorts_gates_by_qubit_id() -> None:
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
-@0 = internal constant [6 x i8] c"0_a0r\\00"
-@1 = internal constant [6 x i8] c"1_a1r\\00"
-@2 = internal constant [6 x i8] c"2_a2r\\00"
-@3 = internal constant [6 x i8] c"3_a3r\\00"
-@4 = internal constant [6 x i8] c"4_a4r\\00"
+@0 = internal constant [4 x i8] c"0_a\\00"
+@1 = internal constant [6 x i8] c"1_a0r\\00"
+@2 = internal constant [6 x i8] c"2_a1r\\00"
+@3 = internal constant [6 x i8] c"3_a2r\\00"
+@4 = internal constant [6 x i8] c"4_a3r\\00"
+@5 = internal constant [6 x i8] c"5_a4r\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -389,12 +389,12 @@ block_0:
   call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Result* inttoptr (i64 4 to %Result*))
   call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 3 to %Qubit*), %Result* null)
   call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 4 to %Qubit*), %Result* inttoptr (i64 2 to %Result*))
-  call void @__quantum__rt__array_record_output(i64 5, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
-  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 3 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @0, i64 0, i64 0))
-  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
-  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 4 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @2, i64 0, i64 0))
-  call void @__quantum__rt__result_record_output(%Result* null, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @3, i64 0, i64 0))
-  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 2 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @4, i64 0, i64 0))
+  call void @__quantum__rt__array_record_output(i64 5, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 3 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @2, i64 0, i64 0))
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 4 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @3, i64 0, i64 0))
+  call void @__quantum__rt__result_record_output(%Result* null, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @4, i64 0, i64 0))
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 2 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @5, i64 0, i64 0))
   ret i64 0
 }
 
@@ -452,7 +452,7 @@ def test_reorder_sorts_cz_to_end_of_step() -> None:
 
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -460,7 +460,7 @@ block_0:
   call void @__quantum__qis__sx__body(%Qubit* inttoptr (i64 2 to %Qubit*))
   call void @__quantum__qis__sx__body(%Qubit* inttoptr (i64 3 to %Qubit*))
   call void @__quantum__qis__cz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -529,7 +529,7 @@ def test_reorder_respects_read_result_and_classical_compute() -> None:
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -576,7 +576,7 @@ block_9:                                          ; preds = %block_8, %block_7
   %5 = phi double [ %3, %block_7 ], [ %4, %block_8 ]
   %6 = fmul double 2.000000e+00, %5
   call void @__quantum__qis__rz__body(double %6, %Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
