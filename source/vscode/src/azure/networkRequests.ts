@@ -216,7 +216,7 @@ export class AzureUris {
 }
 
 export class QuantumUris {
-  readonly apiVersion = "2025-12-01-preview";
+  readonly apiVersion = "2026-01-15-preview";
 
   // Regular expression to extract the first part of the endpointUri
   // - Captures only an exact "-v2" suffix (as versionSuffix) if present
