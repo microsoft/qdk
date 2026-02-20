@@ -513,3 +513,87 @@ operation tiny_coeffs() : Result[] {{
         assert (
             abs(actual_count - expected_count) <= tolerance
         ), f"Count for {pattern} off by more than {tolerance_percent:.1f}% of shots. Actual={actual_count}, Expected={expected_count:.0f}, noise#{noise_number}, Program={program}."
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_gpu_mz_idempotent_noiseless():
+    """MZ (measure without reset) should be idempotent: two consecutive
+    measurements on the same qubit must always agree."""
+    qsharp.init(target_profile=TargetProfile.Base)
+    qsharp.eval(
+        """
+        operation MzIdempotent() : Result[] {
+            use q = Qubit();
+            H(q);
+            let r0 = M(q);
+            let r1 = M(q);
+            [r0, r1]
+        }
+        """
+    )
+
+    qir = str(qsharp.compile("MzIdempotent()"))
+    shots = 1000
+    output = run_qir_gpu(qir, shots=shots, seed=45)
+
+    # Both measurements in each shot must match
+    mismatches = [r for r in output if r[0] != r[1]]
+    assert (
+        len(mismatches) == 0
+    ), f"MZ should be idempotent: both measurements must match. Found {len(mismatches)} mismatches out of {shots} shots."
+
+    # Verify roughly 50/50 distribution from the Hadamard
+    count_00 = sum(1 for r in output if r == [Result.Zero, Result.Zero])
+    count_11 = sum(1 for r in output if r == [Result.One, Result.One])
+    print(f"MZ idempotent: {shots} shots, n00={count_00}, n11={count_11}")
+    assert (
+        abs(count_00 - shots / 2) < shots * 0.1
+    ), f"Expected ~50% |00⟩, got {count_00}/{shots}"
+    assert (
+        abs(count_11 - shots / 2) < shots * 0.1
+    ), f"Expected ~50% |11⟩, got {count_11}/{shots}"
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_gpu_reset_preserves_distribution():
+    """Reset should collapse a qubit to |0⟩ while preserving the probability
+    distribution on entangled qubits.
+    Circuit: Rx(π/6, q0) -> CNOT(q0, q1) -> Reset(q0) -> Measure both
+    Rx(π/6) gives cos²(π/12) ≈ 0.933 for |0⟩ and sin²(π/12) ≈ 0.067 for |1⟩.
+    After CNOT the state is cos(π/12)|00⟩ + sin(π/12)|11⟩.
+    Reset on q0 collapses it, leaving q1 with the same skewed distribution."""
+    qsharp.init(target_profile=TargetProfile.Base)
+    qsharp.eval(
+        """
+        operation ResetPreservesDistribution() : Result[] {
+            use qs = Qubit[2];
+            Rx(Std.Math.PI() / 6.0, qs[0]);
+            CNOT(qs[0], qs[1]);
+            Reset(qs[0]);
+            MResetEachZ(qs)
+        }
+        """
+    )
+
+    qir = str(qsharp.compile("ResetPreservesDistribution()"))
+    shots = 1000
+    output = run_qir_gpu(qir, shots=shots, seed=239)
+
+    # q0 should always be 0 after reset
+    q0_nonzero = [r for r in output if r[0] != Result.Zero]
+    assert (
+        len(q0_nonzero) == 0
+    ), f"Reset should always produce |0⟩. Found {len(q0_nonzero)} non-zero results out of {shots} shots."
+
+    # q1 should reflect the skewed distribution: ~93.3% |0⟩, ~6.7% |1⟩
+    q1_zero = sum(1 for r in output if r[1] == Result.Zero)
+    q1_one = sum(1 for r in output if r[1] == Result.One)
+    print(
+        f"Reset distribution: {shots} shots, q0 always 0, q1: n0={q1_zero}, n1={q1_one}"
+    )
+    assert (
+        abs(q1_zero / shots - 0.933) < 0.05
+    ), f"Expected ~93.3% |0⟩ for q1, got {q1_zero}/{shots}"
+    assert (
+        abs(q1_one / shots - 0.067) < 0.05
+    ), f"Expected ~6.7% |1⟩ for q1, got {q1_one}/{shots}"

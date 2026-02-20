@@ -25,7 +25,11 @@ const MAX_WORKGROUP_SUM_PARTITIONS: i32 = 1 << u32(MAX_QUBIT_COUNT - MAX_QUBITS_
 
 // Operation IDs
 const OPID_ID      = 0u;
-const OPID_RESET   = 1u;
+const OPID_RESETZ  = 1u;
+const OPID_X       = 2u;
+const OPID_Y       = 3u;
+const OPID_Z       = 4u;
+const OPID_H       = 5u;
 const OPID_S       = 6u;
 const OPID_SAdj    = 7u;
 const OPID_T       = 8u;
@@ -36,6 +40,7 @@ const OPID_CZ      = 16u;
 const OPID_RXX     = 17u;
 const OPID_RYY     = 18u;
 const OPID_RZZ     = 19u;
+const OPID_MZ      = 21u;
 const OPID_MRESETZ = 22u;
 const OPID_SWAP    = 24u;
 const OPID_MAT1Q   = 25u;
@@ -218,7 +223,8 @@ fn is_1q_phase_gate(op_id: u32) -> bool {
 
 fn is_1q_op(op_id: u32) -> bool {
     return ((op_id >= OPID_ID && op_id <= OPID_RZ) ||
-        op_id == OPID_MRESETZ || op_id == OPID_MAT1Q || op_id == OPID_SHOT_BUFF_1Q);
+        op_id == OPID_MZ || op_id == OPID_MRESETZ ||
+        op_id == OPID_MAT1Q || op_id == OPID_SHOT_BUFF_1Q);
 }
 
 fn shot_init_per_op(shot_idx: u32) {
@@ -237,6 +243,7 @@ fn shot_init_per_op(shot_idx: u32) {
     shot.rand_loss = next_rand_f32(shot_idx);
 }
 
+// Resets the entire shot state, including RNG, probabilities, and per-qubit tracking.
 fn reset_all(shot_idx: i32) {
     let shot = &shots[shot_idx];
 
@@ -364,7 +371,7 @@ fn update_qubit_state(shot_idx: u32) {
     }
 }
 
-fn prep_mresetz(shot_idx: u32, op_idx: u32, is_loss: bool) {
+fn prep_measure_reset(shot_idx: u32, op_idx: u32, is_loss: bool, stores_result: bool, resets_to_zero: bool) {
     let shot = &shots[shot_idx];
     let op = &ops[op_idx];
 
@@ -375,30 +382,53 @@ fn prep_mresetz(shot_idx: u32, op_idx: u32, is_loss: bool) {
     // If this is being called due to loss noise, we don't write the result back to the results buffer
     // Instead, mark the qubit as lost by setting the heat to -1.0
     if !is_loss {
-        let result_id = op.q2; // Result id to store the measurement result in is stored in q2
+        if stores_result {
+            let result_id = op.q2; // Result id to store the measurement result in is stored in q2
 
-        // If the qubit is already marked as lost, just report that and exit. It's already in the zero
-        // state so nothing to update or renormalize. The execute op shoud be a no-op (ID)
-        if shot.qubit_state[qubit].heat == -1.0 {
-            atomicStore(&results[(shot_idx * RESULT_COUNT) + result_id], 2u);
-            shot.op_type = OPID_ID;
-            shot.op_idx = op_idx;
-            // Qubit get reloaded after a Measurement, so set the heat back to 0.0
-            shot.qubit_state[qubit].heat = 0.0;
-            return;
+            // If the qubit is already marked as lost, just report that and exit. It's already in the zero
+            // state so nothing to update or renormalize. The execute op should be a no-op (ID)
+            if shot.qubit_state[qubit].heat == -1.0 {
+                atomicStore(&results[(shot_idx * RESULT_COUNT) + result_id], 2u);
+                shot.op_type = OPID_ID;
+                shot.op_idx = op_idx;
+                // Qubit get reloaded after a Measurement, so set the heat back to 0.0
+                shot.qubit_state[qubit].heat = 0.0;
+                return;
+            } else {
+                atomicStore(&results[(shot_idx * RESULT_COUNT) + result_id], result);
+            }
         } else {
-            atomicStore(&results[(shot_idx * RESULT_COUNT) + result_id], result);
+            // No result to store (e.g. ResetZ). If the qubit is lost, it's already in the zero
+            // state so nothing to update. Just set to ID and return.
+            if shot.qubit_state[qubit].heat == -1.0 {
+                shot.op_type = OPID_ID;
+                shot.op_idx = op_idx;
+                return;
+            }
         }
     } else {
         shot.qubit_state[qubit].heat = -1.0;
     }
 
-    // Construct the measurement instrument for MResetZ based on the measured result
+    // Construct the measurement/reset instrument based on the measured result
     // Put the instrument into the shot buffer for the execute_op stage to apply
-    shot.unitary[0] = select(vec2f(1.0, 0.0), vec2f(0.0, 0.0), result == 1u);
-    shot.unitary[1] = select(vec2f(0.0, 0.0), vec2f(1.0, 0.0), result == 1u);
-    shot.unitary[4] = vec2f();
-    shot.unitary[5] = vec2f();
+    if resets_to_zero {
+        // Reset variants (MResetZ, ResetZ):
+        // Result=0: [[1,0],[0,0]] - project onto |0⟩ (already there)
+        // Result=1: [[0,1],[0,0]] - swap |1⟩ into |0⟩ slot (reset)
+        shot.unitary[0] = select(vec2f(1.0, 0.0), vec2f(0.0, 0.0), result == 1u);
+        shot.unitary[1] = select(vec2f(0.0, 0.0), vec2f(1.0, 0.0), result == 1u);
+        shot.unitary[4] = vec2f();
+        shot.unitary[5] = vec2f();
+    } else {
+        // Measure-only (MZ):
+        // Result=0: [[1,0],[0,0]] - project onto |0⟩
+        // Result=1: [[0,0],[0,1]] - project onto |1⟩ (keep in place)
+        shot.unitary[0] = select(vec2f(1.0, 0.0), vec2f(0.0, 0.0), result == 1u);
+        shot.unitary[1] = vec2f();
+        shot.unitary[4] = vec2f();
+        shot.unitary[5] = select(vec2f(0.0, 0.0), vec2f(1.0, 0.0), result == 1u);
+    }
 
     shot.renormalize = select(
         1.0 / sqrt(shot.qubit_state[qubit].zero_probability),
@@ -413,12 +443,14 @@ fn prep_mresetz(shot_idx: u32, op_idx: u32, is_loss: bool) {
     // state (so we don't waste time updating probabilities that are already known). Note that
     // next 'prepare_op' should set the just measured qubit into a definite 0 or 1 state.
     shot.qubits_updated_last_op_mask =
-        // // A mask with all qubits set
+        // A mask with all qubits set
         ((1u << u32(QUBIT_COUNT)) - 1u)
         // Exclude qubits already in definite states
             & ~(shot.qubit_is_0_mask | shot.qubit_is_1_mask);
 
     shot.op_idx = op_idx;
+    // Use OPID_MRESETZ as the op_type for all three variants in execute stage
+    // (they all use the same matrix-apply + update_all_qubit_probs path)
     shot.op_type = OPID_MRESETZ;
 }
 
@@ -479,8 +511,8 @@ fn apply_1q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
         shot.unitary[4] = cplxNeg(op.unitary[4]);
         shot.unitary[5] = cplxNeg(op.unitary[5]);
     } else {
-        // No noise. Set the op_type back to the op.id value if it's Id, Reset, or MResetZ, as they get handled specially in execute_op
-        if (op.id == OPID_ID || op.id == OPID_RESET || op.id == OPID_MRESETZ) {
+        // No noise. Set the op_type back to the op.id value if it's Id, MResetZ, MZ, or ResetZ, as they get handled specially in execute_op
+        if (op.id == OPID_ID || op.id == OPID_MRESETZ || op.id == OPID_MZ || op.id == OPID_RESETZ) {
             shot.op_type = op.id;
         }
         if (is_1q_phase_gate(op.id)) {
@@ -814,10 +846,20 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
     shot_init_per_op(shot_idx);
     shot.unitary = op.unitary;
 
-    // Handle preparation MResetZ operations. These have unique handling and no associated noise ops, so prep and exit
+    // Handle MResetZ, MZ, and ResetZ operations. These have unique handling and no associated noise ops, so prep and exit
     if (op.id == OPID_MRESETZ) {
-        prep_mresetz(shot_idx, op_idx, false /* is_loss */);
-        shot.next_op_idx = op_idx + 1u; // MResetZ has no associated noise ops, so just advance by 1
+        prep_measure_reset(shot_idx, op_idx, false /* is_loss */, true /* stores_result */, true /* resets_to_zero */);
+        shot.next_op_idx = op_idx + 1u; // No associated noise ops, so just advance by 1
+        return;
+    }
+    if (op.id == OPID_MZ) {
+        prep_measure_reset(shot_idx, op_idx, false /* is_loss */, true /* stores_result */, false /* resets_to_zero */);
+        shot.next_op_idx = op_idx + 1u;
+        return;
+    }
+    if (op.id == OPID_RESETZ) {
+        prep_measure_reset(shot_idx, op_idx, false /* is_loss */, false /* stores_result */, true /* resets_to_zero */);
+        shot.next_op_idx = op_idx + 1u;
         return;
     }
 
@@ -853,7 +895,8 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
         let p_loss = loss_op.unitary[0].x; // Loss probability is stored in the x part of first vec2
         if (shot.rand_loss < p_loss) {
             // Qubit is lost - perform MResetZ with is_loss = true
-            prep_mresetz(shot_idx, op_idx, true /* is_loss */);
+            // (stores_result is irrelevant here since the is_loss path never stores a result)
+            prep_measure_reset(shot_idx, op_idx, true /* is_loss */, false /* stores_result */, true /* resets_to_zero */);
             // There is no further noise of gate to apply, just the loss execution.
             return;
         }
@@ -880,7 +923,7 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
         shot.op_type = OPID_SHOT_BUFF_2Q; // Indicate to use the matrix in the shot buffer
     }
 
-    if (op.id > OPID_RESET && op.id < OPID_CX) {
+    if (op.id >= OPID_X && op.id < OPID_CX) {
         shot.op_type = OPID_SHOT_BUFF_1Q; // Indicate to use the matrix in the shot buffer
     }
 

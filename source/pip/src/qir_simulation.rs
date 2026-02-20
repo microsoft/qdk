@@ -133,6 +133,8 @@ pub struct NoiseConfig {
     #[pyo3(get)]
     pub mov: Py<NoiseTable>,
     #[pyo3(get)]
+    pub mz: Py<NoiseTable>,
+    #[pyo3(get)]
     pub mresetz: Py<NoiseTable>,
     // Idle noise parameters not yet supported
     // #[pyo3(get)]
@@ -260,6 +262,7 @@ fn bind_noise_config<T: Float, Q: Float>(
         rzz: Py::new(py, NoiseTable::from(value.rzz.clone()))?,
         swap: Py::new(py, NoiseTable::from(value.swap.clone()))?,
         mov: Py::new(py, NoiseTable::from(value.mov.clone()))?,
+        mz: Py::new(py, NoiseTable::from(value.mz.clone()))?,
         mresetz: Py::new(py, NoiseTable::from(value.mresetz.clone()))?,
         // idle: Py::new(py, IdleNoiseParams::from(value.idle))?,
         intrinsics: Py::new(py, NoiseIntrinsicsTable::default())?,
@@ -294,6 +297,7 @@ fn unbind_noise_config<T: Float, Q: Float>(
         rzz: from_noise_table_ref(value.rzz.borrow(py)),
         swap: from_noise_table_ref(value.swap.borrow(py)),
         mov: from_noise_table_ref(value.mov.borrow(py)),
+        mz: from_noise_table_ref(value.mz.borrow(py)),
         mresetz: from_noise_table_ref(value.mresetz.borrow(py)),
         idle: qdk_simulators::noise_config::IdleNoiseParams::NOISELESS, // _from_idle_noise_params_ref(value.idle.borrow(py)),
         intrinsics: from_intrinsics_table_ref(py, value.intrinsics.borrow(py)),

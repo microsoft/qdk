@@ -250,15 +250,14 @@ fn map_instruction(qir_inst: &QirInstruction) -> Option<Op> {
             QirInstructionId::SXAdj => Op::new_sx_adj_gate(*qubit),
             QirInstructionId::T => Op::new_t_gate(*qubit),
             QirInstructionId::TAdj => Op::new_t_adj_gate(*qubit),
+            QirInstructionId::RESET => Op::new_resetz_gate(*qubit),
             _ => {
                 panic!("unsupported one-qubit gate: {id:?} on qubit {qubit}");
             }
         },
         QirInstruction::TwoQubitGate(id, control, target) => match id {
-            QirInstructionId::M | QirInstructionId::MZ | QirInstructionId::MResetZ => {
-                // TODO: These should be distinct in the simulator
-                Op::new_mresetz_gate(*control, *target)
-            }
+            QirInstructionId::M | QirInstructionId::MZ => Op::new_mz_gate(*control, *target),
+            QirInstructionId::MResetZ => Op::new_mresetz_gate(*control, *target),
             QirInstructionId::CX | QirInstructionId::CNOT => Op::new_cx_gate(*control, *target),
             QirInstructionId::CY => Op::new_cy_gate(*control, *target),
             QirInstructionId::CZ => Op::new_cz_gate(*control, *target),

@@ -442,9 +442,10 @@ fn add_noise_config_to_ops(ops: &[Op], noise: &NoiseConfig<f32, f64>) -> Vec<Op>
         if let Some(noise_ops) = get_noise_ops(op, noise) {
             add_ops.extend(noise_ops);
         }
-        // If it's an MResetZ with noise, change to an Id with noise, followed by MResetZ
-        // (This is just simpler to implement than doing noise inline with MResetZ for now)
-        if op.id == ops::MRESETZ && add_ops.len() > 1 {
+        // If it's an MResetZ, MZ, or ResetZ with noise, change to an Id with noise, followed by the original op
+        // (This is just simpler to implement than doing noise inline with measure/reset for now)
+        if (op.id == ops::MRESETZ || op.id == ops::MZ || op.id == ops::RESETZ) && add_ops.len() > 1
+        {
             let mz_copy = add_ops[0];
             add_ops[0] = Op::new_id_gate(op.q1);
             add_ops.push(mz_copy);
