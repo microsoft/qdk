@@ -103,7 +103,7 @@ def test_complete_graph_str():
 
 def test_complete_graph_inherits_hypergraph():
     """Test that CompleteGraph is a Hypergraph subclass with all methods."""
-    from qsharp.magnets.geometry.hypergraph import Hypergraph
+    from qsharp.magnets.utilities import Hypergraph
 
     graph = CompleteGraph(4)
     assert isinstance(graph, Hypergraph)
@@ -241,7 +241,7 @@ def test_complete_bipartite_graph_str():
 
 def test_complete_bipartite_graph_inherits_hypergraph():
     """Test that CompleteBipartiteGraph is a Hypergraph subclass with all methods."""
-    from qsharp.magnets.geometry.hypergraph import Hypergraph
+    from qsharp.magnets.utilities import Hypergraph
 
     graph = CompleteBipartiteGraph(2, 3)
     assert isinstance(graph, Hypergraph)

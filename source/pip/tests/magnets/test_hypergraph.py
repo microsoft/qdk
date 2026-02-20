@@ -3,7 +3,7 @@
 
 """Unit tests for hypergraph data structures."""
 
-from qsharp.magnets.geometry.hypergraph import (
+from qsharp.magnets.utilities import (
     Hyperedge,
     Hypergraph,
     greedy_edge_coloring,

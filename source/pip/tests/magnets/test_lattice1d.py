@@ -246,7 +246,7 @@ def test_ring1d_vs_chain1d_edge_count():
 
 def test_chain1d_inherits_hypergraph():
     """Test that Chain1D is a Hypergraph subclass with all methods."""
-    from qsharp.magnets.geometry.hypergraph import Hypergraph
+    from qsharp.magnets.utilities import Hypergraph
 
     chain = Chain1D(4)
     assert isinstance(chain, Hypergraph)
@@ -258,7 +258,7 @@ def test_chain1d_inherits_hypergraph():
 
 def test_ring1d_inherits_hypergraph():
     """Test that Ring1D is a Hypergraph subclass with all methods."""
-    from qsharp.magnets.geometry.hypergraph import Hypergraph
+    from qsharp.magnets.utilities import Hypergraph
 
     ring = Ring1D(4)
     assert isinstance(ring, Hypergraph)
