@@ -368,56 +368,7 @@ export class Sqore {
    *
    */
   private addGateClickHandlers(container: HTMLElement, circuit: Circuit): void {
-    this.addClassicalControlHandlers(container);
     this.addZoomHandlers(container, circuit);
-  }
-
-  /**
-   * Add interactive click handlers for classically-controlled operations.
-   *
-   * @param container HTML element containing visualized circuit.
-   *
-   */
-  private addClassicalControlHandlers(container: HTMLElement): void {
-    container.querySelectorAll(".classically-controlled-btn").forEach((btn) => {
-      // Zoom in on clicked gate
-      btn.addEventListener("click", (evt: Event) => {
-        const textSvg = btn.querySelector("text");
-        const group = btn.parentElement;
-        if (textSvg == null || group == null) return;
-
-        const currValue = textSvg.firstChild?.nodeValue;
-        const zeroGates = group?.querySelector(".gates-zero");
-        const oneGates = group?.querySelector(".gates-one");
-        switch (currValue) {
-          case "?":
-            textSvg.childNodes[0].nodeValue = "1";
-            group.classList.remove("classically-controlled-unknown");
-            group.classList.remove("classically-controlled-zero");
-            group.classList.add("classically-controlled-one");
-            zeroGates?.classList.add("hidden");
-            oneGates?.classList.remove("hidden");
-            break;
-          case "1":
-            textSvg.childNodes[0].nodeValue = "0";
-            group.classList.remove("classically-controlled-unknown");
-            group.classList.add("classically-controlled-zero");
-            group.classList.remove("classically-controlled-one");
-            zeroGates?.classList.remove("hidden");
-            oneGates?.classList.add("hidden");
-            break;
-          case "0":
-            textSvg.childNodes[0].nodeValue = "?";
-            group.classList.add("classically-controlled-unknown");
-            group.classList.remove("classically-controlled-zero");
-            group.classList.remove("classically-controlled-one");
-            zeroGates?.classList.remove("hidden");
-            oneGates?.classList.remove("hidden");
-            break;
-        }
-        evt.stopPropagation();
-      });
-    });
   }
 
   /**
@@ -580,10 +531,10 @@ function updateRowHeights(
 ) {
   for (const col of componentGrid) {
     for (const component of col.components) {
-      if (component.dataAttributes?.["expanded"] === "true") {
+      if (isExpandedGroup(component)) {
         // We're in an expanded group. There is a dashed border above
         // the top qubit, and below the bottom qubit.
-        const [topQubit, bottomQubit] = getMinMaxRegIdx(component, numQubits);
+        const [topQubit, bottomQubit] = getMinMaxRegIdx(component);
 
         // Increment the current count of dashed group borders for
         // the top and bottom rows for this operation.
@@ -610,4 +561,14 @@ function updateRowHeights(
       }
     }
   }
+}
+
+/**
+ * An "expanded group" here is any operation that is to be rendered showing
+ * its children, with a dashed box around the children.
+ */
+function isExpandedGroup(component: Operation) {
+  return (
+    component.dataAttributes?.["expanded"] === "true" || component.isConditional
+  );
 }

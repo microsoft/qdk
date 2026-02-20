@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 use crate::rir::{
-    BlockId, Callable, CallableId, CallableType, Instruction, Literal, Operand, Program, Ty,
+    BlockId, Callable, CallableId, CallableType, InstructionKind, Literal, Operand, Program, Ty,
     Variable, VariableId,
 };
 
@@ -17,7 +17,7 @@ fn binop_instr_matching_types_passes_check() {
     let opr1 = Operand::Variable(var);
     let opr2 = Operand::Literal(Literal::Integer(0));
 
-    check_instr_types(&Program::new(), &Instruction::Add(opr1, opr2, var));
+    check_instr_types(&Program::new(), &InstructionKind::Add(opr1, opr2, var));
 }
 
 #[test]
@@ -30,7 +30,7 @@ fn binop_instr_mismatching_types_fails_check() {
     let opr1 = Operand::Variable(var);
     let opr2 = Operand::Literal(Literal::Bool(false));
 
-    check_instr_types(&Program::new(), &Instruction::Add(opr1, opr2, var));
+    check_instr_types(&Program::new(), &InstructionKind::Add(opr1, opr2, var));
 }
 
 #[test]
@@ -41,7 +41,7 @@ fn unop_instr_matching_types_passes_check() {
     };
     let opr = Operand::Variable(var);
 
-    check_instr_types(&Program::new(), &Instruction::BitwiseNot(opr, var));
+    check_instr_types(&Program::new(), &InstructionKind::BitwiseNot(opr, var));
 }
 
 #[test]
@@ -55,7 +55,7 @@ fn unop_instr_mismatching_types_fails_check() {
 
     check_instr_types(
         &Program::new(),
-        &Instruction::BitwiseNot(
+        &InstructionKind::BitwiseNot(
             opr,
             Variable {
                 variable_id: VariableId(1),
@@ -75,7 +75,7 @@ fn phi_instr_matching_types_passes_check() {
 
     check_instr_types(
         &Program::new(),
-        &Instruction::Phi(vec![(opr, BlockId(0)), (opr, BlockId(1))], var),
+        &InstructionKind::Phi(vec![(opr, BlockId(0)), (opr, BlockId(1))], var),
     );
 }
 
@@ -90,7 +90,7 @@ fn phi_instr_mismatching_types_fails_check() {
 
     check_instr_types(
         &Program::new(),
-        &Instruction::Phi(
+        &InstructionKind::Phi(
             vec![(opr, BlockId(0)), (opr, BlockId(1))],
             Variable {
                 variable_id: VariableId(1),
@@ -122,7 +122,7 @@ fn call_instr_matching_types_passes_check() {
 
     check_instr_types(
         &program,
-        &Instruction::Call(
+        &InstructionKind::Call(
             CallableId(0),
             vec![opr],
             Some(Variable {
@@ -156,7 +156,7 @@ fn call_instr_mismatching_output_types_fails_check() {
 
     check_instr_types(
         &program,
-        &Instruction::Call(
+        &InstructionKind::Call(
             CallableId(0),
             vec![opr],
             Some(Variable {
@@ -184,7 +184,7 @@ fn call_instr_mismatching_input_types_fails_check() {
 
     check_instr_types(
         &program,
-        &Instruction::Call(
+        &InstructionKind::Call(
             CallableId(0),
             vec![Operand::Literal(Literal::Bool(true))],
             Some(Variable {
@@ -218,7 +218,7 @@ fn call_instr_too_many_args_fails_check() {
 
     check_instr_types(
         &program,
-        &Instruction::Call(
+        &InstructionKind::Call(
             CallableId(0),
             vec![opr, opr],
             Some(Variable {
@@ -249,7 +249,10 @@ fn call_instr_no_return_type_no_output_var_passes_check() {
         },
     );
 
-    check_instr_types(&program, &Instruction::Call(CallableId(0), vec![opr], None));
+    check_instr_types(
+        &program,
+        &InstructionKind::Call(CallableId(0), vec![opr], None),
+    );
 }
 
 #[test]
@@ -275,7 +278,10 @@ fn call_instr_return_type_without_output_var_fails() {
         },
     );
 
-    check_instr_types(&program, &Instruction::Call(CallableId(0), vec![opr], None));
+    check_instr_types(
+        &program,
+        &InstructionKind::Call(CallableId(0), vec![opr], None),
+    );
 }
 
 #[test]
@@ -303,7 +309,7 @@ fn call_instr_output_var_without_return_type_fails() {
 
     check_instr_types(
         &program,
-        &Instruction::Call(
+        &InstructionKind::Call(
             CallableId(0),
             vec![opr],
             Some(Variable {

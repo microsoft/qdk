@@ -102,7 +102,7 @@
           "additionalProperties": false,
           "default": {
             "maxOperations": 10001,
-            "generationMethod": "classicalEval",
+            "generationMethod": "static",
             "sourceLocations": true,
             "groupByScope": true
           },
@@ -120,12 +120,13 @@
             },
             "generationMethod": {
               "type": "string",
-              "default": "classicalEval",
+              "default": "static",
               "enum": [
+                "static",
                 "classicalEval",
                 "simulate"
               ],
-              "description": "The method to use for generating the circuit diagram. 'classicalEval' uses only classical evaluation, and 'simulate' uses quantum simulation."
+              "description": "The method to use for generating the circuit diagram. 'static' uses static analysis and partial evaluation, 'classicalEval' uses only classical evaluation, and 'simulate' uses quantum simulation."
             },
             "sourceLocations": {
               "type": "boolean",

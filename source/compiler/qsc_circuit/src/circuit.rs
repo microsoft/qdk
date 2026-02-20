@@ -4,12 +4,14 @@
 #[cfg(test)]
 mod tests;
 
+use indenter::indented;
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::max,
     fmt::{Display, Write},
     hash::Hash,
+    mem::take,
     ops::Not,
     vec,
 };
@@ -158,10 +160,7 @@ impl Operation {
         };
 
         if md.is_none() {
-            md.replace(Metadata {
-                source: None,
-                scope_location: None,
-            });
+            md.replace(Metadata::default());
         }
 
         if let Some(md) = md {
@@ -180,10 +179,7 @@ impl Operation {
         };
 
         if md.is_none() {
-            md.replace(Metadata {
-                source: None,
-                scope_location: None,
-            });
+            md.replace(Metadata::default());
         }
 
         if let Some(md) = md {
@@ -283,6 +279,10 @@ pub struct Unitary {
     #[serde(skip_serializing_if = "Not::not")]
     #[serde(default)]
     pub is_adjoint: bool,
+    #[serde(rename = "isConditional")]
+    #[serde(skip_serializing_if = "Not::not")]
+    #[serde(default)]
+    pub is_conditional: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<Metadata>,
 }
@@ -343,7 +343,7 @@ pub struct Qubit {
     pub declarations: Vec<SourceLocation>,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 /// The schema of `Metadata` may change and its contents
 /// are never meant to be persisted in a .qsc file.
@@ -354,6 +354,9 @@ pub struct Metadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     /// Only populated if this operation represents a scope group.
     pub scope_location: Option<SourceLocation>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    /// Map from Register to "result ID" which will be used to display labels in UI
+    pub control_result_ids: Vec<(Register, usize)>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -410,9 +413,11 @@ impl Row {
         self.add(column, CircuitObject::Object(gate_label.clone()));
     }
 
-    fn add_gate(&mut self, column: usize, operation: &Operation) {
-        let gate_label = self.operation_label(operation);
-
+    fn add_gate(&mut self, column: usize, operation: &Operation, inset_marker: Option<usize>) {
+        let mut gate_label = self.operation_label(operation);
+        if let Some(inset_id) = inset_marker {
+            let _ = write!(&mut gate_label, "[{inset_id}]");
+        }
         self.add_object(column, gate_label.as_str());
     }
 
@@ -467,9 +472,11 @@ impl Row {
     }
 
     fn start_classical(&mut self, column: usize) {
-        self.add(column, CircuitObject::WireStart);
-        if let Wire::Classical { start_column } = &mut self.wire {
-            start_column.replace(column);
+        if let Wire::Classical { start_column: None } = &self.wire {
+            self.add(column, CircuitObject::WireStart);
+            self.wire = Wire::Classical {
+                start_column: Some(column),
+            };
         }
     }
 
@@ -478,7 +485,7 @@ impl Row {
         self.next_column = column + 1;
     }
 
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>, columns: &[Column]) -> std::fmt::Result {
+    fn fmt(&self, f: &mut impl Write, columns: &[Column]) -> std::fmt::Result {
         // Temporary string so we can trim whitespace at the end
         let mut s = String::new();
         match &self.wire {
@@ -495,7 +502,7 @@ impl Row {
                     let obj = self.objects.get(&column_index);
 
                     if let Some(start) = *start_column
-                        && column_index > start
+                        && column_index >= start
                     {
                         s.write_str(&column.fmt_object_on_classical_wire(obj))?;
                     } else {
@@ -641,8 +648,35 @@ struct CircuitDisplay<'a> {
 impl Display for CircuitDisplay<'_> {
     /// Formats the circuit into a diagram.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut rows = vec![];
+        let mut insets = vec![];
+        let grid = &self.circuit.component_grid;
+        let qubits = &self.circuit.qubits;
 
+        self.fmt_grid(f, &mut insets, grid, qubits)?;
+
+        let mut i = 0;
+        while i < insets.len() {
+            let (label, inset_grid) = take(&mut insets[i]);
+            writeln!(f)?;
+            writeln!(f, "{label}:")?;
+            let mut indent = indented(f).with_str("    ");
+            self.fmt_grid(&mut indent, &mut insets, &inset_grid, qubits)?;
+            i += 1;
+        }
+
+        Ok(())
+    }
+}
+
+impl CircuitDisplay<'_> {
+    fn fmt_grid(
+        &self,
+        f: &mut impl Write,
+        insets: &mut Vec<(String, Vec<ComponentColumn>)>,
+        grid: &Vec<ComponentColumn>,
+        qubits: &[Qubit],
+    ) -> Result<(), std::fmt::Error> {
+        let mut rows = vec![];
         // Maintain a mapping from from Registers in the Circuit schema
         // to row in the diagram
         let mut register_to_row = FxHashMap::default();
@@ -652,13 +686,18 @@ impl Display for CircuitDisplay<'_> {
         let mut qubits_with_gap_row_below = FxHashSet::default();
 
         // Identify qubits that require gap rows
-        self.identify_qubits_with_gap_rows(&mut qubits_with_gap_row_below);
+        self.identify_qubits_with_gap_rows(grid, &mut qubits_with_gap_row_below);
 
         // Initialize rows for qubits and classical wires
-        self.initialize_rows(&mut rows, &mut register_to_row, &qubits_with_gap_row_below);
+        self.initialize_rows(
+            &mut rows,
+            qubits,
+            &mut register_to_row,
+            &qubits_with_gap_row_below,
+        );
 
         // Add operations to the diagram
-        self.add_grid(1, &self.circuit.component_grid, &mut rows, &register_to_row);
+        self.add_grid(1, grid, &mut rows, insets, &register_to_row);
 
         // Finalize the diagram by extending wires and formatting columns
         let columns = finalize_columns(&rows);
@@ -670,24 +709,27 @@ impl Display for CircuitDisplay<'_> {
 
         Ok(())
     }
-}
 
-impl CircuitDisplay<'_> {
     /// Identifies qubits that require gap rows for multi-qubit operations.
-    fn identify_qubits_with_gap_rows(&self, qubits_with_gap_row_below: &mut FxHashSet<usize>) {
-        for col in &self.circuit.component_grid {
-            Self::add_qubits_with_gap_rows(&col.components, qubits_with_gap_row_below);
+    fn identify_qubits_with_gap_rows(
+        &self,
+        grid: &ComponentGrid,
+        qubits_with_gap_row_below: &mut FxHashSet<usize>,
+    ) {
+        for col in grid {
+            self.add_qubits_with_gap_rows(&col.components, qubits_with_gap_row_below);
         }
     }
 
     fn add_qubits_with_gap_rows(
+        &self,
         components: &Vec<Operation>,
         qubits_with_gap_row_below: &mut FxHashSet<usize>,
     ) {
         for op in components {
-            if !op.children().is_empty() {
+            if !op.children().is_empty() && !self.render_groups {
                 for c in op.children() {
-                    Self::add_qubits_with_gap_rows(&c.components, qubits_with_gap_row_below);
+                    self.add_qubits_with_gap_rows(&c.components, qubits_with_gap_row_below);
                 }
                 continue;
             }
@@ -718,10 +760,11 @@ impl CircuitDisplay<'_> {
     fn initialize_rows(
         &self,
         rows: &mut Vec<Row>,
+        qubits: &[Qubit],
         register_to_row: &mut FxHashMap<(usize, Option<usize>), usize>,
         qubits_with_gap_row_below: &FxHashSet<usize>,
     ) {
-        for q in &self.circuit.qubits {
+        for q in qubits {
             let mut label = format!("q_{}", q.id);
             if self.render_locations {
                 let mut first = true;
@@ -772,11 +815,18 @@ impl CircuitDisplay<'_> {
         start_column: usize,
         component_grid: &ComponentGrid,
         rows: &mut [Row],
+        insets: &mut Vec<(String, Vec<ComponentColumn>)>,
         register_to_row: &FxHashMap<(usize, Option<usize>), usize>,
     ) -> usize {
         let mut curr_column = start_column;
         for column_operations in component_grid {
-            let offset = self.add_column(rows, register_to_row, curr_column, column_operations);
+            let offset = self.add_column(
+                rows,
+                insets,
+                register_to_row,
+                curr_column,
+                column_operations,
+            );
             curr_column += offset;
         }
         curr_column - start_column
@@ -785,6 +835,7 @@ impl CircuitDisplay<'_> {
     fn add_column(
         &self,
         rows: &mut [Row],
+        insets: &mut Vec<(String, Vec<ComponentColumn>)>,
         register_to_row: &FxHashMap<(usize, Option<usize>), usize>,
         column: usize,
         col: &ComponentColumn,
@@ -806,17 +857,59 @@ impl CircuitDisplay<'_> {
             });
 
             if op.children().is_empty() {
-                add_operation_to_rows(op, rows, &target_rows, &control_rows, column, begin, end);
-                col_width = max(col_width, 1);
-            } else {
-                let offset = self.add_boxed_group(
-                    rows,
-                    register_to_row,
-                    &all_rows,
-                    column,
+                add_operation_to_rows(
                     op,
-                    op.children(),
+                    rows,
+                    &target_rows,
+                    &control_rows,
+                    column,
+                    begin,
+                    end,
+                    None,
                 );
+                col_width = max(col_width, 1);
+            } else if self.render_groups {
+                if all_rows.len() <= 1 {
+                    // This operation has children. The entire operation fits on a single qubit wire, so
+                    // we can just render the group in-place without needing an inset. let offset = self.add_boxed_group(
+                    let offset = self.add_boxed_group(
+                        rows,
+                        insets,
+                        register_to_row,
+                        &all_rows,
+                        column,
+                        op,
+                        op.children(),
+                    );
+                    col_width = max(col_width, offset);
+                } else {
+                    // This operation has children and would span multiple wires. We render a placeholder for this operation
+                    // and then later render the children in an inset below.
+                    let i = insets.len() + 1;
+
+                    let mut placeholder_op = op.clone();
+                    let children = take(placeholder_op.children_mut());
+
+                    let inset_label = format!("[{i}] {}", op.gate());
+                    insets.push((inset_label, children));
+
+                    add_operation_to_rows(
+                        &placeholder_op,
+                        rows,
+                        &target_rows,
+                        &control_rows,
+                        column,
+                        begin,
+                        end,
+                        Some(i),
+                    );
+
+                    col_width = max(col_width, 1);
+                }
+            } else {
+                // Don't render the group, render all the children directly
+                let offset = self.add_grid(column, op.children(), rows, insets, register_to_row);
+
                 col_width = max(col_width, offset);
             }
         }
@@ -824,9 +917,11 @@ impl CircuitDisplay<'_> {
         col_width
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn add_boxed_group(
         &self,
         rows: &mut [Row],
+        insets: &mut Vec<(String, Vec<ComponentColumn>)>,
         register_to_row: &FxHashMap<(usize, Option<usize>), usize>,
         target_rows: &[usize],
         column: usize,
@@ -838,30 +933,23 @@ impl CircuitDisplay<'_> {
             "must only be called for an operation with children"
         );
         assert!(
-            !op.is_controlled(),
-            "rendering controlled boxes not supported"
-        );
-        assert!(
             !op.is_measurement(),
             "rendering measurement boxes not supported"
         );
 
         let mut offset = 0;
-        if self.render_groups {
-            add_box_start(op, rows, target_rows, column);
-            offset += 1;
-        }
+        add_box_start(op, rows, target_rows, column);
+        offset += 1;
 
-        offset += self.add_grid(column + offset, children, rows, register_to_row);
+        offset += self.add_grid(column + offset, children, rows, insets, register_to_row);
 
-        if self.render_groups {
-            add_box_end(op, rows, target_rows, column + offset);
-            offset += 1;
-        }
+        add_box_end(op, rows, target_rows, column + offset);
+        offset += 1;
         offset
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Adds a single operation to the rows.
 fn add_operation_to_rows(
     operation: &Operation,
@@ -871,15 +959,14 @@ fn add_operation_to_rows(
     column: usize,
     begin: usize,
     end: usize,
+    inset_marker: Option<usize>,
 ) {
     for i in targets {
         let row = &mut rows[*i];
-        if matches!(row.wire, Wire::Classical { .. })
-            && matches!(operation, Operation::Measurement(_))
-        {
+        if matches!(row.wire, Wire::Classical { .. }) {
             row.start_classical(column);
         } else {
-            row.add_gate(column, operation);
+            row.add_gate(column, operation, inset_marker);
         }
     }
 
@@ -1031,7 +1118,10 @@ fn get_row_indexes(
 ///
 /// A component grid representing the operations.
 #[must_use]
-pub fn operation_list_to_grid(mut operations: Vec<Operation>, num_qubits: usize) -> ComponentGrid {
+pub fn operation_list_to_grid(
+    mut operations: Vec<Operation>,
+    qubits: &[Qubit],
+) -> Vec<ComponentColumn> {
     for op in &mut operations {
         // The children data structure is a grid, so checking if it is
         // length 1 is actually checking if it has a single column,
@@ -1042,225 +1132,94 @@ pub fn operation_list_to_grid(mut operations: Vec<Operation>, num_qubits: usize)
         if op.children().len() == 1 {
             match op {
                 Operation::Measurement(m) => {
-                    m.children =
-                        operation_list_to_grid(m.children.remove(0).components, num_qubits);
+                    let child_vec = m.children.remove(0).components; // owns
+                    m.children = operation_list_to_grid(child_vec, qubits);
                 }
                 Operation::Unitary(u) => {
-                    u.children =
-                        operation_list_to_grid(u.children.remove(0).components, num_qubits);
+                    let child_vec = u.children.remove(0).components;
+                    u.children = operation_list_to_grid(child_vec, qubits);
                 }
                 Operation::Ket(k) => {
-                    k.children =
-                        operation_list_to_grid(k.children.remove(0).components, num_qubits);
+                    let child_vec = k.children.remove(0).components;
+                    k.children = operation_list_to_grid(child_vec, qubits);
                 }
             }
         }
     }
 
     // Convert the operations into a component grid
-    let mut component_grid = vec![];
-    for col in remove_padding(operation_list_to_padded_array(operations, num_qubits)) {
-        let column = ComponentColumn { components: col };
-        component_grid.push(column);
-    }
-    component_grid
+    operation_list_to_grid_base(operations, qubits)
 }
 
-/// Converts a list of operations into a padded 2D array of operations.
-///
-/// # Arguments
-///
-/// * `operations` - A vector of operations to be converted.
-/// * `num_qubits` - The number of qubits in the circuit.
-///
-/// # Returns
-///
-/// A 2D vector of optional operations padded with `None`.
-fn operation_list_to_padded_array(
+#[derive(Debug)]
+struct RowInfo {
+    register: Register,
+    next_available_column: usize,
+}
+
+fn get_row_for_register(register: &Register, rows: &[RowInfo]) -> usize {
+    rows.iter()
+        .position(|r| r.register == *register)
+        .unwrap_or_else(|| panic!("register {register:?} not found in rows {rows:?}"))
+}
+
+fn operation_list_to_grid_base(
     operations: Vec<Operation>,
-    num_qubits: usize,
-) -> Vec<Vec<Option<Operation>>> {
-    if operations.is_empty() {
-        return vec![];
-    }
-
-    let grouped_ops = group_operations(&operations, num_qubits);
-    let aligned_ops = transform_to_col_row(align_ops(grouped_ops));
-
-    // Need to convert to optional operations so we can
-    // take operations out without messing up the indexing
-    let mut operations = operations.into_iter().map(Some).collect::<Vec<_>>();
-    aligned_ops
-        .into_iter()
-        .map(|col| {
-            col.into_iter()
-                .map(|op_idx| op_idx.and_then(|idx| operations[idx].take()))
-                .collect()
-        })
-        .collect()
-}
-
-/// Removes padding (`None` values) from a 2D array of operations.
-///
-/// # Arguments
-///
-/// * `operations` - A 2D vector of optional operations padded with `None`.
-///
-/// # Returns
-///
-/// A 2D vector of operations without `None` values.
-fn remove_padding(operations: Vec<Vec<Option<Operation>>>) -> Vec<Vec<Operation>> {
-    operations
-        .into_iter()
-        .map(|col| col.into_iter().flatten().collect())
-        .collect()
-}
-
-/// Transforms a row-col 2D array into an equivalent col-row 2D array.
-///
-/// # Arguments
-///
-/// * `aligned_ops` - A 2D vector of optional usize values in row-col format.
-///
-/// # Returns
-///
-/// A 2D vector of optional usize values in col-row format.
-fn transform_to_col_row(aligned_ops: Vec<Vec<Option<usize>>>) -> Vec<Vec<Option<usize>>> {
-    if aligned_ops.is_empty() {
-        return vec![];
-    }
-
-    let num_rows = aligned_ops.len();
-    let num_cols = aligned_ops
-        .iter()
-        .map(std::vec::Vec::len)
-        .max()
-        .unwrap_or(0);
-
-    let mut col_row_array = vec![vec![None; num_rows]; num_cols];
-
-    for (row, row_data) in aligned_ops.into_iter().enumerate() {
-        for (col, value) in row_data.into_iter().enumerate() {
-            col_row_array[col][row] = value;
+    qubits: &[Qubit],
+) -> Vec<ComponentColumn> {
+    let mut rows = vec![];
+    for q in qubits {
+        rows.push(RowInfo {
+            register: Register::quantum(q.id),
+            next_available_column: 0,
+        });
+        for i in 0..q.num_results {
+            rows.push(RowInfo {
+                register: Register::classical(q.id, i),
+                next_available_column: 0,
+            });
         }
     }
 
-    col_row_array
-}
+    let mut columns: Vec<ComponentColumn> = vec![];
 
-/// Groups operations by their respective registers.
-///
-/// # Arguments
-///
-/// * `operations` - A slice of operations to be grouped.
-/// * `num_qubits` - The number of qubits in the circuit.
-///
-/// # Returns
-///
-/// A 2D vector of indices where `groupedOps[i][j]` is the index of the operations
-/// at register `i` and column `j` (not yet aligned/padded).
-fn group_operations(operations: &[Operation], num_qubits: usize) -> Vec<Vec<usize>> {
-    let mut grouped_ops = vec![vec![]; num_qubits];
-
-    let max_q_id = match num_qubits {
-        0 => 0,
-        _ => num_qubits - 1,
-    };
-
-    for (instr_idx, op) in operations.iter().enumerate() {
-        let ctrls = match op {
+    for op in operations {
+        // get the entire range that this operation spans
+        let targets = match &op {
             Operation::Measurement(m) => &m.qubits,
-            Operation::Unitary(u) => &u.controls,
-            Operation::Ket(_) => &vec![],
-        };
-        let targets = match op {
-            Operation::Measurement(m) => &m.results,
             Operation::Unitary(u) => &u.targets,
             Operation::Ket(k) => &k.targets,
         };
-        let q_regs: Vec<_> = ctrls
-            .iter()
-            .chain(targets)
-            .filter(|reg| !reg.is_classical())
-            .collect();
-        let q_reg_idx_list: Vec<_> = q_regs.iter().map(|reg| reg.qubit).collect();
-        let cls_controls: Vec<_> = ctrls.iter().filter(|reg| reg.is_classical()).collect();
-        let is_classically_controlled = !cls_controls.is_empty();
-
-        if !is_classically_controlled && q_regs.is_empty() {
-            continue;
-        }
-
-        let (min_reg_idx, max_reg_idx) = if is_classically_controlled {
-            (0, max_q_id)
-        } else {
-            q_reg_idx_list
-                .into_iter()
-                .fold(None, |acc, x| match acc {
-                    None => Some((x, x)),
-                    Some((min, max)) => Some((min.min(x), max.max(x))),
-                })
-                .unwrap_or((0, max_q_id))
+        let controls = match &op {
+            Operation::Measurement(m) => &m.results,
+            Operation::Unitary(u) => &u.controls,
+            Operation::Ket(_) => &vec![],
         };
-
-        for reg_ops in grouped_ops
-            .iter_mut()
-            .take(max_reg_idx + 1)
-            .skip(min_reg_idx)
-        {
-            reg_ops.push(instr_idx);
+        let mut all_rows = targets
+            .iter()
+            .chain(controls.iter())
+            .map(|r| get_row_for_register(r, &rows))
+            .collect::<Vec<_>>();
+        all_rows.sort_unstable();
+        let (begin, end) = all_rows.split_first().map_or((0, 0), |(first, tail)| {
+            (*first, tail.last().unwrap_or(first) + 1)
+        });
+        // find the earliest column that all rows in this range are available
+        let column = rows[begin..end]
+            .iter()
+            .map(|r| r.next_available_column)
+            .max()
+            .unwrap_or(0);
+        // assign this operation to that column
+        // and update the rows to mark them as occupied until the next column
+        for r in &mut rows[begin..end] {
+            r.next_available_column = column + 1;
         }
+        if columns.len() <= column {
+            columns.resize_with(column + 1, || ComponentColumn { components: vec![] });
+        }
+        columns[column].components.push(op);
     }
 
-    grouped_ops
-}
-
-/// Aligns operations by padding registers with `None` to make sure that multiqubit
-/// gates are in the same column.
-///
-/// # Arguments
-///
-/// * `ops` - A 2D vector of usize values representing the operations.
-///
-/// # Returns
-///
-/// A 2D vector of optional usize values representing the aligned operations.
-fn align_ops(ops: Vec<Vec<usize>>) -> Vec<Vec<Option<usize>>> {
-    let mut max_num_ops = ops.iter().map(std::vec::Vec::len).max().unwrap_or(0);
-    let mut col = 0;
-    let mut padded_ops: Vec<Vec<Option<usize>>> = ops
-        .into_iter()
-        .map(|reg_ops| reg_ops.into_iter().map(Some).collect())
-        .collect();
-
-    while col < max_num_ops {
-        for reg_idx in 0..padded_ops.len() {
-            if padded_ops[reg_idx].len() <= col {
-                continue;
-            }
-
-            // Represents the gate at padded_ops[reg_idx][col]
-            let op_idx = padded_ops[reg_idx][col];
-
-            // The vec of where in each register the gate appears
-            let targets_pos: Vec<_> = padded_ops
-                .iter()
-                .map(|reg_ops| reg_ops.iter().position(|&x| x == op_idx))
-                .collect();
-            // The maximum column index of the gate in the target registers
-            let gate_max_col = targets_pos
-                .iter()
-                .filter_map(|&pos| pos)
-                .max()
-                .unwrap_or(usize::MAX);
-
-            if col < gate_max_col {
-                padded_ops[reg_idx].insert(col, None);
-                max_num_ops = max_num_ops.max(padded_ops[reg_idx].len());
-            }
-        }
-        col += 1;
-    }
-
-    padded_ops
+    columns
 }

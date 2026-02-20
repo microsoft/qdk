@@ -1914,6 +1914,7 @@ name = "qsc_circuit"
 version = "0.0.0"
 dependencies = [
  "expect-test",
+ "indenter",
  "indoc",
  "log",
  "miette",
@@ -1926,7 +1927,9 @@ dependencies = [
  "qsc_frontend",
  "qsc_hir",
  "qsc_lowerer",
+ "qsc_partial_eval",
  "qsc_passes",
+ "qsc_rir",
  "regex-lite",
  "rustc-hash",
  "serde",

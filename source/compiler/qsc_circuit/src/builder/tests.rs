@@ -34,13 +34,13 @@ impl SourceLookup for FakeCompilation {
         }
     }
 
-    fn resolve_scope(&self, scope: Scope) -> LexicalScope {
+    fn resolve_scope(&self, scope: &Scope, _loop_id_cache: &mut LoopIdCache) -> LexicalScope {
         match scope {
-            Scope::Callable(store_item_id, functor_app) => {
+            Scope::Callable(CallableId::Id(store_item_id, functor_app)) => {
                 let name = self
                     .scopes
                     .id_to_name
-                    .get(&store_item_id)
+                    .get(store_item_id)
                     .expect("unknown scope id")
                     .clone();
                 LexicalScope {
@@ -50,6 +50,7 @@ impl SourceLookup for FakeCompilation {
                         offset: 0,
                     }),
                     is_adjoint: functor_app.adjoint,
+                    is_conditional: false,
                 }
             }
             s => panic!("unexpected scope id {s:?}"),
@@ -59,10 +60,12 @@ impl SourceLookup for FakeCompilation {
     fn resolve_logical_stack_entry_location(
         &self,
         location: LogicalStackEntryLocation,
-    ) -> PackageOffset {
+        _loop_id_cache: &mut LoopIdCache,
+    ) -> Option<PackageOffset> {
         match location {
-            LogicalStackEntryLocation::Call(package_offset) => package_offset,
-            _ => todo!("location type not implemented for fake compilation"),
+            LogicalStackEntryLocation::Source(package_offset) => Some(package_offset),
+            LogicalStackEntryLocation::Branch(package_offset, _) => package_offset,
+            _ => panic!("only Call and Branch locations are supported in tests"),
         }
     }
 }
@@ -79,31 +82,31 @@ impl FakeCompilation {
         let scope_id =
             self.scopes
                 .get_or_create_scope(Self::LIBRARY_PACKAGE_ID, "library_item", false);
-        Self::frame(scope_id, offset, false)
+        Self::frame(&scope_id, offset, false)
     }
 
     fn user_code_frame(&mut self, scope_name: &str, offset: u32) -> Frame {
         let scope_id = self
             .scopes
             .get_or_create_scope(Self::USER_PACKAGE_ID, scope_name, false);
-        Self::frame(scope_id, offset, false)
+        Self::frame(&scope_id, offset, false)
     }
 
     fn user_code_adjoint_frame(&mut self, scope_name: &str, offset: u32) -> Frame {
         let scope_id = self
             .scopes
             .get_or_create_scope(Self::USER_PACKAGE_ID, scope_name, true);
-        Self::frame(scope_id, offset, true)
+        Self::frame(&scope_id, offset, true)
     }
 
-    fn frame(scope_item_id: Scope, offset: u32, is_adjoint: bool) -> Frame {
+    fn frame(scope_item_id: &Scope, offset: u32, is_adjoint: bool) -> Frame {
         match scope_item_id {
-            Scope::Callable(store_item_id, _) => Frame {
+            Scope::Callable(CallableId::Id(store_item_id, _)) => Frame {
                 span: Span {
                     lo: offset,
                     hi: offset + 1,
                 },
-                id: store_item_id,
+                id: *store_item_id,
                 caller: PackageId::CORE, // unused in tests
                 functor: FunctorApp {
                     adjoint: is_adjoint,
@@ -136,13 +139,13 @@ impl Scopes {
             self.name_to_id.insert(name, item_id);
             item_id
         };
-        Scope::Callable(
+        Scope::Callable(CallableId::Id(
             item_id,
             FunctorApp {
                 adjoint: is_adjoint,
                 controlled: 0,
             },
-        )
+        ))
     }
 }
 

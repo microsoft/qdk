@@ -78,7 +78,12 @@ export async function showCircuitCommand(
 
   const circuitConfig = getConfig();
   if (!programConfig) {
-    const program = await getActiveProgram({ showModalError: true });
+    const targetProfileFallback =
+      circuitConfig.generationMethod === "static" ? "adaptive_rif" : undefined;
+    const program = await getActiveProgram({
+      showModalError: true,
+      targetProfileFallback,
+    });
     if (!program.success) {
       throw new Error(program.errorMsg);
     }
@@ -159,7 +164,7 @@ async function generateCircuit(
     { operation: params.operation, calculating: true },
   );
 
-  // First, try with given config (classicalEval by default)
+  // First, try with given config (static by default)
   let result = await getCircuitOrErrorWithTimeout(extensionUri, params, config);
 
   if (
@@ -310,7 +315,7 @@ export function getConfig() {
   const defaultConfig = {
     maxOperations: 10001,
     groupByScope: true,
-    generationMethod: "classicalEval" as const,
+    generationMethod: "static" as const,
     sourceLocations: true,
   };
 
@@ -330,8 +335,8 @@ export function getConfig() {
     generationMethod:
       "generationMethod" in config &&
       typeof config.generationMethod === "string" &&
-      ["simulate", "classicalEval"].includes(config.generationMethod)
-        ? (config.generationMethod as "simulate" | "classicalEval")
+      ["simulate", "classicalEval", "static"].includes(config.generationMethod)
+        ? (config.generationMethod as "simulate" | "classicalEval" | "static")
         : defaultConfig.generationMethod,
     sourceLocations:
       "sourceLocations" in config && typeof config.sourceLocations === "boolean"

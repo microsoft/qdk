@@ -3,6 +3,8 @@
 
 #[cfg(test)]
 mod circuit_tests;
+#[cfg(test)]
+mod cond_tests;
 mod debug;
 #[cfg(test)]
 mod debugger_tests;
@@ -25,8 +27,9 @@ use num_complex::Complex;
 use qsc_circuit::{
     Circuit, CircuitTracer, TracerConfig,
     operations::{entry_expr_for_qubit_operation, qubit_param_info},
+    rir_to_circuit_2::make_circuit,
 };
-use qsc_codegen::qir::{fir_to_qir, fir_to_qir_from_callable};
+use qsc_codegen::qir::{fir_to_qir, fir_to_qir_from_callable, fir_to_rir};
 use qsc_data_structures::{
     error::WithSource,
     functors::FunctorApp,
@@ -122,6 +125,8 @@ pub struct Interpreter {
     compiler: Compiler,
     /// The target capabilities used for compilation.
     capabilities: TargetCapabilityFlags,
+    /// The computed properties for the package store, if any, used for code generation.
+    compute_properties: Option<PackageStoreComputeProperties>,
     /// The number of lines that have so far been compiled.
     /// This field is used to generate a unique label
     /// for each line evaluated with `eval_fragments`.
@@ -331,29 +336,36 @@ impl Interpreter {
         let package_id = compiler.package_id();
 
         let package = map_hir_package_to_fir(package_id);
-        if capabilities != TargetCapabilityFlags::all() {
-            let _ = PassContext::run_fir_passes_on_fir(
-                &fir_store,
-                map_hir_package_to_fir(source_package_id),
-                capabilities,
-            )
-            .map_err(|caps_errors| {
-                let source_package = compiler
-                    .package_store()
-                    .get(source_package_id)
-                    .expect("package should exist in the package store");
+        let compute_properties = if capabilities == TargetCapabilityFlags::all() {
+            None
+        } else {
+            Some(
+                PassContext::run_fir_passes_on_fir(
+                    &fir_store,
+                    map_hir_package_to_fir(source_package_id),
+                    capabilities,
+                )
+                .map_err(|caps_errors| {
+                    let source_package = compiler
+                        .package_store()
+                        .get(source_package_id)
+                        .expect("package should exist in the package store");
 
-                caps_errors
-                    .into_iter()
-                    .map(|error| Error::Pass(WithSource::from_map(&source_package.sources, error)))
-                    .collect::<Vec<_>>()
-            })?;
-        }
+                    caps_errors
+                        .into_iter()
+                        .map(|error| {
+                            Error::Pass(WithSource::from_map(&source_package.sources, error))
+                        })
+                        .collect::<Vec<_>>()
+                })?,
+            )
+        };
 
         Ok(Self {
             compiler,
             lines: 0,
             capabilities,
+            compute_properties,
             fir_store,
             lowerer: qsc_lowerer::Lowerer::new(),
             expr_graph: None,
@@ -1041,9 +1053,114 @@ impl Interpreter {
                     )?;
                 }
             }
+            CircuitGenerationMethod::Static => {
+                if let Some((callable, args)) = invoke_params {
+                    // Static circuit generation from a callable is not yet supported.
+                    // Fall back to classical eval.
+                    self.invoke_with_tracing_backend(
+                        &mut TracingBackend::<SparseSim>::no_backend(&mut tracer),
+                        &mut out,
+                        callable,
+                        args,
+                        eval_config,
+                    )?;
+                }
+                return self.static_circuit(entry_expr.as_deref(), tracer_config);
+            }
         }
         let circuit = tracer.finish(&(self.compiler.package_store(), &self.fir_store));
         Ok(circuit)
+    }
+
+    fn static_circuit(
+        &mut self,
+        entry_expr: Option<&str>,
+        tracer_config: TracerConfig,
+    ) -> std::result::Result<Circuit, Vec<Error>> {
+        if self.capabilities == TargetCapabilityFlags::all() {
+            return Err(vec![Error::UnsupportedRuntimeCapabilities]);
+        }
+
+        let program = self.compile_to_rir(entry_expr, true)?;
+        make_circuit(
+            &program,
+            tracer_config,
+            &[self.package, self.source_package],
+            &(self.compiler.package_store(), &self.fir_store),
+        )
+        .map_err(|e| vec![e.into()])
+    }
+
+    fn compile_to_rir(
+        &mut self,
+        entry_expr: Option<&str>,
+        generate_debug_metadata: bool,
+    ) -> std::result::Result<qsc_partial_eval::Program, Vec<Error>> {
+        let (entry, compute_properties) = if let Some(entry_expr) = &entry_expr {
+            // Compile the expression. This operation will set the expression as
+            // the entry-point in the FIR store.
+            let (graph, compute_properties) = self.compile_entry_expr(entry_expr)?;
+
+            let Some(compute_properties) = compute_properties else {
+                // This can only happen if capability analysis was not run.
+                panic!(
+                    "internal error: compute properties not set after lowering entry expression"
+                );
+            };
+            let package = self.fir_store.get(self.package);
+            let entry = ProgramEntry {
+                exec_graph: graph,
+                expr: (
+                    self.package,
+                    package
+                        .entry
+                        .expect("package must have an entry expression"),
+                )
+                    .into(),
+            };
+            (entry, compute_properties)
+        } else {
+            let package = self.fir_store.get(self.source_package);
+            let entry = ProgramEntry {
+                exec_graph: package.entry_exec_graph.clone(),
+                expr: (
+                    self.source_package,
+                    package
+                        .entry
+                        .expect("package must have an entry expression"),
+                )
+                    .into(),
+            };
+            (
+                entry,
+                self.compute_properties.clone().expect(
+                    "compute properties should be set if target profile isn't unrestricted",
+                ),
+            )
+        };
+        let (_original, transformed) = fir_to_rir(
+            &self.fir_store,
+            self.capabilities,
+            Some(compute_properties),
+            &entry,
+            generate_debug_metadata,
+        )
+        .map_err(|e| {
+            let hir_package_id = match e.span() {
+                Some(span) => span.package,
+                None => map_fir_package_to_hir(self.package),
+            };
+            let source_package = self
+                .compiler
+                .package_store()
+                .get(hir_package_id)
+                .expect("package should exist in the package store");
+            vec![Error::PartialEvaluation(WithSource::from_map(
+                &source_package.sources,
+                e,
+            ))]
+        })?;
+        Ok(transformed)
     }
 
     /// Sets the entry expression for the interpreter.
@@ -1309,6 +1426,9 @@ pub enum CircuitGenerationMethod {
     /// Evaluate the classical parts of the program. No quantum simulation.
     /// Will fail if a measurement comparison occurs during evaluation.
     ClassicalEval,
+    /// Compile the program and transform to a circuit with only partial evaluation.
+    /// Only works for `AdaptiveRIF` compliant programs.
+    Static,
 }
 
 /// A debugger that enables step-by-step evaluation of code
