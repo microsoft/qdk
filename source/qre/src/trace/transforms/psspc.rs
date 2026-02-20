@@ -67,7 +67,7 @@ impl PSSPC {
     fn psspc_counts(trace: &Trace) -> Result<PSSPCCounts, Error> {
         let mut counter = PSSPCCounts::default();
 
-        let mut max_rotation_depth = vec![0; trace.compute_qubits() as usize];
+        let mut max_rotation_depth = vec![0; trace.total_qubits() as usize];
 
         for (Gate { id, qubits, .. }, mult) in trace.deep_iter() {
             if instruction_ids::is_pauli_measurement(*id) {
@@ -123,7 +123,7 @@ impl PSSPC {
     }
 
     #[allow(clippy::cast_precision_loss)]
-    fn compute_only_trace(&self, trace: &Trace, counts: &PSSPCCounts) -> Trace {
+    fn get_trace(&self, trace: &Trace, counts: &PSSPCCounts) -> Trace {
         let num_qubits = trace.compute_qubits();
         let logical_qubits = Self::logical_qubit_overhead(num_qubits);
 
@@ -202,7 +202,7 @@ impl TraceTransform for PSSPC {
     fn transform(&self, trace: &Trace) -> Result<Trace, Error> {
         let counts = Self::psspc_counts(trace)?;
 
-        Ok(self.compute_only_trace(trace, &counts))
+        Ok(self.get_trace(trace, &counts))
     }
 }
 

@@ -144,7 +144,7 @@ class RootNode(ISAQuery):
         Yields:
             ISA: The architecture's provided ISA, called root.
         """
-        yield ctx.root_isa
+        yield ctx._isa
 
 
 # Singleton instance for convenience
@@ -182,7 +182,7 @@ class _ComponentQuery(ISAQuery):
             ISA: A generated ISA instance.
         """
         for isa in self.source.enumerate(ctx):
-            yield from self.component.enumerate_isas(isa, **self.kwargs)
+            yield from self.component.enumerate_isas(isa, ctx, **self.kwargs)
 
 
 @dataclass

@@ -8,7 +8,7 @@ use std::{
 
 use rustc_hash::FxHashMap;
 
-use crate::{ParetoFrontier2D, ParetoItem2D};
+use crate::{ISA, ParetoFrontier2D, ParetoItem2D, Property};
 
 #[derive(Clone, Default)]
 pub struct EstimationResult {
@@ -16,6 +16,8 @@ pub struct EstimationResult {
     runtime: u64,
     error: f64,
     factories: FxHashMap<u64, FactoryResult>,
+    isa: ISA,
+    properties: FxHashMap<String, Property>,
 }
 
 impl EstimationResult {
@@ -76,6 +78,34 @@ impl EstimationResult {
 
     pub fn add_factory_result(&mut self, id: u64, result: FactoryResult) {
         self.factories.insert(id, result);
+    }
+
+    pub fn set_isa(&mut self, isa: ISA) {
+        self.isa = isa;
+    }
+
+    #[must_use]
+    pub fn isa(&self) -> &ISA {
+        &self.isa
+    }
+
+    pub fn set_property(&mut self, key: String, value: Property) {
+        self.properties.insert(key, value);
+    }
+
+    #[must_use]
+    pub fn get_property(&self, key: &str) -> Option<&Property> {
+        self.properties.get(key)
+    }
+
+    #[must_use]
+    pub fn has_property(&self, key: &str) -> bool {
+        self.properties.contains_key(key)
+    }
+
+    #[must_use]
+    pub fn properties(&self) -> &FxHashMap<String, Property> {
+        &self.properties
     }
 }
 

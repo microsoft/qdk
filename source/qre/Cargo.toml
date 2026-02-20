@@ -11,6 +11,7 @@ license.workspace = true
 [dependencies]
 num-traits = { workspace = true }
 rustc-hash = { workspace = true }
+probability = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 

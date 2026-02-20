@@ -13,6 +13,7 @@ from ..._instruction import (
     ConstraintBound,
     LOGICAL,
 )
+from ..._isa_enumeration import _Context
 from ..._qre import linear_function
 from ...instruction_ids import CNOT, GENERIC, H, LATTICE_SURGERY, MEAS_Z
 
@@ -50,15 +51,19 @@ class SurfaceCode(ISATransform):
             constraint(MEAS_Z, error_rate=ConstraintBound.lt(0.01)),
         )
 
-    def provided_isa(self, impl_isa: ISA) -> Generator[ISA, None, None]:
-        cnot_time = impl_isa[CNOT].expect_time()
-        h_time = impl_isa[H].expect_time()
-        meas_time = impl_isa[MEAS_Z].expect_time()
+    def provided_isa(self, impl_isa: ISA, ctx: _Context) -> Generator[ISA, None, None]:
+        cnot = impl_isa[CNOT]
+        h = impl_isa[H]
+        meas_z = impl_isa[MEAS_Z]
+
+        cnot_time = cnot.expect_time()
+        h_time = h.expect_time()
+        meas_time = meas_z.expect_time()
 
         physical_error_rate = max(
-            impl_isa[CNOT].expect_error_rate(),
-            impl_isa[H].expect_error_rate(),
-            impl_isa[MEAS_Z].expect_error_rate(),
+            cnot.expect_error_rate(),
+            h.expect_error_rate(),
+            meas_z.expect_error_rate(),
         )
 
         space_formula = linear_function(2 * self.distance**2)
@@ -73,21 +78,25 @@ class SurfaceCode(ISATransform):
             )
         )
 
+        generic = instruction(
+            GENERIC,
+            encoding=LOGICAL,
+            arity=None,
+            space=space_formula,
+            time=time_value,
+            error_rate=error_formula,
+        )
+
+        lattice_surgery = instruction(
+            LATTICE_SURGERY,
+            encoding=LOGICAL,
+            arity=None,
+            space=space_formula,
+            time=time_value,
+            error_rate=error_formula,
+        )
+
         yield ISA(
-            instruction(
-                GENERIC,
-                encoding=LOGICAL,
-                arity=None,
-                space=space_formula,
-                time=time_value,
-                error_rate=error_formula,
-            ),
-            instruction(
-                LATTICE_SURGERY,
-                encoding=LOGICAL,
-                arity=None,
-                space=space_formula,
-                time=time_value,
-                error_rate=error_formula,
-            ),
+            ctx.set_source(self, generic, [cnot, h, meas_z]),
+            ctx.set_source(self, lattice_surgery, [cnot, h, meas_z]),
         )
