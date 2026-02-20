@@ -41,7 +41,7 @@ parameters:
           QDK_GPU_TESTS: "1"
       - name: linux_aarch64
         poolName: "Azure-Pipelines-DevTools-ARM64-EO"
-        imageName: "azurelinux-3.0-arm64"
+        imageName: "azurelinux-3.0-gen2-arm64"
         os: linux
         arch: aarch64
       - name: mac_x86_64
@@ -62,11 +62,11 @@ parameters:
         arch: x86_64
         envVars:
           QDK_GPU_TESTS: "1"
-      # - name: windows_aarch64
-      #   poolName: "Azure-Pipelines-DevTools-ARM64-EO"
-      #   imageName: "Windows-2022-ARM64"
-      #   os: windows
-      #   arch: aarch64
+      - name: windows_aarch64
+        poolName: "Azure-Pipelines-DevTools-ARM64-EO"
+        imageName: "windows-2025-gen2-arm64"
+        os: windows
+        arch: aarch64
 
 # variables set by pipeline
 # - BASE_IMAGE
@@ -199,6 +199,59 @@ extends:
                 condition: and(succeeded(), ne(variables['BUILD_TYPE'], 'dev'))
                 displayName: Pack VSCode Extension
                 workingDirectory: "$(System.DefaultWorkingDirectory)/source/vscode"
+
+              - script: |
+                  VSIX_RPATH="$(System.DefaultWorkingDirectory)/target/vscode"
+                  VSIX_FNAME=`ls $VSIX_RPATH/*.vsix`
+                  echo "RPATH: $VSIX_RPATH"
+                  echo "FNAME: $VSIX_FNAME"
+
+                  VSIX_FNAME_NOEXT="${VSIX_FNAME%.vsix}"
+                  MANIFEST_FILE="${VSIX_FNAME_NOEXT}.manifest"
+                  SIGNATURE_FILE="${VSIX_FNAME_NOEXT}.signature.p7s"
+
+                  vsce generate-manifest -i $VSIX_FNAME -o $MANIFEST_FILE
+                  cp $MANIFEST_FILE $SIGNATURE_FILE
+
+                  echo "##vso[task.setvariable variable=VSIX_FNAME;]$VSIX_FNAME"
+                  echo "##vso[task.setvariable variable=MANIFEST_FILE;]$MANIFEST_FILE"
+                  echo "##vso[task.setvariable variable=SIGNATURE_FILE;]$SIGNATURE_FILE"
+                displayName: Prepare VSCode Extension Manifest and Signature for Signing
+
+              - task: SFP.build-tasks.custom-build-task-1.EsrpCodeSigning@6
+                displayName: "ESRP CodeSigning"
+                condition: succeeded()
+                inputs:
+                  ConnectedServiceName: "PME ESRP Azure Connection"
+                  AppRegistrationClientId: "ced85fbc-381c-467d-958e-ee86a128e63a"
+                  AppRegistrationTenantId: "975f013f-7f24-47e8-a7d3-abc4752bf346"
+                  EsrpClientId: "832c049d-cd07-4c1c-bfa5-c07250d190cb"
+                  UseMSIAuthentication: true
+                  AuthAKVName: "quantum-esrp-kv"
+                  AuthSignCertName: ESRPCert
+                  FolderPath: "target/vscode"
+                  Pattern: "*.signature.p7s"
+                  signConfigType: inlineSignParams
+                  inlineOperation: |
+                    [
+                      {
+                        "keyCode": "CP-401405",
+                        "operationSetCode": "VSCodePublisherSign",
+                        "parameters" : [],
+                        "toolName": "sign",
+                        "toolVersion": "1.0"
+                      }
+                    ]
+                  SessionTimeout: 90
+                  MaxConcurrency: 25
+                  MaxRetryAttempts: 5
+                  PendingAnalysisWaitTimeoutMinutes: 5
+
+              - script: |
+                  echo "Command: vsce verify-signature --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE"
+                  vsce verify-signature --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE
+                condition: succeeded()
+                displayName: Confirming signature verification before publishing
 
           - job: "Platform_Agnostic_Python"
             pool:
@@ -403,22 +456,22 @@ extends:
                 displayName: Install Prereqs for VSCode Ext Publishing
 
               - script: |
-                  VSIX_RPATH="$(System.DefaultWorkingDirectory)/target/vscode"
-                  VSIX_FNAME=`ls $VSIX_RPATH/*.vsix`
-                  echo "RPATH: $VSIX_RPATH"
-                  echo "FNAME: $VSIX_FNAME"
-                  vsce publish --pre-release --packagePath $VSIX_FNAME 2>&1 > pub.log
+                  echo "Command: vsce verify-signature --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE"
+                  vsce verify-signature --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE
+                condition: succeeded()
+                displayName: Reconfirming signature verification before publishing
+
+              - script: |
+                  echo "Command: vsce publish --pre-release --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE"
+                  vsce publish --pre-release --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE 2>&1 > pub.log
                 condition: and(succeeded(), eq(variables['BUILD_TYPE'], 'dev'))
                 displayName: Publish pre-release VSCode Extension
                 env:
                   VSCE_PAT: $(PAT)
 
               - script: |
-                  VSIX_RPATH="$(System.DefaultWorkingDirectory)/target/vscode"
-                  VSIX_FNAME=`ls $VSIX_RPATH/*.vsix`
-                  echo "RPATH: $VSIX_RPATH"
-                  echo "FNAME: $VSIX_FNAME"
-                  vsce publish --packagePath $VSIX_FNAME 2>&1 > pub.log
+                  echo "Command: vsce publish --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE"
+                  vsce publish --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE 2>&1 > pub.log
                 condition: and(succeeded(), ne(variables['BUILD_TYPE'], 'dev'))
                 displayName: Publish VSCode Extension
                 env:
@@ -443,9 +496,9 @@ extends:
                 - input: pipelineArtifact
                   artifactName: Wheels.Win.x86_64
                   targetPath: $(System.DefaultWorkingDirectory)/artifacts/win-x86_64
-                # - input: pipelineArtifact
-                #   artifactName: Wheels.Win.aarch64
-                #   targetPath: $(System.DefaultWorkingDirectory)/artifacts/win-aarch64
+                - input: pipelineArtifact
+                  artifactName: Wheels.Win.aarch64
+                  targetPath: $(System.DefaultWorkingDirectory)/artifacts/win-aarch64
                 - input: pipelineArtifact
                   artifactName: Wheels.Mac.x86_64
                   targetPath: $(System.DefaultWorkingDirectory)/artifacts/mac-x86_64
