@@ -124,4 +124,14 @@ namespace Test {
         }
     }
 
+    operation TestControlledPreparation() : Unit {
+        use qs = Qubit[2];
+        let coeffs = [0.5, 0.5, 0.5, 0.5];
+        use c = Qubit();
+        H(c);
+        Controlled Std.StatePreparation.PreparePureStateD([c], (coeffs, qs));
+        Std.Diagnostics.DumpMachine();
+        ResetAll(qs + [c]);
+    }
+
 }
