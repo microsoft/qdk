@@ -198,6 +198,7 @@ test("circuit snapshot tests - .qsc files", async (t) => {
           editCallback: () => {},
         },
         renderLocations,
+        renderDepth: 999999,
       });
       await checkDocumentSnapshot(tt, tt.name);
     });

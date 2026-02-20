@@ -1,0 +1,754 @@
+<!doctype html>
+<html
+  xmlns="http://www.w3.org/1999/xhtml"
+  style="--minToolboxHeight: 150px; --minGateWidth: 40px; --gateHeight: 40px"
+>
+  <head>
+    <link rel="stylesheet" href="../../ux/qsharp-ux.css" />
+    <link rel="stylesheet" href="../../ux/qsharp-circuit.css" />
+  </head>
+  <body>
+    <div
+      id="circuit"
+      class="qs-circuit"
+      style="display: flex; height: 80vh; width: 95vw"
+    >
+      <div class="panel">
+        <div class="toolbox-panel">
+          <h2 class="title">Toolbox</h2>
+          <svg xmlns="http://www.w3.org/2000/svg" class="toolbox-panel-svg">
+            <g class="gate" data-type="RX" toolbox-item="true">
+              <g>
+                <g>
+                  <rect
+                    class="gate-unitary"
+                    x="1"
+                    y="1"
+                    width="40"
+                    height="40"
+                    data-wire-ys="[21]"
+                    data-width="40"
+                  />
+                  <text font-size="14" x="21" y="21" class="qs-maintext">
+                    <tspan class="qs-mathtext">Rx</tspan>
+                  </text>
+                </g>
+              </g>
+            </g>
+            <g class="gate" data-type="X" toolbox-item="true">
+              <g class="oplus" data-wire-ys="[21]" data-width="30">
+                <circle cx="71" cy="21" r="15" />
+                <line x1="71" x2="71" y1="6" y2="36" />
+                <line x1="56" x2="86" y1="21" y2="21" />
+              </g>
+            </g>
+            <g class="gate" data-type="RY" toolbox-item="true">
+              <g>
+                <g>
+                  <rect
+                    class="gate-unitary"
+                    x="1"
+                    y="51"
+                    width="40"
+                    height="40"
+                    data-wire-ys="[71]"
+                    data-width="40"
+                  />
+                  <text font-size="14" x="21" y="71" class="qs-maintext">
+                    <tspan class="qs-mathtext">Ry</tspan>
+                  </text>
+                </g>
+              </g>
+            </g>
+            <g class="gate" data-type="Y" toolbox-item="true">
+              <g>
+                <g>
+                  <rect
+                    class="gate-unitary"
+                    x="51"
+                    y="51"
+                    width="40"
+                    height="40"
+                    data-wire-ys="[71]"
+                    data-width="40"
+                  />
+                  <text font-size="14" x="71" y="71" class="qs-maintext">
+                    <tspan class="qs-mathtext">Y</tspan>
+                  </text>
+                </g>
+              </g>
+            </g>
+            <g class="gate" data-type="RZ" toolbox-item="true">
+              <g>
+                <g>
+                  <rect
+                    class="gate-unitary"
+                    x="1"
+                    y="101"
+                    width="40"
+                    height="40"
+                    data-wire-ys="[121]"
+                    data-width="40"
+                  />
+                  <text font-size="14" x="21" y="121" class="qs-maintext">
+                    <tspan class="qs-mathtext">Rz</tspan>
+                  </text>
+                </g>
+              </g>
+            </g>
+            <g class="gate" data-type="Z" toolbox-item="true">
+              <g>
+                <g>
+                  <rect
+                    class="gate-unitary"
+                    x="51"
+                    y="101"
+                    width="40"
+                    height="40"
+                    data-wire-ys="[121]"
+                    data-width="40"
+                  />
+                  <text font-size="14" x="71" y="121" class="qs-maintext">
+                    <tspan class="qs-mathtext">Z</tspan>
+                  </text>
+                </g>
+              </g>
+            </g>
+            <g class="gate" data-type="S" toolbox-item="true">
+              <g>
+                <g>
+                  <rect
+                    class="gate-unitary"
+                    x="1"
+                    y="151"
+                    width="40"
+                    height="40"
+                    data-wire-ys="[171]"
+                    data-width="40"
+                  />
+                  <text font-size="14" x="21" y="171" class="qs-maintext">
+                    <tspan class="qs-mathtext">S</tspan>
+                  </text>
+                </g>
+              </g>
+            </g>
+            <g class="gate" data-type="T" toolbox-item="true">
+              <g>
+                <g>
+                  <rect
+                    class="gate-unitary"
+                    x="51"
+                    y="151"
+                    width="40"
+                    height="40"
+                    data-wire-ys="[171]"
+                    data-width="40"
+                  />
+                  <text font-size="14" x="71" y="171" class="qs-maintext">
+                    <tspan class="qs-mathtext">T</tspan>
+                  </text>
+                </g>
+              </g>
+            </g>
+            <g class="gate" data-type="H" toolbox-item="true">
+              <g>
+                <g>
+                  <rect
+                    class="gate-unitary"
+                    x="1"
+                    y="201"
+                    width="40"
+                    height="40"
+                    data-wire-ys="[221]"
+                    data-width="40"
+                  />
+                  <text font-size="14" x="21" y="221" class="qs-maintext">
+                    <tspan class="qs-mathtext">H</tspan>
+                  </text>
+                </g>
+              </g>
+            </g>
+            <g class="gate" data-type="SX" toolbox-item="true">
+              <g>
+                <g>
+                  <rect
+                    class="gate-unitary"
+                    x="51"
+                    y="201"
+                    width="40"
+                    height="40"
+                    data-wire-ys="[221]"
+                    data-width="40"
+                  />
+                  <text font-size="14" x="71" y="221" class="qs-maintext">
+                    <tspan class="qs-mathtext">SX</tspan>
+                  </text>
+                </g>
+              </g>
+            </g>
+            <g class="gate" data-type="Reset" toolbox-item="true">
+              <g>
+                <g>
+                  <rect
+                    class="gate-ket"
+                    x="1"
+                    y="251"
+                    width="40"
+                    height="40"
+                    data-wire-ys="[271]"
+                    data-width="40"
+                  />
+                  <text
+                    font-size="14"
+                    x="21"
+                    y="271"
+                    class="qs-maintext ket-text"
+                  >
+                    |0⟩
+                  </text>
+                </g>
+              </g>
+            </g>
+            <g class="gate" data-type="Measure" toolbox-item="true">
+              <g>
+                <rect
+                  class="gate-measure"
+                  x="51"
+                  y="251"
+                  width="40"
+                  height="40"
+                  data-wire-ys="[271]"
+                  data-width="40"
+                />
+                <path
+                  class="arc-measure"
+                  d="M 86 273 A 15 12 0 0 0 56 273"
+                  style="pointer-events: none"
+                />
+                <line
+                  x1="71"
+                  x2="83"
+                  y1="279"
+                  y2="259"
+                  class="qs-line-measure"
+                  style="pointer-events: none"
+                />
+              </g>
+            </g>
+            <g
+              class="svg-run-button"
+              tabindex="0"
+              role="button"
+              visibility="hidden"
+            >
+              <rect
+                x="1"
+                y="310"
+                width="90"
+                height="40"
+                class="svg-run-button-rect"
+              />
+              <text x="46" y="330" class="svg-run-button-text">Run</text>
+            </g>
+          </svg>
+        </div>
+      </div>
+      <div
+        class="circuit-wrapper"
+        style="display: block; overflow: auto; width: 100%"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          class="qviz"
+          width="560"
+          height="396"
+          style="max-width: fit-content"
+          viewBox="0 0 560 396"
+        >
+          <g class="qubit-input-states">
+            <text
+              font-size="16"
+              x="20"
+              y="118"
+              text-anchor="start"
+              dominant-baseline="middle"
+              data-wire="0"
+              class="qs-maintext qs-qubit-label"
+              style="pointer-events: all"
+            >
+              |
+              <tspan class="qs-mathtext">ψ</tspan>
+              <tspan baseline-shift="sub" font-size="65%">0</tspan>
+              ⟩
+            </text>
+            <text
+              font-size="16"
+              x="20"
+              y="222"
+              text-anchor="start"
+              dominant-baseline="middle"
+              data-wire="1"
+              class="qs-maintext qs-qubit-label"
+              style="pointer-events: all"
+            >
+              |
+              <tspan class="qs-mathtext">ψ</tspan>
+              <tspan baseline-shift="sub" font-size="65%">1</tspan>
+              ⟩
+            </text>
+          </g>
+          <g class="wires">
+            <line x1="40" x2="560" y1="118" y2="118" class="qubit-wire" />
+            <line x1="40" x2="560" y1="222" y2="222" class="qubit-wire" />
+            <g>
+              <line
+                x1="163"
+                x2="163"
+                y1="118"
+                y2="169"
+                class="register-classical"
+              />
+              <line
+                x1="161"
+                x2="161"
+                y1="118"
+                y2="171"
+                class="register-classical"
+              />
+              <line
+                x1="163"
+                x2="560"
+                y1="169"
+                y2="169"
+                class="register-classical"
+              />
+              <line
+                x1="161"
+                x2="560"
+                y1="171"
+                y2="171"
+                class="register-classical"
+              />
+            </g>
+            <g>
+              <line
+                x1="513"
+                x2="513"
+                y1="222"
+                y2="273"
+                class="register-classical"
+              />
+              <line
+                x1="511"
+                x2="511"
+                y1="222"
+                y2="275"
+                class="register-classical"
+              />
+              <line
+                x1="513"
+                x2="560"
+                y1="273"
+                y2="273"
+                class="register-classical"
+              />
+              <line
+                x1="511"
+                x2="560"
+                y1="275"
+                y2="275"
+                class="register-classical"
+              />
+            </g>
+          </g>
+          <g>
+            <g
+              class="gate"
+              data-expanded="true"
+              data-location="0,0"
+              data-zoom-out="false"
+              data-zoom-in="true"
+            >
+              <rect
+                class="gate-unitary"
+                x="80"
+                y="72"
+                width="462"
+                height="232"
+                fill-opacity="0"
+                stroke-dasharray="8, 8"
+                style="cursor: grab"
+              />
+              <g>
+                <g
+                  class="gate"
+                  data-location="0,0-0,0"
+                  data-zoom-out="true"
+                  data-zoom-in="false"
+                >
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="90"
+                        y="98"
+                        width="40"
+                        height="40"
+                        data-wire-ys="[118]"
+                        data-width="40"
+                        style="cursor: grab"
+                        data-wire="0"
+                      />
+                      <text font-size="14" x="110" y="118" class="qs-maintext">
+                        <tspan class="qs-mathtext">H</tspan>
+                      </text>
+                    </g>
+                  </g>
+                </g>
+                <g
+                  class="gate"
+                  data-location="0,0-1,0"
+                  data-zoom-out="true"
+                  data-zoom-in="false"
+                >
+                  <g>
+                    <rect
+                      class="gate-measure"
+                      x="142"
+                      y="98"
+                      width="40"
+                      height="40"
+                      data-wire-ys="[118]"
+                      data-width="40"
+                      style="cursor: grab"
+                      data-wire="0"
+                    />
+                    <path
+                      class="arc-measure"
+                      d="M 177 120 A 15 12 0 0 0 147 120"
+                      style="pointer-events: none"
+                    />
+                    <line
+                      x1="162"
+                      x2="174"
+                      y1="126"
+                      y2="106"
+                      class="qs-line-measure"
+                      style="pointer-events: none"
+                    />
+                  </g>
+                </g>
+                <g
+                  class="classically-controlled-group"
+                  data-location="0,0-2,0"
+                  data-zoom-out="true"
+                  data-zoom-in="true"
+                  data-expanded="true"
+                >
+                  <line
+                    x1="209"
+                    x2="234"
+                    y1="182"
+                    y2="182"
+                    class="classical-line"
+                  />
+                  <line
+                    x1="209"
+                    x2="209"
+                    y1="185"
+                    y2="182"
+                    class="classical-line"
+                  />
+                  <g class="classically-controlled-btn">
+                    <circle cx="209" cy="170" r="15" />
+                    <text
+                      font-size="14"
+                      x="209"
+                      y="170"
+                      text-anchor="start"
+                      dominant-baseline="middle"
+                      class="qs-maintext"
+                    >
+                      c
+                      <tspan baseline-shift="sub" font-size="65%">0</tspan>
+                    </text>
+                  </g>
+                  <rect
+                    class="classical-container"
+                    x="234"
+                    y="124"
+                    width="97"
+                    height="128"
+                    fill-opacity="0"
+                    stroke-dasharray="8, 8"
+                  />
+                  <text
+                    font-size="14"
+                    x="244"
+                    y="139"
+                    class="qs-maintext qs-group-label"
+                  >
+                    <tspan class="qs-mathtext">if</tspan>
+                    :
+                    <tspan class="qs-mathtext">c</tspan>
+                    <tspan baseline-shift="sub" font-size="65%">0</tspan>
+                    = |1〉
+                  </text>
+                  <g>
+                    <g
+                      class="gate"
+                      data-location="0,0-2,0-0,0"
+                      data-zoom-out="true"
+                      data-zoom-in="false"
+                    >
+                      <g
+                        class="oplus"
+                        data-wire-ys="[222]"
+                        data-width="30"
+                        style="cursor: grab"
+                        data-wire="1"
+                      >
+                        <circle cx="264" cy="222" r="15" />
+                        <line x1="264" x2="264" y1="207" y2="237" />
+                        <line x1="249" x2="279" y1="222" y2="222" />
+                      </g>
+                    </g>
+                  </g>
+                </g>
+                <g
+                  class="classically-controlled-group"
+                  data-location="0,0-3,0"
+                  data-zoom-out="true"
+                  data-zoom-in="true"
+                  data-expanded="true"
+                >
+                  <line
+                    x1="358"
+                    x2="383"
+                    y1="182"
+                    y2="182"
+                    class="classical-line"
+                  />
+                  <line
+                    x1="358"
+                    x2="358"
+                    y1="185"
+                    y2="182"
+                    class="classical-line"
+                  />
+                  <g class="classically-controlled-btn">
+                    <circle cx="358" cy="170" r="15" />
+                    <text
+                      font-size="14"
+                      x="358"
+                      y="170"
+                      text-anchor="start"
+                      dominant-baseline="middle"
+                      class="qs-maintext"
+                    >
+                      c
+                      <tspan baseline-shift="sub" font-size="65%">0</tspan>
+                    </text>
+                  </g>
+                  <rect
+                    class="classical-container"
+                    x="383"
+                    y="124"
+                    width="97"
+                    height="128"
+                    fill-opacity="0"
+                    stroke-dasharray="8, 8"
+                  />
+                  <text
+                    font-size="14"
+                    x="393"
+                    y="139"
+                    class="qs-maintext qs-group-label"
+                  >
+                    <tspan class="qs-mathtext">if</tspan>
+                    :
+                    <tspan class="qs-mathtext">c</tspan>
+                    <tspan baseline-shift="sub" font-size="65%">0</tspan>
+                    = |0〉
+                  </text>
+                  <g>
+                    <g
+                      class="gate"
+                      data-location="0,0-3,0-0,0"
+                      data-zoom-out="true"
+                      data-zoom-in="false"
+                    >
+                      <g>
+                        <g>
+                          <rect
+                            class="gate-unitary"
+                            x="393"
+                            y="202"
+                            width="40"
+                            height="40"
+                            data-wire-ys="[222]"
+                            data-width="40"
+                            style="cursor: grab"
+                            data-wire="1"
+                          />
+                          <text
+                            font-size="14"
+                            x="413"
+                            y="222"
+                            class="qs-maintext"
+                          >
+                            <tspan class="qs-mathtext">Y</tspan>
+                          </text>
+                        </g>
+                      </g>
+                    </g>
+                  </g>
+                </g>
+                <g
+                  class="gate"
+                  data-location="0,0-4,0"
+                  data-zoom-out="true"
+                  data-zoom-in="false"
+                >
+                  <g>
+                    <rect
+                      class="gate-measure"
+                      x="492"
+                      y="202"
+                      width="40"
+                      height="40"
+                      data-wire-ys="[222]"
+                      data-width="40"
+                      style="cursor: grab"
+                      data-wire="1"
+                    />
+                    <path
+                      class="arc-measure"
+                      d="M 527 224 A 15 12 0 0 0 497 224"
+                      style="pointer-events: none"
+                    />
+                    <line
+                      x1="512"
+                      x2="524"
+                      y1="230"
+                      y2="210"
+                      class="qs-line-measure"
+                      style="pointer-events: none"
+                    />
+                  </g>
+                </g>
+              </g>
+              <text
+                font-size="14"
+                x="90"
+                y="87"
+                class="qs-maintext qs-group-label"
+              >
+                <tspan class="qs-mathtext">Main</tspan>
+              </text>
+              <g class="gate-control gate-collapse">
+                <circle cx="82" cy="74" r="10" />
+                <path d="M75,74 h14" />
+              </g>
+            </g>
+          </g>
+          <g class="ghost-qubit-layer" style="display: none">
+            <line
+              x1="40"
+              x2="560"
+              y1="344"
+              y2="344"
+              class="qubit-wire ghost-opacity"
+            />
+            <text
+              font-size="16"
+              x="20"
+              y="344"
+              text-anchor="start"
+              dominant-baseline="middle"
+              data-wire="2"
+              class="qs-maintext qs-qubit-label ghost-opacity"
+            >
+              |
+              <tspan class="qs-mathtext">ψ</tspan>
+              <tspan baseline-shift="sub" font-size="65%">2</tspan>
+              ⟩
+            </text>
+          </g>
+          <g class="dropzone-layer" style="display: none">
+            <rect
+              class="dropzone"
+              x="62"
+              y="98"
+              width="24"
+              height="40"
+              data-dropzone-location="0,0"
+              data-dropzone-wire="0"
+              data-dropzone-inter-column="true"
+            />
+            <rect
+              class="dropzone"
+              x="62"
+              y="202"
+              width="24"
+              height="40"
+              data-dropzone-location="0,0"
+              data-dropzone-wire="1"
+              data-dropzone-inter-column="true"
+            />
+            <rect
+              class="dropzone"
+              x="62"
+              y="324"
+              width="24"
+              height="40"
+              data-dropzone-location="0,1"
+              data-dropzone-wire="2"
+              data-dropzone-inter-column="true"
+            />
+            <rect
+              class="dropzone"
+              x="80"
+              y="324"
+              width="40"
+              height="40"
+              data-dropzone-location="0,1"
+              data-dropzone-wire="2"
+              data-dropzone-inter-column="false"
+            />
+            <rect
+              class="dropzone"
+              x="114"
+              y="98"
+              width="24"
+              height="40"
+              data-dropzone-location="1,0"
+              data-dropzone-wire="0"
+              data-dropzone-inter-column="false"
+            />
+            <rect
+              class="dropzone"
+              x="114"
+              y="202"
+              width="24"
+              height="40"
+              data-dropzone-location="1,0"
+              data-dropzone-wire="1"
+              data-dropzone-inter-column="false"
+            />
+            <rect
+              class="dropzone"
+              x="114"
+              y="324"
+              width="24"
+              height="40"
+              data-dropzone-location="1,0"
+              data-dropzone-wire="2"
+              data-dropzone-inter-column="false"
+            />
+          </g>
+        </svg>
+      </div>
+    </div>
+  </body>
+</html>
