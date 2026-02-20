@@ -593,6 +593,7 @@ pub struct State {
     rng: RefCell<StdRng>,
     call_counts: FxHashMap<CallableCountKey, i64>,
     qubit_counter: Option<QubitCounter>,
+    dirty_qubits: FxHashSet<usize>,
     error_behavior: ErrorBehavior,
     last_error: Option<(Error, Vec<Frame>)>,
     exec_graph_config: ExecGraphConfig,
@@ -624,6 +625,7 @@ impl State {
             rng,
             call_counts: FxHashMap::default(),
             qubit_counter: None,
+            dirty_qubits: FxHashSet::default(),
             error_behavior,
             last_error: None,
             exec_graph_config,
@@ -1323,12 +1325,15 @@ impl State {
         self.increment_call_count(callee_id, functor);
         let name = &callee.name.name;
         let val = match name.as_ref() {
-            "__quantum__rt__qubit_allocate" => {
+            "__quantum__rt__qubit_allocate" | "__quantum__rt__qubit_borrow" => {
                 let q = sim.qubit_allocate(&call_stack);
                 let q = Rc::new(Qubit(q));
                 env.track_qubit(Rc::clone(&q));
                 if let Some(counter) = &mut self.qubit_counter {
                     counter.allocated(q.0);
+                }
+                if name.as_ref() == "__quantum__rt__qubit_borrow" {
+                    self.dirty_qubits.insert(q.0);
                 }
                 Value::Qubit(q.into())
             }
@@ -1338,7 +1343,9 @@ impl State {
                     .try_deref()
                     .ok_or(Error::QubitDoubleRelease(arg_span))?;
                 env.release_qubit(&qubit);
-                if sim.qubit_release(qubit.0, &call_stack) {
+                let is_zero = sim.qubit_release(qubit.0, &call_stack);
+                let is_borrowed = self.dirty_qubits.remove(&qubit.0);
+                if is_zero || is_borrowed {
                     Value::unit()
                 } else {
                     return Err(Error::ReleasedQubitNotZero(qubit.0, arg_span));

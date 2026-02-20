@@ -1679,7 +1679,9 @@ impl<'a> PartialEvaluator<'a> {
         // There are a few special cases regarding intrinsic callables. Identify them and handle them properly.
         match callable_decl.name.name.as_ref() {
             // Qubit allocations and measurements have special handling.
-            "__quantum__rt__qubit_allocate" => Ok(self.allocate_qubit()),
+            "__quantum__rt__qubit_allocate" | "__quantum__rt__qubit_borrow" => {
+                Ok(self.allocate_qubit())
+            }
             "__quantum__rt__qubit_release" => Ok(self.release_qubit(args_value)),
             "PermuteLabels" => {
                 if self.eval_context.is_currently_evaluating_any_branch() {

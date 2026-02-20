@@ -107,7 +107,7 @@ fn funcall_with_qubit_argument() -> miette::Result<(), Vec<Report>> {
             mutable b = Std.Intrinsic.M(qs[1]);
             return Std.OpenQASM.Convert.IntAsResult(Std.OpenQASM.Convert.ResultAsInt(a) ^^^ Std.OpenQASM.Convert.ResultAsInt(b));
         }
-        let qs = QIR.Runtime.AllocateQubitArray(2);
+        borrow qs = Qubit[2];
         mutable p = parity(qs);
     "#]]
     .assert_eq(&qsharp);
@@ -188,7 +188,7 @@ fn funcall_accepts_qubit_argument() -> miette::Result<(), Vec<Report>> {
         operation h_wrapper(q : Qubit) : Unit {
             h(q);
         }
-        let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+        borrow q = Qubit();
         h_wrapper(q);
     "#]]
     .assert_eq(&qsharp);

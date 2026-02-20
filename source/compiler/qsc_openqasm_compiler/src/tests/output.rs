@@ -42,7 +42,7 @@ fn using_re_semantics_removes_output() -> miette::Result<(), Vec<Report>> {
             import Std.OpenQASM.Intrinsic.*;
             operation Test(theta : Double, beta : Int) : Unit {
                 mutable c = [Zero, Zero];
-                let q = QIR.Runtime.AllocateQubitArray(2);
+                borrow q = Qubit[2];
                 mutable gamma = 0.;
                 mutable delta = 0.;
                 rz(Std.OpenQASM.Angle.DoubleAsAngle(theta, 53), q[0]);
@@ -91,7 +91,7 @@ fn using_qasm_semantics_captures_all_classical_decls_as_output() -> miette::Resu
             import Std.OpenQASM.Intrinsic.*;
             operation Test(theta : Double, beta : Int) : (Result[], Double, Double) {
                 mutable c = [Zero, Zero];
-                let q = QIR.Runtime.AllocateQubitArray(2);
+                borrow q = Qubit[2];
                 mutable gamma = 0.;
                 mutable delta = 0.;
                 rz(Std.OpenQASM.Angle.DoubleAsAngle(theta, 53), q[0]);
@@ -140,7 +140,7 @@ fn using_qiskit_semantics_only_bit_array_is_captured_and_reversed()
             import Std.OpenQASM.Intrinsic.*;
             operation Test(theta : Double, beta : Int) : Result[] {
                 mutable c = [Zero, Zero];
-                let q = QIR.Runtime.AllocateQubitArray(2);
+                borrow q = Qubit[2];
                 mutable gamma = 0.;
                 mutable delta = 0.;
                 rz(Std.OpenQASM.Angle.DoubleAsAngle(theta, 53), q[0]);
@@ -198,7 +198,7 @@ c2[2] = measure q[4];
             operation Test(theta : Double, beta : Int) : (Result[], Result[]) {
                 mutable c = [Zero, Zero];
                 mutable c2 = [Zero, Zero, Zero];
-                let q = QIR.Runtime.AllocateQubitArray(5);
+                borrow q = Qubit[5];
                 mutable gamma = 0.;
                 mutable delta = 0.;
                 rz(Std.OpenQASM.Angle.DoubleAsAngle(theta, 53), q[0]);

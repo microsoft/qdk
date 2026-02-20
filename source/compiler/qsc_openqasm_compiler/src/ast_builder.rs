@@ -21,119 +21,12 @@ use qsc_openqasm_parser::{
 
 use crate::types::{ArrayDimensions, Complex};
 
-pub(crate) fn build_unmanaged_qubit_alloc<S>(name: S, stmt_span: Span, name_span: Span) -> Stmt
-where
-    S: AsRef<str>,
-{
-    let alloc_ident = Ident {
-        name: Rc::from("__quantum__rt__qubit_allocate"),
-        ..Default::default()
-    };
-    let path_expr = Expr {
-        kind: Box::new(ExprKind::Path(PathKind::Ok(Box::new(Path {
-            segments: build_idents(&["QIR", "Runtime"]),
-            name: Box::new(alloc_ident),
-            id: NodeId::default(),
-            span: Span::default(),
-        })))),
-        ..Default::default()
-    };
-    let call_expr = Expr {
-        span: stmt_span,
-        kind: Box::new(ExprKind::Call(
-            Box::new(path_expr),
-            Box::new(create_unit_expr(Span::default())),
-        )),
-        ..Default::default()
-    };
-    let rhs = call_expr;
-
-    Stmt {
-        span: stmt_span,
-        kind: Box::new(StmtKind::Local(
-            Mutability::Immutable,
-            Box::new(Pat {
-                kind: Box::new(PatKind::Bind(
-                    Box::new(Ident {
-                        span: name_span,
-                        name: Rc::from(name.as_ref()),
-                        ..Default::default()
-                    }),
-                    None,
-                )),
-                span: name_span,
-                ..Default::default()
-            }),
-            Box::new(rhs),
-        )),
-        ..Default::default()
-    }
-}
-
-pub(crate) fn build_unmanaged_qubit_alloc_array<S>(
+pub(crate) fn build_managed_qubit_alloc<S>(
     name: S,
-    size: u32,
     stmt_span: Span,
     name_span: Span,
-    designator_span: Span,
+    source: QubitSource,
 ) -> Stmt
-where
-    S: AsRef<str>,
-{
-    let alloc_ident = Ident {
-        name: Rc::from("AllocateQubitArray"),
-        ..Default::default()
-    };
-
-    let path_expr = Expr {
-        kind: Box::new(ExprKind::Path(PathKind::Ok(Box::new(Path {
-            segments: build_idents(&["QIR", "Runtime"]),
-            name: Box::new(alloc_ident),
-            id: NodeId::default(),
-            span: Span::default(),
-        })))),
-        ..Default::default()
-    };
-    let call_expr = Expr {
-        id: NodeId::default(),
-        span: stmt_span,
-        kind: Box::new(ExprKind::Call(
-            Box::new(path_expr),
-            Box::new(Expr {
-                kind: Box::new(ExprKind::Paren(Box::new(Expr {
-                    id: NodeId::default(),
-                    span: designator_span,
-                    kind: Box::new(ExprKind::Lit(Box::new(Lit::Int(i64::from(size))))),
-                }))),
-                span: stmt_span,
-                ..Default::default()
-            }),
-        )),
-    };
-
-    Stmt {
-        id: NodeId::default(),
-        span: stmt_span,
-        kind: Box::new(StmtKind::Local(
-            Mutability::Immutable,
-            Box::new(Pat {
-                kind: Box::new(PatKind::Bind(
-                    Box::new(Ident {
-                        id: NodeId::default(),
-                        span: name_span,
-                        name: Rc::from(name.as_ref()),
-                    }),
-                    None,
-                )),
-                span: name_span,
-                ..Default::default()
-            }),
-            Box::new(call_expr),
-        )),
-    }
-}
-
-pub(crate) fn build_managed_qubit_alloc<S>(name: S, stmt_span: Span, name_span: Span) -> Stmt
 where
     S: AsRef<str>,
 {
@@ -151,7 +44,7 @@ where
         name: Rc::from(name.as_ref()),
     };
     let qubit_kind = StmtKind::Qubit(
-        QubitSource::Fresh,
+        source,
         Box::new(Pat {
             kind: Box::new(PatKind::Bind(Box::new(ident), None)),
             span: name_span,
@@ -172,6 +65,7 @@ pub(crate) fn managed_qubit_alloc_array<S>(
     stmt_span: Span,
     name_span: Span,
     designator_span: Span,
+    source: QubitSource,
 ) -> Stmt
 where
     S: AsRef<str>,
@@ -194,7 +88,7 @@ where
         ..Default::default()
     };
     let qubit_kind = StmtKind::Qubit(
-        QubitSource::Fresh,
+        source,
         Box::new(Pat {
             kind: Box::new(PatKind::Bind(Box::new(ident), None)),
             span: name_span,

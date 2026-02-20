@@ -29,11 +29,9 @@ fn single_qubit_decl() -> miette::Result<(), Vec<Report>> {
     ";
 
     let qsharp = compile_qasm_stmt_to_qsharp(source)?;
-    expect![
-        r#"
-        let my_qubit = QIR.Runtime.__quantum__rt__qubit_allocate();
-    "#
-    ]
+    expect![[r#"
+        borrow my_qubit = Qubit();
+    "#]]
     .assert_eq(&qsharp);
     Ok(())
 }
@@ -45,11 +43,9 @@ fn single_qubit_decl_with_qsharp_semantics() -> miette::Result<(), Vec<Report>> 
     ";
 
     let qsharp = compile_qasm_stmt_to_qsharp_with_semantics(source, QubitSemantics::QSharp)?;
-    expect![
-        "
+    expect![[r#"
         use my_qubit = Qubit();
-    "
-    ]
+    "#]]
     .assert_eq(&qsharp);
     Ok(())
 }

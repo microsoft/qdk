@@ -94,7 +94,7 @@ fn spec_case_1() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+        borrow q = Qubit();
         mutable i = 15;
         if i == 1 or i == 3 or i == 5 {
             h(q);
@@ -140,7 +140,7 @@ fn spec_case_2() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+        borrow q = Qubit();
         let A = 0;
         let B = 1;
         mutable i = 15;
@@ -188,7 +188,7 @@ fn spec_case_3() -> miette::Result<(), Vec<Report>> {
             import Std.OpenQASM.Intrinsic.*;
             @EntryPoint()
             operation Test() : Result[] {
-                let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+                borrow q = Qubit();
                 mutable b = [Zero, Zero];
                 if Std.OpenQASM.Convert.ResultArrayAsIntBE(b) == 0 {
                     h(q);
@@ -243,7 +243,7 @@ fn spec_case_4() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+        borrow q = Qubit();
         mutable b = [Zero, Zero];
         operation foo(i : Int, d : Qubit[]) : Result {
             if Std.Core.Length(d) != 8 {
@@ -255,7 +255,7 @@ fn spec_case_4() -> miette::Result<(), Vec<Report>> {
         mutable j = 1;
         mutable k = 2;
         mutable c1 = Zero;
-        let q0 = QIR.Runtime.AllocateQubitArray(8);
+        borrow q0 = Qubit[8];
         if i == 1 {
             set j = k + Std.OpenQASM.Convert.ResultAsInt(foo(k, q0));
         } elif i == 2 {
@@ -294,7 +294,7 @@ fn spec_case_5() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.AllocateQubitArray(8);
+        borrow q = Qubit[8];
         mutable j = 30;
         mutable i = 0;
         if i == 1 or i == 2 or i == 5 or i == 12 {} elif i == 3 {

@@ -18,11 +18,9 @@ fn qubit_array_decl() -> miette::Result<(), Vec<Report>> {
     ";
 
     let qsharp = compile_qasm_stmt_to_qsharp(source)?;
-    expect![
-        r#"
-        let my_qubit = QIR.Runtime.AllocateQubitArray(5);
-    "#
-    ]
+    expect![[r#"
+        borrow my_qubit = Qubit[5];
+    "#]]
     .assert_eq(&qsharp);
     Ok(())
 }
@@ -34,11 +32,9 @@ fn qubit_array_decl_with_qsharp_semantics() -> miette::Result<(), Vec<Report>> {
     ";
 
     let qsharp = compile_qasm_stmt_to_qsharp_with_semantics(source, QubitSemantics::QSharp)?;
-    expect![
-        r#"
+    expect![[r#"
         use my_qubits = Qubit[5];
-    "#
-    ]
+    "#]]
     .assert_eq(&qsharp);
     Ok(())
 }

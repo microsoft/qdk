@@ -35,7 +35,9 @@ When generating OpenQASM 2.0 file, start with the version declaration: `OPENQASM
 
 The `qsharp` package provides a way to compile, run, and resource estimate OpenQASM 3.0 programs in Python. The functions can be imported from the `qsharp.openqasm` module and are named `compile`, `run`, and `estimate`.
 
-OpenQASM 3.0 programs can be imported into Python using the `qsharp.openqasm.import_openqasm` function and accessed via the `qsharp.code` module: `qsharp.openqasm.import_openqasm("qubit q; bit c; c = measure q;", name="Foo"); qsharp.code.Foo()`.
+OpenQASM 3.0 programs can be imported into Python using the `qsharp.openqasm.import_openqasm` function and accessed via the `qsharp.code.qasm_import` module: `qsharp.openqasm.import_openqasm("qubit q; bit c; c = measure q;", name="Foo", program_type=qsharp.openqasm.ProgramType.File); qsharp.code.qasm_import.Foo()`.
+
+OpenQASM 3.0 programs can also be imported as operations into Q#, where the qubits used become paramters to the resulting operation: `qsharp.openqasm.import_openqasm("qubit q; bit c; c = measure q;", name="Foo", program_type=qsharp.openqasm.ProgramType.Operation); qsharp.eval("{ use q = Qubit(); Foo(q) }")`.
 
 OpenQASM 3.0 programs can be run or simulated via Python using the `qsharp.openqasm.run` function: `qsharp.openqasm.run("qubit q; bit c; c = measure q;");`
 Quantum resource estimation can be done to OpenQASM 3.0 programs using the `qsharp.openqasm.estimate` function: `qsharp.openqasm.estimate("qubit q; bit c; c = measure q;");`

@@ -47,7 +47,10 @@ use qsc::{
         self, CircuitEntryPoint, PauliNoise, TaggedItem, Value,
         output::{Error, Receiver},
     },
-    openqasm::{CompilerConfig, QubitSemantics, compiler::compile_to_qsharp_ast_with_config},
+    openqasm::{
+        CompilerConfig, QubitSemantics,
+        compiler::{compile_to_qsharp_ast_with_config, set_unit_entry_expr},
+    },
     packages::BuildableProgram,
     project::{FileSystem, PackageCache, PackageGraphSources, ProjectType},
     target::Profile,
@@ -608,7 +611,12 @@ impl Interpreter {
         );
         let res = qsc::openqasm::semantic::parse_sources(&sources);
         let unit = compile_to_qsharp_ast_with_config(res, config);
-        let (sources, errors, package, _, _) = unit.into_tuple();
+        let (sources, errors, mut package, _, _) = unit.into_tuple();
+
+        // Explicitly set the entry expression for the package. This avoids having the call to `eval_ast_fragments`
+        // below have the side-effect of executing the code, which might have a callable marked as `@EntryPoint`
+        // if the program type is `File` and the QASM code has no unbound inputs.
+        set_unit_entry_expr(&mut package);
 
         if !errors.is_empty() {
             let errors = errors
