@@ -1346,7 +1346,6 @@ impl State {
                 let is_zero = sim.qubit_release(qubit.0, &call_stack);
                 let is_borrowed = self.dirty_qubits.remove(&qubit.0);
                 if is_zero || is_borrowed {
-                    self.dirty_qubits.remove(&qubit.0);
                     Value::unit()
                 } else {
                     return Err(Error::ReleasedQubitNotZero(qubit.0, arg_span));
