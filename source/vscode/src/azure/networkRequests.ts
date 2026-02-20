@@ -251,7 +251,7 @@ export class QuantumUris {
 
   // Needs to POST an application/json payload such as: {"containerName": "job-073064ed-2a47-11ee-b8e7-010101010000","blobName":"outputData"}
   sasUri() {
-    return `${this.endpoint}${this.id}/storage/sasUri?api-version=${this.apiVersion}`;
+    return `${this.endpoint}${this.id}/storage/sasUri?api-version=${this.apiVersion}`;  // TODO check apiVersion
   }
 
   storageProxy() {
@@ -285,10 +285,6 @@ export class StorageUris {
 
   containerWithSasToken() {
     return this.sasUri;
-  }
-
-  containerPutWithSasToken() {
-    return `${this.storageAccount}/${this.containerName}?restype=container&${this.sasTokenRaw}`;
   }
 }
 
