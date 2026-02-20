@@ -647,6 +647,57 @@ def test_circuit_from_callable() -> None:
     )
 
 
+def test_circuit_from_callable_with_multiple_qubit_registers() -> None:
+    init()
+    import_openqasm(
+        """
+        include "stdgates.inc";
+        qubit[2] qs1;
+        qubit[2] qs2;
+        x qs1[0];
+        x qs2[1];
+        """,
+        program_type=ProgramType.Operation,
+        name="Foo",
+    )
+    c = qsharp_circuit("{ use (qs1, qs2) = (Qubit[2], Qubit[2]); Foo(qs1, qs2); }")
+    assert str(c) == dedent(
+        """\
+        q_0    ── X ──
+        q_1    ───────
+        q_2    ───────
+        q_3    ── X ──
+        """
+    )
+
+
+def test_circuit_from_callable_with_single_qubit_and_qubit_registers() -> None:
+    init()
+    import_openqasm(
+        """
+        include "stdgates.inc";
+        qubit[2] qs1;
+        qubit a;
+        qubit[2] qs2;
+        x qs1[0];
+        x a;
+        x qs2[1];
+        """,
+        program_type=ProgramType.Operation,
+        name="Foo",
+    )
+    c = qsharp_circuit("{ use (qs1, a, qs2) = (Qubit[2], Qubit(), Qubit[2]); Foo(qs1, a, qs2); }")
+    assert str(c) == dedent(
+        """\
+        q_0    ── X ──
+        q_1    ───────
+        q_2    ── X ──
+        q_3    ───────
+        q_4    ── X ──
+        """
+    )
+
+
 def test_circuit_from_callable_with_args() -> None:
     init()
     import_openqasm(

@@ -1344,12 +1344,8 @@ impl State {
                     .ok_or(Error::QubitDoubleRelease(arg_span))?;
                 env.release_qubit(&qubit);
                 let is_zero = sim.qubit_release(qubit.0, &call_stack);
-                if is_zero {
-                    self.dirty_qubits.remove(&qubit.0);
-                    Value::unit()
-                } else if self.dirty_qubits.contains(&qubit.0) {
-                    // If the qubit is dirty, it means it was borrowed rather than allocated.
-                    // In this case, we consider it released regardless of state and don't error.
+                let is_borrowed = self.dirty_qubits.remove(&qubit.0);
+                if is_zero || is_borrowed {
                     self.dirty_qubits.remove(&qubit.0);
                     Value::unit()
                 } else {
