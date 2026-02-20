@@ -218,12 +218,6 @@ extends:
                   echo "##vso[task.setvariable variable=SIGNATURE_FILE;]$SIGNATURE_FILE"
                 displayName: Prepare VSCode Extension Manifest and Signature for Signing
 
-              - script: |
-                  echo "$(System.DefaultWorkingDirectory)/target/vscode contents before signing"
-                  ls -la $(System.DefaultWorkingDirectory)/target/vscode
-                condition: succeeded()
-                displayName: Look at artfacts before signing
-
               - task: SFP.build-tasks.custom-build-task-1.EsrpCodeSigning@6
                 displayName: "ESRP CodeSigning"
                 condition: succeeded()
@@ -252,12 +246,6 @@ extends:
                   MaxConcurrency: 25
                   MaxRetryAttempts: 5
                   PendingAnalysisWaitTimeoutMinutes: 5
-
-              - script: |
-                  echo "$(System.DefaultWorkingDirectory)/target/vscode contents after signing"
-                  ls -la $(System.DefaultWorkingDirectory)/target/vscode
-                condition: succeeded()
-                displayName: Look at artfacts after signing
 
               - script: |
                   echo "Command: vsce verify-signature --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE"
@@ -496,90 +484,90 @@ extends:
                 condition: failed()
                 workingDirectory: "$(System.DefaultWorkingDirectory)"
 
-          # - job: "Publish_Python_Packages"
-          #   pool:
-          #     name: "Azure-Pipelines-DevTools-EO"
-          #     image: "ubuntu-latest"
-          #     os: linux
-          #   templateContext:
-          #     type: releaseJob
-          #     isProduction: true
-          #     inputs: # All input build artifacts must be declared here
-          #       - input: pipelineArtifact
-          #         artifactName: Wheels.Win.x86_64
-          #         targetPath: $(System.DefaultWorkingDirectory)/artifacts/win-x86_64
-          #       - input: pipelineArtifact
-          #         artifactName: Wheels.Win.aarch64
-          #         targetPath: $(System.DefaultWorkingDirectory)/artifacts/win-aarch64
-          #       - input: pipelineArtifact
-          #         artifactName: Wheels.Mac.x86_64
-          #         targetPath: $(System.DefaultWorkingDirectory)/artifacts/mac-x86_64
-          #       - input: pipelineArtifact
-          #         artifactName: Wheels.Mac.aarch64
-          #         targetPath: $(System.DefaultWorkingDirectory)/artifacts/mac-aarch64
-          #       - input: pipelineArtifact
-          #         artifactName: Wheels.Linux.x86_64
-          #         targetPath: $(System.DefaultWorkingDirectory)/artifacts/linux-x86_64
-          #       - input: pipelineArtifact
-          #         artifactName: Wheels.Linux.aarch64
-          #         targetPath: $(System.DefaultWorkingDirectory)/artifacts/linux-aarch64
-          #       - input: pipelineArtifact
-          #         artifactName: Wheels.PlatformAgnostic
-          #         targetPath: $(System.DefaultWorkingDirectory)/artifacts/platform-agnostic
-          #   steps:
-          #     - script: |
-          #         mkdir -p $(System.DefaultWorkingDirectory)/target/wheels
-          #         find $(System.DefaultWorkingDirectory)/artifacts -name "*.whl" -exec cp {} $(System.DefaultWorkingDirectory)/target/wheels/ \;
-          #         ls $(System.DefaultWorkingDirectory)/target/wheels
-          #       displayName: Collect and Display Py Artifacts in Publishing Dir
+          - job: "Publish_Python_Packages"
+            pool:
+              name: "Azure-Pipelines-DevTools-EO"
+              image: "ubuntu-latest"
+              os: linux
+            templateContext:
+              type: releaseJob
+              isProduction: true
+              inputs: # All input build artifacts must be declared here
+                - input: pipelineArtifact
+                  artifactName: Wheels.Win.x86_64
+                  targetPath: $(System.DefaultWorkingDirectory)/artifacts/win-x86_64
+                - input: pipelineArtifact
+                  artifactName: Wheels.Win.aarch64
+                  targetPath: $(System.DefaultWorkingDirectory)/artifacts/win-aarch64
+                - input: pipelineArtifact
+                  artifactName: Wheels.Mac.x86_64
+                  targetPath: $(System.DefaultWorkingDirectory)/artifacts/mac-x86_64
+                - input: pipelineArtifact
+                  artifactName: Wheels.Mac.aarch64
+                  targetPath: $(System.DefaultWorkingDirectory)/artifacts/mac-aarch64
+                - input: pipelineArtifact
+                  artifactName: Wheels.Linux.x86_64
+                  targetPath: $(System.DefaultWorkingDirectory)/artifacts/linux-x86_64
+                - input: pipelineArtifact
+                  artifactName: Wheels.Linux.aarch64
+                  targetPath: $(System.DefaultWorkingDirectory)/artifacts/linux-aarch64
+                - input: pipelineArtifact
+                  artifactName: Wheels.PlatformAgnostic
+                  targetPath: $(System.DefaultWorkingDirectory)/artifacts/platform-agnostic
+            steps:
+              - script: |
+                  mkdir -p $(System.DefaultWorkingDirectory)/target/wheels
+                  find $(System.DefaultWorkingDirectory)/artifacts -name "*.whl" -exec cp {} $(System.DefaultWorkingDirectory)/target/wheels/ \;
+                  ls $(System.DefaultWorkingDirectory)/target/wheels
+                displayName: Collect and Display Py Artifacts in Publishing Dir
 
-          #     - task: EsrpRelease@9
-          #       condition: succeeded()
-          #       displayName: Publish Py Packages
-          #       inputs:
-          #         connectedservicename: "PME ESRP Azure Connection"
-          #         usemanagedidentity: true
-          #         keyvaultname: "quantum-esrp-kv"
-          #         signcertname: ESRPCert
-          #         clientid: "832c049d-cd07-4c1c-bfa5-c07250d190cb"
-          #         contenttype: PyPi
-          #         domaintenantid: "975f013f-7f24-47e8-a7d3-abc4752bf346"
-          #         folderlocation: "$(System.DefaultWorkingDirectory)/target/wheels"
-          #         waitforreleasecompletion: true
-          #         owners: "billti@microsoft.com"
-          #         approvers: "billti@microsoft.com"
-          #         mainpublisher: ESRPRELPACMAN
+              - task: EsrpRelease@9
+                condition: succeeded()
+                displayName: Publish Py Packages
+                inputs:
+                  connectedservicename: "PME ESRP Azure Connection"
+                  usemanagedidentity: true
+                  keyvaultname: "quantum-esrp-kv"
+                  signcertname: ESRPCert
+                  clientid: "832c049d-cd07-4c1c-bfa5-c07250d190cb"
+                  contenttype: PyPi
+                  domaintenantid: "975f013f-7f24-47e8-a7d3-abc4752bf346"
+                  folderlocation: "$(System.DefaultWorkingDirectory)/target/wheels"
+                  waitforreleasecompletion: true
+                  owners: "billti@microsoft.com"
+                  approvers: "billti@microsoft.com"
+                  mainpublisher: ESRPRELPACMAN
 
-          # - job: "Publish_NPM_Package"
-          #   pool:
-          #     name: "Azure-Pipelines-DevTools-EO"
-          #     image: "ubuntu-latest"
-          #     os: linux
-          #   templateContext:
-          #     type: releaseJob
-          #     isProduction: true
-          #     inputs: # All input build artifacts must be declared here
-          #       - input: pipelineArtifact
-          #         artifactName: NPM
-          #         targetPath: $(System.DefaultWorkingDirectory)/target/npm/qsharp
-          #   steps:
-          #     - script: |
-          #         ls $(System.DefaultWorkingDirectory)/target/npm/qsharp/*
-          #       displayName: Display NPM Artifacts in Publishing Dir
+          - job: "Publish_NPM_Package"
+            pool:
+              name: "Azure-Pipelines-DevTools-EO"
+              image: "ubuntu-latest"
+              os: linux
+            templateContext:
+              type: releaseJob
+              isProduction: true
+              inputs: # All input build artifacts must be declared here
+                - input: pipelineArtifact
+                  artifactName: NPM
+                  targetPath: $(System.DefaultWorkingDirectory)/target/npm/qsharp
+            steps:
+              - script: |
+                  ls $(System.DefaultWorkingDirectory)/target/npm/qsharp/*
+                displayName: Display NPM Artifacts in Publishing Dir
 
-          #     - task: EsrpRelease@9
-          #       condition: succeeded()
-          #       displayName: Publish NPM Package
-          #       inputs:
-          #         connectedservicename: "PME ESRP Azure Connection"
-          #         usemanagedidentity: true
-          #         keyvaultname: "quantum-esrp-kv"
-          #         signcertname: ESRPCert
-          #         clientid: "832c049d-cd07-4c1c-bfa5-c07250d190cb"
-          #         contenttype: "NPM"
-          #         domaintenantid: "975f013f-7f24-47e8-a7d3-abc4752bf346"
-          #         folderlocation: "$(System.DefaultWorkingDirectory)/target/npm/qsharp"
-          #         waitforreleasecompletion: true
-          #         owners: "billti@microsoft.com"
-          #         approvers: "billti@microsoft.com"
-          #         mainpublisher: ESRPRELPACMAN
+              - task: EsrpRelease@9
+                condition: succeeded()
+                displayName: Publish NPM Package
+                inputs:
+                  connectedservicename: "PME ESRP Azure Connection"
+                  usemanagedidentity: true
+                  keyvaultname: "quantum-esrp-kv"
+                  signcertname: ESRPCert
+                  clientid: "832c049d-cd07-4c1c-bfa5-c07250d190cb"
+                  contenttype: "NPM"
+                  domaintenantid: "975f013f-7f24-47e8-a7d3-abc4752bf346"
+                  folderlocation: "$(System.DefaultWorkingDirectory)/target/npm/qsharp"
+                  waitforreleasecompletion: true
+                  owners: "billti@microsoft.com"
+                  approvers: "billti@microsoft.com"
+                  mainpublisher: ESRPRELPACMAN
