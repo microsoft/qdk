@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use crate::debug::{DbgInfo, InstructionDbgMetadata};
 use indenter::{Indented, indented};
 use qsc_data_structures::{attrs::Attributes, index_map::IndexMap, target::TargetCapabilityFlags};
 use std::fmt::{self, Display, Formatter, Write};
@@ -16,6 +17,7 @@ pub struct Program {
     pub num_results: u32,
     pub attrs: Attributes,
     pub tags: Vec<String>,
+    pub dbg_info: DbgInfo,
 }
 
 impl Display for Program {
@@ -39,6 +41,21 @@ impl Display for Program {
         write!(indent, "\nconfig: {}", self.config)?;
         write!(indent, "\nnum_qubits: {}", self.num_qubits)?;
         write!(indent, "\nnum_results: {}", self.num_results)?;
+        if !self.dbg_info.dbg_metadata_scopes.is_empty() || !self.dbg_info.dbg_locations.is_empty()
+        {
+            write!(indent, "\ndbg_metadata_scopes:")?;
+            indent = set_indentation(indent, 2);
+            for (index, scope) in self.dbg_info.dbg_metadata_scopes.iter().enumerate() {
+                write!(indent, "\n{index} = {scope}")?;
+            }
+            indent = set_indentation(indent, 1);
+            write!(indent, "\ndbg_locations:")?;
+            indent = set_indentation(indent, 2);
+            for (index, location) in self.dbg_info.dbg_locations.iter().enumerate() {
+                write!(indent, "\n[{index}]: {location}")?;
+            }
+            indent = set_indentation(indent, 1);
+        }
         writeln!(indent, "\ntags:")?;
         indent = set_indentation(indent, 2);
         for (idx, tag) in self.tags.iter().enumerate() {
@@ -135,9 +152,40 @@ impl BlockId {
     }
 }
 
+#[derive(Clone)]
+pub struct Instruction {
+    pub kind: InstructionKind,
+    pub metadata: Option<Box<InstructionDbgMetadata>>,
+}
+
+impl Display for Instruction {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{}", self.kind)?;
+        if let Some(metadata) = &self.metadata {
+            write!(f, " {metadata}")?;
+        }
+        Ok(())
+    }
+}
+
 /// A block is a collection of instructions.
 #[derive(Default, Clone)]
 pub struct Block(pub Vec<Instruction>);
+
+impl Block {
+    #[must_use]
+    pub fn from_instruction_kinds(instructions: Vec<InstructionKind>) -> Self {
+        Self(
+            instructions
+                .into_iter()
+                .map(|instruction| Instruction {
+                    kind: instruction,
+                    metadata: None,
+                })
+                .collect(),
+        )
+    }
+}
 
 /// A unique identifier for a callable in a RIR program.
 #[derive(Clone, Copy, Debug, Default, Hash, Eq, PartialEq, PartialOrd, Ord)]
@@ -305,7 +353,7 @@ impl Display for FcmpConditionCode {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Instruction {
+pub enum InstructionKind {
     Store(Operand, Variable),
     Call(CallableId, Vec<Operand>, Option<Variable>),
     Jump(BlockId),
@@ -334,7 +382,7 @@ pub enum Instruction {
     Return,
 }
 
-impl Display for Instruction {
+impl Display for InstructionKind {
     #[allow(clippy::too_many_lines)]
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         fn write_binary_instruction(

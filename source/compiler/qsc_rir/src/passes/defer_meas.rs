@@ -4,7 +4,7 @@
 #[cfg(test)]
 mod tests;
 
-use crate::rir::{CallableType, Instruction, Program};
+use crate::rir::{CallableType, InstructionKind, Program};
 use rustc_hash::FxHashSet;
 
 /// Defers measurements in each block of a program to the end of that block.
@@ -37,22 +37,24 @@ pub fn defer_measurements(program: &mut Program) {
     }
 
     for (_, block) in program.blocks.iter_mut() {
-        block.0.sort_by(|a, b| match (a, b) {
+        block.0.sort_by(|a, b| match (&a.kind, &b.kind) {
             // Return, branch, and jump instructions are terminators and should come last.
-            (Instruction::Return | Instruction::Branch(..) | Instruction::Jump(..), _) => {
-                std::cmp::Ordering::Greater
-            }
-            (_, Instruction::Return | Instruction::Branch(..) | Instruction::Jump(..)) => {
-                std::cmp::Ordering::Less
-            }
+            (
+                InstructionKind::Return | InstructionKind::Branch(..) | InstructionKind::Jump(..),
+                _,
+            ) => std::cmp::Ordering::Greater,
+            (
+                _,
+                InstructionKind::Return | InstructionKind::Branch(..) | InstructionKind::Jump(..),
+            ) => std::cmp::Ordering::Less,
 
             // Measurements and output recordings should maintain their order relative to the same type.
-            (Instruction::Call(a_id, _, _), Instruction::Call(b_id, _, _))
+            (InstructionKind::Call(a_id, _, _), InstructionKind::Call(b_id, _, _))
                 if measure_call_ids.contains(a_id) && measure_call_ids.contains(b_id) =>
             {
                 std::cmp::Ordering::Equal
             }
-            (Instruction::Call(a_id, _, _), Instruction::Call(b_id, _, _))
+            (InstructionKind::Call(a_id, _, _), InstructionKind::Call(b_id, _, _))
                 if output_recording_ids.contains(a_id) && output_recording_ids.contains(b_id) =>
             {
                 std::cmp::Ordering::Equal
@@ -60,21 +62,21 @@ pub fn defer_measurements(program: &mut Program) {
 
             // Output recording should come after any other instruction except for terminator instructions,
             // which are handled above.
-            (Instruction::Call(a_id, _, _), _) if output_recording_ids.contains(a_id) => {
+            (InstructionKind::Call(a_id, _, _), _) if output_recording_ids.contains(a_id) => {
                 std::cmp::Ordering::Greater
             }
-            (_, Instruction::Call(b_id, _, _)) if output_recording_ids.contains(b_id) => {
+            (_, InstructionKind::Call(b_id, _, _)) if output_recording_ids.contains(b_id) => {
                 std::cmp::Ordering::Less
             }
 
             // Measurements should come after any other instruction except for terminator instructions,
             // and output recording instructions, which are handled above.
-            (Instruction::Call(a_id, _, _), Instruction::Call(..))
+            (InstructionKind::Call(a_id, _, _), InstructionKind::Call(..))
                 if measure_call_ids.contains(a_id) =>
             {
                 std::cmp::Ordering::Greater
             }
-            (Instruction::Call(..), Instruction::Call(b_id, _, _))
+            (InstructionKind::Call(..), InstructionKind::Call(b_id, _, _))
                 if measure_call_ids.contains(b_id) =>
             {
                 std::cmp::Ordering::Less

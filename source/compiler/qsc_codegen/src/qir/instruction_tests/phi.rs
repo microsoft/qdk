@@ -9,7 +9,7 @@ use qsc_rir::rir;
 #[should_panic(expected = "phi instruction should have at least one argument")]
 fn phi_with_empty_args() {
     let args = [];
-    let inst = rir::Instruction::Phi(
+    let inst = rir::InstructionKind::Phi(
         args.to_vec(),
         rir::Variable {
             variable_id: rir::VariableId(0),
@@ -28,7 +28,7 @@ fn phi_with_single_arg() {
         }),
         rir::BlockId(3),
     )];
-    let inst = rir::Instruction::Phi(
+    let inst = rir::InstructionKind::Phi(
         args.to_vec(),
         rir::Variable {
             variable_id: rir::VariableId(0),
@@ -57,7 +57,7 @@ fn phi_with_multiple_args() {
             rir::BlockId(7),
         ),
     ];
-    let inst = rir::Instruction::Phi(
+    let inst = rir::InstructionKind::Phi(
         args.to_vec(),
         rir::Variable {
             variable_id: rir::VariableId(0),

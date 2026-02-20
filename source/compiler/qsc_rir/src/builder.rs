@@ -4,8 +4,8 @@
 use qsc_data_structures::target::TargetCapabilityFlags;
 
 use crate::rir::{
-    Block, BlockId, Callable, CallableId, CallableType, Instruction, Literal, Operand, Program, Ty,
-    Variable, VariableId,
+    Block, BlockId, Callable, CallableId, CallableType, InstructionKind, Literal, Operand, Program,
+    Ty, Variable, VariableId,
 };
 
 #[must_use]
@@ -226,13 +226,13 @@ pub fn bell_program() -> Program {
     program.entry = CallableId(5);
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
-            Instruction::Call(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Call(
                 CallableId(0),
                 vec![Operand::Literal(Literal::Qubit(0))],
                 None,
             ),
-            Instruction::Call(
+            InstructionKind::Call(
                 CallableId(1),
                 vec![
                     Operand::Literal(Literal::Qubit(0)),
@@ -240,7 +240,7 @@ pub fn bell_program() -> Program {
                 ],
                 None,
             ),
-            Instruction::Call(
+            InstructionKind::Call(
                 CallableId(2),
                 vec![
                     Operand::Literal(Literal::Qubit(0)),
@@ -248,7 +248,7 @@ pub fn bell_program() -> Program {
                 ],
                 None,
             ),
-            Instruction::Call(
+            InstructionKind::Call(
                 CallableId(2),
                 vec![
                     Operand::Literal(Literal::Qubit(1)),
@@ -256,7 +256,7 @@ pub fn bell_program() -> Program {
                 ],
                 None,
             ),
-            Instruction::Call(
+            InstructionKind::Call(
                 CallableId(3),
                 vec![
                     Operand::Literal(Literal::Integer(2)),
@@ -264,7 +264,7 @@ pub fn bell_program() -> Program {
                 ],
                 None,
             ),
-            Instruction::Call(
+            InstructionKind::Call(
                 CallableId(4),
                 vec![
                     Operand::Literal(Literal::Result(0)),
@@ -272,7 +272,7 @@ pub fn bell_program() -> Program {
                 ],
                 None,
             ),
-            Instruction::Call(
+            InstructionKind::Call(
                 CallableId(4),
                 vec![
                     Operand::Literal(Literal::Result(1)),
@@ -280,7 +280,7 @@ pub fn bell_program() -> Program {
                 ],
                 None,
             ),
-            Instruction::Return,
+            InstructionKind::Return,
         ]),
     );
     program.num_qubits = 2;
@@ -316,18 +316,18 @@ pub fn teleport_program() -> Program {
     program.entry = CallableId(7);
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
-            Instruction::Call(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Call(
                 CallableId(2),
                 vec![Operand::Literal(Literal::Qubit(0))],
                 None,
             ),
-            Instruction::Call(
+            InstructionKind::Call(
                 CallableId(0),
                 vec![Operand::Literal(Literal::Qubit(2))],
                 None,
             ),
-            Instruction::Call(
+            InstructionKind::Call(
                 CallableId(3),
                 vec![
                     Operand::Literal(Literal::Qubit(2)),
@@ -335,7 +335,7 @@ pub fn teleport_program() -> Program {
                 ],
                 None,
             ),
-            Instruction::Call(
+            InstructionKind::Call(
                 CallableId(3),
                 vec![
                     Operand::Literal(Literal::Qubit(0)),
@@ -343,12 +343,12 @@ pub fn teleport_program() -> Program {
                 ],
                 None,
             ),
-            Instruction::Call(
+            InstructionKind::Call(
                 CallableId(0),
                 vec![Operand::Literal(Literal::Qubit(0))],
                 None,
             ),
-            Instruction::Call(
+            InstructionKind::Call(
                 CallableId(4),
                 vec![
                     Operand::Literal(Literal::Qubit(0)),
@@ -356,7 +356,7 @@ pub fn teleport_program() -> Program {
                 ],
                 None,
             ),
-            Instruction::Call(
+            InstructionKind::Call(
                 CallableId(5),
                 vec![Operand::Literal(Literal::Result(0))],
                 Some(Variable {
@@ -364,7 +364,7 @@ pub fn teleport_program() -> Program {
                     ty: Ty::Boolean,
                 }),
             ),
-            Instruction::Branch(
+            InstructionKind::Branch(
                 Variable {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
@@ -376,19 +376,19 @@ pub fn teleport_program() -> Program {
     );
     program.blocks.insert(
         BlockId(1),
-        Block(vec![
-            Instruction::Call(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Call(
                 CallableId(1),
                 vec![Operand::Literal(Literal::Qubit(1))],
                 None,
             ),
-            Instruction::Jump(BlockId(2)),
+            InstructionKind::Jump(BlockId(2)),
         ]),
     );
     program.blocks.insert(
         BlockId(2),
-        Block(vec![
-            Instruction::Call(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Call(
                 CallableId(4),
                 vec![
                     Operand::Literal(Literal::Qubit(2)),
@@ -396,7 +396,7 @@ pub fn teleport_program() -> Program {
                 ],
                 None,
             ),
-            Instruction::Call(
+            InstructionKind::Call(
                 CallableId(5),
                 vec![Operand::Literal(Literal::Result(1))],
                 Some(Variable {
@@ -404,7 +404,7 @@ pub fn teleport_program() -> Program {
                     ty: Ty::Boolean,
                 }),
             ),
-            Instruction::Branch(
+            InstructionKind::Branch(
                 Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
@@ -416,19 +416,19 @@ pub fn teleport_program() -> Program {
     );
     program.blocks.insert(
         BlockId(3),
-        Block(vec![
-            Instruction::Call(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Call(
                 CallableId(2),
                 vec![Operand::Literal(Literal::Qubit(1))],
                 None,
             ),
-            Instruction::Jump(BlockId(4)),
+            InstructionKind::Jump(BlockId(4)),
         ]),
     );
     program.blocks.insert(
         BlockId(4),
-        Block(vec![
-            Instruction::Call(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Call(
                 CallableId(4),
                 vec![
                     Operand::Literal(Literal::Qubit(1)),
@@ -436,7 +436,7 @@ pub fn teleport_program() -> Program {
                 ],
                 None,
             ),
-            Instruction::Call(
+            InstructionKind::Call(
                 CallableId(6),
                 vec![
                     Operand::Literal(Literal::Result(2)),
@@ -444,7 +444,7 @@ pub fn teleport_program() -> Program {
                 ],
                 None,
             ),
-            Instruction::Return,
+            InstructionKind::Return,
         ]),
     );
     program.num_qubits = 3;

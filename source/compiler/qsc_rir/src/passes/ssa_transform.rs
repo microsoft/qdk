@@ -5,7 +5,7 @@
 mod tests;
 
 use crate::{
-    rir::{Block, BlockId, Instruction, Operand, Program, Variable, VariableId},
+    rir::{Block, BlockId, Instruction, InstructionKind, Operand, Program, Variable, VariableId},
     utils::get_variable_assignments,
 };
 use qsc_data_structures::index_map::IndexMap;
@@ -106,8 +106,15 @@ pub fn transform_to_ssa(program: &mut Program, preds: &IndexMap<BlockId, Vec<Blo
                         variable_id: next_var_id,
                         ty: operand.get_type(),
                     };
-                    let phi_node = Instruction::Phi(args, new_var);
-                    block.0.insert(0, phi_node);
+                    let phi_node = InstructionKind::Phi(args, new_var);
+                    let metadata = block.0.first().and_then(|instr| instr.metadata.clone());
+                    block.0.insert(
+                        0,
+                        Instruction {
+                            kind: phi_node,
+                            metadata,
+                        },
+                    );
                     var_map_updates.insert(variable_id, Operand::Variable(new_var));
                     next_var_id = next_var_id.successor();
                 }
@@ -169,9 +176,9 @@ fn map_variable_use_in_block(block: &mut Block, var_map: &mut FxHashMap<Variable
     let instrs = block.0.drain(..).collect::<Vec<_>>();
 
     for mut instr in instrs {
-        match &mut instr {
+        match &mut instr.kind {
             // Track the new value of the variable and omit the store instruction.
-            Instruction::Store(operand, var) => {
+            InstructionKind::Store(operand, var) => {
                 // Note this uses the mapped operand to make sure this variable points to whatever root literal or variable
                 // this operand corresponds to at this point in the block. This makes the new variable respect a point-in-time
                 // copy of the operand.
@@ -180,7 +187,7 @@ fn map_variable_use_in_block(block: &mut Block, var_map: &mut FxHashMap<Variable
             }
 
             // Replace any arguments with the new values of stored variables.
-            Instruction::Call(_, args, _) => {
+            InstructionKind::Call(_, args, _) => {
                 *args = args
                     .iter()
                     .map(|arg| match arg {
@@ -196,41 +203,41 @@ fn map_variable_use_in_block(block: &mut Block, var_map: &mut FxHashMap<Variable
             }
 
             // Replace the branch condition with the new value of the variable.
-            Instruction::Branch(var, _, _) => {
+            InstructionKind::Branch(var, _, _) => {
                 *var = var.map_to_variable(var_map);
             }
 
             // Two variable instructions, replace left and right operands with new values.
-            Instruction::Add(lhs, rhs, _)
-            | Instruction::Sub(lhs, rhs, _)
-            | Instruction::Mul(lhs, rhs, _)
-            | Instruction::Sdiv(lhs, rhs, _)
-            | Instruction::Srem(lhs, rhs, _)
-            | Instruction::Shl(lhs, rhs, _)
-            | Instruction::Ashr(lhs, rhs, _)
-            | Instruction::Fadd(lhs, rhs, _)
-            | Instruction::Fsub(lhs, rhs, _)
-            | Instruction::Fmul(lhs, rhs, _)
-            | Instruction::Fdiv(lhs, rhs, _)
-            | Instruction::Fcmp(_, lhs, rhs, _)
-            | Instruction::Icmp(_, lhs, rhs, _)
-            | Instruction::LogicalAnd(lhs, rhs, _)
-            | Instruction::LogicalOr(lhs, rhs, _)
-            | Instruction::BitwiseAnd(lhs, rhs, _)
-            | Instruction::BitwiseOr(lhs, rhs, _)
-            | Instruction::BitwiseXor(lhs, rhs, _) => {
+            InstructionKind::Add(lhs, rhs, _)
+            | InstructionKind::Sub(lhs, rhs, _)
+            | InstructionKind::Mul(lhs, rhs, _)
+            | InstructionKind::Sdiv(lhs, rhs, _)
+            | InstructionKind::Srem(lhs, rhs, _)
+            | InstructionKind::Shl(lhs, rhs, _)
+            | InstructionKind::Ashr(lhs, rhs, _)
+            | InstructionKind::Fadd(lhs, rhs, _)
+            | InstructionKind::Fsub(lhs, rhs, _)
+            | InstructionKind::Fmul(lhs, rhs, _)
+            | InstructionKind::Fdiv(lhs, rhs, _)
+            | InstructionKind::Fcmp(_, lhs, rhs, _)
+            | InstructionKind::Icmp(_, lhs, rhs, _)
+            | InstructionKind::LogicalAnd(lhs, rhs, _)
+            | InstructionKind::LogicalOr(lhs, rhs, _)
+            | InstructionKind::BitwiseAnd(lhs, rhs, _)
+            | InstructionKind::BitwiseOr(lhs, rhs, _)
+            | InstructionKind::BitwiseXor(lhs, rhs, _) => {
                 *lhs = lhs.mapped(var_map);
                 *rhs = rhs.mapped(var_map);
             }
 
             // Single variable instructions, replace operand with new value.
-            Instruction::BitwiseNot(operand, _) | Instruction::LogicalNot(operand, _) => {
+            InstructionKind::BitwiseNot(operand, _) | InstructionKind::LogicalNot(operand, _) => {
                 *operand = operand.mapped(var_map);
             }
 
             // Phi nodes are handled separately in the SSA transformation, but need to be passed through
             // like the unconditional terminators.
-            Instruction::Phi(..) | Instruction::Jump(..) | Instruction::Return => {}
+            InstructionKind::Phi(..) | InstructionKind::Jump(..) | InstructionKind::Return => {}
         }
         block.0.push(instr);
     }
