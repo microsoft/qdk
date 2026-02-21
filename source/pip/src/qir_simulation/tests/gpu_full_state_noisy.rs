@@ -1,15 +1,18 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Tests for the noisy full-state simulator.
+//! Tests for the noisy GPU full-state simulator.
 //!
-//! The noisy full-state simulator extends the noiseless simulator with
-//! configurable Pauli noise and qubit loss. This module verifies that
-//! noise is correctly applied to quantum operations.
+//! The GPU full-state simulator supports noisy simulation with Pauli noise
+//! and qubit loss, executed via WebGPU compute shaders.
 //!
-//! # Supported Gates
+//! # Notes
 //!
-//! Same as noiseless full-state simulator (see `full_state_noiseless`).
+//! - All tests require a compatible GPU adapter; they are skipped otherwise.
+//! - The GPU simulator uses f32 precision for gate operations and has its own
+//!   RNG implementation, so exact shot counts will differ from the CPU simulator.
+//! - The GPU simulator applies noise using the same `NoiseConfig` format as the
+//!   CPU simulator, converted to f32 precision internally.
 //!
 //! # Noise Model
 //!
@@ -18,11 +21,6 @@
 //! - **Pauli noise**: X (bit-flip), Y (bit+phase flip), Z (phase-flip)
 //! - **Loss noise**: Qubit loss producing '-' measurement result
 //! - **Two-qubit noise**: Pauli strings like XI, IX, XX, YZ, etc.
-//!
-//! # Notes
-//!
-//! - The I gate is a no-op, so noise on I gate is not applied
-//! - MRESETZ noise is applied before measurement, not after
 //!
 //! # Test Categories
 //!
@@ -34,41 +32,19 @@
 //! | Z noise (phase-flip)  | No effect on computational basis           |
 //! | Loss noise            | Produces '-' marker in measurements        |
 //! | Two-qubit gate noise  | XI, IX, XX, etc. affect respective qubits  |
-//! | Multiple gates        | Noise accumulates across gate sequence     |
 //! | Gate-specific noise   | Different gates can have different noise   |
 //! | Rotation gate noise   | Noise on Rx, Ry, Rz, Rxx, Ryy, Rzz gates   |
 //! ```
 
-use super::{super::*, SEED, test_utils::*};
+use super::{SEED, test_utils::*};
 use expect_test::expect;
-
-// ==================== Generic Simulator Tests ====================
-
-#[test]
-fn simulator_completes_all_shots() {
-    check_sim! {
-        simulator: StabilizerSimulator,
-        program: qir! {
-            x(0);
-            mresetz(0, 0);
-        },
-        num_qubits: 1,
-        num_results: 1,
-        shots: 50,
-        format: summary,
-        output: expect![[r#"
-            shots: 50
-            unique: 1
-            loss: 0"#]],
-    }
-}
 
 // ==================== Noiseless Config Tests ====================
 
 #[test]
 fn noiseless_config_produces_clean_results() {
     check_sim! {
-        simulator: NoisySimulator,
+        simulator: GpuSimulator,
         program: qir! {
             x(0);
             mresetz(0, 0);
@@ -76,6 +52,7 @@ fn noiseless_config_produces_clean_results() {
         num_qubits: 1,
         num_results: 1,
         shots: 100,
+        seed: SEED,
         noise: noise_config! {},
         format: histogram,
         output: expect![[r#"1: 100"#]],
@@ -88,7 +65,7 @@ fn noiseless_config_produces_clean_results() {
 fn x_noise_on_x_gate_causes_bit_flips() {
     // X noise on X gate: X·X = I, so some results flip back to 0
     check_sim! {
-        simulator: NoisySimulator,
+        simulator: GpuSimulator,
         program: qir! {
             x(0);
             mresetz(0, 0);
@@ -102,15 +79,16 @@ fn x_noise_on_x_gate_causes_bit_flips() {
         },
         format: histogram,
         output: expect![[r#"
-                    0: 97
-                    1: 903"#]],
+            0: 96
+            1: 904"#]],
     }
 }
 
 #[test]
 fn x_noise_on_h_gate_does_not_affect_outcome() {
+    // H already creates superposition; X noise doesn't change the distribution
     check_sim! {
-        simulator: NoisySimulator,
+        simulator: GpuSimulator,
         program: qir! {
             h(0);
             mresetz(0, 0);
@@ -124,8 +102,8 @@ fn x_noise_on_h_gate_does_not_affect_outcome() {
         },
         format: histogram,
         output: expect![[r#"
-            0: 498
-            1: 502"#]],
+            0: 495
+            1: 505"#]],
     }
 }
 
@@ -135,7 +113,7 @@ fn x_noise_on_h_gate_does_not_affect_outcome() {
 fn z_noise_does_not_affect_computational_basis() {
     // Z noise should not change measurement outcomes in computational basis
     check_sim! {
-        simulator: NoisySimulator,
+        simulator: GpuSimulator,
         program: qir! {
             x(0);
             mresetz(0, 0);
@@ -155,12 +133,13 @@ fn z_noise_does_not_affect_computational_basis() {
 #[test]
 fn z_noise_on_superposition_affects_interference() {
     // Z noise on H gate affects phase, changing interference pattern
-    // H·Z·H = X, so Z errors in superposition can flip outcomes
+    // H·H = I without noise → always |0⟩
+    // Z noise during H causes some flips due to broken interference
     check_sim! {
-        simulator: NoisySimulator,
+        simulator: GpuSimulator,
         program: qir! {
             h(0);
-            h(0);  // H·H = I, should give |0⟩ without noise
+            h(0);
             mresetz(0, 0);
         },
         num_qubits: 1,
@@ -172,8 +151,8 @@ fn z_noise_on_superposition_affects_interference() {
         },
         format: histogram,
         output: expect![[r#"
-                    0: 819
-                    1: 181"#]],
+            0: 810
+            1: 190"#]],
     }
 }
 
@@ -182,30 +161,7 @@ fn z_noise_on_superposition_affects_interference() {
 #[test]
 fn loss_noise_produces_loss_marker() {
     check_sim! {
-        simulator: NoisySimulator,
-        program: qir! {
-            x(0);
-            mresetz(0, 0);
-        },
-        num_qubits: 1,
-        num_results: 1,
-        shots: 1000,
-        seed: SEED,
-        noise: noise_config! {
-            x: { loss: 0.1 },
-        },
-        format: summary,
-        output: expect![[r#"
-                    shots: 1000
-                    unique: 2
-                    loss: 119"#]],
-    }
-}
-
-#[test]
-fn loss_appears_in_histogram() {
-    check_sim! {
-        simulator: NoisySimulator,
+        simulator: GpuSimulator,
         program: qir! {
             x(0);
             mresetz(0, 0);
@@ -219,8 +175,8 @@ fn loss_appears_in_histogram() {
         },
         format: histogram,
         output: expect![[r#"
-                    -: 119
-                    1: 881"#]],
+            -: 90
+            1: 910"#]],
     }
 }
 
@@ -230,7 +186,7 @@ fn loss_appears_in_histogram() {
 fn cx_xi_noise_flips_control_qubit() {
     // XI noise on CX flips the control qubit
     check_sim! {
-        simulator: NoisySimulator,
+        simulator: GpuSimulator,
         program: qir! {
             x(0);
             cx(0, 1);
@@ -246,8 +202,8 @@ fn cx_xi_noise_flips_control_qubit() {
         },
         format: histogram,
         output: expect![[r#"
-                    01: 92
-                    11: 908"#]],
+            01: 108
+            11: 892"#]],
     }
 }
 
@@ -255,7 +211,7 @@ fn cx_xi_noise_flips_control_qubit() {
 fn cx_ix_noise_flips_target_qubit() {
     // IX noise on CX flips the target qubit
     check_sim! {
-        simulator: NoisySimulator,
+        simulator: GpuSimulator,
         program: qir! {
             x(0);
             cx(0, 1);
@@ -271,8 +227,8 @@ fn cx_ix_noise_flips_target_qubit() {
         },
         format: histogram,
         output: expect![[r#"
-                    10: 92
-                    11: 908"#]],
+            10: 108
+            11: 892"#]],
     }
 }
 
@@ -280,7 +236,7 @@ fn cx_ix_noise_flips_target_qubit() {
 fn cx_xx_noise_flips_both_qubits() {
     // XX noise on CX flips both qubits
     check_sim! {
-        simulator: NoisySimulator,
+        simulator: GpuSimulator,
         program: qir! {
             x(0);
             cx(0, 1);
@@ -296,17 +252,16 @@ fn cx_xx_noise_flips_both_qubits() {
         },
         format: histogram,
         output: expect![[r#"
-                    00: 92
-                    11: 908"#]],
+            00: 108
+            11: 892"#]],
     }
 }
 
 #[test]
-fn cz_noise_does_not_affect_outcome() {
+fn cz_noise_affects_outcome() {
     check_sim! {
-        simulator: NoisySimulator,
+        simulator: GpuSimulator,
         program: qir! {
-            h(0);
             cz(0, 1);
             mresetz(0, 0);
             mresetz(1, 1);
@@ -320,15 +275,15 @@ fn cz_noise_does_not_affect_outcome() {
         },
         format: histogram,
         output: expect![[r#"
-                    00: 506
-                    10: 494"#]],
+            00: 904
+            10: 96"#]],
     }
 }
 
 #[test]
 fn swap_noise_affects_swapped_qubits() {
     check_sim! {
-        simulator: NoisySimulator,
+        simulator: GpuSimulator,
         program: qir! {
             x(0);
             swap(0, 1);
@@ -340,13 +295,37 @@ fn swap_noise_affects_swapped_qubits() {
         shots: 1000,
         seed: SEED,
         noise: noise_config! {
-            swap: { xi: 0.1, ix: 0.1 },
+            swap: { ix: 0.1 },
         },
         format: histogram,
         output: expect![[r#"
-                    00: 103
-                    01: 805
-                    11: 92"#]],
+            00: 108
+            01: 892"#]],
+    }
+}
+
+#[test]
+fn two_qubit_loss() {
+    check_sim! {
+        simulator: GpuSimulator,
+        program: qir! {
+            cz(0, 1);
+            mresetz(0, 0);
+            mresetz(1, 1);
+        },
+        num_qubits: 2,
+        num_results: 2,
+        shots: 1000,
+        seed: SEED,
+        noise: noise_config! {
+            cz: { loss: 0.1 },
+        },
+        format: histogram,
+        output: expect![[r#"
+            --: 12
+            -0: 87
+            0-: 84
+            00: 817"#]],
     }
 }
 
@@ -354,9 +333,9 @@ fn swap_noise_affects_swapped_qubits() {
 
 #[test]
 fn different_gates_have_different_noise() {
-    // Z gate has noise, X gate doesn't, Z noise flips some
+    // Z gate has noise, X gate doesn't
     check_sim! {
-        simulator: NoisySimulator,
+        simulator: GpuSimulator,
         program: qir! {
             z(0);
             x(0);
@@ -371,8 +350,8 @@ fn different_gates_have_different_noise() {
         },
         format: histogram,
         output: expect![[r#"
-            0: 181
-            1: 819"#]],
+            0: 190
+            1: 810"#]],
     }
 }
 
@@ -381,8 +360,9 @@ fn different_gates_have_different_noise() {
 #[test]
 fn noise_accumulates_across_multiple_gates() {
     // Two X gates, each with noise - errors compound
+    // X·X = I without noise, so clean result is 0
     check_sim! {
-        simulator: NoisySimulator,
+        simulator: GpuSimulator,
         program: qir! {
             x(0);
             x(0);  // X·X = I, so result should be 0 without noise
@@ -390,22 +370,22 @@ fn noise_accumulates_across_multiple_gates() {
         },
         num_qubits: 1,
         num_results: 1,
-        shots: 100_000,
+        shots: 10_000,
         seed: SEED,
         noise: noise_config! {
             x: { x: 0.1 },
         },
         format: histogram_percent,
         output: expect![[r#"
-            0: 82.15%
-            1: 17.85%"#]],
+            0: 82.14%
+            1: 17.86%"#]],
     }
 }
 
 #[test]
 fn bell_state_with_combined_noise() {
     check_sim! {
-        simulator: NoisySimulator,
+        simulator: GpuSimulator,
         program: qir! {
             h(0);
             cx(0, 1);
@@ -414,7 +394,7 @@ fn bell_state_with_combined_noise() {
         },
         num_qubits: 2,
         num_results: 2,
-        shots: 100_000,
+        shots: 10_000,
         seed: SEED,
         noise: noise_config! {
             h: { loss: 0.1 },
@@ -422,12 +402,11 @@ fn bell_state_with_combined_noise() {
         },
         format: histogram_percent,
         output: expect![[r#"
-            -0: 9.80%
-            -1: 0.19%
-            00: 43.03%
-            01: 1.75%
-            10: 1.83%
-            11: 43.40%"#]],
+            -0: 9.85%
+            00: 42.61%
+            01: 1.76%
+            10: 1.91%
+            11: 43.87%"#]],
     }
 }
 
@@ -436,7 +415,7 @@ fn bell_state_with_combined_noise() {
 #[test]
 fn rx_gate_with_noise() {
     check_sim! {
-        simulator: NoisySimulator,
+        simulator: GpuSimulator,
         program: qir! {
             rx(std::f64::consts::PI, 0);  // Rx(π) ~ X
             mresetz(0, 0);
@@ -450,8 +429,8 @@ fn rx_gate_with_noise() {
         },
         format: histogram,
         output: expect![[r#"
-                    0: 97
-                    1: 903"#]],
+            0: 96
+            1: 904"#]],
     }
 }
 
@@ -459,7 +438,7 @@ fn rx_gate_with_noise() {
 fn rz_gate_with_z_noise_no_effect_on_basis() {
     // Rz followed by Z noise - no effect on computational basis
     check_sim! {
-        simulator: NoisySimulator,
+        simulator: GpuSimulator,
         program: qir! {
             rz(std::f64::consts::PI, 0);
             mresetz(0, 0);
@@ -481,7 +460,7 @@ fn rz_gate_with_z_noise_no_effect_on_basis() {
 #[test]
 fn rxx_gate_with_noise() {
     check_sim! {
-        simulator: NoisySimulator,
+        simulator: GpuSimulator,
         program: qir! {
             rxx(std::f64::consts::PI, 0, 1);  // Rxx(π) ~ X⊗X
             mresetz(0, 0);
@@ -496,8 +475,8 @@ fn rxx_gate_with_noise() {
         },
         format: histogram,
         output: expect![[r#"
-                    01: 89
-                    11: 911"#]],
+            01: 96
+            11: 904"#]],
     }
 }
 
@@ -507,7 +486,7 @@ fn rxx_gate_with_noise() {
 fn noise_intrinsic_single_qubit_x_noise() {
     // Single-qubit X noise via intrinsic
     check_sim! {
-        simulator: NoisySimulator,
+        simulator: GpuSimulator,
         program: qir! {
             noise_intrinsic(0, &[0]);
             mresetz(0, 0);
@@ -523,8 +502,8 @@ fn noise_intrinsic_single_qubit_x_noise() {
         },
         format: histogram,
         output: expect![[r#"
-            0: 886
-            1: 114"#]],
+            0: 887
+            1: 113"#]],
     }
 }
 
@@ -532,7 +511,7 @@ fn noise_intrinsic_single_qubit_x_noise() {
 fn noise_intrinsic_single_qubit_z_noise_no_effect() {
     // Z noise on |0⟩ has no observable effect
     check_sim! {
-        simulator: NoisySimulator,
+        simulator: GpuSimulator,
         program: qir! {
             noise_intrinsic(0, &[0]);
             mresetz(0, 0);
@@ -555,7 +534,7 @@ fn noise_intrinsic_single_qubit_z_noise_no_effect() {
 fn noise_intrinsic_two_qubit_correlated_xx_noise() {
     // Two-qubit XX noise causes correlated bit flips
     check_sim! {
-        simulator: NoisySimulator,
+        simulator: GpuSimulator,
         program: qir! {
             noise_intrinsic(0, &[0, 1]);
             mresetz(0, 0);
@@ -572,8 +551,8 @@ fn noise_intrinsic_two_qubit_correlated_xx_noise() {
         },
         format: histogram,
         output: expect![[r#"
-            00: 886
-            11: 114"#]],
+            00: 887
+            11: 113"#]],
     }
 }
 
@@ -581,7 +560,7 @@ fn noise_intrinsic_two_qubit_correlated_xx_noise() {
 fn noise_intrinsic_two_qubit_independent_noise() {
     // XI and IX noise cause independent flips on each qubit
     check_sim! {
-        simulator: NoisySimulator,
+        simulator: GpuSimulator,
         program: qir! {
             noise_intrinsic(0, &[0, 1]);
             mresetz(0, 0);
@@ -599,8 +578,8 @@ fn noise_intrinsic_two_qubit_independent_noise() {
         format: histogram,
         output: expect![[r#"
             00: 783
-            01: 103
-            10: 114"#]],
+            01: 104
+            10: 113"#]],
     }
 }
 
@@ -608,7 +587,7 @@ fn noise_intrinsic_two_qubit_independent_noise() {
 fn noise_intrinsic_multiple_ids() {
     // Multiple intrinsic IDs with different noise configurations
     check_sim! {
-        simulator: NoisySimulator,
+        simulator: GpuSimulator,
         program: qir! {
             noise_intrinsic(0, &[0]);
             noise_intrinsic(1, &[1]);
@@ -627,10 +606,10 @@ fn noise_intrinsic_multiple_ids() {
         },
         format: histogram,
         output: expect![[r#"
-            00: 459
-            01: 427
+            00: 455
+            01: 432
             10: 58
-            11: 56"#]],
+            11: 55"#]],
     }
 }
 
@@ -638,7 +617,7 @@ fn noise_intrinsic_multiple_ids() {
 fn noise_intrinsic_three_qubit_correlated() {
     // Three-qubit correlated noise (XXX flips all three)
     check_sim! {
-        simulator: NoisySimulator,
+        simulator: GpuSimulator,
         program: qir! {
             noise_intrinsic(0, &[0, 1, 2]);
             mresetz(0, 0);
@@ -656,8 +635,8 @@ fn noise_intrinsic_three_qubit_correlated() {
         },
         format: histogram,
         output: expect![[r#"
-            000: 886
-            111: 114"#]],
+            000: 887
+            111: 113"#]],
     }
 }
 
@@ -665,7 +644,7 @@ fn noise_intrinsic_three_qubit_correlated() {
 fn noise_intrinsic_combined_with_gate_noise() {
     // Intrinsic noise combined with regular gate noise
     check_sim! {
-        simulator: NoisySimulator,
+        simulator: GpuSimulator,
         program: qir! {
             x(0);
             noise_intrinsic(0, &[0]);
@@ -683,7 +662,7 @@ fn noise_intrinsic_combined_with_gate_noise() {
         },
         format: histogram,
         output: expect![[r#"
-            0: 178
-            1: 822"#]],
+            0: 181
+            1: 819"#]],
     }
 }

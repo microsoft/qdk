@@ -1,9 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-#[cfg(test)]
-mod tests;
-
 use crate::qir_simulation::{NoiseConfig, QirInstruction, QirInstructionId, unbind_noise_config};
 use pyo3::{IntoPyObjectExt, exceptions::PyValueError, prelude::*, types::PyList};
 use pyo3::{PyResult, pyfunction};
@@ -145,7 +142,7 @@ where
         .into_py_any(py)
 }
 
-fn run<SimulatorBuilder, Noise, S>(
+pub(crate) fn run<SimulatorBuilder, Noise, S>(
     instructions: &[QirInstruction],
     num_qubits: u32,
     num_results: u32,
@@ -210,7 +207,7 @@ where
     values
 }
 
-fn run_shot<S: Simulator>(instructions: &[QirInstruction], sim: &mut S) {
+pub(crate) fn run_shot<S: Simulator>(instructions: &[QirInstruction], sim: &mut S) {
     for qir_inst in instructions {
         match qir_inst {
             QirInstruction::OneQubitGate(id, qubit) => match id {

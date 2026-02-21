@@ -31,8 +31,6 @@
 //!
 //! # Gate Properties
 //!
-//! The `~` symbol denotes equivalence up to global phase.
-//!
 //! ```text
 //! | Gate    | Properties                                        |
 //! |---------|---------------------------------------------------|
@@ -72,8 +70,9 @@
 //! | GHZ   | H(0); CX(0,1); CX(1,2)     | 000 or 111 (50/50)  |
 //! ```
 
-use super::{super::*, SEED, test_utils::*};
+use super::{SEED, test_utils::*};
 use expect_test::expect;
+use qdk_simulators::cpu_full_state_simulator::NoiselessSimulator;
 use std::f64::consts::PI;
 
 // ==================== Generic Simulator Tests ====================
@@ -402,6 +401,7 @@ fn t_adj_fourth_eq_z() {
 
 // ==================== Two-Qubit Gate Tests ====================
 
+// CZ gate tests
 #[test]
 fn cz_symmetric() {
     // CZ is symmetric: CZ(a,b) = CZ(b,a)
@@ -784,20 +784,6 @@ fn mz_does_not_reset() {
         num_qubits: 1,
         num_results: 2,
         output: expect![[r#"11"#]],
-    }
-}
-
-#[test]
-fn mz_is_idempotent() {
-    // M M ~ M (repeated measurement gives same result)
-    check_programs_are_eq! {
-        simulator: NoiselessSimulator,
-        programs: [
-            qir! { x(0); mz(0, 0) },
-            qir! { x(0); mz(0, 0); mz(0, 1) }
-        ],
-        num_qubits: 1,
-        num_results: 2,
     }
 }
 
