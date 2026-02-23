@@ -242,8 +242,6 @@ const _opToRenderData = (
   // Set y coords
   renderData.controlsY = controls?.map((reg) => _getRegY(reg, registers)) || [];
   renderData.targetsY = targets.map((reg) => _getRegY(reg, registers));
-  const topY = Math.min(...(renderData.targetsY as number[]));
-  const bottomY = Math.max(...(renderData.targetsY as number[]));
 
   if (isConditional) {
     // Classically-controlled operations
@@ -252,95 +250,38 @@ const _opToRenderData = (
         "No children operations found for classically-controlled operation.",
       );
 
-    // Gates to display when classical bit is 0.
-    const onZeroOps: ComponentGrid = children
-      .map((col) => ({
-        components: col.components.filter(
-          (op) => op.conditionalRender === ConditionalRender.OnZero,
-        ),
-      }))
-      .filter((col) => col.components.length > 0);
-
-    let childrenInstrs = processOperations(
-      onZeroOps,
-      topY,
-      bottomY,
-      registers,
-      renderLocations,
-    );
-    const zeroGates: GateRenderData[][] = childrenInstrs.renderDataArray;
-    const zeroChildWidth: number = childrenInstrs.svgWidth;
-    const zeroChildMaxTopPadding = childrenInstrs.maxTopPadding;
-    const zeroChildMaxBottomPadding = childrenInstrs.maxBottomPadding;
-
-    // Gates to display when classical bit is 1.
-    const onOneOps: ComponentGrid = children
-      .map((col) => ({
-        components: col.components.filter(
-          (op) => op.conditionalRender !== ConditionalRender.OnZero,
-        ),
-      }))
-      .filter((col) => col.components.length > 0);
-    childrenInstrs = processOperations(
-      onOneOps,
-      topY,
-      bottomY,
-      registers,
-      renderLocations,
-    );
-    const oneGates: GateRenderData[][] = childrenInstrs.renderDataArray;
-    const oneChildWidth: number = childrenInstrs.svgWidth;
-    const oneChildMaxTopPadding = childrenInstrs.maxTopPadding;
-    const oneChildMaxBottomPadding = childrenInstrs.maxBottomPadding;
-
-    // Subtract startX (left-side) and 2*gatePadding (right-side) from nested child gates width
-    const width: number =
-      Math.max(zeroChildWidth, oneChildWidth) - startX - gatePadding * 2;
-
-    const maxTopPadding = Math.max(
-      zeroChildMaxTopPadding,
-      oneChildMaxTopPadding,
-    );
-    const maxBottomPadding = Math.max(
-      zeroChildMaxBottomPadding,
-      oneChildMaxBottomPadding,
-    );
-
     renderData.type = GateType.ClassicalControlled;
-    renderData.children = [zeroGates, oneGates];
-    // Add additional width from control button and inner box padding for dashed box
-    renderData.width = width + controlBtnOffset + groupPaddingX * 2;
-    renderData.topPadding = maxTopPadding + groupTopPadding;
-    renderData.bottomPadding = maxBottomPadding + groupBottomPadding;
+    renderData.label = gate;
 
-    // Set targets to first and last quantum registers so we can render the surrounding box
-    // around all quantum registers.
-    const qubitsY: number[] = Object.values(registers).map(({ y }) => y);
-    if (qubitsY.length > 0)
-      renderData.targetsY = [Math.min(...qubitsY), Math.max(...qubitsY)];
+    _processChildren(renderData, children, registers, renderLocations);
+
+    // Fill in the ID to be displayed in each control wire's circle.
+    renderData.classicalControlIds =
+      controls
+        ?.map(
+          (reg) =>
+            op.metadata?.controlResultIds?.find(
+              (e) => e[0].qubit === reg.qubit && e[0].result === reg.result,
+            )?.[1],
+        )
+        .map((id) => id ?? null) || [];
+
+    // Add additional width for classical control circle
+    renderData.width += controlBtnOffset;
   } else if (
     conditionalRender == ConditionalRender.AsGroup &&
-    (children?.length || 0) > 0
+    children &&
+    (children.length || 0) > 0
   ) {
-    const childrenInstrs = processOperations(
-      children!,
-      topY,
-      bottomY,
-      registers,
-      renderLocations,
-    );
+    // Grouped operations
+
     renderData.type = GateType.Group;
-    renderData.label = gate;
-    renderData.children = childrenInstrs.renderDataArray;
     // _zoomButton function in gateFormatter.ts relies on
     // 'expanded' attribute to render zoom button
     renderData.dataAttributes = { expanded: "true" };
-    // Subtract startX (left-side) and add inner box padding for dashed box
-    renderData.width =
-      childrenInstrs.svgWidth - startX - gatePadding * 3 + groupPaddingX * 2; // (svgWidth includes 3 extra gate paddings)
-    renderData.topPadding = childrenInstrs.maxTopPadding + groupTopPadding;
-    renderData.bottomPadding =
-      childrenInstrs.maxBottomPadding + groupBottomPadding;
+    renderData.label = gate;
+
+    _processChildren(renderData, children, registers, renderLocations);
   } else if (op.kind === "measurement") {
     renderData.type = GateType.Measure;
   } else if (op.kind === "ket") {
@@ -505,17 +446,20 @@ const _fillRenderDataX = (
           {
             // Subtract startX offset from nested gates and add offset and padding
             let offset: number = x - startX + groupPaddingX;
-            if (renderData.type === GateType.ClassicalControlled)
+            if (renderData.type === GateType.ClassicalControlled) {
               offset += controlBtnOffset;
+            }
 
             // Offset each x coord in children gates
             _offsetChildrenX(renderData.children, offset);
 
-            renderData.x = x + columnWidths[colIndex] / 2;
+            // Groups should be left-aligned in their column
+            renderData.x = x + renderData.width / 2;
           }
           break;
 
         default:
+          // Center gate in column
           renderData.x = x + columnWidths[colIndex] / 2;
           break;
       }
@@ -543,5 +487,38 @@ const _offsetChildrenX = (
     });
   });
 };
+
+/**
+ * Processes the children operations and updates the render data accordingly.
+ *
+ * @param renderData        Render data of the parent operation, to be updated with children data.
+ * @param children          Nested operations to be processed.
+ * @param registers         Mapping from qubit IDs to register render data.
+ * @param renderLocations   Optional function to map source locations to link hrefs and titles
+ */
+function _processChildren(
+  renderData: GateRenderData,
+  children: ComponentGrid,
+  registers: RegisterMap,
+  renderLocations?: (s: SourceLocation[]) => { title: string; href: string },
+) {
+  const topY = Math.min(...(renderData.targetsY as number[]));
+  const bottomY = Math.max(...(renderData.targetsY as number[]));
+
+  const childrenInstrs = processOperations(
+    children,
+    topY,
+    bottomY,
+    registers,
+    renderLocations,
+  );
+
+  renderData.children = childrenInstrs.renderDataArray;
+  renderData.width =
+    childrenInstrs.svgWidth - startX - gatePadding * 3 + groupPaddingX * 2; // (svgWidth includes 3 extra gate paddings)
+  renderData.topPadding = childrenInstrs.maxTopPadding + groupTopPadding;
+  renderData.bottomPadding =
+    childrenInstrs.maxBottomPadding + groupBottomPadding;
+}
 
 export { processOperations };

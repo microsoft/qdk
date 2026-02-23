@@ -413,10 +413,7 @@ class CircuitEvents {
           return;
 
         // Add temporary dropzones specific to this operation
-        const [minTarget, maxTarget] = getMinMaxRegIdx(
-          this.selectedOperation,
-          this.wireData.length,
-        );
+        const [minTarget, maxTarget] = getMinMaxRegIdx(this.selectedOperation);
         for (let wire = minTarget; wire <= maxTarget; wire++) {
           if (wire === this.selectedWire) continue;
           const indexes = locationStringToIndexes(selectedLocation);
@@ -921,17 +918,11 @@ class CircuitEvents {
               );
               if (!selectedOperationParent) return;
 
-              const [minTarget, maxTarget] = getMinMaxRegIdx(
-                selectedOperation,
-                this.wireData.length,
-              );
+              const [minTarget, maxTarget] = getMinMaxRegIdx(selectedOperation);
               selectedOperationParent[columnIndex].components.forEach(
                 (op, opIndex) => {
                   if (opIndex === position) return; // Don't check the selected operation against itself
-                  const [minOp, maxOp] = getMinMaxRegIdx(
-                    op,
-                    this.wireData.length,
-                  );
+                  const [minOp, maxOp] = getMinMaxRegIdx(op);
                   // Check if selectedOperation's range overlaps with op's range
                   if (
                     (minOp >= minTarget && minOp <= maxTarget) ||

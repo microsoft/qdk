@@ -52,7 +52,7 @@ export interface GateRenderData {
   /** Gate width. */
   width: number;
   /** Children operations as part of group. */
-  children?: GateRenderData[][] | GateRenderData[][][];
+  children?: GateRenderData[][];
   /** Vertical space from the top of this gate to the top of the topmost contained gate. 0 for non-groups. */
   topPadding: number;
   /** Vertical space from the bottom of this gate to the bottom of the bottommost contained gate. 0 for non-groups. */
@@ -61,4 +61,6 @@ export interface GateRenderData {
   dataAttributes?: DataAttributes;
   /** Link href and title for clickable gate. */
   link?: { href: string; title: string };
+  /** Labels for the classical control registers (applicable only for GateType.ClassicalControlled). */
+  classicalControlIds?: (number | null)[];
 }
