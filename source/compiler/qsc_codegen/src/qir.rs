@@ -10,7 +10,9 @@ mod tests;
 use qsc_data_structures::{attrs::Attributes, target::TargetCapabilityFlags};
 use qsc_eval::val::Value;
 use qsc_lowerer::map_hir_package_to_fir;
-use qsc_partial_eval::{ProgramEntry, partially_evaluate, partially_evaluate_call};
+use qsc_partial_eval::{
+    PartialEvalConfig, ProgramEntry, partially_evaluate, partially_evaluate_call,
+};
 use qsc_rca::PackageStoreComputeProperties;
 use qsc_rir::{
     passes::check_and_transform,
@@ -45,14 +47,14 @@ pub fn fir_to_rir(
     capabilities: TargetCapabilityFlags,
     compute_properties: Option<PackageStoreComputeProperties>,
     entry: &ProgramEntry,
-    generate_debug_metadata: bool,
+    partial_eval_config: PartialEvalConfig,
 ) -> Result<(Program, Program), qsc_partial_eval::Error> {
     let mut program = get_rir_from_compilation(
         fir_store,
         compute_properties,
         entry,
         capabilities,
-        generate_debug_metadata,
+        partial_eval_config,
     )?;
     let orig = program.clone();
     check_and_transform(&mut program);
@@ -66,8 +68,15 @@ pub fn fir_to_qir(
     compute_properties: Option<PackageStoreComputeProperties>,
     entry: &ProgramEntry,
 ) -> Result<String, qsc_partial_eval::Error> {
-    let mut program =
-        get_rir_from_compilation(fir_store, compute_properties, entry, capabilities, false)?;
+    let mut program = get_rir_from_compilation(
+        fir_store,
+        compute_properties,
+        entry,
+        capabilities,
+        PartialEvalConfig {
+            generate_debug_metadata: false,
+        },
+    )?;
     check_and_transform(&mut program);
     Ok(ToQir::<String>::to_qir(&program, &program))
 }
@@ -91,7 +100,9 @@ pub fn fir_to_qir_from_callable(
         callable,
         args,
         capabilities,
-        false,
+        PartialEvalConfig {
+            generate_debug_metadata: false,
+        },
     )?;
     check_and_transform(&mut program);
     Ok(ToQir::<String>::to_qir(&program, &program))
@@ -102,7 +113,7 @@ fn get_rir_from_compilation(
     compute_properties: Option<PackageStoreComputeProperties>,
     entry: &ProgramEntry,
     capabilities: TargetCapabilityFlags,
-    generate_debug_metadata: bool,
+    partial_eval_config: PartialEvalConfig,
 ) -> Result<rir::Program, qsc_partial_eval::Error> {
     let compute_properties = compute_properties.unwrap_or_else(|| {
         let analyzer = qsc_rca::Analyzer::init(fir_store);
@@ -114,7 +125,7 @@ fn get_rir_from_compilation(
         &compute_properties,
         entry,
         capabilities,
-        generate_debug_metadata,
+        partial_eval_config,
     )
 }
 

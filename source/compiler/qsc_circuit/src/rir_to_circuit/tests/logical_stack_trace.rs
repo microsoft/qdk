@@ -1,13 +1,13 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::rir_to_circuit_2::build_operation_list;
+use crate::rir_to_circuit::build_operation_list;
 use crate::{
     builder::{
         GateInputs, LogicalStack, LogicalStackWithSourceLookup, OperationReceiver, ScopeStack,
         WireMap,
     },
-    rir_to_circuit_2::{FixedQubitRegisterMapBuilder, ProgramMap, reconstruct_control_flow},
+    rir_to_circuit::{FixedQubitRegisterMapBuilder, ProgramMap, reconstruct_control_flow},
 };
 use expect_test::Expect;
 use expect_test::expect;
@@ -19,7 +19,7 @@ use qsc_data_structures::{
 use qsc_fir::fir::{self};
 use qsc_frontend::compile::{self, PackageStore, compile};
 use qsc_lowerer::map_hir_package_to_fir;
-use qsc_partial_eval::ProgramEntry;
+use qsc_partial_eval::{PartialEvalConfig, ProgramEntry};
 use qsc_passes::{PackageType, PassContext, run_core_passes, run_default_passes};
 
 // A simple test receiver that records the formatted call stack and gate name
@@ -159,7 +159,9 @@ fn check_trace(file: &str, expr: &str, expect: &Expect) {
         capabilities,
         Some(compute_properties),
         &entry,
-        true,
+        PartialEvalConfig {
+            generate_debug_metadata: true,
+        },
     )
     .expect("RIR lowering should succeed");
 

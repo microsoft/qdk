@@ -377,7 +377,7 @@ fn reconstruct_control_flow(
     build_structured(blocks, &must_reach, &topo_index, entry, None)
 }
 
-pub fn make_circuit(
+pub fn rir_to_circuit(
     program_rir: &Program,
     config: TracerConfig,
     user_package_ids: &[PackageId],

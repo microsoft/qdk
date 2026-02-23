@@ -2,9 +2,9 @@
 // Licensed under the MIT License.
 
 #[cfg(test)]
-mod circuit_tests;
+mod circuit_classical_ctl_tests;
 #[cfg(test)]
-mod cond_tests;
+mod circuit_tests;
 mod debug;
 #[cfg(test)]
 mod debugger_tests;
@@ -27,7 +27,7 @@ use num_complex::Complex;
 use qsc_circuit::{
     Circuit, CircuitTracer, TracerConfig,
     operations::{entry_expr_for_qubit_operation, qubit_param_info},
-    rir_to_circuit_2::make_circuit,
+    rir_to_circuit::rir_to_circuit,
 };
 use qsc_codegen::qir::{fir_to_qir, fir_to_qir_from_callable, fir_to_rir};
 use qsc_data_structures::{
@@ -71,7 +71,7 @@ use qsc_lowerer::{
     map_fir_local_item_to_hir, map_fir_package_to_hir, map_hir_local_item_to_fir,
     map_hir_package_to_fir,
 };
-use qsc_partial_eval::ProgramEntry;
+use qsc_partial_eval::{PartialEvalConfig, ProgramEntry};
 use qsc_passes::{PackageType, PassContext};
 use qsc_rca::PackageStoreComputeProperties;
 use rustc_hash::FxHashSet;
@@ -339,26 +339,24 @@ impl Interpreter {
         let compute_properties = if capabilities == TargetCapabilityFlags::all() {
             None
         } else {
-            Some(
-                PassContext::run_fir_passes_on_fir(
-                    &fir_store,
-                    map_hir_package_to_fir(source_package_id),
-                    capabilities,
-                )
-                .map_err(|caps_errors| {
-                    let source_package = compiler
-                        .package_store()
-                        .get(source_package_id)
-                        .expect("package should exist in the package store");
-
-                    caps_errors
-                        .into_iter()
-                        .map(|error| {
-                            Error::Pass(WithSource::from_map(&source_package.sources, error))
-                        })
-                        .collect::<Vec<_>>()
-                })?,
+            let compute_properties = PassContext::run_fir_passes_on_fir(
+                &fir_store,
+                map_hir_package_to_fir(source_package_id),
+                capabilities,
             )
+            .map_err(|caps_errors| {
+                let source_package = compiler
+                    .package_store()
+                    .get(source_package_id)
+                    .expect("package should exist in the package store");
+
+                caps_errors
+                    .into_iter()
+                    .map(|error| Error::Pass(WithSource::from_map(&source_package.sources, error)))
+                    .collect::<Vec<_>>()
+            })?;
+
+            Some(compute_properties)
         };
 
         Ok(Self {
@@ -1065,8 +1063,8 @@ impl Interpreter {
             return Err(vec![Error::UnsupportedRuntimeCapabilities]);
         }
 
-        let program = self.compile_to_rir(entry_expr, true)?;
-        make_circuit(
+        let program = self.compile_to_rir_with_debug_metadata(entry_expr)?;
+        rir_to_circuit(
             &program,
             tracer_config,
             &[self.package, self.source_package],
@@ -1075,10 +1073,9 @@ impl Interpreter {
         .map_err(|e| vec![e.into()])
     }
 
-    fn compile_to_rir(
+    fn compile_to_rir_with_debug_metadata(
         &mut self,
         entry_expr: Option<&str>,
-        generate_debug_metadata: bool,
     ) -> std::result::Result<qsc_partial_eval::Program, Vec<Error>> {
         let (entry, compute_properties) = if let Some(entry_expr) = &entry_expr {
             // Compile the expression. This operation will set the expression as
@@ -1127,7 +1124,9 @@ impl Interpreter {
             self.capabilities,
             Some(compute_properties),
             &entry,
-            generate_debug_metadata,
+            PartialEvalConfig {
+                generate_debug_metadata: true,
+            },
         )
         .map_err(|e| {
             let hir_package_id = match e.span() {
