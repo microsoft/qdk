@@ -150,14 +150,10 @@ fn check_trace(file: &str, expr: &str, expect: &Expect) {
             .into(),
     };
 
-    let compute_properties = PassContext::run_fir_passes_on_fir(&fir_store, id, capabilities)
-        .expect("FIR passes should succeed");
-
-    // TODO: can we pass none for compute_properties?
     let (_, rir) = fir_to_rir(
         &fir_store,
         capabilities,
-        Some(compute_properties),
+        None,
         &entry,
         PartialEvalConfig {
             generate_debug_metadata: true,
@@ -598,7 +594,6 @@ fn entry_expr_allocates_qubits() {
 
 #[test]
 fn adjoint_operation_in_entry_expr() {
-    // TODO: adjoints not showing up
     check_trace(
         indoc! {"
         operation Foo (q : Qubit) : Unit
@@ -980,7 +975,6 @@ fn weird_repro() {
 
 #[test]
 fn dynamic_double_arg() {
-    // TODO: I don't know about this trace
     check_trace(
         indoc! {"
             operation Main() : Result[] {
@@ -990,7 +984,7 @@ fn dynamic_double_arg() {
                 let r = M(q0);
                 mutable theta = 1.0;
                 if r == One {
-                    set theta = 2.0;
+                    set theta = 2.0;d
                 };
                 if theta > 1.5 {
                     set theta = 3.0;
