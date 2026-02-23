@@ -81,6 +81,35 @@ fn ctl_unitary(gate: &str, targets: Vec<Register>, controls: Vec<Register>) -> O
     })
 }
 
+fn unitary_with_children(gate: &str, targets: Vec<Register>, children: ComponentGrid) -> Operation {
+    Operation::Unitary(Unitary {
+        gate: gate.to_string(),
+        args: vec![],
+        is_adjoint: false,
+        controls: vec![],
+        targets,
+        children,
+        metadata: None,
+    })
+}
+
+fn ctl_unitary_with_children(
+    gate: &str,
+    targets: Vec<Register>,
+    controls: Vec<Register>,
+    children: ComponentGrid,
+) -> Operation {
+    Operation::Unitary(Unitary {
+        gate: gate.to_string(),
+        args: vec![],
+        is_adjoint: false,
+        controls,
+        targets,
+        children,
+        metadata: None,
+    })
+}
+
 #[test]
 fn deserialize_circuit() {
     let contents = r#"
@@ -263,4 +292,174 @@ fn respect_column_info() {
         q_1    ───────── S ─────────
     "#]]
     .assert_eq(&c.to_string());
+}
+
+#[test]
+fn group_single_row() {
+    let c = Circuit {
+        qubits: vec![qubit(0), qubit_with_results(1, 1)],
+        component_grid: vec![
+            ComponentColumn {
+                components: vec![unitary("H", vec![q_reg(0)])],
+            },
+            ComponentColumn {
+                components: vec![unitary_with_children(
+                    "group",
+                    vec![q_reg(0)],
+                    vec![ComponentColumn {
+                        components: vec![unitary("X", vec![q_reg(0)])],
+                    }],
+                )],
+            },
+            ComponentColumn {
+                components: vec![measurement(1, 0)],
+            },
+            ComponentColumn {
+                components: vec![unitary("Z", vec![q_reg(0)])],
+            },
+        ],
+    };
+
+    expect![[r#"
+        q_0    ── H ─── [ [group] ─── X ──── ] ─────────── Z ──
+        q_1    ──────────────────────────────────── M ─────────
+                                                    ╘══════════
+    "#]]
+    .assert_eq(&c.display_with_groups().to_string());
+}
+
+#[test]
+fn group_multiple_rows() {
+    let c = Circuit {
+        qubits: vec![qubit(0), qubit_with_results(1, 1)],
+        component_grid: vec![
+            ComponentColumn {
+                components: vec![unitary("H", vec![q_reg(0)])],
+            },
+            ComponentColumn {
+                components: vec![unitary_with_children(
+                    "group",
+                    vec![q_reg(0), q_reg(1)],
+                    vec![
+                        ComponentColumn {
+                            components: vec![unitary("X", vec![q_reg(0)])],
+                        },
+                        ComponentColumn {
+                            components: vec![unitary("Y", vec![q_reg(1)])],
+                        },
+                    ],
+                )],
+            },
+            ComponentColumn {
+                components: vec![measurement(1, 0)],
+            },
+            ComponentColumn {
+                components: vec![unitary("Z", vec![q_reg(0)])],
+            },
+        ],
+    };
+
+    expect![[r#"
+        q_0    ── H ─── group[1] ─────────── Z ──
+                            ┆
+        q_1    ──────── group[1] ──── M ─────────
+                                      ╘══════════
+
+        [1] group:
+            q_0    ── X ─────────
+            q_1    ───────── Y ──
+
+    "#]]
+    .assert_eq(&c.display_with_groups().to_string());
+}
+
+#[test]
+fn controlled_group() {
+    let c = Circuit {
+        qubits: vec![qubit_with_results(0, 1), qubit_with_results(1, 1)],
+        component_grid: vec![
+            ComponentColumn {
+                components: vec![unitary("H", vec![q_reg(0)])],
+            },
+            ComponentColumn {
+                components: vec![measurement(0, 0)],
+            },
+            ComponentColumn {
+                components: vec![measurement(1, 0)],
+            },
+            ComponentColumn {
+                components: vec![ctl_unitary_with_children(
+                    "group",
+                    vec![q_reg(0), q_reg(1)],
+                    vec![q_reg(1)],
+                    vec![ComponentColumn {
+                        components: vec![unitary("X", vec![q_reg(0)])],
+                    }],
+                )],
+            },
+            ComponentColumn {
+                components: vec![unitary("Z", vec![q_reg(0)])],
+            },
+        ],
+    };
+
+    expect![[r#"
+        q_0    ── H ──── M ────────── group[1] ──── Z ──
+                         ╘════════════════╪═════════════
+        q_1    ──────────────── M ─────── ● ────────────
+                                ╘═══════════════════════
+
+        [1] group:
+            q_0    ── X ──
+
+            q_1    ───────
+
+    "#]]
+    .assert_eq(&c.display_with_groups().to_string());
+}
+
+#[test]
+fn classical_controlled_group() {
+    let c = Circuit {
+        qubits: vec![qubit_with_results(0, 0), qubit_with_results(1, 1)],
+        component_grid: vec![
+            ComponentColumn {
+                components: vec![unitary("H", vec![q_reg(0)])],
+            },
+            ComponentColumn {
+                components: vec![measurement(1, 0)],
+            },
+            ComponentColumn {
+                components: vec![ctl_unitary_with_children(
+                    "group",
+                    vec![q_reg(0), q_reg(1)],
+                    vec![c_reg(1, 0)],
+                    vec![
+                        ComponentColumn {
+                            components: vec![unitary("X", vec![q_reg(0)])],
+                        },
+                        ComponentColumn {
+                            components: vec![unitary("Y", vec![q_reg(1)])],
+                        },
+                    ],
+                )],
+            },
+            ComponentColumn {
+                components: vec![unitary("Z", vec![q_reg(0)])],
+            },
+        ],
+    };
+
+    expect![[r#"
+        q_0    ── H ────────── group[1] ──── Z ──
+                                   │
+        q_1    ───────── M ─── group[1] ─────────
+                         ╘════════ ● ════════════
+
+        [1] group:
+            q_0    ── X ─────────
+            q_1    ───────── Y ──
+
+    "#]]
+    .assert_eq(&c.display_with_groups().to_string());
 }
