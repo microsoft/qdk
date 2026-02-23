@@ -119,7 +119,7 @@ pub struct DiagnosticsData {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum OpID {
     Id = 0,
-    Reset = 1,
+    ResetZ = 1,
     X = 2,
     Y = 3,
     Z = 4,
@@ -173,7 +173,7 @@ impl TryFrom<u32> for OpID {
     fn try_from(value: u32) -> core::result::Result<Self, Self::Error> {
         match value {
             0 => Ok(Self::Id),
-            1 => Ok(Self::Reset),
+            1 => Ok(Self::ResetZ),
             2 => Ok(Self::X),
             3 => Ok(Self::Y),
             4 => Ok(Self::Z),
@@ -214,7 +214,7 @@ impl TryFrom<u32> for OpID {
 // Operation identifiers used by the GPU shader.
 pub mod ops {
     pub const ID: u32 = super::OpID::Id.as_u32();
-    pub const RESET: u32 = super::OpID::Reset.as_u32();
+    pub const RESETZ: u32 = super::OpID::ResetZ.as_u32();
     pub const X: u32 = super::OpID::X.as_u32();
     pub const Y: u32 = super::OpID::Y.as_u32();
     pub const Z: u32 = super::OpID::Z.as_u32();
@@ -252,8 +252,7 @@ pub mod ops {
     pub fn is_1q_op(op_id: u32) -> bool {
         matches!(
             op_id,
-            ID | RESET
-                | X
+            ID | X
                 | Y
                 | Z
                 | H
@@ -270,6 +269,7 @@ pub mod ops {
                 | MRESETZ
                 | MATRIX
                 | MOVE
+                | RESETZ
         )
     }
 
@@ -414,24 +414,27 @@ impl Op {
         op
     }
 
-    /// Reset gate: maps |0⟩ to |0⟩ and |1⟩ to |0⟩
-    /// Note: This is used with a qubit id of `u32::MAX` to indicate a reset of the entire system
+    /// Measure-only gate: projects qubit onto the measured state without resetting
+    /// Matrix will need to be determined in the simulator based on the measurement outcome
     #[must_use]
-    pub fn new_reset_gate(qubit: u32) -> Self {
-        let mut op = Self::new_1q_gate(ops::RESET, qubit);
-        op.r00 = 1.0; // |0⟩⟨0| coefficient
-        op.i00 = 0.0;
-        op.r01 = 1.0; // |0⟩⟨1| coefficient
-        op.i01 = 0.0;
-        op.r10 = 0.0; // |1⟩⟨0| coefficient
-        op.i10 = 0.0;
-        op.r11 = 0.0; // |1⟩⟨1| coefficient
-        op.i11 = 0.0;
+    pub fn new_mz_gate(qubit: u32, result_id: u32) -> Self {
+        let mut op = Self::new_1q_gate(ops::MZ, qubit);
+        // Store the result id in q2
+        op.q2 = result_id;
+        // Matrix will need to be determined in the simulator based on the measurement outcome
         op
     }
 
-    /// Reset gate: maps |0⟩ to |0⟩ and |1⟩ to |0⟩
-    /// Note: This is used with a qubit id of `u32::MAX` to indicate a reset of the entire system
+    /// `ResetZ` gate (quantum channel): measures qubit internally and resets to |0⟩
+    /// No measurement result is produced
+    #[must_use]
+    pub fn new_resetz_gate(qubit: u32) -> Self {
+        Self::new_1q_gate(ops::RESETZ, qubit)
+        // Matrix will need to be determined in the simulator based on the measurement outcome
+    }
+
+    /// `MResetZ` gate: measures qubit, stores result, and resets to |0⟩
+    /// Matrix will need to be determined in the simulator based on the measurement outcome
     #[must_use]
     pub fn new_mresetz_gate(qubit: u32, result_id: u32) -> Self {
         let mut op = Self::new_1q_gate(ops::MRESETZ, qubit);

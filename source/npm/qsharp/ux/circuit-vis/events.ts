@@ -1,7 +1,13 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { ComponentGrid, Operation, Qubit, Unitary } from "./circuit.js";
+import {
+  Circuit,
+  ComponentGrid,
+  Operation,
+  Qubit,
+  Unitary,
+} from "./circuit.js";
 import { Sqore } from "./sqore.js";
 import { toolboxGateDictionary } from "./panel.js";
 import {
@@ -39,6 +45,7 @@ import {
 import { getOperationRegisters } from "../../src/utils.js";
 
 let events: CircuitEvents | null = null;
+let currentCircuitSvg: SVGElement | null = null;
 
 /**
  * Creates and attaches the events that allow editing of the circuit.
@@ -55,6 +62,26 @@ const enableEvents = (
     events.dispose();
   }
   events = new CircuitEvents(container, sqore, useRefresh);
+
+  // Track which rendered SVG the current `events` instance is associated with.
+  // This lets other modules avoid reading a stale model during a re-render where
+  // the SVG has been replaced but `enableEvents` hasn't run yet.
+  currentCircuitSvg = container.querySelector("svg.qviz") as SVGElement | null;
+
+  // Signal that the circuit model (events + model snapshot) is now ready.
+  // The state visualization uses this to re-render without relying on polling.
+  try {
+    const CustomEventCtor = (globalThis as any).CustomEvent as
+      | (new (type: string, init?: CustomEventInit) => CustomEvent)
+      | undefined;
+    if (CustomEventCtor && typeof container.dispatchEvent === "function") {
+      container.dispatchEvent(
+        new CustomEventCtor("qsharp:circuit:modelReady", { bubbles: true }),
+      );
+    }
+  } catch {
+    // ignore
+  }
 };
 
 class CircuitEvents {
@@ -1062,3 +1089,16 @@ const _createConfirmPrompt = (
 };
 
 export { enableEvents, CircuitEvents };
+
+// Provide access to the current circuit model, but only if it matches the
+// currently-rendered SVG element. This prevents state visualization from
+// computing against the previous render's model during a re-render.
+export function getCurrentCircuitModel(
+  expectedSvg?: SVGElement | null,
+): Circuit | null {
+  if (events == null) return null;
+  if (expectedSvg && currentCircuitSvg && expectedSvg !== currentCircuitSvg) {
+    return null;
+  }
+  return { qubits: events.qubits, componentGrid: events.componentGrid };
+}

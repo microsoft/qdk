@@ -208,7 +208,7 @@ fn from_const_0_implicitly() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+        borrow q = Qubit();
         rx(new Std.OpenQASM.Angle.Angle {
             Value = 0,
             Size = 53

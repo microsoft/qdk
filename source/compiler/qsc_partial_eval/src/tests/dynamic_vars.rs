@@ -64,7 +64,7 @@ fn dynamic_int_from_if_expression_with_single_measurement_comparison_and_classic
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
                 Variable(3, Integer) = Store Variable(2, Integer)
-                Call id(4), args( Integer(0), EmptyTag, )
+                Call id(4), args( Integer(0), Tag(0, 3), )
                 Return
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
@@ -164,7 +164,7 @@ fn dynamic_int_from_if_expression_with_single_measurement_comparison_and_non_cla
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
                 Variable(3, Integer) = Store Variable(2, Integer)
-                Call id(6), args( Integer(0), EmptyTag, )
+                Call id(6), args( Integer(0), Tag(0, 3), )
                 Return
             Block 2:Block:
                 Call id(4), args( Qubit(1), )
@@ -209,7 +209,7 @@ fn dynamic_var_across_if_else_static_in_both_branches_constant_folded() {
                 Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false)
                 Branch Variable(2, Boolean), 2, 3
             Block 1:Block:
-                Call id(4), args( Integer(0), EmptyTag, )
+                Call id(4), args( Integer(0), Tag(0, 3), )
                 Return
             Block 2:Block:
                 Variable(0, Integer) = Store Integer(-1)
@@ -267,7 +267,7 @@ fn dynamic_var_across_if_else_in_loop_constant_folded_in_first_iteration() {
                 Jump(1)
             Block 4:Block:
                 Variable(1, Integer) = Store Integer(2)
-                Call id(4), args( Integer(0), EmptyTag, )
+                Call id(4), args( Integer(0), Tag(0, 3), )
                 Return
             Block 5:Block:
                 Variable(6, Integer) = Sub Variable(0, Integer), Integer(1)
@@ -328,7 +328,7 @@ fn dynamic_var_within_if_else_in_loop_constant_folded_in_every_iteration() {
                 Jump(1)
             Block 4:Block:
                 Variable(0, Integer) = Store Integer(2)
-                Call id(4), args( Integer(0), EmptyTag, )
+                Call id(4), args( Integer(0), Tag(0, 3), )
                 Return
             Block 5:Block:
                 Variable(4, Integer) = Store Integer(-1)
@@ -373,7 +373,7 @@ fn dynamic_var_updated_twice_in_same_branch_constant_folded() {
                 Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false)
                 Branch Variable(2, Boolean), 2, 3
             Block 1:Block:
-                Call id(4), args( Integer(0), EmptyTag, )
+                Call id(4), args( Integer(0), Tag(0, 3), )
                 Return
             Block 2:Block:
                 Variable(0, Integer) = Store Integer(-1)
@@ -422,7 +422,7 @@ fn dynamic_var_updated_to_same_value_in_different_branches_constant_folded_after
                 Branch Variable(2, Boolean), 2, 3
             Block 1:Block:
                 Variable(0, Integer) = Store Integer(2)
-                Call id(4), args( Integer(0), EmptyTag, )
+                Call id(4), args( Integer(0), Tag(0, 3), )
                 Return
             Block 2:Block:
                 Variable(0, Integer) = Store Integer(-1)
@@ -554,7 +554,7 @@ fn dynamic_var_set_to_static_after_dynamism_still_constant_folded() {
                 Variable(0, Integer) = Store Variable(3, Integer)
                 Variable(0, Integer) = Store Integer(3)
                 Variable(0, Integer) = Store Integer(4)
-                Call id(4), args( Integer(0), EmptyTag, )
+                Call id(4), args( Integer(0), Tag(0, 3), )
                 Return
             Block 2:Block:
                 Variable(0, Integer) = Store Integer(-1)
@@ -663,9 +663,9 @@ fn immutable_bind_of_dynamic_var_should_be_point_in_time_copy() {
                 Variable(3, Integer) = Store Variable(0, Integer)
                 Variable(4, Integer) = Add Variable(0, Integer), Integer(1)
                 Variable(0, Integer) = Store Variable(4, Integer)
-                Call id(4), args( Integer(2), EmptyTag, )
-                Call id(5), args( Variable(3, Integer), Tag(0, 5), )
-                Call id(5), args( Variable(0, Integer), Tag(1, 5), )
+                Call id(4), args( Integer(2), Tag(0, 3), )
+                Call id(5), args( Variable(3, Integer), Tag(1, 5), )
+                Call id(5), args( Variable(0, Integer), Tag(2, 5), )
                 Return
             Block 2:Block:
                 Variable(0, Integer) = Store Integer(-1)
@@ -729,7 +729,7 @@ fn dynamic_double_from_if_expression_with_single_measurement_comparison_and_clas
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
                 Variable(3, Double) = Store Variable(2, Double)
-                Call id(4), args( Integer(0), EmptyTag, )
+                Call id(4), args( Integer(0), Tag(0, 3), )
                 Return
             Block 2:Block:
                 Variable(2, Double) = Store Double(0.1)
@@ -829,7 +829,7 @@ fn dynamic_double_from_if_expression_with_single_measurement_comparison_and_non_
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
                 Variable(3, Double) = Store Variable(2, Double)
-                Call id(6), args( Integer(0), EmptyTag, )
+                Call id(6), args( Integer(0), Tag(0, 3), )
                 Return
             Block 2:Block:
                 Call id(4), args( Qubit(1), )
@@ -932,7 +932,7 @@ fn dynamic_double_from_if_expression_with_single_measurement_comparison_pass_dyn
             Block 1:Block:
                 Variable(3, Double) = Store Variable(2, Double)
                 Call id(4), args( Variable(3, Double), Qubit(1), )
-                Call id(5), args( Integer(0), EmptyTag, )
+                Call id(5), args( Integer(0), Tag(0, 3), )
                 Return
             Block 2:Block:
                 Variable(2, Double) = Store Double(0.1)

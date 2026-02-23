@@ -179,10 +179,10 @@ fn result_ids_are_correct_for_measuring_one_qubit_multiple_times() {
                 Call id(2), args( Qubit(0), Result(0), )
                 Call id(2), args( Qubit(0), Result(1), )
                 Call id(2), args( Qubit(0), Result(2), )
-                Call id(3), args( Integer(3), EmptyTag, )
-                Call id(4), args( Result(0), Tag(0, 5), )
-                Call id(4), args( Result(1), Tag(1, 5), )
-                Call id(4), args( Result(2), Tag(2, 5), )
+                Call id(3), args( Integer(3), Tag(0, 3), )
+                Call id(4), args( Result(0), Tag(1, 5), )
+                Call id(4), args( Result(1), Tag(2, 5), )
+                Call id(4), args( Result(2), Tag(3, 5), )
                 Return"#]],
     );
 }
@@ -252,10 +252,10 @@ fn result_ids_are_correct_for_measuring_one_qubit_multiple_times_into_array() {
                 Call id(2), args( Qubit(0), Result(0), )
                 Call id(2), args( Qubit(0), Result(1), )
                 Call id(2), args( Qubit(0), Result(2), )
-                Call id(3), args( Integer(3), EmptyTag, )
-                Call id(4), args( Result(0), Tag(0, 5), )
-                Call id(4), args( Result(1), Tag(1, 5), )
-                Call id(4), args( Result(2), Tag(2, 5), )
+                Call id(3), args( Integer(3), Tag(0, 3), )
+                Call id(4), args( Result(0), Tag(1, 5), )
+                Call id(4), args( Result(1), Tag(2, 5), )
+                Call id(4), args( Result(2), Tag(3, 5), )
                 Return"#]],
     );
     assert_eq!(program.num_qubits, 1);
@@ -327,10 +327,10 @@ fn result_ids_are_correct_for_measuring_multiple_qubits() {
                 Call id(2), args( Qubit(0), Result(0), )
                 Call id(2), args( Qubit(1), Result(1), )
                 Call id(2), args( Qubit(2), Result(2), )
-                Call id(3), args( Integer(3), EmptyTag, )
-                Call id(4), args( Result(0), Tag(0, 5), )
-                Call id(4), args( Result(1), Tag(1, 5), )
-                Call id(4), args( Result(2), Tag(2, 5), )
+                Call id(3), args( Integer(3), Tag(0, 3), )
+                Call id(4), args( Result(0), Tag(1, 5), )
+                Call id(4), args( Result(1), Tag(2, 5), )
+                Call id(4), args( Result(2), Tag(3, 5), )
                 Return"#]],
     );
     assert_eq!(program.num_qubits, 3);
