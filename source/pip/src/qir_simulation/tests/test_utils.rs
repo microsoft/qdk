@@ -702,7 +702,7 @@ pub fn check_programs_are_eq_gpu(
 ///
 /// # Required fields:
 /// - `simulator`: One of `StabilizerSimulator`, `NoisySimulator`, or `NoiselessSimulator`
-/// - `programs`: An array of expressions evaluating to `Vec<_>` (use `qir!` macro)
+/// - `programs`: An array of expressions evaluating to a `Vec<QirInstruction>` (use `qir!` macro)
 /// - `num_qubits`: The number of qubits in the simulation
 ///
 /// # Optional fields:
