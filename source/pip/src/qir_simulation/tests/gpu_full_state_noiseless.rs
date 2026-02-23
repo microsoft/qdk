@@ -746,7 +746,6 @@ fn rzz_pi_eq_z_tensor_z() {
 
 // ==================== Reset and Measurement Tests ====================
 
-#[ignore = "unimplemented"]
 #[test]
 fn reset_takes_qubit_back_to_zero() {
     check_sim! {
@@ -777,7 +776,6 @@ fn mresetz_resets_after_measurement() {
     }
 }
 
-#[ignore = "mz is implemented as mresetz for the GPU"]
 #[test]
 fn mz_does_not_reset() {
     check_sim! {

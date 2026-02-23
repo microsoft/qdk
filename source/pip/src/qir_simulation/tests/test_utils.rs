@@ -1188,6 +1188,7 @@ fn noise_table_f64_to_f32(
         rzz: noise_table_f64_to_f32_table(noise.rzz),
         swap: noise_table_f64_to_f32_table(noise.swap),
         mov: noise_table_f64_to_f32_table(noise.mov),
+        mz: noise_table_f64_to_f32_table(noise.mz),
         mresetz: noise_table_f64_to_f32_table(noise.mresetz),
         idle: noise.idle,
         intrinsics: noise.intrinsics,
