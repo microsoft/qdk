@@ -73,9 +73,11 @@ export type CircuitProps = {
   simulated: boolean;
   /** Circuit is still being generated */
   calculating: boolean;
-  isEditable: boolean;
-  editCallback?: (fileData: CircuitGroup) => void;
-  runCallback?: () => void;
+  // Editor-specific handlers (callbacks, state-viz host offload, etc.).
+  // When omitted, the circuit is rendered read-only.
+  editor?: EditorHandlers;
 };
 
+export type EditorHandlers = import("./circuit-vis/index.js").EditorHandlers;
 export type CircuitGroup = import("./circuit-vis/circuit.js").CircuitGroup;
+export type CircuitModel = import("./circuit-vis/circuit.js").Circuit;

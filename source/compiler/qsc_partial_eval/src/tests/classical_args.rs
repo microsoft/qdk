@@ -37,7 +37,7 @@ fn call_to_intrinsic_operation_using_double_literal() {
             Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Double(1), )
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -78,7 +78,7 @@ fn calls_to_intrinsic_operation_using_inline_expressions() {
                 Call id(2), args( Double(0), )
                 Call id(2), args( Double(1), )
                 Call id(2), args( Double(1), )
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -124,7 +124,7 @@ fn calls_to_intrinsic_operation_using_variables() {
                 Call id(2), args( Double(4), )
                 Variable(0, Double) = Store Double(8)
                 Call id(2), args( Double(8), )
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }

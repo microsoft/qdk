@@ -487,8 +487,8 @@ fn block_qubit_use_array_invalid_count_expr() {
                         0,
                     ),
                     span: Span {
-                        lo: 2664,
-                        hi: 2721,
+                        lo: 2749,
+                        hi: 2806,
                     },
                 },
             )

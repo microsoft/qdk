@@ -107,7 +107,7 @@ fn funcall_with_qubit_argument() -> miette::Result<(), Vec<Report>> {
             mutable b = Std.Intrinsic.M(qs[1]);
             return Std.OpenQASM.Convert.IntAsResult(Std.OpenQASM.Convert.ResultAsInt(a) ^^^ Std.OpenQASM.Convert.ResultAsInt(b));
         }
-        let qs = QIR.Runtime.AllocateQubitArray(2);
+        borrow qs = Qubit[2];
         mutable p = parity(qs);
     "#]]
     .assert_eq(&qsharp);
@@ -188,7 +188,7 @@ fn funcall_accepts_qubit_argument() -> miette::Result<(), Vec<Report>> {
         operation h_wrapper(q : Qubit) : Unit {
             h(q);
         }
-        let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+        borrow q = Qubit();
         h_wrapper(q);
     "#]]
     .assert_eq(&qsharp);
@@ -321,14 +321,14 @@ fn simulatable_intrinsic_on_def_stmt_generates_correct_qir() -> miette::Result<(
         %Result = type opaque
         %Qubit = type opaque
 
-        @empty_tag = internal constant [1 x i8] c"\00"
+        @0 = internal constant [4 x i8] c"0_t\00"
 
         define i64 @ENTRYPOINT__main() #0 {
         block_0:
           call void @__quantum__rt__initialize(i8* null)
           call void @my_gate(%Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-          call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+          call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
           ret i64 0
         }
 
@@ -378,14 +378,14 @@ fn qdk_qir_intrinsic_on_def_stmt_generates_correct_qir() -> miette::Result<(), V
         %Result = type opaque
         %Qubit = type opaque
 
-        @empty_tag = internal constant [1 x i8] c"\00"
+        @0 = internal constant [4 x i8] c"0_t\00"
 
         define i64 @ENTRYPOINT__main() #0 {
         block_0:
           call void @__quantum__rt__initialize(i8* null)
           call void @my_gate(%Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-          call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+          call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
           ret i64 0
         }
 
