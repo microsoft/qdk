@@ -20,7 +20,7 @@ use qsc_fir::fir::{self};
 use qsc_frontend::compile::{self, PackageStore, compile};
 use qsc_lowerer::map_hir_package_to_fir;
 use qsc_partial_eval::{PartialEvalConfig, ProgramEntry};
-use qsc_passes::{PackageType, PassContext, run_core_passes, run_default_passes};
+use qsc_passes::{PackageType, run_core_passes, run_default_passes};
 
 // A simple test receiver that records the formatted call stack and gate name
 // for each received operation, one per line.
@@ -984,7 +984,7 @@ fn dynamic_double_arg() {
                 let r = M(q0);
                 mutable theta = 1.0;
                 if r == One {
-                    set theta = 2.0;d
+                    set theta = 2.0;
                 };
                 if theta > 1.5 {
                     set theta = 3.0;

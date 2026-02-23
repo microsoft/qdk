@@ -497,6 +497,9 @@ impl CircuitTracer {
     }
 }
 
+/// Take a sequence of operations and build the final `Circuit`.
+/// Operations are laid out into columns. Unnecessary groups are removed.
+/// Source location metadata is resolved into displayable file/line/column information.
 pub(crate) fn finish_circuit(
     source_lookup: &impl SourceLookup,
     mut operations: Vec<OperationOrGroup>,
@@ -598,7 +601,9 @@ fn collapse_if_unnecessary(
     None
 }
 
-// loop_expr_id_cache: FxHashMap<PackageOffset, (PackageId, ExprId)>,
+/// Cache for mapping loop source locations to their corresponding package and expression IDs.
+/// This information is repeatedly looked up when resolving loop scopes from RIR debug metadata,
+/// so caching it avoids expensive lookups in the FIR package store.
 pub(crate) type LoopIdCache = FxHashMap<PackageOffset, (PackageId, ExprId)>;
 
 /// Resolves structs that use compilation-specific IDs (`PackageId`s, `ExprId`s etc.)
@@ -696,112 +701,57 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
                     is_conditional: false,
                 }
             }
-            Scope::Loop(LoopId::Id(package_id, expr_id)) => {
-                let package_store = self.1;
-                let package = package_store.get(*package_id);
-                let loop_expr = package.get_expr(*expr_id);
-                let ExprKind::While(cond_expr_id, _) = &loop_expr.kind else {
-                    panic!("only while loops should be in loop containers");
-                };
-                let cond_expr = package.get_expr(*cond_expr_id);
-                let expr_contents = self
-                    .0
-                    .get(map_fir_package_to_hir(*package_id))
-                    .and_then(|p| p.sources.find_by_offset(cond_expr.span.lo))
-                    .map(|s| {
-                        s.contents[(cond_expr.span.lo - s.offset) as usize
-                            ..(cond_expr.span.hi - s.offset) as usize]
-                            .to_string()
-                    });
-
-                LexicalScope {
-                    name: format!("loop: {}", expr_contents.unwrap_or_default()).into(),
-                    location: Some(PackageOffset {
-                        package_id: *package_id,
-                        offset: loop_expr.span.lo,
-                    }),
-                    is_adjoint: false,
-                    is_conditional: false,
-                }
-            }
-
-            Scope::Loop(LoopId::Source(package_offset)) => {
-                let found_loop_expr = if let Some(cached) = loop_id_cache.get(package_offset) {
-                    Some(*cached)
-                } else {
-                    let val = self.1.get(package_offset.package_id).exprs.iter().find_map(
-                        |(expr_id, expr)| {
-                            if expr.span.lo == package_offset.offset
-                                && matches!(expr.kind, ExprKind::While(_, _))
-                            {
-                                Some((package_offset.package_id, expr_id))
-                            } else {
-                                None
-                            }
-                        },
-                    );
-                    if let Some(val) = val {
-                        // cache the result
-                        loop_id_cache.insert(*package_offset, val);
-                    }
-                    val
-                };
-
-                let expr_contents = if let Some((package_id, expr_id)) = found_loop_expr {
-                    let package_store = self.1;
-                    let package = package_store.get(package_id);
-                    let loop_expr = package.get_expr(expr_id);
-                    let ExprKind::While(cond_expr_id, _) = &loop_expr.kind else {
-                        panic!("only while loops should be in loop containers");
-                    };
-                    let cond_expr = package.get_expr(*cond_expr_id);
-                    self.0
+            Scope::Loop(loop_id) => {
+                let found_loop_expr = find_loop(self.1, loop_id_cache, loop_id);
+                if let (Some((package_id, expr_id)), package_offset) = found_loop_expr {
+                    let (package, cond_expr_id, _) =
+                        get_loop_by_expr_id(self.1, package_id, expr_id);
+                    let cond_expr = package.get_expr(cond_expr_id);
+                    let expr_contents = self
+                        .0
                         .get(map_fir_package_to_hir(package_id))
                         .and_then(|p| p.sources.find_by_offset(cond_expr.span.lo))
                         .map(|s| {
                             s.contents[(cond_expr.span.lo - s.offset) as usize
                                 ..(cond_expr.span.hi - s.offset) as usize]
                                 .to_string()
-                        })
-                } else {
-                    None
-                };
+                        });
 
-                LexicalScope {
-                    name: format!("loop: {}", expr_contents.unwrap_or_default()).into(),
-                    location: Some(*package_offset),
-                    is_adjoint: false,
-                    is_conditional: false,
+                    LexicalScope {
+                        name: format!("loop: {}", expr_contents.unwrap_or_default()).into(),
+                        location: Some(package_offset),
+                        is_adjoint: false,
+                        is_conditional: false,
+                    }
+                } else {
+                    LexicalScope {
+                        name: "loop".into(),
+                        location: Some(found_loop_expr.1),
+                        is_adjoint: false,
+                        is_conditional: false,
+                    }
                 }
             }
-            Scope::LoopIteration(LoopId::Id(package_id, expr_id), i) => {
-                let package_store = self.1;
-                let package = package_store.get(*package_id);
-                let loop_expr = package.get_expr(*expr_id);
-                let ExprKind::While(_cond, body) = &loop_expr.kind else {
-                    panic!(
-                        "only while loops should be used for loop body locations, {expr_id} is: {:?}",
-                        loop_expr.kind
-                    );
+            Scope::LoopIteration(loop_id, i) => {
+                let package_offset = match loop_id {
+                    LoopId::Id(package_id, expr_id) => {
+                        let (package, _, body_block_id) =
+                            get_loop_by_expr_id(self.1, *package_id, *expr_id);
+                        let block = package.get_block(body_block_id);
+                        PackageOffset {
+                            package_id: *package_id,
+                            offset: block.span.lo,
+                        }
+                    }
+                    LoopId::Source(package_offset) => *package_offset,
                 };
-                let block = package.get_block(*body);
-
                 LexicalScope {
                     name: format!("({i})").into(),
-                    location: Some(PackageOffset {
-                        package_id: *package_id,
-                        offset: block.span.lo,
-                    }),
+                    location: Some(package_offset),
                     is_adjoint: false,
                     is_conditional: false,
                 }
             }
-            Scope::LoopIteration(LoopId::Source(package_offset), i) => LexicalScope {
-                name: format!("({i})").into(),
-                location: Some(*package_offset),
-                is_adjoint: false,
-                is_conditional: false,
-            },
             Scope::Top => LexicalScope {
                 name: "top".into(),
                 location: None,
@@ -843,14 +793,8 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
                 })
             }
             LogicalStackEntryLocation::LoopIteration(LoopId::Id(package_id, expr_id), _) => {
-                let fir_package_store = self.1;
-                let package = fir_package_store.get(package_id);
-                let expr = package.get_expr(expr_id);
-                let ExprKind::While(_cond, body) = &expr.kind else {
-                    panic!("only while loops should be used for loop body locations");
-                };
-
-                let block = package.get_block(*body);
+                let (package, _, body_block_id) = get_loop_by_expr_id(self.1, package_id, expr_id);
+                let block = package.get_block(body_block_id);
 
                 Some(PackageOffset {
                     package_id,
@@ -861,17 +805,7 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
                 let found_loop_expr = if let Some(cached) = loop_id_cache.get(&package_offset) {
                     Some(*cached)
                 } else {
-                    let val = self.1.get(package_offset.package_id).exprs.iter().find_map(
-                        |(expr_id, expr)| {
-                            if expr.span.lo == package_offset.offset
-                                && matches!(expr.kind, ExprKind::While(_, _))
-                            {
-                                Some((package_offset.package_id, expr_id))
-                            } else {
-                                None
-                            }
-                        },
-                    );
+                    let val = find_loop_by_source_offset(self.1, &package_offset);
                     if let Some(val) = val {
                         // cache the result
                         loop_id_cache.insert(package_offset, val);
@@ -880,14 +814,9 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
                 };
 
                 if let Some((package_id, expr_id)) = found_loop_expr {
-                    let fir_package_store = self.1;
-                    let package = fir_package_store.get(package_id);
-                    let expr = package.get_expr(expr_id);
-                    let ExprKind::While(_cond, body) = &expr.kind else {
-                        panic!("only while loops should be used for loop body locations");
-                    };
-
-                    let block = package.get_block(*body);
+                    let (package, _, body_block_id) =
+                        get_loop_by_expr_id(self.1, package_id, expr_id);
+                    let block = package.get_block(body_block_id);
 
                     Some(PackageOffset {
                         package_id,
@@ -900,6 +829,64 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
             }
         }
     }
+}
+
+fn find_loop(
+    fir_store: &fir::PackageStore,
+    loop_id_cache: &mut LoopIdCache,
+    loop_id: &LoopId,
+) -> (Option<(PackageId, ExprId)>, PackageOffset) {
+    match loop_id {
+        LoopId::Id(package_id, expr_id) => {
+            let package_offset = PackageOffset {
+                package_id: *package_id,
+                offset: fir_store.get(*package_id).get_expr(*expr_id).span.lo,
+            };
+            (Some((*package_id, *expr_id)), package_offset)
+        }
+        LoopId::Source(package_offset) => {
+            if let Some(cached) = loop_id_cache.get(package_offset) {
+                (Some(*cached), *package_offset)
+            } else {
+                let val = find_loop_by_source_offset(fir_store, package_offset);
+                if let Some(val) = val {
+                    // cache the result
+                    loop_id_cache.insert(*package_offset, val);
+                }
+                (val, *package_offset)
+            }
+        }
+    }
+}
+
+fn find_loop_by_source_offset(
+    fir_store: &fir::PackageStore,
+    package_offset: &PackageOffset,
+) -> Option<(PackageId, ExprId)> {
+    fir_store
+        .get(package_offset.package_id)
+        .exprs
+        .iter()
+        .find_map(|(expr_id, expr)| {
+            if expr.span.lo == package_offset.offset && matches!(expr.kind, ExprKind::While(_, _)) {
+                Some((package_offset.package_id, expr_id))
+            } else {
+                None
+            }
+        })
+}
+
+fn get_loop_by_expr_id(
+    fir_store: &fir::PackageStore,
+    package_id: PackageId,
+    expr_id: ExprId,
+) -> (&fir::Package, fir::ExprId, fir::BlockId) {
+    let package = fir_store.get(package_id);
+    let loop_expr = package.get_expr(expr_id);
+    let ExprKind::While(cond_expr_id, body_block_id) = &loop_expr.kind else {
+        panic!("only while loops are expected in FIR");
+    };
+    (package, *cond_expr_id, *body_block_id)
 }
 
 #[allow(clippy::struct_excessive_bools)]
