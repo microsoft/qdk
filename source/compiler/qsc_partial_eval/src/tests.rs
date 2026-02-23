@@ -7,6 +7,7 @@ mod bindings;
 mod branching;
 mod calls;
 mod classical_args;
+mod debug_metadata;
 mod dynamic_vars;
 mod intrinsics;
 mod loops;
@@ -38,13 +39,19 @@ pub fn assert_block_instructions(program: &Program, block_id: BlockId, expected_
 }
 
 pub fn assert_blocks(program: &Program, expected_blocks: &Expect) {
-    let all_blocks = program
+    let mut str = program
         .blocks
         .iter()
         .fold("Blocks:".to_string(), |acc, (id, block)| {
             acc + &format!("\nBlock {}:", id.0) + &block.to_string()
         });
-    expected_blocks.assert_eq(&all_blocks);
+
+    let dbg_info = program.dbg_info.to_string();
+    if !dbg_info.is_empty() {
+        str += "\n";
+        str += &dbg_info;
+    }
+    expected_blocks.assert_eq(&str);
 }
 
 pub fn assert_callable(program: &Program, callable_id: CallableId, expected_callable: &Expect) {
@@ -58,7 +65,7 @@ pub fn assert_error(error: &Error, expected_error: &Expect) {
 
 #[must_use]
 pub fn get_partial_evaluation_error(source: &str) -> Error {
-    let maybe_program = compile_and_partially_evaluate(source, TargetCapabilityFlags::all());
+    let maybe_program = compile_and_partially_evaluate(source, TargetCapabilityFlags::all(), false);
     match maybe_program {
         Ok(_) => panic!("partial evaluation succeeded"),
         Err(error) => error,
@@ -70,7 +77,7 @@ pub fn get_partial_evaluation_error_with_capabilities(
     source: &str,
     capabilities: TargetCapabilityFlags,
 ) -> Error {
-    let maybe_program = compile_and_partially_evaluate(source, capabilities);
+    let maybe_program = compile_and_partially_evaluate(source, capabilities, false);
     match maybe_program {
         Ok(_) => panic!("partial evaluation succeeded"),
         Err(error) => error,
@@ -79,7 +86,20 @@ pub fn get_partial_evaluation_error_with_capabilities(
 
 #[must_use]
 pub fn get_rir_program(source: &str) -> Program {
-    let maybe_program = compile_and_partially_evaluate(source, TargetCapabilityFlags::all());
+    let maybe_program = compile_and_partially_evaluate(source, TargetCapabilityFlags::all(), false);
+    match maybe_program {
+        Ok(program) => {
+            // Verify the program can go through transformations.
+            check_and_transform(&mut program.clone());
+            program
+        }
+        Err(error) => panic!("partial evaluation failed: {error:?}"),
+    }
+}
+
+#[must_use]
+pub fn get_rir_program_with_dbg_metadata(source: &str) -> Program {
+    let maybe_program = compile_and_partially_evaluate(source, TargetCapabilityFlags::all(), true);
     match maybe_program {
         Ok(program) => {
             // Verify the program can go through transformations.
@@ -95,7 +115,7 @@ pub fn get_rir_program_with_capabilities(
     source: &str,
     capabilities: TargetCapabilityFlags,
 ) -> Program {
-    let maybe_program = compile_and_partially_evaluate(source, capabilities);
+    let maybe_program = compile_and_partially_evaluate(source, capabilities, false);
     match maybe_program {
         Ok(program) => program,
         Err(error) => panic!("partial evaluation failed: {error:?}"),
@@ -105,6 +125,7 @@ pub fn get_rir_program_with_capabilities(
 fn compile_and_partially_evaluate(
     source: &str,
     capabilities: TargetCapabilityFlags,
+    generate_debug_metadata: bool,
 ) -> Result<Program, Error> {
     let compilation_context = CompilationContext::new(source, capabilities);
     partially_evaluate(
@@ -112,6 +133,7 @@ fn compile_and_partially_evaluate(
         &compilation_context.compute_properties,
         &compilation_context.entry,
         capabilities,
+        generate_debug_metadata,
     )
 }
 

@@ -12,6 +12,8 @@ use qsc_rir::rir::{BlockId, Literal, VariableId};
 use rustc_hash::FxHashMap;
 use std::collections::hash_map::Entry;
 
+use crate::ScopeDbgContext;
+
 /// Struct that keeps track of the active RIR blocks (where RIR instructions are added) and the active scopes (which
 /// correspond to the Q#'s program call stack).
 pub struct EvaluationContext {
@@ -42,6 +44,11 @@ impl EvaluationContext {
         self.scopes
             .last()
             .expect("the evaluation context does not have a current scope")
+    }
+
+    /// Gets an immutable reference to the caller (call) scope.
+    pub fn get_caller_scope(&self) -> Option<&Scope> {
+        self.scopes.iter().rev().nth(1)
     }
 
     /// Gets a mutable reference to the current (call) scope.
@@ -85,7 +92,7 @@ impl EvaluationContext {
     }
 }
 
-/// Struct that represents a block node when we interpret an RIR program as a graph.
+/// Struct that represents a block node when we intepret an RIR program as a graph.
 pub struct BlockNode {
     /// The ID of the block.
     pub id: BlockId,
@@ -109,6 +116,8 @@ pub struct Scope {
     static_vars: FxHashMap<VariableId, Literal>,
     /// Number of currently active blocks (starting from where this scope was created).
     active_block_count: usize,
+    /// Debug context, used for generating debug metadata.
+    pub(crate) dbg_context: ScopeDbgContext,
 }
 
 impl Scope {
@@ -167,6 +176,7 @@ impl Scope {
             active_block_count: 1,
             hybrid_vars,
             static_vars: FxHashMap::default(),
+            dbg_context: ScopeDbgContext::default(),
         }
     }
 

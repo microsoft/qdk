@@ -7,7 +7,7 @@ use qsc_rir::rir;
 #[test]
 #[should_panic(expected = "mismatched input types (i64, double) for add")]
 fn add_mismatched_literal_input_tys_should_panic() {
-    let inst = rir::Instruction::Add(
+    let inst = rir::InstructionKind::Add(
         rir::Operand::Literal(rir::Literal::Integer(2)),
         rir::Operand::Literal(rir::Literal::Double(1.0)),
         rir::Variable {
@@ -21,7 +21,7 @@ fn add_mismatched_literal_input_tys_should_panic() {
 #[test]
 #[should_panic(expected = "mismatched input/output types (i64, double) for add")]
 fn add_mismatched_literal_input_output_tys_should_panic() {
-    let inst = rir::Instruction::Add(
+    let inst = rir::InstructionKind::Add(
         rir::Operand::Literal(rir::Literal::Integer(2)),
         rir::Operand::Literal(rir::Literal::Integer(5)),
         rir::Variable {
@@ -35,7 +35,7 @@ fn add_mismatched_literal_input_output_tys_should_panic() {
 #[test]
 #[should_panic(expected = "mismatched input types (i64, double) for add")]
 fn add_mismatched_variable_input_tys_should_panic() {
-    let inst = rir::Instruction::Add(
+    let inst = rir::InstructionKind::Add(
         rir::Operand::Variable(rir::Variable {
             variable_id: rir::VariableId(1),
             ty: rir::Ty::Integer,
@@ -55,7 +55,7 @@ fn add_mismatched_variable_input_tys_should_panic() {
 #[test]
 #[should_panic(expected = "mismatched input/output types (i64, double) for add")]
 fn add_mismatched_variable_input_output_tys_should_panic() {
-    let inst = rir::Instruction::Add(
+    let inst = rir::InstructionKind::Add(
         rir::Operand::Variable(rir::Variable {
             variable_id: rir::VariableId(1),
             ty: rir::Ty::Integer,
@@ -75,7 +75,7 @@ fn add_mismatched_variable_input_output_tys_should_panic() {
 #[test]
 #[should_panic(expected = "mismatched input types (i64, double) for and")]
 fn bitwise_and_mismatched_literal_input_tys_should_panic() {
-    let inst = rir::Instruction::BitwiseAnd(
+    let inst = rir::InstructionKind::BitwiseAnd(
         rir::Operand::Literal(rir::Literal::Integer(2)),
         rir::Operand::Literal(rir::Literal::Double(1.0)),
         rir::Variable {
@@ -89,7 +89,7 @@ fn bitwise_and_mismatched_literal_input_tys_should_panic() {
 #[test]
 #[should_panic(expected = "mismatched input/output types (i64, double) for and")]
 fn bitwise_and_mismatched_literal_input_output_tys_should_panic() {
-    let inst = rir::Instruction::BitwiseAnd(
+    let inst = rir::InstructionKind::BitwiseAnd(
         rir::Operand::Literal(rir::Literal::Integer(2)),
         rir::Operand::Literal(rir::Literal::Integer(5)),
         rir::Variable {
@@ -103,7 +103,7 @@ fn bitwise_and_mismatched_literal_input_output_tys_should_panic() {
 #[test]
 #[should_panic(expected = "mismatched input types (i64, double) for and")]
 fn bitwise_and_mismatched_variable_input_tys_should_panic() {
-    let inst = rir::Instruction::BitwiseAnd(
+    let inst = rir::InstructionKind::BitwiseAnd(
         rir::Operand::Variable(rir::Variable {
             variable_id: rir::VariableId(1),
             ty: rir::Ty::Integer,
@@ -123,7 +123,7 @@ fn bitwise_and_mismatched_variable_input_tys_should_panic() {
 #[test]
 #[should_panic(expected = "mismatched input/output types (i64, double) for and")]
 fn bitwise_and_mismatched_variable_input_output_tys_should_panic() {
-    let inst = rir::Instruction::BitwiseAnd(
+    let inst = rir::InstructionKind::BitwiseAnd(
         rir::Operand::Variable(rir::Variable {
             variable_id: rir::VariableId(1),
             ty: rir::Ty::Integer,
@@ -143,7 +143,7 @@ fn bitwise_and_mismatched_variable_input_output_tys_should_panic() {
 #[test]
 #[should_panic(expected = "unsupported type i1 for add")]
 fn add_bool_should_panic() {
-    let inst = rir::Instruction::Add(
+    let inst = rir::InstructionKind::Add(
         rir::Operand::Literal(rir::Literal::Bool(true)),
         rir::Operand::Literal(rir::Literal::Bool(false)),
         rir::Variable {
@@ -173,7 +173,7 @@ fn phi_with_mismatched_args_should_panic() {
             rir::BlockId(7),
         ),
     ];
-    let inst = rir::Instruction::Phi(
+    let inst = rir::InstructionKind::Phi(
         args.to_vec(),
         rir::Variable {
             variable_id: rir::VariableId(0),
@@ -186,7 +186,7 @@ fn phi_with_mismatched_args_should_panic() {
 #[test]
 #[should_panic(expected = "unsupported output type i64 for icmp")]
 fn icmp_with_non_boolean_result_var_should_panic() {
-    let inst = rir::Instruction::Icmp(
+    let inst = rir::InstructionKind::Icmp(
         rir::ConditionCode::Eq,
         rir::Operand::Literal(rir::Literal::Integer(2)),
         rir::Operand::Literal(rir::Literal::Integer(5)),

@@ -4,7 +4,7 @@
 use qsc_data_structures::index_map::IndexMap;
 
 use crate::{
-    rir::{BlockId, Instruction, Operand, Program, VariableId},
+    rir::{BlockId, InstructionKind, Operand, Program, VariableId},
     utils::get_variable_assignments,
 };
 
@@ -63,13 +63,13 @@ fn check_phi_nodes(program: &Program, preds: &IndexMap<BlockId, Vec<BlockId>>) {
                 block
                     .0
                     .iter()
-                    .all(|instr| !matches!(instr, Instruction::Phi(..))),
+                    .all(|instr| !matches!(instr.kind, InstructionKind::Phi(..))),
                 "{block_id:?} has phi nodes but no predecessors"
             );
             continue;
         };
         for instr in &block.0 {
-            if let Instruction::Phi(args, res) = instr {
+            if let InstructionKind::Phi(args, res) = &instr.kind {
                 assert!(
                     block_preds.len() == args.len(),
                     "Phi node in {block_id:?} has {} arguments but {} predecessors",
@@ -109,82 +109,94 @@ fn get_variable_uses(program: &Program) -> IndexMap<VariableId, Vec<(BlockId, us
     };
     for (block_id, block) in program.blocks.iter() {
         for (idx, instr) in block.0.iter().enumerate() {
-            match instr {
+            match &instr.kind {
                 // Single variable
-                Instruction::Add(Operand::Variable(var), Operand::Literal(_), _)
-                | Instruction::Add(Operand::Literal(_), Operand::Variable(var), _)
-                | Instruction::Sub(Operand::Variable(var), Operand::Literal(_), _)
-                | Instruction::Sub(Operand::Literal(_), Operand::Variable(var), _)
-                | Instruction::Mul(Operand::Variable(var), Operand::Literal(_), _)
-                | Instruction::Mul(Operand::Literal(_), Operand::Variable(var), _)
-                | Instruction::Sdiv(Operand::Variable(var), Operand::Literal(_), _)
-                | Instruction::Sdiv(Operand::Literal(_), Operand::Variable(var), _)
-                | Instruction::Srem(Operand::Variable(var), Operand::Literal(_), _)
-                | Instruction::Srem(Operand::Literal(_), Operand::Variable(var), _)
-                | Instruction::Shl(Operand::Variable(var), Operand::Literal(_), _)
-                | Instruction::Shl(Operand::Literal(_), Operand::Variable(var), _)
-                | Instruction::Ashr(Operand::Variable(var), Operand::Literal(_), _)
-                | Instruction::Ashr(Operand::Literal(_), Operand::Variable(var), _)
-                | Instruction::Fadd(Operand::Variable(var), Operand::Literal(_), _)
-                | Instruction::Fadd(Operand::Literal(_), Operand::Variable(var), _)
-                | Instruction::Fsub(Operand::Variable(var), Operand::Literal(_), _)
-                | Instruction::Fsub(Operand::Literal(_), Operand::Variable(var), _)
-                | Instruction::Fmul(Operand::Variable(var), Operand::Literal(_), _)
-                | Instruction::Fmul(Operand::Literal(_), Operand::Variable(var), _)
-                | Instruction::Fdiv(Operand::Variable(var), Operand::Literal(_), _)
-                | Instruction::Fdiv(Operand::Literal(_), Operand::Variable(var), _)
-                | Instruction::Fcmp(_, Operand::Variable(var), Operand::Literal(_), _)
-                | Instruction::Fcmp(_, Operand::Literal(_), Operand::Variable(var), _)
-                | Instruction::Icmp(_, Operand::Variable(var), Operand::Literal(_), _)
-                | Instruction::Icmp(_, Operand::Literal(_), Operand::Variable(var), _)
-                | Instruction::LogicalNot(Operand::Variable(var), _)
-                | Instruction::LogicalAnd(Operand::Variable(var), Operand::Literal(_), _)
-                | Instruction::LogicalAnd(Operand::Literal(_), Operand::Variable(var), _)
-                | Instruction::LogicalOr(Operand::Variable(var), Operand::Literal(_), _)
-                | Instruction::LogicalOr(Operand::Literal(_), Operand::Variable(var), _)
-                | Instruction::BitwiseNot(Operand::Variable(var), _)
-                | Instruction::BitwiseAnd(Operand::Variable(var), Operand::Literal(_), _)
-                | Instruction::BitwiseAnd(Operand::Literal(_), Operand::Variable(var), _)
-                | Instruction::BitwiseOr(Operand::Variable(var), Operand::Literal(_), _)
-                | Instruction::BitwiseOr(Operand::Literal(_), Operand::Variable(var), _)
-                | Instruction::BitwiseXor(Operand::Variable(var), Operand::Literal(_), _)
-                | Instruction::BitwiseXor(Operand::Literal(_), Operand::Variable(var), _)
-                | Instruction::Branch(var, _, _) => {
+                InstructionKind::Add(Operand::Variable(var), Operand::Literal(_), _)
+                | InstructionKind::Add(Operand::Literal(_), Operand::Variable(var), _)
+                | InstructionKind::Sub(Operand::Variable(var), Operand::Literal(_), _)
+                | InstructionKind::Sub(Operand::Literal(_), Operand::Variable(var), _)
+                | InstructionKind::Mul(Operand::Variable(var), Operand::Literal(_), _)
+                | InstructionKind::Mul(Operand::Literal(_), Operand::Variable(var), _)
+                | InstructionKind::Sdiv(Operand::Variable(var), Operand::Literal(_), _)
+                | InstructionKind::Sdiv(Operand::Literal(_), Operand::Variable(var), _)
+                | InstructionKind::Srem(Operand::Variable(var), Operand::Literal(_), _)
+                | InstructionKind::Srem(Operand::Literal(_), Operand::Variable(var), _)
+                | InstructionKind::Shl(Operand::Variable(var), Operand::Literal(_), _)
+                | InstructionKind::Shl(Operand::Literal(_), Operand::Variable(var), _)
+                | InstructionKind::Ashr(Operand::Variable(var), Operand::Literal(_), _)
+                | InstructionKind::Ashr(Operand::Literal(_), Operand::Variable(var), _)
+                | InstructionKind::Fadd(Operand::Variable(var), Operand::Literal(_), _)
+                | InstructionKind::Fadd(Operand::Literal(_), Operand::Variable(var), _)
+                | InstructionKind::Fsub(Operand::Variable(var), Operand::Literal(_), _)
+                | InstructionKind::Fsub(Operand::Literal(_), Operand::Variable(var), _)
+                | InstructionKind::Fmul(Operand::Variable(var), Operand::Literal(_), _)
+                | InstructionKind::Fmul(Operand::Literal(_), Operand::Variable(var), _)
+                | InstructionKind::Fdiv(Operand::Variable(var), Operand::Literal(_), _)
+                | InstructionKind::Fdiv(Operand::Literal(_), Operand::Variable(var), _)
+                | InstructionKind::Fcmp(_, Operand::Variable(var), Operand::Literal(_), _)
+                | InstructionKind::Fcmp(_, Operand::Literal(_), Operand::Variable(var), _)
+                | InstructionKind::Icmp(_, Operand::Variable(var), Operand::Literal(_), _)
+                | InstructionKind::Icmp(_, Operand::Literal(_), Operand::Variable(var), _)
+                | InstructionKind::LogicalNot(Operand::Variable(var), _)
+                | InstructionKind::LogicalAnd(Operand::Variable(var), Operand::Literal(_), _)
+                | InstructionKind::LogicalAnd(Operand::Literal(_), Operand::Variable(var), _)
+                | InstructionKind::LogicalOr(Operand::Variable(var), Operand::Literal(_), _)
+                | InstructionKind::LogicalOr(Operand::Literal(_), Operand::Variable(var), _)
+                | InstructionKind::BitwiseNot(Operand::Variable(var), _)
+                | InstructionKind::BitwiseAnd(Operand::Variable(var), Operand::Literal(_), _)
+                | InstructionKind::BitwiseAnd(Operand::Literal(_), Operand::Variable(var), _)
+                | InstructionKind::BitwiseOr(Operand::Variable(var), Operand::Literal(_), _)
+                | InstructionKind::BitwiseOr(Operand::Literal(_), Operand::Variable(var), _)
+                | InstructionKind::BitwiseXor(Operand::Variable(var), Operand::Literal(_), _)
+                | InstructionKind::BitwiseXor(Operand::Literal(_), Operand::Variable(var), _)
+                | InstructionKind::Branch(var, _, _) => {
                     add_use(var.variable_id, block_id, idx);
                 }
 
                 // Double variable
-                Instruction::Add(Operand::Variable(var1), Operand::Variable(var2), _)
-                | Instruction::Sub(Operand::Variable(var1), Operand::Variable(var2), _)
-                | Instruction::Mul(Operand::Variable(var1), Operand::Variable(var2), _)
-                | Instruction::Sdiv(Operand::Variable(var1), Operand::Variable(var2), _)
-                | Instruction::Srem(Operand::Variable(var1), Operand::Variable(var2), _)
-                | Instruction::Shl(Operand::Variable(var1), Operand::Variable(var2), _)
-                | Instruction::Ashr(Operand::Variable(var1), Operand::Variable(var2), _)
-                | Instruction::Fadd(Operand::Variable(var1), Operand::Variable(var2), _)
-                | Instruction::Fsub(Operand::Variable(var1), Operand::Variable(var2), _)
-                | Instruction::Fmul(Operand::Variable(var1), Operand::Variable(var2), _)
-                | Instruction::Fdiv(Operand::Variable(var1), Operand::Variable(var2), _)
-                | Instruction::Fcmp(_, Operand::Variable(var1), Operand::Variable(var2), _)
-                | Instruction::Icmp(_, Operand::Variable(var1), Operand::Variable(var2), _)
-                | Instruction::LogicalAnd(Operand::Variable(var1), Operand::Variable(var2), _)
-                | Instruction::LogicalOr(Operand::Variable(var1), Operand::Variable(var2), _)
-                | Instruction::BitwiseAnd(Operand::Variable(var1), Operand::Variable(var2), _)
-                | Instruction::BitwiseOr(Operand::Variable(var1), Operand::Variable(var2), _)
-                | Instruction::BitwiseXor(Operand::Variable(var1), Operand::Variable(var2), _) => {
+                InstructionKind::Add(Operand::Variable(var1), Operand::Variable(var2), _)
+                | InstructionKind::Sub(Operand::Variable(var1), Operand::Variable(var2), _)
+                | InstructionKind::Mul(Operand::Variable(var1), Operand::Variable(var2), _)
+                | InstructionKind::Sdiv(Operand::Variable(var1), Operand::Variable(var2), _)
+                | InstructionKind::Srem(Operand::Variable(var1), Operand::Variable(var2), _)
+                | InstructionKind::Shl(Operand::Variable(var1), Operand::Variable(var2), _)
+                | InstructionKind::Ashr(Operand::Variable(var1), Operand::Variable(var2), _)
+                | InstructionKind::Fadd(Operand::Variable(var1), Operand::Variable(var2), _)
+                | InstructionKind::Fsub(Operand::Variable(var1), Operand::Variable(var2), _)
+                | InstructionKind::Fmul(Operand::Variable(var1), Operand::Variable(var2), _)
+                | InstructionKind::Fdiv(Operand::Variable(var1), Operand::Variable(var2), _)
+                | InstructionKind::Fcmp(_, Operand::Variable(var1), Operand::Variable(var2), _)
+                | InstructionKind::Icmp(_, Operand::Variable(var1), Operand::Variable(var2), _)
+                | InstructionKind::LogicalAnd(
+                    Operand::Variable(var1),
+                    Operand::Variable(var2),
+                    _,
+                )
+                | InstructionKind::LogicalOr(Operand::Variable(var1), Operand::Variable(var2), _)
+                | InstructionKind::BitwiseAnd(
+                    Operand::Variable(var1),
+                    Operand::Variable(var2),
+                    _,
+                )
+                | InstructionKind::BitwiseOr(Operand::Variable(var1), Operand::Variable(var2), _)
+                | InstructionKind::BitwiseXor(
+                    Operand::Variable(var1),
+                    Operand::Variable(var2),
+                    _,
+                ) => {
                     add_use(var1.variable_id, block_id, idx);
                     add_use(var2.variable_id, block_id, idx);
                 }
 
                 // Multiple variables
-                Instruction::Call(_, vals, _) => {
+                InstructionKind::Call(_, vals, _) => {
                     for val in vals {
                         if let Operand::Variable(var) = val {
                             add_use(var.variable_id, block_id, idx);
                         }
                     }
                 }
-                Instruction::Phi(args, _) => {
+                InstructionKind::Phi(args, _) => {
                     for (val, pred_block_id) in args {
                         if let Operand::Variable(var) = val {
                             // As a special case for phi, treat the variable as used in the predecessor block
@@ -196,32 +208,32 @@ fn get_variable_uses(program: &Program) -> IndexMap<VariableId, Vec<(BlockId, us
                 }
 
                 // If an instruction has no variables, it should have been inlined by partial eval.
-                Instruction::Add(Operand::Literal(_), Operand::Literal(_), _)
-                | Instruction::Sub(Operand::Literal(_), Operand::Literal(_), _)
-                | Instruction::Mul(Operand::Literal(_), Operand::Literal(_), _)
-                | Instruction::Sdiv(Operand::Literal(_), Operand::Literal(_), _)
-                | Instruction::Srem(Operand::Literal(_), Operand::Literal(_), _)
-                | Instruction::Shl(Operand::Literal(_), Operand::Literal(_), _)
-                | Instruction::Ashr(Operand::Literal(_), Operand::Literal(_), _)
-                | Instruction::Fadd(Operand::Literal(_), Operand::Literal(_), _)
-                | Instruction::Fsub(Operand::Literal(_), Operand::Literal(_), _)
-                | Instruction::Fmul(Operand::Literal(_), Operand::Literal(_), _)
-                | Instruction::Fdiv(Operand::Literal(_), Operand::Literal(_), _)
-                | Instruction::Fcmp(_, Operand::Literal(_), Operand::Literal(_), _)
-                | Instruction::Icmp(_, Operand::Literal(_), Operand::Literal(_), _)
-                | Instruction::LogicalNot(Operand::Literal(_), _)
-                | Instruction::LogicalAnd(Operand::Literal(_), Operand::Literal(_), _)
-                | Instruction::LogicalOr(Operand::Literal(_), Operand::Literal(_), _)
-                | Instruction::BitwiseNot(Operand::Literal(_), _)
-                | Instruction::BitwiseAnd(Operand::Literal(_), Operand::Literal(_), _)
-                | Instruction::BitwiseOr(Operand::Literal(_), Operand::Literal(_), _)
-                | Instruction::BitwiseXor(Operand::Literal(_), Operand::Literal(_), _) => {
+                InstructionKind::Add(Operand::Literal(_), Operand::Literal(_), _)
+                | InstructionKind::Sub(Operand::Literal(_), Operand::Literal(_), _)
+                | InstructionKind::Mul(Operand::Literal(_), Operand::Literal(_), _)
+                | InstructionKind::Sdiv(Operand::Literal(_), Operand::Literal(_), _)
+                | InstructionKind::Srem(Operand::Literal(_), Operand::Literal(_), _)
+                | InstructionKind::Shl(Operand::Literal(_), Operand::Literal(_), _)
+                | InstructionKind::Ashr(Operand::Literal(_), Operand::Literal(_), _)
+                | InstructionKind::Fadd(Operand::Literal(_), Operand::Literal(_), _)
+                | InstructionKind::Fsub(Operand::Literal(_), Operand::Literal(_), _)
+                | InstructionKind::Fmul(Operand::Literal(_), Operand::Literal(_), _)
+                | InstructionKind::Fdiv(Operand::Literal(_), Operand::Literal(_), _)
+                | InstructionKind::Fcmp(_, Operand::Literal(_), Operand::Literal(_), _)
+                | InstructionKind::Icmp(_, Operand::Literal(_), Operand::Literal(_), _)
+                | InstructionKind::LogicalNot(Operand::Literal(_), _)
+                | InstructionKind::LogicalAnd(Operand::Literal(_), Operand::Literal(_), _)
+                | InstructionKind::LogicalOr(Operand::Literal(_), Operand::Literal(_), _)
+                | InstructionKind::BitwiseNot(Operand::Literal(_), _)
+                | InstructionKind::BitwiseAnd(Operand::Literal(_), Operand::Literal(_), _)
+                | InstructionKind::BitwiseOr(Operand::Literal(_), Operand::Literal(_), _)
+                | InstructionKind::BitwiseXor(Operand::Literal(_), Operand::Literal(_), _) => {
                     panic!("{block_id:?}, instruction {idx} has no variables: {instr}")
                 }
 
-                Instruction::Jump(..) | Instruction::Return => {}
+                InstructionKind::Jump(..) | InstructionKind::Return => {}
 
-                Instruction::Store(..) => {
+                InstructionKind::Store(..) => {
                     panic!("Unexpected Store at {block_id:?}, instruction {idx}")
                 }
             }

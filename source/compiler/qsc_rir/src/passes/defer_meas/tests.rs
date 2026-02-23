@@ -6,7 +6,7 @@
 use crate::{
     builder,
     rir::{
-        Block, BlockId, CallableId, Instruction, Literal, Operand, Program, Ty, Variable,
+        Block, BlockId, CallableId, InstructionKind, Literal, Operand, Program, Ty, Variable,
         VariableId,
     },
 };
@@ -90,8 +90,8 @@ fn add_simple_measurement_block(program: &mut Program) {
         .insert(CallableId(4), builder::result_record_decl());
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
-            Instruction::Call(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Call(
                 CallableId(0),
                 vec![
                     Operand::Literal(Literal::Qubit(0)),
@@ -99,12 +99,12 @@ fn add_simple_measurement_block(program: &mut Program) {
                 ],
                 None,
             ),
-            Instruction::Call(
+            InstructionKind::Call(
                 CallableId(2),
                 vec![Operand::Literal(Literal::Qubit(1))],
                 None,
             ),
-            Instruction::Call(
+            InstructionKind::Call(
                 CallableId(1),
                 vec![
                     Operand::Literal(Literal::Qubit(1)),
@@ -112,7 +112,7 @@ fn add_simple_measurement_block(program: &mut Program) {
                 ],
                 None,
             ),
-            Instruction::Call(
+            InstructionKind::Call(
                 CallableId(1),
                 vec![
                     Operand::Literal(Literal::Qubit(0)),
@@ -120,7 +120,7 @@ fn add_simple_measurement_block(program: &mut Program) {
                 ],
                 None,
             ),
-            Instruction::Call(
+            InstructionKind::Call(
                 CallableId(3),
                 vec![
                     Operand::Literal(Literal::Integer(3)),
@@ -128,7 +128,7 @@ fn add_simple_measurement_block(program: &mut Program) {
                 ],
                 None,
             ),
-            Instruction::Call(
+            InstructionKind::Call(
                 CallableId(4),
                 vec![
                     Operand::Literal(Literal::Result(0)),
@@ -136,7 +136,7 @@ fn add_simple_measurement_block(program: &mut Program) {
                 ],
                 None,
             ),
-            Instruction::Call(
+            InstructionKind::Call(
                 CallableId(4),
                 vec![
                     Operand::Literal(Literal::Result(1)),
@@ -144,7 +144,7 @@ fn add_simple_measurement_block(program: &mut Program) {
                 ],
                 None,
             ),
-            Instruction::Call(
+            InstructionKind::Call(
                 CallableId(4),
                 vec![
                     Operand::Literal(Literal::Result(2)),
@@ -152,7 +152,7 @@ fn add_simple_measurement_block(program: &mut Program) {
                 ],
                 None,
             ),
-            Instruction::Return,
+            InstructionKind::Return,
         ]),
     );
 }
@@ -167,8 +167,8 @@ fn add_branching_measurement_block(program: &mut Program) {
         .insert(CallableId(3), builder::read_result_decl());
     program.blocks.insert(
         BlockId(0),
-        Block(vec![
-            Instruction::Call(
+        Block::from_instruction_kinds(vec![
+            InstructionKind::Call(
                 CallableId(0),
                 vec![
                     Operand::Literal(Literal::Qubit(1)),
@@ -176,12 +176,12 @@ fn add_branching_measurement_block(program: &mut Program) {
                 ],
                 None,
             ),
-            Instruction::Call(
+            InstructionKind::Call(
                 CallableId(1),
                 vec![Operand::Literal(Literal::Qubit(0))],
                 None,
             ),
-            Instruction::Call(
+            InstructionKind::Call(
                 CallableId(0),
                 vec![
                     Operand::Literal(Literal::Qubit(0)),
@@ -189,7 +189,7 @@ fn add_branching_measurement_block(program: &mut Program) {
                 ],
                 None,
             ),
-            Instruction::Call(
+            InstructionKind::Call(
                 CallableId(3),
                 vec![Operand::Literal(Literal::Result(0))],
                 Some(Variable {
@@ -197,7 +197,7 @@ fn add_branching_measurement_block(program: &mut Program) {
                     ty: Ty::Boolean,
                 }),
             ),
-            Instruction::Branch(
+            InstructionKind::Branch(
                 Variable {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,

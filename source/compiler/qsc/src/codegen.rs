@@ -103,20 +103,26 @@ pub mod qir {
             dependencies,
         )?;
 
-        let (raw, ssa) = fir_to_rir(&fir_store, capabilities, Some(compute_properties), &entry)
-            .map_err(|e| {
-                let source_package_id = match e.span() {
-                    Some(span) => span.package,
-                    None => package_id,
-                };
-                let source_package = package_store
-                    .get(source_package_id)
-                    .expect("package should be in store");
-                vec![Error::PartialEvaluation(WithSource::from_map(
-                    &source_package.sources,
-                    e,
-                ))]
-            })?;
+        let (raw, ssa) = fir_to_rir(
+            &fir_store,
+            capabilities,
+            Some(compute_properties),
+            &entry,
+            true,
+        )
+        .map_err(|e| {
+            let source_package_id = match e.span() {
+                Some(span) => span.package,
+                None => package_id,
+            };
+            let source_package = package_store
+                .get(source_package_id)
+                .expect("package should be in store");
+            vec![Error::PartialEvaluation(WithSource::from_map(
+                &source_package.sources,
+                e,
+            ))]
+        })?;
         Ok(vec![raw.to_string(), ssa.to_string()])
     }
 

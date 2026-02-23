@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::rir::{Block, BlockId, Instruction, Program, VariableId};
+use crate::rir::{Block, BlockId, InstructionKind, Program, VariableId};
 use qsc_data_structures::index_map::IndexMap;
 use rustc_hash::FxHashSet;
 
@@ -10,16 +10,17 @@ use rustc_hash::FxHashSet;
 pub fn get_block_successors(block: &Block) -> Vec<BlockId> {
     let mut successors = Vec::new();
     // Assume that the block is well-formed and that terminators only appear as the last instruction.
-    match block
+    match &block
         .0
         .last()
         .expect("block should have at least one instruction")
+        .kind
     {
-        Instruction::Branch(_, target1, target2) => {
+        InstructionKind::Branch(_, target1, target2) => {
             successors.push(*target1);
             successors.push(*target2);
         }
-        Instruction::Jump(target) => successors.push(*target),
+        InstructionKind::Jump(target) => successors.push(*target),
         _ => {}
     }
     successors
@@ -76,46 +77,46 @@ pub fn get_variable_assignments(program: &Program) -> IndexMap<VariableId, (Bloc
     let mut has_phi = false;
     for (block_id, block) in program.blocks.iter() {
         for (idx, instr) in block.0.iter().enumerate() {
-            match instr {
-                Instruction::Call(_, _, Some(var))
-                | Instruction::Add(_, _, var)
-                | Instruction::Sub(_, _, var)
-                | Instruction::Mul(_, _, var)
-                | Instruction::Sdiv(_, _, var)
-                | Instruction::Srem(_, _, var)
-                | Instruction::Shl(_, _, var)
-                | Instruction::Ashr(_, _, var)
-                | Instruction::Fadd(_, _, var)
-                | Instruction::Fsub(_, _, var)
-                | Instruction::Fmul(_, _, var)
-                | Instruction::Fdiv(_, _, var)
-                | Instruction::Fcmp(_, _, _, var)
-                | Instruction::Icmp(_, _, _, var)
-                | Instruction::LogicalNot(_, var)
-                | Instruction::LogicalAnd(_, _, var)
-                | Instruction::LogicalOr(_, _, var)
-                | Instruction::BitwiseNot(_, var)
-                | Instruction::BitwiseAnd(_, _, var)
-                | Instruction::BitwiseOr(_, _, var)
-                | Instruction::BitwiseXor(_, _, var)
-                | Instruction::Phi(_, var) => {
+            match &instr.kind {
+                InstructionKind::Call(_, _, Some(var))
+                | InstructionKind::Add(_, _, var)
+                | InstructionKind::Sub(_, _, var)
+                | InstructionKind::Mul(_, _, var)
+                | InstructionKind::Sdiv(_, _, var)
+                | InstructionKind::Srem(_, _, var)
+                | InstructionKind::Shl(_, _, var)
+                | InstructionKind::Ashr(_, _, var)
+                | InstructionKind::Fadd(_, _, var)
+                | InstructionKind::Fsub(_, _, var)
+                | InstructionKind::Fmul(_, _, var)
+                | InstructionKind::Fdiv(_, _, var)
+                | InstructionKind::Fcmp(_, _, _, var)
+                | InstructionKind::Icmp(_, _, _, var)
+                | InstructionKind::LogicalNot(_, var)
+                | InstructionKind::LogicalAnd(_, _, var)
+                | InstructionKind::LogicalOr(_, _, var)
+                | InstructionKind::BitwiseNot(_, var)
+                | InstructionKind::BitwiseAnd(_, _, var)
+                | InstructionKind::BitwiseOr(_, _, var)
+                | InstructionKind::BitwiseXor(_, _, var)
+                | InstructionKind::Phi(_, var) => {
                     assert!(
                         !assignments.contains_key(var.variable_id),
                         "Duplicate assignment to {:?} in {block_id:?}, instruction {idx}",
                         var.variable_id
                     );
-                    has_phi |= matches!(instr, Instruction::Phi(_, _));
+                    has_phi |= matches!(&instr.kind, InstructionKind::Phi(_, _));
                     assignments.insert(var.variable_id, (block_id, idx));
                 }
-                Instruction::Store(_, var) => {
+                InstructionKind::Store(_, var) => {
                     has_store = true;
                     assignments.insert(var.variable_id, (block_id, idx));
                 }
 
-                Instruction::Call(_, _, None)
-                | Instruction::Jump(..)
-                | Instruction::Branch(..)
-                | Instruction::Return => {}
+                InstructionKind::Call(_, _, None)
+                | InstructionKind::Jump(..)
+                | InstructionKind::Branch(..)
+                | InstructionKind::Return => {}
             }
         }
     }
