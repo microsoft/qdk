@@ -435,7 +435,7 @@ pub(crate) use qir;
 ///
 /// # Required fields:
 /// - `simulator`: One of `StabilizerSimulator`, `NoisySimulator`, or `NoiselessSimulator`
-/// - `program`: An expression that evaluates to `Vec<_>` (use `qir!` macro)
+/// - `program`: An expression that evaluates to a `Vec<QirInstruction>` (use `qir!` macro)
 /// - `num_qubits`: The number of qubits in the simulation
 /// - `num_results`: The number of measurement results
 /// - `expect`: The expected output (using `expect!` macro)
@@ -617,7 +617,6 @@ pub fn check_programs_are_eq_cpu<S>(
 ///
 /// Once the GPU simulator exposes its internal state, we can change this function
 /// to check for a stronger equivalence relation.
-#[allow(clippy::cast_possible_truncation)]
 pub fn check_programs_are_eq_gpu(
     programs: &[Vec<QirInstruction>],
     num_qubits: u32,
@@ -785,7 +784,6 @@ where
         measurements.push(mz(i, i));
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     for (program, input_bits, expected_bits) in table {
         let actual_prep: Vec<_> = (0..num_qubits)
             .filter(|q| (input_bits >> q) & 1 == 1)
@@ -839,7 +837,6 @@ where
 /// The instructions are converted to GPU `Op`s and executed via `run_shots_sync`.
 /// The prep, program, and measurement instructions are mapped separately because
 /// `QirInstruction` does not implement `Clone`.
-#[allow(clippy::cast_possible_truncation)]
 pub fn check_basis_table_gpu(num_qubits: u32, table: &[(Vec<QirInstruction>, u32, u32)]) {
     use crate::qir_simulation::gpu_full_state::map_instruction;
 
@@ -1002,7 +999,7 @@ pub fn histogram(output: &[String]) -> String {
 /// Histogram with percentages: shows each result with its percentage.
 /// Useful for verifying probability distributions with percentages.
 /// Example: "001: 25.00%\n010: 50.00%\n110: 25.00%"
-#[allow(clippy::cast_precision_loss, dead_code)]
+#[allow(clippy::cast_precision_loss)]
 pub fn histogram_percent(output: &[String]) -> String {
     use std::collections::BTreeMap;
     let output = normalize_output(output);
@@ -1152,15 +1149,14 @@ pub fn run_on_gpu(
 }
 
 /// Convert a `NoiseTable<f64>` to `NoiseTable<f32>`.
+#[allow(clippy::cast_possible_truncation)]
 fn noise_table_f64_to_f32_table(
     table: noise_config_mod::NoiseTable<f64>,
 ) -> noise_config_mod::NoiseTable<f32> {
     noise_config_mod::NoiseTable {
         qubits: table.qubits,
         pauli_strings: table.pauli_strings,
-        #[allow(clippy::cast_possible_truncation)]
         probabilities: table.probabilities.into_iter().map(|p| p as f32).collect(),
-        #[allow(clippy::cast_possible_truncation)]
         loss: table.loss as f32,
     }
 }
