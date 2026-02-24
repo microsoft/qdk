@@ -51,7 +51,7 @@ def test_scheduler_inserts_move_to_iz_for_single_qubit_gates():
 
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -65,7 +65,7 @@ block_0:
   call void @__quantum__rt__begin_parallel()
   call void @__quantum__qis__move__body(%Qubit* null, i64 24, i64 0)
   call void @__quantum__rt__end_parallel()
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -123,7 +123,7 @@ def test_scheduler_inserts_move_to_iz_for_two_qubit_gates():
 
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -139,7 +139,7 @@ block_0:
   call void @__quantum__qis__move__body(%Qubit* null, i64 24, i64 0)
   call void @__quantum__qis__move__body(%Qubit* inttoptr (i64 1 to %Qubit*), i64 24, i64 1)
   call void @__quantum__rt__end_parallel()
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -198,7 +198,7 @@ def test_scheduler_inserts_move_to_iz_for_mixed_gates_with_1q_gates_first():
 
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -217,7 +217,7 @@ block_0:
   call void @__quantum__qis__move__body(%Qubit* null, i64 24, i64 0)
   call void @__quantum__qis__move__body(%Qubit* inttoptr (i64 1 to %Qubit*), i64 24, i64 1)
   call void @__quantum__rt__end_parallel()
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -280,7 +280,7 @@ def test_scheduler_parallelizes_operations_when_possible():
 
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -305,7 +305,7 @@ block_0:
   call void @__quantum__qis__move__body(%Qubit* inttoptr (i64 2 to %Qubit*), i64 24, i64 2)
   call void @__quantum__qis__move__body(%Qubit* inttoptr (i64 3 to %Qubit*), i64 24, i64 3)
   call void @__quantum__rt__end_parallel()
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -367,7 +367,7 @@ def test_scheduler_inserts_moves_to_mz_for_measurement():
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -384,7 +384,7 @@ block_0:
   call void @__quantum__qis__move__body(%Qubit* null, i64 24, i64 0)
   call void @__quantum__qis__move__body(%Qubit* inttoptr (i64 1 to %Qubit*), i64 24, i64 1)
   call void @__quantum__rt__end_parallel()
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -444,7 +444,7 @@ def test_scheduler_parallelizes_1q_gates_by_iz_row():
 
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -697,7 +697,7 @@ block_0:
   call void @__quantum__qis__move__body(%Qubit* inttoptr (i64 78 to %Qubit*), i64 23, i64 38)
   call void @__quantum__qis__move__body(%Qubit* inttoptr (i64 79 to %Qubit*), i64 23, i64 39)
   call void @__quantum__rt__end_parallel()
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -758,7 +758,7 @@ def test_scheduler_parallelizes_all_2q_in_iz():
 
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -969,7 +969,7 @@ block_0:
   call void @__quantum__qis__move__body(%Qubit* inttoptr (i64 78 to %Qubit*), i64 23, i64 38)
   call void @__quantum__qis__move__body(%Qubit* inttoptr (i64 79 to %Qubit*), i64 23, i64 39)
   call void @__quantum__rt__end_parallel()
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -1032,7 +1032,7 @@ def test_scheduler_splits_large_parallel_2q_in_iz_by_iz_size():
 
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -1349,7 +1349,7 @@ block_0:
   call void @__quantum__qis__move__body(%Qubit* inttoptr (i64 118 to %Qubit*), i64 22, i64 38)
   call void @__quantum__qis__move__body(%Qubit* inttoptr (i64 119 to %Qubit*), i64 22, i64 39)
   call void @__quantum__rt__end_parallel()
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -1412,7 +1412,6 @@ def test_scheduler_moves_qubits_to_iz_for_1q_gate_after_2q_gate_before_measureme
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
 @0 = internal constant [4 x i8] c"0_r\\00"
 
 define i64 @ENTRYPOINT__main() #0 {

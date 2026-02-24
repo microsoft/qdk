@@ -112,7 +112,7 @@ fn bitstring_slicing() -> miette::Result<(), Vec<Report>> {
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
         mutable ans = [One, Zero, One, Zero, One];
-        let qq = QIR.Runtime.__quantum__rt__qubit_allocate();
+        borrow qq = Qubit();
         if Std.OpenQASM.Convert.ResultArrayAsIntBE(ans[0..3]) == 4 {
             x(qq);
         };
@@ -134,7 +134,7 @@ fn bitstring_slicing_with_step() -> miette::Result<(), Vec<Report>> {
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
         mutable ans = [One, Zero, One, Zero, One];
-        let qq = QIR.Runtime.__quantum__rt__qubit_allocate();
+        borrow qq = Qubit();
         if Std.OpenQASM.Convert.ResultArrayAsIntBE(ans[0..3..2]) == 4 {
             x(qq);
         };

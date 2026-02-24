@@ -9,10 +9,16 @@ import { CircuitGroup } from "./circuit.js";
  *
  * @param circuitGroup Group of circuits to be visualized.
  * @param container HTML element for rendering visualization into.
- * @param renderDepth Initial layer depth at which to render gates.
- * @param isEditable Whether the circuit is editable.
- * @param editCallback Callback function to be called when the circuit is edited.
- * @param runCallback Callback function to be called when the circuit is run.
+ * @param options Rendering/interaction options.
+ *   - `renderDepth`: Initial layer depth at which to render gates.
+ *   - `renderLocations`: Callback to generate links for source locations.
+ *   - `editor`: When provided, enables editing behaviors and requires:
+ *       - `editCallback`: Called when the circuit is edited.
+ *       - `runCallback` (optional): When provided, enables the Run button.
+ *       - `computeStateVizColumnsForCircuitModel` (optional): When provided,
+ *         delegates async state visualization computation to the host, which
+ *         is necessary for large circuits and/or when using a Web Worker (e.g. in VS Code).
+ *         When omitted, state visualization will be computed on the main thread.
  */
 export const draw = (
   circuitGroup: CircuitGroup,
@@ -22,6 +28,8 @@ export const draw = (
   const sqore = new Sqore(circuitGroup, options);
   sqore.draw(container);
 };
+
+export type { DrawOptions, EditorHandlers } from "./sqore.js";
 
 // Export types
 export type {

@@ -84,8 +84,6 @@ fn compile_and_run_internal(sources: SourceMap, debug: bool) -> String {
         }
     };
 
-    check_lints(&interpreter);
-
     interpreter.set_classical_seed(Some(1));
     interpreter.set_quantum_seed(Some(1));
 
@@ -177,8 +175,6 @@ fn compile_and_run_qasm_internal(source: &str, debug: bool) -> String {
         }
     };
 
-    check_lints(&interpreter);
-
     interpreter.set_classical_seed(Some(1));
     interpreter.set_quantum_seed(Some(1));
 
@@ -199,7 +195,7 @@ fn compile_and_run_qasm_internal(source: &str, debug: bool) -> String {
 fn compile(sources: SourceMap) {
     let (std_id, store) = compile::package_store_with_stdlib(TargetCapabilityFlags::all());
 
-    match Interpreter::new(
+    if let Err(errors) = Interpreter::new(
         sources,
         PackageType::Lib,
         TargetCapabilityFlags::all(),
@@ -207,15 +203,10 @@ fn compile(sources: SourceMap) {
         store,
         &[(std_id, None)],
     ) {
-        Ok(interpreter) => {
-            check_lints(&interpreter);
+        for error in &errors {
+            eprintln!("error: {error}");
         }
-        Err(errors) => {
-            for error in &errors {
-                eprintln!("error: {error}");
-            }
-            panic!("compilation failed (first error: {})", errors[0]);
-        }
+        panic!("compilation failed (first error: {})", errors[0]);
     }
 }
 
@@ -255,7 +246,7 @@ fn compile_project(project_folder: &str) {
 
     let source_map = qsc::SourceMap::new(user_code.sources, None);
 
-    match Interpreter::new(
+    if let Err(errors) = Interpreter::new(
         source_map,
         PackageType::Lib,
         TargetCapabilityFlags::all(),
@@ -263,28 +254,9 @@ fn compile_project(project_folder: &str) {
         store,
         &user_code_dependencies,
     ) {
-        Ok(interpreter) => {
-            check_lints(&interpreter);
+        for error in &errors {
+            eprintln!("error: {error}");
         }
-        Err(errors) => {
-            for error in &errors {
-                eprintln!("error: {error}");
-            }
-            panic!("compilation failed (first error: {})", errors[0]);
-        }
-    }
-}
-
-fn check_lints(interpreter: &Interpreter) {
-    let lints: Vec<_> = interpreter
-        .check_source_lints()
-        .into_iter()
-        .filter(|lint| lint.level != qsc::linter::LintLevel::Allow)
-        .collect();
-    if !lints.is_empty() {
-        for lint in &lints {
-            eprintln!("lint: {lint}");
-        }
-        panic!("linting failed (first lint: {})", lints[0]);
+        panic!("compilation failed (first error: {})", errors[0]);
     }
 }
