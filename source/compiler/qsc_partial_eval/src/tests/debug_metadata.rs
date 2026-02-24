@@ -29,7 +29,7 @@ fn no_gates() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Integer(0), EmptyTag, )
+                Call id(2), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -53,7 +53,7 @@ fn one_gate() {
             Block 0:Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), ) !dbg dbg_location=2
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return
 
             dbg_scopes:
@@ -87,8 +87,8 @@ fn one_measurement() {
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), ) !dbg dbg_location=2
                 Call id(3), args( Qubit(0), Result(0), ) !dbg dbg_location=8
-                Call id(4), args( Integer(1), EmptyTag, )
-                Call id(5), args( Result(0), Tag(0, 5), )
+                Call id(4), args( Integer(1), Tag(0, 3), )
+                Call id(5), args( Result(0), Tag(1, 5), )
                 Return
 
             dbg_scopes:
@@ -137,7 +137,7 @@ fn calls_to_other_callables() {
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), ) !dbg dbg_location=3
                 Call id(3), args( Qubit(0), Result(0), ) !dbg dbg_location=5
-                Call id(4), args( Integer(0), EmptyTag, )
+                Call id(4), args( Integer(0), Tag(0, 3), )
                 Return
 
             dbg_scopes:
@@ -189,7 +189,7 @@ fn classical_for_loop() {
                 Call id(2), args( Qubit(0), ) !dbg dbg_location=14
                 Call id(3), args( Qubit(0), ) !dbg dbg_location=16
                 Variable(0, Integer) = Store Integer(3)
-                Call id(4), args( Integer(0), EmptyTag, )
+                Call id(4), args( Integer(0), Tag(0, 3), )
                 Return
 
             dbg_scopes:
@@ -279,7 +279,7 @@ fn nested_classical_for_loop() {
                 Variable(5, Integer) = Store Integer(1)
                 Variable(5, Integer) = Store Integer(2)
                 Variable(5, Integer) = Store Integer(3)
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return
 
             dbg_scopes:
@@ -346,7 +346,7 @@ fn lambda() {
             Block 0:Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), ) !dbg dbg_location=3
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return
 
             dbg_scopes:
@@ -390,8 +390,8 @@ fn result_comparison_to_literal() {
                 Branch Variable(1, Boolean), 2, 1 !dbg dbg_location=11
             Block 1:Block:
                 Call id(6), args( Qubit(0), ) !dbg dbg_location=15
-                Call id(7), args( Integer(1), EmptyTag, )
-                Call id(8), args( Result(0), Tag(0, 5), )
+                Call id(7), args( Integer(1), Tag(0, 3), )
+                Call id(8), args( Result(0), Tag(1, 5), )
                 Return
             Block 2:Block:
                 Call id(5), args( Qubit(0), ) !dbg dbg_location=13
@@ -458,9 +458,9 @@ fn if_else() {
                 Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=12
             Block 1:Block:
                 Call id(3), args( Qubit(1), Result(1), ) !dbg dbg_location=22
-                Call id(7), args( Integer(2), EmptyTag, )
-                Call id(8), args( Result(0), Tag(0, 5), )
-                Call id(8), args( Result(1), Tag(1, 5), )
+                Call id(7), args( Integer(2), Tag(0, 3), )
+                Call id(8), args( Result(0), Tag(1, 5), )
+                Call id(8), args( Result(1), Tag(2, 5), )
                 Return
             Block 2:Block:
                 Call id(5), args( Qubit(1), ) !dbg dbg_location=14
@@ -529,10 +529,10 @@ fn branch_due_to_binop_short_circuit() {
                 Variable(0, Boolean) = Call id(4), args( Result(0), ) !dbg dbg_location=6
                 Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
                 Variable(2, Boolean) = Store Bool(false)
-                Branch Variable(1, Boolean), 2, 1 !dbg dbg_location=14
+                Branch Variable(1, Boolean), 2, 1 !dbg dbg_location=22
             Block 1:Block:
                 Variable(5, Boolean) = Store Variable(2, Boolean)
-                Call id(5), args( Integer(0), EmptyTag, )
+                Call id(5), args( Integer(0), Tag(0, 3), )
                 Return
             Block 2:Block:
                 Call id(3), args( Qubit(1), Result(1), ) !dbg dbg_location=19
@@ -568,6 +568,7 @@ fn branch_due_to_binop_short_circuit() {
                 [18]: scope=4 location=(1-55512) inlined_at=17
                 [19]: scope=3 location=(1-113160) inlined_at=15
                 [20]: scope=3 location=(1-113087) inlined_at=15
-                [21]: scope=5 location=(1-55512) inlined_at=20"#]],
+                [21]: scope=5 location=(1-55512) inlined_at=20
+                [22]: scope=0 location=(2-127)"#]],
     );
 }

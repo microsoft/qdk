@@ -1007,6 +1007,7 @@ impl<'a> PartialEvaluator<'a> {
             (rhs_eval_block_id, continuation_block_id)
         };
 
+        let rhs_expr_dbg_location = self.assign_current_dbg_location(rhs_expr_id);
         let branch_ins = Instruction {
             kind: InstructionKind::Branch(lhs_rir_var, true_block_id, false_block_id),
             metadata: self.metadata_from_current_debug_location(),
@@ -3729,7 +3730,6 @@ impl<'a> PartialEvaluator<'a> {
             ..
         }) = scope.dbg_context.loop_iterations.last()
         {
-            // We're in a loop scope
             let s = self
                 .dbg_context
                 .dbg_loop_expr_to_scope
@@ -3752,7 +3752,6 @@ impl<'a> PartialEvaluator<'a> {
             }
         } else {
             let (callable_id, functor_app) = scope.callable?;
-            // We're in a callable scope, and not in a loop scope
             let item_id = StoreItemId {
                 package: scope.package_id,
                 item: callable_id,
@@ -3766,7 +3765,7 @@ impl<'a> PartialEvaluator<'a> {
             if let Some(s) = s {
                 Some(s)
             } else {
-                let (name, callable_decl_span) = match &self.package_store.get_item(item_id).kind {
+                let (name, span) = match &self.package_store.get_item(item_id).kind {
                     fir::ItemKind::Callable(callable_decl) => {
                         let name = if functor_app.adjoint {
                             format!("{}'", callable_decl.name.name).into()
@@ -3783,7 +3782,7 @@ impl<'a> PartialEvaluator<'a> {
                     name,
                     location: DbgPackageOffset {
                         package_id,
-                        offset: callable_decl_span.lo,
+                        offset: span.lo,
                     },
                 };
                 let i = self.program.dbg_info.add_scope(scope);
