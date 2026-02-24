@@ -633,8 +633,7 @@
 }
 
 .state-edge:focus {
-  outline: 2px solid var(--qdk-focus-border);
-  outline-offset: -2px;
+  outline: none;
 }
 
 .state-edge-text {

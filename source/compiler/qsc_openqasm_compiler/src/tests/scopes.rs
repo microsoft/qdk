@@ -28,7 +28,7 @@ fn can_access_const_decls_from_global_scope() -> miette::Result<(), Vec<Report>>
                 h(q);
             };
         }
-        let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+        borrow q = Qubit();
         my_h(q);
     "#]]
     .assert_eq(&qsharp);
@@ -78,7 +78,7 @@ fn gates_can_call_previously_declared_gates() -> miette::Result<(), Vec<Report>>
             my_h(q);
             x(q);
         }
-        let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+        borrow q = Qubit();
         my_hx(q);
     "#]]
     .assert_eq(&qsharp);
@@ -110,7 +110,7 @@ fn def_can_call_previously_declared_def() -> miette::Result<(), Vec<Report>> {
             apply_h(q);
             x(q);
         }
-        let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+        borrow q = Qubit();
         apply_hx(q);
     "#]]
     .assert_eq(&qsharp);
@@ -142,7 +142,7 @@ fn gate_can_call_previously_declared_def() -> miette::Result<(), Vec<Report>> {
             apply_h(q);
             x(q);
         }
-        let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+        borrow q = Qubit();
         my_hx(q);
     "#]]
     .assert_eq(&qsharp);
@@ -174,7 +174,7 @@ fn def_can_call_previously_declared_gate() -> miette::Result<(), Vec<Report>> {
             my_h(q);
             x(q);
         }
-        let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+        borrow q = Qubit();
         apply_hx(q);
     "#]]
     .assert_eq(&qsharp);
@@ -206,7 +206,7 @@ fn def_can_call_itself_recursively() -> miette::Result<(), Vec<Report>> {
             };
             h(q);
         }
-        let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+        borrow q = Qubit();
         apply_hx(2, q);
     "#]]
     .assert_eq(&qsharp);

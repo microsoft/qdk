@@ -41,12 +41,12 @@ def test_prune_init_handled_by_unused_functions_pass() -> None:
 
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__qis__x__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -96,13 +96,13 @@ def test_optimize_removes_h_h_gates() -> None:
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__rt__initialize(i8* null)
   call void @__quantum__qis__x__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -160,13 +160,13 @@ def test_optimize_removes_s_sadj_gates() -> None:
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__rt__initialize(i8* null)
   call void @__quantum__qis__x__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -226,13 +226,13 @@ def test_optimize_removes_t_tadj_gates() -> None:
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__rt__initialize(i8* null)
   call void @__quantum__qis__x__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -290,13 +290,13 @@ def test_optimize_combines_h_s_h_gates() -> None:
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__rt__initialize(i8* null)
   call void @__quantum__qis__sx__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -354,13 +354,13 @@ def test_optimize_removes_x_x_gates() -> None:
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__rt__initialize(i8* null)
   call void @__quantum__qis__z__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -418,13 +418,13 @@ def test_optimize_removes_y_y_gates() -> None:
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__rt__initialize(i8* null)
   call void @__quantum__qis__z__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -482,13 +482,13 @@ def test_optimize_removes_z_z_gates() -> None:
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__rt__initialize(i8* null)
   call void @__quantum__qis__x__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -550,7 +550,7 @@ def test_optimize_combines_rx_rotation_angles() -> None:
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -558,7 +558,7 @@ block_0:
   call void @__quantum__qis__rx__body(double 0x400921FB54442D18, %Qubit* null)
   call void @__quantum__qis__x__body(%Qubit* null)
   call void @__quantum__qis__y__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -622,7 +622,7 @@ def test_optimize_combines_ry_rotation_angles() -> None:
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -630,7 +630,7 @@ block_0:
   call void @__quantum__qis__ry__body(double 0x400921FB54442D18, %Qubit* null)
   call void @__quantum__qis__x__body(%Qubit* null)
   call void @__quantum__qis__y__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -694,7 +694,7 @@ def test_optimize_combines_rz_rotation_angles() -> None:
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -702,7 +702,7 @@ block_0:
   call void @__quantum__qis__rz__body(double 0x400921FB54442D18, %Qubit* null)
   call void @__quantum__qis__x__body(%Qubit* null)
   call void @__quantum__qis__y__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -764,12 +764,12 @@ def test_optimize_removes_adjoint_gates_after_removing_other_adjoint_gates() -> 
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__rt__initialize(i8* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -831,7 +831,7 @@ def test_optimize_leaves_gates_with_intervening_gates() -> None:
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -839,7 +839,7 @@ block_0:
   call void @__quantum__qis__h__body(%Qubit* null)
   call void @__quantum__qis__x__body(%Qubit* null)
   call void @__quantum__qis__h__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -900,7 +900,7 @@ def test_optimize_treats_rxx_as_barrier() -> None:
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -908,7 +908,7 @@ block_0:
   call void @__quantum__qis__x__body(%Qubit* null)
   call void @__quantum__qis__rxx__body(double 5.000000e-01, %Qubit* null, %Qubit* inttoptr (i64 1 to %Qubit*))
   call void @__quantum__qis__x__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -965,7 +965,7 @@ def test_optimize_treats_ryy_as_barrier() -> None:
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -973,7 +973,7 @@ block_0:
   call void @__quantum__qis__x__body(%Qubit* null)
   call void @__quantum__qis__ryy__body(double 5.000000e-01, %Qubit* null, %Qubit* inttoptr (i64 1 to %Qubit*))
   call void @__quantum__qis__x__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -1030,7 +1030,7 @@ def test_optimize_treats_rzz_as_barrier() -> None:
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -1038,7 +1038,7 @@ block_0:
   call void @__quantum__qis__x__body(%Qubit* null)
   call void @__quantum__qis__rzz__body(double 5.000000e-01, %Qubit* null, %Qubit* inttoptr (i64 1 to %Qubit*))
   call void @__quantum__qis__x__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -1096,7 +1096,7 @@ def test_optimize_treats_ccx_as_barrier() -> None:
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -1104,7 +1104,7 @@ block_0:
   call void @__quantum__qis__x__body(%Qubit* null)
   call void @__quantum__qis__ccx__body(%Qubit* null, %Qubit* inttoptr (i64 1 to %Qubit*), %Qubit* inttoptr (i64 2 to %Qubit*))
   call void @__quantum__qis__x__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -1161,7 +1161,7 @@ def test_optimize_treats_cx_as_barrier() -> None:
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -1169,7 +1169,7 @@ block_0:
   call void @__quantum__qis__x__body(%Qubit* null)
   call void @__quantum__qis__cx__body(%Qubit* null, %Qubit* inttoptr (i64 1 to %Qubit*))
   call void @__quantum__qis__x__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -1226,7 +1226,7 @@ def test_optimize_treats_cy_as_barrier() -> None:
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -1234,7 +1234,7 @@ block_0:
   call void @__quantum__qis__x__body(%Qubit* null)
   call void @__quantum__qis__cy__body(%Qubit* null, %Qubit* inttoptr (i64 1 to %Qubit*))
   call void @__quantum__qis__x__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -1291,7 +1291,7 @@ def test_optimize_treats_cz_as_barrier() -> None:
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -1299,7 +1299,7 @@ block_0:
   call void @__quantum__qis__x__body(%Qubit* null)
   call void @__quantum__qis__cz__body(%Qubit* null, %Qubit* inttoptr (i64 1 to %Qubit*))
   call void @__quantum__qis__x__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -1356,7 +1356,7 @@ def test_optimize_treats_swap_as_barrier() -> None:
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -1364,7 +1364,7 @@ block_0:
   call void @__quantum__qis__x__body(%Qubit* null)
   call void @__quantum__qis__swap__body(%Qubit* null, %Qubit* inttoptr (i64 1 to %Qubit*))
   call void @__quantum__qis__x__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -1420,7 +1420,7 @@ def test_optimize_treats_m_as_barrier() -> None:
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -1428,7 +1428,7 @@ block_0:
   call void @__quantum__qis__x__body(%Qubit* null)
   call void @__quantum__qis__m__body(%Qubit* null, %Result* null)
   call void @__quantum__qis__x__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -1485,7 +1485,7 @@ def test_optimize_treats_mresetz_as_barrier() -> None:
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -1493,7 +1493,7 @@ block_0:
   call void @__quantum__qis__x__body(%Qubit* null)
   call void @__quantum__qis__mresetz__body(%Qubit* null, %Result* null)
   call void @__quantum__qis__x__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -1548,7 +1548,7 @@ def test_optimize_treats_reset_as_barrier() -> None:
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -1556,7 +1556,7 @@ block_0:
   call void @__quantum__qis__x__body(%Qubit* null)
   call void @__quantum__qis__reset__body(%Qubit* null)
   call void @__quantum__qis__x__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -1623,7 +1623,7 @@ def test_optimize_works_within_blocks_not_across_blocks() -> None:
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -1645,7 +1645,7 @@ block_2:                                          ; preds = %block_0
 
 block_3:                                          ; preds = %block_2, %block_1
   call void @__quantum__qis__x__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -1709,7 +1709,7 @@ def test_optimize_combines_m_and_reset_into_mresetz() -> None:
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -1717,7 +1717,7 @@ block_0:
   call void @__quantum__qis__x__body(%Qubit* null)
   call void @__quantum__qis__mresetz__body(%Qubit* null, %Result* null)
   call void @__quantum__qis__x__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -1777,7 +1777,7 @@ def test_optimize_removes_mresetz_and_reset_into_mresetz() -> None:
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -1785,7 +1785,7 @@ block_0:
   call void @__quantum__qis__x__body(%Qubit* null)
   call void @__quantum__qis__mresetz__body(%Qubit* null, %Result* null)
   call void @__quantum__qis__x__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -1845,7 +1845,7 @@ def test_optimize_removes_reset_of_unused_qubits() -> None:
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -1854,7 +1854,7 @@ block_0:
   call void @__quantum__qis__reset__body(%Qubit* null)
   call void @__quantum__qis__x__body(%Qubit* null)
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -1910,14 +1910,14 @@ def test_optimize_turns_final_m_into_mresetz() -> None:
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__rt__initialize(i8* null)
   call void @__quantum__qis__x__body(%Qubit* null)
   call void @__quantum__qis__mresetz__body(%Qubit* null, %Result* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -1975,7 +1975,7 @@ def test_optimize_removes_reset_after_reset() -> None:
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -1983,7 +1983,7 @@ block_0:
   call void @__quantum__qis__x__body(%Qubit* null)
   call void @__quantum__qis__reset__body(%Qubit* null)
   call void @__quantum__qis__y__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 
@@ -2041,13 +2041,13 @@ def test_optimize_removes_final_reset() -> None:
 %Qubit = type opaque
 %Result = type opaque
 
-@empty_tag = internal constant [1 x i8] zeroinitializer
+@0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__rt__initialize(i8* null)
   call void @__quantum__qis__x__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 

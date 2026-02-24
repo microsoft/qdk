@@ -52,7 +52,7 @@ const VIZ = {
   phaseDotFrac: 0.25,
   phaseDotRadiusMinPx: 1.5,
   phaseTextBottomPad: 6,
-  verticalLabelCharHeight: 14,
+  verticalLabelCharHeight: 9,
   phaseLabelLineHeight: 14,
   verticalLabelExtraBase: 12,
   stateLabelVerticalOffset: 4,
@@ -395,7 +395,7 @@ const renderStatePanel = (
 
   columnData.forEach((col, i) => renderColumn(g, col, i, prev, layout));
 
-  finalizeSvgAndFlex(svg, panel, g, layout);
+  finalizeSvgAndFlex(svg, panel, layout);
   savePreviousValues(panel, columnData);
 };
 
@@ -660,43 +660,28 @@ const renderStateLabelSection = (
 const finalizeSvgAndFlex = (
   svg: SVGSVGElement,
   panel: HTMLElement,
-  g: SVGGElement,
   layout: LayoutMetrics,
 ) => {
-  try {
-    const bbox = g.getBBox();
-    const contentHeight = Math.ceil(bbox.height + VIZ.contentHeightExtra);
-    const svgHeight = Math.max(VIZ.baseHeight, contentHeight);
-    svg.setAttribute("height", svgHeight.toString());
-    svg.setAttribute("width", layout.panelWidthPx.toString());
-    const edgePad = VIZ.edgePad;
-    panel.style.flexBasis = `${Math.ceil(layout.panelWidthPx + edgePad)}px`;
-  } catch {
-    // If getBBox fails (e.g., JSDOM/SVG not fully rendered), fall back to a
-    // deterministic height based on our layout constants so snapshots still
-    // include the whole visualization.
-    const labelTextHeightPx = layout.verticalLabels
-      ? VIZ.verticalLabelCharHeight * Math.max(1, layout.maxLabelLen)
-      : VIZ.phaseLabelLineHeight;
-    const labelBottomY =
-      layout.stateSectionTopY +
-      VIZ.stateHeaderPadding +
-      (layout.verticalLabels
-        ? VIZ.stateLabelVerticalOffset
-        : VIZ.stateLabelHorizontalOffset) +
-      labelTextHeightPx;
+  const labelTextHeightPx = layout.verticalLabels
+    ? VIZ.verticalLabelCharHeight * Math.max(1, layout.maxLabelLen)
+    : VIZ.phaseLabelLineHeight;
+  const labelBottomY =
+    layout.stateSectionTopY +
+    VIZ.stateHeaderPadding +
+    (layout.verticalLabels
+      ? VIZ.stateLabelVerticalOffset
+      : VIZ.stateLabelHorizontalOffset) +
+    labelTextHeightPx;
 
-    const svgHeight = Math.max(
-      VIZ.baseHeight,
-      Math.ceil(
-        labelBottomY + VIZ.extraBottomPaddingPx + VIZ.marginBottomMinPx,
-      ),
-    );
-    svg.setAttribute("height", svgHeight.toString());
-    svg.setAttribute("width", layout.panelWidthPx.toString());
-    const edgePad = VIZ.edgePad;
-    panel.style.flexBasis = `${Math.ceil(layout.panelWidthPx + edgePad)}px`;
-  }
+  const svgHeight = Math.max(
+    VIZ.baseHeight,
+    Math.ceil(labelBottomY + VIZ.extraBottomPaddingPx + VIZ.marginBottomMinPx),
+  );
+
+  svg.setAttribute("height", svgHeight.toString());
+  svg.setAttribute("width", layout.panelWidthPx.toString());
+  const edgePad = VIZ.edgePad;
+  panel.style.flexBasis = `${Math.ceil(layout.panelWidthPx + edgePad)}px`;
 };
 
 const savePreviousValues = (panel: HTMLElement, columnData: StateColumn[]) => {
