@@ -2480,10 +2480,9 @@ impl<'a> PartialEvaluator<'a> {
             ),
             _ => panic!("unsupported binary operation for double: {bin_op:?}"),
         };
-        let metadata = self.metadata_from_current_debug_location();
         self.get_current_rir_block_mut().0.push(Instruction {
             kind: bin_op_rir_ins,
-            metadata,
+            metadata: None,
         });
         Ok(bin_op_rir_variable)
     }
@@ -2496,7 +2495,6 @@ impl<'a> PartialEvaluator<'a> {
         rhs_operand: Operand,
         bin_op_expr_span: PackageSpan, // For diagnostic purposes only.
     ) -> Result<rir::Variable, Error> {
-        let metadata = self.metadata_from_current_debug_location();
         let rir_variable = match bin_op {
             BinOp::Add => {
                 let bin_op_variable_id = self.resource_manager.next_var();
@@ -2505,7 +2503,7 @@ impl<'a> PartialEvaluator<'a> {
                     InstructionKind::Add(lhs_operand, rhs_operand, bin_op_rir_variable);
                 self.get_current_rir_block_mut().0.push(Instruction {
                     kind: bin_op_rir_ins,
-                    metadata: metadata.clone(),
+                    metadata: None,
                 });
                 bin_op_rir_variable
             }
@@ -2516,7 +2514,7 @@ impl<'a> PartialEvaluator<'a> {
                     InstructionKind::Sub(lhs_operand, rhs_operand, bin_op_rir_variable);
                 self.get_current_rir_block_mut().0.push(Instruction {
                     kind: bin_op_rir_ins,
-                    metadata: metadata.clone(),
+                    metadata: None,
                 });
                 bin_op_rir_variable
             }
@@ -2527,7 +2525,7 @@ impl<'a> PartialEvaluator<'a> {
                     InstructionKind::Mul(lhs_operand, rhs_operand, bin_op_rir_variable);
                 self.get_current_rir_block_mut().0.push(Instruction {
                     kind: bin_op_rir_ins,
-                    metadata: metadata.clone(),
+                    metadata: None,
                 });
                 bin_op_rir_variable
             }
@@ -2543,7 +2541,7 @@ impl<'a> PartialEvaluator<'a> {
                     InstructionKind::Sdiv(lhs_operand, rhs_operand, bin_op_rir_variable);
                 self.get_current_rir_block_mut().0.push(Instruction {
                     kind: bin_op_rir_ins,
-                    metadata: metadata.clone(),
+                    metadata: None,
                 });
                 bin_op_rir_variable
             }
@@ -2554,7 +2552,7 @@ impl<'a> PartialEvaluator<'a> {
                     InstructionKind::Srem(lhs_operand, rhs_operand, bin_op_rir_variable);
                 self.get_current_rir_block_mut().0.push(Instruction {
                     kind: bin_op_rir_ins,
-                    metadata: metadata.clone(),
+                    metadata: None,
                 });
                 bin_op_rir_variable
             }
@@ -2581,7 +2579,7 @@ impl<'a> PartialEvaluator<'a> {
                 );
                 self.get_current_rir_block_mut().0.push(Instruction {
                     kind: init_ins,
-                    metadata: metadata.clone(),
+                    metadata: None,
                 });
                 for _ in 0..exponent {
                     let mult_variable =
@@ -2593,7 +2591,7 @@ impl<'a> PartialEvaluator<'a> {
                     );
                     self.get_current_rir_block_mut().0.push(Instruction {
                         kind: mult_ins,
-                        metadata: metadata.clone(),
+                        metadata: None,
                     });
                     current_rir_variable = mult_variable;
                 }
@@ -2606,7 +2604,7 @@ impl<'a> PartialEvaluator<'a> {
                     InstructionKind::BitwiseAnd(lhs_operand, rhs_operand, bin_op_rir_variable);
                 self.get_current_rir_block_mut().0.push(Instruction {
                     kind: bin_op_rir_ins,
-                    metadata,
+                    metadata: None,
                 });
                 bin_op_rir_variable
             }
@@ -2617,7 +2615,7 @@ impl<'a> PartialEvaluator<'a> {
                     InstructionKind::BitwiseOr(lhs_operand, rhs_operand, bin_op_rir_variable);
                 self.get_current_rir_block_mut().0.push(Instruction {
                     kind: bin_op_rir_ins,
-                    metadata,
+                    metadata: None,
                 });
                 bin_op_rir_variable
             }
@@ -2628,7 +2626,7 @@ impl<'a> PartialEvaluator<'a> {
                     InstructionKind::BitwiseXor(lhs_operand, rhs_operand, bin_op_rir_variable);
                 self.get_current_rir_block_mut().0.push(Instruction {
                     kind: bin_op_rir_ins,
-                    metadata,
+                    metadata: None,
                 });
                 bin_op_rir_variable
             }
@@ -2639,7 +2637,7 @@ impl<'a> PartialEvaluator<'a> {
                     InstructionKind::Shl(lhs_operand, rhs_operand, bin_op_rir_variable);
                 self.get_current_rir_block_mut().0.push(Instruction {
                     kind: bin_op_rir_ins,
-                    metadata,
+                    metadata: None,
                 });
                 bin_op_rir_variable
             }
@@ -2650,7 +2648,7 @@ impl<'a> PartialEvaluator<'a> {
                     InstructionKind::Ashr(lhs_operand, rhs_operand, bin_op_rir_variable);
                 self.get_current_rir_block_mut().0.push(Instruction {
                     kind: bin_op_rir_ins,
-                    metadata,
+                    metadata: None,
                 });
                 bin_op_rir_variable
             }
@@ -2665,7 +2663,7 @@ impl<'a> PartialEvaluator<'a> {
                 );
                 self.get_current_rir_block_mut().0.push(Instruction {
                     kind: bin_op_rir_ins,
-                    metadata,
+                    metadata: None,
                 });
                 bin_op_rir_variable
             }
@@ -2680,7 +2678,7 @@ impl<'a> PartialEvaluator<'a> {
                 );
                 self.get_current_rir_block_mut().0.push(Instruction {
                     kind: bin_op_rir_ins,
-                    metadata,
+                    metadata: None,
                 });
                 bin_op_rir_variable
             }
@@ -2695,7 +2693,7 @@ impl<'a> PartialEvaluator<'a> {
                 );
                 self.get_current_rir_block_mut().0.push(Instruction {
                     kind: bin_op_rir_ins,
-                    metadata,
+                    metadata: None,
                 });
                 bin_op_rir_variable
             }
@@ -2710,7 +2708,7 @@ impl<'a> PartialEvaluator<'a> {
                 );
                 self.get_current_rir_block_mut().0.push(Instruction {
                     kind: bin_op_rir_ins,
-                    metadata,
+                    metadata: None,
                 });
                 bin_op_rir_variable
             }
@@ -2725,7 +2723,7 @@ impl<'a> PartialEvaluator<'a> {
                 );
                 self.get_current_rir_block_mut().0.push(Instruction {
                     kind: bin_op_rir_ins,
-                    metadata,
+                    metadata: None,
                 });
                 bin_op_rir_variable
             }
@@ -2740,7 +2738,7 @@ impl<'a> PartialEvaluator<'a> {
                 );
                 self.get_current_rir_block_mut().0.push(Instruction {
                     kind: bin_op_rir_ins,
-                    metadata,
+                    metadata: None,
                 });
                 bin_op_rir_variable
             }
