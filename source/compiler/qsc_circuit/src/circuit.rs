@@ -1132,7 +1132,7 @@ pub fn operation_list_to_grid(
         if op.children().len() == 1 {
             match op {
                 Operation::Measurement(m) => {
-                    let child_vec = m.children.remove(0).components; // owns
+                    let child_vec = m.children.remove(0).components;
                     m.children = operation_list_to_grid(child_vec, qubits);
                 }
                 Operation::Unitary(u) => {
