@@ -46,6 +46,7 @@ const NOISE_CONFIG: NoiseConfig<f64, f64> = NoiseConfig {
     rzz: NoiseTable::noiseless(2),
     swap: NoiseTable::noiseless(2),
     mov: NoiseTable::noiseless(1),
+    mz: NoiseTable::noiseless(1),
     mresetz: NoiseTable::noiseless(1),
     intrinsics: const_empty_hash_map(),
 };
