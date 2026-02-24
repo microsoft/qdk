@@ -385,6 +385,12 @@ fn controlled_group() {
         qubits: vec![qubit_with_results(0, 1), qubit_with_results(1, 1)],
         component_grid: vec![
             ComponentColumn {
+                components: vec![unitary("H", vec![q_reg(0)])],
+            },
+            ComponentColumn {
+                components: vec![measurement(0, 0)],
+            },
+            ComponentColumn {
                 components: vec![measurement(1, 0)],
             },
             ComponentColumn {
@@ -404,10 +410,10 @@ fn controlled_group() {
     };
 
     expect![[r#"
-        q_0    ──────── group[1] ──── Z ──
-                            │
-        q_1    ── M ─────── ● ────────────
-                  ╘═══════════════════════
+        q_0    ── H ──── M ────────── group[1] ──── Z ──
+                         ╘════════════════╪═════════════
+        q_1    ──────────────── M ─────── ● ────────────
+                                ╘═══════════════════════
 
         [1] group:
             q_0    ── X ──
@@ -421,13 +427,10 @@ fn controlled_group() {
 #[test]
 fn classical_controlled_group() {
     let c = Circuit {
-        qubits: vec![qubit_with_results(0, 1), qubit_with_results(1, 1)],
+        qubits: vec![qubit_with_results(0, 0), qubit_with_results(1, 1)],
         component_grid: vec![
             ComponentColumn {
                 components: vec![unitary("H", vec![q_reg(0)])],
-            },
-            ComponentColumn {
-                components: vec![measurement(0, 0)],
             },
             ComponentColumn {
                 components: vec![measurement(1, 0)],
@@ -454,14 +457,13 @@ fn classical_controlled_group() {
     };
 
     expect![[r#"
-        q_0    ── H ──── M ────────── group[1] ──── Z ──
-                         ╘════════════════╪═════════════
-        q_1    ──────────────── M ─── group[1] ─────────
-                                ╘════════ ● ════════════
+        q_0    ── H ────────── group[1] ──── Z ──
+                                   │
+        q_1    ───────── M ─── group[1] ─────────
+                         ╘════════ ● ════════════
 
         [1] group:
             q_0    ── X ─────────
-
             q_1    ───────── Y ──
 
     "#]]
