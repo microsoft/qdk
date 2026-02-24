@@ -67,14 +67,14 @@ pub fn partially_evaluate(
     compute_properties: &PackageStoreComputeProperties,
     entry: &ProgramEntry,
     capabilities: TargetCapabilityFlags,
-    generate_debug_metadata: bool,
+    config: PartialEvalConfig,
 ) -> Result<Program, Error> {
     let partial_evaluator = PartialEvaluator::new(
         package_store,
         compute_properties,
         entry,
         capabilities,
-        generate_debug_metadata,
+        config,
     );
     partial_evaluator.eval()
 }
@@ -86,14 +86,14 @@ pub fn partially_evaluate_call(
     callable: StoreItemId,
     args: Value,
     capabilities: TargetCapabilityFlags,
-    generate_debug_metadata: bool,
+    config: PartialEvalConfig,
 ) -> Result<Program, Error> {
     let partial_evaluator = PartialEvaluator::new_from_package_id(
         package_store,
         compute_properties,
         callable.package,
         capabilities,
-        generate_debug_metadata,
+        config,
     );
     partial_evaluator.invoke(callable, args)
 }
@@ -191,8 +191,13 @@ struct PartialEvaluator<'a> {
     eval_context: EvaluationContext,
     program: Program,
     entry: Option<&'a ProgramEntry>,
-    generate_debug_metadata: bool,
+    config: PartialEvalConfig,
     dbg_context: DbgContext,
+}
+
+#[derive(Clone, Copy)]
+pub struct PartialEvalConfig {
+    pub generate_debug_metadata: bool,
 }
 
 impl<'a> PartialEvaluator<'a> {
@@ -201,7 +206,7 @@ impl<'a> PartialEvaluator<'a> {
         compute_properties: &'a PackageStoreComputeProperties,
         entry: &'a ProgramEntry,
         capabilities: TargetCapabilityFlags,
-        generate_debug_metadata: bool,
+        config: PartialEvalConfig,
     ) -> Self {
         Self::new_internal(
             package_store,
@@ -209,7 +214,7 @@ impl<'a> PartialEvaluator<'a> {
             capabilities,
             Some(entry),
             None,
-            generate_debug_metadata,
+            config,
         )
     }
 
@@ -218,7 +223,7 @@ impl<'a> PartialEvaluator<'a> {
         compute_properties: &'a PackageStoreComputeProperties,
         package_id: PackageId,
         capabilities: TargetCapabilityFlags,
-        generate_debug_metadata: bool,
+        config: PartialEvalConfig,
     ) -> Self {
         Self::new_internal(
             package_store,
@@ -226,7 +231,7 @@ impl<'a> PartialEvaluator<'a> {
             capabilities,
             None,
             Some(package_id),
-            generate_debug_metadata,
+            config,
         )
     }
 
@@ -236,7 +241,7 @@ impl<'a> PartialEvaluator<'a> {
         capabilities: TargetCapabilityFlags,
         entry: Option<&'a ProgramEntry>,
         package_id: Option<PackageId>,
-        generate_debug_metadata: bool,
+        config: PartialEvalConfig,
     ) -> Self {
         // Create the entry-point callable.
         let mut resource_manager = ResourceManager::default();
@@ -283,7 +288,7 @@ impl<'a> PartialEvaluator<'a> {
             callables_map: FxHashMap::default(),
             program,
             entry,
-            generate_debug_metadata,
+            config,
             dbg_context: Default::default(),
         }
     }
@@ -3681,7 +3686,7 @@ impl<'a> PartialEvaluator<'a> {
     }
 
     fn assign_current_dbg_location(&mut self, expr_id: ExprId) -> Option<DbgLocationId> {
-        if !self.generate_debug_metadata {
+        if !self.config.generate_debug_metadata {
             return None;
         }
 
@@ -3707,7 +3712,7 @@ impl<'a> PartialEvaluator<'a> {
     }
 
     fn assign_current_dbg_scope(&mut self) -> Option<DbgScopeId> {
-        if !self.generate_debug_metadata {
+        if !self.config.generate_debug_metadata {
             return None;
         }
 
@@ -3786,7 +3791,7 @@ impl<'a> PartialEvaluator<'a> {
     }
 
     fn metadata_from_current_debug_location(&mut self) -> Option<Box<InstructionDbgMetadata>> {
-        if self.generate_debug_metadata {
+        if self.config.generate_debug_metadata {
             self.eval_context
                 .get_current_scope()
                 .dbg_context
@@ -3843,7 +3848,7 @@ impl<'a> PartialEvaluator<'a> {
     }
 
     fn dbg_pop_loop_iteration_scope(&mut self) {
-        if self.generate_debug_metadata {
+        if self.config.generate_debug_metadata {
             self.eval_context
                 .get_current_scope_mut()
                 .dbg_context
@@ -3853,7 +3858,7 @@ impl<'a> PartialEvaluator<'a> {
     }
 
     fn dbg_increment_loop_iteration_count(&mut self) {
-        if self.generate_debug_metadata {
+        if self.config.generate_debug_metadata {
             self.eval_context
                 .get_current_scope_mut()
                 .dbg_context

@@ -17,7 +17,7 @@ pub mod qir {
         target::TargetCapabilityFlags,
     };
     use qsc_frontend::compile::{Dependencies, PackageStore};
-    use qsc_partial_eval::ProgramEntry;
+    use qsc_partial_eval::{PartialEvalConfig, ProgramEntry};
     use qsc_passes::{PackageType, PassContext};
 
     use crate::interpret::Error;
@@ -108,7 +108,9 @@ pub mod qir {
             capabilities,
             Some(compute_properties),
             &entry,
-            true,
+            PartialEvalConfig {
+                generate_debug_metadata: true,
+            },
         )
         .map_err(|e| {
             let source_package_id = match e.span() {
