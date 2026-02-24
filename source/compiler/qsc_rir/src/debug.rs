@@ -8,6 +8,7 @@
 //! See: <https://llvm.org/docs/SourceLevelDebugging.html>
 
 use indenter::{Indented, indented};
+use qsc_data_structures::index_map::IndexMap;
 use std::{
     fmt::{self, Display, Formatter, Write},
     rc::Rc,
@@ -53,7 +54,7 @@ impl Display for DbgLocation {
 /// A lexical scope. This is an analogue of the `DIScope` metadata in LLVM.
 /// <https://llvm.org/doxygen/classllvm_1_1DIScope.html>
 #[derive(Clone, Debug)]
-pub enum DbgMetadataScope {
+pub enum DbgScope {
     /// Corresponds to a callable in the source code, `DISubprogram` in LLVM.
     SubProgram {
         /// Callable name.
@@ -70,17 +71,17 @@ pub enum DbgMetadataScope {
     },
 }
 
-impl Display for DbgMetadataScope {
+impl Display for DbgScope {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            DbgMetadataScope::SubProgram { name, location } => {
+            DbgScope::SubProgram { name, location } => {
                 write!(
                     f,
                     "SubProgram name={name} location=({}-{})",
                     location.package_id, location.offset
                 )?;
             }
-            DbgMetadataScope::LexicalBlockFile {
+            DbgScope::LexicalBlockFile {
                 discriminator,
                 location,
             } => {
@@ -98,48 +99,88 @@ impl Display for DbgMetadataScope {
 /// Program debug metadata, including all debug locations and scopes.
 #[derive(Default, Clone)]
 pub struct DbgInfo {
-    pub dbg_metadata_scopes: Vec<DbgMetadataScope>,
-    pub dbg_locations: Vec<DbgLocation>,
+    pub dbg_scopes: IndexMap<DbgScopeId, (DbgScope, bool)>,
+    pub dbg_locations: IndexMap<DbgLocationId, (DbgLocation, bool)>,
+    next_dbg_scope_id: usize,
+    next_dbg_location_id: usize,
 }
 
 impl DbgInfo {
     #[must_use]
     pub fn get_location(&self, id: DbgLocationId) -> &DbgLocation {
-        &self.dbg_locations[id.0]
+        &self
+            .dbg_locations
+            .get(id)
+            .expect("dbg location id should be in dbg info")
+            .0
     }
 
     pub fn add_location(&mut self, location: DbgLocation) -> DbgLocationId {
-        let id = DbgLocationId(self.dbg_locations.len());
-        self.dbg_locations.push(location);
+        let id = DbgLocationId(self.next_dbg_location_id);
+        self.next_dbg_location_id += 1;
+        self.dbg_locations.insert(id, (location, false));
         id
     }
 
     #[must_use]
-    pub fn get_scope(&self, id: DbgScopeId) -> &DbgMetadataScope {
-        &self.dbg_metadata_scopes[id.0]
+    pub fn get_scope(&self, id: DbgScopeId) -> &DbgScope {
+        &self
+            .dbg_scopes
+            .get(id)
+            .expect("dbg scope id should be in dbg info")
+            .0
     }
 
-    pub fn add_scope(&mut self, scope: DbgMetadataScope) -> DbgScopeId {
-        let id = DbgScopeId(self.dbg_metadata_scopes.len());
-        self.dbg_metadata_scopes.push(scope);
+    pub fn add_scope(&mut self, scope: DbgScope) -> DbgScopeId {
+        let id = DbgScopeId(self.next_dbg_scope_id);
+        self.next_dbg_scope_id += 1;
+        self.dbg_scopes.insert(id, (scope, false));
         id
+    }
+
+    pub fn mark_location_used(&mut self, dbg_location: DbgLocationId) {
+        let mut data = self
+            .dbg_locations
+            .get_mut(dbg_location)
+            .expect("dbg location ID must exist");
+
+        while !data.1 {
+            data.1 = true;
+            self.dbg_scopes
+                .get_mut(data.0.scope)
+                .expect("dbg scope id must exist")
+                .1 = true;
+            if let Some(inlined_at) = data.0.inlined_at {
+                data = self
+                    .dbg_locations
+                    .get_mut(inlined_at)
+                    .expect("dbg location id must exist");
+            } else {
+                break;
+            }
+        }
+    }
+
+    pub fn remove_unused_dbg_metadata(&mut self) {
+        self.dbg_locations.retain(|_, (_, used)| *used);
+        self.dbg_scopes.retain(|_, (_, used)| *used);
     }
 }
 
 impl Display for DbgInfo {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        if !self.dbg_metadata_scopes.is_empty() || !self.dbg_locations.is_empty() {
+        if !self.dbg_scopes.is_empty() || !self.dbg_locations.is_empty() {
             let mut indent = set_indentation(indented(f), 0);
-            write!(indent, "\ndbg_metadata_scopes:")?;
+            write!(indent, "\ndbg_scopes:")?;
             indent = set_indentation(indent, 1);
-            for (index, scope) in self.dbg_metadata_scopes.iter().enumerate() {
-                write!(indent, "\n{index} = {scope}")?;
+            for (index, (scope, _used)) in self.dbg_scopes.iter() {
+                write!(indent, "\n{index} = {scope}", index = index.0)?;
             }
             indent = set_indentation(indent, 0);
             write!(indent, "\ndbg_locations:")?;
             indent = set_indentation(indent, 1);
-            for (index, location) in self.dbg_locations.iter().enumerate() {
-                write!(indent, "\n[{index}]: {location}")?;
+            for (index, (location, _used)) in self.dbg_locations.iter() {
+                write!(indent, "\n[{index}]: {location}", index = index.0)?;
             }
         }
         Ok(())
@@ -175,6 +216,30 @@ impl Display for InstructionDbgMetadata {
 /// Index into the `dbg_locations` vector in `DbgInfo`.
 pub struct DbgLocationId(usize);
 
+impl From<DbgLocationId> for usize {
+    fn from(id: DbgLocationId) -> Self {
+        id.0
+    }
+}
+
+impl From<usize> for DbgLocationId {
+    fn from(value: usize) -> Self {
+        DbgLocationId(value)
+    }
+}
+
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
-/// Index into the `dbg_metadata_scopes` vector in `DbgInfo`.
+/// Index into the `dbg_scopes` vector in `DbgInfo`.
 pub struct DbgScopeId(usize);
+
+impl From<DbgScopeId> for usize {
+    fn from(id: DbgScopeId) -> Self {
+        id.0
+    }
+}
+
+impl From<usize> for DbgScopeId {
+    fn from(value: usize) -> Self {
+        DbgScopeId(value)
+    }
+}

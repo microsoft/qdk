@@ -56,14 +56,12 @@ fn one_gate() {
                 Call id(3), args( Integer(0), EmptyTag, )
                 Return
 
-            dbg_metadata_scopes:
+            dbg_scopes:
                 0 = SubProgram name=Main location=(2-40)
                 1 = SubProgram name=H location=(1-110222)
             dbg_locations:
-                [0]: scope=0 location=(2-74)
                 [1]: scope=0 location=(2-99)
-                [2]: scope=1 location=(1-110294) inlined_at=1
-                [3]: scope=0 location=(2-74)"#]],
+                [2]: scope=1 location=(1-110294) inlined_at=1"#]],
     );
 }
 
@@ -93,7 +91,7 @@ fn one_measurement() {
                 Call id(5), args( Result(0), Tag(0, 5), )
                 Return
 
-            dbg_metadata_scopes:
+            dbg_scopes:
                 0 = SubProgram name=Main location=(2-40)
                 1 = SubProgram name=H location=(1-110222)
                 2 = SubProgram name=M location=(1-111931)
@@ -101,7 +99,6 @@ fn one_measurement() {
                 4 = SubProgram name=MapPauliAxis location=(1-55426)
                 5 = SubProgram name=MapPauliAxis' location=(1-55426)
             dbg_locations:
-                [0]: scope=0 location=(2-78)
                 [1]: scope=0 location=(2-103)
                 [2]: scope=1 location=(1-110294) inlined_at=1
                 [3]: scope=0 location=(2-126)
@@ -111,8 +108,7 @@ fn one_measurement() {
                 [7]: scope=4 location=(1-55512) inlined_at=6
                 [8]: scope=3 location=(1-113160) inlined_at=4
                 [9]: scope=3 location=(1-113087) inlined_at=4
-                [10]: scope=5 location=(1-55512) inlined_at=9
-                [11]: scope=0 location=(2-78)"#]],
+                [10]: scope=5 location=(1-55512) inlined_at=9"#]],
     );
 }
 
@@ -144,19 +140,17 @@ fn calls_to_other_callables() {
                 Call id(4), args( Integer(0), EmptyTag, )
                 Return
 
-            dbg_metadata_scopes:
+            dbg_scopes:
                 0 = SubProgram name=Main location=(2-40)
                 1 = SubProgram name=Foo location=(2-138)
                 2 = SubProgram name=H location=(1-110222)
                 3 = SubProgram name=MResetZ location=(1-181274)
             dbg_locations:
-                [0]: scope=0 location=(2-74)
                 [1]: scope=0 location=(2-99)
                 [2]: scope=1 location=(2-179) inlined_at=1
                 [3]: scope=2 location=(1-110294) inlined_at=2
                 [4]: scope=0 location=(2-115)
-                [5]: scope=3 location=(1-181323) inlined_at=4
-                [6]: scope=0 location=(2-74)"#]],
+                [5]: scope=3 location=(1-181323) inlined_at=4"#]],
     );
 }
 
@@ -198,7 +192,7 @@ fn classical_for_loop() {
                 Call id(4), args( Integer(0), EmptyTag, )
                 Return
 
-            dbg_metadata_scopes:
+            dbg_scopes:
                 0 = SubProgram name=Main location=(2-40)
                 1 = LexicalBlockFile location=(2-99) discriminator=1
                 2 = SubProgram name=Foo location=(2-156)
@@ -207,7 +201,6 @@ fn classical_for_loop() {
                 5 = LexicalBlockFile location=(2-99) discriminator=2
                 6 = LexicalBlockFile location=(2-99) discriminator=3
             dbg_locations:
-                [0]: scope=0 location=(2-74)
                 [1]: scope=0 location=(2-99)
                 [2]: scope=1 location=(2-127) inlined_at=1
                 [3]: scope=2 location=(2-197) inlined_at=2
@@ -223,8 +216,7 @@ fn classical_for_loop() {
                 [13]: scope=2 location=(2-197) inlined_at=12
                 [14]: scope=3 location=(1-133092) inlined_at=13
                 [15]: scope=2 location=(2-211) inlined_at=12
-                [16]: scope=4 location=(1-134314) inlined_at=15
-                [17]: scope=0 location=(2-74)"#]],
+                [16]: scope=4 location=(1-134314) inlined_at=15"#]],
     );
 }
 
@@ -290,12 +282,8 @@ fn nested_classical_for_loop() {
                 Call id(3), args( Integer(0), EmptyTag, )
                 Return
 
-            dbg_metadata_scopes:
+            dbg_scopes:
                 0 = SubProgram name=Main location=(2-40)
-                1 = SubProgram name=AllocateQubitArray location=(0-2577)
-                2 = LexicalBlockFile location=(0-2766) discriminator=1
-                3 = LexicalBlockFile location=(0-2766) discriminator=2
-                4 = LexicalBlockFile location=(0-2766) discriminator=3
                 5 = LexicalBlockFile location=(2-101) discriminator=1
                 6 = LexicalBlockFile location=(2-129) discriminator=1
                 7 = SubProgram name=Foo location=(2-208)
@@ -304,16 +292,7 @@ fn nested_classical_for_loop() {
                 10 = LexicalBlockFile location=(2-129) discriminator=3
                 11 = LexicalBlockFile location=(2-101) discriminator=2
                 12 = LexicalBlockFile location=(2-101) discriminator=3
-                13 = SubProgram name=ReleaseQubitArray location=(0-2878)
-                14 = LexicalBlockFile location=(0-2937) discriminator=1
-                15 = LexicalBlockFile location=(0-2937) discriminator=2
-                16 = LexicalBlockFile location=(0-2937) discriminator=3
             dbg_locations:
-                [0]: scope=0 location=(2-74)
-                [1]: scope=1 location=(0-2766) inlined_at=0
-                [2]: scope=2 location=(0-2812) inlined_at=1
-                [3]: scope=3 location=(0-2812) inlined_at=1
-                [4]: scope=4 location=(0-2812) inlined_at=1
                 [5]: scope=0 location=(2-101)
                 [6]: scope=5 location=(2-129) inlined_at=5
                 [7]: scope=6 location=(2-161) inlined_at=6
@@ -344,12 +323,7 @@ fn nested_classical_for_loop() {
                 [32]: scope=8 location=(1-133092) inlined_at=31
                 [33]: scope=10 location=(2-161) inlined_at=26
                 [34]: scope=7 location=(2-249) inlined_at=33
-                [35]: scope=8 location=(1-133092) inlined_at=34
-                [36]: scope=0 location=(2-74)
-                [37]: scope=13 location=(0-2937) inlined_at=36
-                [38]: scope=14 location=(0-2963) inlined_at=37
-                [39]: scope=15 location=(0-2963) inlined_at=37
-                [40]: scope=16 location=(0-2963) inlined_at=37"#]],
+                [35]: scope=8 location=(1-133092) inlined_at=34"#]],
     );
 }
 
@@ -410,7 +384,7 @@ fn result_comparison_to_literal() {
                 Call id(5), args( Qubit(0), ) !dbg dbg_location=13
                 Jump(1)
 
-            dbg_metadata_scopes:
+            dbg_scopes:
                 0 = SubProgram name=Main location=(2-22)
                 1 = SubProgram name=H location=(1-110222)
                 2 = SubProgram name=M location=(1-111931)
@@ -420,7 +394,6 @@ fn result_comparison_to_literal() {
                 6 = SubProgram name=X location=(1-133020)
                 7 = SubProgram name=Reset location=(1-116320)
             dbg_locations:
-                [0]: scope=0 location=(2-60)
                 [1]: scope=0 location=(2-86)
                 [2]: scope=1 location=(1-110294) inlined_at=1
                 [3]: scope=0 location=(2-110)
@@ -435,8 +408,7 @@ fn result_comparison_to_literal() {
                 [12]: scope=0 location=(2-154)
                 [13]: scope=6 location=(1-133092) inlined_at=12
                 [14]: scope=0 location=(2-179)
-                [15]: scope=7 location=(1-116364) inlined_at=14
-                [16]: scope=0 location=(2-60)"#]],
+                [15]: scope=7 location=(1-116364) inlined_at=14"#]],
     );
 }
 
@@ -484,7 +456,7 @@ fn if_else() {
                 Call id(6), args( Qubit(1), ) !dbg dbg_location=16
                 Jump(1)
 
-            dbg_metadata_scopes:
+            dbg_scopes:
                 0 = SubProgram name=Main location=(2-22)
                 1 = SubProgram name=H location=(1-110222)
                 2 = SubProgram name=M location=(1-111931)
@@ -494,8 +466,6 @@ fn if_else() {
                 6 = SubProgram name=X location=(1-133020)
                 7 = SubProgram name=Y location=(1-134242)
             dbg_locations:
-                [0]: scope=0 location=(2-60)
-                [1]: scope=0 location=(2-86)
                 [2]: scope=0 location=(2-112)
                 [3]: scope=1 location=(1-110294) inlined_at=2
                 [4]: scope=0 location=(2-135)
@@ -518,8 +488,6 @@ fn if_else() {
                 [21]: scope=4 location=(1-55512) inlined_at=20
                 [22]: scope=3 location=(1-113160) inlined_at=18
                 [23]: scope=3 location=(1-113087) inlined_at=18
-                [24]: scope=5 location=(1-55512) inlined_at=23
-                [25]: scope=0 location=(2-86)
-                [26]: scope=0 location=(2-60)"#]],
+                [24]: scope=5 location=(1-55512) inlined_at=23"#]],
     );
 }

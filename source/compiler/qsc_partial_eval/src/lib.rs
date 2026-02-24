@@ -49,8 +49,7 @@ use qsc_rca::{
 pub use qsc_rir::{
     builder::{self, initialize_decl},
     debug::{
-        DbgLocation, DbgLocationId, DbgMetadataScope, DbgPackageOffset, DbgScopeId,
-        InstructionDbgMetadata,
+        DbgLocation, DbgLocationId, DbgPackageOffset, DbgScope, DbgScopeId, InstructionDbgMetadata,
     },
     rir::{
         self, Callable, CallableId, CallableType, ConditionCode, FcmpConditionCode, Instruction,
@@ -498,6 +497,8 @@ impl<'a> PartialEvaluator<'a> {
             .result_register_count()
             .try_into()
             .expect("results count should fit into a u32");
+
+        self.program.dbg_info.remove_unused_dbg_metadata();
 
         Ok(self.program)
     }
@@ -3734,7 +3735,7 @@ impl<'a> PartialEvaluator<'a> {
                 Some(s)
             } else {
                 let loop_expr_location = self.expr_start_source_location(*loop_expr);
-                let scope = DbgMetadataScope::LexicalBlockFile {
+                let scope = DbgScope::LexicalBlockFile {
                     discriminator: *iteration_count,
                     location: loop_expr_location,
                 };
@@ -3774,7 +3775,7 @@ impl<'a> PartialEvaluator<'a> {
                 };
                 let current_package_id = self.get_current_package_id();
                 let package_id = current_package_id.into();
-                let scope = DbgMetadataScope::SubProgram {
+                let scope = DbgScope::SubProgram {
                     name,
                     location: DbgPackageOffset {
                         package_id,
@@ -3796,7 +3797,10 @@ impl<'a> PartialEvaluator<'a> {
                 .get_current_scope()
                 .dbg_context
                 .current_location_id
-                .map(|dbg_location| Box::new(InstructionDbgMetadata { dbg_location }))
+                .map(|dbg_location| {
+                    self.program.dbg_info.mark_location_used(dbg_location);
+                    Box::new(InstructionDbgMetadata { dbg_location })
+                })
         } else {
             None
         }
