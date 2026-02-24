@@ -245,28 +245,28 @@ impl ToQir<String> for rir::ConditionCode {
     }
 }
 
-impl ToQir<String> for rir::InstructionKind {
+impl ToQir<String> for rir::Instruction {
     fn to_qir(&self, program: &rir::Program) -> String {
         match self {
-            rir::InstructionKind::Add(lhs, rhs, variable) => {
+            rir::Instruction::Add(lhs, rhs, variable) => {
                 binop_to_qir("add", lhs, rhs, *variable, program)
             }
-            rir::InstructionKind::Ashr(lhs, rhs, variable) => {
+            rir::Instruction::Ashr(lhs, rhs, variable) => {
                 binop_to_qir("ashr", lhs, rhs, *variable, program)
             }
-            rir::InstructionKind::BitwiseAnd(lhs, rhs, variable) => {
+            rir::Instruction::BitwiseAnd(lhs, rhs, variable) => {
                 simple_bitwise_to_qir("and", lhs, rhs, *variable, program)
             }
-            rir::InstructionKind::BitwiseNot(value, variable) => {
+            rir::Instruction::BitwiseNot(value, variable) => {
                 bitwise_not_to_qir(value, *variable, program)
             }
-            rir::InstructionKind::BitwiseOr(lhs, rhs, variable) => {
+            rir::Instruction::BitwiseOr(lhs, rhs, variable) => {
                 simple_bitwise_to_qir("or", lhs, rhs, *variable, program)
             }
-            rir::InstructionKind::BitwiseXor(lhs, rhs, variable) => {
+            rir::Instruction::BitwiseXor(lhs, rhs, variable) => {
                 simple_bitwise_to_qir("xor", lhs, rhs, *variable, program)
             }
-            rir::InstructionKind::Branch(cond, true_id, false_id) => {
+            rir::Instruction::Branch(cond, true_id, false_id, _) => {
                 format!(
                     "  br {}, label %{}, label %{}",
                     ToQir::<String>::to_qir(cond, program),
@@ -274,55 +274,55 @@ impl ToQir<String> for rir::InstructionKind {
                     ToQir::<String>::to_qir(false_id, program)
                 )
             }
-            rir::InstructionKind::Call(call_id, args, output) => {
+            rir::Instruction::Call(call_id, args, output, _) => {
                 call_to_qir(args, *call_id, *output, program)
             }
-            rir::InstructionKind::Fadd(lhs, rhs, variable) => {
+            rir::Instruction::Fadd(lhs, rhs, variable) => {
                 fbinop_to_qir("fadd", lhs, rhs, *variable, program)
             }
-            rir::InstructionKind::Fdiv(lhs, rhs, variable) => {
+            rir::Instruction::Fdiv(lhs, rhs, variable) => {
                 fbinop_to_qir("fdiv", lhs, rhs, *variable, program)
             }
-            rir::InstructionKind::Fmul(lhs, rhs, variable) => {
+            rir::Instruction::Fmul(lhs, rhs, variable) => {
                 fbinop_to_qir("fmul", lhs, rhs, *variable, program)
             }
-            rir::InstructionKind::Fsub(lhs, rhs, variable) => {
+            rir::Instruction::Fsub(lhs, rhs, variable) => {
                 fbinop_to_qir("fsub", lhs, rhs, *variable, program)
             }
-            rir::InstructionKind::LogicalAnd(lhs, rhs, variable) => {
+            rir::Instruction::LogicalAnd(lhs, rhs, variable) => {
                 logical_binop_to_qir("and", lhs, rhs, *variable, program)
             }
-            rir::InstructionKind::LogicalNot(value, variable) => {
+            rir::Instruction::LogicalNot(value, variable) => {
                 logical_not_to_qir(value, *variable, program)
             }
-            rir::InstructionKind::LogicalOr(lhs, rhs, variable) => {
+            rir::Instruction::LogicalOr(lhs, rhs, variable) => {
                 logical_binop_to_qir("or", lhs, rhs, *variable, program)
             }
-            rir::InstructionKind::Mul(lhs, rhs, variable) => {
+            rir::Instruction::Mul(lhs, rhs, variable) => {
                 binop_to_qir("mul", lhs, rhs, *variable, program)
             }
-            rir::InstructionKind::Fcmp(op, lhs, rhs, variable) => {
+            rir::Instruction::Fcmp(op, lhs, rhs, variable) => {
                 fcmp_to_qir(*op, lhs, rhs, *variable, program)
             }
-            rir::InstructionKind::Icmp(op, lhs, rhs, variable) => {
+            rir::Instruction::Icmp(op, lhs, rhs, variable) => {
                 icmp_to_qir(*op, lhs, rhs, *variable, program)
             }
-            rir::InstructionKind::Jump(block_id) => {
+            rir::Instruction::Jump(block_id) => {
                 format!("  br label %{}", ToQir::<String>::to_qir(block_id, program))
             }
-            rir::InstructionKind::Phi(args, variable) => phi_to_qir(args, *variable, program),
-            rir::InstructionKind::Return => "  ret i64 0".to_string(),
-            rir::InstructionKind::Sdiv(lhs, rhs, variable) => {
+            rir::Instruction::Phi(args, variable) => phi_to_qir(args, *variable, program),
+            rir::Instruction::Return => "  ret i64 0".to_string(),
+            rir::Instruction::Sdiv(lhs, rhs, variable) => {
                 binop_to_qir("sdiv", lhs, rhs, *variable, program)
             }
-            rir::InstructionKind::Shl(lhs, rhs, variable) => {
+            rir::Instruction::Shl(lhs, rhs, variable) => {
                 binop_to_qir("shl", lhs, rhs, *variable, program)
             }
-            rir::InstructionKind::Srem(lhs, rhs, variable) => {
+            rir::Instruction::Srem(lhs, rhs, variable) => {
                 binop_to_qir("srem", lhs, rhs, *variable, program)
             }
-            rir::InstructionKind::Store(_, _) => unimplemented!("store should be removed by pass"),
-            rir::InstructionKind::Sub(lhs, rhs, variable) => {
+            rir::Instruction::Store(_, _) => unimplemented!("store should be removed by pass"),
+            rir::Instruction::Sub(lhs, rhs, variable) => {
                 binop_to_qir("sub", lhs, rhs, *variable, program)
             }
         }
@@ -667,7 +667,7 @@ impl ToQir<String> for rir::Block {
     fn to_qir(&self, program: &rir::Program) -> String {
         self.0
             .iter()
-            .map(|instr| ToQir::<String>::to_qir(&instr.kind, program))
+            .map(|instr| ToQir::<String>::to_qir(instr, program))
             .collect::<Vec<_>>()
             .join("\n")
     }

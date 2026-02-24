@@ -6,7 +6,7 @@ use std::collections::VecDeque;
 use rustc_hash::FxHashMap;
 
 use crate::{
-    rir::{BlockId, Instruction, InstructionKind, Program},
+    rir::{BlockId, Instruction, Program},
     utils::{get_all_block_successors, get_block_successors},
 };
 
@@ -98,7 +98,7 @@ fn check_acyclic(program: &Program) -> bool {
 
 fn update_phi_nodes(block_id_map: &FxHashMap<BlockId, usize>, instrs: &mut [Instruction]) {
     for instr in instrs.iter_mut() {
-        if let InstructionKind::Phi(args, _) = &mut instr.kind {
+        if let Instruction::Phi(args, _) = instr {
             for arg in args.iter_mut() {
                 arg.1 = (*block_id_map
                     .get(&arg.1)
@@ -113,13 +113,22 @@ fn update_phi_nodes(block_id_map: &FxHashMap<BlockId, usize>, instrs: &mut [Inst
 }
 
 fn update_terminator(block_id_map: &FxHashMap<BlockId, usize>, instruction: &mut Instruction) {
-    match &mut instruction.kind {
-        InstructionKind::Jump(target) => {
-            *target = block_id_map[target].into();
+    match instruction {
+        Instruction::Jump(target) => {
+            *target = (*block_id_map
+                .get(target)
+                .expect("block id in jump should exist in block id map"))
+            .into();
         }
-        InstructionKind::Branch(_, target1, target2) => {
-            *target1 = block_id_map[target1].into();
-            *target2 = block_id_map[target2].into();
+        Instruction::Branch(_, target1, target2, _) => {
+            *target1 = (*block_id_map
+                .get(target1)
+                .expect("block id in branch should exist in block id map"))
+            .into();
+            *target2 = (*block_id_map
+                .get(target2)
+                .expect("block id in branch should exist in block id map"))
+            .into();
         }
         _ => {}
     }

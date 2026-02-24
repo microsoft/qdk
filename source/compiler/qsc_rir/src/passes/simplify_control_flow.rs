@@ -7,7 +7,7 @@ mod tests;
 use rustc_hash::FxHashMap;
 
 use crate::{
-    rir::{InstructionKind, Program},
+    rir::{Instruction, Program},
     utils::build_predecessors_map,
 };
 
@@ -23,8 +23,7 @@ pub fn simplify_control_flow(program: &mut Program) {
     let preds_map = build_predecessors_map(program);
     for (block_id, preds) in preds_map.iter() {
         if preds.len() == 1
-            && program.get_block(preds[0]).0.last().map(|i| &i.kind)
-                == Some(&InstructionKind::Jump(block_id))
+            && matches!(program.get_block(preds[0]).0.last(), Some(Instruction::Jump(target)) if *target == block_id)
         {
             merge_map.insert(block_id, preds[0]);
 
