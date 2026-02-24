@@ -1007,10 +1007,9 @@ impl<'a> PartialEvaluator<'a> {
             (rhs_eval_block_id, continuation_block_id)
         };
 
-        let rhs_expr_dbg_location = self.assign_current_dbg_location(rhs_expr_id);
         let branch_ins = Instruction {
             kind: InstructionKind::Branch(lhs_rir_var, true_block_id, false_block_id),
-            metadata: self.metadata_from_current_debug_location(),
+            metadata: self.metadata_from_expr(rhs_expr_id),
         };
         self.get_program_block_mut(current_block_node.id)
             .0
@@ -1832,7 +1831,8 @@ impl<'a> PartialEvaluator<'a> {
             .collect();
 
         let instruction = InstructionKind::Call(callable_id, args_operands, output_var);
-        let metadata = self.metadata_from_current_debug_location();
+        // Current debug location should be set to the call expression currently being evaluated.
+        let metadata = self.metadata_from_current_dbg_location();
         let current_block = self.get_current_rir_block_mut();
         current_block.0.push(Instruction {
             kind: instruction,
@@ -1885,9 +1885,6 @@ impl<'a> PartialEvaluator<'a> {
         body_expr_id: ExprId,
         otherwise_expr_id: Option<ExprId>,
     ) -> Result<EvalControlFlow, Error> {
-        self.assign_current_dbg_location(if_expr_id);
-        let if_expr_location_metadata = self.metadata_from_current_debug_location();
-
         // Visit the the condition expression to get its value.
         let condition_control_flow = self.try_eval_expr(condition_expr_id)?;
         if condition_control_flow.is_return() {
@@ -1973,11 +1970,12 @@ impl<'a> PartialEvaluator<'a> {
         let condition_rir_var = map_eval_var_to_rir_var(condition_value_var);
         let branch_ins =
             InstructionKind::Branch(condition_rir_var, if_true_block_id, if_false_block_id);
+        let metadata = self.metadata_from_expr(if_expr_id);
         self.get_program_block_mut(current_block_node.id)
             .0
             .push(Instruction {
                 kind: branch_ins,
-                metadata: if_expr_location_metadata,
+                metadata,
             });
 
         // Return the value of the if expression.
@@ -2350,17 +2348,21 @@ impl<'a> PartialEvaluator<'a> {
         }
         let mut condition_boolean = condition_control_flow.into_value().unwrap_bool();
 
-        let dbg_location_id = self.assign_current_dbg_location(loop_expr_id);
+        let dbg_location_id = self.new_dbg_location(loop_expr_id);
         if let Some(dbg_location_id) = dbg_location_id {
             self.dbg_push_loop_iteration_scope(loop_expr_id, dbg_location_id);
         }
 
         while condition_boolean {
-            self.dbg_increment_loop_iteration_count();
+            if dbg_location_id.is_some() {
+                self.dbg_increment_loop_iteration_count();
+            }
             // Evaluate the loop block.
             let block_control_flow = self.try_eval_block(body_block_id)?;
             if block_control_flow.is_return() {
-                self.dbg_pop_loop_iteration_scope();
+                if dbg_location_id.is_some() {
+                    self.dbg_pop_loop_iteration_scope();
+                }
                 return Ok(block_control_flow);
             }
 
@@ -2374,7 +2376,9 @@ impl<'a> PartialEvaluator<'a> {
             }
             condition_boolean = condition_control_flow.into_value().unwrap_bool();
         }
-        self.dbg_pop_loop_iteration_scope();
+        if dbg_location_id.is_some() {
+            self.dbg_pop_loop_iteration_scope();
+        }
 
         // We have evaluated the loop so just return unit as the value of this loop expression.
         Ok(EvalControlFlow::Continue(Value::unit()))
@@ -2400,7 +2404,8 @@ impl<'a> PartialEvaluator<'a> {
                     vec![result_operand],
                     Some(variable),
                 );
-                let metadata = self.metadata_from_current_debug_location();
+                // Current debug location should be set to the call expression currently being evaluated.
+                let metadata = self.metadata_from_current_dbg_location();
                 let current_block = self.get_current_rir_block_mut();
                 current_block.0.push(Instruction {
                     kind: instruction,
@@ -3004,7 +3009,8 @@ impl<'a> PartialEvaluator<'a> {
         let measure_callable_id = self.get_or_insert_callable(measurement_callable);
         let instruction = InstructionKind::Call(measure_callable_id, operands, None);
 
-        let metadata = self.metadata_from_current_debug_location();
+        // Current debug location should be set to the call expression currently being evaluated.
+        let metadata = self.metadata_from_current_dbg_location();
         let current_block = self.get_current_rir_block_mut();
         current_block.0.push(Instruction {
             kind: instruction,
@@ -3031,7 +3037,8 @@ impl<'a> PartialEvaluator<'a> {
         let args = vec![qubit_operand, result_operand];
         let instruction = InstructionKind::Call(measure_callable_id, args, None);
 
-        let metadata = self.metadata_from_current_debug_location();
+        // Current debug location should be set to the call expression currently being evaluated.
+        let metadata = self.metadata_from_current_dbg_location();
         let current_block = self.get_current_rir_block_mut();
         current_block.0.push(Instruction {
             kind: instruction,
@@ -3691,12 +3698,12 @@ impl<'a> PartialEvaluator<'a> {
             .keep_matching_static_var_mappings(other_mappings);
     }
 
-    fn assign_current_dbg_location(&mut self, expr_id: ExprId) -> Option<DbgLocationId> {
+    fn new_dbg_location(&mut self, expr_id: ExprId) -> Option<DbgLocationId> {
         if !self.config.generate_debug_metadata {
             return None;
         }
 
-        let scope_id = self.assign_current_dbg_scope();
+        let scope_id = self.get_current_dbg_scope();
 
         if let Some(current_scope_id) = scope_id {
             let expr_location = self.expr_start_source_location(expr_id);
@@ -3708,16 +3715,25 @@ impl<'a> PartialEvaluator<'a> {
             };
             let dbg_location_id = self.program.dbg_info.add_location(new_location);
 
-            self.eval_context
-                .get_current_scope_mut()
-                .dbg_context
-                .current_location_id = Some(dbg_location_id);
             return Some(dbg_location_id);
         }
         None
     }
 
-    fn assign_current_dbg_scope(&mut self) -> Option<DbgScopeId> {
+    fn assign_current_dbg_location(&mut self, call_expr_id: ExprId) {
+        if !self.config.generate_debug_metadata {
+            return;
+        }
+
+        if let Some(dbg_location_id) = self.new_dbg_location(call_expr_id) {
+            self.eval_context
+                .get_current_scope_mut()
+                .dbg_context
+                .current_call_location = Some(dbg_location_id);
+        }
+    }
+
+    fn get_current_dbg_scope(&mut self) -> Option<DbgScopeId> {
         if !self.config.generate_debug_metadata {
             return None;
         }
@@ -3794,12 +3810,24 @@ impl<'a> PartialEvaluator<'a> {
         }
     }
 
-    fn metadata_from_current_debug_location(&mut self) -> Option<Box<InstructionDbgMetadata>> {
+    fn metadata_from_expr(&mut self, expr_id: ExprId) -> Option<Box<InstructionDbgMetadata>> {
+        if self.config.generate_debug_metadata {
+            let dbg_location_id = self.new_dbg_location(expr_id);
+            dbg_location_id.map(|dbg_location| {
+                self.program.dbg_info.mark_location_used(dbg_location);
+                Box::new(InstructionDbgMetadata { dbg_location })
+            })
+        } else {
+            None
+        }
+    }
+
+    fn metadata_from_current_dbg_location(&mut self) -> Option<Box<InstructionDbgMetadata>> {
         if self.config.generate_debug_metadata {
             self.eval_context
                 .get_current_scope()
                 .dbg_context
-                .current_location_id
+                .current_call_location
                 .map(|dbg_location| {
                     self.program.dbg_info.mark_location_used(dbg_location);
                     Box::new(InstructionDbgMetadata { dbg_location })
@@ -3822,7 +3850,7 @@ impl<'a> PartialEvaluator<'a> {
         {
             Some(*loop_location_id)
         } else if let Some(scope) = self.eval_context.get_caller_scope() {
-            scope.dbg_context.current_location_id
+            scope.dbg_context.current_call_location
         } else {
             None
         }
@@ -3887,8 +3915,8 @@ pub(crate) struct DbgContext {
 
 #[derive(Default)]
 struct ScopeDbgContext {
-    /// The current distinct debug location.
-    pub(crate) current_location_id: Option<DbgLocationId>,
+    /// The distinct debug location of the call expression currently being evaluated.
+    pub(crate) current_call_location: Option<DbgLocationId>,
     pub(crate) loop_iterations: Vec<LoopScope>,
 }
 

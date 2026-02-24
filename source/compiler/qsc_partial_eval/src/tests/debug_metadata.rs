@@ -86,7 +86,7 @@ fn one_measurement() {
             Block 0:Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), ) !dbg dbg_location=2
-                Call id(3), args( Qubit(0), Result(0), ) !dbg dbg_location=8
+                Call id(3), args( Qubit(0), Result(0), ) !dbg dbg_location=6
                 Call id(4), args( Integer(1), Tag(0, 3), )
                 Call id(5), args( Result(0), Tag(1, 5), )
                 Return
@@ -96,19 +96,12 @@ fn one_measurement() {
                 1 = SubProgram name=H location=(1-110222)
                 2 = SubProgram name=M location=(1-111931)
                 3 = SubProgram name=Measure location=(1-112847)
-                4 = SubProgram name=MapPauliAxis location=(1-55426)
-                5 = SubProgram name=MapPauliAxis' location=(1-55426)
             dbg_locations:
                 [1]: scope=0 location=(2-103)
                 [2]: scope=1 location=(1-110294) inlined_at=1
                 [3]: scope=0 location=(2-126)
                 [4]: scope=2 location=(1-111973) inlined_at=3
-                [5]: scope=3 location=(1-113034) inlined_at=4
-                [6]: scope=3 location=(1-113087) inlined_at=4
-                [7]: scope=4 location=(1-55512) inlined_at=6
-                [8]: scope=3 location=(1-113160) inlined_at=4
-                [9]: scope=3 location=(1-113087) inlined_at=4
-                [10]: scope=5 location=(1-55512) inlined_at=9"#]],
+                [6]: scope=3 location=(1-113160) inlined_at=4"#]],
     );
 }
 
@@ -384,17 +377,17 @@ fn result_comparison_to_literal() {
             Block 0:Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), ) !dbg dbg_location=2
-                Call id(3), args( Qubit(0), Result(0), ) !dbg dbg_location=8
-                Variable(0, Boolean) = Call id(4), args( Result(0), ) !dbg dbg_location=11
+                Call id(3), args( Qubit(0), Result(0), ) !dbg dbg_location=6
+                Variable(0, Boolean) = Call id(4), args( Result(0), ) !dbg dbg_location=3
                 Variable(1, Boolean) = Store Variable(0, Boolean)
-                Branch Variable(1, Boolean), 2, 1 !dbg dbg_location=11
+                Branch Variable(1, Boolean), 2, 1 !dbg dbg_location=10
             Block 1:Block:
-                Call id(6), args( Qubit(0), ) !dbg dbg_location=15
+                Call id(6), args( Qubit(0), ) !dbg dbg_location=12
                 Call id(7), args( Integer(1), Tag(0, 3), )
                 Call id(8), args( Result(0), Tag(1, 5), )
                 Return
             Block 2:Block:
-                Call id(5), args( Qubit(0), ) !dbg dbg_location=13
+                Call id(5), args( Qubit(0), ) !dbg dbg_location=9
                 Jump(1)
 
             dbg_scopes:
@@ -402,26 +395,19 @@ fn result_comparison_to_literal() {
                 1 = SubProgram name=H location=(1-110222)
                 2 = SubProgram name=M location=(1-111931)
                 3 = SubProgram name=Measure location=(1-112847)
-                4 = SubProgram name=MapPauliAxis location=(1-55426)
-                5 = SubProgram name=MapPauliAxis' location=(1-55426)
-                6 = SubProgram name=X location=(1-133020)
-                7 = SubProgram name=Reset location=(1-116320)
+                4 = SubProgram name=X location=(1-133020)
+                5 = SubProgram name=Reset location=(1-116320)
             dbg_locations:
                 [1]: scope=0 location=(2-86)
                 [2]: scope=1 location=(1-110294) inlined_at=1
                 [3]: scope=0 location=(2-110)
                 [4]: scope=2 location=(1-111973) inlined_at=3
-                [5]: scope=3 location=(1-113034) inlined_at=4
-                [6]: scope=3 location=(1-113087) inlined_at=4
-                [7]: scope=4 location=(1-55512) inlined_at=6
-                [8]: scope=3 location=(1-113160) inlined_at=4
-                [9]: scope=3 location=(1-113087) inlined_at=4
-                [10]: scope=5 location=(1-55512) inlined_at=9
-                [11]: scope=0 location=(2-125)
-                [12]: scope=0 location=(2-154)
-                [13]: scope=6 location=(1-133092) inlined_at=12
-                [14]: scope=0 location=(2-179)
-                [15]: scope=7 location=(1-116364) inlined_at=14"#]],
+                [6]: scope=3 location=(1-113160) inlined_at=4
+                [8]: scope=0 location=(2-154)
+                [9]: scope=4 location=(1-133092) inlined_at=8
+                [10]: scope=0 location=(2-125)
+                [11]: scope=0 location=(2-179)
+                [12]: scope=5 location=(1-116364) inlined_at=11"#]],
     );
 }
 
@@ -452,21 +438,21 @@ fn if_else() {
             Block 0:Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), ) !dbg dbg_location=3
-                Call id(3), args( Qubit(0), Result(0), ) !dbg dbg_location=9
-                Variable(0, Boolean) = Call id(4), args( Result(0), ) !dbg dbg_location=12
+                Call id(3), args( Qubit(0), Result(0), ) !dbg dbg_location=7
+                Variable(0, Boolean) = Call id(4), args( Result(0), ) !dbg dbg_location=4
                 Variable(1, Boolean) = Store Variable(0, Boolean)
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=12
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=13
             Block 1:Block:
-                Call id(3), args( Qubit(1), Result(1), ) !dbg dbg_location=22
+                Call id(3), args( Qubit(1), Result(1), ) !dbg dbg_location=17
                 Call id(7), args( Integer(2), Tag(0, 3), )
                 Call id(8), args( Result(0), Tag(1, 5), )
                 Call id(8), args( Result(1), Tag(2, 5), )
                 Return
             Block 2:Block:
-                Call id(5), args( Qubit(1), ) !dbg dbg_location=14
+                Call id(5), args( Qubit(1), ) !dbg dbg_location=10
                 Jump(1)
             Block 3:Block:
-                Call id(6), args( Qubit(1), ) !dbg dbg_location=16
+                Call id(6), args( Qubit(1), ) !dbg dbg_location=12
                 Jump(1)
 
             dbg_scopes:
@@ -474,34 +460,22 @@ fn if_else() {
                 1 = SubProgram name=H location=(1-110222)
                 2 = SubProgram name=M location=(1-111931)
                 3 = SubProgram name=Measure location=(1-112847)
-                4 = SubProgram name=MapPauliAxis location=(1-55426)
-                5 = SubProgram name=MapPauliAxis' location=(1-55426)
-                6 = SubProgram name=X location=(1-133020)
-                7 = SubProgram name=Y location=(1-134242)
+                4 = SubProgram name=X location=(1-133020)
+                5 = SubProgram name=Y location=(1-134242)
             dbg_locations:
                 [2]: scope=0 location=(2-112)
                 [3]: scope=1 location=(1-110294) inlined_at=2
                 [4]: scope=0 location=(2-135)
                 [5]: scope=2 location=(1-111973) inlined_at=4
-                [6]: scope=3 location=(1-113034) inlined_at=5
-                [7]: scope=3 location=(1-113087) inlined_at=5
-                [8]: scope=4 location=(1-55512) inlined_at=7
-                [9]: scope=3 location=(1-113160) inlined_at=5
-                [10]: scope=3 location=(1-113087) inlined_at=5
-                [11]: scope=5 location=(1-55512) inlined_at=10
-                [12]: scope=0 location=(2-150)
-                [13]: scope=0 location=(2-176)
-                [14]: scope=6 location=(1-133092) inlined_at=13
-                [15]: scope=0 location=(2-212)
-                [16]: scope=7 location=(1-134314) inlined_at=15
-                [17]: scope=0 location=(2-246)
-                [18]: scope=2 location=(1-111973) inlined_at=17
-                [19]: scope=3 location=(1-113034) inlined_at=18
-                [20]: scope=3 location=(1-113087) inlined_at=18
-                [21]: scope=4 location=(1-55512) inlined_at=20
-                [22]: scope=3 location=(1-113160) inlined_at=18
-                [23]: scope=3 location=(1-113087) inlined_at=18
-                [24]: scope=5 location=(1-55512) inlined_at=23"#]],
+                [7]: scope=3 location=(1-113160) inlined_at=5
+                [9]: scope=0 location=(2-176)
+                [10]: scope=4 location=(1-133092) inlined_at=9
+                [11]: scope=0 location=(2-212)
+                [12]: scope=5 location=(1-134314) inlined_at=11
+                [13]: scope=0 location=(2-150)
+                [14]: scope=0 location=(2-246)
+                [15]: scope=2 location=(1-111973) inlined_at=14
+                [17]: scope=3 location=(1-113160) inlined_at=15"#]],
     );
 }
 
@@ -525,18 +499,18 @@ fn branch_due_to_binop_short_circuit() {
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), ) !dbg dbg_location=3
                 Call id(2), args( Qubit(1), ) !dbg dbg_location=5
-                Call id(3), args( Qubit(0), Result(0), ) !dbg dbg_location=11
+                Call id(3), args( Qubit(0), Result(0), ) !dbg dbg_location=9
                 Variable(0, Boolean) = Call id(4), args( Result(0), ) !dbg dbg_location=6
                 Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
                 Variable(2, Boolean) = Store Bool(false)
-                Branch Variable(1, Boolean), 2, 1 !dbg dbg_location=22
+                Branch Variable(1, Boolean), 2, 1 !dbg dbg_location=16
             Block 1:Block:
                 Variable(5, Boolean) = Store Variable(2, Boolean)
                 Call id(5), args( Integer(0), Tag(0, 3), )
                 Return
             Block 2:Block:
-                Call id(3), args( Qubit(1), Result(1), ) !dbg dbg_location=19
-                Variable(3, Boolean) = Call id(4), args( Result(1), ) !dbg dbg_location=14
+                Call id(3), args( Qubit(1), Result(1), ) !dbg dbg_location=14
+                Variable(3, Boolean) = Call id(4), args( Result(1), ) !dbg dbg_location=11
                 Variable(4, Boolean) = Icmp Eq, Variable(3, Boolean), Bool(false)
                 Variable(2, Boolean) = Store Variable(4, Boolean)
                 Jump(1)
@@ -546,8 +520,6 @@ fn branch_due_to_binop_short_circuit() {
                 1 = SubProgram name=H location=(1-110222)
                 2 = SubProgram name=M location=(1-111931)
                 3 = SubProgram name=Measure location=(1-112847)
-                4 = SubProgram name=MapPauliAxis location=(1-55426)
-                5 = SubProgram name=MapPauliAxis' location=(1-55426)
             dbg_locations:
                 [2]: scope=0 location=(2-75)
                 [3]: scope=1 location=(1-110294) inlined_at=2
@@ -555,20 +527,10 @@ fn branch_due_to_binop_short_circuit() {
                 [5]: scope=1 location=(1-110294) inlined_at=4
                 [6]: scope=0 location=(2-107)
                 [7]: scope=2 location=(1-111973) inlined_at=6
-                [8]: scope=3 location=(1-113034) inlined_at=7
-                [9]: scope=3 location=(1-113087) inlined_at=7
-                [10]: scope=4 location=(1-55512) inlined_at=9
-                [11]: scope=3 location=(1-113160) inlined_at=7
-                [12]: scope=3 location=(1-113087) inlined_at=7
-                [13]: scope=5 location=(1-55512) inlined_at=12
-                [14]: scope=0 location=(2-129)
-                [15]: scope=2 location=(1-111973) inlined_at=14
-                [16]: scope=3 location=(1-113034) inlined_at=15
-                [17]: scope=3 location=(1-113087) inlined_at=15
-                [18]: scope=4 location=(1-55512) inlined_at=17
-                [19]: scope=3 location=(1-113160) inlined_at=15
-                [20]: scope=3 location=(1-113087) inlined_at=15
-                [21]: scope=5 location=(1-55512) inlined_at=20
-                [22]: scope=0 location=(2-127)"#]],
+                [9]: scope=3 location=(1-113160) inlined_at=7
+                [11]: scope=0 location=(2-129)
+                [12]: scope=2 location=(1-111973) inlined_at=11
+                [14]: scope=3 location=(1-113160) inlined_at=12
+                [16]: scope=0 location=(2-127)"#]],
     );
 }
