@@ -5,6 +5,10 @@ import { Parameter } from "./circuit.js";
 import { removeControl, removeOperation } from "./circuitManipulation.js";
 import { CircuitEvents } from "./events.js";
 import { findGateElem, findOperation } from "./utils.js";
+import {
+  isValidAngleExpression,
+  normalizeAngleExpression,
+} from "./angleExpression.js";
 
 /**
  * Adds a context menu to a host element in the circuit visualization.
@@ -176,79 +180,13 @@ const promptForArguments = (
           }
         },
         defaultValue,
-        validateExpression,
+        isValidAngleExpression,
         'Examples: "2.0 * π" or "π / 2.0"',
       );
     };
 
     promptNext();
   });
-};
-
-/**
- * Validate a mathematical expression.
- * @param input - The input string to validate.
- * @returns True if the expression is valid, false otherwise.
- */
-const validateExpression = (input: string): boolean => {
-  // Removes outermost parentheses
-  const removeParentheses = (expr: string): string => {
-    while (expr.startsWith("(") && expr.endsWith(")")) {
-      expr = expr.slice(1, -1).trim(); // Remove outermost parentheses
-    }
-    return expr;
-  };
-
-  // Validates parentheses balance and nesting
-  const validateParentheses = (expr: string): boolean => {
-    const stack: string[] = [];
-    for (const char of expr) {
-      if (char === "(") {
-        stack.push(char);
-      } else if (char === ")") {
-        if (stack.length === 0) {
-          return false; // Unmatched closing parenthesis
-        }
-        stack.pop();
-      }
-    }
-    return stack.length === 0; // Ensure no unmatched opening parentheses
-  };
-
-  // Validate the expression recursively
-  const validate = (expr: string): boolean => {
-    expr = expr.trim();
-
-    // Remove outermost parentheses
-    expr = removeParentheses(expr);
-
-    // Find and validate all sub-expressions within parentheses
-    const parenthesesRegex = /\(([^()]+)\)/g;
-    let match;
-    while ((match = parenthesesRegex.exec(expr)) !== null) {
-      const innerExpr = match[1];
-      if (!validate(innerExpr)) {
-        return false; // Invalid sub-expression
-      }
-
-      // Replace the validated sub-expression with a placeholder that we know is valid
-      expr = expr.replace(match[0], "π");
-    }
-
-    // Validate the remaining expression (without parentheses)
-    const sign = "[+-]?";
-    const number = "((\\d+(\\.\\d*)?))"; // Matches integers and decimals
-    const pi = "(?i:π)"; // Matches π
-    const value = `${sign}(${number}|${pi})`; // Matches a signed number or π
-    const operator = "[+\\-*/]"; // Matches arithmetic operators
-    const expressionRegex = new RegExp(
-      `^${value}(\\s*${operator}\\s*${value})*$`,
-    );
-
-    return expressionRegex.test(expr);
-  };
-
-  return validateParentheses(input) && validate(input);
 };
 
 /**
@@ -316,12 +254,9 @@ const _createInputPrompt = (
   okButton.classList.add("prompt-button");
   okButton.textContent = "OK";
 
-  // Function to replace "pi" with "π" (case-insensitive)
-  const replacePiWithSymbol = (input: string) => input.replace(/pi/gi, "π");
-
   // Function to validate input and toggle the OK button
   const validateAndToggleOkButton = () => {
-    const processedInput = replacePiWithSymbol(inputElem.value.trim());
+    const processedInput = normalizeAngleExpression(inputElem.value);
     const isValid = validateInput(processedInput);
     okButton.disabled = !isValid;
   };
@@ -337,9 +272,9 @@ const _createInputPrompt = (
     }
   });
 
-  okButton.disabled = !validateInput(replacePiWithSymbol(defaultValue.trim()));
+  okButton.disabled = !validateInput(normalizeAngleExpression(defaultValue));
   okButton.addEventListener("click", () => {
-    callback(replacePiWithSymbol(inputElem.value.trim()));
+    callback(normalizeAngleExpression(inputElem.value));
     document.body.removeChild(overlay);
     document.removeEventListener("keydown", handleGlobalKeyDown, true);
   });

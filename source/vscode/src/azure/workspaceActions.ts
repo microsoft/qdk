@@ -536,7 +536,7 @@ export async function submitJob(
   const token = await getTokenForWorkspace(workspace);
   const jobId = getRandomGuid();
 
-  const storageUris = await createStorageContainer(
+  const storageUris = await getStorageContainer(
     jobId,
     quantumUris,
     token,
@@ -639,13 +639,13 @@ async function putJobData(
   );
 }
 
-async function createStorageContainer(
+async function getStorageContainer(
   containerName: string,
   quantumUris: QuantumUris,
   token: string,
   associationId: string,
 ): Promise<StorageUris> {
-  // Get a sasUri for the container
+  // Get a sasUri for the container, container is created by the service if it doesn't exist
   const body = JSON.stringify({ containerName });
   const sasResponse = await azureRequest(
     quantumUris.sasUri(),
@@ -658,17 +658,6 @@ async function createStorageContainer(
   const storageUris = new StorageUris(
     decodeURI(sasResponse.sasUri),
     containerName,
-  );
-
-  // Create the container
-  await storageRequest(
-    storageUris.containerPutWithSasToken(),
-    "PUT",
-    token,
-    quantumUris.storageProxy(),
-    undefined,
-    undefined,
-    associationId,
   );
 
   return storageUris;

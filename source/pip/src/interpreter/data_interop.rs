@@ -4,7 +4,7 @@
 //! This module contains the types and functions used to build the
 //! data-interop layer between Python and Q#.
 
-use crate::interpreter::QasmError;
+use crate::interpreter::{Closure, GlobalCallable, QasmError};
 
 use super::{Pauli, Result};
 use num_bigint::BigInt;
@@ -307,6 +307,18 @@ pub(super) fn pyobj_to_value(
                 }
             }
         }
+        Ty::Arrow(..) => {
+            if let Ok(callable) = extract_obj::<GlobalCallable>(py, obj, ty) {
+                return Ok(callable.into());
+            }
+            if let Ok(callable) = extract_obj::<Closure>(py, obj, ty) {
+                return Ok(callable.into());
+            }
+            Err(PyTypeError::new_err(format!(
+                "expected a callable, found {}",
+                obj_type(py, obj)?
+            )))
+        }
         _ => unimplemented!("input type: {ty}"),
     }
 }
@@ -449,10 +461,16 @@ pub(crate) fn value_to_pyobj(
             }
             PyList::new(py, array)?.into_py_any(py)
         }
-        Value::Closure(..)
-        | Value::Global(..)
-        | Value::Qubit(..)
-        | Value::Range(..)
-        | Value::Var(..) => format!("<{}> {}", value.type_name(), value).into_py_any(py),
+        Value::Global(..) => {
+            let callable: GlobalCallable = value.clone().into();
+            callable.into_py_any(py)
+        }
+        Value::Closure(..) => {
+            let closure: Closure = value.clone().into();
+            closure.into_py_any(py)
+        }
+        Value::Qubit(..) | Value::Range(..) | Value::Var(..) => {
+            format!("<{}> {}", value.type_name(), value).into_py_any(py)
+        }
     }
 }
