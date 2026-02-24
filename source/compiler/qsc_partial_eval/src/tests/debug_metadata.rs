@@ -330,9 +330,12 @@ fn nested_classical_for_loop() {
 #[test]
 fn lambda() {
     let program = get_rir_program_with_dbg_metadata(indoc! {r#"
-        namespace Test {
-            @EntryPoint()
-            operation Main() : Result[] { [] }
+        operation Main() : Unit {
+            use q = Qubit();
+            let lambda = (x) => {
+                H(x);
+            };
+            lambda(q);
         }
     "#});
 
@@ -342,8 +345,18 @@ fn lambda() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Integer(0), EmptyTag, )
-                Return"#]],
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=3
+                Call id(3), args( Integer(0), EmptyTag, )
+                Return
+
+            dbg_scopes:
+                0 = SubProgram name=Main location=(2-1)
+                1 = SubProgram name=<lambda> location=(2-65)
+                2 = SubProgram name=H location=(1-110222)
+            dbg_locations:
+                [1]: scope=0 location=(2-99)
+                [2]: scope=1 location=(2-82) inlined_at=1
+                [3]: scope=2 location=(1-110294) inlined_at=2"#]],
     );
 }
 
